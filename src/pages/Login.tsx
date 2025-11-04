@@ -15,15 +15,27 @@ const Login: React.FC = () => {
     setLoading(true);
 
     try {
+      console.log('🔐 Login attempt:', { email });
+      console.log('📡 API URL:', import.meta.env.VITE_API_SERVER_URL || 'https://api.redfit.in');
+      console.log('🌐 Full API URL:', `${import.meta.env.VITE_API_SERVER_URL || 'https://api.redfit.in'}/api/${import.meta.env.VITE_API_VERSION || 'v1'}/auth/login`);
+      
       const response = await authAPI.login(email, password);
+      console.log('✅ Login response:', response);
+      
       if (response.success && response.data.token) {
         localStorage.setItem('admin_token', response.data.token);
+        console.log('✅ Token stored, navigating to dashboard');
         navigate('/dashboard');
       } else {
+        console.error('❌ Invalid response:', response);
         setError('Invalid credentials');
       }
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Login failed. Please try again.');
+      console.error('❌ Login error:', err);
+      console.error('❌ Error response:', err.response);
+      console.error('❌ Error message:', err.message);
+      console.error('❌ Error data:', err.response?.data);
+      setError(err.response?.data?.message || err.message || 'Login failed. Please try again.');
     } finally {
       setLoading(false);
     }

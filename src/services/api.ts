@@ -1,6 +1,10 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_SERVER_URL || 'https://api.redfit.in';
+// API Configuration
+// Production: https://api.redfit.in
+// Development: http://localhost:3000
+const API_BASE_URL = import.meta.env.VITE_API_SERVER_URL || 
+  (import.meta.env.PROD ? 'https://api.redfit.in' : 'http://localhost:3000');
 const API_VERSION = import.meta.env.VITE_API_VERSION || 'v1';
 const API_URL = `${API_BASE_URL}/api/${API_VERSION}`;
 
@@ -11,20 +15,51 @@ const api = axios.create({
   },
 });
 
+// Log API configuration
+console.log('🔧 API Configuration:', {
+  baseURL: API_URL,
+  apiBaseUrl: API_BASE_URL,
+  apiVersion: API_VERSION,
+  isProduction: import.meta.env.PROD
+});
+
 // Add auth token to requests
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('admin_token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+  console.log('📤 Request:', {
+    method: config.method?.toUpperCase(),
+    url: config.url,
+    baseURL: config.baseURL,
+    headers: config.headers,
+    hasToken: !!token
+  });
   return config;
 });
 
 // Handle auth errors
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    console.log('📥 Response:', {
+      status: response.status,
+      url: response.config.url,
+      data: response.data
+    });
+    return response;
+  },
   (error) => {
+    console.error('❌ Response Error:', {
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      url: error.config?.url,
+      data: error.response?.data,
+      message: error.message
+    });
+    
     if (error.response?.status === 401) {
+      console.log('🔒 Unauthorized, removing token and redirecting');
       localStorage.removeItem('admin_token');
       window.location.href = '/login';
     }
@@ -32,13 +67,37 @@ api.interceptors.response.use(
   }
 );
 
-export default api;
-
 // Auth API
 export const authAPI = {
   login: async (email: string, password: string) => {
-    const response = await api.post('/auth/login', { email, password });
-    return response.data;
+    console.log('📤 API Request:', {
+      method: 'POST',
+      url: `${API_URL}/auth/login`,
+      data: { email, password: '***' }
+    });
+    
+    try {
+      const response = await api.post('/auth/login', { email, password });
+      console.log('📥 API Response:', {
+        status: response.status,
+        data: response.data
+      });
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ API Error:', {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        message: error.message,
+        config: {
+          url: error.config?.url,
+          method: error.config?.method,
+          baseURL: error.config?.baseURL,
+          headers: error.config?.headers
+        }
+      });
+      throw error;
+    }
   },
   me: async () => {
     const response = await api.get('/auth/me');
@@ -129,4 +188,3 @@ export const uploadAPI = {
 };
 
 export default api;
-

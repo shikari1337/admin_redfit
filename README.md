@@ -1,3 +1,4 @@
+
 # Redfit Admin Dashboard
 
 Admin panel for managing Redfit store - products, orders, and more.
@@ -20,7 +21,17 @@ npm install
 
 2. Configure API URL:
 The admin panel is configured to use `https://api.redfit.in` by default.
-You can change it in `.env` file if needed.
+
+Create a `.env` file in the admin directory:
+```env
+VITE_API_SERVER_URL=https://api.redfit.in
+VITE_API_VERSION=v1
+```
+
+Or use the `.env.example` file as a template:
+```bash
+cp .env.example .env
+```
 
 3. Start development server:
 ```bash
