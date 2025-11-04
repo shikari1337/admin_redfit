@@ -30,9 +30,24 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: 🚀 Upload Build to CloudPanel
+      - name: 🧩 Ensure target path exists
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+            "mkdir -p '${{ secrets.SSH_PATH }}'"
+
+      - name: 🚀 Upload Build to CloudPanel (safe sync)
         run: |
           echo "Uploading dist/ to server..."
+
+          # rsync over SSH with strict host checking disabled
+          RSYNC_SSH='ssh -o StrictHostKeyChecking=no'
+
+          # Sync dist/ into the ROOT path (no extra subfolder),
+          # delete old files but keep .env and .well-known if present
           rsync -avz --delete \
-            dist/ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.SSH_PATH }}/
+            --exclude='.env' \
+            --exclude='.well-known/' \
+            -e "$RSYNC_SSH" \
+            dist/ "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.SSH_PATH }}/"
+
           echo "✅ Deployment completed!"
