@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaCog, FaPhone, FaCreditCard, FaArrowLeft } from 'react-icons/fa';
+import { FaPhone, FaCreditCard, FaArrowLeft } from 'react-icons/fa';
 
 const Settings: React.FC = () => {
   const navigate = useNavigate();

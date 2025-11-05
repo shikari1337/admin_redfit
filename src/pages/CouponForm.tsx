@@ -196,7 +196,7 @@ const CouponForm: React.FC = () => {
                 name="value"
                 value={formData.value || ''}
                 onChange={handleChange}
-                required={formData.type !== 'b2g1'}
+                required={!(formData.type === 'b2g1')}
                 min="0"
                 step={formData.type === 'percentage' ? '1' : '0.01'}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"

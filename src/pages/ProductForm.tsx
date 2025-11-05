@@ -65,7 +65,8 @@ const ProductForm: React.FC = () => {
     bundles: [] as ProductBundle[],
   });
 
-  const [newImage, setNewImage] = useState<File | null>(null);
+  // Unused - using handleMultipleImageUpload instead
+  // const [newImage, setNewImage] = useState<File | null>(null);
   const [newVideos, setNewVideos] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadingVideo, setUploadingVideo] = useState(false);
@@ -157,17 +158,9 @@ const ProductForm: React.FC = () => {
     e.stopPropagation();
     setDragActive(false);
 
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleFileSelect(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleMultipleImageUpload(e.dataTransfer.files);
     }
-  };
-
-  const handleFileSelect = (file: File) => {
-    if (!file.type.startsWith('image/')) {
-      alert('Please select an image file');
-      return;
-    }
-    setNewImage(file);
   };
 
   // Unused - replaced by handleMultipleImageUpload
