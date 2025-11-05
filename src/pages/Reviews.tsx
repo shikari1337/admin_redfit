@@ -45,7 +45,7 @@ const Reviews: React.FC = () => {
   const [newImage, setNewImage] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [bulkUploadMode, setBulkUploadMode] = useState(false);
-  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [_csvFile, setCsvFile] = useState<File | null>(null); // File state for CSV upload (setter used for clearing)
   const [csvData, setCsvData] = useState<any[]>([]);
 
   useEffect(() => {
