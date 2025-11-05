@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { reviewsAPI, uploadAPI } from '../services/api';
-import { FaUpload, FaTimes, FaPlus, FaTrash, FaEdit, FaCheck, FaFileCsv, FaDownload } from 'react-icons/fa';
+import { FaUpload, FaTimes, FaPlus, FaTrash, FaEdit, FaFileCsv, FaDownload } from 'react-icons/fa';
 
 interface Review {
   _id: string;
@@ -45,7 +45,7 @@ const Reviews: React.FC = () => {
   const [newImage, setNewImage] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [bulkUploadMode, setBulkUploadMode] = useState(false);
-  const [csvFile, setCsvFile] = useState<File | null>(null);
+  // const [csvFile, setCsvFile] = useState<File | null>(null); // Unused but kept for future CSV upload feature
   const [csvData, setCsvData] = useState<any[]>([]);
 
   useEffect(() => {
@@ -430,7 +430,7 @@ const Reviews: React.FC = () => {
                 </label>
                 {newImage && (
                   <button
-                    onClick={handleImageUpload}
+                    onClick={() => handleImageUpload()}
                     disabled={uploading}
                     className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
                   >

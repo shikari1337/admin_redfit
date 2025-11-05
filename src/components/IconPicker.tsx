@@ -207,7 +207,7 @@ const IconPicker: React.FC<IconPickerProps> = ({ value, onChange, label = 'Selec
             
             {/* Icons Grid */}
             <div className="p-4 overflow-y-auto max-h-64">
-              {showPopular && !searchQuery && selectedLibrary === 'all' && (
+              {popularIconsList.length > 0 && !searchQuery && selectedLibrary === 'all' && (
                 <div className="mb-4">
                   <h4 className="text-xs font-semibold text-gray-700 mb-2">Popular Icons</h4>
                   <div className="grid grid-cols-8 gap-2">

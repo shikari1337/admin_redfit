@@ -170,27 +170,28 @@ const ProductForm: React.FC = () => {
     setNewImage(file);
   };
 
-  const handleImageUpload = async () => {
-    if (!newImage) return;
+  // Unused - replaced by handleMultipleImageUpload
+  // const handleImageUpload = async () => {
+  //   if (!newImage) return;
 
-    setUploading(true);
-    try {
-      const response = await uploadAPI.uploadSingle(newImage, 'products');
-      setFormData({
-        ...formData,
-        images: [...formData.images, response.data.url],
-      });
-      setNewImage(null);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
-      setErrors({ ...errors, images: '' });
-    } catch (error) {
-      alert('Failed to upload image');
-    } finally {
-      setUploading(false);
-    }
-  };
+  //   setUploading(true);
+  //   try {
+  //     const response = await uploadAPI.uploadSingle(newImage, 'products');
+  //     setFormData({
+  //       ...formData,
+  //       images: [...formData.images, response.data.url],
+  //     });
+  //     setNewImage(null);
+  //     if (fileInputRef.current) {
+  //       fileInputRef.current.value = '';
+  //     }
+  //     setErrors({ ...errors, images: '' });
+  //   } catch (error) {
+  //     alert('Failed to upload image');
+  //   } finally {
+  //     setUploading(false);
+  //   }
+  // };
 
   const handleMultipleImageUpload = async (files: FileList) => {
     const imageFiles = Array.from(files).filter(file => file.type.startsWith('image/'));

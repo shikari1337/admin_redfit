@@ -85,8 +85,8 @@ const Coupons: React.FC = () => {
   };
 
   const getTypeValue = (coupon: Coupon) => {
-    if (coupon.type === 'b2g1') {
-      return 'Buy 2 Get 1 Free';
+    if (coupon.type === 'buy_x_get_y') {
+      return 'Buy X Get Y';
     } else if (coupon.type === 'percentage') {
       return `${coupon.value || 0}%`;
     } else {

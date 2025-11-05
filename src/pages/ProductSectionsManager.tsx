@@ -983,7 +983,7 @@ const FAQEditor: React.FC<{ data: any; onChange: (data: any) => void }> = ({ dat
               name="faqMode"
               value="category"
               checked={data.mode === 'category'}
-              onChange={(e) => updateField('mode', 'category')}
+              onChange={() => updateField('mode', 'category')}
               className="mr-2"
             />
             Show questions from selected categories
@@ -994,7 +994,7 @@ const FAQEditor: React.FC<{ data: any; onChange: (data: any) => void }> = ({ dat
               name="faqMode"
               value="random"
               checked={data.mode === 'random'}
-              onChange={(e) => updateField('mode', 'random')}
+              onChange={() => updateField('mode', 'random')}
               className="mr-2"
             />
             Show random questions from any category
