@@ -19,16 +19,33 @@ const Dashboard: React.FC = () => {
           ordersAPI.getAll({ limit: 1000 }),
         ]);
 
-        const products = productsRes.data || [];
-        const orders = ordersRes.data || [];
+        // Handle different response structures
+        const products = Array.isArray(productsRes?.data) 
+          ? productsRes.data 
+          : Array.isArray(productsRes?.data?.data) 
+            ? productsRes.data.data 
+            : Array.isArray(productsRes) 
+              ? productsRes 
+              : [];
+        
+        const orders = Array.isArray(ordersRes?.data) 
+          ? ordersRes.data 
+          : Array.isArray(ordersRes?.data?.data) 
+            ? ordersRes.data.data 
+            : Array.isArray(ordersRes) 
+              ? ordersRes 
+              : [];
 
         const revenue = orders.reduce((sum: number, order: any) => {
-          return sum + (order.paymentStatus === 'completed' ? order.total : 0);
+          const total = order.total || order.totalAmount || 0;
+          const paymentStatus = order.paymentStatus || order.payment?.status || 'pending';
+          return sum + (paymentStatus === 'completed' ? total : 0);
         }, 0);
 
-        const pending = orders.filter((order: any) => 
-          order.orderStatus === 'pending' || order.orderStatus === 'confirmed'
-        ).length;
+        const pending = orders.filter((order: any) => {
+          const status = order.orderStatus || order.status || 'pending';
+          return status === 'pending' || status === 'confirmed';
+        }).length;
 
         setStats({
           totalProducts: products.length,
@@ -38,6 +55,13 @@ const Dashboard: React.FC = () => {
         });
       } catch (error) {
         console.error('Failed to fetch stats:', error);
+        // Set default values on error to prevent crash
+        setStats({
+          totalProducts: 0,
+          totalOrders: 0,
+          totalRevenue: 0,
+          pendingOrders: 0,
+        });
       } finally {
         setLoading(false);
       }

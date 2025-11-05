@@ -24,8 +24,7 @@ The admin panel is configured to use `https://api.redfit.in` by default.
 
 Create a `.env` file in the admin directory:
 ```env
-VITE_API_SERVER_URL=https://api.redfit.in
-VITE_API_VERSION=v1
+
 ```
 
 Or use the `.env.example` file as a template:

@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ordersAPI } from '../services/api';
+import { ordersAPI, shippingAPI } from '../services/api';
 import { format } from 'date-fns';
+import { FaTruck, FaWhatsapp } from 'react-icons/fa';
 
 const OrderDetail: React.FC = () => {
   const { id } = useParams();
@@ -9,6 +10,7 @@ const OrderDetail: React.FC = () => {
   const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
+  const [sendingToShiprocket, setSendingToShiprocket] = useState(false);
 
   useEffect(() => {
     fetchOrder();
@@ -38,6 +40,29 @@ const OrderDetail: React.FC = () => {
     } finally {
       setUpdating(false);
     }
+  };
+
+  const handleSendToShiprocket = async () => {
+    if (!confirm('Send this order to Shiprocket for shipment creation?')) return;
+    
+    setSendingToShiprocket(true);
+    try {
+      const response = await shippingAPI.createShipment(id!);
+      alert(`Shipment created successfully!${response.data?.shipment?.awbCode ? ` AWB: ${response.data.shipment.awbCode}` : ''}`);
+      fetchOrder(); // Refresh order to show updated status
+    } catch (error: any) {
+      console.error('Failed to create shipment:', error);
+      alert(error.response?.data?.message || 'Failed to create shipment. Please try again.');
+    } finally {
+      setSendingToShiprocket(false);
+    }
+  };
+
+  const handleWhatsAppClick = (phoneNumber: string) => {
+    // Remove any non-digit characters and ensure it starts with country code
+    const cleanPhone = phoneNumber.replace(/\D/g, '');
+    const whatsappUrl = `https://wa.me/${cleanPhone}`;
+    window.open(whatsappUrl, '_blank');
   };
 
   if (loading) {
@@ -71,18 +96,30 @@ const OrderDetail: React.FC = () => {
           </button>
           <h1 className="text-3xl font-bold text-gray-900">Order {order.orderId}</h1>
         </div>
-        <select
-          value={order.orderStatus}
-          onChange={(e) => handleStatusUpdate(e.target.value)}
-          disabled={updating}
-          className="px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-red-500"
-        >
-          {statusOptions.map((status) => (
-            <option key={status} value={status}>
-              {status.charAt(0).toUpperCase() + status.slice(1)}
-            </option>
-          ))}
-        </select>
+        <div className="flex items-center gap-2">
+          {(order.orderStatus === 'confirmed' || order.orderStatus === 'processing') && !order.shiprocketShipmentId && (
+            <button
+              onClick={handleSendToShiprocket}
+              disabled={sendingToShiprocket}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <FaTruck size={16} />
+              {sendingToShiprocket ? 'Sending to Shiprocket...' : 'Send to Shiprocket'}
+            </button>
+          )}
+          <select
+            value={order.orderStatus}
+            onChange={(e) => handleStatusUpdate(e.target.value)}
+            disabled={updating}
+            className="px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-red-500"
+          >
+            {statusOptions.map((status) => (
+              <option key={status} value={status}>
+                {status.charAt(0).toUpperCase() + status.slice(1)}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -141,7 +178,17 @@ const OrderDetail: React.FC = () => {
                 {order.shippingAddress?.district}, {order.shippingAddress?.state}{' '}
                 {order.shippingAddress?.pincode}
               </p>
-              <p>Phone: {order.shippingAddress?.mobileNumber}</p>
+              <div className="flex items-center gap-2">
+                <span>Phone:</span>
+                <button
+                  onClick={() => handleWhatsAppClick(order.shippingAddress?.mobileNumber || '')}
+                  className="flex items-center gap-1 text-blue-600 hover:text-blue-800 hover:underline"
+                  title="Open WhatsApp"
+                >
+                  <FaWhatsapp size={16} />
+                  {order.shippingAddress?.mobileNumber}
+                </button>
+              </div>
               {order.shippingAddress?.landmark && (
                 <p className="text-sm text-gray-500">Landmark: {order.shippingAddress.landmark}</p>
               )}

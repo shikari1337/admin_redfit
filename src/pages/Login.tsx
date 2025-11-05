@@ -15,9 +15,44 @@ const Login: React.FC = () => {
     setLoading(true);
 
     try {
+      // Normalize API URL (remove trailing slash to avoid double slashes)
+      let apiUrl = import.meta.env.VITE_API_SERVER_URL || 'https://api.redfit.in';
+      apiUrl = apiUrl.replace(/\/+$/, ''); // Remove trailing slashes
+      
+      const apiVersion = import.meta.env.VITE_API_VERSION || 'v1';
+      const fullUrl = `${apiUrl}/api/${apiVersion}/auth/login`;
+      
       console.log('🔐 Login attempt:', { email });
-      console.log('📡 API URL:', import.meta.env.VITE_API_SERVER_URL || 'https://api.redfit.in');
-      console.log('🌐 Full API URL:', `${import.meta.env.VITE_API_SERVER_URL || 'https://api.redfit.in'}/api/${import.meta.env.VITE_API_VERSION || 'v1'}/auth/login`);
+      console.log('📡 API Configuration:', {
+        apiUrl,
+        apiVersion,
+        fullUrl,
+        isProduction: import.meta.env.PROD
+      });
+      
+      // Test connection first
+      try {
+        // Construct health URL properly (avoid double slashes)
+        const healthUrl = `${apiUrl}/health`;
+        console.log('🔍 Testing health endpoint:', healthUrl);
+        
+        const healthCheck = await fetch(healthUrl, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        
+        if (!healthCheck.ok) {
+          throw new Error(`Health check failed: ${healthCheck.status} ${healthCheck.statusText}`);
+        }
+        
+        const healthData = await healthCheck.json();
+        console.log('✅ Health check passed:', healthCheck.status, healthData);
+      } catch (healthError: any) {
+        console.error('❌ Health check failed:', healthError);
+        setError(`Cannot connect to server at ${apiUrl}. Please check if backend is running on port 3000.`);
+        setLoading(false);
+        return;
+      }
       
       const response = await authAPI.login(email, password);
       console.log('✅ Login response:', response);
@@ -34,8 +69,15 @@ const Login: React.FC = () => {
       console.error('❌ Login error:', err);
       console.error('❌ Error response:', err.response);
       console.error('❌ Error message:', err.message);
+      console.error('❌ Error code:', err.code);
       console.error('❌ Error data:', err.response?.data);
-      setError(err.response?.data?.message || err.message || 'Login failed. Please try again.');
+      
+      // Handle connection errors
+      if (err.code === 'ERR_NETWORK' || err.code === 'ECONNREFUSED' || err.message?.includes('Connection refused')) {
+        setError('Cannot connect to server. Please check if backend is running.');
+      } else {
+        setError(err.response?.data?.message || err.message || 'Login failed. Please try again.');
+      }
     } finally {
       setLoading(false);
     }

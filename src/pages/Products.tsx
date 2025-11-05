@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { productsAPI } from '../services/api';
-import { FaPlus, FaEdit, FaTrash } from 'react-icons/fa';
+import { FaPlus, FaEdit, FaTrash, FaCog } from 'react-icons/fa';
 
 const Products: React.FC = () => {
   const [products, setProducts] = useState<any[]>([]);
@@ -121,12 +121,21 @@ const Products: React.FC = () => {
                       <Link
                         to={`/products/${product._id}/edit`}
                         className="text-blue-600 hover:text-blue-900"
+                        title="Edit Product"
                       >
                         <FaEdit />
+                      </Link>
+                      <Link
+                        to={`/products/${product._id}/sections`}
+                        className="text-purple-600 hover:text-purple-900"
+                        title="Manage Sections"
+                      >
+                        <FaCog />
                       </Link>
                       <button
                         onClick={() => handleDelete(product._id)}
                         className="text-red-600 hover:text-red-900"
+                        title="Delete Product"
                       >
                         <FaTrash />
                       </button>

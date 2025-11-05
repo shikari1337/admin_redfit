@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ordersAPI } from '../services/api';
+import { ordersAPI, shippingAPI } from '../services/api';
 import { format } from 'date-fns';
+import { FaTruck, FaWhatsapp } from 'react-icons/fa';
 
 const Orders: React.FC = () => {
   const [orders, setOrders] = useState<any[]>([]);
@@ -11,6 +12,8 @@ const Orders: React.FC = () => {
   useEffect(() => {
     fetchOrders();
   }, [statusFilter]);
+
+  const [sendingToShiprocket, setSendingToShiprocket] = useState<string | null>(null);
 
   const fetchOrders = async () => {
     try {
@@ -22,6 +25,29 @@ const Orders: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSendToShiprocket = async (orderId: string) => {
+    if (!confirm('Send this order to Shiprocket for shipment creation?')) return;
+    
+    setSendingToShiprocket(orderId);
+    try {
+      const response = await shippingAPI.createShipment(orderId);
+      alert(`Shipment created successfully!${response.data?.shipment?.awbCode ? ` AWB: ${response.data.shipment.awbCode}` : ''}`);
+      fetchOrders(); // Refresh orders to show updated status
+    } catch (error: any) {
+      console.error('Failed to create shipment:', error);
+      alert(error.response?.data?.message || 'Failed to create shipment. Please try again.');
+    } finally {
+      setSendingToShiprocket(null);
+    }
+  };
+
+  const handleWhatsAppClick = (phoneNumber: string) => {
+    // Remove any non-digit characters and ensure it starts with country code
+    const cleanPhone = phoneNumber.replace(/\D/g, '');
+    const whatsappUrl = `https://wa.me/${cleanPhone}`;
+    window.open(whatsappUrl, '_blank');
   };
 
   const getStatusColor = (status: string) => {
@@ -105,7 +131,14 @@ const Orders: React.FC = () => {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm text-gray-900">{order.shippingAddress?.fullName}</div>
-                    <div className="text-sm text-gray-500">{order.shippingAddress?.mobileNumber}</div>
+                    <button
+                      onClick={() => handleWhatsAppClick(order.shippingAddress?.mobileNumber || '')}
+                      className="text-sm text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
+                      title="Open WhatsApp"
+                    >
+                      <FaWhatsapp size={14} />
+                      {order.shippingAddress?.mobileNumber}
+                    </button>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                     ₹{order.total?.toLocaleString('en-IN')}
@@ -136,12 +169,25 @@ const Orders: React.FC = () => {
                       : 'N/A'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <Link
-                      to={`/orders/${order._id}`}
-                      className="text-red-600 hover:text-red-900"
-                    >
-                      View
-                    </Link>
+                    <div className="flex items-center justify-end gap-2">
+                      {order.orderStatus === 'confirmed' || order.orderStatus === 'processing' ? (
+                        <button
+                          onClick={() => handleSendToShiprocket(order._id)}
+                          disabled={sendingToShiprocket === order._id}
+                          className="flex items-center gap-1 px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="Send to Shiprocket"
+                        >
+                          <FaTruck size={12} />
+                          {sendingToShiprocket === order._id ? 'Sending...' : 'Shiprocket'}
+                        </button>
+                      ) : null}
+                      <Link
+                        to={`/orders/${order._id}`}
+                        className="text-red-600 hover:text-red-900"
+                      >
+                        View
+                      </Link>
+                    </div>
                   </td>
                 </tr>
               ))
