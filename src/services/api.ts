@@ -232,6 +232,7 @@ export const uploadAPI = {
     const formData = new FormData();
     files.forEach((file) => {
       // Use 'images' field name for both images and videos (backend accepts both)
+      // The backend middleware accepts 'images' field for all file types
       formData.append('images', file);
     });
     if (folder) {

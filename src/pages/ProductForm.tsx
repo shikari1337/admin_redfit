@@ -42,6 +42,7 @@ const ProductForm: React.FC = () => {
     originalPrice: '',
     description: '',
     richDescription: '',
+    descriptionImage: '',
     images: [] as string[],
     videos: [] as string[],
     sizes: [] as string[],
@@ -91,6 +92,7 @@ const ProductForm: React.FC = () => {
         originalPrice: product.originalPrice?.toString() || '',
         description: product.description || '',
         richDescription: product.richDescription || '',
+        descriptionImage: product.descriptionImage || '',
         images: product.images || [],
         videos: product.videos || [],
         sizes: product.sizes || [],
@@ -384,7 +386,23 @@ const ProductForm: React.FC = () => {
       // Upload all videos at once
       const response = await uploadAPI.uploadMultiple(newVideos, 'videos');
       // Backend returns { success: true, data: { files: [{ url, key }] } }
-      const uploadedUrls = response.data?.files?.map((f: any) => f.url) || response.data?.urls || [];
+      // Check response structure - it might be response.data or response
+      let uploadedUrls: string[] = [];
+      
+      if (response.data?.files && Array.isArray(response.data.files)) {
+        uploadedUrls = response.data.files.map((f: any) => f.url || f);
+      } else if (response.files && Array.isArray(response.files)) {
+        uploadedUrls = response.files.map((f: any) => f.url || f);
+      } else if (response.data?.urls && Array.isArray(response.data.urls)) {
+        uploadedUrls = response.data.urls;
+      } else if (Array.isArray(response.data)) {
+        uploadedUrls = response.data.map((f: any) => f.url || f);
+      }
+      
+      if (uploadedUrls.length === 0) {
+        console.error('No URLs found in response:', response);
+        throw new Error('Failed to get uploaded video URLs from response');
+      }
       
       setFormData({
         ...formData,
@@ -394,7 +412,7 @@ const ProductForm: React.FC = () => {
       setErrors({ ...errors, videos: '' });
     } catch (error: any) {
       console.error('Video upload error:', error);
-      alert(error.response?.data?.message || 'Failed to upload videos');
+      alert(error.response?.data?.message || error.message || 'Failed to upload videos');
     } finally {
       setUploadingVideo(false);
     }
@@ -567,6 +585,76 @@ const ProductForm: React.FC = () => {
                     placeholder="<p>HTML content here</p>"
                   />
                   <p className="mt-1 text-xs text-gray-500">HTML content for detailed product description</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Description Banner Image (100% width)
+                  </label>
+                  <div className="space-y-3">
+                    {formData.descriptionImage ? (
+                      <div className="relative group">
+                        <img
+                          src={formData.descriptionImage}
+                          alt="Description banner"
+                          className="w-full h-48 object-cover rounded-lg border border-gray-300"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setFormData({ ...formData, descriptionImage: '' })}
+                          className="absolute top-2 right-2 bg-red-600 text-white rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <FaTimes size={14} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          id="description-image-upload"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              setUploading(true);
+                              try {
+                                const response = await uploadAPI.uploadSingle(file, 'products');
+                                setFormData({ ...formData, descriptionImage: response.data.url });
+                              } catch (error: any) {
+                                alert(error.response?.data?.message || 'Failed to upload image');
+                              } finally {
+                                setUploading(false);
+                                if (e.target) {
+                                  e.target.value = '';
+                                }
+                              }
+                            }
+                          }}
+                        />
+                        <label
+                          htmlFor="description-image-upload"
+                          className={`cursor-pointer ${uploading ? 'cursor-not-allowed opacity-50' : ''}`}
+                        >
+                          {uploading ? (
+                            <>
+                              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500 mx-auto mb-2"></div>
+                              <p className="text-sm text-gray-600">Uploading...</p>
+                            </>
+                          ) : (
+                            <>
+                              <FaUpload className="mx-auto text-4xl text-gray-400 mb-2" />
+                              <p className="text-sm text-gray-600">
+                                Click to upload banner image or drag and drop
+                              </p>
+                              <p className="text-xs text-gray-500 mt-1">Supports JPG, PNG, GIF up to 10MB</p>
+                            </>
+                          )}
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">Banner image displayed above/below product description (100% width)</p>
                 </div>
               </div>
             </div>
