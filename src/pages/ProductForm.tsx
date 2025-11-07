@@ -620,9 +620,16 @@ const ProductForm: React.FC = () => {
                               setUploading(true);
                               try {
                                 const response = await uploadAPI.uploadSingle(file, 'products');
-                                setFormData({ ...formData, descriptionImage: response.data.url });
+                                // Handle different response structures
+                                const imageUrl = response.data?.url || response.data?.data?.url || response.url;
+                                if (imageUrl) {
+                                  setFormData({ ...formData, descriptionImage: imageUrl });
+                                } else {
+                                  throw new Error('No URL in upload response');
+                                }
                               } catch (error: any) {
-                                alert(error.response?.data?.message || 'Failed to upload image');
+                                console.error('Description image upload error:', error);
+                                alert(error.response?.data?.message || error.message || 'Failed to upload image');
                               } finally {
                                 setUploading(false);
                                 if (e.target) {
