@@ -38,7 +38,14 @@ const PaymentDiscountSettings: React.FC = () => {
     } catch (error: any) {
       console.error('Failed to fetch settings:', error);
       // Use default value if fetch fails
-      setFormData({ razorpayDiscountPercent: 2 });
+      setFormData({
+        razorpayDiscountPercent: 2,
+        quantityDiscounts: [
+          { minQuantity: 5, discountPercent: 5 },
+          { minQuantity: 10, discountPercent: 10 },
+          { minQuantity: 20, discountPercent: 15 },
+        ],
+      });
     } finally {
       setLoading(false);
     }
