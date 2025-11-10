@@ -1,7 +1,6 @@
 import {
   ProductFormData,
   SeoFormState,
-  SizeChartEntry,
   SLUG_MAX_LENGTH,
   META_TITLE_LIMIT,
   META_DESCRIPTION_LIMIT,

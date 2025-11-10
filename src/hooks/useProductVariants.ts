@@ -287,25 +287,15 @@ export const useProductVariants = ({
           price: comb.price,
           originalPrice: comb.originalPrice,
           images: comb.images || [],
-          sizes: sizeType
-            ? comb.options
-                .filter((o) => o.typeId === sizeType.id)
-                .map((opt) => ({
-                  size: opt.value,
-                  stock: comb.stock,
-                  sku: comb.sku,
-                  price: comb.price,
-                  originalPrice: comb.originalPrice,
-                }))
-            : [
-                {
-                  size: 'One Size',
-                  stock: comb.stock,
-                  sku: comb.sku,
-                  price: comb.price,
-                  originalPrice: comb.originalPrice,
-                },
-              ],
+          sizes: [
+            {
+              size: 'One Size',
+              stock: comb.stock,
+              sku: comb.sku,
+              price: comb.price,
+              originalPrice: comb.originalPrice,
+            },
+          ],
         }));
       }
 

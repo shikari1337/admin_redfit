@@ -5,7 +5,6 @@ interface ProductSizesStockProps {
   sizes: string[];
   stock: Record<string, number>;
   newSizeInput: string;
-  onSizesChange: (sizes: string[]) => void;
   onStockChange: (stock: Record<string, number>) => void;
   onNewSizeInputChange: (value: string) => void;
   onAddSize: () => void;
@@ -19,7 +18,6 @@ const ProductSizesStock: React.FC<ProductSizesStockProps> = ({
   sizes,
   stock,
   newSizeInput,
-  onSizesChange,
   onStockChange,
   onNewSizeInputChange,
   onAddSize,

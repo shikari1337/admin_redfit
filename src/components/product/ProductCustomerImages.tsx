@@ -1,5 +1,4 @@
-import React, { useRef } from 'react';
-import { FaUpload, FaTimes } from 'react-icons/fa';
+import React from 'react';
 import ProductImageUpload from './ProductImageUpload';
 
 interface ProductCustomerImagesProps {

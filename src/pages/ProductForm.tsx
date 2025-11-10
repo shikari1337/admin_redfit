@@ -1,8 +1,7 @@
-import React, { useEffect, useMemo, useState, useRef } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { productsAPI, uploadAPI, categoriesAPI, sizeChartsAPI } from '../services/api';
-import { FaUpload, FaTimes, FaPlus, FaTrash, FaArrowLeft, FaCog } from 'react-icons/fa';
-import IconPicker from '../components/IconPicker';
+import { FaArrowLeft } from 'react-icons/fa';
 import {
   ProductBasicInfo,
   ProductPricing,
@@ -17,7 +16,6 @@ import {
   ProductVariants,
 } from '../components/product';
 import {
-  ProductFormData,
   ProductVariant,
   ProductSize,
   CategoryOption,
@@ -25,6 +23,7 @@ import {
   SizeChartOption,
   SeoFormState,
   VariantType,
+  VariantOption,
   VariantCombination,
   SLUG_MAX_LENGTH,
   META_TITLE_LIMIT,
@@ -32,17 +31,12 @@ import {
   emptySizeChartEntry,
 } from '../types/productForm';
 import { slugifyValue } from '../utils/slugify';
-import { validateProductForm } from '../utils/productFormValidation';
 
 const ProductForm: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const isEdit = !!id;
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const customerOrderImagesInputRef = useRef<HTMLInputElement>(null);
-  const [dragActive, setDragActive] = useState(false);
-  
   // Get prefilled data from navigation state (for duplication)
   const prefilledData = location.state?.prefilledData;
 
@@ -175,6 +169,7 @@ const ProductForm: React.FC = () => {
 
       setFormData({
         name: data.name || '',
+        sku: data.sku || '',
         price: data.price?.toString() || '',
         originalPrice: data.originalPrice?.toString() || '',
         description: data.description || '',
@@ -417,16 +412,6 @@ const ProductForm: React.FC = () => {
     return Object.keys(newErrors).length === 0;
   };
 
-  const toggleCategory = (categoryId: string) => {
-    setFormData((prev) => {
-      const exists = prev.categories.includes(categoryId);
-      const categories = exists
-        ? prev.categories.filter((id) => id !== categoryId)
-        : [...prev.categories, categoryId];
-      return { ...prev, categories };
-    });
-    setErrors((prev) => ({ ...prev, categories: '' }));
-  };
 
   const selectedSizeChart = useMemo(
     () => availableSizeCharts.find((chart) => chart._id === selectedSizeChartId),
@@ -478,25 +463,6 @@ const ProductForm: React.FC = () => {
     }
   };
 
-  const handleDrag = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === 'dragenter' || e.type === 'dragover') {
-      setDragActive(true);
-    } else if (e.type === 'dragleave') {
-      setDragActive(false);
-    }
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      handleMultipleImageUpload(e.dataTransfer.files);
-    }
-  };
 
   // Unused - replaced by handleMultipleImageUpload
   // const handleImageUpload = async () => {
@@ -587,19 +553,6 @@ const ProductForm: React.FC = () => {
     }
   };
 
-  const removeImage = (index: number) => {
-    setFormData({
-      ...formData,
-      images: formData.images.filter((_, i) => i !== index),
-    });
-  };
-
-  const reorderImages = (fromIndex: number, toIndex: number) => {
-    const newImages = [...formData.images];
-    const [removed] = newImages.splice(fromIndex, 1);
-    newImages.splice(toIndex, 0, removed);
-    setFormData({ ...formData, images: newImages });
-  };
 
   const addVariant = () => {
     setFormData({
@@ -979,18 +932,6 @@ const ProductForm: React.FC = () => {
     );
   };
 
-  const updateVariantCombinationOption = (combinationId: string, optionIndex: number, value: string) => {
-    setVariantCombinations(prev =>
-      prev.map(comb => {
-        if (comb.id === combinationId) {
-          const newOptions = [...comb.options];
-          newOptions[optionIndex] = { ...newOptions[optionIndex], value };
-          return { ...comb, options: newOptions };
-        }
-        return comb;
-      })
-    );
-  };
 
   // Convert Shopify-style combinations to existing format
   const convertCombinationsToVariants = (combinations: VariantCombination[]): ProductVariant[] => {
@@ -1006,25 +947,15 @@ const ProductForm: React.FC = () => {
         price: comb.price,
         originalPrice: comb.originalPrice,
         images: comb.images || [],
-        sizes: sizeType
-          ? comb.options
-              .filter(o => o.typeId === sizeType.id)
-              .map(opt => ({
-                size: opt.value,
-                stock: comb.stock,
-                sku: comb.sku,
-                price: comb.price,
-                originalPrice: comb.originalPrice,
-              }))
-          : [
-              {
-                size: 'One Size',
-                stock: comb.stock,
-                sku: comb.sku,
-                price: comb.price,
-                originalPrice: comb.originalPrice,
-              },
-            ],
+        sizes: [
+          {
+            size: 'One Size',
+            stock: comb.stock,
+            sku: comb.sku,
+            price: comb.price,
+            originalPrice: comb.originalPrice,
+          },
+        ],
       }));
     }
 
@@ -1034,7 +965,6 @@ const ProductForm: React.FC = () => {
     combinations.forEach(comb => {
       const colorOption = comb.options.find(o => o.typeId === colorType?.id);
       const sizeOptions = comb.options.filter(o => o.typeId === sizeType?.id);
-      const otherOptions = comb.options.filter(o => o.typeId !== colorType?.id && o.typeId !== sizeType?.id);
 
       const colorName = colorOption?.value || 'Default';
       const colorCode = colorOption?.colorCode || '#000000';
@@ -1163,38 +1093,6 @@ const ProductForm: React.FC = () => {
   // Note: This effect is intentionally minimal to avoid infinite loops
   // Combinations are also generated manually when options are added/removed
 
-  const handleVideoFileSelect = (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    
-    const videoFiles: File[] = [];
-    const invalidFiles: string[] = [];
-    const oversizedFiles: string[] = [];
-    
-    Array.from(files).forEach((file) => {
-      if (!file.type.startsWith('video/')) {
-        invalidFiles.push(file.name);
-        return;
-      }
-      // Check file size (max 100MB)
-      if (file.size > 100 * 1024 * 1024) {
-        oversizedFiles.push(file.name);
-        return;
-      }
-      videoFiles.push(file);
-    });
-    
-    if (invalidFiles.length > 0) {
-      alert(`Invalid files (not video): ${invalidFiles.join(', ')}`);
-    }
-    if (oversizedFiles.length > 0) {
-      alert(`Files too large (max 100MB): ${oversizedFiles.join(', ')}`);
-    }
-    
-    if (videoFiles.length > 0) {
-      setNewVideos(prev => [...prev, ...videoFiles]);
-    }
-  };
-
   const handleVideoUpload = async () => {
     if (newVideos.length === 0) return;
 
@@ -1252,30 +1150,6 @@ const ProductForm: React.FC = () => {
     });
   };
 
-  const addSizeChartEntry = () => {
-    setFormData((prev) => ({
-      ...prev,
-      sizeChart: [...prev.sizeChart, { ...emptySizeChartEntry }],
-    }));
-  };
-
-  const updateSizeChart = (index: number, field: string, value: string) => {
-    setFormData((prev) => {
-      const newSizeChart = [...prev.sizeChart];
-      newSizeChart[index] = { ...newSizeChart[index], [field]: value };
-      return { ...prev, sizeChart: newSizeChart };
-    });
-  };
-
-  const removeSizeChartEntry = (index: number) => {
-    setFormData((prev) => {
-      const updated = prev.sizeChart.filter((_, i) => i !== index);
-      return {
-        ...prev,
-        sizeChart: updated.length > 0 ? updated : [{ ...emptySizeChartEntry }],
-      };
-    });
-  };
 
   const addSize = () => {
     const newSize = newSizeInput.trim().toUpperCase();
@@ -1579,109 +1453,6 @@ const ProductForm: React.FC = () => {
               errors={errors}
             />
 
-            {/* Images */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">
-                Product Images <span className="text-red-500">*</span>
-              </h2>
-
-              {/* Image Upload Area */}
-              <div
-                className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-                  dragActive
-                    ? 'border-red-500 bg-red-50'
-                    : errors.images
-                    ? 'border-red-300 bg-red-50'
-                    : 'border-gray-300 bg-gray-50'
-                } ${uploading ? 'opacity-50 pointer-events-none' : ''}`}
-                onDragEnter={handleDrag}
-                onDragLeave={handleDrag}
-                onDragOver={handleDrag}
-                onDrop={handleDrop}
-              >
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  disabled={uploading}
-                  onChange={(e) => {
-                    if (e.target.files && e.target.files.length > 0) {
-                      handleMultipleImageUpload(e.target.files);
-                    }
-                  }}
-                  className="hidden"
-                  id="image-upload"
-                />
-                <label htmlFor="image-upload" className={`cursor-pointer ${uploading ? 'cursor-not-allowed' : ''}`}>
-                  {uploading ? (
-                    <>
-                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500 mx-auto mb-2"></div>
-                      <p className="text-sm text-gray-600 font-medium">Uploading images...</p>
-                      <p className="text-xs text-gray-500 mt-1">Please wait</p>
-                    </>
-                  ) : (
-                    <>
-                      <FaUpload className="mx-auto text-4xl text-gray-400 mb-2" />
-                      <p className="text-sm text-gray-600">
-                        Drag and drop images here, or{' '}
-                        <span className="text-red-600 font-medium">browse</span>
-                      </p>
-                      <p className="text-xs text-gray-500 mt-1">Supports JPG, PNG, GIF up to 10MB</p>
-                    </>
-                  )}
-                </label>
-              </div>
-
-              {errors.images && <p className="mt-2 text-sm text-red-500">{errors.images}</p>}
-
-              {/* Image Gallery */}
-              {formData.images.length > 0 && (
-                <div className="mt-4 grid grid-cols-4 gap-4">
-                  {formData.images.map((img, index) => (
-                    <div key={`img-${index}-${img}`} className="relative group">
-                      <div className="aspect-square rounded-lg overflow-hidden bg-gray-100">
-                        <img
-                          src={img}
-                          alt={`Product ${index + 1}`}
-                          className="w-full h-full object-cover"
-                        />
-                      </div>
-                      {index === 0 && (
-                        <span className="absolute top-2 left-2 bg-red-600 text-white text-xs px-2 py-1 rounded">
-                          Primary
-                        </span>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => removeImage(index)}
-                        className="absolute top-2 right-2 bg-red-600 text-white rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        <FaTimes size={12} />
-                      </button>
-                      <div className="absolute bottom-2 left-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          type="button"
-                          onClick={() => index > 0 && reorderImages(index, index - 1)}
-                          disabled={index === 0}
-                          className="flex-1 bg-black bg-opacity-70 text-white text-xs py-1 rounded disabled:opacity-30 hover:bg-opacity-90"
-                        >
-                          ↑
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => index < formData.images.length - 1 && reorderImages(index, index + 1)}
-                          disabled={index === formData.images.length - 1}
-                          className="flex-1 bg-black bg-opacity-70 text-white text-xs py-1 rounded disabled:opacity-30 hover:bg-opacity-90"
-                        >
-                          ↓
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
 
             {/* Videos */}
             <ProductVideos
@@ -1773,7 +1544,6 @@ const ProductForm: React.FC = () => {
                 sizes={formData.sizes}
                 stock={formData.stock}
                 newSizeInput={newSizeInput}
-                onSizesChange={(sizes) => setFormData({ ...formData, sizes })}
                 onStockChange={(stock) => setFormData({ ...formData, stock })}
                 onNewSizeInputChange={setNewSizeInput}
                 onAddSize={addSize}

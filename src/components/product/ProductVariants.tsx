@@ -127,7 +127,6 @@ const ProductVariants: React.FC<ProductVariantsProps> = ({
           onNewVariantTypeNameChange={onNewVariantTypeNameChange}
           onNewOptionInputsChange={onNewOptionInputsChange}
           onVariantColorCodesChange={onVariantColorCodesChange}
-          getBaseSku={getBaseSku}
         />
       ) : (
         <LegacyVariantsView
@@ -163,12 +162,11 @@ interface ShopifyVariantsViewProps {
   onRemoveVariantType: (id: string) => void;
   onAddVariantOption: (typeId: string, value: string, colorCode?: string) => void;
   onRemoveVariantOption: (typeId: string, value: string) => void;
-  onUpdateCombination: (id: string, field: string, value: any) => void;
+  onUpdateCombination: (id: string, field: keyof VariantCombination, value: any) => void;
   onRegenerateAllSkus: () => void;
   onNewVariantTypeNameChange: (value: string) => void;
   onNewOptionInputsChange: (value: Record<string, string>) => void;
   onVariantColorCodesChange: (codes: Record<string, Record<string, string>>) => void;
-  getBaseSku: () => string;
 }
 
 const ShopifyVariantsView: React.FC<ShopifyVariantsViewProps> = ({
@@ -186,7 +184,7 @@ const ShopifyVariantsView: React.FC<ShopifyVariantsViewProps> = ({
   onRegenerateAllSkus,
   onNewVariantTypeNameChange,
   onNewOptionInputsChange,
-  getBaseSku,
+  onVariantColorCodesChange,
 }) => {
   const handleColorCodeChange = (typeId: string, value: string, colorCode: string) => {
     const typeColorCodes = variantColorCodes[typeId] || {};
@@ -600,6 +598,7 @@ const LegacyVariantsView: React.FC<LegacyVariantsViewProps> = ({
                   type="file"
                   accept="image/*"
                   multiple
+                  disabled={uploading}
                   onChange={(e) => {
                     if (e.target.files) {
                       onVariantImageUpload(vIndex, e.target.files);
@@ -610,10 +609,10 @@ const LegacyVariantsView: React.FC<LegacyVariantsViewProps> = ({
                 />
                 <label
                   htmlFor={`variant-images-${vIndex}`}
-                  className="inline-flex items-center px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 cursor-pointer mb-2"
+                  className={`inline-flex items-center px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 cursor-pointer mb-2 ${uploading ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   <FaUpload className="mr-2" size={12} />
-                  Upload Images
+                  {uploading ? 'Uploading...' : 'Upload Images'}
                 </label>
                 {variant.images.length > 0 && (
                   <div className="grid grid-cols-4 gap-2 mt-2">
