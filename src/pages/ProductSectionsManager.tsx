@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { productsAPI } from '../services/api';
-import { FaArrowLeft, FaCheck, FaTimes, FaEdit, FaPlus, FaTrash } from 'react-icons/fa';
+import { productsAPI, uploadAPI } from '../services/api';
+import { FaArrowLeft, FaCheck, FaTimes, FaEdit, FaPlus, FaTrash, FaUpload } from 'react-icons/fa';
 
 interface ProductPageSection {
   sectionId: string;
@@ -517,6 +517,8 @@ const FeaturesEditor: React.FC<{ data: any; onChange: (data: any) => void }> = (
 };
 
 const WhySpeedsterEditor: React.FC<{ data: any; onChange: (data: any) => void }> = ({ data, onChange }) => {
+  const [uploading, setUploading] = useState(false);
+
   const updateField = (field: string, value: any) => {
     onChange({ ...data, [field]: value });
   };
@@ -540,6 +542,31 @@ const WhySpeedsterEditor: React.FC<{ data: any; onChange: (data: any) => void }>
     onChange({ ...data, items });
   };
 
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setUploading(true);
+      try {
+        const response = await uploadAPI.uploadSingle(file, 'products');
+        // Handle different response structures
+        const imageUrl = response.data?.url || response.data?.data?.url || response.url;
+        if (imageUrl) {
+          updateField('imageUrl', imageUrl);
+        } else {
+          throw new Error('No URL in upload response');
+        }
+      } catch (error: any) {
+        console.error('Image upload error:', error);
+        alert(error.response?.data?.message || error.message || 'Failed to upload image');
+      } finally {
+        setUploading(false);
+        if (e.target) {
+          e.target.value = '';
+        }
+      }
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div>
@@ -561,14 +588,61 @@ const WhySpeedsterEditor: React.FC<{ data: any; onChange: (data: any) => void }>
         />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Image URL</label>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Image</label>
+        {data.imageUrl ? (
+          <div className="relative group mb-3">
+            <img
+              src={data.imageUrl}
+              alt="Why Speedster"
+              className="w-full h-48 object-cover rounded-lg border border-gray-300"
+            />
+            <button
+              type="button"
+              onClick={() => updateField('imageUrl', '')}
+              className="absolute top-2 right-2 bg-red-600 text-white rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              <FaTimes size={14} />
+            </button>
+          </div>
+        ) : (
+          <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center mb-3">
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              id="why-speedster-image-upload"
+              onChange={handleImageUpload}
+              disabled={uploading}
+            />
+            <label
+              htmlFor="why-speedster-image-upload"
+              className={`cursor-pointer ${uploading ? 'cursor-not-allowed opacity-50' : ''}`}
+            >
+              {uploading ? (
+                <>
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500 mx-auto mb-2"></div>
+                  <p className="text-sm text-gray-600">Uploading...</p>
+                </>
+              ) : (
+                <>
+                  <FaUpload className="mx-auto text-4xl text-gray-400 mb-2" />
+                  <p className="text-sm text-gray-600">
+                    Click to upload image or drag and drop
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">Supports JPG, PNG, GIF up to 10MB</p>
+                </>
+              )}
+            </label>
+          </div>
+        )}
         <input
           type="text"
           value={data.imageUrl || ''}
           onChange={(e) => updateField('imageUrl', e.target.value)}
           className="w-full px-3 py-2 border border-gray-300 rounded-md"
-          placeholder="https://..."
+          placeholder="Or enter image URL manually (https://...)"
         />
+        <p className="mt-1 text-xs text-gray-500">Upload an image or enter a URL manually</p>
       </div>
       <div className="space-y-3">
         <h4 className="font-medium text-gray-900">Items</h4>

@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { productsAPI } from '../services/api';
-import { FaPlus, FaEdit, FaTrash, FaCog } from 'react-icons/fa';
+import { FaPlus, FaEdit, FaTrash, FaCog, FaCopy } from 'react-icons/fa';
 
 const Products: React.FC = () => {
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     fetchProducts();
@@ -19,6 +21,28 @@ const Products: React.FC = () => {
       console.error('Failed to fetch products:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDuplicate = async (id: string) => {
+    setDuplicatingId(id);
+    try {
+      const response = await productsAPI.duplicate(id);
+      const duplicatedProduct = response?.data;
+      await fetchProducts();
+
+      if (duplicatedProduct?._id) {
+        navigate(`/products/${duplicatedProduct._id}/edit`, {
+          state: { duplicatedFrom: id },
+        });
+      } else {
+        alert('Product duplicated, but could not open the new product automatically.');
+      }
+    } catch (error) {
+      console.error('Failed to duplicate product:', error);
+      alert('Failed to duplicate product');
+    } finally {
+      setDuplicatingId(null);
     }
   };
 
@@ -65,6 +89,9 @@ const Products: React.FC = () => {
                 Price
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Categories
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Status
               </th>
               <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -75,7 +102,7 @@ const Products: React.FC = () => {
           <tbody className="bg-white divide-y divide-gray-200">
             {products.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-6 py-4 text-center text-gray-500">
+                <td colSpan={5} className="px-6 py-4 text-center text-gray-500">
                   No products found
                 </td>
               </tr>
@@ -106,6 +133,30 @@ const Products: React.FC = () => {
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
+                    {product.categories && product.categories.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {product.categories.map((cat: any) => {
+                          const id =
+                            typeof cat === 'string'
+                              ? cat
+                              : cat?._id || cat?.slug || cat?.name || Math.random().toString(36);
+                          const name =
+                            typeof cat === 'string' ? cat : cat?.name || cat?.slug || 'Category';
+                          return (
+                            <span
+                              key={`${product._id}-${id}`}
+                              className="px-2 py-0.5 text-xs bg-gray-100 text-gray-700 rounded"
+                            >
+                              {name}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-gray-400">Unassigned</span>
+                    )}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
                     <span
                       className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                         product.isActive
@@ -132,6 +183,35 @@ const Products: React.FC = () => {
                       >
                         <FaCog />
                       </Link>
+                      <button
+                        onClick={() => handleDuplicate(product._id)}
+                        className="text-green-600 hover:text-green-900 disabled:opacity-50"
+                        title="Duplicate Product"
+                        disabled={duplicatingId === product._id}
+                      >
+                        {duplicatingId === product._id ? (
+                          <svg
+                            className="animate-spin h-4 w-4"
+                            viewBox="0 0 24 24"
+                          >
+                            <circle
+                              className="opacity-25"
+                              cx="12"
+                              cy="12"
+                              r="10"
+                              stroke="currentColor"
+                              strokeWidth="4"
+                            ></circle>
+                            <path
+                              className="opacity-75"
+                              fill="currentColor"
+                              d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                            ></path>
+                          </svg>
+                        ) : (
+                          <FaCopy />
+                        )}
+                      </button>
                       <button
                         onClick={() => handleDelete(product._id)}
                         className="text-red-600 hover:text-red-900"

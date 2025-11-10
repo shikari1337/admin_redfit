@@ -189,6 +189,110 @@ export const productsAPI = {
     const response = await api.delete(`/products/${id}`);
     return response.data;
   },
+  duplicate: async (id: string) => {
+    const response = await api.post(`/products/${id}/duplicate`);
+    return response.data;
+  },
+};
+
+// Categories API
+const safeError = (error: any) => {
+  if (!error || !error.response) {
+    throw error;
+  }
+  const { status, data } = error.response;
+  const message =
+    data?.message ||
+    data?.error ||
+    data?.errors?.[0]?.msg ||
+    'Something went wrong. Please try again.';
+  const code = data?.code || data?.errorCode;
+
+  const wrapped = new Error(message) as Error & { status?: number; code?: string };
+  wrapped.status = status;
+  if (code) {
+    wrapped.code = code;
+  }
+  throw wrapped;
+};
+
+export const categoriesAPI = {
+  list: async () => {
+    try {
+      const response = await api.get('/categories');
+      return response.data;
+    } catch (error: any) {
+      safeError(error);
+    }
+  },
+  create: async (data: any) => {
+    try {
+      const response = await api.post('/categories', data);
+      return response.data;
+    } catch (error: any) {
+      safeError(error);
+    }
+  },
+  update: async (id: string, data: any) => {
+    try {
+      const response = await api.put(`/categories/${id}`, data);
+      return response.data;
+    } catch (error: any) {
+      safeError(error);
+    }
+  },
+  delete: async (id: string) => {
+    try {
+      const response = await api.delete(`/categories/${id}`);
+      return response.data;
+    } catch (error: any) {
+      safeError(error);
+    }
+  },
+};
+
+// Size Charts API
+export const sizeChartsAPI = {
+  list: async (params?: { search?: string }) => {
+    try {
+      const response = await api.get('/size-charts', { params });
+      return response.data;
+    } catch (error: any) {
+      safeError(error);
+    }
+  },
+  getById: async (id: string) => {
+    try {
+      const response = await api.get(`/size-charts/${id}`);
+      return response.data;
+    } catch (error: any) {
+      safeError(error);
+    }
+  },
+  create: async (data: any) => {
+    try {
+      const response = await api.post('/size-charts', data);
+      return response.data;
+    } catch (error: any) {
+      safeError(error);
+    }
+  },
+  update: async (id: string, data: any) => {
+    try {
+      const response = await api.put(`/size-charts/${id}`, data);
+      return response.data;
+    } catch (error: any) {
+      safeError(error);
+    }
+  },
+  delete: async (id: string) => {
+    try {
+      const response = await api.delete(`/size-charts/${id}`);
+      return response.data;
+    } catch (error: any) {
+      safeError(error);
+    }
+  },
 };
 
 // Orders API
@@ -336,6 +440,80 @@ export const couponsAPI = {
   },
   delete: async (id: string) => {
     const response = await api.delete(`/coupons/${id}`);
+    return response.data;
+  },
+};
+
+export const smsTemplatesAPI = {
+  list: async () => {
+    const response = await api.get('/sms-templates');
+    return response.data.data || response.data;
+  },
+  update: async (
+    event: string,
+    data: {
+      content: string;
+      templateId?: string;
+      isEnabled?: boolean;
+      variablesHint?: string[];
+    }
+  ) => {
+    const response = await api.put(`/sms-templates/${event}`, data);
+    return response.data.data || response.data;
+  },
+};
+
+export const smsConfigAPI = {
+  get: async () => {
+    const response = await api.get('/sms-config');
+    return response.data.data || response.data;
+  },
+  update: async (data: {
+    baseUrl?: string;
+    route?: string;
+    senderId?: string;
+    isEnabled?: boolean;
+    apiKey?: string;
+  }) => {
+    const response = await api.put('/sms-config', data);
+    return response.data.data || response.data;
+  },
+};
+
+export const bundlesAPI = {
+  list: async (params?: { active?: boolean; search?: string }) => {
+    const response = await api.get('/product-bundles', { params });
+    return response.data.data || response.data;
+  },
+  getById: async (id: string) => {
+    const response = await api.get(`/product-bundles/${id}`);
+    return response.data.data || response.data;
+  },
+  create: async (data: any) => {
+    const response = await api.post('/product-bundles', data);
+    return response.data.data || response.data;
+  },
+  update: async (id: string, data: any) => {
+    const response = await api.put(`/product-bundles/${id}`, data);
+    return response.data.data || response.data;
+  },
+  delete: async (id: string) => {
+    const response = await api.delete(`/product-bundles/${id}`);
+    return response.data;
+  },
+};
+
+export const cartsAPI = {
+  listAdmin: async (params?: { status?: string; search?: string }) => {
+    const response = await api.get('/carts/admin', { params });
+    return response.data.data || response.data;
+  },
+  exportAdmin: async () => {
+    const response = await api.get('/carts/admin/export');
+    return response.data.data || response.data;
+  },
+  sendRecovery: async (cartId: string) => {
+    const response = await api.post(`/carts/${cartId}/send-recovery`);
     return response.data;
   },
 };

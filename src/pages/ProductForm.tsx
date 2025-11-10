@@ -1,8 +1,21 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { productsAPI, uploadAPI } from '../services/api';
+import { productsAPI, uploadAPI, categoriesAPI, sizeChartsAPI } from '../services/api';
 import { FaUpload, FaTimes, FaPlus, FaTrash, FaArrowLeft } from 'react-icons/fa';
 import IconPicker from '../components/IconPicker';
+
+const SLUG_MAX_LENGTH = 40;
+const META_TITLE_LIMIT = 70;
+const META_DESCRIPTION_LIMIT = 200;
+
+const slugifyValue = (value: string): string =>
+  value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, SLUG_MAX_LENGTH);
 
 interface ProductSize {
   size: string;
@@ -21,12 +34,50 @@ interface ProductVariant {
   sizes: ProductSize[];
 }
 
-interface ProductBundle {
+interface CategoryOption {
+  _id: string;
+  name: string;
+  slug: string;
+  isActive?: boolean;
+}
+
+interface SizeChartEntry {
+  size: string;
+  chest?: string;
+  waist?: string;
+  length?: string;
+  shoulder?: string;
+  sleeve?: string;
+  imageUrl?: string;
+  [key: string]: string | undefined;
+}
+
+interface SizeChartOption {
+  _id: string;
+  name: string;
+  entries?: SizeChartEntry[];
+}
+
+interface SeoFormState {
   title: string;
   description: string;
-  quantity: number;
-  price: number;
+  keywords: string;
+  canonicalUrl: string;
+  metaRobots: string;
+  ogTitle: string;
+  ogDescription: string;
+  ogImage: string;
 }
+
+const emptySizeChartEntry: SizeChartEntry = {
+  size: '',
+  chest: '',
+  waist: '',
+  length: '',
+  shoulder: '',
+  sleeve: '',
+  imageUrl: '',
+};
 
 const ProductForm: React.FC = () => {
   const { id } = useParams();
@@ -46,16 +97,8 @@ const ProductForm: React.FC = () => {
     images: [] as string[],
     videos: [] as string[],
     sizes: [] as string[],
-    sizeChart: [] as Array<{
-      size: string;
-      chest?: string;
-      waist?: string;
-      length?: string;
-      shoulder?: string;
-      sleeve?: string;
-      imageUrl?: string; // Size chart image URL
-      [key: string]: string | undefined;
-    }>,
+    categories: [] as string[],
+    sizeChart: [] as SizeChartEntry[],
     washCareInstructions: [] as Array<{ text: string; iconUrl?: string; iconName?: string }>,
     customerOrderImages: [] as string[],
     disableVariants: false,
@@ -63,8 +106,26 @@ const ProductForm: React.FC = () => {
     showFeatures: true,
     isActive: true,
     variants: [] as ProductVariant[],
-    bundles: [] as ProductBundle[],
   });
+  const [slug, setSlug] = useState('');
+  const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
+  const [seoData, setSeoData] = useState<SeoFormState>({
+    title: '',
+    description: '',
+    keywords: '',
+    canonicalUrl: '',
+    metaRobots: '',
+    ogTitle: '',
+    ogDescription: '',
+    ogImage: '',
+  });
+  const [showAdvancedSeo, setShowAdvancedSeo] = useState(false);
+
+  const [availableCategories, setAvailableCategories] = useState<CategoryOption[]>([]);
+  const [availableSizeCharts, setAvailableSizeCharts] = useState<SizeChartOption[]>([]);
+  const [lookupsLoading, setLookupsLoading] = useState(false);
+  const [sizeChartMode, setSizeChartMode] = useState<'none' | 'reference' | 'custom'>('none');
+  const [selectedSizeChartId, setSelectedSizeChartId] = useState<string>('');
 
   // Unused - using handleMultipleImageUpload instead
   // const [newImage, setNewImage] = useState<File | null>(null);
@@ -75,17 +136,76 @@ const ProductForm: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  const extractListData = (response: any) => {
+    if (!response) return [];
+    if (Array.isArray(response)) return response;
+    if (Array.isArray(response.data)) return response.data;
+    if (Array.isArray(response?.data?.data)) return response.data.data;
+    if (Array.isArray(response?.data?.data?.data)) return response.data.data.data;
+    if (Array.isArray(response?.data?.results)) return response.data.results;
+    if (Array.isArray(response?.data?.items)) return response.data.items;
+    return response.data?.data || response.data || [];
+  };
+
+  const loadLookups = async () => {
+    setLookupsLoading(true);
+    try {
+      const [catResponse, chartResponse] = await Promise.all([
+        categoriesAPI.list(),
+        sizeChartsAPI.list(),
+      ]);
+      const categoryList: CategoryOption[] = extractListData(catResponse);
+      const chartList: SizeChartOption[] = extractListData(chartResponse);
+      setAvailableCategories(categoryList);
+      setAvailableSizeCharts(chartList);
+    } catch (err) {
+      console.error('Failed to load lookups', err);
+    } finally {
+      setLookupsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadLookups();
+  }, []);
+
   useEffect(() => {
     if (isEdit) {
       fetchProduct();
     }
   }, [id]);
 
+  useEffect(() => {
+    if (!slugManuallyEdited) {
+      const autoSlug = slugifyValue(formData.name);
+      setSlug((prev) => (prev === autoSlug ? prev : autoSlug));
+    }
+  }, [formData.name, slugManuallyEdited]);
+
   const fetchProduct = async () => {
     setLoading(true);
     try {
       const response = await productsAPI.getById(id!);
       const product = response.data;
+      const productCategories =
+        (product.categories || []).map((cat: any) =>
+          typeof cat === 'string' ? cat : cat?._id || ''
+        ).filter(Boolean) || [];
+      const inferredSizeChartId =
+        product.sizeChartId ||
+        (typeof product.sizeChart === 'string'
+          ? product.sizeChart
+          : product.sizeChart?._id);
+      const sizeChartEntries: SizeChartEntry[] =
+        product.sizeChartEntries ||
+        (Array.isArray(product.sizeChart) ? product.sizeChart : []) ||
+        [];
+      const initialMode = inferredSizeChartId
+        ? 'reference'
+        : sizeChartEntries.length > 0
+        ? 'custom'
+        : 'none';
+
       setFormData({
         name: product.name || '',
         price: product.price?.toString() || '',
@@ -96,7 +216,13 @@ const ProductForm: React.FC = () => {
         images: product.images || [],
         videos: product.videos || [],
         sizes: product.sizes || [],
-        sizeChart: product.sizeChart || [],
+        categories: productCategories,
+        sizeChart:
+          initialMode === 'custom'
+            ? sizeChartEntries
+            : sizeChartEntries.length > 0
+            ? sizeChartEntries
+            : [],
         washCareInstructions: product.washCareInstructions || [],
         customerOrderImages: product.customerOrderImages || [],
         disableVariants: product.disableVariants || false,
@@ -104,8 +230,57 @@ const ProductForm: React.FC = () => {
         showFeatures: product.showFeatures !== false,
         isActive: product.isActive !== false,
         variants: product.variants || [],
-        bundles: product.bundles || [],
       });
+      setSizeChartMode(initialMode);
+      setSelectedSizeChartId(inferredSizeChartId || '');
+      if (
+        inferredSizeChartId &&
+        !availableSizeCharts.find(chart => chart._id === inferredSizeChartId)
+      ) {
+        if (product.sizeChartDetails) {
+          setAvailableSizeCharts(prev => [
+            ...prev,
+            {
+              _id: inferredSizeChartId,
+              name: product.sizeChartDetails.name || 'Linked Size Chart',
+              entries: product.sizeChartDetails.entries || sizeChartEntries,
+            },
+          ]);
+        }
+      }
+
+      const normalizedSlug = product.slug ? String(product.slug) : slugifyValue(product.name || '');
+      setSlug(normalizedSlug);
+      setSlugManuallyEdited(true);
+
+      const productSeo = product.seo || {};
+      const keywordString = Array.isArray(productSeo.keywords)
+        ? productSeo.keywords.join(', ')
+        : typeof productSeo.keywords === 'string'
+        ? productSeo.keywords
+        : '';
+
+      setSeoData({
+        title: productSeo.title || '',
+        description: productSeo.description || '',
+        keywords: keywordString,
+        canonicalUrl: productSeo.canonicalUrl || '',
+        metaRobots: productSeo.metaRobots || '',
+        ogTitle: productSeo.ogTitle || '',
+        ogDescription: productSeo.ogDescription || '',
+        ogImage: productSeo.ogImage || '',
+      });
+
+      if (
+        productSeo.canonicalUrl ||
+        productSeo.metaRobots ||
+        productSeo.ogTitle ||
+        productSeo.ogDescription ||
+        productSeo.ogImage ||
+        (Array.isArray(productSeo.keywords) && productSeo.keywords.length > 0)
+      ) {
+        setShowAdvancedSeo(true);
+      }
     } catch (error) {
       alert('Failed to load product');
       navigate('/products');
@@ -141,8 +316,110 @@ const ProductForm: React.FC = () => {
       newErrors.sizes = 'Add at least one size or variant';
     }
 
+    if (formData.categories.length === 0) {
+      newErrors.categories = 'Select at least one category';
+    }
+
+    if (sizeChartMode === 'reference' && !selectedSizeChartId) {
+      newErrors.sizeChart = 'Select a size chart';
+    }
+
+    if (sizeChartMode === 'custom') {
+      const invalidEntry = formData.sizeChart.find((entry) => !entry.size.trim());
+      if (invalidEntry) {
+        newErrors.sizeChart = 'Each size chart entry must include a size value';
+      }
+    }
+
+    const normalizedSlug = slugifyValue(slug);
+    if (!normalizedSlug) {
+      newErrors.slug = 'Product slug is required';
+    } else if (normalizedSlug.length > SLUG_MAX_LENGTH) {
+      newErrors.slug = `Slug must be ${SLUG_MAX_LENGTH} characters or fewer`;
+    } else if (slug !== normalizedSlug) {
+      newErrors.slug = 'Slug contains invalid characters';
+    }
+
+    const trimmedMetaTitle = seoData.title.trim();
+    if (trimmedMetaTitle.length > META_TITLE_LIMIT) {
+      newErrors.metaTitle = `Meta title must be ${META_TITLE_LIMIT} characters or fewer`;
+    }
+
+    const trimmedMetaDescription = seoData.description.trim();
+    if (trimmedMetaDescription.length > META_DESCRIPTION_LIMIT) {
+      newErrors.metaDescription = `Meta description must be ${META_DESCRIPTION_LIMIT} characters or fewer`;
+    }
+
+    if (
+      seoData.canonicalUrl.trim() &&
+      !/^https?:\/\//i.test(seoData.canonicalUrl.trim())
+    ) {
+      newErrors.canonicalUrl = 'Canonical URL must start with http:// or https://';
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
+  };
+
+  const toggleCategory = (categoryId: string) => {
+    setFormData((prev) => {
+      const exists = prev.categories.includes(categoryId);
+      const categories = exists
+        ? prev.categories.filter((id) => id !== categoryId)
+        : [...prev.categories, categoryId];
+      return { ...prev, categories };
+    });
+    setErrors((prev) => ({ ...prev, categories: '' }));
+  };
+
+  const selectedSizeChart = useMemo(
+    () => availableSizeCharts.find((chart) => chart._id === selectedSizeChartId),
+    [availableSizeCharts, selectedSizeChartId]
+  );
+
+  const ensureCustomEntriesInitialized = (sourceEntries?: SizeChartEntry[]) => {
+    setFormData((prev) => {
+      if (prev.sizeChart.length > 0) {
+        return prev;
+      }
+      const entries =
+        sourceEntries && sourceEntries.length > 0
+          ? sourceEntries.map((entry) => ({ ...entry }))
+          : [{ ...emptySizeChartEntry }];
+      return { ...prev, sizeChart: entries };
+    });
+  };
+
+  const handleSizeChartModeChange = (mode: 'none' | 'reference' | 'custom') => {
+    setSizeChartMode(mode);
+    setErrors((prev) => ({ ...prev, sizeChart: '' }));
+
+    if (mode === 'none') {
+      setSelectedSizeChartId('');
+    } else if (mode === 'reference') {
+      if (!selectedSizeChartId && availableSizeCharts.length > 0) {
+        setSelectedSizeChartId(availableSizeCharts[0]._id);
+      }
+    } else if (mode === 'custom') {
+      if (formData.sizeChart.length === 0) {
+        const seedEntries = selectedSizeChart?.entries;
+        ensureCustomEntriesInitialized(seedEntries);
+      }
+    }
+  };
+
+  const handleSelectSizeChartId = (chartId: string) => {
+    setSelectedSizeChartId(chartId);
+    setErrors((prev) => ({ ...prev, sizeChart: '' }));
+    if (sizeChartMode === 'custom') {
+      const chart = availableSizeCharts.find((c) => c._id === chartId);
+      if (chart?.entries?.length) {
+        setFormData((prev) => ({
+          ...prev,
+          sizeChart: chart.entries ? chart.entries.map((entry) => ({ ...entry })) : prev.sizeChart,
+        }));
+      }
+    }
   };
 
   const handleDrag = (e: React.DragEvent) => {
@@ -289,34 +566,6 @@ const ProductForm: React.FC = () => {
     setFormData({ ...formData, variants: newVariants });
   };
 
-  const addBundle = () => {
-    setFormData({
-      ...formData,
-      bundles: [
-        ...formData.bundles,
-        {
-          title: '',
-          description: '',
-          quantity: 1,
-          price: 0,
-        },
-      ],
-    });
-  };
-
-  const updateBundle = (index: number, field: keyof ProductBundle, value: any) => {
-    const newBundles = [...formData.bundles];
-    newBundles[index] = { ...newBundles[index], [field]: value };
-    setFormData({ ...formData, bundles: newBundles });
-  };
-
-  const removeBundle = (index: number) => {
-    setFormData({
-      ...formData,
-      bundles: formData.bundles.filter((_, i) => i !== index),
-    });
-  };
-
   const handleVariantImageUpload = async (variantIndex: number, files: FileList) => {
     const imageFiles = Array.from(files).filter(file => file.type.startsWith('image/'));
     if (imageFiles.length === 0) return;
@@ -436,32 +685,27 @@ const ProductForm: React.FC = () => {
   };
 
   const addSizeChartEntry = () => {
-    setFormData({
-      ...formData,
-      sizeChart: [
-        ...formData.sizeChart,
-        {
-          size: '',
-          chest: '',
-          waist: '',
-          length: '',
-          shoulder: '',
-          sleeve: '',
-        },
-      ],
-    });
+    setFormData((prev) => ({
+      ...prev,
+      sizeChart: [...prev.sizeChart, { ...emptySizeChartEntry }],
+    }));
   };
 
   const updateSizeChart = (index: number, field: string, value: string) => {
-    const newSizeChart = [...formData.sizeChart];
-    newSizeChart[index] = { ...newSizeChart[index], [field]: value };
-    setFormData({ ...formData, sizeChart: newSizeChart });
+    setFormData((prev) => {
+      const newSizeChart = [...prev.sizeChart];
+      newSizeChart[index] = { ...newSizeChart[index], [field]: value };
+      return { ...prev, sizeChart: newSizeChart };
+    });
   };
 
   const removeSizeChartEntry = (index: number) => {
-    setFormData({
-      ...formData,
-      sizeChart: formData.sizeChart.filter((_, i) => i !== index),
+    setFormData((prev) => {
+      const updated = prev.sizeChart.filter((_, i) => i !== index);
+      return {
+        ...prev,
+        sizeChart: updated.length > 0 ? updated : [{ ...emptySizeChartEntry }],
+      };
     });
   };
 
@@ -474,23 +718,90 @@ const ProductForm: React.FC = () => {
 
     setSaving(true);
     try {
-      const data = {
-        ...formData,
+      const cleanedSizes = formData.sizes.filter((s) => s.trim());
+      const cleanedVideos = formData.videos.filter((v) => v.trim());
+      const cleanedInstructions = formData.washCareInstructions.filter((instr) => instr.text.trim() !== '');
+      const cleanedVariants = formData.variants.map((v) => ({
+        ...v,
+        sizes: v.sizes.filter((s) => s.size.trim() && s.sku.trim()),
+      }));
+      const normalizedSlug = slugifyValue(slug);
+      setSlug(normalizedSlug);
+
+      const { sizeChart: sizeChartEntries, categories: selectedCategories, ...rest } = formData;
+
+      const data: Record<string, any> = {
+        ...rest,
         price: parseFloat(formData.price),
         originalPrice: parseFloat(formData.originalPrice),
-        sizes: formData.sizes.filter((s) => s.trim()),
-        videos: formData.videos.filter((v) => v.trim()),
-        sizeChart: formData.sizeChart.filter((sc) => sc.size.trim()),
-        washCareInstructions: formData.washCareInstructions.filter((instr) => instr.text.trim() !== ''),
+        sizes: cleanedSizes,
+        videos: cleanedVideos,
+        washCareInstructions: cleanedInstructions,
         customerOrderImages: formData.customerOrderImages,
         disableVariants: formData.disableVariants,
         showOutOfStockVariants: formData.showOutOfStockVariants,
         showFeatures: formData.showFeatures,
-        variants: formData.variants.map((v) => ({
-          ...v,
-          sizes: v.sizes.filter((s) => s.size.trim() && s.sku.trim()),
-        })),
+        variants: cleanedVariants,
+        categories: selectedCategories,
       };
+
+      data.slug = normalizedSlug;
+
+      const keywordsArray = seoData.keywords
+        .split(',')
+        .map((kw) => kw.trim())
+        .filter(Boolean)
+        .slice(0, 20);
+
+      const seoPayload: Record<string, any> = {};
+      if (seoData.title.trim()) {
+        seoPayload.title = seoData.title.trim().slice(0, META_TITLE_LIMIT);
+      }
+      if (seoData.description.trim()) {
+        seoPayload.description = seoData.description.trim().slice(0, META_DESCRIPTION_LIMIT);
+      }
+      if (keywordsArray.length > 0) {
+        seoPayload.keywords = keywordsArray;
+      }
+      if (seoData.canonicalUrl.trim()) {
+        seoPayload.canonicalUrl = seoData.canonicalUrl.trim();
+      }
+      if (seoData.metaRobots.trim()) {
+        seoPayload.metaRobots = seoData.metaRobots.trim();
+      }
+      if (seoData.ogTitle.trim()) {
+        seoPayload.ogTitle = seoData.ogTitle.trim();
+      }
+      if (seoData.ogDescription.trim()) {
+        seoPayload.ogDescription = seoData.ogDescription.trim();
+      }
+      if (seoData.ogImage.trim()) {
+        seoPayload.ogImage = seoData.ogImage.trim();
+      }
+
+      data.seo = Object.keys(seoPayload).length > 0 ? seoPayload : null;
+
+      if (sizeChartMode === 'reference') {
+        data.sizeChart = selectedSizeChartId || null;
+      } else if (sizeChartMode === 'custom') {
+        const customEntries = sizeChartEntries
+          .filter((entry) => entry.size && entry.size.trim())
+          .map((entry) => {
+            const trimmed: Record<string, string> = {};
+            Object.entries(entry).forEach(([key, value]) => {
+              if (value && typeof value === 'string' && value.trim() !== '') {
+                trimmed[key] = value.trim();
+              }
+            });
+            if (!trimmed.size) {
+              trimmed.size = entry.size.trim();
+            }
+            return trimmed;
+          });
+        data.sizeChart = customEntries.length > 0 ? customEntries : null;
+      } else {
+        data.sizeChart = null;
+      }
 
       if (isEdit) {
         await productsAPI.update(id!, data);
@@ -588,6 +899,54 @@ const ProductForm: React.FC = () => {
                 </div>
 
                 <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-medium text-gray-700">
+                      Categories <span className="text-red-500">*</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={loadLookups}
+                      className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded hover:bg-gray-200"
+                    >
+                      {lookupsLoading ? 'Refreshing…' : 'Refresh'}
+                    </button>
+                  </div>
+                  {availableCategories.length === 0 ? (
+                    <p className="text-sm text-gray-500">
+                      No categories available. Add categories from the Categories section.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {availableCategories.map((category) => (
+                        <label
+                          key={category._id}
+                          className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-md bg-white hover:border-red-300 transition-colors cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            className="text-red-600 focus:ring-red-500 rounded"
+                            checked={formData.categories.includes(category._id)}
+                            onChange={() => toggleCategory(category._id)}
+                          />
+                          <span className="text-sm text-gray-700">
+                            {category.name}
+                            {!category.isActive && (
+                              <span className="ml-2 text-xs text-gray-400">(inactive)</span>
+                            )}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                  {errors.categories && (
+                    <p className="mt-1 text-sm text-red-500">{errors.categories}</p>
+                  )}
+                  <p className="mt-1 text-xs text-gray-500">
+                    Assign the product to at least one category for storefront navigation and filtering.
+                  </p>
+                </div>
+
+                <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Description Banner Image (100% width)
                   </label>
@@ -663,6 +1022,236 @@ const ProductForm: React.FC = () => {
                   </div>
                   <p className="mt-1 text-xs text-gray-500">Banner image displayed above/below product description (100% width)</p>
                 </div>
+              </div>
+            </div>
+
+            {/* SEO Settings */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">SEO Settings</h2>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Control the product URL slug and metadata used for search engines and social sharing.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAdvancedSeo((prev) => !prev)}
+                  className="self-start md:self-center text-sm text-red-600 hover:text-red-700"
+                >
+                  {showAdvancedSeo ? 'Hide advanced SEO fields' : 'Show advanced SEO fields'}
+                </button>
+              </div>
+
+              <div className="space-y-5">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Product Slug <span className="text-red-500">*</span>
+                  </label>
+                  <div className="flex flex-col md:flex-row md:items-center gap-3">
+                    <input
+                      type="text"
+                      value={slug}
+                      maxLength={SLUG_MAX_LENGTH}
+                      onChange={(e) => {
+                        setSlugManuallyEdited(true);
+                        const sanitized = slugifyValue(e.target.value);
+                        setSlug(sanitized);
+                        setErrors((prev) => ({ ...prev, slug: '' }));
+                      }}
+                      className={`flex-1 px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
+                        errors.slug ? 'border-red-500' : 'border-gray-300'
+                      }`}
+                      placeholder="e.g., redfit-premium-tshirt"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const auto = slugifyValue(formData.name || '');
+                        setSlug(auto);
+                        setSlugManuallyEdited(false);
+                        setErrors((prev) => ({ ...prev, slug: '' }));
+                      }}
+                      className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                    >
+                      Reset from name
+                    </button>
+                  </div>
+                  <div className="flex justify-between text-xs text-gray-500 mt-1">
+                    <span>Lowercase letters, numbers, and hyphens only.</span>
+                    <span>
+                      {slug.length}/{SLUG_MAX_LENGTH}
+                    </span>
+                  </div>
+                  {errors.slug && <p className="mt-1 text-sm text-red-500">{errors.slug}</p>}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Meta Title
+                  </label>
+                  <input
+                    type="text"
+                    value={seoData.title}
+                    onChange={(e) => {
+                      const value = e.target.value.slice(0, META_TITLE_LIMIT);
+                      setSeoData((prev) => ({ ...prev, title: value }));
+                      setErrors((prev) => ({ ...prev, metaTitle: '' }));
+                    }}
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
+                      errors.metaTitle ? 'border-red-500' : 'border-gray-300'
+                    }`}
+                    placeholder="Meta title shown in search results"
+                  />
+                  <div className="flex justify-between text-xs text-gray-500 mt-1">
+                    <span>Recommended up to {META_TITLE_LIMIT} characters.</span>
+                    <span>
+                      {seoData.title.length}/{META_TITLE_LIMIT}
+                    </span>
+                  </div>
+                  {errors.metaTitle && (
+                    <p className="mt-1 text-sm text-red-500">{errors.metaTitle}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Meta Description
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={seoData.description}
+                    onChange={(e) => {
+                      const value = e.target.value.slice(0, META_DESCRIPTION_LIMIT);
+                      setSeoData((prev) => ({ ...prev, description: value }));
+                      setErrors((prev) => ({ ...prev, metaDescription: '' }));
+                    }}
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
+                      errors.metaDescription ? 'border-red-500' : 'border-gray-300'
+                    }`}
+                    placeholder="Short summary that appears below the title in search results"
+                  />
+                  <div className="flex justify-between text-xs text-gray-500 mt-1">
+                    <span>Recommended up to {META_DESCRIPTION_LIMIT} characters.</span>
+                    <span>
+                      {seoData.description.length}/{META_DESCRIPTION_LIMIT}
+                    </span>
+                  </div>
+                  {errors.metaDescription && (
+                    <p className="mt-1 text-sm text-red-500">{errors.metaDescription}</p>
+                  )}
+                </div>
+
+                {showAdvancedSeo && (
+                  <div className="space-y-4 border-t border-gray-200 pt-4">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Canonical URL
+                        </label>
+                        <input
+                          type="url"
+                          value={seoData.canonicalUrl}
+                          onChange={(e) => {
+                            setSeoData((prev) => ({ ...prev, canonicalUrl: e.target.value }));
+                            setErrors((prev) => ({ ...prev, canonicalUrl: '' }));
+                          }}
+                          className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
+                            errors.canonicalUrl ? 'border-red-500' : 'border-gray-300'
+                          }`}
+                          placeholder="https://redfit.in/products/redfit-premium-tshirt"
+                        />
+                        {errors.canonicalUrl && (
+                          <p className="mt-1 text-sm text-red-500">{errors.canonicalUrl}</p>
+                        )}
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Meta Robots
+                        </label>
+                        <input
+                          type="text"
+                          value={seoData.metaRobots}
+                          onChange={(e) =>
+                            setSeoData((prev) => ({ ...prev, metaRobots: e.target.value }))
+                          }
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                          placeholder="index, follow"
+                        />
+                        <p className="mt-1 text-xs text-gray-500">
+                          Optional. Common values: `index, follow`, `noindex, follow`.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Meta Keywords
+                      </label>
+                      <input
+                        type="text"
+                        value={seoData.keywords}
+                        onChange={(e) =>
+                          setSeoData((prev) => ({ ...prev, keywords: e.target.value }))
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                        placeholder="performance t-shirt, gym wear, redfit"
+                      />
+                      <p className="mt-1 text-xs text-gray-500">
+                        Comma-separated keywords (optional).
+                      </p>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Open Graph Title
+                        </label>
+                        <input
+                          type="text"
+                          value={seoData.ogTitle}
+                          onChange={(e) =>
+                            setSeoData((prev) => ({ ...prev, ogTitle: e.target.value }))
+                          }
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                          placeholder="Title used when sharing on social platforms"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Open Graph Image URL
+                        </label>
+                        <input
+                          type="text"
+                          value={seoData.ogImage}
+                          onChange={(e) =>
+                            setSeoData((prev) => ({ ...prev, ogImage: e.target.value }))
+                          }
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                          placeholder="https://..."
+                        />
+                        <p className="mt-1 text-xs text-gray-500">
+                          Recommended 1200x630 image for social sharing.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Open Graph Description
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={seoData.ogDescription}
+                        onChange={(e) =>
+                          setSeoData((prev) => ({ ...prev, ogDescription: e.target.value }))
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                        placeholder="Description used for shared links on social media"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1073,79 +1662,14 @@ const ProductForm: React.FC = () => {
               )}
             </div>
 
-            {/* Bundles */}
+            {/* Bundles moved notice */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-lg font-semibold text-gray-900">Bundles</h2>
-                <button
-                  type="button"
-                  onClick={addBundle}
-                  className="flex items-center px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
-                >
-                  <FaPlus className="mr-1" size={12} />
-                  Add Bundle
-                </button>
-              </div>
-
-              {formData.bundles.length === 0 ? (
-                <p className="text-sm text-gray-500">No bundles added.</p>
-              ) : (
-                <div className="space-y-4">
-                  {formData.bundles.map((bundle, index) => (
-                    <div key={index} className="border border-gray-200 rounded-lg p-4">
-                      <div className="flex justify-between items-start mb-4">
-                        <h3 className="text-sm font-medium text-gray-700">Bundle {index + 1}</h3>
-                        <button
-                          type="button"
-                          onClick={() => removeBundle(index)}
-                          className="text-red-600 hover:text-red-800"
-                        >
-                          <FaTrash size={14} />
-                        </button>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-xs font-medium text-gray-700 mb-1">Title</label>
-                          <input
-                            type="text"
-                            className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                            value={bundle.title}
-                            onChange={(e) => updateBundle(index, 'title', e.target.value)}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-700 mb-1">Quantity</label>
-                          <input
-                            type="number"
-                            className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                            value={bundle.quantity}
-                            onChange={(e) => updateBundle(index, 'quantity', parseInt(e.target.value) || 1)}
-                          />
-                        </div>
-                        <div className="col-span-2">
-                          <label className="block text-xs font-medium text-gray-700 mb-1">Description</label>
-                          <textarea
-                            rows={2}
-                            className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                            value={bundle.description}
-                            onChange={(e) => updateBundle(index, 'description', e.target.value)}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-700 mb-1">Price (₹)</label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                            value={bundle.price}
-                            onChange={(e) => updateBundle(index, 'price', parseFloat(e.target.value) || 0)}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <h2 className="text-lg font-semibold text-gray-900 mb-2">Bundles</h2>
+              <p className="text-sm text-gray-600">
+                Product bundles now live under <span className="font-medium">Products → Bundles</span>.
+                Manage combos there to curate two or three product offers with dedicated pricing and swatch
+                imagery. Existing bundles assigned to this product will continue to work automatically.
+              </p>
             </div>
           </div>
 
@@ -1232,110 +1756,289 @@ const ProductForm: React.FC = () => {
                 <h2 className="text-lg font-semibold text-gray-900">Size Chart</h2>
                 <button
                   type="button"
-                  onClick={addSizeChartEntry}
-                  className="flex items-center px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+                  onClick={loadLookups}
+                  className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
                 >
-                  <FaPlus className="mr-1" size={12} />
-                  Add Size Entry
+                  {lookupsLoading ? 'Refreshing…' : 'Refresh lists'}
                 </button>
               </div>
-              <p className="text-sm text-gray-600 mb-4">Add size measurements for each size (chest, waist, length, etc.)</p>
-              
-              {formData.sizeChart.length === 0 ? (
-                <p className="text-sm text-gray-500">No size chart entries added. Click "Add Size Entry" to add measurements.</p>
-              ) : (
-                <div className="space-y-4">
-                  {formData.sizeChart.map((entry, index) => (
-                    <div key={index} className="border border-gray-200 rounded-lg p-4">
-                      <div className="flex justify-between items-start mb-3">
-                        <h3 className="text-sm font-medium text-gray-700">Entry {index + 1}</h3>
+
+              <div className="space-y-4">
+                <div>
+                  <span className="block text-sm font-medium text-gray-700 mb-2">Link strategy</span>
+                  <div className="flex flex-wrap gap-4">
+                    <label className="inline-flex items-center text-sm text-gray-700">
+                      <input
+                        type="radio"
+                        name="sizeChartMode"
+                        className="mr-2 text-red-600 focus:ring-red-500"
+                        checked={sizeChartMode === 'none'}
+                        onChange={() => handleSizeChartModeChange('none')}
+                      />
+                      No size chart
+                    </label>
+                    <label
+                      className={`inline-flex items-center text-sm ${
+                        availableSizeCharts.length === 0 ? 'text-gray-400' : 'text-gray-700'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="sizeChartMode"
+                        className="mr-2 text-red-600 focus:ring-red-500"
+                        checked={sizeChartMode === 'reference'}
+                        onChange={() => handleSizeChartModeChange('reference')}
+                        disabled={availableSizeCharts.length === 0}
+                      />
+                      Link existing chart
+                    </label>
+                    <label className="inline-flex items-center text-sm text-gray-700">
+                      <input
+                        type="radio"
+                        name="sizeChartMode"
+                        className="mr-2 text-red-600 focus:ring-red-500"
+                        checked={sizeChartMode === 'custom'}
+                        onChange={() => handleSizeChartModeChange('custom')}
+                      />
+                      Custom measurements
+                    </label>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Reuse a shared size chart or define measurements specific to this product.
+                  </p>
+                </div>
+
+                {sizeChartMode === 'reference' && (
+                  <div className="space-y-3">
+                    <label className="block text-sm font-medium text-gray-700">
+                      Select size chart <span className="text-red-500">*</span>
+                    </label>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select
+                        value={selectedSizeChartId}
+                        onChange={(e) => handleSelectSizeChartId(e.target.value)}
+                        className="flex-1 min-w-[200px] px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                      >
+                        <option value="">Choose size chart…</option>
+                        {availableSizeCharts.map((chart) => (
+                          <option key={chart._id} value={chart._id}>
+                            {chart.name}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={loadLookups}
+                        className="px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+                      >
+                        Refresh
+                      </button>
+                    </div>
+                    {selectedSizeChart ? (
+                      <div className="border border-gray-200 rounded-lg p-3 bg-gray-50">
+                        <p className="text-xs text-gray-500 mb-2">
+                          Previewing {selectedSizeChart.entries?.length || 0} entries
+                        </p>
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full text-xs text-gray-600">
+                            <thead className="text-gray-500">
+                              <tr>
+                                <th className="text-left font-medium pr-3 py-1">Size</th>
+                                <th className="text-left font-medium pr-3 py-1">Chest</th>
+                                <th className="text-left font-medium pr-3 py-1">Waist</th>
+                                <th className="text-left font-medium pr-3 py-1">Length</th>
+                                <th className="text-left font-medium pr-3 py-1 hidden md:table-cell">
+                                  Shoulder
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(selectedSizeChart.entries || []).slice(0, 6).map((entry, idx) => (
+                                <tr key={`${selectedSizeChart._id}-${idx}`}>
+                                  <td className="pr-3 py-1">{entry.size || '-'}</td>
+                                  <td className="pr-3 py-1">{entry.chest || '-'}</td>
+                                  <td className="pr-3 py-1">{entry.waist || '-'}</td>
+                                  <td className="pr-3 py-1">{entry.length || '-'}</td>
+                                  <td className="pr-3 py-1 hidden md:table-cell">
+                                    {entry.shoulder || '-'}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        {selectedSizeChart.entries && selectedSizeChart.entries.length > 6 && (
+                          <p className="text-[11px] text-gray-400 mt-2">
+                            +{selectedSizeChart.entries.length - 6} more entries
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-500">
+                        {availableSizeCharts.length === 0
+                          ? 'No reusable size charts created yet.'
+                          : 'Select a size chart to preview its measurements.'}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {sizeChartMode === 'custom' && (
+                  <div className="space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-sm text-gray-600">
+                        Define custom measurements or import entries from an existing chart.
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {availableSizeCharts.length > 0 && (
+                          <select
+                            value={selectedSizeChartId}
+                            onChange={(e) => handleSelectSizeChartId(e.target.value)}
+                            className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                          >
+                            <option value="">Import from existing chart…</option>
+                            {availableSizeCharts.map((chart) => (
+                              <option key={chart._id} value={chart._id}>
+                                {chart.name}
+                              </option>
+                            ))}
+                          </select>
+                        )}
                         <button
                           type="button"
-                          onClick={() => removeSizeChartEntry(index)}
-                          className="text-red-600 hover:text-red-800"
+                          onClick={addSizeChartEntry}
+                          className="flex items-center px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
                         >
-                          <FaTrash size={14} />
+                          <FaPlus className="mr-1" size={12} />
+                          Add Entry
                         </button>
                       </div>
-                      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                        <div>
-                          <label className="block text-xs font-medium text-gray-700 mb-1">
-                            Size <span className="text-red-500">*</span>
-                          </label>
-                          <input
-                            type="text"
-                            className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                            placeholder="S, M, L, XL"
-                            value={entry.size}
-                            onChange={(e) => updateSizeChart(index, 'size', e.target.value)}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-700 mb-1">Chest</label>
-                          <input
-                            type="text"
-                            className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                            placeholder="e.g., 38 inches"
-                            value={entry.chest || ''}
-                            onChange={(e) => updateSizeChart(index, 'chest', e.target.value)}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-700 mb-1">Waist</label>
-                          <input
-                            type="text"
-                            className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                            placeholder="e.g., 32 inches"
-                            value={entry.waist || ''}
-                            onChange={(e) => updateSizeChart(index, 'waist', e.target.value)}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-700 mb-1">Length</label>
-                          <input
-                            type="text"
-                            className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                            placeholder="e.g., 28 inches"
-                            value={entry.length || ''}
-                            onChange={(e) => updateSizeChart(index, 'length', e.target.value)}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-700 mb-1">Shoulder</label>
-                          <input
-                            type="text"
-                            className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                            placeholder="e.g., 16 inches"
-                            value={entry.shoulder || ''}
-                            onChange={(e) => updateSizeChart(index, 'shoulder', e.target.value)}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-700 mb-1">Sleeve</label>
-                          <input
-                            type="text"
-                            className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                            placeholder="e.g., 24 inches"
-                            value={entry.sleeve || ''}
-                            onChange={(e) => updateSizeChart(index, 'sleeve', e.target.value)}
-                          />
-                        </div>
-                      </div>
-                      <div className="mt-3">
-                        <label className="block text-xs font-medium text-gray-700 mb-1">Size Chart Image URL (Optional)</label>
-                        <input
-                          type="text"
-                          className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                          placeholder="https://example.com/size-chart.png"
-                          value={entry.imageUrl || ''}
-                          onChange={(e) => updateSizeChart(index, 'imageUrl', e.target.value)}
-                        />
-                        <p className="mt-1 text-xs text-gray-500">Optional: URL to a size chart image for this size</p>
-                      </div>
                     </div>
-                  ))}
-                </div>
-              )}
+
+                    {formData.sizeChart.length === 0 ? (
+                      <p className="text-sm text-gray-500">
+                        No size chart entries yet. Use “Add Entry” or import from an existing chart.
+                      </p>
+                    ) : (
+                      <div className="space-y-4">
+                        {formData.sizeChart.map((entry, index) => (
+                          <div key={index} className="border border-gray-200 rounded-lg p-4">
+                            <div className="flex justify-between items-start mb-3">
+                              <h3 className="text-sm font-medium text-gray-700">Entry {index + 1}</h3>
+                              <button
+                                type="button"
+                                onClick={() => removeSizeChartEntry(index)}
+                                className="text-red-600 hover:text-red-800"
+                              >
+                                <FaTrash size={14} />
+                              </button>
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                              <div>
+                                <label className="block text-xs font-medium text-gray-700 mb-1">
+                                  Size <span className="text-red-500">*</span>
+                                </label>
+                                <input
+                                  type="text"
+                                  className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                                  placeholder="S, M, L, XL"
+                                  value={entry.size}
+                                  onChange={(e) => updateSizeChart(index, 'size', e.target.value)}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-gray-700 mb-1">
+                                  Chest
+                                </label>
+                                <input
+                                  type="text"
+                                  className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                                  placeholder="e.g., 38 inches"
+                                  value={entry.chest || ''}
+                                  onChange={(e) => updateSizeChart(index, 'chest', e.target.value)}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-gray-700 mb-1">
+                                  Waist
+                                </label>
+                                <input
+                                  type="text"
+                                  className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                                  placeholder="e.g., 32 inches"
+                                  value={entry.waist || ''}
+                                  onChange={(e) => updateSizeChart(index, 'waist', e.target.value)}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-gray-700 mb-1">
+                                  Length
+                                </label>
+                                <input
+                                  type="text"
+                                  className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                                  placeholder="e.g., 28 inches"
+                                  value={entry.length || ''}
+                                  onChange={(e) => updateSizeChart(index, 'length', e.target.value)}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-gray-700 mb-1">
+                                  Shoulder
+                                </label>
+                                <input
+                                  type="text"
+                                  className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                                  placeholder="e.g., 16 inches"
+                                  value={entry.shoulder || ''}
+                                  onChange={(e) => updateSizeChart(index, 'shoulder', e.target.value)}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-gray-700 mb-1">
+                                  Sleeve
+                                </label>
+                                <input
+                                  type="text"
+                                  className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                                  placeholder="e.g., 24 inches"
+                                  value={entry.sleeve || ''}
+                                  onChange={(e) => updateSizeChart(index, 'sleeve', e.target.value)}
+                                />
+                              </div>
+                            </div>
+                            <div className="mt-3">
+                              <label className="block text-xs font-medium text-gray-700 mb-1">
+                                Size Chart Image URL (Optional)
+                              </label>
+                              <input
+                                type="text"
+                                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                                placeholder="https://example.com/size-chart.png"
+                                value={entry.imageUrl || ''}
+                                onChange={(e) => updateSizeChart(index, 'imageUrl', e.target.value)}
+                              />
+                              <p className="mt-1 text-xs text-gray-500">
+                                Optional image for this size row.
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {sizeChartMode === 'none' && (
+                  <p className="text-sm text-gray-500">
+                    This product will not display any size chart.
+                  </p>
+                )}
+
+                {errors.sizeChart && (
+                  <p className="text-sm text-red-500">{errors.sizeChart}</p>
+                )}
+              </div>
             </div>
 
             {/* Display Options */}

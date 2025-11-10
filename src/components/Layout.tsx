@@ -1,8 +1,20 @@
 import React, { useState } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
-import { 
-  FaHome, FaBox, FaShoppingCart, FaSignOutAlt, 
-  FaBars, FaTimes, FaQuestionCircle, FaStar, FaTicketAlt, FaCog
+import {
+  FaHome,
+  FaBox,
+  FaShoppingCart,
+  FaSignOutAlt,
+  FaBars,
+  FaTimes,
+  FaQuestionCircle,
+  FaStar,
+  FaTicketAlt,
+  FaCog,
+  FaLayerGroup,
+  FaRulerCombined,
+  FaCubes,
+  FaSms,
 } from 'react-icons/fa';
 
 const Layout: React.FC = () => {
@@ -11,14 +23,35 @@ const Layout: React.FC = () => {
   const navigate = useNavigate();
 
   const handleLogout = () => {
+    // Remove admin token
     localStorage.removeItem('admin_token');
-    navigate('/login');
+    // Navigate to login page
+    navigate('/login', { replace: true });
   };
 
   const menuItems = [
     { path: '/dashboard', icon: FaHome, label: 'Dashboard' },
-    { path: '/products', icon: FaBox, label: 'Products' },
-    { path: '/orders', icon: FaShoppingCart, label: 'Orders' },
+    {
+      path: '/products',
+      icon: FaBox,
+      label: 'Products',
+      children: [
+        { path: '/products', label: 'All Products' },
+        { path: '/products/bundles', label: 'Bundles', icon: FaCubes },
+        { path: '/products/new', label: 'Create Product' },
+      ],
+    },
+    { path: '/categories', icon: FaLayerGroup, label: 'Categories' },
+    { path: '/size-charts', icon: FaRulerCombined, label: 'Size Charts' },
+    {
+      path: '/orders',
+      icon: FaShoppingCart,
+      label: 'Orders',
+      children: [
+        { path: '/orders', label: 'All Orders' },
+        { path: '/orders/abandoned-carts', label: 'Abandoned Carts', icon: FaSms },
+      ],
+    },
     { path: '/coupons', icon: FaTicketAlt, label: 'Coupons' },
     { path: '/reviews', icon: FaStar, label: 'Reviews' },
     { path: '/faqs', icon: FaQuestionCircle, label: 'FAQs' },
@@ -45,25 +78,64 @@ const Layout: React.FC = () => {
         </div>
 
         {/* Navigation Menu */}
-        <nav className="flex-1 overflow-y-auto mt-4">
+        <nav className="flex-1 overflow-y-auto mt-4 space-y-1">
           {menuItems.map((item) => {
             const Icon = item.icon;
-            const isActive = location.pathname === item.path || 
-              (item.path !== '/dashboard' && location.pathname.startsWith(item.path)) ||
-              (item.path === '/settings' && location.pathname.startsWith('/settings'));
-            
+            const hasChildren = Array.isArray(item.children) && item.children.length > 0;
+            const isActive =
+              location.pathname === item.path ||
+              (item.path !== '/dashboard' && location.pathname.startsWith(item.path));
+
+            if (!hasChildren) {
+              return (
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  onClick={() => setSidebarOpen(false)}
+                  className={`flex items-center px-6 py-3 text-gray-300 hover:bg-gray-800 hover:text-white transition-colors ${
+                    isActive ? 'bg-gray-800 text-white border-r-2 border-red-500' : ''
+                  }`}
+                >
+                  <Icon className="mr-3" size={18} />
+                  <span className="font-medium">{item.label}</span>
+                </Link>
+              );
+            }
+
+            const childActive =
+              item.children?.some((child) => location.pathname.startsWith(child.path)) ?? false;
+
             return (
-              <Link
-                key={item.path}
-                to={item.path}
-                onClick={() => setSidebarOpen(false)}
-                className={`flex items-center px-6 py-3 text-gray-300 hover:bg-gray-800 hover:text-white transition-colors ${
-                  isActive ? 'bg-gray-800 text-white border-r-2 border-red-500' : ''
-                }`}
-              >
-                <Icon className="mr-3" size={18} />
-                <span className="font-medium">{item.label}</span>
-              </Link>
+              <div key={item.path} className="px-3">
+                <div
+                  className={`flex items-center px-3 py-3 text-gray-300 transition-colors ${
+                    childActive ? 'bg-gray-800 text-white border-r-2 border-red-500 rounded-md' : ''
+                  }`}
+                >
+                  <Icon className="mr-3" size={18} />
+                  <span className="font-medium">{item.label}</span>
+                </div>
+                <div className="ml-8 mt-1 space-y-1">
+                  {item.children?.map((child) => {
+                    const isChildActive = location.pathname.startsWith(child.path);
+                    return (
+                      <Link
+                        key={child.path}
+                        to={child.path}
+                        onClick={() => setSidebarOpen(false)}
+                        className={`flex items-center px-3 py-2 text-sm rounded-md transition-colors ${
+                          isChildActive
+                            ? 'bg-gray-800 text-white'
+                            : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+                        }`}
+                      >
+                        {child.icon && <child.icon className="mr-2" size={14} />}
+                        {child.label}
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
             );
           })}
         </nav>

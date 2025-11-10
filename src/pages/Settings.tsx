@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaPhone, FaCreditCard, FaArrowLeft } from 'react-icons/fa';
+import { FaPhone, FaCreditCard, FaArrowLeft, FaSms } from 'react-icons/fa';
 
 const Settings: React.FC = () => {
   const navigate = useNavigate();
@@ -17,6 +17,12 @@ const Settings: React.FC = () => {
       description: 'Configure payment gateway based discount percentage',
       icon: FaCreditCard,
       path: '/settings/payment-discount',
+    },
+    {
+      title: 'SMS Templates',
+      description: 'Configure SMSAlert templates for orders and cart recovery',
+      icon: FaSms,
+      path: '/settings/sms-templates',
     },
   ];
 
