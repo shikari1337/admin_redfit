@@ -16,6 +16,7 @@ import {
   FaCubes,
   FaSms,
 } from 'react-icons/fa';
+import PageTransitionLoader from './PageTransitionLoader';
 
 const Layout: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -60,6 +61,7 @@ const Layout: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
+      <PageTransitionLoader />
       {/* Sidebar */}
       <aside
         className={`fixed inset-y-0 left-0 z-50 w-64 bg-gray-900 text-white transform transition-transform duration-300 ease-in-out ${

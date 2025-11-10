@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { productsAPI } from '../services/api';
 import { FaPlus, FaEdit, FaTrash, FaCog, FaCopy } from 'react-icons/fa';
+import LoadingSpinner from '../components/LoadingSpinner';
 
 const Products: React.FC = () => {
   const [products, setProducts] = useState<any[]>([]);
@@ -28,19 +29,19 @@ const Products: React.FC = () => {
     setDuplicatingId(id);
     try {
       const response = await productsAPI.duplicate(id);
-      const duplicatedProduct = response?.data;
-      await fetchProducts();
-
-      if (duplicatedProduct?._id) {
-        navigate(`/products/${duplicatedProduct._id}/edit`, {
-          state: { duplicatedFrom: id },
+      const prefilledData = response?.data;
+      
+      if (prefilledData) {
+        // Navigate to add page with prefilled data
+        navigate('/products/new', {
+          state: { prefilledData, duplicatedFrom: id },
         });
       } else {
-        alert('Product duplicated, but could not open the new product automatically.');
+        alert('Failed to load product data for duplication.');
       }
     } catch (error) {
       console.error('Failed to duplicate product:', error);
-      alert('Failed to duplicate product');
+      alert('Failed to duplicate product. Please try again.');
     } finally {
       setDuplicatingId(null);
     }
@@ -60,7 +61,7 @@ const Products: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500"></div>
+        <LoadingSpinner size="lg" color="primary" text="Loading products..." />
       </div>
     );
   }

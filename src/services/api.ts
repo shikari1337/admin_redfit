@@ -190,7 +190,8 @@ export const productsAPI = {
     return response.data;
   },
   duplicate: async (id: string) => {
-    const response = await api.post(`/products/${id}/duplicate`);
+    // Get prefilled data for duplication (doesn't create product)
+    const response = await api.get(`/products/${id}/duplicate`);
     return response.data;
   },
 };
@@ -309,7 +310,13 @@ export const ordersAPI = {
   },
   getById: async (id: string) => {
     const response = await api.get(`/orders/${id}`);
-    return response.data;
+    // Backend returns { success: true, data: orderData }
+    // Extract and return the order data in the format expected by frontend
+    if (response.data?.success && response.data?.data) {
+      return { data: response.data.data };
+    }
+    // Fallback for non-standard responses
+    return response.data?.data ? { data: response.data.data } : response.data;
   },
   updateStatus: async (id: string, status: string) => {
     const response = await api.put(`/orders/${id}/status`, { status });

@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { FaDownload, FaSearch, FaSms, FaSyncAlt } from 'react-icons/fa';
 import { cartsAPI } from '../services/api';
+import LoadingSpinner from '../components/LoadingSpinner';
+import ButtonLoader from '../components/ButtonLoader';
 
 interface CartItem {
   productId: string;
@@ -160,8 +162,17 @@ const AbandonedCarts: React.FC = () => {
             disabled={loading}
             className="inline-flex items-center px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 disabled:opacity-50"
           >
-            <FaSyncAlt className={`mr-2 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
+            {loading ? (
+              <>
+                <ButtonLoader size="sm" color="current" />
+                <span className="ml-2">Refreshing...</span>
+              </>
+            ) : (
+              <>
+                <FaSyncAlt className="mr-2" />
+                Refresh
+              </>
+            )}
           </button>
           <button
             onClick={handleExport}
@@ -241,10 +252,7 @@ const AbandonedCarts: React.FC = () => {
               {loading ? (
                 <tr>
                   <td colSpan={5} className="px-6 py-10 text-center text-gray-500">
-                    <div className="inline-flex items-center gap-2 text-sm text-gray-600">
-                      <span className="animate-spin rounded-full h-5 w-5 border-b-2 border-red-500"></span>
-                      Loading carts...
-                    </div>
+                    <LoadingSpinner size="md" color="primary" text="Loading carts..." />
                   </td>
                 </tr>
               ) : carts.length === 0 ? (

@@ -1,94 +1,54 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { productsAPI, uploadAPI, categoriesAPI, sizeChartsAPI } from '../services/api';
-import { FaUpload, FaTimes, FaPlus, FaTrash, FaArrowLeft } from 'react-icons/fa';
+import { FaUpload, FaTimes, FaPlus, FaTrash, FaArrowLeft, FaCog } from 'react-icons/fa';
 import IconPicker from '../components/IconPicker';
-
-const SLUG_MAX_LENGTH = 40;
-const META_TITLE_LIMIT = 70;
-const META_DESCRIPTION_LIMIT = 200;
-
-const slugifyValue = (value: string): string =>
-  value
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, SLUG_MAX_LENGTH);
-
-interface ProductSize {
-  size: string;
-  stock: number;
-  sku: string;
-  price: number;
-  originalPrice: number;
-}
-
-interface ProductVariant {
-  colorName: string;
-  colorCode: string;
-  price: number;
-  originalPrice: number;
-  images: string[];
-  sizes: ProductSize[];
-}
-
-interface CategoryOption {
-  _id: string;
-  name: string;
-  slug: string;
-  isActive?: boolean;
-}
-
-interface SizeChartEntry {
-  size: string;
-  chest?: string;
-  waist?: string;
-  length?: string;
-  shoulder?: string;
-  sleeve?: string;
-  imageUrl?: string;
-  [key: string]: string | undefined;
-}
-
-interface SizeChartOption {
-  _id: string;
-  name: string;
-  entries?: SizeChartEntry[];
-}
-
-interface SeoFormState {
-  title: string;
-  description: string;
-  keywords: string;
-  canonicalUrl: string;
-  metaRobots: string;
-  ogTitle: string;
-  ogDescription: string;
-  ogImage: string;
-}
-
-const emptySizeChartEntry: SizeChartEntry = {
-  size: '',
-  chest: '',
-  waist: '',
-  length: '',
-  shoulder: '',
-  sleeve: '',
-  imageUrl: '',
-};
+import {
+  ProductBasicInfo,
+  ProductPricing,
+  ProductSizesStock,
+  ProductCategories,
+  ProductSEO,
+  ProductSizeChart,
+  ProductVideos,
+  ProductWashCare,
+  ProductCustomerImages,
+  ProductDisplayOptions,
+  ProductVariants,
+} from '../components/product';
+import {
+  ProductFormData,
+  ProductVariant,
+  ProductSize,
+  CategoryOption,
+  SizeChartEntry,
+  SizeChartOption,
+  SeoFormState,
+  VariantType,
+  VariantCombination,
+  SLUG_MAX_LENGTH,
+  META_TITLE_LIMIT,
+  META_DESCRIPTION_LIMIT,
+  emptySizeChartEntry,
+} from '../types/productForm';
+import { slugifyValue } from '../utils/slugify';
+import { validateProductForm } from '../utils/productFormValidation';
 
 const ProductForm: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const isEdit = !!id;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const customerOrderImagesInputRef = useRef<HTMLInputElement>(null);
   const [dragActive, setDragActive] = useState(false);
+  
+  // Get prefilled data from navigation state (for duplication)
+  const prefilledData = location.state?.prefilledData;
 
   const [formData, setFormData] = useState({
     name: '',
+    sku: '', // Base SKU for the product
     price: '',
     originalPrice: '',
     description: '',
@@ -97,6 +57,7 @@ const ProductForm: React.FC = () => {
     images: [] as string[],
     videos: [] as string[],
     sizes: [] as string[],
+    stock: {} as Record<string, number>, // Stock for products without variants
     categories: [] as string[],
     sizeChart: [] as SizeChartEntry[],
     washCareInstructions: [] as Array<{ text: string; iconUrl?: string; iconName?: string }>,
@@ -135,6 +96,16 @@ const ProductForm: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [newSizeInput, setNewSizeInput] = useState('');
+
+  // Shopify-style variant management state
+  const [variantTypes, setVariantTypes] = useState<VariantType[]>([]);
+  const [variantOptions, setVariantOptions] = useState<Record<string, string[]>>({}); // typeId -> option values
+  const [variantColorCodes, setVariantColorCodes] = useState<Record<string, Record<string, string>>>({}); // typeId -> optionValue -> colorCode
+  const [variantCombinations, setVariantCombinations] = useState<VariantCombination[]>([]);
+  const [useShopifyVariants, setUseShopifyVariants] = useState(false);
+  const [newVariantTypeName, setNewVariantTypeName] = useState('');
+  const [newOptionInputs, setNewOptionInputs] = useState<Record<string, string>>({}); // typeId -> input value
 
   const extractListData = (response: any) => {
     if (!response) return [];
@@ -172,8 +143,91 @@ const ProductForm: React.FC = () => {
   useEffect(() => {
     if (isEdit) {
       fetchProduct();
+    } else if (prefilledData) {
+      // Load prefilled data when duplicating
+      loadPrefilledData(prefilledData);
     }
-  }, [id]);
+  }, [id, prefilledData]);
+
+  const loadPrefilledData = (data: any) => {
+    try {
+      const productCategories =
+        (data.categories || []).map((cat: any) =>
+          typeof cat === 'string' ? cat : cat?._id || ''
+        ).filter(Boolean) || [];
+      
+      const inferredSizeChartId =
+        data.sizeChartId ||
+        (typeof data.sizeChart === 'string'
+          ? data.sizeChart
+          : data.sizeChart?._id);
+      
+      const sizeChartEntries: SizeChartEntry[] =
+        data.sizeChartEntries ||
+        (Array.isArray(data.sizeChart) ? data.sizeChart : []) ||
+        [];
+      
+      const initialMode = inferredSizeChartId
+        ? 'reference'
+        : sizeChartEntries.length > 0
+        ? 'custom'
+        : 'none';
+
+      setFormData({
+        name: data.name || '',
+        price: data.price?.toString() || '',
+        originalPrice: data.originalPrice?.toString() || '',
+        description: data.description || '',
+        richDescription: data.richDescription || '',
+        descriptionImage: data.descriptionImage || '',
+        images: data.images || [],
+        videos: data.videos || [],
+        sizes: data.sizes || [],
+        categories: productCategories,
+        sizeChart:
+          initialMode === 'custom'
+            ? sizeChartEntries
+            : sizeChartEntries.length > 0
+            ? sizeChartEntries
+            : [],
+        washCareInstructions: data.washCareInstructions || [],
+        customerOrderImages: data.customerOrderImages || [],
+        disableVariants: data.disableVariants || false,
+        showOutOfStockVariants: data.showOutOfStockVariants !== false,
+        showFeatures: data.showFeatures !== false,
+        isActive: data.isActive !== false,
+        variants: data.variants || [],
+        stock: data.stock || {},
+      });
+
+      if (data.slug) {
+        setSlug(data.slug);
+        setSlugManuallyEdited(true);
+      }
+
+      if (data.seo) {
+        setSeoData({
+          title: data.seo.title || '',
+          description: data.seo.description || '',
+          keywords: Array.isArray(data.seo.keywords) ? data.seo.keywords.join(', ') : (data.seo.keywords || ''),
+          canonicalUrl: data.seo.canonicalUrl || '',
+          metaRobots: data.seo.metaRobots || '',
+          ogTitle: data.seo.ogTitle || '',
+          ogDescription: data.seo.ogDescription || '',
+          ogImage: data.seo.ogImage || '',
+        });
+      }
+
+      if (initialMode === 'reference' && inferredSizeChartId) {
+        setSizeChartMode('reference');
+        setSelectedSizeChartId(inferredSizeChartId);
+      } else if (initialMode === 'custom') {
+        setSizeChartMode('custom');
+      }
+    } catch (error) {
+      console.error('Failed to load prefilled data:', error);
+    }
+  };
 
   useEffect(() => {
     if (!slugManuallyEdited) {
@@ -208,6 +262,7 @@ const ProductForm: React.FC = () => {
 
       setFormData({
         name: product.name || '',
+        sku: product.sku || '',
         price: product.price?.toString() || '',
         originalPrice: product.originalPrice?.toString() || '',
         description: product.description || '',
@@ -216,6 +271,7 @@ const ProductForm: React.FC = () => {
         images: product.images || [],
         videos: product.videos || [],
         sizes: product.sizes || [],
+        stock: product.stock || {},
         categories: productCategories,
         sizeChart:
           initialMode === 'custom'
@@ -487,6 +543,50 @@ const ProductForm: React.FC = () => {
     }
   };
 
+  const handleDescriptionImageUpload = async (files: FileList) => {
+    const file = files[0];
+    if (!file || !file.type.startsWith('image/')) return;
+
+    setUploading(true);
+    try {
+      const response = await uploadAPI.uploadSingle(file, 'products');
+      const imageUrl = response.data?.url || response.data?.data?.url || response.url;
+      if (imageUrl) {
+        setFormData({ ...formData, descriptionImage: imageUrl });
+      } else {
+        throw new Error('No URL in upload response');
+      }
+    } catch (error: any) {
+      console.error('Description image upload error:', error);
+      alert(error.response?.data?.message || error.message || 'Failed to upload image');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleCustomerOrderImagesUpload = async (files: FileList) => {
+    const imageFiles = Array.from(files).filter(file => file.type.startsWith('image/'));
+    if (imageFiles.length === 0) {
+      alert('Please select image files');
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const response = await uploadAPI.uploadMultiple(imageFiles, 'products');
+      const uploadedUrls = response.data?.files?.map((f: any) => f.url) || response.data?.urls || [];
+      setFormData({
+        ...formData,
+        customerOrderImages: [...formData.customerOrderImages, ...uploadedUrls],
+      });
+    } catch (error: any) {
+      console.error('Upload error:', error);
+      alert(error.response?.data?.message || 'Failed to upload images');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const removeImage = (index: number) => {
     setFormData({
       ...formData,
@@ -534,6 +634,12 @@ const ProductForm: React.FC = () => {
   const addVariantSize = (variantIndex: number) => {
     const variant = formData.variants[variantIndex];
     const newVariants = [...formData.variants];
+    
+    // Generate a temporary SKU for the new size
+    const baseSku = getBaseSku();
+    const colorCode = (variant.colorName || 'DEF').toUpperCase().slice(0, 3).replace(/[^A-Z0-9]/g, '') || 'DEF';
+    const tempSku = `${baseSku}-${colorCode}-NEW`;
+    
     newVariants[variantIndex] = {
       ...variant,
       sizes: [
@@ -541,12 +647,102 @@ const ProductForm: React.FC = () => {
         {
           size: '',
           stock: 0,
-          sku: '',
+          sku: tempSku,
           price: variant.price,
           originalPrice: variant.originalPrice,
         },
       ],
     };
+    setFormData({ ...formData, variants: newVariants });
+  };
+
+  // Get base SKU from form or generate from slug
+  const getBaseSku = (): string => {
+    if (formData.sku && formData.sku.trim()) {
+      return formData.sku.trim().toUpperCase();
+    }
+    // Fallback to slug-based SKU
+    return slug.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10) || 'PROD';
+  };
+
+  // Generate SKU for a variant size
+  const generateSkuForSize = (baseSku: string, colorName: string, size: string): string => {
+    const colorCode = (colorName || 'DEF').toUpperCase().slice(0, 4).replace(/[^A-Z0-9]/g, '') || 'DEF';
+    const sizeCode = (size || 'UNK').toUpperCase().slice(0, 4).replace(/[^A-Z0-9]/g, '') || 'UNK';
+    const base = (baseSku || getBaseSku()).toUpperCase();
+    return `${base}-${colorCode}-${sizeCode}`.slice(0, 48);
+  };
+
+  // Regenerate all SKUs for variant sizes
+  const regenerateAllSkus = () => {
+    if (!confirm('This will regenerate all SKUs for variant sizes based on the base SKU. Continue?')) {
+      return;
+    }
+
+    const baseSku = getBaseSku();
+    const usedSkus = new Set<string>();
+    const newVariants = formData.variants.map((variant) => {
+      const newSizes = variant.sizes.map((size) => {
+        if (!size.size || !size.size.trim()) {
+          return size; // Skip sizes without size value
+        }
+        
+        let newSku = generateSkuForSize(baseSku, variant.colorName, size.size);
+        let counter = 1;
+        
+        // Ensure uniqueness within this regeneration
+        while (usedSkus.has(newSku)) {
+          newSku = `${generateSkuForSize(baseSku, variant.colorName, size.size)}-${counter++}`.slice(0, 48);
+        }
+        
+        usedSkus.add(newSku);
+        return {
+          ...size,
+          sku: newSku,
+        };
+      });
+      
+      return {
+        ...variant,
+        sizes: newSizes,
+      };
+    });
+    
+    setFormData({ ...formData, variants: newVariants });
+    alert('SKUs regenerated successfully!');
+  };
+
+  // Regenerate SKUs for a specific variant
+  const regenerateVariantSkus = (variantIndex: number) => {
+    const variant = formData.variants[variantIndex];
+    const baseSku = getBaseSku();
+    const usedSkus = new Set<string>();
+    
+    const newSizes = variant.sizes.map((size) => {
+      if (!size.size || !size.size.trim()) {
+        return size; // Skip sizes without size value
+      }
+      
+      let newSku = generateSkuForSize(baseSku, variant.colorName, size.size);
+      let counter = 1;
+      
+      while (usedSkus.has(newSku)) {
+        newSku = `${generateSkuForSize(baseSku, variant.colorName, size.size)}-${counter++}`.slice(0, 48);
+      }
+      
+      usedSkus.add(newSku);
+      return {
+        ...size,
+        sku: newSku,
+      };
+    });
+    
+    const newVariants = [...formData.variants];
+    newVariants[variantIndex] = {
+      ...variant,
+      sizes: newSizes,
+    };
+    
     setFormData({ ...formData, variants: newVariants });
   };
 
@@ -557,6 +753,11 @@ const ProductForm: React.FC = () => {
     newSizes[sizeIndex] = { ...newSizes[sizeIndex], [field]: value };
     newVariants[variantIndex] = { ...variant, sizes: newSizes };
     setFormData({ ...formData, variants: newVariants });
+  };
+
+  // Wrapper for ProductVariants component (accepts string field)
+  const updateVariantSizeWrapper = (variantIndex: number, sizeIndex: number, field: string, value: any) => {
+    updateVariantSize(variantIndex, sizeIndex, field as keyof ProductSize, value);
   };
 
   const removeVariantSize = (variantIndex: number, sizeIndex: number) => {
@@ -594,6 +795,373 @@ const ProductForm: React.FC = () => {
     };
     setFormData({ ...formData, variants: newVariants });
   };
+
+  // Shopify-style variant management functions
+  const addVariantType = (typeName: string, isColor: boolean = false) => {
+    const newType: VariantType = {
+      id: `type-${Date.now()}-${Math.random()}`,
+      name: typeName.trim(),
+      isColor,
+    };
+    const updatedTypes = [...variantTypes, newType];
+    const updatedOptions = { ...variantOptions, [newType.id]: [] };
+    const updatedColorCodes = { ...variantColorCodes, [newType.id]: {} };
+    setVariantTypes(updatedTypes);
+    setVariantOptions(updatedOptions);
+    setVariantColorCodes(updatedColorCodes);
+    setNewVariantTypeName('');
+    // Generate combinations after state updates
+    setTimeout(() => {
+      generateVariantCombinations();
+    }, 0);
+  };
+
+  const removeVariantType = (typeId: string) => {
+    const newTypes = variantTypes.filter(t => t.id !== typeId);
+    const newOptions = { ...variantOptions };
+    const newColorCodes = { ...variantColorCodes };
+    delete newOptions[typeId];
+    delete newColorCodes[typeId];
+    setVariantTypes(newTypes);
+    setVariantOptions(newOptions);
+    setVariantColorCodes(newColorCodes);
+    // Generate combinations after state updates
+    setTimeout(() => {
+      generateVariantCombinations();
+    }, 0);
+  };
+
+  const addVariantOption = (typeId: string, value: string, colorCode?: string) => {
+    const trimmedValue = value.trim();
+    if (!trimmedValue) return;
+
+    const currentOptions = variantOptions[typeId] || [];
+    if (currentOptions.includes(trimmedValue)) return; // Avoid duplicates
+
+    setVariantOptions({
+      ...variantOptions,
+      [typeId]: [...currentOptions, trimmedValue],
+    });
+
+    if (colorCode) {
+      const typeColorCodes = variantColorCodes[typeId] || {};
+      setVariantColorCodes({
+        ...variantColorCodes,
+        [typeId]: {
+          ...typeColorCodes,
+          [trimmedValue]: colorCode,
+        },
+      });
+    }
+
+    // Clear input
+    const updatedInputs = { ...newOptionInputs, [typeId]: '' };
+    setNewOptionInputs(updatedInputs);
+
+    // Generate combinations after state updates
+    setTimeout(() => {
+      generateVariantCombinations();
+    }, 0);
+  };
+
+  const removeVariantOption = (typeId: string, value: string) => {
+    const currentOptions = variantOptions[typeId] || [];
+    setVariantOptions({
+      ...variantOptions,
+      [typeId]: currentOptions.filter(opt => opt !== value),
+    });
+
+    const typeColorCodes = variantColorCodes[typeId] || {};
+    if (typeColorCodes[value]) {
+      const newColorCodes = { ...typeColorCodes };
+      delete newColorCodes[value];
+      setVariantColorCodes({
+        ...variantColorCodes,
+        [typeId]: newColorCodes,
+      });
+    }
+
+    // Generate combinations after state updates
+    setTimeout(() => {
+      generateVariantCombinations();
+    }, 0);
+  };
+
+  const generateVariantCombinations = () => {
+    if (variantTypes.length === 0) {
+      setVariantCombinations([]);
+      return;
+    }
+
+    // Get all option arrays
+    const optionArrays = variantTypes.map(type => {
+      const options = variantOptions[type.id] || [];
+      return options.map(value => ({
+        typeId: type.id,
+        typeName: type.name,
+        value,
+        colorCode: variantColorCodes[type.id]?.[value],
+      }));
+    }).filter(arr => arr.length > 0);
+
+    if (optionArrays.length === 0) {
+      setVariantCombinations([]);
+      return;
+    }
+
+    // Generate cartesian product
+    const combinations: VariantCombination[] = [];
+    const existingCombinationsMap = new Map<string, VariantCombination>();
+    
+    // Create a map of existing combinations by their option signature
+    variantCombinations.forEach(comb => {
+      const signature = comb.options.map(o => `${o.typeId}:${o.value}`).join('|');
+      existingCombinationsMap.set(signature, comb);
+    });
+
+    const generate = (current: VariantOption[], index: number) => {
+      if (index === optionArrays.length) {
+        const signature = current.map(o => `${o.typeId}:${o.value}`).join('|');
+        const existing = existingCombinationsMap.get(signature);
+        
+        if (existing) {
+          // Preserve existing combination data
+          combinations.push(existing);
+        } else {
+          // Create new combination
+          const baseSku = getBaseSku();
+          const skuParts = current.map(opt => {
+            const value = opt.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
+            return value || 'DEF';
+          });
+          const sku = `${baseSku}-${skuParts.join('-')}`.slice(0, 48);
+
+          combinations.push({
+            id: `comb-${Date.now()}-${Math.random()}`,
+            options: [...current],
+            sku,
+            price: parseFloat(formData.price) || 0,
+            originalPrice: parseFloat(formData.originalPrice) || 0,
+            stock: 0,
+            images: [],
+          });
+        }
+        return;
+      }
+
+      optionArrays[index].forEach(option => {
+        generate([...current, option], index + 1);
+      });
+    };
+
+    generate([], 0);
+    setVariantCombinations(combinations);
+  };
+
+  const updateVariantCombination = (combinationId: string, field: keyof VariantCombination, value: any) => {
+    setVariantCombinations(prev =>
+      prev.map(comb =>
+        comb.id === combinationId ? { ...comb, [field]: value } : comb
+      )
+    );
+  };
+
+  const regenerateAllShopifySkus = () => {
+    const baseSku = getBaseSku();
+    setVariantCombinations((prev) =>
+      prev.map((comb) => {
+        const skuParts = comb.options.map((opt) =>
+          opt.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4)
+        );
+        const newSku = `${baseSku}-${skuParts.join('-')}`.slice(0, 48);
+        return { ...comb, sku: newSku };
+      })
+    );
+  };
+
+  const updateVariantCombinationOption = (combinationId: string, optionIndex: number, value: string) => {
+    setVariantCombinations(prev =>
+      prev.map(comb => {
+        if (comb.id === combinationId) {
+          const newOptions = [...comb.options];
+          newOptions[optionIndex] = { ...newOptions[optionIndex], value };
+          return { ...comb, options: newOptions };
+        }
+        return comb;
+      })
+    );
+  };
+
+  // Convert Shopify-style combinations to existing format
+  const convertCombinationsToVariants = (combinations: VariantCombination[]): ProductVariant[] => {
+    // Group by color (if color type exists)
+    const colorType = variantTypes.find(t => t.isColor || t.name.toLowerCase() === 'color');
+    const sizeType = variantTypes.find(t => t.name.toLowerCase() === 'size');
+
+    if (!colorType && !sizeType) {
+      // No color or size, create one variant per combination
+      return combinations.map(comb => ({
+        colorName: comb.options.map(o => o.value).join(' / ') || 'Default',
+        colorCode: '#000000',
+        price: comb.price,
+        originalPrice: comb.originalPrice,
+        images: comb.images || [],
+        sizes: sizeType
+          ? comb.options
+              .filter(o => o.typeId === sizeType.id)
+              .map(opt => ({
+                size: opt.value,
+                stock: comb.stock,
+                sku: comb.sku,
+                price: comb.price,
+                originalPrice: comb.originalPrice,
+              }))
+          : [
+              {
+                size: 'One Size',
+                stock: comb.stock,
+                sku: comb.sku,
+                price: comb.price,
+                originalPrice: comb.originalPrice,
+              },
+            ],
+      }));
+    }
+
+    // Group by color
+    const variantsMap = new Map<string, ProductVariant>();
+
+    combinations.forEach(comb => {
+      const colorOption = comb.options.find(o => o.typeId === colorType?.id);
+      const sizeOptions = comb.options.filter(o => o.typeId === sizeType?.id);
+      const otherOptions = comb.options.filter(o => o.typeId !== colorType?.id && o.typeId !== sizeType?.id);
+
+      const colorName = colorOption?.value || 'Default';
+      const colorCode = colorOption?.colorCode || '#000000';
+      const variantKey = colorName;
+
+      if (!variantsMap.has(variantKey)) {
+        variantsMap.set(variantKey, {
+          colorName,
+          colorCode,
+          price: comb.price,
+          originalPrice: comb.originalPrice,
+          images: comb.images || [],
+          sizes: [],
+        });
+      }
+
+      const variant = variantsMap.get(variantKey)!;
+      if (sizeOptions.length > 0) {
+        sizeOptions.forEach(sizeOpt => {
+          variant.sizes.push({
+            size: sizeOpt.value,
+            stock: comb.stock,
+            sku: comb.sku,
+            price: comb.price,
+            originalPrice: comb.originalPrice,
+          });
+        });
+      } else {
+        variant.sizes.push({
+          size: 'One Size',
+          stock: comb.stock,
+          sku: comb.sku,
+          price: comb.price,
+          originalPrice: comb.originalPrice,
+        });
+      }
+    });
+
+    return Array.from(variantsMap.values());
+  };
+
+  // Convert existing variants to Shopify-style format
+  const convertVariantsToShopifyFormat = (variants: ProductVariant[]) => {
+    if (variants.length === 0) return;
+
+    // Detect color and size from existing variants
+    const hasColors = variants.some(v => v.colorName);
+    const hasSizes = variants.some(v => v.sizes.length > 0);
+
+    const newTypes: VariantType[] = [];
+    const newOptions: Record<string, string[]> = {};
+    const newColorCodes: Record<string, Record<string, string>> = {};
+
+    if (hasColors) {
+      const colorType: VariantType = {
+        id: 'type-color',
+        name: 'Color',
+        isColor: true,
+      };
+      newTypes.push(colorType);
+      const colors = [...new Set(variants.map(v => v.colorName))];
+      newOptions[colorType.id] = colors;
+      newColorCodes[colorType.id] = {};
+      variants.forEach(v => {
+        if (v.colorCode) {
+          newColorCodes[colorType.id][v.colorName] = v.colorCode;
+        }
+      });
+    }
+
+    if (hasSizes) {
+      const sizeType: VariantType = {
+        id: 'type-size',
+        name: 'Size',
+        isColor: false,
+      };
+      newTypes.push(sizeType);
+      const sizes = new Set<string>();
+      variants.forEach(v => {
+        v.sizes.forEach(s => sizes.add(s.size));
+      });
+      newOptions[sizeType.id] = Array.from(sizes);
+    }
+
+    setVariantTypes(newTypes);
+    setVariantOptions(newOptions);
+    setVariantColorCodes(newColorCodes);
+
+    // Generate combinations from existing variants
+    const combinations: VariantCombination[] = [];
+    variants.forEach(variant => {
+      variant.sizes.forEach(size => {
+        const options: VariantOption[] = [];
+        if (hasColors) {
+          options.push({
+            typeId: 'type-color',
+            typeName: 'Color',
+            value: variant.colorName,
+            colorCode: variant.colorCode,
+          });
+        }
+        if (hasSizes) {
+          options.push({
+            typeId: 'type-size',
+            typeName: 'Size',
+            value: size.size,
+          });
+        }
+        combinations.push({
+          id: `comb-${Date.now()}-${Math.random()}`,
+          options,
+          sku: size.sku,
+          price: size.price || variant.price,
+          originalPrice: size.originalPrice || variant.originalPrice,
+          stock: size.stock,
+          images: variant.images,
+        });
+      });
+    });
+
+    setVariantCombinations(combinations);
+    setUseShopifyVariants(true);
+  };
+
+  // Effect to regenerate combinations when variant types or options change
+  // Note: This effect is intentionally minimal to avoid infinite loops
+  // Combinations are also generated manually when options are added/removed
 
   const handleVideoFileSelect = (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -709,6 +1277,39 @@ const ProductForm: React.FC = () => {
     });
   };
 
+  const addSize = () => {
+    const newSize = newSizeInput.trim().toUpperCase();
+    if (newSize && !formData.sizes.includes(newSize)) {
+      setFormData((prev) => ({
+        ...prev,
+        sizes: [...prev.sizes, newSize],
+        stock: {
+          ...prev.stock,
+          [newSize]: prev.stock[newSize] || 0,
+        },
+      }));
+      setNewSizeInput('');
+      setErrors({ ...errors, sizes: '' });
+    } else if (newSize && formData.sizes.includes(newSize)) {
+      setErrors({ ...errors, sizes: 'This size already exists' });
+    } else if (!newSize) {
+      setErrors({ ...errors, sizes: 'Please enter a size' });
+    }
+  };
+
+  const removeSize = (size: string) => {
+    setFormData((prev) => {
+      const newSizes = prev.sizes.filter((s) => s !== size);
+      const newStock = { ...prev.stock };
+      delete newStock[size];
+      return {
+        ...prev,
+        sizes: newSizes,
+        stock: newStock,
+      };
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -721,20 +1322,88 @@ const ProductForm: React.FC = () => {
       const cleanedSizes = formData.sizes.filter((s) => s.trim());
       const cleanedVideos = formData.videos.filter((v) => v.trim());
       const cleanedInstructions = formData.washCareInstructions.filter((instr) => instr.text.trim() !== '');
-      const cleanedVariants = formData.variants.map((v) => ({
-        ...v,
-        sizes: v.sizes.filter((s) => s.size.trim() && s.sku.trim()),
-      }));
+      
+      // Use Shopify-style variants if enabled, otherwise use legacy format
+      let cleanedVariants: ProductVariant[] = [];
+      if (useShopifyVariants && variantCombinations.length > 0) {
+        // Convert Shopify combinations to legacy format
+        const convertedVariants = convertCombinationsToVariants(variantCombinations);
+        cleanedVariants = convertedVariants.map((v) => {
+          const cleanedSizes = v.sizes
+            .filter((s) => s.size && s.size.trim()) // Keep only sizes with size value
+            .map((s) => {
+              // Ensure SKU is present and valid
+              if (!s.sku || !s.sku.trim()) {
+                // Generate SKU if missing
+                const baseSku = getBaseSku();
+                s.sku = generateSkuForSize(baseSku, v.colorName, s.size);
+              }
+              return {
+                ...s,
+                sku: s.sku.trim().toUpperCase(),
+                stock: Math.max(0, s.stock || 0),
+                price: Math.max(0, s.price || 0),
+                originalPrice: Math.max(0, s.originalPrice || 0),
+              };
+            });
+          return {
+            ...v,
+            sizes: cleanedSizes,
+          };
+        });
+      } else {
+        // Legacy variant format
+        cleanedVariants = formData.variants.map((v) => {
+          const cleanedSizes = v.sizes
+            .filter((s) => s.size && s.size.trim()) // Keep only sizes with size value
+            .map((s) => {
+              // Ensure SKU is present and valid
+              if (!s.sku || !s.sku.trim() || s.sku.includes('NEW')) {
+                // Generate SKU if missing or temporary
+                const baseSku = getBaseSku();
+                s.sku = generateSkuForSize(baseSku, v.colorName, s.size);
+              }
+              return {
+                ...s,
+                sku: s.sku.trim().toUpperCase(),
+                stock: Math.max(0, s.stock || 0),
+                price: Math.max(0, s.price || 0),
+                originalPrice: Math.max(0, s.originalPrice || 0),
+              };
+            });
+          return {
+            ...v,
+            sizes: cleanedSizes,
+          };
+        });
+      }
       const normalizedSlug = slugifyValue(slug);
       setSlug(normalizedSlug);
 
       const { sizeChart: sizeChartEntries, categories: selectedCategories, ...rest } = formData;
+
+      // Prepare stock data for products without variants
+      let stockData: Record<string, number> | undefined = undefined;
+      if (formData.variants.length === 0 && formData.stock && Object.keys(formData.stock).length > 0) {
+        // Only include sizes that exist in the sizes array
+        stockData = {};
+        formData.sizes.forEach(size => {
+          if (formData.stock[size] !== undefined && formData.stock[size] > 0) {
+            stockData![size] = Math.max(0, Math.floor(formData.stock[size]));
+          }
+        });
+        // If no stock data, set to undefined
+        if (Object.keys(stockData).length === 0) {
+          stockData = undefined;
+        }
+      }
 
       const data: Record<string, any> = {
         ...rest,
         price: parseFloat(formData.price),
         originalPrice: parseFloat(formData.originalPrice),
         sizes: cleanedSizes,
+        stock: stockData,
         videos: cleanedVideos,
         washCareInstructions: cleanedInstructions,
         customerOrderImages: formData.customerOrderImages,
@@ -746,6 +1415,11 @@ const ProductForm: React.FC = () => {
       };
 
       data.slug = normalizedSlug;
+      
+      // Include base SKU if provided (backend will generate if empty)
+      if (formData.sku && formData.sku.trim()) {
+        data.sku = formData.sku.trim().toUpperCase();
+      }
 
       const keywordsArray = seoData.keywords
         .split(',')
@@ -846,414 +1520,64 @@ const ProductForm: React.FC = () => {
           {/* Main Content */}
           <div className="lg:col-span-2 space-y-6">
             {/* Basic Information */}
+            <ProductBasicInfo
+              name={formData.name}
+              description={formData.description}
+              richDescription={formData.richDescription}
+              descriptionImage={formData.descriptionImage}
+              images={formData.images}
+              onNameChange={(name) => {
+                setFormData({ ...formData, name });
+                setErrors({ ...errors, name: '' });
+              }}
+              onDescriptionChange={(description) => setFormData({ ...formData, description })}
+              onRichDescriptionChange={(richDescription) => setFormData({ ...formData, richDescription })}
+              onDescriptionImageChange={(descriptionImage) => setFormData({ ...formData, descriptionImage })}
+              onImagesChange={(images) => setFormData({ ...formData, images })}
+              onImageUpload={handleMultipleImageUpload}
+              onDescriptionImageUpload={handleDescriptionImageUpload}
+              uploading={uploading}
+              errors={errors}
+            />
+
+            {/* Categories - moved to Basic Info section but can be separate */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Product Information</h2>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Product Name <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
-                      errors.name ? 'border-red-500' : 'border-gray-300'
-                    }`}
-                    value={formData.name}
-                    onChange={(e) => {
-                      setFormData({ ...formData, name: e.target.value });
-                      setErrors({ ...errors, name: '' });
-                    }}
-                    placeholder="e.g., Redfit Premium T-Shirt"
-                  />
-                  {errors.name && <p className="mt-1 text-sm text-red-500">{errors.name}</p>}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Short Description
-                  </label>
-                  <textarea
-                    rows={4}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                    value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    placeholder="Short description for product cards..."
-                  />
-                  <p className="mt-1 text-xs text-gray-500">Short description for product cards</p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Rich Description (HTML)
-                  </label>
-                  <textarea
-                    rows={8}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 font-mono text-sm"
-                    value={formData.richDescription}
-                    onChange={(e) => setFormData({ ...formData, richDescription: e.target.value })}
-                    placeholder="<p>HTML content here</p>"
-                  />
-                  <p className="mt-1 text-xs text-gray-500">HTML content for detailed product description</p>
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="block text-sm font-medium text-gray-700">
-                      Categories <span className="text-red-500">*</span>
-                    </label>
-                    <button
-                      type="button"
-                      onClick={loadLookups}
-                      className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded hover:bg-gray-200"
-                    >
-                      {lookupsLoading ? 'Refreshing…' : 'Refresh'}
-                    </button>
-                  </div>
-                  {availableCategories.length === 0 ? (
-                    <p className="text-sm text-gray-500">
-                      No categories available. Add categories from the Categories section.
-                    </p>
-                  ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {availableCategories.map((category) => (
-                        <label
-                          key={category._id}
-                          className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-md bg-white hover:border-red-300 transition-colors cursor-pointer"
-                        >
-                          <input
-                            type="checkbox"
-                            className="text-red-600 focus:ring-red-500 rounded"
-                            checked={formData.categories.includes(category._id)}
-                            onChange={() => toggleCategory(category._id)}
-                          />
-                          <span className="text-sm text-gray-700">
-                            {category.name}
-                            {!category.isActive && (
-                              <span className="ml-2 text-xs text-gray-400">(inactive)</span>
-                            )}
-                          </span>
-                        </label>
-                      ))}
-                    </div>
-                  )}
-                  {errors.categories && (
-                    <p className="mt-1 text-sm text-red-500">{errors.categories}</p>
-                  )}
-                  <p className="mt-1 text-xs text-gray-500">
-                    Assign the product to at least one category for storefront navigation and filtering.
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Description Banner Image (100% width)
-                  </label>
-                  <div className="space-y-3">
-                    {formData.descriptionImage ? (
-                      <div className="relative group">
-                        <img
-                          src={formData.descriptionImage}
-                          alt="Description banner"
-                          className="w-full h-48 object-cover rounded-lg border border-gray-300"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setFormData({ ...formData, descriptionImage: '' })}
-                          className="absolute top-2 right-2 bg-red-600 text-white rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                          <FaTimes size={14} />
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          id="description-image-upload"
-                          onChange={async (e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              setUploading(true);
-                              try {
-                                const response = await uploadAPI.uploadSingle(file, 'products');
-                                // Handle different response structures
-                                const imageUrl = response.data?.url || response.data?.data?.url || response.url;
-                                if (imageUrl) {
-                                  setFormData({ ...formData, descriptionImage: imageUrl });
-                                } else {
-                                  throw new Error('No URL in upload response');
-                                }
-                              } catch (error: any) {
-                                console.error('Description image upload error:', error);
-                                alert(error.response?.data?.message || error.message || 'Failed to upload image');
-                              } finally {
-                                setUploading(false);
-                                if (e.target) {
-                                  e.target.value = '';
-                                }
-                              }
-                            }
-                          }}
-                        />
-                        <label
-                          htmlFor="description-image-upload"
-                          className={`cursor-pointer ${uploading ? 'cursor-not-allowed opacity-50' : ''}`}
-                        >
-                          {uploading ? (
-                            <>
-                              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500 mx-auto mb-2"></div>
-                              <p className="text-sm text-gray-600">Uploading...</p>
-                            </>
-                          ) : (
-                            <>
-                              <FaUpload className="mx-auto text-4xl text-gray-400 mb-2" />
-                              <p className="text-sm text-gray-600">
-                                Click to upload banner image or drag and drop
-                              </p>
-                              <p className="text-xs text-gray-500 mt-1">Supports JPG, PNG, GIF up to 10MB</p>
-                            </>
-                          )}
-                        </label>
-                      </div>
-                    )}
-                  </div>
-                  <p className="mt-1 text-xs text-gray-500">Banner image displayed above/below product description (100% width)</p>
-                </div>
-              </div>
+              <ProductCategories
+                categories={formData.categories}
+                availableCategories={availableCategories}
+                onCategoriesChange={(categories) => setFormData({ ...formData, categories })}
+                onRefresh={loadLookups}
+                loading={lookupsLoading}
+                error={errors.categories}
+              />
             </div>
 
             {/* SEO Settings */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
-                <div>
-                  <h2 className="text-lg font-semibold text-gray-900">SEO Settings</h2>
-                  <p className="text-sm text-gray-600 mt-1">
-                    Control the product URL slug and metadata used for search engines and social sharing.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowAdvancedSeo((prev) => !prev)}
-                  className="self-start md:self-center text-sm text-red-600 hover:text-red-700"
-                >
-                  {showAdvancedSeo ? 'Hide advanced SEO fields' : 'Show advanced SEO fields'}
-                </button>
-              </div>
-
-              <div className="space-y-5">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Product Slug <span className="text-red-500">*</span>
-                  </label>
-                  <div className="flex flex-col md:flex-row md:items-center gap-3">
-                    <input
-                      type="text"
-                      value={slug}
-                      maxLength={SLUG_MAX_LENGTH}
-                      onChange={(e) => {
-                        setSlugManuallyEdited(true);
-                        const sanitized = slugifyValue(e.target.value);
-                        setSlug(sanitized);
-                        setErrors((prev) => ({ ...prev, slug: '' }));
-                      }}
-                      className={`flex-1 px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
-                        errors.slug ? 'border-red-500' : 'border-gray-300'
-                      }`}
-                      placeholder="e.g., redfit-premium-tshirt"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const auto = slugifyValue(formData.name || '');
-                        setSlug(auto);
-                        setSlugManuallyEdited(false);
-                        setErrors((prev) => ({ ...prev, slug: '' }));
-                      }}
-                      className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-                    >
-                      Reset from name
-                    </button>
-                  </div>
-                  <div className="flex justify-between text-xs text-gray-500 mt-1">
-                    <span>Lowercase letters, numbers, and hyphens only.</span>
-                    <span>
-                      {slug.length}/{SLUG_MAX_LENGTH}
-                    </span>
-                  </div>
-                  {errors.slug && <p className="mt-1 text-sm text-red-500">{errors.slug}</p>}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Meta Title
-                  </label>
-                  <input
-                    type="text"
-                    value={seoData.title}
-                    onChange={(e) => {
-                      const value = e.target.value.slice(0, META_TITLE_LIMIT);
-                      setSeoData((prev) => ({ ...prev, title: value }));
-                      setErrors((prev) => ({ ...prev, metaTitle: '' }));
-                    }}
-                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
-                      errors.metaTitle ? 'border-red-500' : 'border-gray-300'
-                    }`}
-                    placeholder="Meta title shown in search results"
-                  />
-                  <div className="flex justify-between text-xs text-gray-500 mt-1">
-                    <span>Recommended up to {META_TITLE_LIMIT} characters.</span>
-                    <span>
-                      {seoData.title.length}/{META_TITLE_LIMIT}
-                    </span>
-                  </div>
-                  {errors.metaTitle && (
-                    <p className="mt-1 text-sm text-red-500">{errors.metaTitle}</p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Meta Description
-                  </label>
-                  <textarea
-                    rows={3}
-                    value={seoData.description}
-                    onChange={(e) => {
-                      const value = e.target.value.slice(0, META_DESCRIPTION_LIMIT);
-                      setSeoData((prev) => ({ ...prev, description: value }));
-                      setErrors((prev) => ({ ...prev, metaDescription: '' }));
-                    }}
-                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
-                      errors.metaDescription ? 'border-red-500' : 'border-gray-300'
-                    }`}
-                    placeholder="Short summary that appears below the title in search results"
-                  />
-                  <div className="flex justify-between text-xs text-gray-500 mt-1">
-                    <span>Recommended up to {META_DESCRIPTION_LIMIT} characters.</span>
-                    <span>
-                      {seoData.description.length}/{META_DESCRIPTION_LIMIT}
-                    </span>
-                  </div>
-                  {errors.metaDescription && (
-                    <p className="mt-1 text-sm text-red-500">{errors.metaDescription}</p>
-                  )}
-                </div>
-
-                {showAdvancedSeo && (
-                  <div className="space-y-4 border-t border-gray-200 pt-4">
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Canonical URL
-                        </label>
-                        <input
-                          type="url"
-                          value={seoData.canonicalUrl}
-                          onChange={(e) => {
-                            setSeoData((prev) => ({ ...prev, canonicalUrl: e.target.value }));
-                            setErrors((prev) => ({ ...prev, canonicalUrl: '' }));
-                          }}
-                          className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
-                            errors.canonicalUrl ? 'border-red-500' : 'border-gray-300'
-                          }`}
-                          placeholder="https://redfit.in/products/redfit-premium-tshirt"
-                        />
-                        {errors.canonicalUrl && (
-                          <p className="mt-1 text-sm text-red-500">{errors.canonicalUrl}</p>
-                        )}
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Meta Robots
-                        </label>
-                        <input
-                          type="text"
-                          value={seoData.metaRobots}
-                          onChange={(e) =>
-                            setSeoData((prev) => ({ ...prev, metaRobots: e.target.value }))
-                          }
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                          placeholder="index, follow"
-                        />
-                        <p className="mt-1 text-xs text-gray-500">
-                          Optional. Common values: `index, follow`, `noindex, follow`.
-                        </p>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Meta Keywords
-                      </label>
-                      <input
-                        type="text"
-                        value={seoData.keywords}
-                        onChange={(e) =>
-                          setSeoData((prev) => ({ ...prev, keywords: e.target.value }))
-                        }
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                        placeholder="performance t-shirt, gym wear, redfit"
-                      />
-                      <p className="mt-1 text-xs text-gray-500">
-                        Comma-separated keywords (optional).
-                      </p>
-                    </div>
-
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Open Graph Title
-                        </label>
-                        <input
-                          type="text"
-                          value={seoData.ogTitle}
-                          onChange={(e) =>
-                            setSeoData((prev) => ({ ...prev, ogTitle: e.target.value }))
-                          }
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                          placeholder="Title used when sharing on social platforms"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Open Graph Image URL
-                        </label>
-                        <input
-                          type="text"
-                          value={seoData.ogImage}
-                          onChange={(e) =>
-                            setSeoData((prev) => ({ ...prev, ogImage: e.target.value }))
-                          }
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                          placeholder="https://..."
-                        />
-                        <p className="mt-1 text-xs text-gray-500">
-                          Recommended 1200x630 image for social sharing.
-                        </p>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Open Graph Description
-                      </label>
-                      <textarea
-                        rows={3}
-                        value={seoData.ogDescription}
-                        onChange={(e) =>
-                          setSeoData((prev) => ({ ...prev, ogDescription: e.target.value }))
-                        }
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                        placeholder="Description used for shared links on social media"
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
+            <ProductSEO
+              sku={formData.sku}
+              slug={slug}
+              seoData={seoData}
+              showAdvancedSeo={showAdvancedSeo}
+              onSkuChange={(sku) => {
+                const skuValue = sku.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 48);
+                setFormData({ ...formData, sku: skuValue });
+              }}
+              onSlugChange={(slug) => {
+                setSlugManuallyEdited(true);
+                const sanitized = slugifyValue(slug);
+                setSlug(sanitized);
+                setErrors((prev) => ({ ...prev, slug: '' }));
+              }}
+              onSlugReset={() => {
+                const auto = slugifyValue(formData.name || '');
+                setSlug(auto);
+                setSlugManuallyEdited(false);
+                setErrors((prev) => ({ ...prev, slug: '' }));
+              }}
+              onSeoDataChange={setSeoData}
+              onShowAdvancedSeoToggle={() => setShowAdvancedSeo((prev) => !prev)}
+              errors={errors}
+            />
 
             {/* Images */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
@@ -1360,307 +1684,60 @@ const ProductForm: React.FC = () => {
             </div>
 
             {/* Videos */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Product Videos</h2>
-              <div className="space-y-4">
-                <div className="flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={addVideoUrl}
-                    className="flex items-center px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
-                  >
-                    <FaPlus className="mr-1" size={12} />
-                    Add Video URL
-                  </button>
-                  <label className="flex items-center px-3 py-2 text-sm bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 cursor-pointer">
-                    <FaUpload className="mr-1" size={12} />
-                    Upload Video Files
-                    <input
-                      type="file"
-                      accept="video/*"
-                      multiple
-                      className="hidden"
-                      onChange={(e) => handleVideoFileSelect(e.target.files)}
-                    />
-                  </label>
-                  <span className="text-xs text-gray-500">Upload multiple video files (max 100MB each) or add URLs</span>
-                </div>
-                
-                {/* Video Upload Area */}
-                {newVideos.length > 0 && (
-                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-md space-y-2">
-                    {newVideos.map((file, index) => (
-                      <div key={index} className="flex items-center justify-between">
-                        <span className="text-sm text-gray-700">{file.name}</span>
-                        <span className="text-xs text-gray-500">
-                          {(file.size / 1024 / 1024).toFixed(2)} MB
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setNewVideos(prev => prev.filter((_, i) => i !== index))}
-                          className="text-red-600 hover:text-red-800"
-                        >
-                          <FaTimes size={12} />
-                        </button>
-                      </div>
-                    ))}
-                    <div className="flex items-center gap-2 pt-2 border-t">
-                      <button
-                        type="button"
-                        onClick={handleVideoUpload}
-                        disabled={uploadingVideo}
-                        className="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {uploadingVideo ? `Uploading ${newVideos.length} videos...` : `Upload ${newVideos.length} Video${newVideos.length > 1 ? 's' : ''}`}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setNewVideos([])}
-                        className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
-                      >
-                        Clear All
-                      </button>
-                    </div>
-                  </div>
-                )}
-                
-                {/* Video List */}
-                {formData.videos.length > 0 && (
-                  <div className="space-y-2">
-                    {formData.videos.map((video, index) => (
-                      <div key={index} className="flex items-center gap-2 p-2 bg-gray-50 rounded-md">
-                        <input
-                          type="text"
-                          className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded-md"
-                          value={video}
-                          onChange={(e) => {
-                            const newVideos = [...formData.videos];
-                            newVideos[index] = e.target.value;
-                            setFormData({ ...formData, videos: newVideos });
-                          }}
-                          placeholder="Video URL"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => removeVideo(index)}
-                          className="text-red-600 hover:text-red-800"
-                        >
-                          <FaTimes size={14} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
+            <ProductVideos
+              videos={formData.videos}
+              newVideos={newVideos}
+              uploading={uploadingVideo}
+              onVideosChange={(videos) => setFormData({ ...formData, videos })}
+              onNewVideosChange={setNewVideos}
+              onVideoUpload={handleVideoUpload}
+              onAddVideoUrl={addVideoUrl}
+              onRemoveVideo={removeVideo}
+            />
 
             {/* Variants */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-lg font-semibold text-gray-900">Variants (Colors & Sizes)</h2>
-                <button
-                  type="button"
-                  onClick={addVariant}
-                  className="flex items-center px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
-                >
-                  <FaPlus className="mr-1" size={12} />
-                  Add Variant
-                </button>
-              </div>
-
-              {formData.variants.length === 0 ? (
-                <p className="text-sm text-gray-500">No variants added. Add variants for different colors.</p>
-              ) : (
-                <div className="space-y-4">
-                  {formData.variants.map((variant, vIndex) => (
-                    <div key={vIndex} className="border border-gray-200 rounded-lg p-4">
-                      <div className="flex justify-between items-start mb-4">
-                        <h3 className="text-sm font-medium text-gray-700">Variant {vIndex + 1}</h3>
-                        <button
-                          type="button"
-                          onClick={() => removeVariant(vIndex)}
-                          className="text-red-600 hover:text-red-800"
-                        >
-                          <FaTrash size={14} />
-                        </button>
-                      </div>
-
-                      {/* Color Swatch */}
-                      <div className="mb-4">
-                        <label className="block text-xs font-medium text-gray-700 mb-2">
-                          Color Swatch
-                        </label>
-                        <div className="flex items-center gap-3">
-                          <div className="flex gap-2">
-                            <input
-                              type="color"
-                              className="h-10 w-20 border border-gray-300 rounded cursor-pointer"
-                              value={variant.colorCode}
-                              onChange={(e) => updateVariant(vIndex, 'colorCode', e.target.value)}
-                            />
-                            <input
-                              type="text"
-                              className="w-24 px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                              value={variant.colorCode}
-                              onChange={(e) => updateVariant(vIndex, 'colorCode', e.target.value)}
-                              placeholder="#000000"
-                            />
-                          </div>
-                          <input
-                            type="text"
-                            className="flex-1 px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                            value={variant.colorName}
-                            onChange={(e) => updateVariant(vIndex, 'colorName', e.target.value)}
-                            placeholder="Color Name (e.g., Red)"
-                          />
-                        </div>
-                      </div>
-
-                      {/* Variant Images Gallery */}
-                      <div className="mb-4">
-                        <label className="block text-xs font-medium text-gray-700 mb-2">
-                          Variant Images (for this color)
-                        </label>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          multiple
-                          onChange={(e) => {
-                            if (e.target.files) {
-                              handleVariantImageUpload(vIndex, e.target.files);
-                            }
-                          }}
-                          className="hidden"
-                          id={`variant-images-${vIndex}`}
-                        />
-                        <label
-                          htmlFor={`variant-images-${vIndex}`}
-                          className="inline-flex items-center px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 cursor-pointer mb-2"
-                        >
-                          <FaUpload className="mr-2" size={12} />
-                          Upload Images
-                        </label>
-                        {variant.images.length > 0 && (
-                          <div className="grid grid-cols-4 gap-2 mt-2">
-                            {variant.images.map((img, imgIndex) => (
-                              <div key={imgIndex} className="relative group">
-                                <div className="aspect-square rounded-lg overflow-hidden bg-gray-100">
-                                  <img src={img} alt={`Variant ${vIndex} image ${imgIndex + 1}`} className="w-full h-full object-cover" />
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => removeVariantImage(vIndex, imgIndex)}
-                                  className="absolute top-1 right-1 bg-red-600 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                                >
-                                  <FaTimes size={10} />
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4 mb-4">
-                        <div>
-                          <label className="block text-xs font-medium text-gray-700 mb-1">
-                            Price (₹)
-                          </label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                            value={variant.price}
-                            onChange={(e) => updateVariant(vIndex, 'price', parseFloat(e.target.value) || 0)}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-700 mb-1">
-                            Original Price (₹)
-                          </label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                            value={variant.originalPrice}
-                            onChange={(e) =>
-                              updateVariant(vIndex, 'originalPrice', parseFloat(e.target.value) || 0)
-                            }
-                          />
-                        </div>
-                      </div>
-
-                      <div className="mb-4">
-                        <div className="flex justify-between items-center mb-2">
-                          <label className="block text-xs font-medium text-gray-700">Sizes</label>
-                          <button
-                            type="button"
-                            onClick={() => addVariantSize(vIndex)}
-                            className="text-xs text-red-600 hover:text-red-800"
-                          >
-                            <FaPlus className="inline mr-1" size={10} />
-                            Add Size
-                          </button>
-                        </div>
-                        {variant.sizes.length === 0 ? (
-                          <p className="text-xs text-gray-500">No sizes added for this variant.</p>
-                        ) : (
-                          <div className="space-y-2">
-                            {variant.sizes.map((size, sIndex) => (
-                              <div key={sIndex} className="grid grid-cols-5 gap-2">
-                                <input
-                                  type="text"
-                                  className="px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                                  placeholder="Size"
-                                  value={size.size}
-                                  onChange={(e) =>
-                                    updateVariantSize(vIndex, sIndex, 'size', e.target.value)
-                                  }
-                                />
-                                <input
-                                  type="text"
-                                  className="px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                                  placeholder="SKU"
-                                  value={size.sku}
-                                  onChange={(e) =>
-                                    updateVariantSize(vIndex, sIndex, 'sku', e.target.value)
-                                  }
-                                />
-                                <input
-                                  type="number"
-                                  className="px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                                  placeholder="Stock"
-                                  value={size.stock}
-                                  onChange={(e) =>
-                                    updateVariantSize(vIndex, sIndex, 'stock', parseInt(e.target.value) || 0)
-                                  }
-                                />
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  className="px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                                  placeholder="Price"
-                                  value={size.price}
-                                  onChange={(e) =>
-                                    updateVariantSize(vIndex, sIndex, 'price', parseFloat(e.target.value) || 0)
-                                  }
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => removeVariantSize(vIndex, sIndex)}
-                                  className="text-red-600 hover:text-red-800"
-                                >
-                                  <FaTrash size={14} />
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <ProductVariants
+              variants={formData.variants}
+              onAddVariant={addVariant}
+              onUpdateVariant={updateVariant}
+              onRemoveVariant={removeVariant}
+              onAddVariantSize={addVariantSize}
+              onUpdateVariantSize={updateVariantSizeWrapper}
+              onRemoveVariantSize={removeVariantSize}
+              onRegenerateAllSkusLegacy={regenerateAllSkus}
+              onRegenerateVariantSkus={regenerateVariantSkus}
+              onVariantImageUpload={handleVariantImageUpload}
+              onRemoveVariantImage={removeVariantImage}
+              useShopifyVariants={useShopifyVariants}
+              onUseShopifyVariantsChange={(checked) => {
+                setUseShopifyVariants(checked);
+                if (!checked) {
+                  setVariantTypes([]);
+                  setVariantOptions({});
+                  setVariantCombinations([]);
+                }
+              }}
+              variantTypes={variantTypes}
+              variantOptions={variantOptions}
+              variantColorCodes={variantColorCodes}
+              variantCombinations={variantCombinations}
+              newVariantTypeName={newVariantTypeName}
+              newOptionInputs={newOptionInputs}
+              onAddVariantType={addVariantType}
+              onRemoveVariantType={removeVariantType}
+              onAddVariantOption={addVariantOption}
+              onRemoveVariantOption={removeVariantOption}
+              onUpdateVariantCombination={updateVariantCombination}
+              onRegenerateAllSkus={regenerateAllShopifySkus}
+              onNewVariantTypeNameChange={setNewVariantTypeName}
+              onNewOptionInputsChange={setNewOptionInputs}
+              onVariantColorCodesChange={setVariantColorCodes}
+              onConvertVariantsToShopifyFormat={convertVariantsToShopifyFormat}
+              getBaseSku={getBaseSku}
+              generateSkuForSize={generateSkuForSize}
+              basePrice={parseFloat(formData.price) || 0}
+              uploading={uploading}
+            />
 
             {/* Bundles moved notice */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
@@ -1676,591 +1753,75 @@ const ProductForm: React.FC = () => {
           {/* Sidebar */}
           <div className="space-y-6">
             {/* Pricing */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Pricing</h2>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Price (₹) <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
-                      errors.price ? 'border-red-500' : 'border-gray-300'
-                    }`}
-                    value={formData.price}
-                    onChange={(e) => {
-                      setFormData({ ...formData, price: e.target.value });
-                      setErrors({ ...errors, price: '' });
-                    }}
-                  />
-                  {errors.price && <p className="mt-1 text-sm text-red-500">{errors.price}</p>}
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Original Price (₹) <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
-                      errors.originalPrice ? 'border-red-500' : 'border-gray-300'
-                    }`}
-                    value={formData.originalPrice}
-                    onChange={(e) => {
-                      setFormData({ ...formData, originalPrice: e.target.value });
-                      setErrors({ ...errors, originalPrice: '' });
-                    }}
-                  />
-                  {errors.originalPrice && <p className="mt-1 text-sm text-red-500">{errors.originalPrice}</p>}
-                </div>
-              </div>
-            </div>
+            <ProductPricing
+              price={formData.price}
+              originalPrice={formData.originalPrice}
+              onPriceChange={(price) => {
+                setFormData({ ...formData, price });
+                setErrors({ ...errors, price: '' });
+              }}
+              onOriginalPriceChange={(price) => {
+                setFormData({ ...formData, originalPrice: price });
+                setErrors({ ...errors, originalPrice: '' });
+              }}
+              errors={errors}
+            />
 
-            {/* Sizes (if no variants) */}
+            {/* Sizes & Stock (if no variants) */}
             {formData.variants.length === 0 && (
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                <h2 className="text-lg font-semibold text-gray-900 mb-4">Sizes</h2>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Available Sizes <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
-                      errors.sizes ? 'border-red-500' : 'border-gray-300'
-                    }`}
-                    placeholder="S, M, L, XL, XXL"
-                    value={formData.sizes.join(', ')}
-                    onChange={(e) => {
-                      setFormData({
-                        ...formData,
-                        sizes: e.target.value.split(',').map((s) => s.trim()),
-                      });
-                      setErrors({ ...errors, sizes: '' });
-                    }}
-                  />
-                  {errors.sizes && <p className="mt-1 text-sm text-red-500">{errors.sizes}</p>}
-                  <p className="mt-1 text-xs text-gray-500">Separate sizes with commas</p>
-                </div>
-              </div>
+              <ProductSizesStock
+                sizes={formData.sizes}
+                stock={formData.stock}
+                newSizeInput={newSizeInput}
+                onSizesChange={(sizes) => setFormData({ ...formData, sizes })}
+                onStockChange={(stock) => setFormData({ ...formData, stock })}
+                onNewSizeInputChange={setNewSizeInput}
+                onAddSize={addSize}
+                onRemoveSize={removeSize}
+                errors={errors}
+              />
             )}
 
             {/* Size Chart */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-lg font-semibold text-gray-900">Size Chart</h2>
-                <button
-                  type="button"
-                  onClick={loadLookups}
-                  className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
-                >
-                  {lookupsLoading ? 'Refreshing…' : 'Refresh lists'}
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                <div>
-                  <span className="block text-sm font-medium text-gray-700 mb-2">Link strategy</span>
-                  <div className="flex flex-wrap gap-4">
-                    <label className="inline-flex items-center text-sm text-gray-700">
-                      <input
-                        type="radio"
-                        name="sizeChartMode"
-                        className="mr-2 text-red-600 focus:ring-red-500"
-                        checked={sizeChartMode === 'none'}
-                        onChange={() => handleSizeChartModeChange('none')}
-                      />
-                      No size chart
-                    </label>
-                    <label
-                      className={`inline-flex items-center text-sm ${
-                        availableSizeCharts.length === 0 ? 'text-gray-400' : 'text-gray-700'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="sizeChartMode"
-                        className="mr-2 text-red-600 focus:ring-red-500"
-                        checked={sizeChartMode === 'reference'}
-                        onChange={() => handleSizeChartModeChange('reference')}
-                        disabled={availableSizeCharts.length === 0}
-                      />
-                      Link existing chart
-                    </label>
-                    <label className="inline-flex items-center text-sm text-gray-700">
-                      <input
-                        type="radio"
-                        name="sizeChartMode"
-                        className="mr-2 text-red-600 focus:ring-red-500"
-                        checked={sizeChartMode === 'custom'}
-                        onChange={() => handleSizeChartModeChange('custom')}
-                      />
-                      Custom measurements
-                    </label>
-                  </div>
-                  <p className="mt-1 text-xs text-gray-500">
-                    Reuse a shared size chart or define measurements specific to this product.
-                  </p>
-                </div>
-
-                {sizeChartMode === 'reference' && (
-                  <div className="space-y-3">
-                    <label className="block text-sm font-medium text-gray-700">
-                      Select size chart <span className="text-red-500">*</span>
-                    </label>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <select
-                        value={selectedSizeChartId}
-                        onChange={(e) => handleSelectSizeChartId(e.target.value)}
-                        className="flex-1 min-w-[200px] px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                      >
-                        <option value="">Choose size chart…</option>
-                        {availableSizeCharts.map((chart) => (
-                          <option key={chart._id} value={chart._id}>
-                            {chart.name}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        onClick={loadLookups}
-                        className="px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
-                      >
-                        Refresh
-                      </button>
-                    </div>
-                    {selectedSizeChart ? (
-                      <div className="border border-gray-200 rounded-lg p-3 bg-gray-50">
-                        <p className="text-xs text-gray-500 mb-2">
-                          Previewing {selectedSizeChart.entries?.length || 0} entries
-                        </p>
-                        <div className="overflow-x-auto">
-                          <table className="min-w-full text-xs text-gray-600">
-                            <thead className="text-gray-500">
-                              <tr>
-                                <th className="text-left font-medium pr-3 py-1">Size</th>
-                                <th className="text-left font-medium pr-3 py-1">Chest</th>
-                                <th className="text-left font-medium pr-3 py-1">Waist</th>
-                                <th className="text-left font-medium pr-3 py-1">Length</th>
-                                <th className="text-left font-medium pr-3 py-1 hidden md:table-cell">
-                                  Shoulder
-                                </th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {(selectedSizeChart.entries || []).slice(0, 6).map((entry, idx) => (
-                                <tr key={`${selectedSizeChart._id}-${idx}`}>
-                                  <td className="pr-3 py-1">{entry.size || '-'}</td>
-                                  <td className="pr-3 py-1">{entry.chest || '-'}</td>
-                                  <td className="pr-3 py-1">{entry.waist || '-'}</td>
-                                  <td className="pr-3 py-1">{entry.length || '-'}</td>
-                                  <td className="pr-3 py-1 hidden md:table-cell">
-                                    {entry.shoulder || '-'}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                        {selectedSizeChart.entries && selectedSizeChart.entries.length > 6 && (
-                          <p className="text-[11px] text-gray-400 mt-2">
-                            +{selectedSizeChart.entries.length - 6} more entries
-                          </p>
-                        )}
-                      </div>
-                    ) : (
-                      <p className="text-sm text-gray-500">
-                        {availableSizeCharts.length === 0
-                          ? 'No reusable size charts created yet.'
-                          : 'Select a size chart to preview its measurements.'}
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {sizeChartMode === 'custom' && (
-                  <div className="space-y-4">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <p className="text-sm text-gray-600">
-                        Define custom measurements or import entries from an existing chart.
-                      </p>
-                      <div className="flex flex-wrap items-center gap-2">
-                        {availableSizeCharts.length > 0 && (
-                          <select
-                            value={selectedSizeChartId}
-                            onChange={(e) => handleSelectSizeChartId(e.target.value)}
-                            className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                          >
-                            <option value="">Import from existing chart…</option>
-                            {availableSizeCharts.map((chart) => (
-                              <option key={chart._id} value={chart._id}>
-                                {chart.name}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                        <button
-                          type="button"
-                          onClick={addSizeChartEntry}
-                          className="flex items-center px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
-                        >
-                          <FaPlus className="mr-1" size={12} />
-                          Add Entry
-                        </button>
-                      </div>
-                    </div>
-
-                    {formData.sizeChart.length === 0 ? (
-                      <p className="text-sm text-gray-500">
-                        No size chart entries yet. Use “Add Entry” or import from an existing chart.
-                      </p>
-                    ) : (
-                      <div className="space-y-4">
-                        {formData.sizeChart.map((entry, index) => (
-                          <div key={index} className="border border-gray-200 rounded-lg p-4">
-                            <div className="flex justify-between items-start mb-3">
-                              <h3 className="text-sm font-medium text-gray-700">Entry {index + 1}</h3>
-                              <button
-                                type="button"
-                                onClick={() => removeSizeChartEntry(index)}
-                                className="text-red-600 hover:text-red-800"
-                              >
-                                <FaTrash size={14} />
-                              </button>
-                            </div>
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                              <div>
-                                <label className="block text-xs font-medium text-gray-700 mb-1">
-                                  Size <span className="text-red-500">*</span>
-                                </label>
-                                <input
-                                  type="text"
-                                  className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                                  placeholder="S, M, L, XL"
-                                  value={entry.size}
-                                  onChange={(e) => updateSizeChart(index, 'size', e.target.value)}
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-xs font-medium text-gray-700 mb-1">
-                                  Chest
-                                </label>
-                                <input
-                                  type="text"
-                                  className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                                  placeholder="e.g., 38 inches"
-                                  value={entry.chest || ''}
-                                  onChange={(e) => updateSizeChart(index, 'chest', e.target.value)}
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-xs font-medium text-gray-700 mb-1">
-                                  Waist
-                                </label>
-                                <input
-                                  type="text"
-                                  className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                                  placeholder="e.g., 32 inches"
-                                  value={entry.waist || ''}
-                                  onChange={(e) => updateSizeChart(index, 'waist', e.target.value)}
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-xs font-medium text-gray-700 mb-1">
-                                  Length
-                                </label>
-                                <input
-                                  type="text"
-                                  className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                                  placeholder="e.g., 28 inches"
-                                  value={entry.length || ''}
-                                  onChange={(e) => updateSizeChart(index, 'length', e.target.value)}
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-xs font-medium text-gray-700 mb-1">
-                                  Shoulder
-                                </label>
-                                <input
-                                  type="text"
-                                  className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                                  placeholder="e.g., 16 inches"
-                                  value={entry.shoulder || ''}
-                                  onChange={(e) => updateSizeChart(index, 'shoulder', e.target.value)}
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-xs font-medium text-gray-700 mb-1">
-                                  Sleeve
-                                </label>
-                                <input
-                                  type="text"
-                                  className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                                  placeholder="e.g., 24 inches"
-                                  value={entry.sleeve || ''}
-                                  onChange={(e) => updateSizeChart(index, 'sleeve', e.target.value)}
-                                />
-                              </div>
-                            </div>
-                            <div className="mt-3">
-                              <label className="block text-xs font-medium text-gray-700 mb-1">
-                                Size Chart Image URL (Optional)
-                              </label>
-                              <input
-                                type="text"
-                                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                                placeholder="https://example.com/size-chart.png"
-                                value={entry.imageUrl || ''}
-                                onChange={(e) => updateSizeChart(index, 'imageUrl', e.target.value)}
-                              />
-                              <p className="mt-1 text-xs text-gray-500">
-                                Optional image for this size row.
-                              </p>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {sizeChartMode === 'none' && (
-                  <p className="text-sm text-gray-500">
-                    This product will not display any size chart.
-                  </p>
-                )}
-
-                {errors.sizeChart && (
-                  <p className="text-sm text-red-500">{errors.sizeChart}</p>
-                )}
-              </div>
-            </div>
-
-            {/* Display Options */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Display Options</h2>
-              <div className="space-y-3">
-                <div className="flex items-center">
-                  <input
-                    type="checkbox"
-                    id="showFeatures"
-                    className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300 rounded"
-                    checked={formData.showFeatures}
-                    onChange={(e) => setFormData({ ...formData, showFeatures: e.target.checked })}
-                  />
-                  <label htmlFor="showFeatures" className="ml-2 text-sm text-gray-700">
-                    Show Features Box
-                  </label>
-                </div>
-                <div className="flex items-center">
-                  <input
-                    type="checkbox"
-                    id="disableVariants"
-                    className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300 rounded"
-                    checked={formData.disableVariants}
-                    onChange={(e) => setFormData({ ...formData, disableVariants: e.target.checked })}
-                  />
-                  <label htmlFor="disableVariants" className="ml-2 text-sm text-gray-700">
-                    Disable Variants (Hide completely)
-                  </label>
-                </div>
-                <div className="flex items-center">
-                  <input
-                    type="checkbox"
-                    id="showOutOfStockVariants"
-                    className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300 rounded"
-                    checked={formData.showOutOfStockVariants}
-                    onChange={(e) => setFormData({ ...formData, showOutOfStockVariants: e.target.checked })}
-                  />
-                  <label htmlFor="showOutOfStockVariants" className="ml-2 text-sm text-gray-700">
-                    Show Out of Stock Variants (with swatches)
-                  </label>
-                </div>
-              </div>
-            </div>
+            <ProductSizeChart
+              mode={sizeChartMode}
+              selectedSizeChartId={selectedSizeChartId}
+              sizeChart={formData.sizeChart}
+              availableSizeCharts={availableSizeCharts}
+              selectedSizeChart={selectedSizeChart}
+              onModeChange={handleSizeChartModeChange}
+              onSelectedSizeChartIdChange={handleSelectSizeChartId}
+              onSizeChartChange={(entries) => setFormData({ ...formData, sizeChart: entries })}
+              onRefresh={loadLookups}
+              loading={lookupsLoading}
+              error={errors.sizeChart}
+            />
 
             {/* Wash Care Instructions */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-lg font-semibold text-gray-900">Wash Care Instructions</h2>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFormData({
-                      ...formData,
-                      washCareInstructions: [...formData.washCareInstructions, { text: '', iconUrl: '', iconName: '' }]
-                    });
-                  }}
-                  className="flex items-center px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
-                >
-                  <FaPlus className="mr-1" size={12} />
-                  Add Instruction
-                </button>
-              </div>
-              <div className="space-y-3">
-                {formData.washCareInstructions.map((instruction, index) => (
-                  <div key={index} className="flex gap-3 p-3 border border-gray-200 rounded-md">
-                    <div className="flex-1">
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Text</label>
-                      <input
-                        type="text"
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md"
-                        value={instruction.text}
-                        onChange={(e) => {
-                          const newInstructions = [...formData.washCareInstructions];
-                          newInstructions[index].text = e.target.value;
-                          setFormData({ ...formData, washCareInstructions: newInstructions });
-                        }}
-                        placeholder="Machine wash cold (30°C)"
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <IconPicker
-                        label="Icon (React Icon)"
-                        value={instruction.iconName || ''}
-                        onChange={(iconName) => {
-                          const newInstructions = [...formData.washCareInstructions];
-                          newInstructions[index].iconName = iconName;
-                          newInstructions[index].iconUrl = iconName ? undefined : newInstructions[index].iconUrl; // Clear iconUrl if iconName is set
-                          setFormData({ ...formData, washCareInstructions: newInstructions });
-                        }}
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Icon URL (Alternative)</label>
-                      <input
-                        type="text"
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md"
-                        value={instruction.iconUrl || ''}
-                        onChange={(e) => {
-                          const newInstructions = [...formData.washCareInstructions];
-                          newInstructions[index].iconUrl = e.target.value;
-                          newInstructions[index].iconName = e.target.value ? undefined : newInstructions[index].iconName; // Clear iconName if iconUrl is set
-                          setFormData({ ...formData, washCareInstructions: newInstructions });
-                        }}
-                        placeholder="Or use custom icon image URL"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Use either React Icon or custom image URL</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const newInstructions = formData.washCareInstructions.filter((_, i) => i !== index);
-                        setFormData({ ...formData, washCareInstructions: newInstructions });
-                      }}
-                      className="text-red-600 hover:text-red-800 mt-6"
-                    >
-                      <FaTrash size={14} />
-                    </button>
-                  </div>
-                ))}
-                {formData.washCareInstructions.length === 0 && (
-                  <p className="text-sm text-gray-500">No wash care instructions added</p>
-                )}
-              </div>
-            </div>
+            <ProductWashCare
+              instructions={formData.washCareInstructions}
+              onInstructionsChange={(instructions) => setFormData({ ...formData, washCareInstructions: instructions })}
+            />
 
             {/* Customer Order Images Gallery */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Customer Order Images Gallery</h2>
-              <p className="text-sm text-gray-600 mb-4">Upload screenshots of customer orders to display on product page</p>
-              
-              <div className="mb-4">
-                <input
-                  ref={customerOrderImagesInputRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  className="hidden"
-                  onChange={async (e) => {
-                    const files = Array.from(e.target.files || []);
-                    if (files.length > 0) {
-                      const imageFiles = files.filter(file => file.type.startsWith('image/'));
-                      if (imageFiles.length === 0) {
-                        alert('Please select image files');
-                        return;
-                      }
+            <ProductCustomerImages
+              images={formData.customerOrderImages}
+              onImagesChange={(images) => setFormData({ ...formData, customerOrderImages: images })}
+              onUpload={handleCustomerOrderImagesUpload}
+              uploading={uploading}
+            />
 
-                      setUploading(true);
-                      try {
-                        const response = await uploadAPI.uploadMultiple(imageFiles, 'products');
-                        const uploadedUrls = response.data?.files?.map((f: any) => f.url) || response.data?.urls || [];
-                        setFormData({
-                          ...formData,
-                          customerOrderImages: [...formData.customerOrderImages, ...uploadedUrls],
-                        });
-                        if (customerOrderImagesInputRef.current) {
-                          customerOrderImagesInputRef.current.value = '';
-                        }
-                      } catch (error: any) {
-                        console.error('Upload error:', error);
-                        alert(error.response?.data?.message || 'Failed to upload images');
-                      } finally {
-                        setUploading(false);
-                      }
-                    }
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => customerOrderImagesInputRef.current?.click()}
-                  disabled={uploading}
-                  className="flex items-center px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 disabled:opacity-50"
-                >
-                  <FaUpload className="mr-2" size={14} />
-                  {uploading ? 'Uploading...' : 'Upload Customer Order Images'}
-                </button>
-              </div>
-
-              {formData.customerOrderImages.length > 0 && (
-                <div className="grid grid-cols-4 gap-4">
-                  {formData.customerOrderImages.map((imageUrl, index) => (
-                    <div key={index} className="relative group">
-                      <img
-                        src={imageUrl}
-                        alt={`Customer order ${index + 1}`}
-                        className="w-full h-32 object-cover rounded-md border border-gray-300"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const newImages = formData.customerOrderImages.filter((_, i) => i !== index);
-                          setFormData({ ...formData, customerOrderImages: newImages });
-                        }}
-                        className="absolute top-2 right-2 bg-red-600 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        <FaTimes size={12} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Status */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Status</h2>
-              <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  id="isActive"
-                  className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300 rounded"
-                  checked={formData.isActive}
-                  onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
-                />
-                <label htmlFor="isActive" className="ml-2 text-sm text-gray-700">
-                  Product is active
-                </label>
-              </div>
-              <p className="mt-2 text-xs text-gray-500">
-                Only active products will be visible to customers
-              </p>
-            </div>
+            {/* Display Options (includes Status) */}
+            <ProductDisplayOptions
+              disableVariants={formData.disableVariants}
+              showOutOfStockVariants={formData.showOutOfStockVariants}
+              showFeatures={formData.showFeatures}
+              isActive={formData.isActive}
+              onDisableVariantsChange={(value) => setFormData({ ...formData, disableVariants: value })}
+              onShowOutOfStockVariantsChange={(value) => setFormData({ ...formData, showOutOfStockVariants: value })}
+              onShowFeaturesChange={(value) => setFormData({ ...formData, showFeatures: value })}
+              onIsActiveChange={(value) => setFormData({ ...formData, isActive: value })}
+            />
 
             {/* Actions */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
