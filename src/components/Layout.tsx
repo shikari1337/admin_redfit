@@ -16,6 +16,7 @@ import {
   FaCubes,
   FaSms,
 } from 'react-icons/fa';
+import { authAPI } from '../services/api';
 import PageTransitionLoader from './PageTransitionLoader';
 
 const Layout: React.FC = () => {
@@ -23,11 +24,19 @@ const Layout: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const handleLogout = () => {
-    // Remove admin token
-    localStorage.removeItem('admin_token');
-    // Navigate to login page
-    navigate('/login', { replace: true });
+  const handleLogout = async () => {
+    try {
+      // Call logout endpoint to invalidate session on server
+      await authAPI.logout();
+    } catch (error) {
+      // Even if logout fails, clear local token
+      console.warn('Logout request failed, clearing local token anyway:', error);
+    } finally {
+      // Always remove token from local storage
+      localStorage.removeItem('admin_token');
+      // Navigate to login page
+      navigate('/login', { replace: true });
+    }
   };
 
   const menuItems = [

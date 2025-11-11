@@ -103,9 +103,34 @@ api.interceptors.response.use(
     }
     
     if (error.response?.status === 401) {
-      console.log('🔒 Unauthorized, removing token and redirecting');
-      localStorage.removeItem('admin_token');
-      window.location.href = '/login';
+      console.log('🔒 Unauthorized, session expired or invalid');
+      
+      // Check if this is a session-related error
+      const errorData = error.response?.data;
+      const errorCode = errorData?.code;
+      const errorMessage = errorData?.message || 'Session expired';
+      
+      // Session-specific error codes from backend
+      const sessionErrorCodes = [
+        'SESSION_EXPIRED',
+        'SESSION_INVALID',
+        'SESSION_MISMATCH',
+        'TOKEN_EXPIRED',
+        'USER_NOT_FOUND',
+        'ACCOUNT_DISABLED'
+      ];
+      
+      if (sessionErrorCodes.includes(errorCode) || errorMessage.includes('session') || errorMessage.includes('Session')) {
+        console.log('🔒 Session error detected, clearing token and redirecting to login');
+        localStorage.removeItem('admin_token');
+        window.location.href = '/login';
+      } else {
+        // Generic 401 - might be temporary, don't redirect immediately
+        console.warn('🔒 Authentication error (non-session):', errorMessage);
+        // Still remove token as it's likely invalid
+        localStorage.removeItem('admin_token');
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   }
@@ -160,6 +185,34 @@ export const authAPI = {
       }
       throw error;
     }
+  },
+  logout: async () => {
+    try {
+      const response = await api.post('/auth/logout');
+      return response.data;
+    } catch (error: any) {
+      // Even if logout fails on server, clear local token
+      console.warn('Logout request failed, clearing local token anyway:', error);
+      // Don't throw error - we still want to clear local storage
+      return { success: true, message: 'Logged out locally' };
+    }
+  },
+  logoutAll: async () => {
+    try {
+      const response = await api.post('/auth/logout-all');
+      return response.data;
+    } catch (error: any) {
+      console.warn('Logout all request failed, clearing local token anyway:', error);
+      return { success: true, message: 'Logged out locally' };
+    }
+  },
+  getSessions: async () => {
+    const response = await api.get('/auth/sessions');
+    return response.data;
+  },
+  deleteSession: async (sessionId: string) => {
+    const response = await api.delete(`/auth/sessions/${sessionId}`);
+    return response.data;
   },
   me: async () => {
     const response = await api.get('/auth/me');
