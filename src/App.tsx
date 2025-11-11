@@ -18,6 +18,8 @@ import ProductSectionsManager from './pages/ProductSectionsManager';
 import ContactSettings from './pages/ContactSettings';
 import PaymentDiscountSettings from './pages/PaymentDiscountSettings';
 import SmsTemplates from './pages/SmsTemplates';
+import GeneralSettings from './pages/GeneralSettings';
+import ApiIntegrationSettings from './pages/ApiIntegrationSettings';
 import Settings from './pages/Settings';
 import Layout from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
@@ -57,6 +59,8 @@ function App() {
           <Route path="coupons/new" element={<CouponForm />} />
           <Route path="coupons/:id/edit" element={<CouponForm />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="settings/general" element={<GeneralSettings />} />
+          <Route path="settings/api-integrations" element={<ApiIntegrationSettings />} />
           <Route path="settings/contact" element={<ContactSettings />} />
           <Route path="settings/payment-discount" element={<PaymentDiscountSettings />} />
           <Route path="settings/sms-templates" element={<SmsTemplates />} />

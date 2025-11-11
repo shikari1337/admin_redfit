@@ -10,4 +10,5 @@ export { default as ProductWashCare } from './ProductWashCare';
 export { default as ProductCustomerImages } from './ProductCustomerImages';
 export { default as ProductDisplayOptions } from './ProductDisplayOptions';
 export { default as ProductVariants } from './ProductVariants';
+export { default as ProductSingleProductDetails } from './ProductSingleProductDetails';
 

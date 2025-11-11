@@ -12,6 +12,7 @@ interface ProductSEOProps {
   onSlugReset: () => void;
   onSeoDataChange: (data: SeoFormState) => void;
   onShowAdvancedSeoToggle: () => void;
+  showSku?: boolean; // Optionally hide SKU field (e.g., when shown elsewhere)
   errors: {
     slug?: string;
     metaTitle?: string;
@@ -30,6 +31,7 @@ const ProductSEO: React.FC<ProductSEOProps> = ({
   onSlugReset,
   onSeoDataChange,
   onShowAdvancedSeoToggle,
+  showSku = true,
   errors,
 }) => {
   const updateSeoField = (field: keyof SeoFormState, value: string) => {
@@ -55,22 +57,24 @@ const ProductSEO: React.FC<ProductSEOProps> = ({
       </div>
 
       <div className="space-y-5">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Base SKU</label>
-          <input
-            type="text"
-            value={sku || ''}
-            onChange={(e) => {
-              const skuValue = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 48);
-              onSkuChange(skuValue);
-            }}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 font-mono text-sm"
-            placeholder="Auto-generated from product name"
-          />
-          <p className="mt-1 text-xs text-gray-500">
-            Base SKU for the product. Variant SKUs will be generated as: BASE-COLOR-SIZE. Leave empty for auto-generation.
-          </p>
-        </div>
+        {showSku && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Base SKU</label>
+            <input
+              type="text"
+              value={sku || ''}
+              onChange={(e) => {
+                const skuValue = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 48);
+                onSkuChange(skuValue);
+              }}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 font-mono text-sm"
+              placeholder="Auto-generated from product name"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              Base SKU for the product. Variant SKUs will be generated as: BASE-COLOR-SIZE. Leave empty for auto-generation.
+            </p>
+          </div>
+        )}
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">

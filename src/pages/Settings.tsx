@@ -1,11 +1,23 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaPhone, FaCreditCard, FaArrowLeft, FaSms } from 'react-icons/fa';
+import { FaPhone, FaCreditCard, FaArrowLeft, FaSms, FaGlobe, FaCog } from 'react-icons/fa';
 
 const Settings: React.FC = () => {
   const navigate = useNavigate();
 
   const settingsItems = [
+    {
+      title: 'General Settings',
+      description: 'Configure website URL, logo, and color scheme',
+      icon: FaGlobe,
+      path: '/settings/general',
+    },
+    {
+      title: 'API & Integrations',
+      description: 'Configure SMTP, Meta Pixel, Razorpay, Shiprocket, and WhatsApp',
+      icon: FaCog,
+      path: '/settings/api-integrations',
+    },
     {
       title: 'Contact Details',
       description: 'Manage phone number, WhatsApp, and email for contact page',

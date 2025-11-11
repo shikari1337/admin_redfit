@@ -5,7 +5,6 @@ import { FaArrowLeft } from 'react-icons/fa';
 import {
   ProductBasicInfo,
   ProductPricing,
-  ProductSizesStock,
   ProductCategories,
   ProductSEO,
   ProductSizeChart,
@@ -50,8 +49,7 @@ const ProductForm: React.FC = () => {
     descriptionImage: '',
     images: [] as string[],
     videos: [] as string[],
-    sizes: [] as string[],
-    stock: {} as Record<string, number>, // Stock for products without variants
+    stock: undefined as number | undefined, // Stock for products without variants (simple number)
     categories: [] as string[],
     sizeChart: [] as SizeChartEntry[],
     washCareInstructions: [] as Array<{ text: string; iconUrl?: string; iconName?: string }>,
@@ -90,7 +88,6 @@ const ProductForm: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [newSizeInput, setNewSizeInput] = useState('');
 
   // Shopify-style variant management state
   const [variantTypes, setVariantTypes] = useState<VariantType[]>([]);
@@ -167,6 +164,17 @@ const ProductForm: React.FC = () => {
         ? 'custom'
         : 'none';
 
+      // Convert stock from Map/Record to number if needed
+      let stockValue: number | undefined = undefined;
+      if (data.stock !== undefined && data.stock !== null) {
+        if (typeof data.stock === 'number') {
+          stockValue = data.stock;
+        } else if (typeof data.stock === 'object' && !Array.isArray(data.stock)) {
+          // Legacy format - if it's an object, we'll ignore it (old size-based stock)
+          stockValue = undefined;
+        }
+      }
+
       setFormData({
         name: data.name || '',
         sku: data.sku || '',
@@ -177,7 +185,6 @@ const ProductForm: React.FC = () => {
         descriptionImage: data.descriptionImage || '',
         images: data.images || [],
         videos: data.videos || [],
-        sizes: data.sizes || [],
         categories: productCategories,
         sizeChart:
           initialMode === 'custom'
@@ -192,7 +199,7 @@ const ProductForm: React.FC = () => {
         showFeatures: data.showFeatures !== false,
         isActive: data.isActive !== false,
         variants: data.variants || [],
-        stock: data.stock || {},
+        stock: stockValue,
       });
 
       if (data.slug) {
@@ -255,6 +262,18 @@ const ProductForm: React.FC = () => {
         ? 'custom'
         : 'none';
 
+      // Convert stock from Map/Record to number if needed
+      let stockValue: number | undefined = undefined;
+      if (product.stock !== undefined && product.stock !== null) {
+        if (typeof product.stock === 'number') {
+          stockValue = product.stock;
+        } else if (typeof product.stock === 'object' && !Array.isArray(product.stock)) {
+          // Legacy format - if it's an object (Map), convert to number if possible
+          // For now, we'll just set to undefined and let user set it fresh
+          stockValue = undefined;
+        }
+      }
+
       setFormData({
         name: product.name || '',
         sku: product.sku || '',
@@ -265,8 +284,7 @@ const ProductForm: React.FC = () => {
         descriptionImage: product.descriptionImage || '',
         images: product.images || [],
         videos: product.videos || [],
-        sizes: product.sizes || [],
-        stock: product.stock || {},
+        stock: stockValue,
         categories: productCategories,
         sizeChart:
           initialMode === 'custom'
@@ -363,9 +381,8 @@ const ProductForm: React.FC = () => {
       newErrors.images = 'At least one image is required';
     }
 
-    if (formData.sizes.length === 0 && formData.variants.length === 0) {
-      newErrors.sizes = 'Add at least one size or variant';
-    }
+    // No longer require sizes - variants are optional and can be added via variation form
+    // Products can exist without variants (simple products with just stock)
 
     if (formData.categories.length === 0) {
       newErrors.categories = 'Select at least one category';
@@ -1151,38 +1168,6 @@ const ProductForm: React.FC = () => {
   };
 
 
-  const addSize = () => {
-    const newSize = newSizeInput.trim().toUpperCase();
-    if (newSize && !formData.sizes.includes(newSize)) {
-      setFormData((prev) => ({
-        ...prev,
-        sizes: [...prev.sizes, newSize],
-        stock: {
-          ...prev.stock,
-          [newSize]: prev.stock[newSize] || 0,
-        },
-      }));
-      setNewSizeInput('');
-      setErrors({ ...errors, sizes: '' });
-    } else if (newSize && formData.sizes.includes(newSize)) {
-      setErrors({ ...errors, sizes: 'This size already exists' });
-    } else if (!newSize) {
-      setErrors({ ...errors, sizes: 'Please enter a size' });
-    }
-  };
-
-  const removeSize = (size: string) => {
-    setFormData((prev) => {
-      const newSizes = prev.sizes.filter((s) => s !== size);
-      const newStock = { ...prev.stock };
-      delete newStock[size];
-      return {
-        ...prev,
-        sizes: newSizes,
-        stock: newStock,
-      };
-    });
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1193,14 +1178,13 @@ const ProductForm: React.FC = () => {
 
     setSaving(true);
     try {
-      const cleanedSizes = formData.sizes.filter((s) => s.trim());
       const cleanedVideos = formData.videos.filter((v) => v.trim());
       const cleanedInstructions = formData.washCareInstructions.filter((instr) => instr.text.trim() !== '');
       
-      // Use Shopify-style variants if enabled, otherwise use legacy format
+      // Process variants - convert Shopify combinations to variant format if needed
       let cleanedVariants: ProductVariant[] = [];
       if (useShopifyVariants && variantCombinations.length > 0) {
-        // Convert Shopify combinations to legacy format
+        // Convert Shopify combinations to variant format
         const convertedVariants = convertCombinationsToVariants(variantCombinations);
         cleanedVariants = convertedVariants.map((v) => {
           const cleanedSizes = v.sizes
@@ -1226,7 +1210,7 @@ const ProductForm: React.FC = () => {
           };
         });
       } else {
-        // Legacy variant format
+        // Direct variant format (already in ProductVariant format)
         cleanedVariants = formData.variants.map((v) => {
           const cleanedSizes = v.sizes
             .filter((s) => s.size && s.size.trim()) // Keep only sizes with size value
@@ -1256,18 +1240,12 @@ const ProductForm: React.FC = () => {
 
       const { sizeChart: sizeChartEntries, categories: selectedCategories, ...rest } = formData;
 
-      // Prepare stock data for products without variants
-      let stockData: Record<string, number> | undefined = undefined;
-      if (formData.variants.length === 0 && formData.stock && Object.keys(formData.stock).length > 0) {
-        // Only include sizes that exist in the sizes array
-        stockData = {};
-        formData.sizes.forEach(size => {
-          if (formData.stock[size] !== undefined && formData.stock[size] > 0) {
-            stockData![size] = Math.max(0, Math.floor(formData.stock[size]));
-          }
-        });
-        // If no stock data, set to undefined
-        if (Object.keys(stockData).length === 0) {
+      // Prepare stock data for products without variants (simple number)
+      let stockData: number | undefined = undefined;
+      if (formData.variants.length === 0 && formData.stock !== undefined && formData.stock !== null) {
+        stockData = Math.max(0, Math.floor(formData.stock));
+        // Set to undefined if 0 or invalid
+        if (stockData === 0 || isNaN(stockData)) {
           stockData = undefined;
         }
       }
@@ -1276,7 +1254,6 @@ const ProductForm: React.FC = () => {
         ...rest,
         price: parseFloat(formData.price),
         originalPrice: parseFloat(formData.originalPrice),
-        sizes: cleanedSizes,
         stock: stockData,
         videos: cleanedVideos,
         washCareInstructions: cleanedInstructions,
@@ -1432,6 +1409,7 @@ const ProductForm: React.FC = () => {
               slug={slug}
               seoData={seoData}
               showAdvancedSeo={showAdvancedSeo}
+              showSku={false} // SKU is now shown in Pricing section
               onSkuChange={(sku) => {
                 const skuValue = sku.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 48);
                 setFormData({ ...formData, sku: skuValue });
@@ -1452,7 +1430,6 @@ const ProductForm: React.FC = () => {
               onShowAdvancedSeoToggle={() => setShowAdvancedSeo((prev) => !prev)}
               errors={errors}
             />
-
 
             {/* Videos */}
             <ProductVideos
@@ -1527,6 +1504,9 @@ const ProductForm: React.FC = () => {
             <ProductPricing
               price={formData.price}
               originalPrice={formData.originalPrice}
+              sku={formData.sku}
+              stock={formData.stock}
+              showStock={formData.variants.length === 0}
               onPriceChange={(price) => {
                 setFormData({ ...formData, price });
                 setErrors({ ...errors, price: '' });
@@ -1535,22 +1515,15 @@ const ProductForm: React.FC = () => {
                 setFormData({ ...formData, originalPrice: price });
                 setErrors({ ...errors, originalPrice: '' });
               }}
+              onSkuChange={(sku) => {
+                const skuValue = sku.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 48);
+                setFormData({ ...formData, sku: skuValue });
+              }}
+              onStockChange={(stock) => {
+                setFormData({ ...formData, stock });
+              }}
               errors={errors}
             />
-
-            {/* Sizes & Stock (if no variants) */}
-            {formData.variants.length === 0 && (
-              <ProductSizesStock
-                sizes={formData.sizes}
-                stock={formData.stock}
-                newSizeInput={newSizeInput}
-                onStockChange={(stock) => setFormData({ ...formData, stock })}
-                onNewSizeInputChange={setNewSizeInput}
-                onAddSize={addSize}
-                onRemoveSize={removeSize}
-                errors={errors}
-              />
-            )}
 
             {/* Size Chart */}
             <ProductSizeChart
