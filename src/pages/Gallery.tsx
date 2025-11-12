@@ -4,11 +4,9 @@ import {
   FaFolder,
   FaFolderPlus,
   FaImage,
-  FaVideo,
   FaTrash,
   FaCopy,
   FaFileCsv,
-  FaDownload,
   FaTimes,
   FaCheck,
 } from 'react-icons/fa';
