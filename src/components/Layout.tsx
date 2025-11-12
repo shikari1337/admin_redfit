@@ -16,6 +16,7 @@ import {
   FaCubes,
   FaSms,
   FaUsers,
+  FaImages,
 } from 'react-icons/fa';
 import { authAPI } from '../services/api';
 import PageTransitionLoader from './PageTransitionLoader';
@@ -53,6 +54,7 @@ const Layout: React.FC = () => {
       ],
     },
     { path: '/categories', icon: FaLayerGroup, label: 'Categories' },
+    { path: '/gallery', icon: FaImages, label: 'Gallery' },
     { path: '/size-charts', icon: FaRulerCombined, label: 'Size Charts' },
     {
       path: '/orders',

@@ -20,9 +20,11 @@ import PaymentDiscountSettings from './pages/PaymentDiscountSettings';
 import SmsTemplates from './pages/SmsTemplates';
 import GeneralSettings from './pages/GeneralSettings';
 import ApiIntegrationSettings from './pages/ApiIntegrationSettings';
+import PaymentGatewaySettings from './pages/PaymentGatewaySettings';
 import Settings from './pages/Settings';
 import Users from './pages/Users';
 import UserDetail from './pages/UserDetail';
+import Gallery from './pages/Gallery';
 import Layout from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
@@ -51,6 +53,7 @@ function App() {
           <Route path="products/bundles/new" element={<BundleForm />} />
           <Route path="products/bundles/:id/edit" element={<BundleForm />} />
           <Route path="categories" element={<Categories />} />
+          <Route path="gallery" element={<Gallery />} />
           <Route path="size-charts" element={<SizeCharts />} />
           <Route path="orders" element={<Orders />} />
           <Route path="orders/abandoned-carts" element={<AbandonedCarts />} />
@@ -67,6 +70,7 @@ function App() {
           <Route path="settings/api-integrations" element={<ApiIntegrationSettings />} />
           <Route path="settings/contact" element={<ContactSettings />} />
           <Route path="settings/payment-discount" element={<PaymentDiscountSettings />} />
+          <Route path="settings/payment-gateways" element={<PaymentGatewaySettings />} />
           <Route path="settings/sms-templates" element={<SmsTemplates />} />
         </Route>
       </Routes>

@@ -31,6 +31,12 @@ const Settings: React.FC = () => {
       path: '/settings/payment-discount',
     },
     {
+      title: 'Payment Gateways',
+      description: 'Configure and enable/disable payment gateways (Razorpay, UPI)',
+      icon: FaCreditCard,
+      path: '/settings/payment-gateways',
+    },
+    {
       title: 'SMS Templates',
       description: 'Configure SMSAlert templates for orders and cart recovery',
       icon: FaSms,

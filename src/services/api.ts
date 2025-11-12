@@ -371,8 +371,12 @@ export const ordersAPI = {
     // Fallback for non-standard responses
     return response.data?.data ? { data: response.data.data } : response.data;
   },
-  updateStatus: async (id: string, status: string) => {
-    const response = await api.put(`/orders/${id}/status`, { status });
+  updateStatus: async (id: string, status: string, notes?: string) => {
+    const response = await api.put(`/orders/${id}/status`, { status, notes });
+    return response.data;
+  },
+  updateNotes: async (id: string, notes: string) => {
+    const response = await api.put(`/orders/${id}/notes`, { notes });
     return response.data;
   },
 };
