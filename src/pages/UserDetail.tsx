@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { usersAPI, ordersAPI } from '../services/api';
+import { usersAPI } from '../services/api';
 import { format } from 'date-fns';
 import {
   FaUser,
@@ -25,7 +25,6 @@ const UserDetail: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'orders' | 'addresses' | 'browsed' | 'password'>(
     'orders'
   );
-  const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [resetting, setResetting] = useState(false);
@@ -100,7 +99,6 @@ const UserDetail: React.FC = () => {
       await usersAPI.resetPassword(id!, newPassword);
       alert('Password reset successfully!');
       setNewPassword('');
-      setShowPasswordForm(false);
     } catch (error: any) {
       console.error('Failed to reset password:', error);
       alert(error.response?.data?.message || 'Failed to reset password');
@@ -247,10 +245,7 @@ const UserDetail: React.FC = () => {
               Browsed Products ({browsedProducts.length})
             </button>
             <button
-              onClick={() => {
-                setActiveTab('password');
-                setShowPasswordForm(true);
-              }}
+              onClick={() => setActiveTab('password')}
               className={`px-6 py-3 text-sm font-medium border-b-2 ${
                 activeTab === 'password'
                   ? 'border-red-500 text-red-600'

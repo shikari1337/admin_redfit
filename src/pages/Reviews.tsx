@@ -82,6 +82,14 @@ const Reviews: React.FC = () => {
     }
   };
 
+  // Helper function to normalize productId to string
+  const normalizeProductId = (productId: string | { _id: string; name: string; sku?: string } | undefined): string => {
+    if (!productId) return '';
+    if (typeof productId === 'string') return productId;
+    if (typeof productId === 'object' && productId !== null) return productId._id;
+    return '';
+  };
+
   const handleImageUpload = async (reviewId?: string) => {
     if (!newImage) return;
 
@@ -420,7 +428,7 @@ const Reviews: React.FC = () => {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Product</label>
               <select
-                value={newReview.productId || ''}
+                value={normalizeProductId(newReview.productId)}
                 onChange={(e) => setNewReview({ ...newReview, productId: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
               >
@@ -740,7 +748,10 @@ const Reviews: React.FC = () => {
                       <button
                         onClick={() => {
                           setEditingId(review._id);
-                          setNewReview(review);
+                          setNewReview({
+                            ...review,
+                            productId: normalizeProductId(review.productId) as string,
+                          });
                         }}
                         className="text-indigo-600 hover:text-indigo-900"
                       >
