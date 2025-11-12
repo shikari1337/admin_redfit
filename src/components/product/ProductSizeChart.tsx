@@ -109,8 +109,8 @@ const ProductSizeChart: React.FC<ProductSizeChartProps> = ({
                 className="flex-1 min-w-[200px] px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:border-red-500"
               >
                 <option value="">Choose size chart…</option>
-                {availableSizeCharts.map((chart) => (
-                  <option key={chart._id} value={chart._id}>
+                {availableSizeCharts.map((chart, index) => (
+                  <option key={`chart-${chart._id}-${index}`} value={chart._id}>
                     {chart.name}
                   </option>
                 ))}
@@ -175,8 +175,8 @@ const ProductSizeChart: React.FC<ProductSizeChartProps> = ({
                     className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:border-red-500"
                   >
                     <option value="">Import from existing chart…</option>
-                    {availableSizeCharts.map((chart) => (
-                      <option key={chart._id} value={chart._id}>
+                    {availableSizeCharts.map((chart, index) => (
+                      <option key={`chart-${chart._id}-${index}`} value={chart._id}>
                         {chart.name}
                       </option>
                     ))}

@@ -3,7 +3,7 @@ import { FaPlus, FaTrash, FaTimes, FaUpload, FaCog } from 'react-icons/fa';
 import { ProductVariant, VariantType, VariantCombination } from '../../types/productForm';
 
 interface ProductVariantsProps {
-  // Legacy variants
+  // Standard variants (color-based with sizes)
   variants: ProductVariant[];
   onAddVariant: () => void;
   onUpdateVariant: (index: number, field: keyof ProductVariant, value: any) => void;
@@ -11,12 +11,12 @@ interface ProductVariantsProps {
   onAddVariantSize: (variantIndex: number) => void;
   onUpdateVariantSize: (variantIndex: number, sizeIndex: number, field: string, value: any) => void;
   onRemoveVariantSize: (variantIndex: number, sizeIndex: number) => void;
-  onRegenerateAllSkusLegacy: () => void;
+  onRegenerateAllSkus: () => void;
   onRegenerateVariantSkus: (variantIndex: number) => void;
   onVariantImageUpload: (variantIndex: number, files: FileList) => Promise<void>;
   onRemoveVariantImage: (variantIndex: number, imageIndex: number) => void;
   
-  // Shopify-style variants
+  // Advanced variant management (Shopify-style)
   useShopifyVariants: boolean;
   onUseShopifyVariantsChange: (value: boolean) => void;
   variantTypes: VariantType[];
@@ -30,7 +30,7 @@ interface ProductVariantsProps {
   onAddVariantOption: (typeId: string, value: string, colorCode?: string) => void;
   onRemoveVariantOption: (typeId: string, value: string) => void;
   onUpdateVariantCombination: (id: string, field: keyof VariantCombination, value: any) => void;
-  onRegenerateAllSkus: () => void;
+  onRegenerateAllSkusShopify: () => void;
   onNewVariantTypeNameChange: (value: string) => void;
   onNewOptionInputsChange: (value: Record<string, string>) => void;
   onVariantColorCodesChange: (codes: Record<string, Record<string, string>>) => void;
@@ -51,7 +51,7 @@ const ProductVariants: React.FC<ProductVariantsProps> = ({
   onAddVariantSize,
   onUpdateVariantSize,
   onRemoveVariantSize,
-  onRegenerateAllSkusLegacy,
+  onRegenerateAllSkus,
   onRegenerateVariantSkus,
   onVariantImageUpload,
   onRemoveVariantImage,
@@ -68,7 +68,7 @@ const ProductVariants: React.FC<ProductVariantsProps> = ({
   onAddVariantOption,
   onRemoveVariantOption,
   onUpdateVariantCombination,
-  onRegenerateAllSkus,
+  onRegenerateAllSkusShopify,
   onNewVariantTypeNameChange,
   onNewOptionInputsChange,
   onVariantColorCodesChange,
@@ -123,13 +123,13 @@ const ProductVariants: React.FC<ProductVariantsProps> = ({
           onAddVariantOption={onAddVariantOption}
           onRemoveVariantOption={onRemoveVariantOption}
           onUpdateCombination={onUpdateVariantCombination}
-          onRegenerateAllSkus={onRegenerateAllSkus}
+          onRegenerateAllSkus={onRegenerateAllSkusShopify}
           onNewVariantTypeNameChange={onNewVariantTypeNameChange}
           onNewOptionInputsChange={onNewOptionInputsChange}
           onVariantColorCodesChange={onVariantColorCodesChange}
         />
       ) : (
-        <LegacyVariantsView
+        <StandardVariantsView
           variants={variants}
           onAddVariant={onAddVariant}
           onUpdateVariant={onUpdateVariant}
@@ -137,7 +137,7 @@ const ProductVariants: React.FC<ProductVariantsProps> = ({
           onAddVariantSize={onAddVariantSize}
           onUpdateVariantSize={onUpdateVariantSize}
           onRemoveVariantSize={onRemoveVariantSize}
-          onRegenerateAllSkus={onRegenerateAllSkusLegacy}
+          onRegenerateAllSkus={onRegenerateAllSkus}
           onRegenerateVariantSkus={onRegenerateVariantSkus}
           onVariantImageUpload={onVariantImageUpload}
           onRemoveVariantImage={onRemoveVariantImage}
@@ -472,8 +472,8 @@ const ShopifyVariantsView: React.FC<ShopifyVariantsViewProps> = ({
   );
 };
 
-// Legacy variants view component
-interface LegacyVariantsViewProps {
+// Standard variants view component (color-based with sizes)
+interface StandardVariantsViewProps {
   variants: ProductVariant[];
   onAddVariant: () => void;
   onUpdateVariant: (index: number, field: keyof ProductVariant, value: any) => void;
@@ -490,7 +490,7 @@ interface LegacyVariantsViewProps {
   generateSkuForSize: (baseSku: string, colorName: string, size: string) => string;
 }
 
-const LegacyVariantsView: React.FC<LegacyVariantsViewProps> = ({
+const StandardVariantsView: React.FC<StandardVariantsViewProps> = ({
   variants,
   onAddVariant,
   onUpdateVariant,
@@ -509,7 +509,7 @@ const LegacyVariantsView: React.FC<LegacyVariantsViewProps> = ({
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
-        <h3 className="text-sm font-medium text-gray-700">Legacy Format</h3>
+        <h3 className="text-sm font-medium text-gray-700">Variants</h3>
         <div className="flex gap-2">
           {variants.length > 0 && variants.some((v) => v.sizes.length > 0) && (
             <button

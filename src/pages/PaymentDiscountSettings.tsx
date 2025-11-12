@@ -15,6 +15,7 @@ const PaymentDiscountSettings: React.FC = () => {
   const [formData, setFormData] = useState({
     razorpayDiscountPercent: 2,
     quantityDiscounts: [] as QuantityDiscount[],
+    excludeBundledProductsFromQuantityDiscount: false,
   });
 
   useEffect(() => {
@@ -33,6 +34,7 @@ const PaymentDiscountSettings: React.FC = () => {
             { minQuantity: 10, discountPercent: 10 },
             { minQuantity: 20, discountPercent: 15 },
           ],
+          excludeBundledProductsFromQuantityDiscount: response.data.data.excludeBundledProductsFromQuantityDiscount || false,
         });
       }
     } catch (error: any) {
@@ -45,6 +47,7 @@ const PaymentDiscountSettings: React.FC = () => {
           { minQuantity: 10, discountPercent: 10 },
           { minQuantity: 20, discountPercent: 15 },
         ],
+        excludeBundledProductsFromQuantityDiscount: false,
       });
     } finally {
       setLoading(false);
@@ -223,11 +226,32 @@ const PaymentDiscountSettings: React.FC = () => {
             </div>
           )}
 
+          <div className="mt-4 space-y-3">
+            <label className="inline-flex items-center text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={formData.excludeBundledProductsFromQuantityDiscount}
+                onChange={(e) => setFormData(prev => ({ ...prev, excludeBundledProductsFromQuantityDiscount: e.target.checked }))}
+                className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300 rounded mr-2"
+              />
+              <span className="font-medium">Exclude bundled products from quantity discounts</span>
+            </label>
+            <p className="text-xs text-gray-500 ml-6">
+              When enabled, products purchased with quantity-based bundles will not count toward quantity discount thresholds. 
+              This prevents double discounting since bundled products are already discounted.
+            </p>
+          </div>
+
           <div className="mt-4 bg-yellow-50 border border-yellow-200 rounded-md p-4">
             <p className="text-sm text-yellow-800">
               <strong>Note:</strong> Discounts are applied based on total quantity in cart. 
               Higher quantity thresholds should have higher discount percentages. 
               The system will apply the highest applicable discount.
+              {formData.excludeBundledProductsFromQuantityDiscount && (
+                <span className="block mt-1">
+                  <strong>Bundled products excluded:</strong> Only non-bundled items will count toward quantity discount thresholds.
+                </span>
+              )}
             </p>
           </div>
         </div>

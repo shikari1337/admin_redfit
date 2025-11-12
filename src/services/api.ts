@@ -450,6 +450,13 @@ export const reviewsAPI = {
     const response = await api.delete(`/reviews/${id}`);
     return response.data;
   },
+  generateProfileImage: async (customerName: string, description?: string) => {
+    const response = await api.post('/reviews/generate-profile-image', {
+      customerName,
+      description,
+    });
+    return response.data;
+  },
   approve: async (id: string, approved: boolean) => {
     const response = await api.put(`/reviews/${id}/approve`, { approved });
     return response.data;
@@ -563,6 +570,22 @@ export const bundlesAPI = {
   },
 };
 
+// Product Quantity-Based Bundles API (managed via product-bundles endpoint)
+export const productQuantityBundlesAPI = {
+  get: async (productId: string) => {
+    const response = await api.get(`/product-bundles/product/${productId}/quantity`);
+    return response.data.data || response.data;
+  },
+  update: async (productId: string, bundles: any[]) => {
+    const response = await api.put(`/product-bundles/product/${productId}/quantity`, { bundles });
+    return response.data.data || response.data;
+  },
+  delete: async (productId: string) => {
+    const response = await api.delete(`/product-bundles/product/${productId}/quantity`);
+    return response.data;
+  },
+};
+
 export const cartsAPI = {
   listAdmin: async (params?: { status?: string; search?: string }) => {
     const response = await api.get('/carts/admin', { params });
@@ -574,6 +597,39 @@ export const cartsAPI = {
   },
   sendRecovery: async (cartId: string) => {
     const response = await api.post(`/carts/${cartId}/send-recovery`);
+    return response.data;
+  },
+};
+
+// Users API
+export const usersAPI = {
+  getAll: async (params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    role?: string;
+  }) => {
+    const response = await api.get('/users', { params });
+    return response.data;
+  },
+  getById: async (id: string) => {
+    const response = await api.get(`/users/${id}`);
+    return response.data;
+  },
+  getOrders: async (id: string, params?: { page?: number; limit?: number }) => {
+    const response = await api.get(`/users/${id}/orders`, { params });
+    return response.data;
+  },
+  getAddresses: async (id: string) => {
+    const response = await api.get(`/users/${id}/addresses`);
+    return response.data;
+  },
+  getBrowsedProducts: async (id: string) => {
+    const response = await api.get(`/users/${id}/browsed-products`);
+    return response.data;
+  },
+  resetPassword: async (id: string, newPassword: string) => {
+    const response = await api.post(`/users/${id}/reset-password`, { newPassword });
     return response.data;
   },
 };

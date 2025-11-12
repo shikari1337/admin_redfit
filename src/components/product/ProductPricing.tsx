@@ -69,7 +69,7 @@ const ProductPricing: React.FC<ProductPricingProps> = ({
         <div className="border-t border-gray-200 pt-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              SKU
+              SKU {sku && <span className="text-xs font-normal text-gray-500">(from database)</span>}
             </label>
             <input
               type="text"
@@ -80,11 +80,13 @@ const ProductPricing: React.FC<ProductPricingProps> = ({
               }}
               className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 font-mono text-sm ${
                 errors.sku ? 'border-red-500' : 'border-gray-300'
-              }`}
+              } ${sku ? 'bg-gray-50' : ''}`}
               placeholder="Auto-generated from product name"
             />
             <p className="mt-1 text-xs text-gray-500">
-              Unique SKU identifier for this product. Leave empty for auto-generation.
+              {sku 
+                ? 'Existing SKU from database. You can modify it if needed.'
+                : 'Unique SKU identifier for this product. Leave empty for auto-generation.'}
             </p>
             {errors.sku && <p className="mt-1 text-sm text-red-500">{errors.sku}</p>}
           </div>

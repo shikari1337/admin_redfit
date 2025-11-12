@@ -1,4 +1,5 @@
 import React from 'react';
+import { FaExternalLinkAlt } from 'react-icons/fa';
 import { SeoFormState, SLUG_MAX_LENGTH, META_TITLE_LIMIT, META_DESCRIPTION_LIMIT } from '../../types/productForm';
 import { slugifyValue } from '../../utils/slugify';
 
@@ -7,6 +8,7 @@ interface ProductSEOProps {
   slug: string;
   seoData: SeoFormState;
   showAdvancedSeo: boolean;
+  websiteUrl?: string; // Website URL from settings
   onSkuChange: (sku: string) => void;
   onSlugChange: (slug: string) => void;
   onSlugReset: () => void;
@@ -26,6 +28,7 @@ const ProductSEO: React.FC<ProductSEOProps> = ({
   slug,
   seoData,
   showAdvancedSeo,
+  websiteUrl,
   onSkuChange,
   onSlugChange,
   onSlugReset,
@@ -37,6 +40,16 @@ const ProductSEO: React.FC<ProductSEOProps> = ({
   const updateSeoField = (field: keyof SeoFormState, value: string) => {
     onSeoDataChange({ ...seoData, [field]: value });
   };
+
+  // Generate product URL
+  const getProductUrl = (): string => {
+    if (!slug) return '';
+    const baseUrl = websiteUrl?.trim() || window.location.origin;
+    const cleanBaseUrl = baseUrl.replace(/\/+$/, ''); // Remove trailing slashes
+    return `${cleanBaseUrl}/products/${slug}`;
+  };
+
+  const productUrl = getProductUrl();
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
@@ -109,6 +122,38 @@ const ProductSEO: React.FC<ProductSEOProps> = ({
             </span>
           </div>
           {errors.slug && <p className="mt-1 text-sm text-red-500">{errors.slug}</p>}
+          
+          {/* Live Product Link */}
+          {slug && (
+            <div className="mt-3 p-3 bg-gray-50 rounded-md border border-gray-200">
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Live Product Link
+              </label>
+              <div className="flex items-center gap-2">
+                <a
+                  href={productUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 text-sm text-blue-600 hover:text-blue-800 hover:underline truncate font-mono"
+                  title={productUrl}
+                >
+                  {productUrl}
+                </a>
+                <a
+                  href={productUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-shrink-0 p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded"
+                  title="Open in new tab"
+                >
+                  <FaExternalLinkAlt className="w-4 h-4" />
+                </a>
+              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                {websiteUrl ? 'Click to view product on your website' : 'Website URL not configured. Set it in Settings → General Settings'}
+              </p>
+            </div>
+          )}
         </div>
 
         <div>

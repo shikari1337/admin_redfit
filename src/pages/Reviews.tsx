@@ -4,7 +4,7 @@ import { FaUpload, FaTimes, FaPlus, FaTrash, FaEdit, FaFileCsv, FaDownload } fro
 
 interface Review {
   _id: string;
-  productId: string;
+  productId: string | { _id: string; name: string; sku?: string }; // Can be populated
   orderId?: string;
   customerName: string;
   customerEmail?: string;
@@ -23,6 +23,7 @@ interface Review {
 interface Product {
   _id: string;
   name: string;
+  sku?: string;
 }
 
 const Reviews: React.FC = () => {
@@ -43,7 +44,9 @@ const Reviews: React.FC = () => {
     isVerified: false,
   });
   const [newImage, setNewImage] = useState<File | null>(null);
+  const [customerImage, setCustomerImage] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [generatingImage, setGeneratingImage] = useState(false);
   const [bulkUploadMode, setBulkUploadMode] = useState(false);
   const [_csvFile, setCsvFile] = useState<File | null>(null); // File state for CSV upload (setter used for clearing)
   const [csvData, setCsvData] = useState<any[]>([]);
@@ -67,7 +70,13 @@ const Reviews: React.FC = () => {
   const fetchProducts = async () => {
     try {
       const response = await reviewsAPI.getProducts?.() || await fetch('/api/v1/products').then(r => r.json());
-      setProducts(response.data || response || []);
+      const productsData = response.data || response || [];
+      // Ensure we have SKU field
+      setProducts(productsData.map((p: any) => ({
+        _id: p._id,
+        name: p.name,
+        sku: p.sku || '',
+      })));
     } catch (error) {
       console.error('Failed to fetch products:', error);
     }
@@ -104,6 +113,49 @@ const Reviews: React.FC = () => {
     }
   };
 
+  const handleCustomerImageUpload = async () => {
+    if (!customerImage) return;
+
+    setUploading(true);
+    try {
+      const response = await uploadAPI.uploadSingle(customerImage, 'reviews');
+      const imageUrl = response.data.url;
+      setNewReview({
+        ...newReview,
+        customerImage: imageUrl,
+      });
+      setCustomerImage(null);
+    } catch (error) {
+      alert('Failed to upload customer image');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleGenerateCustomerImage = async () => {
+    if (!newReview.customerName) {
+      alert('Please enter customer name first');
+      return;
+    }
+
+    setGeneratingImage(true);
+    try {
+      const response = await reviewsAPI.generateProfileImage?.(newReview.customerName, newReview.description);
+      if (response?.data?.imageUrl) {
+        setNewReview({
+          ...newReview,
+          customerImage: response.data.imageUrl,
+        });
+      } else {
+        alert('Failed to generate image');
+      }
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Failed to generate image. Make sure Gemini API key is configured.');
+    } finally {
+      setGeneratingImage(false);
+    }
+  };
+
   const handleSaveReview = async () => {
     try {
       if (editingId) {
@@ -120,9 +172,11 @@ const Reviews: React.FC = () => {
         link: '',
         description: '',
         images: [],
+        customerImage: undefined,
         isApproved: true,
         isVerified: false,
       });
+      setCustomerImage(null);
       setEditingId(null);
       fetchReviews();
     } catch (error: any) {
@@ -196,28 +250,38 @@ const Reviews: React.FC = () => {
       // Process CSV data and create reviews
       for (const row of parsedData) {
         try {
-          if (!row.productid && !row.product_id) {
-            console.warn(`Skipping row ${row._lineIndex}: Missing productId`);
+          // Handle Product SKU - need to find product by SKU
+          const productSku = row.productsku || row.product_sku || row.sku || '';
+          if (!productSku) {
+            console.warn(`Skipping row ${row._lineIndex}: Missing Product SKU`);
+            errorCount++;
+            continue;
+          }
+
+          // Find product by SKU
+          const product = products.find(p => p.sku === productSku);
+          if (!product) {
+            console.warn(`Skipping row ${row._lineIndex}: Product with SKU "${productSku}" not found`);
             errorCount++;
             continue;
           }
 
           const reviewData: any = {
-            productId: row.productid || row.product_id || '',
+            productId: product._id,
             customerName: row.name || row.customername || row.customer_name || '',
             customerEmail: row.email || row.customeremail || row.customer_email || '',
             rating: parseInt(row.rating || '5'),
             review: row.review || row.reviewtext || '',
             link: row.link || row.url || '',
             description: row.description || row.desc || '',
-            isApproved: row.approved === 'true' || row.approved === '1' || row.approved === true,
-            isVerified: row.verified === 'true' || row.verified === '1' || row.verified === true,
+            isApproved: row.approved === 'TRUE' || row.approved === 'true' || row.approved === '1' || row.approved === true,
+            isVerified: row.verified === 'TRUE' || row.verified === 'true' || row.verified === '1' || row.verified === true,
             images: [],
           };
 
           // Handle customer image URL
-          if (row.imageurl || row.image_url || row.customerimage || row.customer_image) {
-            reviewData.customerImage = row.imageurl || row.image_url || row.customerimage || row.customer_image;
+          if (row.customerimage || row.customer_image || row.imageurl || row.image_url) {
+            reviewData.customerImage = row.customerimage || row.customer_image || row.imageurl || row.image_url;
           }
 
           // Handle review images (comma-separated URLs)
@@ -243,20 +307,37 @@ const Reviews: React.FC = () => {
   };
 
   const exportToCsv = () => {
-    const headers = ['Name', 'Email', 'Rating', 'Review', 'Link', 'Description', 'Product ID', 'Approved', 'Verified'];
-    const rows = reviews.map(review => [
-      review.customerName,
-      review.customerEmail || '',
-      review.rating.toString(),
-      review.review,
-      review.link || '',
-      review.description || '',
-      review.productId,
-      review.isApproved ? 'true' : 'false',
-      review.isVerified ? 'true' : 'false',
-    ]);
+    const headers = ['Name', 'Email', 'Rating', 'Review', 'Link', 'Description', 'Product SKU', 'Customer Image', 'Review Images', 'Approved', 'Verified'];
+    const rows = reviews.map(review => {
+      // Get product SKU - handle both populated and non-populated cases
+      let productSku = '';
+      if (typeof review.productId === 'object' && review.productId !== null) {
+        productSku = (review.productId as any).sku || '';
+      } else {
+        // If not populated, try to find in products array
+        const product = products.find(p => p._id === review.productId);
+        productSku = product?.sku || '';
+      }
+      
+      // Format review images as comma-separated string
+      const reviewImages = (review.images || []).join(',');
+      
+      return [
+        review.customerName,
+        review.customerEmail || '',
+        review.rating.toString(),
+        review.review,
+        review.link || '',
+        review.description || '',
+        productSku,
+        review.customerImage || '',
+        reviewImages,
+        review.isApproved ? 'TRUE' : 'FALSE',
+        review.isVerified ? 'TRUE' : 'FALSE',
+      ];
+    });
 
-    const csv = [headers.join(','), ...rows.map(row => row.map(cell => `"${cell}"`).join(','))].join('\n');
+    const csv = [headers.join(','), ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -306,7 +387,7 @@ const Reviews: React.FC = () => {
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                CSV File (headers: name, email, rating, review, link, description, productid, approved, verified, imageurl)
+                CSV File (headers: Name, Email, Rating, Review, Link, Description, Product SKU, Customer Image, Review Images, Approved, Verified)
               </label>
               <input
                 type="file"
@@ -410,6 +491,61 @@ const Reviews: React.FC = () => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 placeholder="Additional description"
               />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Customer Image (Profile Photo)</label>
+              <div className="flex items-center gap-2 mb-2">
+                <label className="flex items-center gap-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 cursor-pointer">
+                  <FaUpload size={14} />
+                  Upload Image
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        setCustomerImage(e.target.files[0]);
+                      }
+                    }}
+                  />
+                </label>
+                {customerImage && (
+                  <button
+                    onClick={handleCustomerImageUpload}
+                    disabled={uploading}
+                    className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {uploading ? 'Uploading...' : 'Upload'}
+                  </button>
+                )}
+                <button
+                  onClick={handleGenerateCustomerImage}
+                  disabled={generatingImage || !newReview.customerName}
+                  className="px-3 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {generatingImage ? 'Generating...' : '✨ Generate with AI'}
+                </button>
+              </div>
+              {newReview.customerImage && (
+                <div className="mt-2">
+                  <img
+                    src={newReview.customerImage}
+                    alt="Customer"
+                    className="w-20 h-20 object-cover rounded-full"
+                  />
+                  <button
+                    onClick={() => {
+                      setNewReview({
+                        ...newReview,
+                        customerImage: undefined,
+                      });
+                    }}
+                    className="mt-1 text-xs text-red-600 hover:text-red-800"
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
             </div>
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Review Images</label>

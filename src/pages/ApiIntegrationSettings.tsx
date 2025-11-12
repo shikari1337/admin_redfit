@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaArrowLeft, FaSave, FaEnvelope, FaFacebook, FaCreditCard, FaTruck, FaWhatsapp } from 'react-icons/fa';
+import { FaArrowLeft, FaSave, FaEnvelope, FaFacebook, FaCreditCard, FaTruck, FaWhatsapp, FaRobot } from 'react-icons/fa';
 
 import api from '../services/api';
 
@@ -57,6 +57,11 @@ const ApiIntegrationSettings: React.FC = () => {
       fromNumber: '',
       isEnabled: false,
       useMetaApi: true,
+    },
+    gemini: {
+      useEnvVars: false,
+      apiKey: '',
+      isEnabled: false,
     },
   });
 
@@ -137,6 +142,19 @@ const ApiIntegrationSettings: React.FC = () => {
             },
           }));
         }
+
+        // Gemini settings
+        if (settings.gemini) {
+          setFormData(prev => ({
+            ...prev,
+            gemini: {
+              ...prev.gemini,
+              useEnvVars: settings.gemini.useEnvVars || false,
+              ...settings.gemini,
+              apiKey: settings.gemini.apiKeySet ? '••••••••' : '',
+            },
+          }));
+        }
       }
     } catch (error: any) {
       console.error('Failed to fetch settings:', error);
@@ -173,6 +191,10 @@ const ApiIntegrationSettings: React.FC = () => {
           ...formData.whatsapp,
           accessToken: formData.whatsapp.accessToken && !formData.whatsapp.accessToken.startsWith('••••') ? formData.whatsapp.accessToken : undefined,
           authToken: formData.whatsapp.authToken && !formData.whatsapp.authToken.startsWith('••••') ? formData.whatsapp.authToken : undefined,
+        },
+        gemini: {
+          ...formData.gemini,
+          apiKey: formData.gemini.apiKey && !formData.gemini.apiKey.startsWith('••••') ? formData.gemini.apiKey : undefined,
         },
       };
 
@@ -773,6 +795,66 @@ const ApiIntegrationSettings: React.FC = () => {
               </div>
             </div>
           )}
+        </div>
+
+        {/* Gemini Settings */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-4">
+              <div className="flex-shrink-0 w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+                <FaRobot className="w-6 h-6 text-purple-600" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Google Gemini AI</h2>
+                <p className="text-sm text-gray-600">Configure Gemini API for AI-powered features (e.g., profile image generation)</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              <label className="flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.gemini.useEnvVars}
+                  onChange={(e) => handleChange('gemini', 'useEnvVars', e.target.checked)}
+                  className="mr-2"
+                />
+                <span className="text-sm text-gray-700">Use Env Vars</span>
+              </label>
+              <label className="flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.gemini.isEnabled}
+                  onChange={(e) => handleChange('gemini', 'isEnabled', e.target.checked)}
+                  className="mr-2"
+                />
+                <span className="text-sm text-gray-700">Enabled</span>
+              </label>
+            </div>
+          </div>
+
+          {formData.gemini.useEnvVars && (
+            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+              <p className="text-sm text-blue-800">
+                <strong>Using Environment Variables:</strong> Gemini API key will be read from .env file (GEMINI_API_KEY)
+              </p>
+            </div>
+          )}
+
+          <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${formData.gemini.useEnvVars ? 'opacity-50' : ''}`}>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">API Key</label>
+              <input
+                type="password"
+                value={formData.gemini.apiKey}
+                onChange={(e) => handleChange('gemini', 'apiKey', e.target.value)}
+                placeholder={formData.gemini.apiKey.startsWith('••••') ? 'Leave blank to keep current' : 'Enter Gemini API key'}
+                disabled={formData.gemini.useEnvVars}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Get your API key from <a href="https://makersuite.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Google AI Studio</a>
+              </p>
+            </div>
+          </div>
         </div>
 
         <div className="flex justify-end gap-3">

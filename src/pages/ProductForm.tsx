@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { productsAPI, uploadAPI, categoriesAPI, sizeChartsAPI } from '../services/api';
+import api from '../services/api';
 import { FaArrowLeft } from 'react-icons/fa';
 import {
   ProductBasicInfo,
@@ -79,6 +80,7 @@ const ProductForm: React.FC = () => {
   const [lookupsLoading, setLookupsLoading] = useState(false);
   const [sizeChartMode, setSizeChartMode] = useState<'none' | 'reference' | 'custom'>('none');
   const [selectedSizeChartId, setSelectedSizeChartId] = useState<string>('');
+  const [websiteUrl, setWebsiteUrl] = useState<string>('');
 
   // Unused - using handleMultipleImageUpload instead
   // const [newImage, setNewImage] = useState<File | null>(null);
@@ -118,8 +120,14 @@ const ProductForm: React.FC = () => {
       ]);
       const categoryList: CategoryOption[] = extractListData(catResponse);
       const chartList: SizeChartOption[] = extractListData(chartResponse);
+      
+      // Remove duplicate size charts by _id (keep first occurrence)
+      const uniqueCharts = chartList.filter((chart, index, self) => 
+        index === self.findIndex((c) => c._id === chart._id)
+      );
+      
       setAvailableCategories(categoryList);
-      setAvailableSizeCharts(chartList);
+      setAvailableSizeCharts(uniqueCharts);
     } catch (err) {
       console.error('Failed to load lookups', err);
     } finally {
@@ -129,7 +137,21 @@ const ProductForm: React.FC = () => {
 
   useEffect(() => {
     loadLookups();
+    fetchWebsiteUrl();
   }, []);
+
+  const fetchWebsiteUrl = async () => {
+    try {
+      const response = await api.get('/settings/admin');
+      if (response.data.success && response.data.data) {
+        const websiteUrlValue = response.data.data.general?.websiteUrl || '';
+        setWebsiteUrl(websiteUrlValue);
+      }
+    } catch (error) {
+      console.error('Failed to fetch website URL:', error);
+      // Silently fail - website URL is optional
+    }
+  };
 
   useEffect(() => {
     if (isEdit) {
@@ -164,20 +186,16 @@ const ProductForm: React.FC = () => {
         ? 'custom'
         : 'none';
 
-      // Convert stock from Map/Record to number if needed
-      let stockValue: number | undefined = undefined;
-      if (data.stock !== undefined && data.stock !== null) {
-        if (typeof data.stock === 'number') {
-          stockValue = data.stock;
-        } else if (typeof data.stock === 'object' && !Array.isArray(data.stock)) {
-          // Legacy format - if it's an object, we'll ignore it (old size-based stock)
-          stockValue = undefined;
-        }
-      }
+      // Stock is always a number (for products without variants)
+      const stockValue: number | undefined = 
+        typeof data.stock === 'number' ? data.stock : undefined;
 
+      // Extract SKU - check multiple possible locations
+      const dataSku = data.sku || data.baseSku || '';
+      
       setFormData({
         name: data.name || '',
-        sku: data.sku || '',
+        sku: dataSku,
         price: data.price?.toString() || '',
         originalPrice: data.originalPrice?.toString() || '',
         description: data.description || '',
@@ -242,7 +260,46 @@ const ProductForm: React.FC = () => {
     setLoading(true);
     try {
       const response = await productsAPI.getById(id!);
-      const product = response.data;
+      // Backend returns: { success: true, data: product }
+      // productsAPI.getById returns: response.data (axios response body)
+      // So response = { success: true, data: product }
+      // We need response.data to get the actual product object
+      const product = (response && response.success && response.data) 
+        ? response.data 
+        : (response && response.data) 
+        ? response.data 
+        : response;
+      
+      // Extract SKU from product - check multiple possible locations
+      let productSku = '';
+      if (product) {
+        // Try different possible field names
+        productSku = (product.sku && typeof product.sku === 'string' && product.sku.trim())
+          ? product.sku.trim()
+          : (product.baseSku && typeof product.baseSku === 'string' && product.baseSku.trim())
+          ? product.baseSku.trim()
+          : '';
+      }
+      
+      // Debug: Log SKU extraction (only in development)
+      if (import.meta.env.DEV) {
+        console.log('🔍 Product SKU Debug:', {
+          responseSuccess: response?.success,
+          hasResponseData: !!response?.data,
+          extractedProduct: product ? 'exists' : 'null',
+          productSkuField: product?.sku,
+          productBaseSku: product?.baseSku,
+          extractedSku: productSku,
+          hasSku: !!productSku,
+          skuType: typeof product?.sku,
+          allProductKeys: product ? Object.keys(product) : []
+        });
+        
+        if (!productSku && product) {
+          console.warn('⚠️ SKU not found in product. Available fields:', Object.keys(product));
+        }
+      }
+      
       const productCategories =
         (product.categories || []).map((cat: any) =>
           typeof cat === 'string' ? cat : cat?._id || ''
@@ -262,21 +319,13 @@ const ProductForm: React.FC = () => {
         ? 'custom'
         : 'none';
 
-      // Convert stock from Map/Record to number if needed
-      let stockValue: number | undefined = undefined;
-      if (product.stock !== undefined && product.stock !== null) {
-        if (typeof product.stock === 'number') {
-          stockValue = product.stock;
-        } else if (typeof product.stock === 'object' && !Array.isArray(product.stock)) {
-          // Legacy format - if it's an object (Map), convert to number if possible
-          // For now, we'll just set to undefined and let user set it fresh
-          stockValue = undefined;
-        }
-      }
+      // Stock is always a number (for products without variants)
+      const stockValue: number | undefined = 
+        typeof product.stock === 'number' ? product.stock : undefined;
 
       setFormData({
         name: product.name || '',
-        sku: product.sku || '',
+        sku: productSku,
         price: product.price?.toString() || '',
         originalPrice: product.originalPrice?.toString() || '',
         description: product.description || '',
@@ -1373,6 +1422,7 @@ const ProductForm: React.FC = () => {
             {/* Basic Information */}
             <ProductBasicInfo
               name={formData.name}
+              sku={formData.sku}
               description={formData.description}
               richDescription={formData.richDescription}
               descriptionImage={formData.descriptionImage}
@@ -1380,6 +1430,10 @@ const ProductForm: React.FC = () => {
               onNameChange={(name) => {
                 setFormData({ ...formData, name });
                 setErrors({ ...errors, name: '' });
+              }}
+              onSkuChange={(sku) => {
+                const skuValue = sku.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 48);
+                setFormData({ ...formData, sku: skuValue });
               }}
               onDescriptionChange={(description) => setFormData({ ...formData, description })}
               onRichDescriptionChange={(richDescription) => setFormData({ ...formData, richDescription })}
@@ -1409,6 +1463,7 @@ const ProductForm: React.FC = () => {
               slug={slug}
               seoData={seoData}
               showAdvancedSeo={showAdvancedSeo}
+              websiteUrl={websiteUrl}
               showSku={false} // SKU is now shown in Pricing section
               onSkuChange={(sku) => {
                 const skuValue = sku.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 48);
@@ -1452,7 +1507,7 @@ const ProductForm: React.FC = () => {
               onAddVariantSize={addVariantSize}
               onUpdateVariantSize={updateVariantSizeWrapper}
               onRemoveVariantSize={removeVariantSize}
-              onRegenerateAllSkusLegacy={regenerateAllSkus}
+              onRegenerateAllSkus={regenerateAllSkus}
               onRegenerateVariantSkus={regenerateVariantSkus}
               onVariantImageUpload={handleVariantImageUpload}
               onRemoveVariantImage={removeVariantImage}
@@ -1476,7 +1531,7 @@ const ProductForm: React.FC = () => {
               onAddVariantOption={addVariantOption}
               onRemoveVariantOption={removeVariantOption}
               onUpdateVariantCombination={updateVariantCombination}
-              onRegenerateAllSkus={regenerateAllShopifySkus}
+              onRegenerateAllSkusShopify={regenerateAllShopifySkus}
               onNewVariantTypeNameChange={setNewVariantTypeName}
               onNewOptionInputsChange={setNewOptionInputs}
               onVariantColorCodesChange={setVariantColorCodes}

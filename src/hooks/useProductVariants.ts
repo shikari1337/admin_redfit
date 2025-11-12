@@ -31,12 +31,12 @@ interface UseProductVariantsReturn {
   addVariantOption: (typeId: string, value: string, colorCode?: string) => void;
   removeVariantOption: (typeId: string, value: string) => void;
   updateVariantCombination: (combinationId: string, field: keyof VariantCombination, value: any) => void;
-  regenerateAllSkus: () => void;
+  regenerateAllSkusShopify: () => void;
   generateVariantCombinations: () => void;
   convertCombinationsToVariants: (combinations: VariantCombination[]) => ProductVariant[];
   convertVariantsToShopifyFormat: (variants: ProductVariant[]) => void;
 
-  // Legacy variant state
+  // Standard variant state (color-based with sizes)
   variants: ProductVariant[];
   setVariants: (variants: ProductVariant[]) => void;
   addVariant: () => void;
@@ -45,7 +45,7 @@ interface UseProductVariantsReturn {
   addVariantSize: (variantIndex: number) => void;
   updateVariantSize: (variantIndex: number, sizeIndex: number, field: string, value: any) => void;
   removeVariantSize: (variantIndex: number, sizeIndex: number) => void;
-  regenerateAllSkusLegacy: () => void;
+  regenerateAllSkus: () => void;
   regenerateVariantSkus: (variantIndex: number) => void;
 }
 
@@ -63,7 +63,7 @@ export const useProductVariants = ({
   const [newVariantTypeName, setNewVariantTypeName] = useState('');
   const [newOptionInputs, setNewOptionInputs] = useState<Record<string, string>>({});
 
-  // Legacy variant state
+  // Standard variant state (color-based with sizes)
   const [variants, setVariants] = useState<ProductVariant[]>([]);
 
   // Generate SKU for a variant size
@@ -260,8 +260,8 @@ export const useProductVariants = ({
     []
   );
 
-  // Regenerate all SKUs
-  const regenerateAllSkus = useCallback(() => {
+  // Regenerate all SKUs (Shopify-style)
+  const regenerateAllSkusShopify = useCallback(() => {
     const baseSku = getBaseSku();
     setVariantCombinations((prev) =>
       prev.map((comb) => {
@@ -431,7 +431,7 @@ export const useProductVariants = ({
     []
   );
 
-  // Legacy variant functions
+  // Standard variant functions (color-based with sizes)
   const addVariant = useCallback(() => {
     setVariants((prev) => [
       ...prev,
@@ -509,7 +509,7 @@ export const useProductVariants = ({
     });
   }, []);
 
-  const regenerateAllSkusLegacy = useCallback(() => {
+  const regenerateAllSkusStandard = useCallback(() => {
     const baseSku = getBaseSku();
     const usedSkus = new Set<string>();
     setVariants((prev) =>
@@ -576,12 +576,12 @@ export const useProductVariants = ({
     addVariantOption,
     removeVariantOption,
     updateVariantCombination,
-    regenerateAllSkus,
+    regenerateAllSkusShopify,
     generateVariantCombinations,
     convertCombinationsToVariants,
     convertVariantsToShopifyFormat,
 
-    // Legacy variant state
+    // Standard variant state (color-based with sizes)
     variants,
     setVariants,
     addVariant,
@@ -590,7 +590,7 @@ export const useProductVariants = ({
     addVariantSize,
     updateVariantSize,
     removeVariantSize,
-    regenerateAllSkusLegacy,
+    regenerateAllSkus: regenerateAllSkusStandard,
     regenerateVariantSkus,
   };
 };

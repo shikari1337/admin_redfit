@@ -21,6 +21,8 @@ import SmsTemplates from './pages/SmsTemplates';
 import GeneralSettings from './pages/GeneralSettings';
 import ApiIntegrationSettings from './pages/ApiIntegrationSettings';
 import Settings from './pages/Settings';
+import Users from './pages/Users';
+import UserDetail from './pages/UserDetail';
 import Layout from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
@@ -53,6 +55,8 @@ function App() {
           <Route path="orders" element={<Orders />} />
           <Route path="orders/abandoned-carts" element={<AbandonedCarts />} />
           <Route path="orders/:id" element={<OrderDetail />} />
+          <Route path="users" element={<Users />} />
+          <Route path="users/:id" element={<UserDetail />} />
           <Route path="faqs" element={<FAQs />} />
           <Route path="reviews" element={<Reviews />} />
           <Route path="coupons" element={<Coupons />} />

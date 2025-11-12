@@ -3,11 +3,13 @@ import ProductImageUpload from './ProductImageUpload';
 
 interface ProductBasicInfoProps {
   name: string;
+  sku?: string;
   description: string;
   richDescription: string;
   descriptionImage: string;
   images: string[];
   onNameChange: (name: string) => void;
+  onSkuChange?: (sku: string) => void;
   onDescriptionChange: (description: string) => void;
   onRichDescriptionChange: (description: string) => void;
   onDescriptionImageChange: (image: string) => void;
@@ -23,11 +25,13 @@ interface ProductBasicInfoProps {
 
 const ProductBasicInfo: React.FC<ProductBasicInfoProps> = ({
   name,
+  sku,
   description,
   richDescription,
   descriptionImage,
   images,
   onNameChange,
+  onSkuChange,
   onDescriptionChange,
   onRichDescriptionChange,
   onDescriptionImageChange,
@@ -63,6 +67,31 @@ const ProductBasicInfo: React.FC<ProductBasicInfoProps> = ({
           />
           {errors.name && <p className="mt-1 text-sm text-red-500">{errors.name}</p>}
         </div>
+
+        {onSkuChange && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              SKU {sku && sku.trim() && <span className="text-xs font-normal text-gray-500">(from database)</span>}
+            </label>
+            <input
+              type="text"
+              value={sku || ''}
+              onChange={(e) => {
+                const skuValue = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 48);
+                onSkuChange(skuValue);
+              }}
+              className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 font-mono text-sm ${
+                sku && sku.trim() ? 'bg-gray-50 border-gray-300' : 'border-gray-300'
+              }`}
+              placeholder="Auto-generated from product name"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              {sku && sku.trim()
+                ? 'Existing SKU from database. You can modify it if needed.'
+                : 'Unique SKU identifier for this product. Leave empty for auto-generation.'}
+            </p>
+          </div>
+        )}
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">Short Description</label>
