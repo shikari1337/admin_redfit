@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { FaPlus, FaTrash } from 'react-icons/fa';
-import { SizeChartEntry, SizeChartOption, emptySizeChartEntry } from '../../types/productForm';
+import { SizeChartEntry, SizeChartOption } from '../../types/productForm';
 
 interface ProductSizeChartProps {
   mode: 'none' | 'reference' | 'custom';
