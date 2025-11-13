@@ -62,6 +62,7 @@ export interface SizeChartOption {
   _id: string;
   name: string;
   entries?: SizeChartEntry[];
+  measurementKeys?: string[];
 }
 
 export interface SeoFormState {

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { FaPlus, FaTrash } from 'react-icons/fa';
 import { SizeChartEntry, SizeChartOption, emptySizeChartEntry } from '../../types/productForm';
 
@@ -16,6 +16,9 @@ interface ProductSizeChartProps {
   error?: string;
 }
 
+// Default measurement keys for backward compatibility
+const DEFAULT_MEASUREMENT_KEYS = ['chest', 'waist', 'length', 'shoulder', 'sleeve'];
+
 const ProductSizeChart: React.FC<ProductSizeChartProps> = ({
   mode,
   selectedSizeChartId,
@@ -29,13 +32,45 @@ const ProductSizeChart: React.FC<ProductSizeChartProps> = ({
   loading,
   error,
 }) => {
+  // Get measurement keys from selected chart or use defaults
+  const measurementKeys = useMemo(() => {
+    if (mode === 'reference' && selectedSizeChart?.measurementKeys && selectedSizeChart.measurementKeys.length > 0) {
+      return selectedSizeChart.measurementKeys;
+    }
+    if (mode === 'custom' && selectedSizeChartId) {
+      const chart = availableSizeCharts.find(c => c._id === selectedSizeChartId);
+      if (chart?.measurementKeys && chart.measurementKeys.length > 0) {
+        return chart.measurementKeys;
+      }
+    }
+    // Try to infer from existing entries
+    if (sizeChart.length > 0) {
+      const entry = sizeChart[0];
+      const keys = Object.keys(entry).filter(
+        k => k !== 'size' && k !== 'imageUrl' && entry[k] !== undefined
+      );
+      if (keys.length > 0) {
+        return keys;
+      }
+    }
+    return DEFAULT_MEASUREMENT_KEYS;
+  }, [mode, selectedSizeChart, selectedSizeChartId, availableSizeCharts, sizeChart]);
+
+  const createEmptyEntry = (): SizeChartEntry => {
+    const entry: SizeChartEntry = { size: '' };
+    measurementKeys.forEach(key => {
+      entry[key] = '';
+    });
+    return entry;
+  };
+
   const addEntry = () => {
-    onSizeChartChange([...sizeChart, { ...emptySizeChartEntry }]);
+    onSizeChartChange([...sizeChart, createEmptyEntry()]);
   };
 
   const removeEntry = (index: number) => {
     const newEntries = sizeChart.filter((_, i) => i !== index);
-    onSizeChartChange(newEntries.length > 0 ? newEntries : [{ ...emptySizeChartEntry }]);
+    onSizeChartChange(newEntries.length > 0 ? newEntries : [createEmptyEntry()]);
   };
 
   const updateEntry = (index: number, field: string, value: string) => {
@@ -126,20 +161,32 @@ const ProductSizeChart: React.FC<ProductSizeChartProps> = ({
                     <thead className="text-gray-500">
                       <tr>
                         <th className="text-left font-medium pr-3 py-1">Size</th>
-                        <th className="text-left font-medium pr-3 py-1">Chest</th>
-                        <th className="text-left font-medium pr-3 py-1">Waist</th>
-                        <th className="text-left font-medium pr-3 py-1">Length</th>
-                        <th className="text-left font-medium pr-3 py-1 hidden md:table-cell">Shoulder</th>
+                        {measurementKeys.slice(0, 5).map((key) => (
+                          <th
+                            key={key}
+                            className={`text-left font-medium pr-3 py-1 ${
+                              key === measurementKeys[4] ? 'hidden md:table-cell' : ''
+                            }`}
+                          >
+                            {key.charAt(0).toUpperCase() + key.slice(1)}
+                          </th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody>
                       {(selectedSizeChart.entries || []).slice(0, 6).map((entry, idx) => (
                         <tr key={`${selectedSizeChart._id}-${idx}`}>
                           <td className="pr-3 py-1">{entry.size || '-'}</td>
-                          <td className="pr-3 py-1">{entry.chest || '-'}</td>
-                          <td className="pr-3 py-1">{entry.waist || '-'}</td>
-                          <td className="pr-3 py-1">{entry.length || '-'}</td>
-                          <td className="pr-3 py-1 hidden md:table-cell">{entry.shoulder || '-'}</td>
+                          {measurementKeys.slice(0, 5).map((key) => (
+                            <td
+                              key={key}
+                              className={`pr-3 py-1 ${
+                                key === measurementKeys[4] ? 'hidden md:table-cell' : ''
+                              }`}
+                            >
+                              {entry[key] || '-'}
+                            </td>
+                          ))}
                         </tr>
                       ))}
                     </tbody>
@@ -224,56 +271,20 @@ const ProductSizeChart: React.FC<ProductSizeChartProps> = ({
                           onChange={(e) => updateEntry(index, 'size', e.target.value)}
                         />
                       </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1">Chest</label>
-                        <input
-                          type="text"
-                          className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                          placeholder="e.g., 38 inches"
-                          value={entry.chest || ''}
-                          onChange={(e) => updateEntry(index, 'chest', e.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1">Waist</label>
-                        <input
-                          type="text"
-                          className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                          placeholder="e.g., 32 inches"
-                          value={entry.waist || ''}
-                          onChange={(e) => updateEntry(index, 'waist', e.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1">Length</label>
-                        <input
-                          type="text"
-                          className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                          placeholder="e.g., 28 inches"
-                          value={entry.length || ''}
-                          onChange={(e) => updateEntry(index, 'length', e.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1">Shoulder</label>
-                        <input
-                          type="text"
-                          className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                          placeholder="e.g., 16 inches"
-                          value={entry.shoulder || ''}
-                          onChange={(e) => updateEntry(index, 'shoulder', e.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1">Sleeve</label>
-                        <input
-                          type="text"
-                          className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                          placeholder="e.g., 24 inches"
-                          value={entry.sleeve || ''}
-                          onChange={(e) => updateEntry(index, 'sleeve', e.target.value)}
-                        />
-                      </div>
+                      {measurementKeys.map((key) => (
+                        <div key={key}>
+                          <label className="block text-xs font-medium text-gray-700 mb-1 capitalize">
+                            {key}
+                          </label>
+                          <input
+                            type="text"
+                            className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                            placeholder={`e.g., 38 inches`}
+                            value={entry[key] || ''}
+                            onChange={(e) => updateEntry(index, key, e.target.value)}
+                          />
+                        </div>
+                      ))}
                     </div>
                     <div className="mt-3">
                       <label className="block text-xs font-medium text-gray-700 mb-1">
