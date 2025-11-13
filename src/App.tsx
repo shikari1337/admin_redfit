@@ -21,10 +21,14 @@ import SmsTemplates from './pages/SmsTemplates';
 import GeneralSettings from './pages/GeneralSettings';
 import ApiIntegrationSettings from './pages/ApiIntegrationSettings';
 import PaymentGatewaySettings from './pages/PaymentGatewaySettings';
+import GstSettings from './pages/GstSettings';
 import Settings from './pages/Settings';
+import ShippingSettings from './pages/ShippingSettings';
+import Warehouses from './pages/Warehouses';
 import Users from './pages/Users';
 import UserDetail from './pages/UserDetail';
 import Gallery from './pages/Gallery';
+import Logs from './pages/Logs';
 import Layout from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
@@ -60,6 +64,7 @@ function App() {
           <Route path="orders/:id" element={<OrderDetail />} />
           <Route path="users" element={<Users />} />
           <Route path="users/:id" element={<UserDetail />} />
+          <Route path="logs" element={<Logs />} />
           <Route path="faqs" element={<FAQs />} />
           <Route path="reviews" element={<Reviews />} />
           <Route path="coupons" element={<Coupons />} />
@@ -72,6 +77,9 @@ function App() {
           <Route path="settings/payment-discount" element={<PaymentDiscountSettings />} />
           <Route path="settings/payment-gateways" element={<PaymentGatewaySettings />} />
           <Route path="settings/sms-templates" element={<SmsTemplates />} />
+          <Route path="settings/gst" element={<GstSettings />} />
+          <Route path="settings/shipping" element={<ShippingSettings />} />
+          <Route path="warehouses" element={<Warehouses />} />
         </Route>
       </Routes>
     </BrowserRouter>

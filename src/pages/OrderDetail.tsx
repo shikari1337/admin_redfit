@@ -5,9 +5,9 @@
 
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ordersAPI, shippingAPI } from '../services/api';
+import { ordersAPI, shippingAPI, paymentsAPI } from '../services/api';
 import { format } from 'date-fns';
-import { FaTruck, FaWhatsapp, FaEdit, FaSave, FaTimes, FaCreditCard, FaImage, FaCheckCircle, FaClock, FaTimesCircle } from 'react-icons/fa';
+import { FaTruck, FaWhatsapp, FaEdit, FaSave, FaTimes, FaCreditCard, FaImage, FaCheckCircle, FaClock, FaTimesCircle, FaWarehouse } from 'react-icons/fa';
 
 const OrderDetail: React.FC = () => {
   const { id } = useParams();
@@ -20,9 +20,25 @@ const OrderDetail: React.FC = () => {
   const [editingNotes, setEditingNotes] = useState(false);
   const [notesText, setNotesText] = useState('');
   const [statusNotes, setStatusNotes] = useState('');
+  const [warehouses, setWarehouses] = useState<any[]>([]);
+  const [shippingProviders, setShippingProviders] = useState<any[]>([]);
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('');
+  const [selectedShippingProvider, setSelectedShippingProvider] = useState<'shiprocket' | 'delhivery' | 'manual'>('shiprocket');
+  const [showShipmentModal, setShowShipmentModal] = useState(false);
+  const [confirmingOrder, setConfirmingOrder] = useState(false);
+  const [manualTrackingId, setManualTrackingId] = useState('');
+  const [manualCarrierName, setManualCarrierName] = useState('');
+  const [manualTrackingUrl, setManualTrackingUrl] = useState('');
+  const [verifyingPayment, setVerifyingPayment] = useState(false);
+  const [showPaymentVerifyModal, setShowPaymentVerifyModal] = useState(false);
+  const [razorpayPaymentId, setRazorpayPaymentId] = useState('');
+  const [upiPaymentId, setUpiPaymentId] = useState('');
+  const [paymentVerificationNotes, setPaymentVerificationNotes] = useState('');
 
   useEffect(() => {
     fetchOrder();
+    fetchWarehouses();
+    fetchShippingProviders();
   }, [id]);
 
   const fetchOrder = async () => {
@@ -66,13 +82,126 @@ const OrderDetail: React.FC = () => {
     }
   };
 
-  const handleSendToShiprocket = async () => {
-    if (!confirm('Send this order to Shiprocket for shipment creation?')) return;
+  const fetchWarehouses = async () => {
+    try {
+      const response = await shippingAPI.getWarehouses();
+      if (response.data.success) {
+        setWarehouses(response.data.data || []);
+        // Auto-select first warehouse if available
+        if (response.data.data && response.data.data.length > 0) {
+          setSelectedWarehouseId(response.data.data[0]._id);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch warehouses:', error);
+    }
+  };
+
+  const fetchShippingProviders = async () => {
+    try {
+      const response = await shippingAPI.getProviders();
+      if (response.data.success && response.data.data && response.data.data.length > 0) {
+        setShippingProviders(response.data.data);
+        // Auto-select first provider
+        const firstProvider = response.data.data[0];
+        setSelectedShippingProvider(firstProvider.id || 'shiprocket');
+      }
+    } catch (error) {
+      console.error('Failed to fetch shipping providers:', error);
+    }
+  };
+
+  const handleVerifyPayment = async () => {
+    setVerifyingPayment(true);
+    try {
+      if (order.paymentGateway === 'razorpay') {
+        if (!razorpayPaymentId) {
+          alert('Please enter Razorpay Payment ID (Transaction ID)');
+          setVerifyingPayment(false);
+          return;
+        }
+        await paymentsAPI.verifyRazorpay(id!, razorpayPaymentId);
+        alert('Razorpay payment verified successfully! Order is now confirmed.');
+      } else if (order.paymentGateway === 'upi') {
+        if (!upiPaymentId) {
+          alert('Please enter UPI Payment ID (Transaction ID)');
+          setVerifyingPayment(false);
+          return;
+        }
+        await paymentsAPI.verifyUPI(id!, upiPaymentId, paymentVerificationNotes || undefined);
+        alert('UPI payment verified successfully! Order is now confirmed.');
+      } else if (order.paymentGateway === 'manual') {
+        await paymentsAPI.verifyManual(id!, paymentVerificationNotes || undefined);
+        alert('Manual payment verified successfully! Order is now confirmed.');
+      }
+      setShowPaymentVerifyModal(false);
+      setRazorpayPaymentId('');
+      setUpiPaymentId('');
+      setPaymentVerificationNotes('');
+      fetchOrder();
+    } catch (error: any) {
+      console.error('Failed to verify payment:', error);
+      alert(error.response?.data?.message || 'Failed to verify payment. Please try again.');
+    } finally {
+      setVerifyingPayment(false);
+    }
+  };
+
+  const handleConfirmOrder = async () => {
+    if (!confirm('Confirm this order? After confirmation, you can create a shipment.')) return;
+    
+    setConfirmingOrder(true);
+    try {
+      await ordersAPI.confirmOrder(id!);
+      alert('Order confirmed successfully!');
+      fetchOrder();
+    } catch (error: any) {
+      console.error('Failed to confirm order:', error);
+      alert(error.response?.data?.message || 'Failed to confirm order. Please try again.');
+    } finally {
+      setConfirmingOrder(false);
+    }
+  };
+
+  const handleCreateShipment = async () => {
+    if (!selectedWarehouseId && selectedShippingProvider !== 'manual') {
+      alert('Please select a warehouse');
+      return;
+    }
+
+    if (selectedShippingProvider === 'manual') {
+      if (!manualTrackingId) {
+        alert('Please enter tracking ID for manual shipping');
+        return;
+      }
+    }
+
+    const providerName = selectedShippingProvider === 'shiprocket' ? 'Shiprocket' : 
+                        selectedShippingProvider === 'delhivery' ? 'DELHIVERY' : 'Manual';
+    
+    if (!confirm(`Create shipment with ${providerName}?`)) return;
     
     setSendingToShiprocket(true);
     try {
-      const response = await shippingAPI.createShipment(id!);
-      alert(`Shipment created successfully!${response.data?.shipment?.awbCode ? ` AWB: ${response.data.shipment.awbCode}` : ''}`);
+      const response = await shippingAPI.createShipment(id!, {
+        warehouseId: selectedWarehouseId || undefined,
+        shippingProvider: selectedShippingProvider,
+        trackingId: manualTrackingId || undefined,
+        carrierName: manualCarrierName || undefined,
+        trackingUrl: manualTrackingUrl || undefined,
+      });
+      
+      const trackingId = response.data?.shipment?.awbCode || 
+                        response.data?.shipment?.waybill || 
+                        response.data?.shipment?.trackingId ||
+                        response.data?.shipment?.trackingId ||
+                        'N/A';
+      
+      alert(`Shipment created successfully!${trackingId !== 'N/A' ? ` Tracking ID: ${trackingId}` : ''}`);
+      setShowShipmentModal(false);
+      setManualTrackingId('');
+      setManualCarrierName('');
+      setManualTrackingUrl('');
       fetchOrder();
     } catch (error: any) {
       console.error('Failed to create shipment:', error);
@@ -173,14 +302,34 @@ const OrderDetail: React.FC = () => {
           <h1 className="text-3xl font-bold text-gray-900">Order {order.orderId}</h1>
         </div>
         <div className="flex items-center gap-2">
-          {(order.orderStatus === 'confirmed' || order.orderStatus === 'processing') && !order.shiprocketShipmentId && (
+          {order.orderStatus === 'pending' && order.paymentMethod === 'prepaid' && order.paymentStatus !== 'completed' && (
             <button
-              onClick={handleSendToShiprocket}
+              onClick={() => setShowPaymentVerifyModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700"
+            >
+              <FaCreditCard size={16} />
+              Verify Payment
+            </button>
+          )}
+          {order.orderStatus === 'pending' && (
+            <button
+              onClick={handleConfirmOrder}
+              disabled={confirmingOrder || (order.paymentMethod === 'prepaid' && order.paymentStatus !== 'completed')}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              title={order.paymentMethod === 'prepaid' && order.paymentStatus !== 'completed' ? 'Payment must be verified first' : 'Confirm Order'}
+            >
+              <FaCheckCircle size={16} />
+              {confirmingOrder ? 'Confirming...' : 'Confirm Order'}
+            </button>
+          )}
+          {order.orderStatus === 'confirmed' && !order.shippingProvider && (
+            <button
+              onClick={() => setShowShipmentModal(true)}
               disabled={sendingToShiprocket}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <FaTruck size={16} />
-              {sendingToShiprocket ? 'Sending...' : 'Send to Shiprocket'}
+              {sendingToShiprocket ? 'Creating...' : 'Create Shipment'}
             </button>
           )}
           <div className="flex items-center gap-2">
@@ -496,10 +645,28 @@ const OrderDetail: React.FC = () => {
                   </a>
                 </div>
               )}
+              {order.shippingProvider && (
+                <div>
+                  <p className="text-sm text-gray-500">Shipping Provider</p>
+                  <p className="font-medium text-sm capitalize">{order.shippingProvider}</p>
+                </div>
+              )}
               {order.shiprocketAWB && (
                 <div>
-                  <p className="text-sm text-gray-500">AWB Code</p>
+                  <p className="text-sm text-gray-500">Shiprocket AWB</p>
                   <p className="font-mono text-sm">{order.shiprocketAWB}</p>
+                </div>
+              )}
+              {order.delhiveryWaybill && (
+                <div>
+                  <p className="text-sm text-gray-500">DELHIVERY Waybill</p>
+                  <p className="font-mono text-sm">{order.delhiveryWaybill}</p>
+                </div>
+              )}
+              {order.warehouseId && (
+                <div>
+                  <p className="text-sm text-gray-500">Warehouse</p>
+                  <p className="font-medium text-sm">{(order.warehouseId as any)?.name || 'N/A'}</p>
                 </div>
               )}
             </div>
@@ -591,6 +758,275 @@ const OrderDetail: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Shipment Creation Modal */}
+      {showShipmentModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-gray-900">Create Shipment</h2>
+              <button
+                onClick={() => setShowShipmentModal(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <FaTimes className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Shipping Provider Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Shipping Provider *
+                </label>
+                <select
+                  value={selectedShippingProvider}
+                  onChange={(e) => {
+                    setSelectedShippingProvider(e.target.value as any);
+                    // Auto-select first warehouse if provider changes
+                    if (warehouses.length > 0) {
+                      setSelectedWarehouseId(warehouses[0]._id);
+                    }
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                >
+                  <option value="manual">Manual</option>
+                  {shippingProviders.map((provider) => (
+                    <option key={provider.id} value={provider.id}>
+                      {provider.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Warehouse Selection */}
+              {selectedShippingProvider !== 'manual' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Warehouse *
+                  </label>
+                  <select
+                    value={selectedWarehouseId}
+                    onChange={(e) => setSelectedWarehouseId(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                  >
+                    <option value="">-- Select Warehouse --</option>
+                    {warehouses
+                      .filter(w => {
+                        if (selectedShippingProvider === 'shiprocket') {
+                          return w.shippingProviders?.shiprocket?.enabled;
+                        } else if (selectedShippingProvider === 'delhivery') {
+                          return w.shippingProviders?.delhivery?.enabled;
+                        }
+                        return w.isActive;
+                      })
+                      .map((warehouse) => (
+                        <option key={warehouse._id} value={warehouse._id}>
+                          {warehouse.name} ({warehouse.code})
+                          {selectedShippingProvider === 'delhivery' && warehouse.shippingProviders?.delhivery?.warehouseCode && 
+                            ` - ${warehouse.shippingProviders.delhivery.warehouseCode}`
+                          }
+                        </option>
+                      ))}
+                  </select>
+                  {selectedShippingProvider === 'delhivery' && warehouses.find(w => w._id === selectedWarehouseId)?.shippingProviders?.delhivery?.warehouseCode && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      DELHIVERY Warehouse: {warehouses.find(w => w._id === selectedWarehouseId)?.shippingProviders?.delhivery?.warehouseCode}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Manual Shipping Fields */}
+              {selectedShippingProvider === 'manual' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Tracking ID *
+                    </label>
+                    <input
+                      type="text"
+                      value={manualTrackingId}
+                      onChange={(e) => setManualTrackingId(e.target.value)}
+                      placeholder="Enter tracking ID"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Carrier Name *
+                    </label>
+                    <input
+                      type="text"
+                      value={manualCarrierName}
+                      onChange={(e) => setManualCarrierName(e.target.value)}
+                      placeholder="Enter carrier name (e.g., Blue Dart, FedEx)"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Tracking URL *
+                    </label>
+                    <input
+                      type="url"
+                      value={manualTrackingUrl}
+                      onChange={(e) => setManualTrackingUrl(e.target.value)}
+                      placeholder="https://www.carrier.com/track/TRACKING_ID"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Full URL where users can track their shipment
+                    </p>
+                  </div>
+                </>
+              )}
+
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                type="button"
+                onClick={() => setShowShipmentModal(false)}
+                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+              onClick={handleCreateShipment}
+              disabled={sendingToShiprocket || (selectedShippingProvider !== 'manual' && !selectedWarehouseId) || (selectedShippingProvider === 'manual' && (!manualTrackingId || !manualCarrierName || !manualTrackingUrl))}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <FaTruck size={14} />
+              {sendingToShiprocket ? 'Creating...' : 'Create Shipment'}
+            </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Payment Verification Modal */}
+      {showPaymentVerifyModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-gray-900">Verify Payment</h2>
+              <button
+                onClick={() => {
+                  setShowPaymentVerifyModal(false);
+                  setRazorpayPaymentId('');
+                  setUpiPaymentId('');
+                  setPaymentVerificationNotes('');
+                }}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <FaTimes className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {order.paymentGateway === 'razorpay' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Razorpay Payment ID (Transaction ID) *
+                  </label>
+                  <input
+                    type="text"
+                    value={razorpayPaymentId}
+                    onChange={(e) => setRazorpayPaymentId(e.target.value)}
+                    placeholder="pay_xxxxxxxxxxxxx"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    System will verify with Razorpay API and check amount, order ID, and status.
+                  </p>
+                </div>
+              )}
+
+              {order.paymentGateway === 'upi' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      UPI Transaction ID *
+                    </label>
+                    <input
+                      type="text"
+                      value={upiPaymentId}
+                      onChange={(e) => setUpiPaymentId(e.target.value)}
+                      placeholder="UPI Transaction ID"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Enter the UPI transaction ID from the payment screenshot or receipt.
+                    </p>
+                  </div>
+                  {order.upiPaymentScreenshot && (
+                    <div>
+                      <p className="text-sm text-gray-700 mb-2">Payment Screenshot:</p>
+                      <img
+                        src={order.upiPaymentScreenshot}
+                        alt="Payment screenshot"
+                        className="max-w-full rounded border border-gray-300"
+                      />
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Verification Notes (Optional)
+                    </label>
+                    <textarea
+                      value={paymentVerificationNotes}
+                      onChange={(e) => setPaymentVerificationNotes(e.target.value)}
+                      placeholder="Add any verification notes..."
+                      rows={3}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                    />
+                  </div>
+                </>
+              )}
+
+              {order.paymentGateway === 'manual' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Verification Notes *
+                  </label>
+                  <textarea
+                    value={paymentVerificationNotes}
+                    onChange={(e) => setPaymentVerificationNotes(e.target.value)}
+                    placeholder="Enter payment verification details (e.g., Bank transfer reference, Cash received, etc.)"
+                    rows={4}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                    required
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPaymentVerifyModal(false);
+                  setRazorpayPaymentId('');
+                  setUpiPaymentId('');
+                  setPaymentVerificationNotes('');
+                }}
+                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleVerifyPayment}
+                disabled={verifyingPayment || (order.paymentGateway === 'razorpay' && !razorpayPaymentId) || (order.paymentGateway === 'upi' && !upiPaymentId) || (order.paymentGateway === 'manual' && !paymentVerificationNotes)}
+                className="flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <FaCreditCard size={14} />
+                {verifyingPayment ? 'Verifying...' : 'Verify Payment'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

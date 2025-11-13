@@ -35,16 +35,6 @@ const ApiIntegrationSettings: React.FC = () => {
       keySecret: '',
       isEnabled: false,
     },
-    shiprocket: {
-      useEnvVars: false,
-      email: '',
-      password: '',
-      apiUrl: 'https://apiv2.shiprocket.in',
-      pickupPincode: '',
-      pickupLocation: '',
-      channelId: '',
-      isEnabled: false,
-    },
     whatsapp: {
       useEnvVars: false,
       accessToken: '',
@@ -116,19 +106,6 @@ const ApiIntegrationSettings: React.FC = () => {
           }));
         }
 
-        // Shiprocket settings
-        if (settings.shiprocket) {
-          setFormData(prev => ({
-            ...prev,
-            shiprocket: {
-              ...prev.shiprocket,
-              useEnvVars: settings.shiprocket.useEnvVars || false,
-              ...settings.shiprocket,
-              password: settings.shiprocket.passwordSet ? '••••••••' : '',
-            },
-          }));
-        }
-
         // WhatsApp settings
         if (settings.whatsapp) {
           setFormData(prev => ({
@@ -182,10 +159,6 @@ const ApiIntegrationSettings: React.FC = () => {
           ...formData.razorpay,
           keyId: formData.razorpay.keyId && !formData.razorpay.keyId.startsWith('••••') ? formData.razorpay.keyId : undefined,
           keySecret: formData.razorpay.keySecret && !formData.razorpay.keySecret.startsWith('••••') ? formData.razorpay.keySecret : undefined,
-        },
-        shiprocket: {
-          ...formData.shiprocket,
-          password: formData.shiprocket.password && !formData.shiprocket.password.startsWith('••••') ? formData.shiprocket.password : undefined,
         },
         whatsapp: {
           ...formData.whatsapp,
@@ -517,118 +490,6 @@ const ApiIntegrationSettings: React.FC = () => {
                 onChange={(e) => handleChange('razorpay', 'keySecret', e.target.value)}
                 placeholder={formData.razorpay.keySecret.startsWith('••••') ? 'Leave blank to keep current' : 'Enter Razorpay Key Secret'}
                 disabled={formData.razorpay.useEnvVars}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Shiprocket Settings */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-4">
-              <div className="flex-shrink-0 w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                <FaTruck className="w-6 h-6 text-green-600" />
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold text-gray-900">Shiprocket Shipping</h2>
-                <p className="text-sm text-gray-600">Configure Shiprocket shipping integration</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              <label className="flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.shiprocket.useEnvVars}
-                  onChange={(e) => handleChange('shiprocket', 'useEnvVars', e.target.checked)}
-                  className="mr-2"
-                />
-                <span className="text-sm text-gray-700">Use Env Vars</span>
-              </label>
-              <label className="flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.shiprocket.isEnabled}
-                  onChange={(e) => handleChange('shiprocket', 'isEnabled', e.target.checked)}
-                  className="mr-2"
-                />
-                <span className="text-sm text-gray-700">Enabled</span>
-              </label>
-            </div>
-          </div>
-
-          {formData.shiprocket.useEnvVars && (
-            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
-              <p className="text-sm text-blue-800">
-                <strong>Using Environment Variables:</strong> Shiprocket configuration will be read from .env file (SHIPROCKET_EMAIL, SHIPROCKET_PASSWORD, SHIPROCKET_API_URL, SHIPROCKET_PICKUP_PINCODE, SHIPROCKET_PICKUP_LOCATION). <strong>Note:</strong> Channel ID is not available in env vars, configure it here if needed.
-              </p>
-            </div>
-          )}
-
-          <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${formData.shiprocket.useEnvVars ? 'opacity-50' : ''}`}>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
-              <input
-                type="email"
-                value={formData.shiprocket.email}
-                onChange={(e) => handleChange('shiprocket', 'email', e.target.value)}
-                placeholder="your-email@shiprocket.com"
-                disabled={formData.shiprocket.useEnvVars}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
-              <input
-                type="password"
-                value={formData.shiprocket.password}
-                onChange={(e) => handleChange('shiprocket', 'password', e.target.value)}
-                placeholder={formData.shiprocket.password.startsWith('••••') ? 'Leave blank to keep current' : 'Enter password'}
-                disabled={formData.shiprocket.useEnvVars}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">API URL</label>
-              <input
-                type="text"
-                value={formData.shiprocket.apiUrl}
-                onChange={(e) => handleChange('shiprocket', 'apiUrl', e.target.value)}
-                placeholder="https://apiv2.shiprocket.in"
-                disabled={formData.shiprocket.useEnvVars}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Channel ID</label>
-              <input
-                type="text"
-                value={formData.shiprocket.channelId}
-                onChange={(e) => handleChange('shiprocket', 'channelId', e.target.value)}
-                placeholder="Enter Shiprocket Channel ID"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-              />
-              <p className="text-xs text-gray-500 mt-1">Channel ID from Shiprocket settings (configure even when using env vars)</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Pickup Pincode</label>
-              <input
-                type="text"
-                value={formData.shiprocket.pickupPincode}
-                onChange={(e) => handleChange('shiprocket', 'pickupPincode', e.target.value)}
-                placeholder="110001"
-                disabled={formData.shiprocket.useEnvVars}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Pickup Location</label>
-              <input
-                type="text"
-                value={formData.shiprocket.pickupLocation}
-                onChange={(e) => handleChange('shiprocket', 'pickupLocation', e.target.value)}
-                placeholder="Default"
-                disabled={formData.shiprocket.useEnvVars}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
               />
             </div>

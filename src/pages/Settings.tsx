@@ -14,9 +14,15 @@ const Settings: React.FC = () => {
     },
     {
       title: 'API & Integrations',
-      description: 'Configure SMTP, Meta Pixel, Razorpay, Shiprocket, and WhatsApp',
+      description: 'Configure SMTP, Meta Pixel, Razorpay, and WhatsApp',
       icon: FaCog,
       path: '/settings/api-integrations',
+    },
+    {
+      title: 'Shipping Settings',
+      description: 'Configure shipping providers (Shiprocket, DELHIVERY) and manage warehouses',
+      icon: FaCog,
+      path: '/settings/shipping',
     },
     {
       title: 'Contact Details',
@@ -41,6 +47,18 @@ const Settings: React.FC = () => {
       description: 'Configure SMSAlert templates for orders and cart recovery',
       icon: FaSms,
       path: '/settings/sms-templates',
+    },
+    {
+      title: 'GST Settings',
+      description: 'Configure GST tax brackets and store details',
+      icon: FaCog,
+      path: '/settings/gst',
+    },
+    {
+      title: 'Warehouses',
+      description: 'Manage warehouse locations and shipping provider configurations',
+      icon: FaCog,
+      path: '/warehouses',
     },
   ];
 

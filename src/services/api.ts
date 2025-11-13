@@ -371,12 +371,32 @@ export const ordersAPI = {
     // Fallback for non-standard responses
     return response.data?.data ? { data: response.data.data } : response.data;
   },
+  confirmOrder: async (id: string) => {
+    const response = await api.post(`/orders/${id}/confirm`);
+    return response.data;
+  },
   updateStatus: async (id: string, status: string, notes?: string) => {
     const response = await api.put(`/orders/${id}/status`, { status, notes });
     return response.data;
   },
   updateNotes: async (id: string, notes: string) => {
     const response = await api.put(`/orders/${id}/notes`, { notes });
+    return response.data;
+  },
+};
+
+// Payments API
+export const paymentsAPI = {
+  verifyRazorpay: async (orderId: string, paymentId: string) => {
+    const response = await api.post('/payments/razorpay/verify-admin', { orderId, paymentId });
+    return response.data;
+  },
+  verifyUPI: async (orderId: string, upiPaymentId: string, notes?: string) => {
+    const response = await api.post('/payments/upi/verify', { orderId, upiPaymentId, notes });
+    return response.data;
+  },
+  verifyManual: async (orderId: string, notes?: string) => {
+    const response = await api.post('/payments/manual/verify', { orderId, notes });
     return response.data;
   },
 };
@@ -473,8 +493,15 @@ export const reviewsAPI = {
 
 // Shipping API
 export const shippingAPI = {
-  createShipment: async (orderId: string) => {
-    const response = await api.post('/shipping/create-shipment', { orderId });
+  createShipment: async (orderId: string, options?: {
+    warehouseId?: string;
+    shippingProvider?: 'shiprocket' | 'delhivery' | 'manual';
+    storeId?: string;
+  }) => {
+    const response = await api.post('/shipping/create-shipment', {
+      orderId,
+      ...options,
+    });
     return response.data;
   },
   checkServiceability: async (pincode: string, weight?: number, cod?: boolean) => {
@@ -485,8 +512,55 @@ export const shippingAPI = {
     });
     return response.data;
   },
-  trackShipment: async (awb: string) => {
-    const response = await api.get(`/shipping/track/${awb}`);
+  trackShipment: async (trackingId: string, provider?: 'shiprocket' | 'delhivery') => {
+    const response = await api.get(`/shipping/track/${trackingId}${provider ? `?provider=${provider}` : ''}`);
+    return response.data;
+  },
+  getProviders: async () => {
+    const response = await api.get('/shipping/providers');
+    return response.data;
+  },
+  getWarehouses: async () => {
+    const response = await api.get('/shipping/warehouses');
+    return response.data;
+  },
+};
+
+// Warehouses API
+export const warehousesAPI = {
+  getAll: async () => {
+    const response = await api.get('/warehouses/stores/link');
+    return response.data;
+  },
+  getById: async (id: string) => {
+    const response = await api.get(`/warehouses/${id}`);
+    return response.data;
+  },
+  create: async (data: any) => {
+    const response = await api.post('/warehouses', data);
+    return response.data;
+  },
+  update: async (id: string, data: any) => {
+    const response = await api.put(`/warehouses/${id}`, data);
+    return response.data;
+  },
+  delete: async (id: string) => {
+    const response = await api.delete(`/warehouses/${id}`);
+    return response.data;
+  },
+  linkStores: async (id: string, storeIndices: number[]) => {
+    const response = await api.post(`/warehouses/${id}/link-stores`, { storeIndices });
+    return response.data;
+  },
+  createFromStore: async (storeIndex: number, options?: { code?: string; contact?: { name?: string; phone?: string; email?: string } }) => {
+    const response = await api.post('/warehouses/create-from-store', {
+      storeIndex,
+      ...options,
+    });
+    return response.data;
+  },
+  syncWithStore: async (id: string, options?: { storeIndex?: number; syncAddress?: boolean; syncContact?: boolean }) => {
+    const response = await api.post(`/warehouses/${id}/sync-with-store`, options || {});
     return response.data;
   },
 };
@@ -547,6 +621,22 @@ export const smsConfigAPI = {
     apiKey?: string;
   }) => {
     const response = await api.put('/sms-config', data);
+    return response.data.data || response.data;
+  },
+};
+
+export const gstSettingsAPI = {
+  get: async () => {
+    const response = await api.get('/settings/gst');
+    return response.data.data || response.data;
+  },
+  update: async (data: {
+    showPriceIncludingGst?: boolean;
+    showGstOnCheckout?: boolean;
+    taxBrackets?: Array<{ name: string; rate: number; isActive: boolean }>;
+    stores?: Array<{ name: string; address: string; pincode: string; state: string; gstin?: string; isActive: boolean }>;
+  }) => {
+    const response = await api.put('/settings/gst', data);
     return response.data.data || response.data;
   },
 };
@@ -634,6 +724,23 @@ export const usersAPI = {
   },
   resetPassword: async (id: string, newPassword: string) => {
     const response = await api.post(`/users/${id}/reset-password`, { newPassword });
+    return response.data;
+  },
+};
+
+// Logs API
+export const logsAPI = {
+  getLogs: async (params?: {
+    type?: 'error' | 'combined' | 'exceptions' | 'rejections';
+    date?: string;
+    limit?: number;
+    level?: 'error' | 'warn' | 'info' | 'http' | 'debug';
+  }) => {
+    const response = await api.get('/logs', { params });
+    return response.data;
+  },
+  getLogFiles: async () => {
+    const response = await api.get('/logs/files');
     return response.data;
   },
 };
