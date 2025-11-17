@@ -13,6 +13,7 @@ interface Shipment {
   pickup?: {
     scheduledDate?: Date | string;
     pickupTimeSlot?: string;
+    pickupId?: string;
   };
   providerData?: {
     shiprocketAWB?: string;

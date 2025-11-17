@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { FaPlus, FaSave, FaUndo, FaTrash, FaImage, FaUpload } from 'react-icons/fa';
-import { categoriesAPI, uploadAPI } from '../services/api';
+import { FaPlus, FaSave, FaUndo, FaTrash } from 'react-icons/fa';
+import { categoriesAPI } from '../services/api';
+import ImageInputWithActions from '../components/common/ImageInputWithActions';
 
 interface Category {
   _id: string;
@@ -293,7 +294,7 @@ const Categories: React.FC = () => {
 
             <ImageInputWithActions
               value={formState.imageUrl || ''}
-              onChange={(url) => setFormState({ ...formState, imageUrl: url })}
+              onChange={(url: string) => setFormState({ ...formState, imageUrl: url })}
               label="Category Image"
               placeholder="Enter category image URL manually (https://...)"
             />

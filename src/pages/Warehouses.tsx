@@ -74,7 +74,6 @@ const Warehouses: React.FC = () => {
 
   useEffect(() => {
     fetchWarehouses();
-    fetchStores();
   }, []);
 
   const fetchWarehouses = async () => {
@@ -92,16 +91,6 @@ const Warehouses: React.FC = () => {
     }
   };
 
-  const fetchStores = async () => {
-    try {
-      const response = await api.get('/settings/gst');
-      if (response.data.success && response.data.data.stores) {
-        setStores(response.data.data.stores);
-      }
-    } catch (error: any) {
-      console.error('Failed to fetch stores:', error);
-    }
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -211,18 +200,24 @@ const Warehouses: React.FC = () => {
   const handleChange = (field: string, value: any) => {
     if (field.includes('.')) {
       const [section, key, subKey] = field.split('.');
-      setFormData(prev => ({
-        ...prev,
-        [section]: {
-          ...prev[section as keyof typeof prev],
-          [key]: subKey
-            ? {
-                ...(prev[section as keyof typeof prev] as any)[key],
-                [subKey]: value,
-              }
-            : value,
-        },
-      }));
+      setFormData(prev => {
+        const sectionValue = prev[section as keyof typeof prev] as any;
+        if (!sectionValue || typeof sectionValue !== 'object') {
+          return prev;
+        }
+        return {
+          ...prev,
+          [section]: {
+            ...sectionValue,
+            [key]: subKey
+              ? {
+                  ...(sectionValue[key] || {}),
+                  [subKey]: value,
+                }
+              : value,
+          },
+        };
+      });
     } else {
       setFormData(prev => ({
         ...prev,

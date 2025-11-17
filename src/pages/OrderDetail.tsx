@@ -5,9 +5,10 @@
 
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ordersAPI, shippingAPI, paymentsAPI, shipmentsAPI, warehousesAPI } from '../services/api';
+import { ordersAPI, shippingAPI, paymentsAPI, shipmentsAPI } from '../services/api';
+import api from '../services/api';
 import { format } from 'date-fns';
-import { FaWhatsapp, FaCheckCircle, FaEnvelope, FaFileInvoice, FaCreditCard, FaTruck } from 'react-icons/fa';
+import { FaCheckCircle, FaEnvelope, FaFileInvoice, FaCreditCard, FaTruck } from 'react-icons/fa';
 import {
   StatusBadge,
   OrderItems,
@@ -213,7 +214,12 @@ const OrderDetail: React.FC = () => {
 
     setSendingEmail(type);
     try {
-      await ordersAPI.sendEmail(id!, type, subject, content);
+      // For update emails, send subject and content in the request body
+      if (type === 'update' && subject && content) {
+        await api.post(`/orders/${id!}/send-email`, { type, subject, content });
+      } else {
+        await ordersAPI.sendEmail(id!, type);
+      }
       alert(`Email sent successfully to ${order.shippingAddress.email}`);
       setShowUpdateEmailModal(false);
       setUpdateEmailSubject('');
@@ -293,7 +299,7 @@ const OrderDetail: React.FC = () => {
         orderItemIndices = modalData.selectedItemIndices;
       } else if (order?.items && order.items.length > 0) {
         // Default to all items if none specified
-        orderItemIndices = order.items.map((_, index) => index);
+        orderItemIndices = order.items.map((_: any, index: number) => index);
       }
 
       // Prepare shipment data

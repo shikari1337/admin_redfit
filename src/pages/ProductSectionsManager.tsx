@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { productsAPI, uploadAPI } from '../services/api';
-import { FaArrowLeft, FaCheck, FaTimes, FaEdit, FaPlus, FaTrash, FaUpload, FaMagic, FaImage, FaFont } from 'react-icons/fa';
+import { FaArrowLeft, FaCheck, FaTimes, FaEdit, FaPlus, FaTrash, FaUpload, FaMagic, FaImage } from 'react-icons/fa';
 import ImageInputWithActions from '../components/common/ImageInputWithActions';
 
 interface ProductPageSection {
@@ -634,205 +634,6 @@ const getDefaultContent = (sectionId: string): any => {
   }
 };
 
-// Reusable Field Generator Component
-interface FieldGeneratorProps {
-  productId: string;
-  sectionId: string;
-  fieldType: 'text' | 'image';
-  fieldPath: string;
-  currentValue: string;
-  onGenerate: (value: string) => void;
-  label?: string;
-}
-
-const FieldGenerator: React.FC<FieldGeneratorProps> = ({
-  productId,
-  sectionId,
-  fieldType,
-  fieldPath,
-  currentValue,
-  onGenerate,
-  label,
-}) => {
-  const [showContextModal, setShowContextModal] = useState(false);
-  const [generating, setGenerating] = useState(false);
-  const [contextProductId, setContextProductId] = useState<string>(productId);
-  const [contextSectionId, setContextSectionId] = useState<string>(sectionId);
-  const [customPrompt, setCustomPrompt] = useState('');
-  const [products, setProducts] = useState<any[]>([]);
-  const [loadingProducts, setLoadingProducts] = useState(false);
-
-  useEffect(() => {
-    if (showContextModal) {
-      loadProducts();
-    }
-  }, [showContextModal]);
-
-  const loadProducts = async () => {
-    setLoadingProducts(true);
-    try {
-      const response = await productsAPI.getAll();
-      setProducts(response.data || []);
-    } catch (error) {
-      console.error('Failed to load products:', error);
-    } finally {
-      setLoadingProducts(false);
-    }
-  };
-
-  const handleGenerate = async (useCustomPrompt: boolean = false) => {
-    setGenerating(true);
-    try {
-      const response = await productsAPI.generateField(
-        productId,
-        sectionId,
-        fieldType,
-        fieldPath,
-        {
-          contextProductId: contextProductId !== productId ? contextProductId : undefined,
-          contextSectionId: contextSectionId !== sectionId ? contextSectionId : undefined,
-          customPrompt: useCustomPrompt ? customPrompt : undefined,
-        }
-      );
-
-      if (response.success && response.data?.value) {
-        onGenerate(response.data.value);
-        setShowContextModal(false);
-        setCustomPrompt('');
-      } else {
-        alert('Failed to generate content');
-      }
-    } catch (error: any) {
-      console.error('Error generating field:', error);
-      alert(error.response?.data?.message || error.message || 'Failed to generate content');
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  return (
-    <>
-      <button
-        type="button"
-        onClick={() => setShowContextModal(true)}
-        className={`flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
-          fieldType === 'text'
-            ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-            : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
-        }`}
-        title={`Generate ${fieldType} with AI`}
-      >
-        {fieldType === 'text' ? <FaFont size={12} /> : <FaImage size={12} />}
-        <FaMagic size={10} />
-      </button>
-
-      {showContextModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold text-gray-900">
-                Generate {fieldType === 'text' ? 'Text' : 'Image'}
-              </h3>
-              <button
-                onClick={() => setShowContextModal(false)}
-                className="text-gray-400 hover:text-gray-600 text-2xl"
-                disabled={generating}
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Context Product (for content generation)
-                </label>
-                <select
-                  value={contextProductId}
-                  onChange={(e) => setContextProductId(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                  disabled={generating || loadingProducts}
-                >
-                  {loadingProducts ? (
-                    <option>Loading products...</option>
-                  ) : (
-                    products.map((p) => (
-                      <option key={p._id} value={p._id}>
-                        {p.name}
-                      </option>
-                    ))
-                  )}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Context Section
-                </label>
-                <select
-                  value={contextSectionId}
-                  onChange={(e) => setContextSectionId(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                  disabled={generating}
-                >
-                  {availableSections.map((s) => (
-                    <option key={s.sectionId} value={s.sectionId}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Custom Prompt (Optional)
-                </label>
-                <textarea
-                  value={customPrompt}
-                  onChange={(e) => setCustomPrompt(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                  rows={3}
-                  placeholder="Enter a custom prompt for content generation..."
-                  disabled={generating}
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Leave empty to use default prompt based on product and section
-                </p>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-3 mt-6">
-              <button
-                onClick={() => setShowContextModal(false)}
-                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
-                disabled={generating}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => handleGenerate(!!customPrompt)}
-                disabled={generating}
-                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                {generating ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <FaMagic /> Generate
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  );
-};
-
 // Individual Section Editors
 const FeaturesEditor: React.FC<{ data: any; onChange: (data: any) => void }> = ({ data, onChange }) => {
   const updateItem = (index: number, field: string, value: string) => {
@@ -1283,8 +1084,7 @@ const StylingGuideEditor: React.FC<{ data: any; onChange: (data: any) => void; p
                     src={item.image}
                     alt={item.title || `Tip ${index + 1}`}
                     className="w-full h-48 object-cover rounded-lg border border-gray-300"
-                    onError={(e) => {
-                      console.error('Image load error:', item.image);
+                    onError={() => {
                       // Clear invalid image URL
                       updateItem(index, 'image', '');
                     }}

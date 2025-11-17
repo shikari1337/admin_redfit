@@ -1,5 +1,5 @@
 import React from 'react';
-import { FaCreditCard, FaImage } from 'react-icons/fa';
+import { FaCreditCard } from 'react-icons/fa';
 import Modal from './Modal';
 
 interface PaymentVerificationModalProps {

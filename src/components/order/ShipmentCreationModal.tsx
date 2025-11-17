@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { FaTruck, FaTimes, FaRupeeSign, FaSpinner, FaPlane, FaBox, FaMoneyBillWave, FaClock, FaSync } from 'react-icons/fa';
+import { FaTruck, FaRupeeSign, FaSpinner, FaPlane, FaBox, FaMoneyBillWave, FaClock, FaSync } from 'react-icons/fa';
 import Modal from './Modal';
 import { shippingAPI } from '../../services/api';
 
@@ -153,11 +153,7 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
     try {
       const response = await shippingAPI.getCourierRates(
         orderId, 
-        selectedWarehouseId,
-        parseFloat(weight),
-        parseFloat(length),
-        parseFloat(breadth),
-        parseFloat(height)
+        selectedWarehouseId
       );
       console.log('Shiprocket rates response:', response);
       
@@ -198,8 +194,8 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
       // Fetch DELHIVERY rates for both Express and Surface
       // Use Promise.allSettled to handle errors gracefully
       const [expressResult, surfaceResult] = await Promise.allSettled([
-        shippingAPI.getDelhiveryRates(orderId, selectedWarehouseId, 'express', parseFloat(weight)),
-        shippingAPI.getDelhiveryRates(orderId, selectedWarehouseId, 'surface', parseFloat(weight)),
+        shippingAPI.getDelhiveryRates(orderId, selectedWarehouseId, 'express'),
+        shippingAPI.getDelhiveryRates(orderId, selectedWarehouseId, 'surface'),
       ]);
 
       console.log('DELHIVERY rates response:', { expressResult, surfaceResult });
@@ -433,12 +429,6 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
     </>
   );
 
-  const getServiceType = (courier: CourierRate) => {
-    if (courier.airAvailable && courier.surfaceAvailable) return 'Air + Surface';
-    if (courier.airAvailable) return 'Air';
-    if (courier.surfaceAvailable) return 'Surface';
-    return 'N/A';
-  };
 
   const selectedWarehouse = warehouses.find(w => w._id === selectedWarehouseId);
 

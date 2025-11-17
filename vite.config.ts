@@ -10,6 +10,16 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'chart-vendor': ['recharts'],
+          'utils-vendor': ['axios', 'date-fns'],
+        },
+      },
+    },
+    chunkSizeWarningLimit: 1000,
   },
 });
 
