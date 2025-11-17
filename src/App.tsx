@@ -25,6 +25,7 @@ import GstSettings from './pages/GstSettings';
 import Settings from './pages/Settings';
 import ShippingSettings from './pages/ShippingSettings';
 import Warehouses from './pages/Warehouses';
+import Shipments from './pages/Shipments';
 import Users from './pages/Users';
 import UserDetail from './pages/UserDetail';
 import Gallery from './pages/Gallery';
@@ -62,6 +63,7 @@ function App() {
           <Route path="orders" element={<Orders />} />
           <Route path="orders/abandoned-carts" element={<AbandonedCarts />} />
           <Route path="orders/:id" element={<OrderDetail />} />
+          <Route path="shipments" element={<Shipments />} />
           <Route path="users" element={<Users />} />
           <Route path="users/:id" element={<UserDetail />} />
           <Route path="logs" element={<Logs />} />

@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaArrowLeft, FaSave, FaGlobe, FaImage, FaPalette } from 'react-icons/fa';
+import { FaArrowLeft, FaSave, FaGlobe, FaImage, FaPalette, FaInstagram } from 'react-icons/fa';
 import api from '../services/api';
+import ImageInputWithActions from '../components/common/ImageInputWithActions';
 
 const GeneralSettings: React.FC = () => {
   const navigate = useNavigate();
@@ -25,6 +26,10 @@ const GeneralSettings: React.FC = () => {
       backgroundColor: '#FFFFFF',
       textColor: '#111827',
       linkColor: '#3B82F6',
+    },
+    instagram: {
+      username: '',
+      isEnabled: false,
     },
   });
 
@@ -57,6 +62,10 @@ const GeneralSettings: React.FC = () => {
             textColor: settings.colors?.textColor || '#111827',
             linkColor: settings.colors?.linkColor || '#3B82F6',
           },
+          instagram: {
+            username: settings.instagram?.username || '',
+            isEnabled: settings.instagram?.isEnabled || false,
+          },
         });
       }
     } catch (error: any) {
@@ -71,17 +80,33 @@ const GeneralSettings: React.FC = () => {
     e.preventDefault();
     setSaving(true);
     try {
-      await api.put('/settings', formData);
-      alert('Settings saved successfully!');
+      // Ensure instagram config is properly structured
+      const settingsToSave = {
+        general: formData.general,
+        logo: formData.logo,
+        colors: formData.colors,
+        instagram: formData.instagram,
+      };
+      
+      const response = await api.put('/settings', settingsToSave);
+      if (response.data.success) {
+        alert('Settings saved successfully!');
+      } else {
+        alert('Settings saved but response format unexpected');
+      }
     } catch (error: any) {
       console.error('Failed to save settings:', error);
-      alert(error.response?.data?.message || 'Failed to save settings');
+      const errorMessage = error.response?.data?.message || 
+                          error.response?.data?.error || 
+                          error.message || 
+                          'Failed to save settings';
+      alert(errorMessage);
     } finally {
       setSaving(false);
     }
   };
 
-  const handleChange = (section: string, field: string, value: string) => {
+  const handleChange = (section: string, field: string, value: string | boolean) => {
     setFormData(prev => ({
       ...prev,
       [section]: {
@@ -182,65 +207,26 @@ const GeneralSettings: React.FC = () => {
           </div>
 
           <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Main Logo URL
-              </label>
-              <input
-                type="text"
-                value={formData.logo.logoUrl}
-                onChange={(e) => handleChange('logo', 'logoUrl', e.target.value)}
-                placeholder="https://cdn.redfit.in/logo.png"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-              />
-              {formData.logo.logoUrl && (
-                <div className="mt-2">
-                  <img src={formData.logo.logoUrl} alt="Logo preview" className="h-12 object-contain" onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = 'none';
-                  }} />
-                </div>
-              )}
-            </div>
+            <ImageInputWithActions
+              value={formData.logo.logoUrl}
+              onChange={(url) => handleChange('logo', 'logoUrl', url)}
+              label="Main Logo URL"
+              placeholder="https://cdn.redfit.in/logo.png"
+            />
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Favicon URL
-              </label>
-              <input
-                type="text"
-                value={formData.logo.faviconUrl}
-                onChange={(e) => handleChange('logo', 'faviconUrl', e.target.value)}
-                placeholder="https://cdn.redfit.in/favicon.ico"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-              />
-              {formData.logo.faviconUrl && (
-                <div className="mt-2">
-                  <img src={formData.logo.faviconUrl} alt="Favicon preview" className="h-8 w-8 object-contain" onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = 'none';
-                  }} />
-                </div>
-              )}
-            </div>
+            <ImageInputWithActions
+              value={formData.logo.faviconUrl}
+              onChange={(url) => handleChange('logo', 'faviconUrl', url)}
+              label="Favicon URL"
+              placeholder="https://cdn.redfit.in/favicon.ico"
+            />
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Admin Logo URL
-              </label>
-              <input
-                type="text"
-                value={formData.logo.adminLogoUrl}
-                onChange={(e) => handleChange('logo', 'adminLogoUrl', e.target.value)}
-                placeholder="https://cdn.redfit.in/admin-logo.png"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-              />
-              {formData.logo.adminLogoUrl && (
-                <div className="mt-2">
-                  <img src={formData.logo.adminLogoUrl} alt="Admin logo preview" className="h-12 object-contain" onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = 'none';
-                  }} />
-                </div>
-              )}
-            </div>
+            <ImageInputWithActions
+              value={formData.logo.adminLogoUrl}
+              onChange={(url) => handleChange('logo', 'adminLogoUrl', url)}
+              label="Admin Logo URL"
+              placeholder="https://cdn.redfit.in/admin-logo.png"
+            />
           </div>
         </div>
 
@@ -381,6 +367,51 @@ const GeneralSettings: React.FC = () => {
                   className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
                 />
               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Instagram Settings */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center gap-4 mb-6">
+            <div className="flex-shrink-0 w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
+              <FaInstagram className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Instagram Feed</h2>
+              <p className="text-sm text-gray-600">Configure Instagram account for dynamic feed</p>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                id="instagramEnabled"
+                checked={formData.instagram.isEnabled}
+                onChange={(e) => handleChange('instagram', 'isEnabled', e.target.checked)}
+                className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
+              />
+              <label htmlFor="instagramEnabled" className="text-sm font-medium text-gray-700">
+                Enable Instagram Feed
+              </label>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Instagram Username
+              </label>
+              <input
+                type="text"
+                value={formData.instagram.username}
+                onChange={(e) => handleChange('instagram', 'username', e.target.value)}
+                placeholder="thestreetwear_clothings"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                disabled={!formData.instagram.isEnabled}
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Enter Instagram username without @ (e.g., thestreetwear_clothings)
+              </p>
             </div>
           </div>
         </div>

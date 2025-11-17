@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { reviewsAPI, uploadAPI } from '../services/api';
 import { FaUpload, FaTimes, FaPlus, FaTrash, FaEdit, FaFileCsv, FaDownload } from 'react-icons/fa';
+import ImageInputWithActions from '../components/common/ImageInputWithActions';
 
 interface Review {
   _id: string;
@@ -30,6 +31,7 @@ const Reviews: React.FC = () => {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, pages: 0 });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [newReview, setNewReview] = useState<Partial<Review>>({
     productId: '',
@@ -44,22 +46,30 @@ const Reviews: React.FC = () => {
     isVerified: false,
   });
   const [newImage, setNewImage] = useState<File | null>(null);
-  const [customerImage, setCustomerImage] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [generatingImage, setGeneratingImage] = useState(false);
   const [bulkUploadMode, setBulkUploadMode] = useState(false);
   const [_csvFile, setCsvFile] = useState<File | null>(null); // File state for CSV upload (setter used for clearing)
   const [csvData, setCsvData] = useState<any[]>([]);
 
   useEffect(() => {
     fetchReviews();
+  }, [pagination.page]);
+
+  useEffect(() => {
     fetchProducts();
   }, []);
 
   const fetchReviews = async () => {
     try {
-      const response = await reviewsAPI.getAll();
+      setLoading(true);
+      const response = await reviewsAPI.getAll({
+        page: pagination.page,
+        limit: pagination.limit,
+      });
       setReviews(response.data || []);
+      if (response.pagination) {
+        setPagination(prev => ({ ...prev, ...response.pagination }));
+      }
     } catch (error) {
       console.error('Failed to fetch reviews:', error);
     } finally {
@@ -121,48 +131,6 @@ const Reviews: React.FC = () => {
     }
   };
 
-  const handleCustomerImageUpload = async () => {
-    if (!customerImage) return;
-
-    setUploading(true);
-    try {
-      const response = await uploadAPI.uploadSingle(customerImage, 'reviews');
-      const imageUrl = response.data.url;
-      setNewReview({
-        ...newReview,
-        customerImage: imageUrl,
-      });
-      setCustomerImage(null);
-    } catch (error) {
-      alert('Failed to upload customer image');
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleGenerateCustomerImage = async () => {
-    if (!newReview.customerName) {
-      alert('Please enter customer name first');
-      return;
-    }
-
-    setGeneratingImage(true);
-    try {
-      const response = await reviewsAPI.generateProfileImage?.(newReview.customerName, newReview.description);
-      if (response?.data?.imageUrl) {
-        setNewReview({
-          ...newReview,
-          customerImage: response.data.imageUrl,
-        });
-      } else {
-        alert('Failed to generate image');
-      }
-    } catch (error: any) {
-      alert(error.response?.data?.message || 'Failed to generate image. Make sure Gemini API key is configured.');
-    } finally {
-      setGeneratingImage(false);
-    }
-  };
 
   const handleSaveReview = async () => {
     try {
@@ -184,7 +152,6 @@ const Reviews: React.FC = () => {
         isApproved: true,
         isVerified: false,
       });
-      setCustomerImage(null);
       setEditingId(null);
       fetchReviews();
     } catch (error: any) {
@@ -501,59 +468,13 @@ const Reviews: React.FC = () => {
               />
             </div>
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Customer Image (Profile Photo)</label>
-              <div className="flex items-center gap-2 mb-2">
-                <label className="flex items-center gap-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 cursor-pointer">
-                  <FaUpload size={14} />
-                  Upload Image
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => {
-                      if (e.target.files && e.target.files[0]) {
-                        setCustomerImage(e.target.files[0]);
-                      }
-                    }}
-                  />
-                </label>
-                {customerImage && (
-                  <button
-                    onClick={handleCustomerImageUpload}
-                    disabled={uploading}
-                    className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {uploading ? 'Uploading...' : 'Upload'}
-                  </button>
-                )}
-                <button
-                  onClick={handleGenerateCustomerImage}
-                  disabled={generatingImage || !newReview.customerName}
-                  className="px-3 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                >
-                  {generatingImage ? 'Generating...' : '✨ Generate with AI'}
-                </button>
-              </div>
-              {newReview.customerImage && (
-                <div className="mt-2">
-                  <img
-                    src={newReview.customerImage}
-                    alt="Customer"
-                    className="w-20 h-20 object-cover rounded-full"
-                  />
-                  <button
-                    onClick={() => {
-                      setNewReview({
-                        ...newReview,
-                        customerImage: undefined,
-                      });
-                    }}
-                    className="mt-1 text-xs text-red-600 hover:text-red-800"
-                  >
-                    Remove
-                  </button>
-                </div>
-              )}
+              <ImageInputWithActions
+                value={newReview.customerImage || ''}
+                onChange={(url) => setNewReview({ ...newReview, customerImage: url })}
+                label="Customer Image (Profile Photo)"
+                placeholder="Enter customer image URL manually (https://...)"
+                contextData={newReview.customerName ? { productName: newReview.customerName, itemDescription: newReview.description } : undefined}
+              />
             </div>
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Review Images</label>
@@ -772,6 +693,33 @@ const Reviews: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {/* Pagination */}
+      {pagination.pages > 1 && (
+        <div className="bg-white rounded-lg shadow mt-6">
+          <div className="bg-gray-50 px-4 py-3 flex items-center justify-between border-t border-gray-200">
+            <div className="text-sm text-gray-700">
+              Showing {((pagination.page - 1) * pagination.limit) + 1} to {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total} results
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPagination(prev => ({ ...prev, page: prev.page - 1 }))}
+                disabled={pagination.page === 1}
+                className="px-3 py-1 border border-gray-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+              >
+                Previous
+              </button>
+              <button
+                onClick={() => setPagination(prev => ({ ...prev, page: prev.page + 1 }))}
+                disabled={pagination.page >= pagination.pages}
+                className="px-3 py-1 border border-gray-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

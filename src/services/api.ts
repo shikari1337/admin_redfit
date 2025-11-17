@@ -247,6 +247,37 @@ export const productsAPI = {
     const response = await api.get(`/products/${id}/duplicate`);
     return response.data;
   },
+  generateContent: async (id: string, sectionId: string, options: {
+    generateText: boolean;
+    generateImages: boolean;
+    generateVideos: boolean;
+    overrideExisting: boolean;
+  }) => {
+    const response = await api.post(`/products/${id}/generate-content`, {
+      sectionId,
+      options,
+    });
+    return response.data;
+  },
+  generateField: async (
+    id: string,
+    sectionId: string,
+    fieldType: 'text' | 'image',
+    fieldPath: string,
+    options?: {
+      contextProductId?: string;
+      contextSectionId?: string;
+      customPrompt?: string;
+    }
+  ) => {
+    const response = await api.post(`/products/${id}/generate-field`, {
+      sectionId,
+      fieldType,
+      fieldPath,
+      ...options,
+    });
+    return response.data;
+  },
 };
 
 // Categories API
@@ -383,6 +414,10 @@ export const ordersAPI = {
     const response = await api.put(`/orders/${id}/notes`, { notes });
     return response.data;
   },
+  sendEmail: async (id: string, type: 'confirmation' | 'update' | 'invoice') => {
+    const response = await api.post(`/orders/${id}/send-email`, { type });
+    return response.data;
+  },
 };
 
 // Payments API
@@ -441,7 +476,7 @@ export const uploadAPI = {
 
 // Reviews API
 export const reviewsAPI = {
-  getAll: async (params?: { productId?: string; approved?: boolean }) => {
+  getAll: async (params?: { productId?: string; approved?: boolean; page?: number; limit?: number }) => {
     const response = await api.get('/reviews', { params });
     return response.data;
   },
@@ -496,12 +531,22 @@ export const shippingAPI = {
   createShipment: async (orderId: string, options?: {
     warehouseId?: string;
     shippingProvider?: 'shiprocket' | 'delhivery' | 'manual';
+    trackingId?: string;
+    carrierName?: string;
+    trackingUrl?: string;
     storeId?: string;
   }) => {
-    const response = await api.post('/shipping/create-shipment', {
-      orderId,
-      ...options,
-    });
+    // Clean up the payload - remove undefined/null/empty string values
+    const payload: any = { orderId };
+    if (options) {
+      Object.keys(options).forEach(key => {
+        const value = (options as any)[key];
+        if (value !== undefined && value !== null && value !== '') {
+          payload[key] = value;
+        }
+      });
+    }
+    const response = await api.post('/shipping/create-shipment', payload);
     return response.data;
   },
   checkServiceability: async (pincode: string, weight?: number, cod?: boolean) => {
@@ -523,6 +568,123 @@ export const shippingAPI = {
   getWarehouses: async () => {
     const response = await api.get('/shipping/warehouses');
     return response.data;
+  },
+  getCourierRates: async (orderId: string, warehouseId?: string) => {
+    const params = new URLSearchParams({ orderId });
+    if (warehouseId) {
+      params.append('warehouseId', warehouseId);
+    }
+    const response = await api.get(`/shipping/courier-rates?${params.toString()}`);
+    return response.data;
+  },
+    getDelhiveryRates: async (orderId: string, warehouseId?: string, serviceType?: 'express' | 'surface') => {
+      const params = new URLSearchParams({ orderId });
+      if (warehouseId) {
+        params.append('warehouseId', warehouseId);
+      }
+      if (serviceType) {
+        params.append('serviceType', serviceType);
+      }
+      const response = await api.get(`/shipping/delhivery-rates?${params.toString()}`);
+      return response.data;
+    },
+};
+
+// Shipments API
+export const shipmentsAPI = {
+  getAll: async (params?: {
+    status?: string;
+    warehouseId?: string;
+    shippingProvider?: 'shiprocket' | 'delhivery' | 'manual';
+    startDate?: string;
+    endDate?: string;
+    page?: number;
+    limit?: number;
+  }) => {
+    const response = await api.get('/shipments', { params });
+    return response.data;
+  },
+  getById: async (id: string) => {
+    const response = await api.get(`/shipments/${id}`);
+    return response.data;
+  },
+  create: async (data: {
+    orderIds: string[];
+    warehouseId: string;
+    shippingProvider: 'shiprocket' | 'delhivery' | 'manual';
+    notes?: string;
+    manualTrackingId?: string;
+    manualCarrierName?: string;
+    manualTrackingUrl?: string;
+  }) => {
+    const response = await api.post('/shipments', data);
+    return response.data;
+  },
+  addOrders: async (id: string, orderIds: string[]) => {
+    const response = await api.post(`/shipments/${id}/add-orders`, { orderIds });
+    return response.data;
+  },
+  schedulePickup: async (id: string, data: {
+    scheduledDate: string;
+    pickupTimeSlot?: string;
+    notes?: string;
+  }) => {
+    const response = await api.post(`/shipments/${id}/schedule-pickup`, data);
+    return response.data;
+  },
+  generateAWB: async (id: string) => {
+    const response = await api.post(`/shipments/${id}/generate-awb`);
+    return response.data;
+  },
+  updateStatus: async (id: string, status: string, notes?: string) => {
+    const response = await api.put(`/shipments/${id}/status`, { status, notes });
+    return response.data;
+  },
+  fetchStatusUpdates: async () => {
+    const response = await api.post('/shipments/fetch-status-updates');
+    return response.data;
+  },
+  downloadLabel: async (id: string) => {
+    const response = await api.get(`/shipments/${id}/download-label`, {
+      responseType: 'blob', // For PDF download
+      headers: {
+        'Accept': 'application/pdf',
+      },
+    });
+    // Create download link
+    const url = window.URL.createObjectURL(response.data);
+    const link = document.createElement('a');
+    link.href = url;
+    const contentDisposition = response.headers['content-disposition'];
+    const filename = contentDisposition
+      ? contentDisposition.split('filename=')[1]?.replace(/"/g, '') || `label-${id}.pdf`
+      : `label-${id}.pdf`;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  },
+  downloadPickupReceipt: async (id: string) => {
+    const response = await api.get(`/shipments/${id}/download-pickup-receipt`, {
+      responseType: 'blob', // For PDF download
+      headers: {
+        'Accept': 'application/pdf',
+      },
+    });
+    // Create download link
+    const url = window.URL.createObjectURL(response.data);
+    const link = document.createElement('a');
+    link.href = url;
+    const contentDisposition = response.headers['content-disposition'];
+    const filename = contentDisposition
+      ? contentDisposition.split('filename=')[1]?.replace(/"/g, '') || `pickup-receipt-${id}.pdf`
+      : `pickup-receipt-${id}.pdf`;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
   },
 };
 

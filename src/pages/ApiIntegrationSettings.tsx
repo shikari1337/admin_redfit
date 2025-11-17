@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaArrowLeft, FaSave, FaEnvelope, FaFacebook, FaCreditCard, FaTruck, FaWhatsapp, FaRobot } from 'react-icons/fa';
+import { FaArrowLeft, FaSave, FaEnvelope, FaFacebook, FaCreditCard, FaWhatsapp, FaRobot } from 'react-icons/fa';
 
 import api from '../services/api';
 

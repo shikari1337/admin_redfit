@@ -1464,6 +1464,8 @@ const ProductForm: React.FC = () => {
               seoData={seoData}
               showAdvancedSeo={showAdvancedSeo}
               websiteUrl={websiteUrl}
+              productId={id}
+              productName={formData.name}
               showSku={false} // SKU is now shown in Pricing section
               onSkuChange={(sku) => {
                 const skuValue = sku.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 48);
@@ -1599,6 +1601,8 @@ const ProductForm: React.FC = () => {
             <ProductWashCare
               instructions={formData.washCareInstructions}
               onInstructionsChange={(instructions) => setFormData({ ...formData, washCareInstructions: instructions })}
+              productId={id}
+              productName={formData.name}
             />
 
             {/* Customer Order Images Gallery */}

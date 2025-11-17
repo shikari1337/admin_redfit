@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FaArrowLeft, FaSave, FaPercent, FaPlus, FaTrash, FaEdit, FaCheck, FaTimes, FaWarehouse } from 'react-icons/fa';
-import api, { gstSettingsAPI } from '../services/api';
+import { gstSettingsAPI } from '../services/api';
 
 interface TaxBracket {
   _id?: string;

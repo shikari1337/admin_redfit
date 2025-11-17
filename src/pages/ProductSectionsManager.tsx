@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { productsAPI, uploadAPI } from '../services/api';
-import { FaArrowLeft, FaCheck, FaTimes, FaEdit, FaPlus, FaTrash, FaUpload } from 'react-icons/fa';
+import { FaArrowLeft, FaCheck, FaTimes, FaEdit, FaPlus, FaTrash, FaUpload, FaMagic, FaImage, FaFont } from 'react-icons/fa';
+import ImageInputWithActions from '../components/common/ImageInputWithActions';
 
 interface ProductPageSection {
   sectionId: string;
@@ -247,6 +248,7 @@ const ProductSectionsManager: React.FC = () => {
       {editingSection && (
         <SectionContentEditor
           section={sections.find(s => s.sectionId === editingSection)!}
+          productId={id || undefined}
           onClose={() => setEditingSection(null)}
           onSave={(customData) => {
             setSections(sections.map(s =>
@@ -267,9 +269,13 @@ interface SectionContentEditorProps {
   section: ProductPageSection;
   onClose: () => void;
   onSave: (customData: any) => void;
+  productId?: string;
 }
 
-const SectionContentEditor: React.FC<SectionContentEditorProps> = ({ section, onClose, onSave }) => {
+const SectionContentEditor: React.FC<SectionContentEditorProps> = ({ section, onClose, onSave, productId }) => {
+  const { id } = useParams();
+  const effectiveProductId = productId || id;
+  
   const [formData, setFormData] = useState<any>(() => {
     if (section.customData) {
       return section.customData;
@@ -277,8 +283,90 @@ const SectionContentEditor: React.FC<SectionContentEditorProps> = ({ section, on
     return getDefaultContent(section.sectionId);
   });
 
+  const [showGenerateModal, setShowGenerateModal] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [generateOptions, setGenerateOptions] = useState({
+    generateText: true,
+    generateImages: false,
+    generateVideos: false,
+    overrideExisting: false,
+  });
+
   const handleSave = () => {
     onSave(formData);
+  };
+
+  const handleGenerateContent = async () => {
+    if (!effectiveProductId) {
+      alert('Product ID not found');
+      return;
+    }
+
+    setGenerating(true);
+    try {
+      const response = await productsAPI.generateContent(
+        effectiveProductId,
+        section.sectionId,
+        generateOptions
+      );
+
+      if (response.success && response.data) {
+        // Merge generated content with existing form data
+        let merged: any;
+        if (generateOptions.overrideExisting) {
+          // Completely replace with generated content
+          merged = response.data;
+        } else {
+          // Merge: fill missing fields, keep existing ones
+          merged = { ...formData };
+          Object.keys(response.data).forEach(key => {
+            if (Array.isArray(response.data[key])) {
+              // For arrays, merge items if array is empty or add new ones
+              if (!merged[key] || merged[key].length === 0) {
+                merged[key] = response.data[key];
+              } else {
+                // Merge arrays, avoiding duplicates
+                const existingIds = new Set(merged[key].map((item: any) => item.id || item.title || JSON.stringify(item)));
+                const newItems = response.data[key].filter((item: any) => {
+                  const itemId = item.id || item.title || JSON.stringify(item);
+                  return !existingIds.has(itemId);
+                });
+                merged[key] = [...merged[key], ...newItems];
+              }
+            } else if (typeof response.data[key] === 'object' && response.data[key] !== null) {
+              // For objects, recursively merge
+              merged[key] = { ...merged[key], ...response.data[key] };
+            } else if (!merged[key] || merged[key] === '') {
+              // Fill missing fields
+              merged[key] = response.data[key];
+            }
+          });
+        }
+        
+        setFormData(merged);
+        
+        // Show success message
+        if (response.errors) {
+          const errors = Object.values(response.errors).filter(Boolean);
+          if (errors.length > 0) {
+            alert(`Content generated successfully, but some errors occurred: ${errors.join(', ')}`);
+          } else {
+            alert('Content generated successfully!');
+          }
+        } else {
+          alert('Content generated successfully!');
+        }
+        
+        setShowGenerateModal(false);
+      } else {
+        alert('Failed to generate content');
+      }
+    } catch (error: any) {
+      console.error('Error generating content:', error);
+      alert(error.response?.data?.message || error.message || 'Failed to generate content');
+    } finally {
+      setGenerating(false);
+    }
   };
 
   const renderEditor = () => {
@@ -286,13 +374,13 @@ const SectionContentEditor: React.FC<SectionContentEditorProps> = ({ section, on
       case 'features':
         return <FeaturesEditor data={formData} onChange={setFormData} />;
       case 'whySpeedster':
-        return <WhySpeedsterEditor data={formData} onChange={setFormData} />;
+        return <WhySpeedsterEditor data={formData} onChange={setFormData} productId={effectiveProductId} sectionId={section.sectionId} />;
       case 'whyUs':
         return <WhyUsEditor data={formData} onChange={setFormData} />;
       case 'stylingGuide':
-        return <StylingGuideEditor data={formData} onChange={setFormData} />;
+        return <StylingGuideEditor data={formData} onChange={setFormData} productId={effectiveProductId} sectionId={section.sectionId} />;
       case 'instagramFeed':
-        return <InstagramFeedEditor data={formData} onChange={setFormData} />;
+        return <InstagramFeedEditor data={formData} onChange={setFormData} productId={effectiveProductId} sectionId={section.sectionId} />;
       case 'faq':
         return <FAQEditor data={formData} onChange={setFormData} />;
       case 'testimonials':
@@ -309,36 +397,145 @@ const SectionContentEditor: React.FC<SectionContentEditorProps> = ({ section, on
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex justify-between items-center">
-          <h2 className="text-xl font-bold text-gray-900">Edit {section.name}</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 text-2xl"
-          >
-            ×
-          </button>
-        </div>
-        <div className="p-6">
-          {renderEditor()}
-        </div>
-        <div className="sticky bottom-0 bg-white border-t border-gray-200 p-4 flex justify-end gap-4">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-          >
-            Save Content
-          </button>
+    <>
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+          <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex justify-between items-center">
+            <h2 className="text-xl font-bold text-gray-900">Edit {section.name}</h2>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowGenerateModal(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                title="Generate AI Content"
+              >
+                <FaMagic /> Generate Content
+              </button>
+              <button
+                onClick={onClose}
+                className="text-gray-400 hover:text-gray-600 text-2xl"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+          <div className="p-6">
+            {renderEditor()}
+          </div>
+          <div className="sticky bottom-0 bg-white border-t border-gray-200 p-4 flex justify-end gap-4">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            >
+              Save Content
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+
+      {/* Generate Content Modal */}
+      {showGenerateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-gray-900">Generate AI Content</h3>
+              <button
+                onClick={() => setShowGenerateModal(false)}
+                className="text-gray-400 hover:text-gray-600 text-2xl"
+                disabled={generating}
+              >
+                ×
+              </button>
+            </div>
+            
+            <div className="space-y-4 mb-6">
+              <p className="text-sm text-gray-600">
+                Select what content to generate for the <strong>{section.name}</strong> section.
+                Content will be generated based on the product details.
+              </p>
+
+              <div className="space-y-3">
+                <label className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={generateOptions.generateText}
+                    onChange={(e) => setGenerateOptions({ ...generateOptions, generateText: e.target.checked })}
+                    className="mr-2"
+                  />
+                  <span className="text-sm font-medium text-gray-700">Generate Text Content</span>
+                </label>
+
+                <label className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={generateOptions.generateImages}
+                    onChange={(e) => setGenerateOptions({ ...generateOptions, generateImages: e.target.checked })}
+                    className="mr-2"
+                  />
+                  <span className="text-sm font-medium text-gray-700">Generate Images</span>
+                </label>
+
+                <label className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={generateOptions.generateVideos}
+                    onChange={(e) => setGenerateOptions({ ...generateOptions, generateVideos: e.target.checked })}
+                    className="mr-2"
+                  />
+                  <span className="text-sm font-medium text-gray-700">Generate Videos</span>
+                </label>
+
+                <div className="pt-3 border-t border-gray-200">
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={generateOptions.overrideExisting}
+                      onChange={(e) => setGenerateOptions({ ...generateOptions, overrideExisting: e.target.checked })}
+                      className="mr-2"
+                    />
+                    <span className="text-sm font-medium text-gray-700">Override Existing Content</span>
+                  </label>
+                  <p className="text-xs text-gray-500 mt-1 ml-6">
+                    If unchecked, only missing fields will be filled
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowGenerateModal(false)}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                disabled={generating}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleGenerateContent}
+                disabled={generating || (!generateOptions.generateText && !generateOptions.generateImages && !generateOptions.generateVideos)}
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {generating ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <FaMagic /> Generate
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 };
 
@@ -381,11 +578,11 @@ const getDefaultContent = (sectionId: string): any => {
       return {
         heading: 'Styling & Pairing Guide',
         subtitle: 'Discover how to style your premium racing jacket for different occasions',
-        tips: [
-          { title: 'Casual Street Style', description: 'Pair with denim jeans and sneakers for an everyday look', imageUrl: '' },
-          { title: 'Sporty Look', description: 'Team up with track pants and running shoes for a sporty vibe', imageUrl: '' },
-          { title: 'Layered Outfit', description: 'Layer over a hoodie or t-shirt for added warmth and style', imageUrl: '' },
-          { title: 'Racing Enthusiast', description: 'Complete the look with racing boots and a matching cap', imageUrl: '' },
+        items: [
+          { title: 'Casual Street Style', description: 'Pair with denim jeans and sneakers for an everyday look', image: '' },
+          { title: 'Sporty Look', description: 'Team up with track pants and running shoes for a sporty vibe', image: '' },
+          { title: 'Layered Outfit', description: 'Layer over a hoodie or t-shirt for added warmth and style', image: '' },
+          { title: 'Racing Enthusiast', description: 'Complete the look with racing boots and a matching cap', image: '' },
         ]
       };
     case 'instagramFeed':
@@ -437,6 +634,205 @@ const getDefaultContent = (sectionId: string): any => {
   }
 };
 
+// Reusable Field Generator Component
+interface FieldGeneratorProps {
+  productId: string;
+  sectionId: string;
+  fieldType: 'text' | 'image';
+  fieldPath: string;
+  currentValue: string;
+  onGenerate: (value: string) => void;
+  label?: string;
+}
+
+const FieldGenerator: React.FC<FieldGeneratorProps> = ({
+  productId,
+  sectionId,
+  fieldType,
+  fieldPath,
+  currentValue,
+  onGenerate,
+  label,
+}) => {
+  const [showContextModal, setShowContextModal] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [contextProductId, setContextProductId] = useState<string>(productId);
+  const [contextSectionId, setContextSectionId] = useState<string>(sectionId);
+  const [customPrompt, setCustomPrompt] = useState('');
+  const [products, setProducts] = useState<any[]>([]);
+  const [loadingProducts, setLoadingProducts] = useState(false);
+
+  useEffect(() => {
+    if (showContextModal) {
+      loadProducts();
+    }
+  }, [showContextModal]);
+
+  const loadProducts = async () => {
+    setLoadingProducts(true);
+    try {
+      const response = await productsAPI.getAll();
+      setProducts(response.data || []);
+    } catch (error) {
+      console.error('Failed to load products:', error);
+    } finally {
+      setLoadingProducts(false);
+    }
+  };
+
+  const handleGenerate = async (useCustomPrompt: boolean = false) => {
+    setGenerating(true);
+    try {
+      const response = await productsAPI.generateField(
+        productId,
+        sectionId,
+        fieldType,
+        fieldPath,
+        {
+          contextProductId: contextProductId !== productId ? contextProductId : undefined,
+          contextSectionId: contextSectionId !== sectionId ? contextSectionId : undefined,
+          customPrompt: useCustomPrompt ? customPrompt : undefined,
+        }
+      );
+
+      if (response.success && response.data?.value) {
+        onGenerate(response.data.value);
+        setShowContextModal(false);
+        setCustomPrompt('');
+      } else {
+        alert('Failed to generate content');
+      }
+    } catch (error: any) {
+      console.error('Error generating field:', error);
+      alert(error.response?.data?.message || error.message || 'Failed to generate content');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setShowContextModal(true)}
+        className={`flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
+          fieldType === 'text'
+            ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+            : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+        }`}
+        title={`Generate ${fieldType} with AI`}
+      >
+        {fieldType === 'text' ? <FaFont size={12} /> : <FaImage size={12} />}
+        <FaMagic size={10} />
+      </button>
+
+      {showContextModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-gray-900">
+                Generate {fieldType === 'text' ? 'Text' : 'Image'}
+              </h3>
+              <button
+                onClick={() => setShowContextModal(false)}
+                className="text-gray-400 hover:text-gray-600 text-2xl"
+                disabled={generating}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Context Product (for content generation)
+                </label>
+                <select
+                  value={contextProductId}
+                  onChange={(e) => setContextProductId(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  disabled={generating || loadingProducts}
+                >
+                  {loadingProducts ? (
+                    <option>Loading products...</option>
+                  ) : (
+                    products.map((p) => (
+                      <option key={p._id} value={p._id}>
+                        {p.name}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Context Section
+                </label>
+                <select
+                  value={contextSectionId}
+                  onChange={(e) => setContextSectionId(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  disabled={generating}
+                >
+                  {availableSections.map((s) => (
+                    <option key={s.sectionId} value={s.sectionId}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Custom Prompt (Optional)
+                </label>
+                <textarea
+                  value={customPrompt}
+                  onChange={(e) => setCustomPrompt(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  rows={3}
+                  placeholder="Enter a custom prompt for content generation..."
+                  disabled={generating}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Leave empty to use default prompt based on product and section
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => setShowContextModal(false)}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                disabled={generating}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleGenerate(!!customPrompt)}
+                disabled={generating}
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {generating ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <FaMagic /> Generate
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
 // Individual Section Editors
 const FeaturesEditor: React.FC<{ data: any; onChange: (data: any) => void }> = ({ data, onChange }) => {
   const updateItem = (index: number, field: string, value: string) => {
@@ -484,26 +880,26 @@ const FeaturesEditor: React.FC<{ data: any; onChange: (data: any) => void }> = (
               <option value="shipping">Shipping (Purple)</option>
             </select>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
-            <input
-              type="text"
-              value={item.title || ''}
-              onChange={(e) => updateItem(index, 'title', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-              placeholder="Feature title"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-            <textarea
-              value={item.description || ''}
-              onChange={(e) => updateItem(index, 'description', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-              rows={2}
-              placeholder="Feature description"
-            />
-          </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+              <input
+                type="text"
+                value={item.title || ''}
+                onChange={(e) => updateItem(index, 'title', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                placeholder="Feature title"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+              <textarea
+                value={item.description || ''}
+                onChange={(e) => updateItem(index, 'description', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                rows={2}
+                placeholder="Feature description"
+              />
+            </div>
         </div>
       ))}
       <button
@@ -516,9 +912,7 @@ const FeaturesEditor: React.FC<{ data: any; onChange: (data: any) => void }> = (
   );
 };
 
-const WhySpeedsterEditor: React.FC<{ data: any; onChange: (data: any) => void }> = ({ data, onChange }) => {
-  const [uploading, setUploading] = useState(false);
-
+const WhySpeedsterEditor: React.FC<{ data: any; onChange: (data: any) => void; productId?: string; sectionId?: string }> = ({ data, onChange, productId, sectionId }) => {
   const updateField = (field: string, value: any) => {
     onChange({ ...data, [field]: value });
   };
@@ -542,31 +936,6 @@ const WhySpeedsterEditor: React.FC<{ data: any; onChange: (data: any) => void }>
     onChange({ ...data, items });
   };
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setUploading(true);
-      try {
-        const response = await uploadAPI.uploadSingle(file, 'products');
-        // Handle different response structures
-        const imageUrl = response.data?.url || response.data?.data?.url || response.url;
-        if (imageUrl) {
-          updateField('imageUrl', imageUrl);
-        } else {
-          throw new Error('No URL in upload response');
-        }
-      } catch (error: any) {
-        console.error('Image upload error:', error);
-        alert(error.response?.data?.message || error.message || 'Failed to upload image');
-      } finally {
-        setUploading(false);
-        if (e.target) {
-          e.target.value = '';
-        }
-      }
-    }
-  };
-
   return (
     <div className="space-y-4">
       <div>
@@ -587,63 +956,16 @@ const WhySpeedsterEditor: React.FC<{ data: any; onChange: (data: any) => void }>
           rows={3}
         />
       </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Image</label>
-        {data.imageUrl ? (
-          <div className="relative group mb-3">
-            <img
-              src={data.imageUrl}
-              alt="Why Speedster"
-              className="w-full h-48 object-cover rounded-lg border border-gray-300"
-            />
-            <button
-              type="button"
-              onClick={() => updateField('imageUrl', '')}
-              className="absolute top-2 right-2 bg-red-600 text-white rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity"
-            >
-              <FaTimes size={14} />
-            </button>
-          </div>
-        ) : (
-          <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center mb-3">
-            <input
-              type="file"
-              accept="image/*"
-              className="hidden"
-              id="why-speedster-image-upload"
-              onChange={handleImageUpload}
-              disabled={uploading}
-            />
-            <label
-              htmlFor="why-speedster-image-upload"
-              className={`cursor-pointer ${uploading ? 'cursor-not-allowed opacity-50' : ''}`}
-            >
-              {uploading ? (
-                <>
-                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500 mx-auto mb-2"></div>
-                  <p className="text-sm text-gray-600">Uploading...</p>
-                </>
-              ) : (
-                <>
-                  <FaUpload className="mx-auto text-4xl text-gray-400 mb-2" />
-                  <p className="text-sm text-gray-600">
-                    Click to upload image or drag and drop
-                  </p>
-                  <p className="text-xs text-gray-500 mt-1">Supports JPG, PNG, GIF up to 10MB</p>
-                </>
-              )}
-            </label>
-          </div>
-        )}
-        <input
-          type="text"
-          value={data.imageUrl || ''}
-          onChange={(e) => updateField('imageUrl', e.target.value)}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md"
-          placeholder="Or enter image URL manually (https://...)"
-        />
-        <p className="mt-1 text-xs text-gray-500">Upload an image or enter a URL manually</p>
-      </div>
+      <ImageInputWithActions
+        value={data.imageUrl || ''}
+        onChange={(url) => updateField('imageUrl', url)}
+        label="Image"
+        placeholder="Enter image URL manually (https://...)"
+        productId={productId}
+        sectionId={sectionId}
+        fieldPath="imageUrl"
+        contextData={data.heading ? { sectionHeading: data.heading, sectionSubtitle: data.subtitle } : undefined}
+      />
       <div className="space-y-3">
         <h4 className="font-medium text-gray-900">Items</h4>
         {(data.items || []).map((item: any, index: number) => (
@@ -803,28 +1125,79 @@ const WhyUsEditor: React.FC<{ data: any; onChange: (data: any) => void }> = ({ d
   );
 };
 
-const StylingGuideEditor: React.FC<{ data: any; onChange: (data: any) => void }> = ({ data, onChange }) => {
+const StylingGuideEditor: React.FC<{ data: any; onChange: (data: any) => void; productId?: string; sectionId?: string }> = ({ data, onChange, productId, sectionId }) => {
+  const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
+  const [generatingImageIndex, setGeneratingImageIndex] = useState<number | null>(null);
+  const [showGenerateImageModal, setShowGenerateImageModal] = useState<number | null>(null);
+  const [customPrompt, setCustomPrompt] = useState('');
+
+  // Handle backward compatibility: convert old 'tips' structure to 'items'
+  const normalizedData = React.useMemo(() => {
+    if (data.tips && !data.items) {
+      // Convert old structure to new structure
+      return {
+        ...data,
+        items: data.tips.map((tip: any) => ({
+          title: tip.title || '',
+          description: tip.description || '',
+          image: tip.imageUrl || tip.image || '',
+        })),
+      };
+    }
+    return data;
+  }, [data]);
+
   const updateField = (field: string, value: any) => {
-    onChange({ ...data, [field]: value });
+    onChange({ ...normalizedData, [field]: value });
   };
 
-  const updateTip = (index: number, field: string, value: string) => {
-    const tips = [...(data.tips || [])];
-    tips[index] = { ...tips[index], [field]: value };
-    onChange({ ...data, tips });
+  const updateItem = (index: number, field: string, value: string) => {
+    const items = [...(normalizedData.items || [])];
+    items[index] = { ...items[index], [field]: value };
+    onChange({ ...normalizedData, items });
   };
 
-  const addTip = () => {
+  const addItem = () => {
     onChange({
-      ...data,
-      tips: [...(data.tips || []), { title: '', description: '', imageUrl: '' }]
+      ...normalizedData,
+      items: [...(normalizedData.items || []), { title: '', description: '', image: '' }]
     });
   };
 
-  const removeTip = (index: number) => {
-    const tips = [...(data.tips || [])];
-    tips.splice(index, 1);
-    onChange({ ...data, tips });
+  const removeItem = (index: number) => {
+    const items = [...(normalizedData.items || [])];
+    items.splice(index, 1);
+    onChange({ ...normalizedData, items });
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, index: number) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setUploadingIndex(index);
+      try {
+        const response = await uploadAPI.uploadSingle(file, 'products');
+        // Handle different response structures
+        const imageUrl = response.data?.url || response.data?.data?.url || response.url;
+        if (imageUrl) {
+          updateItem(index, 'image', imageUrl);
+        } else {
+          console.error('Upload response structure:', response);
+          throw new Error('No URL in upload response. Response: ' + JSON.stringify(response));
+        }
+      } catch (error: any) {
+        console.error('Image upload error:', error);
+        const errorMessage = error.response?.data?.message || 
+                           error.response?.data?.error?.message ||
+                           error.message || 
+                           'Failed to upload image';
+        alert(errorMessage);
+      } finally {
+        setUploadingIndex(null);
+        if (e.target) {
+          e.target.value = '';
+        }
+      }
+    }
   };
 
   return (
@@ -833,7 +1206,7 @@ const StylingGuideEditor: React.FC<{ data: any; onChange: (data: any) => void }>
         <label className="block text-sm font-medium text-gray-700 mb-1">Heading</label>
         <input
           type="text"
-          value={data.heading || ''}
+          value={normalizedData.heading || ''}
           onChange={(e) => updateField('heading', e.target.value)}
           className="w-full px-3 py-2 border border-gray-300 rounded-md"
         />
@@ -841,7 +1214,7 @@ const StylingGuideEditor: React.FC<{ data: any; onChange: (data: any) => void }>
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">Subtitle</label>
         <textarea
-          value={data.subtitle || ''}
+          value={normalizedData.subtitle || ''}
           onChange={(e) => updateField('subtitle', e.target.value)}
           className="w-full px-3 py-2 border border-gray-300 rounded-md"
           rows={2}
@@ -849,12 +1222,12 @@ const StylingGuideEditor: React.FC<{ data: any; onChange: (data: any) => void }>
       </div>
       <div className="space-y-3">
         <h4 className="font-medium text-gray-900">Styling Tips</h4>
-        {(data.tips || []).map((tip: any, index: number) => (
+        {(normalizedData.items || []).map((item: any, index: number) => (
           <div key={index} className="border border-gray-200 rounded-lg p-4 space-y-3">
             <div className="flex justify-between items-center">
               <h5 className="font-medium text-gray-900">Tip {index + 1}</h5>
               <button
-                onClick={() => removeTip(index)}
+                onClick={() => removeItem(index)}
                 className="text-red-600 hover:text-red-800"
               >
                 <FaTrash />
@@ -864,44 +1237,237 @@ const StylingGuideEditor: React.FC<{ data: any; onChange: (data: any) => void }>
               <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
               <input
                 type="text"
-                value={tip.title || ''}
-                onChange={(e) => updateTip(index, 'title', e.target.value)}
+                value={item.title || ''}
+                onChange={(e) => updateItem(index, 'title', e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
               />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
               <textarea
-                value={tip.description || ''}
-                onChange={(e) => updateTip(index, 'description', e.target.value)}
+                value={item.description || ''}
+                onChange={(e) => updateItem(index, 'description', e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 rows={2}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Image URL</label>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-medium text-gray-700">Image</label>
+                {productId && sectionId && (
+                  <button
+                    type="button"
+                    onClick={() => setShowGenerateImageModal(index)}
+                    className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-purple-100 text-purple-700 hover:bg-purple-200 transition-colors"
+                    disabled={generatingImageIndex === index}
+                    title="Generate image with AI"
+                  >
+                    {generatingImageIndex === index ? (
+                      <>
+                        <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-purple-700"></div>
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <FaImage size={12} />
+                        <FaMagic size={10} />
+                        Generate
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+              {item.image && (item.image.startsWith('http://') || item.image.startsWith('https://')) ? (
+                <div className="relative group mb-3">
+                  <img
+                    src={item.image}
+                    alt={item.title || `Tip ${index + 1}`}
+                    className="w-full h-48 object-cover rounded-lg border border-gray-300"
+                    onError={(e) => {
+                      console.error('Image load error:', item.image);
+                      // Clear invalid image URL
+                      updateItem(index, 'image', '');
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => updateItem(index, 'image', '')}
+                    className="absolute top-2 right-2 bg-red-600 text-white rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <FaTimes size={14} />
+                  </button>
+                </div>
+              ) : (
+                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center mb-3">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    id={`styling-guide-image-upload-${index}`}
+                    onChange={(e) => handleImageUpload(e, index)}
+                    disabled={uploadingIndex === index}
+                  />
+                  <label
+                    htmlFor={`styling-guide-image-upload-${index}`}
+                    className={`cursor-pointer ${uploadingIndex === index ? 'cursor-not-allowed opacity-50' : ''}`}
+                  >
+                    {uploadingIndex === index ? (
+                      <>
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500 mx-auto mb-2"></div>
+                        <p className="text-sm text-gray-600">Uploading...</p>
+                      </>
+                    ) : (
+                      <>
+                        <FaUpload className="mx-auto text-4xl text-gray-400 mb-2" />
+                        <p className="text-sm text-gray-600">
+                          Click to upload image or drag and drop
+                        </p>
+                        <p className="text-xs text-gray-500 mt-1">Supports JPG, PNG, GIF up to 10MB</p>
+                      </>
+                    )}
+                  </label>
+                </div>
+              )}
               <input
                 type="text"
-                value={tip.imageUrl || ''}
-                onChange={(e) => updateTip(index, 'imageUrl', e.target.value)}
+                value={item.image || ''}
+                onChange={(e) => updateItem(index, 'image', e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                placeholder="https://..."
+                placeholder="Or enter image URL manually (https://...)"
               />
+              {item.image && !item.image.startsWith('http://') && !item.image.startsWith('https://') && (
+                <p className="mt-1 text-xs text-red-500">
+                  Invalid URL format. Please enter a valid URL starting with http:// or https://
+                </p>
+              )}
+              <p className="mt-1 text-xs text-gray-500">Upload an image or enter a URL manually</p>
             </div>
           </div>
         ))}
         <button
-          onClick={addTip}
+          onClick={addItem}
           className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
         >
           <FaPlus /> Add Tip
         </button>
       </div>
+
+      {/* Generate Image Modal */}
+      {showGenerateImageModal !== null && productId && sectionId && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-gray-900">Generate Image with AI</h3>
+              <button
+                onClick={() => {
+                  setShowGenerateImageModal(null);
+                  setCustomPrompt('');
+                }}
+                className="text-gray-400 hover:text-gray-600 text-2xl"
+                disabled={generatingImageIndex === showGenerateImageModal}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <p className="text-sm text-gray-600 mb-3">
+                  Generate an image for <strong>Tip {showGenerateImageModal + 1}</strong>
+                </p>
+                {normalizedData.items?.[showGenerateImageModal] && (
+                  <div className="bg-gray-50 p-3 rounded-md mb-3">
+                    <p className="text-xs font-medium text-gray-700">Tip Title:</p>
+                    <p className="text-sm text-gray-900">{normalizedData.items[showGenerateImageModal].title || 'N/A'}</p>
+                    <p className="text-xs font-medium text-gray-700 mt-2">Tip Description:</p>
+                    <p className="text-sm text-gray-900">{normalizedData.items[showGenerateImageModal].description || 'N/A'}</p>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Custom Prompt (Optional)
+                </label>
+                <textarea
+                  value={customPrompt}
+                  onChange={(e) => setCustomPrompt(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  rows={4}
+                  placeholder="Enter a custom prompt for image generation. Leave empty to use default context-based prompt."
+                  disabled={generatingImageIndex === showGenerateImageModal}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Default prompt includes: Product details, actual product images, section context, and this tip's title/description
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowGenerateImageModal(null);
+                  setCustomPrompt('');
+                }}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                disabled={generatingImageIndex === showGenerateImageModal}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  if (!productId || !sectionId || showGenerateImageModal === null) return;
+                  
+                  setGeneratingImageIndex(showGenerateImageModal);
+                  try {
+                    const response = await productsAPI.generateField(
+                      productId,
+                      sectionId,
+                      'image',
+                      `items.${showGenerateImageModal}.image`,
+                      {
+                        customPrompt: customPrompt || undefined,
+                      }
+                    );
+
+                    if (response.success && response.data?.value) {
+                      updateItem(showGenerateImageModal, 'image', response.data.value);
+                      setShowGenerateImageModal(null);
+                      setCustomPrompt('');
+                      alert('Image generated successfully!');
+                    } else {
+                      alert('Failed to generate image');
+                    }
+                  } catch (error: any) {
+                    console.error('Error generating image:', error);
+                    alert(error.response?.data?.message || error.message || 'Failed to generate image');
+                  } finally {
+                    setGeneratingImageIndex(null);
+                  }
+                }}
+                disabled={generatingImageIndex === showGenerateImageModal}
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {generatingImageIndex === showGenerateImageModal ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <FaMagic /> Generate Image
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
-const InstagramFeedEditor: React.FC<{ data: any; onChange: (data: any) => void }> = ({ data, onChange }) => {
+const InstagramFeedEditor: React.FC<{ data: any; onChange: (data: any) => void; productId?: string; sectionId?: string }> = ({ data, onChange, productId, sectionId }) => {
   const updateField = (field: string, value: any) => {
     onChange({ ...data, [field]: value });
   };
@@ -959,16 +1525,16 @@ const InstagramFeedEditor: React.FC<{ data: any; onChange: (data: any) => void }
                 <FaTrash />
               </button>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Image URL</label>
-              <input
-                type="text"
-                value={post.imageUrl || ''}
-                onChange={(e) => updatePost(index, 'imageUrl', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                placeholder="https://..."
-              />
-            </div>
+            <ImageInputWithActions
+              value={post.imageUrl || ''}
+              onChange={(url) => updatePost(index, 'imageUrl', url)}
+              label="Image URL"
+              placeholder="https://..."
+              productId={productId}
+              sectionId={sectionId}
+              fieldPath={`posts.${index}.imageUrl`}
+              contextData={post.caption ? { itemTitle: post.caption } : undefined}
+            />
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Caption</label>
               <textarea

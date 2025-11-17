@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { bundlesAPI, productsAPI } from '../services/api';
 import { FaArrowLeft, FaPlus, FaTrash, FaInfoCircle } from 'react-icons/fa';
+import ImageInputWithActions from '../components/common/ImageInputWithActions';
 
 interface ProductOption {
   _id: string;
@@ -467,15 +468,13 @@ const BundleForm: React.FC = () => {
                       )}
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
-                        Swatch image URL (optional)
-                      </label>
-                      <input
-                        type="text"
+                      <ImageInputWithActions
                         value={item.swatchImage || ''}
-                        onChange={(e) => handleItemChange(index, 'swatchImage', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                        onChange={(url) => handleItemChange(index, 'swatchImage', url)}
+                        label="Swatch image URL (optional)"
                         placeholder="https://..."
+                        contextData={product ? { productName: product.name } : undefined}
+                        className="text-xs"
                       />
                       <p className="mt-1 text-xs text-gray-500">
                         Used as the color swatch thumbnail. Use a square image (at least 200×200).

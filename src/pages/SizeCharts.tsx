@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { FaPlus, FaSave, FaTrash, FaUndo, FaEdit } from 'react-icons/fa';
 import { sizeChartsAPI } from '../services/api';
+import ImageInputWithActions from '../components/common/ImageInputWithActions';
 
 interface SizeChartEntry {
   size: string;
@@ -467,18 +468,12 @@ const SizeCharts: React.FC = () => {
               />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Default Image URL
-              </label>
-              <input
-                type="text"
-                value={formState.defaultImageUrl}
-                onChange={e => setFormState({ ...formState, defaultImageUrl: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                placeholder="https://example.com/size-chart.png"
-              />
-            </div>
+            <ImageInputWithActions
+              value={formState.defaultImageUrl || ''}
+              onChange={(url) => setFormState({ ...formState, defaultImageUrl: url })}
+              label="Default Image URL"
+              placeholder="https://example.com/size-chart.png"
+            />
 
             <div className="border border-gray-200 rounded-lg">
               <div className="flex justify-between items-center px-4 py-2 bg-gray-50 border-b border-gray-200">
@@ -638,15 +633,12 @@ const SizeCharts: React.FC = () => {
                       ))}
                     </div>
                     <div>
-                      <label className="block text-[11px] font-medium text-gray-700 mb-1">
-                        Image URL (Optional)
-                      </label>
-                      <input
-                        type="text"
+                      <ImageInputWithActions
                         value={entry.imageUrl || ''}
-                        onChange={e => handleEntryChange(index, 'imageUrl', e.target.value)}
-                        className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                        onChange={(url) => handleEntryChange(index, 'imageUrl', url)}
+                        label="Image URL (Optional)"
                         placeholder="Image URL for this size"
+                        className="text-[11px]"
                       />
                     </div>
                   </div>

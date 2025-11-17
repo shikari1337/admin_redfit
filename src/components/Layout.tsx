@@ -18,6 +18,7 @@ import {
   FaUsers,
   FaImages,
   FaFileAlt,
+  FaTruck,
 } from 'react-icons/fa';
 import { authAPI } from '../services/api';
 import PageTransitionLoader from './PageTransitionLoader';
@@ -66,6 +67,7 @@ const Layout: React.FC = () => {
         { path: '/orders/abandoned-carts', label: 'Abandoned Carts', icon: FaSms },
       ],
     },
+    { path: '/shipments', icon: FaTruck, label: 'Shipments' },
     { path: '/users', icon: FaUsers, label: 'Users' },
     { path: '/coupons', icon: FaTicketAlt, label: 'Coupons' },
     { path: '/reviews', icon: FaStar, label: 'Reviews' },

@@ -2,6 +2,7 @@ import React from 'react';
 import { FaExternalLinkAlt } from 'react-icons/fa';
 import { SeoFormState, SLUG_MAX_LENGTH, META_TITLE_LIMIT, META_DESCRIPTION_LIMIT } from '../../types/productForm';
 import { slugifyValue } from '../../utils/slugify';
+import ImageInputWithActions from '../common/ImageInputWithActions';
 
 interface ProductSEOProps {
   sku: string;
@@ -9,6 +10,8 @@ interface ProductSEOProps {
   seoData: SeoFormState;
   showAdvancedSeo: boolean;
   websiteUrl?: string; // Website URL from settings
+  productId?: string; // Product ID for image generation
+  productName?: string; // Product name for context
   onSkuChange: (sku: string) => void;
   onSlugChange: (slug: string) => void;
   onSlugReset: () => void;
@@ -29,6 +32,8 @@ const ProductSEO: React.FC<ProductSEOProps> = ({
   seoData,
   showAdvancedSeo,
   websiteUrl,
+  productId,
+  productName,
   onSkuChange,
   onSlugChange,
   onSlugReset,
@@ -256,16 +261,16 @@ const ProductSEO: React.FC<ProductSEOProps> = ({
                   placeholder="Title used when sharing on social platforms"
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Open Graph Image URL</label>
-                <input
-                  type="text"
-                  value={seoData.ogImage}
-                  onChange={(e) => updateSeoField('ogImage', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                  placeholder="https://example.com/og-image.jpg"
-                />
-              </div>
+              <ImageInputWithActions
+                value={seoData.ogImage || ''}
+                onChange={(url) => updateSeoField('ogImage', url)}
+                label="Open Graph Image URL"
+                placeholder="https://example.com/og-image.jpg"
+                productId={productId}
+                sectionId="seo"
+                fieldPath="ogImage"
+                contextData={productName ? { productName } : undefined}
+              />
             </div>
 
             <div>

@@ -39,7 +39,6 @@ interface Warehouse {
 const Warehouses: React.FC = () => {
   const navigate = useNavigate();
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
-  const [stores, setStores] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingWarehouse, setEditingWarehouse] = useState<Warehouse | null>(null);
@@ -84,7 +83,6 @@ const Warehouses: React.FC = () => {
       const response = await api.get('/warehouses/stores/link');
       if (response.data.success) {
         setWarehouses(response.data.data.warehouses || []);
-        setStores(response.data.data.stores || []);
       }
     } catch (error: any) {
       console.error('Failed to fetch warehouses:', error);
@@ -130,11 +128,23 @@ const Warehouses: React.FC = () => {
     setFormData({
       name: warehouse.name,
       code: warehouse.code,
-      address: warehouse.address,
-      contact: warehouse.contact,
-      shippingProviders: warehouse.shippingProviders || {
-        shiprocket: { pickupLocation: '', enabled: false },
-        delhivery: { warehouseCode: '', enabled: false },
+      address: {
+        ...warehouse.address,
+        line2: warehouse.address.line2 || '',
+      },
+      contact: {
+        ...warehouse.contact,
+        email: warehouse.contact.email || '',
+      },
+      shippingProviders: {
+        shiprocket: {
+          pickupLocation: warehouse.shippingProviders?.shiprocket?.pickupLocation || '',
+          enabled: warehouse.shippingProviders?.shiprocket?.enabled || false,
+        },
+        delhivery: {
+          warehouseCode: warehouse.shippingProviders?.delhivery?.warehouseCode || '',
+          enabled: warehouse.shippingProviders?.delhivery?.enabled || false,
+        },
       },
       isActive: warehouse.isActive,
       priority: warehouse.priority || 0,

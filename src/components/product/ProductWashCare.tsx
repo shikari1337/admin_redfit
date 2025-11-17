@@ -1,6 +1,7 @@
 import React from 'react';
 import { FaPlus, FaTrash } from 'react-icons/fa';
 import IconPicker from '../IconPicker';
+import ImageInputWithActions from '../common/ImageInputWithActions';
 
 interface WashCareInstruction {
   text: string;
@@ -11,11 +12,15 @@ interface WashCareInstruction {
 interface ProductWashCareProps {
   instructions: WashCareInstruction[];
   onInstructionsChange: (instructions: WashCareInstruction[]) => void;
+  productId?: string;
+  productName?: string;
 }
 
 const ProductWashCare: React.FC<ProductWashCareProps> = ({
   instructions,
   onInstructionsChange,
+  productId,
+  productName,
 }) => {
   const addInstruction = () => {
     onInstructionsChange([...instructions, { text: '', iconUrl: '', iconName: '' }]);
@@ -73,13 +78,16 @@ const ProductWashCare: React.FC<ProductWashCareProps> = ({
               />
             </div>
             <div className="flex-1">
-              <label className="block text-xs font-medium text-gray-700 mb-1">Icon URL (Alternative)</label>
-              <input
-                type="text"
-                className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md"
+              <ImageInputWithActions
                 value={instruction.iconUrl || ''}
-                onChange={(e) => updateInstruction(index, 'iconUrl', e.target.value)}
+                onChange={(url) => updateInstruction(index, 'iconUrl', url)}
+                label="Icon URL (Alternative)"
                 placeholder="Or use custom icon image URL"
+                productId={productId}
+                sectionId="washCare"
+                fieldPath={`instructions.${index}.iconUrl`}
+                contextData={productName ? { productName, itemTitle: instruction.text } : undefined}
+                className="text-xs"
               />
               <p className="text-xs text-gray-500 mt-1">Use either React Icon or custom image URL</p>
             </div>

@@ -291,105 +291,12 @@ const Categories: React.FC = () => {
               />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Category Image</label>
-              <div className="space-y-3">
-                {formState.imageUrl ? (
-                  <div className="relative group">
-                    <img
-                      src={formState.imageUrl}
-                      alt={`${formState.name || 'Category'} preview`}
-                      className="w-full h-36 object-cover rounded-md border border-gray-200"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFormState({ ...formState, imageUrl: '' });
-                        setImageError(null);
-                      }}
-                      className="absolute top-2 right-2 px-2 py-1 text-xs bg-red-600 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ) : (
-                  <label
-                    htmlFor="category-image-upload"
-                    className={`flex flex-col items-center justify-center px-4 py-6 border-2 border-dashed rounded-md cursor-pointer transition ${
-                      imageUploading ? 'border-gray-200 bg-gray-50' : 'border-gray-300 hover:border-red-400'
-                    }`}
-                  >
-                    <FaImage className="text-3xl text-gray-400 mb-2" />
-                    <span className="text-sm text-gray-600">Click to upload category image</span>
-                    <span className="text-xs text-gray-400 mt-1">
-                      Recommended 800×800px, max size 2MB
-                    </span>
-                    <input
-                      id="category-image-upload"
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      disabled={imageUploading}
-                      onChange={async event => {
-                        const file = event.target.files?.[0];
-                        if (!file) return;
-
-                        if (!file.type.startsWith('image/')) {
-                          setImageError('Please select a valid image file (JPG, PNG, or WEBP).');
-                          event.target.value = '';
-                          return;
-                        }
-
-                        if (file.size > 2 * 1024 * 1024) {
-                          setImageError('Image must be 2MB or smaller.');
-                          event.target.value = '';
-                          return;
-                        }
-
-                        setImageUploading(true);
-                        setImageError(null);
-                        try {
-                          const response = await uploadAPI.uploadSingle(file, 'categories');
-                          const imageUrl =
-                            response?.data?.url ||
-                            response?.data?.data?.url ||
-                            response?.url ||
-                            response?.data?.files?.[0]?.url;
-                          if (!imageUrl) {
-                            throw new Error('Upload succeeded but no image URL was returned.');
-                          }
-                          setFormState(prev => ({ ...prev, imageUrl }));
-                        } catch (uploadErr: any) {
-                          console.error('Failed to upload category image', uploadErr);
-                          setImageError(
-                            uploadErr?.response?.data?.message ||
-                              uploadErr?.message ||
-                              'Failed to upload image.'
-                          );
-                        } finally {
-                          setImageUploading(false);
-                          if (event.target) {
-                            event.target.value = '';
-                          }
-                        }
-                      }}
-                    />
-                  </label>
-                )}
-                {imageUploading && (
-                  <p className="text-xs text-gray-500 flex items-center gap-2">
-                    <FaUpload className="animate-pulse" /> Uploading image…
-                  </p>
-                )}
-                {imageError && <p className="text-xs text-red-500">{imageError}</p>}
-                <p className="text-xs text-gray-500">
-                  Keep artwork square for best results (approx. 800×800px). Maximum file size: 2MB.
-                </p>
-                <p className="text-xs text-gray-400">
-                  Once uploaded, the image URL is stored automatically—no manual entry required.
-                </p>
-              </div>
-            </div>
+            <ImageInputWithActions
+              value={formState.imageUrl || ''}
+              onChange={(url) => setFormState({ ...formState, imageUrl: url })}
+              label="Category Image"
+              placeholder="Enter category image URL manually (https://...)"
+            />
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
