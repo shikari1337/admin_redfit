@@ -17,11 +17,22 @@ const Orders: React.FC = () => {
 
   const fetchOrders = async () => {
     try {
+      setLoading(true);
       const params = statusFilter ? { status: statusFilter } : {};
       const response = await ordersAPI.getAll({ ...params, limit: 100 });
-      setOrders(response.data || []);
-    } catch (error) {
+      // Handle different response structures
+      const orders = Array.isArray(response?.data) 
+        ? response.data 
+        : Array.isArray(response?.data?.data)
+          ? response.data.data
+          : Array.isArray(response)
+            ? response
+            : [];
+      setOrders(orders);
+    } catch (error: any) {
       console.error('Failed to fetch orders:', error);
+      alert(error?.response?.data?.message || 'Failed to load orders. Please try again.');
+      setOrders([]);
     } finally {
       setLoading(false);
     }

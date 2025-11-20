@@ -139,21 +139,19 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
   const fetchCourierRates = async () => {
     if (!selectedWarehouseId || !orderId) return;
     
-    // Validate weight and dimensions before fetching rates
-    if (!weight || parseFloat(weight) <= 0) {
-      alert('Please enter package weight before fetching rates');
-      return;
-    }
-    if (!length || !breadth || !height || parseFloat(length) <= 0 || parseFloat(breadth) <= 0 || parseFloat(height) <= 0) {
-      alert('Please enter package dimensions (length, breadth, height) before fetching rates');
-      return;
-    }
+    // Backend calculates weight from order items automatically
+    // Weight and dimensions are optional - backend uses defaults if not provided
 
     setLoadingRates(true);
     try {
+      // Ensure warehouseId is a string (not an object)
+      const warehouseIdStr = selectedWarehouseId && typeof selectedWarehouseId === 'object' 
+        ? (selectedWarehouseId as any)?._id || String(selectedWarehouseId)
+        : String(selectedWarehouseId || '');
+      
       const response = await shippingAPI.getCourierRates(
-        orderId, 
-        selectedWarehouseId
+        orderId,
+        warehouseIdStr || undefined
       );
       console.log('Shiprocket rates response:', response);
       
@@ -181,21 +179,31 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
   };
 
   const fetchDelhiveryRates = async () => {
-    if (!selectedWarehouseId || !orderId) return;
+    if (!orderId) return;
     
-    // Validate weight before fetching rates
-    if (!weight || parseFloat(weight) <= 0) {
-      alert('Please enter package weight before fetching rates');
-      return;
-    }
+    // Backend calculates weight from order items automatically
+    // Weight is optional - backend uses defaults if not provided
+    // Backend can use order's warehouse if no warehouseId is provided
 
     setLoadingDelhiveryRate(true);
     try {
+      // Ensure warehouseId is a string (not an object) or undefined
+      let warehouseIdStr: string | undefined = undefined;
+      if (selectedWarehouseId) {
+        warehouseIdStr = typeof selectedWarehouseId === 'object' 
+          ? (selectedWarehouseId as any)?._id || String(selectedWarehouseId)
+          : String(selectedWarehouseId);
+        // Only use if it's a valid non-empty string
+        if (!warehouseIdStr || warehouseIdStr === 'undefined' || warehouseIdStr === '[object Object]' || warehouseIdStr.trim() === '') {
+          warehouseIdStr = undefined;
+        }
+      }
+      
       // Fetch DELHIVERY rates for both Express and Surface
       // Use Promise.allSettled to handle errors gracefully
       const [expressResult, surfaceResult] = await Promise.allSettled([
-        shippingAPI.getDelhiveryRates(orderId, selectedWarehouseId, 'express'),
-        shippingAPI.getDelhiveryRates(orderId, selectedWarehouseId, 'surface'),
+        shippingAPI.getDelhiveryRates(orderId, warehouseIdStr, 'express'),
+        shippingAPI.getDelhiveryRates(orderId, warehouseIdStr, 'surface'),
       ]);
 
       console.log('DELHIVERY rates response:', { expressResult, surfaceResult });
@@ -205,47 +213,83 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
       // Process Express rates
       if (expressResult.status === 'fulfilled') {
         const expressResponse = expressResult.value;
+        console.log('📦 DELHIVERY Express response:', expressResponse);
+        
         if (expressResponse?.success && expressResponse?.data && Array.isArray(expressResponse.data) && expressResponse.data.length > 0) {
-          const rate = expressResponse.data[0];
-          if (rate && rate.rate > 0) {
+          // Find the express rate in the data array
+          const expressRate = expressResponse.data.find((r: any) => r.serviceType === 'express') || expressResponse.data[0];
+          console.log('📦 DELHIVERY Express rate found:', expressRate);
+          
+          if (expressRate && expressRate.rate && expressRate.rate > 0) {
             rates.push({
               type: 'express',
-              rate: rate.rate || 0,
-              estimatedDeliveryDays: rate.estimatedDeliveryDays || 0,
-              codAvailable: rate.codAvailable || false,
+              rate: expressRate.rate || 0,
+              estimatedDeliveryDays: expressRate.estimatedDeliveryDays || 0,
+              codAvailable: expressRate.codAvailable || false,
             });
+          } else {
+            console.warn('⚠️ DELHIVERY Express rate is invalid:', expressRate);
           }
+        } else {
+          console.warn('⚠️ DELHIVERY Express response structure invalid:', {
+            success: expressResponse?.success,
+            hasData: !!expressResponse?.data,
+            isArray: Array.isArray(expressResponse?.data),
+            dataLength: expressResponse?.data?.length,
+            fullResponse: expressResponse,
+          });
         }
       } else {
-        console.warn('Failed to fetch DELHIVERY Express rates:', expressResult.reason);
+        console.warn('❌ Failed to fetch DELHIVERY Express rates:', expressResult.reason);
       }
       
       // Process Surface rates
       if (surfaceResult.status === 'fulfilled') {
         const surfaceResponse = surfaceResult.value;
+        console.log('📦 DELHIVERY Surface response:', surfaceResponse);
+        
         if (surfaceResponse?.success && surfaceResponse?.data && Array.isArray(surfaceResponse.data) && surfaceResponse.data.length > 0) {
-          const rate = surfaceResponse.data[0];
-          if (rate && rate.rate > 0) {
+          // Find the surface rate in the data array
+          const surfaceRate = surfaceResponse.data.find((r: any) => r.serviceType === 'surface') || surfaceResponse.data[0];
+          console.log('📦 DELHIVERY Surface rate found:', surfaceRate);
+          
+          if (surfaceRate && surfaceRate.rate && surfaceRate.rate > 0) {
             rates.push({
               type: 'surface',
-              rate: rate.rate || 0,
-              estimatedDeliveryDays: rate.estimatedDeliveryDays || 0,
-              codAvailable: rate.codAvailable || false,
+              rate: surfaceRate.rate || 0,
+              estimatedDeliveryDays: surfaceRate.estimatedDeliveryDays || 0,
+              codAvailable: surfaceRate.codAvailable || false,
             });
+          } else {
+            console.warn('⚠️ DELHIVERY Surface rate is invalid:', surfaceRate);
           }
+        } else {
+          console.warn('⚠️ DELHIVERY Surface response structure invalid:', {
+            success: surfaceResponse?.success,
+            hasData: !!surfaceResponse?.data,
+            isArray: Array.isArray(surfaceResponse?.data),
+            dataLength: surfaceResponse?.data?.length,
+            fullResponse: surfaceResponse,
+          });
         }
       } else {
-        console.warn('Failed to fetch DELHIVERY Surface rates:', surfaceResult.reason);
+        console.warn('❌ Failed to fetch DELHIVERY Surface rates:', surfaceResult.reason);
       }
 
+      console.log('📦 Final DELHIVERY rates array:', rates);
+      console.log('📦 Rates count:', rates.length);
+      
       if (rates.length > 0) {
+        console.log('✅ Setting DELHIVERY rates:', rates);
         setDelhiveryRates(rates);
         // Auto-select first option if delhivery is selected
         if (selectedShippingProvider === 'delhivery' && !selectedDelhiveryType) {
           setSelectedDelhiveryType(rates[0].type);
         }
       } else {
-        console.warn('No DELHIVERY rates available for this route');
+        console.warn('⚠️ No DELHIVERY rates available for this route');
+        console.warn('⚠️ Express result:', expressResult);
+        console.warn('⚠️ Surface result:', surfaceResult);
         setDelhiveryRates([]);
       }
     } catch (error: any) {
@@ -430,7 +474,59 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
   );
 
 
-  const selectedWarehouse = warehouses.find(w => w._id === selectedWarehouseId);
+  // Helper function to extract string ID from ObjectId or string
+  const extractIdString = (id: any): string => {
+    if (!id) return '';
+    if (typeof id === 'string') return id;
+    if (typeof id === 'object' && id !== null) {
+      // Handle ObjectId object - try to extract the string value
+      if (id.toString && typeof id.toString === 'function') {
+        return id.toString();
+      } else if (id.buffer) {
+        // Handle buffer-based ObjectId
+        const buffer = id.buffer;
+        if (buffer && typeof buffer === 'object') {
+          // Convert buffer to hex string
+          const hex = Array.from(new Uint8Array(Object.values(buffer) as number[]))
+            .map((b: number) => b.toString(16).padStart(2, '0'))
+            .join('');
+          return hex;
+        }
+      }
+    }
+    return String(id);
+  };
+
+  const selectedWarehouse = warehouses.find(w => {
+    const warehouseId = extractIdString(w._id);
+    const selectedId = extractIdString(selectedWarehouseId);
+    const match = warehouseId === selectedId;
+    if (!match && selectedWarehouseId) {
+      console.warn('🔍 Warehouse ID mismatch:', {
+        warehouseId,
+        selectedId,
+        warehouseName: w.name,
+        warehouseIdType: typeof w._id,
+        selectedIdType: typeof selectedWarehouseId,
+        allWarehouseIds: warehouses.map(wh => ({ id: extractIdString(wh._id), name: wh.name })),
+      });
+    }
+    return match;
+  });
+  
+  if (selectedWarehouseId && !selectedWarehouse) {
+    console.error('❌ Selected warehouse not found!', {
+      selectedWarehouseId,
+      selectedWarehouseIdType: typeof selectedWarehouseId,
+      availableWarehouses: warehouses.map(w => ({ 
+        id: extractIdString(w._id), 
+        idRaw: w._id,
+        idType: typeof w._id,
+        name: w.name 
+      })),
+      warehousesCount: warehouses.length,
+    });
+  }
 
   return (
     <Modal isOpen={isOpen} onClose={handleClose} title="Create Shipment" footer={footer} maxWidth="6xl">

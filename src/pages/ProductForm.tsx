@@ -33,10 +33,18 @@ import {
 import { slugifyValue } from '../utils/slugify';
 
 const ProductForm: React.FC = () => {
-  const { id } = useParams();
+  const { id: rawId } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  
+  // Clean and validate the ID
+  const id = rawId ? String(rawId).trim() : undefined;
   const isEdit = !!id;
+  
+  // Validate ID format if in edit mode
+  if (isEdit && id && !/^[0-9a-fA-F]{24}$/.test(id)) {
+    console.error('Invalid product ID format from URL:', id);
+  }
   // Get prefilled data from navigation state (for duplication)
   const prefilledData = location.state?.prefilledData;
 
@@ -154,13 +162,13 @@ const ProductForm: React.FC = () => {
   };
 
   useEffect(() => {
-    if (isEdit) {
+    if (isEdit && id) {
       fetchProduct();
     } else if (prefilledData) {
       // Load prefilled data when duplicating
       loadPrefilledData(prefilledData);
     }
-  }, [id, prefilledData]);
+  }, [id, prefilledData, isEdit]);
 
   const loadPrefilledData = (data: any) => {
     try {
@@ -256,19 +264,191 @@ const ProductForm: React.FC = () => {
     }
   }, [formData.name, slugManuallyEdited]);
 
+  const sanitizeProductData = (product: any): any => {
+    if (!product || typeof product !== 'object') return product;
+    
+    const sanitized = { ...product };
+    
+    // Ensure _id is a string
+    if (sanitized._id) {
+      sanitized._id = String(sanitized._id);
+    }
+    
+    // Sanitize categories - remove buffer objects
+    if (Array.isArray(sanitized.categories)) {
+      sanitized.categories = sanitized.categories.map((cat: any) => {
+        if (typeof cat === 'string') {
+          return cat;
+        }
+        if (cat && typeof cat === 'object') {
+          // Check if it has buffer property (Mongoose internal)
+          if (cat.buffer || cat.constructor?.name === 'Buffer') {
+            return null;
+          }
+          // Only include serializable properties
+          const cleanCat: any = {};
+          if (cat._id) cleanCat._id = String(cat._id);
+          if (cat.name) cleanCat.name = String(cat.name);
+          if (cat.slug) cleanCat.slug = String(cat.slug);
+          return cleanCat;
+        }
+        return null;
+      }).filter((cat: any) => cat !== null);
+    }
+    
+    // Sanitize sizeChart if it's an object
+    if (sanitized.sizeChart && typeof sanitized.sizeChart === 'object') {
+      if (sanitized.sizeChart.buffer || sanitized.sizeChart.constructor?.name === 'Buffer') {
+        sanitized.sizeChart = null;
+      } else if (sanitized.sizeChart._id) {
+        sanitized.sizeChart = String(sanitized.sizeChart._id);
+      }
+    }
+    
+    // Sanitize images - ensure they're strings
+    if (Array.isArray(sanitized.images)) {
+      sanitized.images = sanitized.images
+        .map((img: any) => {
+          if (typeof img === 'string') return img;
+          if (img && typeof img === 'object' && (img.buffer || img.constructor?.name === 'Buffer')) {
+            return null;
+          }
+          return null;
+        })
+        .filter((img: any) => img !== null);
+    }
+    
+    // Sanitize variants
+    if (Array.isArray(sanitized.variants)) {
+      sanitized.variants = sanitized.variants.map((variant: any) => {
+        if (!variant || typeof variant !== 'object') return variant;
+        const cleanVariant = { ...variant };
+        // Sanitize variant images
+        if (Array.isArray(cleanVariant.images)) {
+          cleanVariant.images = cleanVariant.images
+            .map((img: any) => typeof img === 'string' ? img : null)
+            .filter((img: any) => img !== null);
+        }
+        // Sanitize sizes
+        if (Array.isArray(cleanVariant.sizes)) {
+          cleanVariant.sizes = cleanVariant.sizes.map((size: any) => {
+            if (!size || typeof size !== 'object') return size;
+            return {
+              size: String(size.size || ''),
+              stock: typeof size.stock === 'number' ? size.stock : Number(size.stock) || 0,
+              sku: String(size.sku || ''),
+              price: typeof size.price === 'number' ? size.price : Number(size.price) || 0,
+              originalPrice: typeof size.originalPrice === 'number' ? size.originalPrice : Number(size.originalPrice) || 0,
+            };
+          });
+        }
+        return cleanVariant;
+      });
+    }
+    
+    // Ensure numeric fields are numbers
+    if (sanitized.price !== undefined) {
+      sanitized.price = typeof sanitized.price === 'number' ? sanitized.price : Number(sanitized.price) || 0;
+    }
+    if (sanitized.originalPrice !== undefined) {
+      sanitized.originalPrice = typeof sanitized.originalPrice === 'number' ? sanitized.originalPrice : Number(sanitized.originalPrice) || 0;
+    }
+    if (sanitized.stock !== undefined && sanitized.stock !== null) {
+      sanitized.stock = typeof sanitized.stock === 'number' ? sanitized.stock : Number(sanitized.stock) || undefined;
+    }
+    
+    // Ensure string fields are strings
+    if (sanitized.name !== undefined) sanitized.name = String(sanitized.name || '');
+    if (sanitized.sku !== undefined) sanitized.sku = String(sanitized.sku || '');
+    if (sanitized.slug !== undefined) sanitized.slug = String(sanitized.slug || '');
+    if (sanitized.description !== undefined) sanitized.description = String(sanitized.description || '');
+    if (sanitized.richDescription !== undefined) sanitized.richDescription = String(sanitized.richDescription || '');
+    if (sanitized.descriptionImage !== undefined) sanitized.descriptionImage = String(sanitized.descriptionImage || '');
+    
+    return sanitized;
+  };
+
+  // Helper function to extract clean MongoDB ObjectId
+  // Backend API only accepts MongoDB ObjectId (24 hex characters), not SKU
+  const extractObjectId = (idValue: string | undefined): string | null => {
+    if (!idValue) return null;
+    const idStr = String(idValue).trim();
+    
+    // MongoDB ObjectId must be exactly 24 hexadecimal characters
+    // Backend validates with Types.ObjectId.isValid() which requires exactly 24 hex chars
+    if (/^[0-9a-fA-F]{24}$/.test(idStr)) {
+      if (import.meta.env.DEV) {
+        console.log('✅ Valid MongoDB ObjectId:', idStr);
+      }
+      return idStr;
+    }
+    
+    // Try to extract 24 hex characters from the string
+    const match = idStr.match(/^([0-9a-fA-F]{24})/);
+    if (match) {
+      const extracted = match[1];
+      if (import.meta.env.DEV) {
+        console.log('✅ Extracted ObjectId:', extracted);
+      }
+      return extracted;
+    }
+    
+    if (import.meta.env.DEV) {
+      console.warn('⚠️ Invalid ObjectId format:', { idValue, idStr, length: idStr.length });
+    }
+    return null;
+  };
+
   const fetchProduct = async () => {
     setLoading(true);
     try {
-      const response = await productsAPI.getById(id!);
+      // Validate and clean the product ID
+      if (!id) {
+        console.error('❌ No product ID provided');
+        throw new Error('Product ID is required');
+      }
+      
+      if (import.meta.env.DEV) {
+        console.log('📥 Fetching product with ID:', id);
+      }
+      
+      // Extract clean MongoDB ObjectId
+      // Backend API requires exactly 24 hex characters (MongoDB ObjectId format)
+      const cleanId = extractObjectId(id);
+      
+      // Backend validates with Types.ObjectId.isValid() - must be exactly 24 hex chars
+      if (!cleanId) {
+        console.error('❌ Invalid MongoDB ObjectId format:', {
+          originalId: id,
+          idType: typeof id,
+          idLength: id?.length,
+          expectedFormat: '24 hexadecimal characters (0-9a-fA-F)'
+        });
+        alert(`Invalid product ID format.\n\nExpected: MongoDB ObjectId (24 hex characters)\nReceived: "${id}"\n\nPlease go back to the products list and try again.`);
+        navigate('/products');
+        return;
+      }
+      
+      if (import.meta.env.DEV) {
+        console.log('✅ Using ID:', cleanId);
+      }
+      const response = await productsAPI.getById(cleanId);
       // Backend returns: { success: true, data: product }
       // productsAPI.getById returns: response.data (axios response body)
       // So response = { success: true, data: product }
       // We need response.data to get the actual product object
-      const product = (response && response.success && response.data) 
+      let product = (response && response.success && response.data) 
         ? response.data 
         : (response && response.data) 
         ? response.data 
         : response;
+      
+      // Sanitize product data to remove buffer objects
+      product = sanitizeProductData(product);
+      
+      if (!product) {
+        throw new Error('Product data is null or undefined');
+      }
       
       // Extract SKU from product - check multiple possible locations
       let productSku = '';
@@ -301,9 +481,22 @@ const ProductForm: React.FC = () => {
       }
       
       const productCategories =
-        (product.categories || []).map((cat: any) =>
-          typeof cat === 'string' ? cat : cat?._id || ''
-        ).filter(Boolean) || [];
+        (product.categories || [])
+          .map((cat: any) => {
+            // Skip buffer objects
+            if (cat && typeof cat === 'object' && (cat.buffer || cat.constructor?.name === 'Buffer')) {
+              return null;
+            }
+            // Extract ID safely
+            if (typeof cat === 'string') {
+              return cat;
+            }
+            if (cat && typeof cat === 'object' && cat._id) {
+              return String(cat._id);
+            }
+            return null;
+          })
+          .filter((id: any) => id !== null && id !== '') || [];
       const inferredSizeChartId =
         product.sizeChartId ||
         (typeof product.sizeChart === 'string'
@@ -399,8 +592,20 @@ const ProductForm: React.FC = () => {
       ) {
         setShowAdvancedSeo(true);
       }
-    } catch (error) {
-      alert('Failed to load product');
+    } catch (error: any) {
+      console.error('Failed to load product:', error);
+      
+      // Check if it's an ID format error from backend
+      const backendError = error?.response?.data;
+      const errorCode = backendError?.code;
+      const errorMessage = backendError?.message || error?.message || 'Failed to load product';
+      
+      if (errorCode === 'INVALID_PRODUCT_ID' || errorMessage.includes('Invalid product ID format')) {
+        alert(`Invalid product ID format.\n\nPlease go back to the products list and try again.\n\nID used: ${id}`);
+      } else {
+        alert(errorMessage);
+      }
+      
       navigate('/products');
     } finally {
       setLoading(false);

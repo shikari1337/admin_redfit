@@ -6,7 +6,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ordersAPI, shippingAPI, paymentsAPI, shipmentsAPI } from '../services/api';
-import api from '../services/api';
 import { format } from 'date-fns';
 import { FaCheckCircle, FaEnvelope, FaFileInvoice, FaCreditCard, FaTruck } from 'react-icons/fa';
 import {
@@ -110,18 +109,65 @@ const OrderDetail: React.FC = () => {
     try {
       // Use shipping API to get warehouses (returns active warehouses only)
       const response = await shippingAPI.getWarehouses();
-      // Handle response structure: { success: true, data: [...] }
-      const warehousesData = response.data?.data || response.data || [];
+      console.log('📦 Warehouses API response:', response);
+      
+      // API service returns response.data, which is { success: true, data: [...] }
+      // So we need to access response.data to get the array
+      const warehousesData = (response && response.success && response.data) 
+        ? response.data 
+        : (response && Array.isArray(response))
+        ? response
+        : [];
+      
+      console.log('📦 Parsed warehouses data:', warehousesData);
+      console.log('📦 Number of warehouses:', warehousesData.length);
+      
       setWarehouses(Array.isArray(warehousesData) ? warehousesData : []);
+      
       // Auto-select first warehouse if available and none selected
       if (warehousesData.length > 0 && !selectedWarehouseId) {
         const firstWarehouse = warehousesData[0];
+        console.log('📦 First warehouse:', firstWarehouse);
         if (firstWarehouse && firstWarehouse._id) {
-          setSelectedWarehouseId(firstWarehouse._id);
+          // Ensure _id is converted to string (in case it's an ObjectId)
+          let warehouseIdStr: string;
+          if (typeof firstWarehouse._id === 'object' && firstWarehouse._id !== null) {
+            // Handle ObjectId object - try to extract the string value
+            if ((firstWarehouse._id as any).toString && typeof (firstWarehouse._id as any).toString === 'function') {
+              warehouseIdStr = (firstWarehouse._id as any).toString();
+            } else if ((firstWarehouse._id as any).buffer) {
+              // Handle buffer-based ObjectId
+              const buffer = (firstWarehouse._id as any).buffer;
+              if (buffer && typeof buffer === 'object') {
+                // Convert buffer to hex string
+                const hex = Array.from(new Uint8Array(Object.values(buffer) as number[]))
+                  .map(b => b.toString(16).padStart(2, '0'))
+                  .join('');
+                warehouseIdStr = hex;
+              } else {
+                warehouseIdStr = String(firstWarehouse._id);
+              }
+            } else {
+              warehouseIdStr = String(firstWarehouse._id);
+            }
+          } else {
+            warehouseIdStr = String(firstWarehouse._id);
+          }
+          
+          // Validate it's a 24-character hex string (MongoDB ObjectId format)
+          if (!/^[0-9a-fA-F]{24}$/.test(warehouseIdStr)) {
+            console.warn('⚠️ Invalid warehouse ID format:', warehouseIdStr);
+            warehouseIdStr = String(firstWarehouse._id);
+          }
+          
+          console.log('📦 Setting selected warehouse ID:', warehouseIdStr);
+          setSelectedWarehouseId(warehouseIdStr);
         }
+      } else {
+        console.log('📦 No warehouse auto-selected. Current selectedWarehouseId:', selectedWarehouseId, 'Warehouses count:', warehousesData.length);
       }
     } catch (error) {
-      console.error('Failed to fetch warehouses:', error);
+      console.error('❌ Failed to fetch warehouses:', error);
       setWarehouses([]); // Set empty array on error
     }
   };
@@ -216,7 +262,7 @@ const OrderDetail: React.FC = () => {
     try {
       // For update emails, send subject and content in the request body
       if (type === 'update' && subject && content) {
-        await api.post(`/orders/${id!}/send-email`, { type, subject, content });
+        await ordersAPI.sendEmail(id!, type, { subject, content });
       } else {
         await ordersAPI.sendEmail(id!, type);
       }

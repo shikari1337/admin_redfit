@@ -14,7 +14,9 @@ interface CartItem {
 
 interface CartRecord {
   _id: string;
+  cartId: string; // Unique cart ID
   userId?: string;
+  isGuest: boolean; // Whether this is a guest cart
   status: 'active' | 'abandoned' | 'converted';
   items: CartItem[];
   lastActiveAt: string;
@@ -91,7 +93,8 @@ const AbandonedCarts: React.FC = () => {
         header.join(','),
         ...(Array.isArray(rows) ? rows : []).map((row: any) =>
           [
-            row.cartId,
+            row.cartId || row._id.slice(-8),
+            row.isGuest ? 'Guest' : 'Logged In',
             row.recoveryToken,
             row.status,
             row.lastActiveAt,
@@ -265,7 +268,21 @@ const AbandonedCarts: React.FC = () => {
                 carts.map((cart) => (
                   <tr key={cart._id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 align-top">
-                      <div className="text-sm font-semibold text-gray-900">#{cart.recoveryToken}</div>
+                      <div className="text-sm font-semibold text-gray-900">
+                        Cart ID: {cart.cartId || cart._id.slice(-8)}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {cart.isGuest ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">
+                            Guest
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">
+                            Logged In
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-400">Token: {cart.recoveryToken.slice(0, 8)}...</div>
                       <div className="text-xs text-gray-500 mt-1">
                         Status:{' '}
                         <span className="font-medium capitalize">

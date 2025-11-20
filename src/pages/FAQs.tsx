@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { FaPlus, FaEdit, FaTrash, FaChevronDown, FaChevronUp } from 'react-icons/fa';
-import api from '../services/api';
+import { faqsAPI } from '../services/api';
 
 interface FAQ {
   _id: string;
@@ -33,8 +33,8 @@ const FAQs: React.FC = () => {
   const fetchFAQs = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/faqs');
-      setFaqs(response.data.data || []);
+      const response = await faqsAPI.getAll({ active: undefined }); // Get all FAQs (including inactive) for admin
+      setFaqs(response.data || []);
     } catch (error) {
       console.error('Failed to fetch FAQs:', error);
       alert('Failed to fetch FAQs');
@@ -47,10 +47,10 @@ const FAQs: React.FC = () => {
     e.preventDefault();
     try {
       if (editingFAQ) {
-        await api.put(`/faqs/${editingFAQ._id}`, formData);
+        await faqsAPI.update(editingFAQ._id, formData);
         alert('FAQ updated successfully');
       } else {
-        await api.post('/faqs', formData);
+        await faqsAPI.create(formData);
         alert('FAQ created successfully');
       }
       setIsModalOpen(false);
@@ -79,7 +79,7 @@ const FAQs: React.FC = () => {
     if (!confirm('Are you sure you want to delete this FAQ?')) return;
     
     try {
-      await api.delete(`/faqs/${id}`);
+      await faqsAPI.delete(id);
       alert('FAQ deleted successfully');
       fetchFAQs();
     } catch (error: any) {

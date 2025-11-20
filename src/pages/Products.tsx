@@ -14,10 +14,65 @@ const Products: React.FC = () => {
     fetchProducts();
   }, []);
 
+  const sanitizeProduct = (product: any): any => {
+    // Backend now sends all ObjectIds as strings via serializeObjectIds()
+    // This is just a safety check for edge cases
+    const sanitized = { ...product };
+    
+    // Ensure _id is a string (backend handles this, but safety check)
+    if (sanitized._id && typeof sanitized._id !== 'string') {
+      sanitized._id = String(sanitized._id);
+    }
+    
+    // Ensure categories are properly formatted (backend handles this)
+    if (Array.isArray(sanitized.categories)) {
+      sanitized.categories = sanitized.categories.map((cat: any) => {
+        if (typeof cat === 'string') return cat;
+        if (cat && typeof cat === 'object' && cat._id) {
+          return {
+            ...cat,
+            _id: typeof cat._id === 'string' ? cat._id : String(cat._id)
+          };
+        }
+        return cat;
+      });
+    }
+    
+    // Sanitize images - ensure they're strings
+    if (Array.isArray(sanitized.images)) {
+      sanitized.images = sanitized.images
+        .map((img: any) => {
+          if (typeof img === 'string') {
+            return img;
+          }
+          // Skip buffer objects or non-string images
+          return null;
+        })
+        .filter((img: any) => img !== null);
+    }
+    
+    // Ensure all numeric fields are numbers
+    if (sanitized.price !== undefined) {
+      sanitized.price = typeof sanitized.price === 'number' ? sanitized.price : Number(sanitized.price) || 0;
+    }
+    if (sanitized.originalPrice !== undefined) {
+      sanitized.originalPrice = typeof sanitized.originalPrice === 'number' ? sanitized.originalPrice : Number(sanitized.originalPrice) || 0;
+    }
+    
+    // Ensure name is a string
+    if (sanitized.name !== undefined) {
+      sanitized.name = String(sanitized.name || '');
+    }
+    
+    return sanitized;
+  };
+
   const fetchProducts = async () => {
     try {
       const response = await productsAPI.getAll();
-      setProducts(response.data || []);
+      const products = response.data || [];
+      // Sanitize all products to remove any buffer objects or non-serializable data
+      setProducts(products.map(sanitizeProduct));
     } catch (error) {
       console.error('Failed to fetch products:', error);
     } finally {
@@ -108,44 +163,62 @@ const Products: React.FC = () => {
                 </td>
               </tr>
             ) : (
-              products.map((product) => (
-                <tr key={product._id} className="hover:bg-gray-50">
+              products.map((product, index) => (
+                <tr key={String(product._id || index)} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
-                      {product.images && product.images.length > 0 && (
+                      {product.images && Array.isArray(product.images) && product.images.length > 0 && typeof product.images[0] === 'string' && (
                         <img
                           src={product.images[0]}
-                          alt={product.name}
+                          alt={String(product.name || 'Product')}
                           className="h-12 w-12 rounded object-cover mr-4"
+                          onError={(e) => {
+                            // Hide image if it fails to load
+                            (e.target as HTMLImageElement).style.display = 'none';
+                          }}
                         />
                       )}
                       <div>
-                        <div className="text-sm font-medium text-gray-900">{product.name}</div>
-                        <div className="text-sm text-gray-500">ID: {product._id}</div>
+                        <div className="text-sm font-medium text-gray-900">{product.name || 'Unnamed Product'}</div>
+                        <div className="text-sm text-gray-500">ID: {String(product._id || '')}</div>
                       </div>
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm text-gray-900">
-                      ₹{product.price?.toLocaleString('en-IN')}
+                      ₹{typeof product.price === 'number' ? product.price.toLocaleString('en-IN') : '0'}
                     </div>
-                    <div className="text-sm text-gray-500 line-through">
-                      ₹{product.originalPrice?.toLocaleString('en-IN')}
-                    </div>
+                    {product.originalPrice && typeof product.originalPrice === 'number' && (
+                      <div className="text-sm text-gray-500 line-through">
+                        ₹{product.originalPrice.toLocaleString('en-IN')}
+                      </div>
+                    )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    {product.categories && product.categories.length > 0 ? (
+                    {product.categories && Array.isArray(product.categories) && product.categories.length > 0 ? (
                       <div className="flex flex-wrap gap-1">
-                        {product.categories.map((cat: any) => {
-                          const id =
-                            typeof cat === 'string'
-                              ? cat
-                              : cat?._id || cat?.slug || cat?.name || Math.random().toString(36);
-                          const name =
-                            typeof cat === 'string' ? cat : cat?.name || cat?.slug || 'Category';
+                        {product.categories.map((cat: any, index: number) => {
+                          // Safely extract category data, handling various formats
+                          let id: string;
+                          let name: string;
+                          
+                          if (typeof cat === 'string') {
+                            id = cat;
+                            name = cat;
+                          } else if (cat && typeof cat === 'object') {
+                            // Handle ObjectId or populated category
+                            id = cat._id ? String(cat._id) : cat.slug || cat.name || `cat-${index}`;
+                            name = cat.name || cat.slug || 'Category';
+                            // Ensure name is a string, not an object
+                            name = String(name);
+                          } else {
+                            id = `cat-${index}`;
+                            name = 'Category';
+                          }
+                          
                           return (
                             <span
-                              key={`${product._id}-${id}`}
+                              key={`${String(product._id || '')}-${id}-${index}`}
                               className="px-2 py-0.5 text-xs bg-gray-100 text-gray-700 rounded"
                             >
                               {name}
@@ -171,21 +244,21 @@ const Products: React.FC = () => {
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex justify-end space-x-2">
                       <Link
-                        to={`/products/${product._id}/edit`}
+                        to={`/products/${product._id || ''}/edit`}
                         className="text-blue-600 hover:text-blue-900"
                         title="Edit Product"
                       >
                         <FaEdit />
                       </Link>
                       <Link
-                        to={`/products/${product._id}/sections`}
+                        to={`/products/${product._id || ''}/sections`}
                         className="text-purple-600 hover:text-purple-900"
                         title="Manage Sections"
                       >
                         <FaCog />
                       </Link>
                       <button
-                        onClick={() => handleDuplicate(product._id)}
+                        onClick={() => handleDuplicate(product._id || '')}
                         className="text-green-600 hover:text-green-900 disabled:opacity-50"
                         title="Duplicate Product"
                         disabled={duplicatingId === product._id}
@@ -214,7 +287,7 @@ const Products: React.FC = () => {
                         )}
                       </button>
                       <button
-                        onClick={() => handleDelete(product._id)}
+                        onClick={() => handleDelete(product._id || '')}
                         className="text-red-600 hover:text-red-900"
                         title="Delete Product"
                       >

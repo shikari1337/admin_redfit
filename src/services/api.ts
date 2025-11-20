@@ -414,8 +414,11 @@ export const ordersAPI = {
     const response = await api.put(`/orders/${id}/notes`, { notes });
     return response.data;
   },
-  sendEmail: async (id: string, type: 'confirmation' | 'update' | 'invoice') => {
-    const response = await api.post(`/orders/${id}/send-email`, { type });
+  sendEmail: async (id: string, type: 'confirmation' | 'update' | 'invoice', options?: { subject?: string; content?: string }) => {
+    const payload: any = { type };
+    if (options?.subject) payload.subject = options.subject;
+    if (options?.content) payload.content = options.content;
+    const response = await api.post(`/orders/${id}/send-email`, payload);
     return response.data;
   },
 };
@@ -572,7 +575,13 @@ export const shippingAPI = {
   getCourierRates: async (orderId: string, warehouseId?: string) => {
     const params = new URLSearchParams({ orderId });
     if (warehouseId) {
-      params.append('warehouseId', warehouseId);
+      // Ensure warehouseId is a string, not an object
+      const warehouseIdStr = typeof warehouseId === 'object' 
+        ? (warehouseId as any)?._id || String(warehouseId)
+        : String(warehouseId);
+      if (warehouseIdStr && warehouseIdStr !== 'undefined' && warehouseIdStr !== '[object Object]') {
+        params.append('warehouseId', warehouseIdStr);
+      }
     }
     const response = await api.get(`/shipping/courier-rates?${params.toString()}`);
     return response.data;
@@ -580,7 +589,13 @@ export const shippingAPI = {
     getDelhiveryRates: async (orderId: string, warehouseId?: string, serviceType?: 'express' | 'surface') => {
       const params = new URLSearchParams({ orderId });
       if (warehouseId) {
-        params.append('warehouseId', warehouseId);
+        // Ensure warehouseId is a string, not an object
+        const warehouseIdStr = typeof warehouseId === 'object' 
+          ? (warehouseId as any)?._id || String(warehouseId)
+          : String(warehouseId);
+        if (warehouseIdStr && warehouseIdStr !== 'undefined' && warehouseIdStr !== '[object Object]') {
+          params.append('warehouseId', warehouseIdStr);
+        }
       }
       if (serviceType) {
         params.append('serviceType', serviceType);
@@ -903,6 +918,42 @@ export const logsAPI = {
   },
   getLogFiles: async () => {
     const response = await api.get('/logs/files');
+    return response.data;
+  },
+};
+
+// FAQs API
+export const faqsAPI = {
+  getAll: async (params?: { category?: string; categories?: string; active?: boolean }) => {
+    const response = await api.get('/faqs', { params });
+    return response.data;
+  },
+  getById: async (id: string) => {
+    const response = await api.get(`/faqs/${id}`);
+    return response.data;
+  },
+  create: async (data: {
+    question: string;
+    answer: string;
+    category: string;
+    displayOrder?: number;
+    isActive?: boolean;
+  }) => {
+    const response = await api.post('/faqs', data);
+    return response.data;
+  },
+  update: async (id: string, data: {
+    question?: string;
+    answer?: string;
+    category?: string;
+    displayOrder?: number;
+    isActive?: boolean;
+  }) => {
+    const response = await api.put(`/faqs/${id}`, data);
+    return response.data;
+  },
+  delete: async (id: string) => {
+    const response = await api.delete(`/faqs/${id}`);
     return response.data;
   },
 };

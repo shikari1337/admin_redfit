@@ -11,6 +11,8 @@ interface CouponFormData {
   minPurchase?: number;
   maxDiscount?: number;
   usageLimit?: number;
+  userLimit?: number;
+  clubbedWithOtherCoupons: boolean;
   validFrom: string;
   validUntil: string;
   isActive: boolean;
@@ -32,6 +34,7 @@ const CouponForm: React.FC = () => {
     validFrom: new Date().toISOString().split('T')[0],
     validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     isActive: true,
+    clubbedWithOtherCoupons: false,
   });
 
   useEffect(() => {
@@ -54,6 +57,7 @@ const CouponForm: React.FC = () => {
         validFrom,
         validUntil: validUntil || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         applicableProducts: coupon.applicableProducts?.map((id: any) => id.toString()) || [],
+        clubbedWithOtherCoupons: coupon.clubbedWithOtherCoupons ?? false,
       });
     } catch (err: any) {
       setError(err.message || 'Failed to fetch coupon');
@@ -96,9 +100,9 @@ const CouponForm: React.FC = () => {
     const { name, value } = e.target;
     setFormData((prev) => ({
       ...prev,
-      [name]: name === 'value' || name === 'minPurchase' || name === 'maxDiscount' || name === 'usageLimit'
+      [name]: name === 'value' || name === 'minPurchase' || name === 'maxDiscount' || name === 'usageLimit' || name === 'userLimit'
         ? (value ? parseFloat(value) : undefined)
-        : name === 'isActive'
+        : name === 'isActive' || name === 'clubbedWithOtherCoupons'
         ? (e.target as HTMLInputElement).checked
         : value,
     }));
@@ -239,7 +243,7 @@ const CouponForm: React.FC = () => {
           {/* Usage Limit */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Usage Limit
+              Usage Limit (Total)
             </label>
             <input
               type="number"
@@ -250,6 +254,24 @@ const CouponForm: React.FC = () => {
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               placeholder="Leave empty for unlimited"
             />
+            <p className="mt-1 text-xs text-gray-500">Maximum number of times this coupon can be used in total</p>
+          </div>
+
+          {/* User Limit */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Limit Per User
+            </label>
+            <input
+              type="number"
+              name="userLimit"
+              value={formData.userLimit || ''}
+              onChange={handleChange}
+              min="1"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="Leave empty for unlimited per user"
+            />
+            <p className="mt-1 text-xs text-gray-500">Maximum number of times a single user can use this coupon</p>
           </div>
 
           {/* Valid From */}
@@ -293,6 +315,20 @@ const CouponForm: React.FC = () => {
             />
             <label className="ml-2 block text-sm text-gray-700">
               Active
+            </label>
+          </div>
+
+          {/* Clubbed With Other Coupons */}
+          <div className="flex items-center">
+            <input
+              type="checkbox"
+              name="clubbedWithOtherCoupons"
+              checked={formData.clubbedWithOtherCoupons}
+              onChange={handleChange}
+              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+            />
+            <label className="ml-2 block text-sm text-gray-700">
+              Can be clubbed with other coupons
             </label>
           </div>
         </div>

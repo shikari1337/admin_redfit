@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FaArrowLeft, FaPlus, FaEdit, FaTrash, FaWarehouse, FaStore, FaTruck, FaSave, FaTimes, FaSync } from 'react-icons/fa';
-import api, { warehousesAPI } from '../services/api';
+import { warehousesAPI } from '../services/api';
 
 interface Warehouse {
   _id: string;
@@ -79,9 +79,11 @@ const Warehouses: React.FC = () => {
   const fetchWarehouses = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/warehouses/stores/link');
-      if (response.data.success) {
-        setWarehouses(response.data.data.warehouses || []);
+      const response = await warehousesAPI.getAll();
+      if (response.success) {
+        setWarehouses(response.data?.warehouses || response.data || []);
+      } else {
+        setWarehouses(response.data || []);
       }
     } catch (error: any) {
       console.error('Failed to fetch warehouses:', error);
@@ -96,10 +98,10 @@ const Warehouses: React.FC = () => {
     e.preventDefault();
     try {
       if (editingWarehouse) {
-        await api.put(`/warehouses/${editingWarehouse._id}`, formData);
+        await warehousesAPI.update(editingWarehouse._id, formData);
         alert('Warehouse updated successfully!');
       } else {
-        await api.post('/warehouses', formData);
+        await warehousesAPI.create(formData);
         alert('Warehouse created successfully!');
       }
       setShowForm(false);
@@ -144,7 +146,7 @@ const Warehouses: React.FC = () => {
   const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this warehouse?')) return;
     try {
-      await api.delete(`/warehouses/${id}`);
+      await warehousesAPI.delete(id);
       alert('Warehouse deleted successfully!');
       fetchWarehouses();
     } catch (error: any) {
