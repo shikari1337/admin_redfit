@@ -450,7 +450,7 @@ const PageForm: React.FC = () => {
             <div className="space-y-4">
               {formData.contentBlocks
                 .sort((a, b) => a.order - b.order)
-                .map((block, index) => {
+                .map((block) => {
                   const sortedIndex = formData.contentBlocks.findIndex(b => b.blockId === block.blockId);
                   return (
                     <div key={block.blockId} className="border border-gray-200 rounded-lg p-4 bg-gray-50">

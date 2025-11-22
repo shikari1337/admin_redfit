@@ -1,15 +1,74 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaArrowLeft, FaSave, FaGlobe, FaImage, FaPalette, FaInstagram, FaFont, FaBars, FaPlus, FaTrash, FaArrowUp, FaArrowDown, FaChevronDown, FaChevronUp } from 'react-icons/fa';
+import { FaArrowLeft, FaSave, FaGlobe, FaImage, FaPalette, FaInstagram, FaFont, FaBars, FaPlus, FaTrash, FaArrowUp, FaArrowDown } from 'react-icons/fa';
 import api from '../services/api';
 import ImageInputWithActions from '../components/common/ImageInputWithActions';
 import MegaMenuEditor from '../components/menu/MegaMenuEditor';
+
+interface MenuItem {
+  label: string;
+  type: 'link' | 'category' | 'page';
+  target?: string;
+  order: number;
+  isVisible: boolean;
+  openInNewTab?: boolean;
+  megaMenu?: {
+    isMegaMenu?: boolean;
+    layout?: 'columns' | 'grid' | 'tabs';
+    columns?: Array<{
+      title?: string;
+      links: Array<{
+        label: string;
+        type: 'link' | 'category' | 'page';
+        target?: string;
+        openInNewTab?: boolean;
+      }>;
+    }>;
+    featuredImage?: string;
+    featuredImageLink?: string;
+    featuredImageAlt?: string;
+  };
+}
+
+interface FormData {
+  general: {
+    websiteUrl: string;
+    siteName: string;
+    siteDescription: string;
+  };
+  logo: {
+    logoUrl: string;
+    faviconUrl: string;
+    adminLogoUrl: string;
+  };
+  colors: {
+    primaryColor: string;
+    secondaryColor: string;
+    accentColor: string;
+    backgroundColor: string;
+    textColor: string;
+    linkColor: string;
+  };
+  fonts: {
+    fontFamily: string;
+    headingFontFamily: string;
+    bodyFontFamily: string;
+    fontSize: Record<string, string>;
+  };
+  menu: {
+    items: MenuItem[];
+  };
+  instagram: {
+    username: string;
+    isEnabled: boolean;
+  };
+}
 
 const GeneralSettings: React.FC = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<FormData>({
     general: {
       websiteUrl: '',
       siteName: '',
@@ -79,7 +138,7 @@ const GeneralSettings: React.FC = () => {
             fontSize: settings.fonts?.fontSize || {},
           },
           menu: {
-            items: settings.menu?.items || [],
+            items: (settings.menu?.items || []) as MenuItem[],
           },
           instagram: {
             username: settings.instagram?.username || '',
@@ -188,12 +247,13 @@ const GeneralSettings: React.FC = () => {
 
   const removeMenuItem = (index: number) => {
     setFormData(prev => {
-      const currentItems = prev.menu?.items || [];
+      const currentItems = [...(prev.menu?.items || [])];
+      const filteredItems = currentItems.filter((_, i) => i !== index);
       return {
         ...prev,
         menu: {
           ...prev.menu,
-          items: currentItems.filter((_, i) => i !== index).map((item, i) => ({
+          items: filteredItems.map((item, i) => ({
             ...item,
             order: i,
           })),
@@ -204,15 +264,15 @@ const GeneralSettings: React.FC = () => {
 
   const moveMenuItem = (index: number, direction: 'up' | 'down') => {
     setFormData(prev => {
-      const items = [...(prev.menu.items || [])];
+      const items: MenuItem[] = [...(prev.menu.items || [])];
       if (direction === 'up' && index > 0) {
         [items[index - 1], items[index]] = [items[index], items[index - 1]];
-        items[index - 1].order = index - 1;
-        items[index].order = index;
+        items[index - 1] = { ...items[index - 1], order: index - 1 };
+        items[index] = { ...items[index], order: index };
       } else if (direction === 'down' && index < items.length - 1) {
         [items[index], items[index + 1]] = [items[index + 1], items[index]];
-        items[index].order = index;
-        items[index + 1].order = index + 1;
+        items[index] = { ...items[index], order: index };
+        items[index + 1] = { ...items[index + 1], order: index + 1 };
       }
       return {
         ...prev,

@@ -1,6 +1,5 @@
-import React, { useState } from 'react';
-import { FaUpload, FaTrash, FaPlus } from 'react-icons/fa';
-import { uploadAPI } from '../../services/api';
+import React from 'react';
+import { FaTrash, FaPlus } from 'react-icons/fa';
 import ImageInputWithActions from '../common/ImageInputWithActions';
 
 // Hero Block Editor
