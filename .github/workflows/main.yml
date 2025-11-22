@@ -27,7 +27,7 @@ jobs:
         run: npm run build
         env:
           VITE_API_SERVER_URL: ${{ secrets.VITE_API_SERVER_URL }}
-          VITE_API_VERSION: ${{ secrets.VITE_API_VERSION || 'v1' }}
+          VITE_API_VERSION: ${{ secrets.VITE_API_VERSION }}
 
       - name: 🔍 Verify Build
         run: |
@@ -67,8 +67,14 @@ jobs:
           echo "✅ Deployment completed!"
 
       - name: 🔄 Reload Nginx (optional)
-        if: ${{ secrets.SSH_RELOAD_NGINX == 'true' }}
+        env:
+          RELOAD_NGINX: ${{ secrets.SSH_RELOAD_NGINX }}
         run: |
-          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
-            "sudo systemctl reload nginx"
-          echo "✅ Nginx reloaded"
+          if [ "$RELOAD_NGINX" = "true" ]; then
+            echo "🔄 Reloading Nginx..."
+            ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+              "sudo systemctl reload nginx"
+            echo "✅ Nginx reloaded"
+          else
+            echo "⏭️  Skipping Nginx reload (set SSH_RELOAD_NGINX='true' secret to enable)"
+          fi
