@@ -66,12 +66,25 @@ const Reviews: React.FC = () => {
         page: pagination.page,
         limit: pagination.limit,
       });
-      setReviews(response.data || []);
-      if (response.pagination) {
+      // Backend returns: { data: reviews[], pagination: {...} }
+      const reviewsData = response?.data || response?.data?.data || Array.isArray(response) ? response : [];
+      // Ensure all _id fields are strings
+      const sanitizedReviews = Array.isArray(reviewsData) ? reviewsData.map((review: any) => ({
+        ...review,
+        _id: typeof review._id === 'string' ? review._id : String(review._id || ''),
+        productId: typeof review.productId === 'string' 
+          ? review.productId 
+          : (typeof review.productId === 'object' && review.productId?._id 
+            ? (typeof review.productId._id === 'string' ? review.productId._id : String(review.productId._id || ''))
+            : ''),
+      })) : [];
+      setReviews(sanitizedReviews);
+      if (response?.pagination) {
         setPagination(prev => ({ ...prev, ...response.pagination }));
       }
     } catch (error) {
       console.error('Failed to fetch reviews:', error);
+      setReviews([]);
     } finally {
       setLoading(false);
     }
@@ -80,15 +93,16 @@ const Reviews: React.FC = () => {
   const fetchProducts = async () => {
     try {
       const response = await reviewsAPI.getProducts?.() || await fetch('/api/v1/products').then(r => r.json());
-      const productsData = response.data || response || [];
-      // Ensure we have SKU field
-      setProducts(productsData.map((p: any) => ({
-        _id: p._id,
-        name: p.name,
+      const productsData = response?.data || response?.data?.data || Array.isArray(response) ? response : [];
+      // Ensure we have SKU field and _id is string
+      setProducts(Array.isArray(productsData) ? productsData.map((p: any) => ({
+        _id: typeof p._id === 'string' ? p._id : String(p._id || ''),
+        name: p.name || '',
         sku: p.sku || '',
-      })));
+      })) : []);
     } catch (error) {
       console.error('Failed to fetch products:', error);
+      setProducts([]);
     }
   };
 
@@ -96,7 +110,10 @@ const Reviews: React.FC = () => {
   const normalizeProductId = (productId: string | { _id: string; name: string; sku?: string } | undefined): string => {
     if (!productId) return '';
     if (typeof productId === 'string') return productId;
-    if (typeof productId === 'object' && productId !== null) return productId._id;
+    if (typeof productId === 'object' && productId !== null) {
+      const id = productId._id;
+      return typeof id === 'string' ? id : String(id || '');
+    }
     return '';
   };
 
@@ -110,10 +127,14 @@ const Reviews: React.FC = () => {
 
       if (reviewId && editingId) {
         // Update existing review
-        const review = reviews.find(r => r._id === reviewId);
+        const review = reviews.find(r => {
+          const rId = typeof r._id === 'string' ? r._id : String(r._id || '');
+          return rId === reviewId;
+        });
         if (review) {
           const updatedImages = [...(review.images || []), imageUrl];
-          await reviewsAPI.update(reviewId, { images: updatedImages });
+          const rId = typeof review._id === 'string' ? review._id : String(review._id || '');
+          await reviewsAPI.update(rId, { images: updatedImages });
           fetchReviews();
         }
       } else {
@@ -579,8 +600,10 @@ const Reviews: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                reviews.map((review) => (
-                <tr key={review._id}>
+                reviews.map((review) => {
+                  const reviewId = typeof review._id === 'string' ? review._id : String(review._id || '');
+                  return (
+                <tr key={reviewId}>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
                       {review.customerImage && (
@@ -650,7 +673,7 @@ const Reviews: React.FC = () => {
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex flex-col gap-1">
                       <button
-                        onClick={() => handleToggleApproval(review._id, !review.isApproved)}
+                        onClick={() => handleToggleApproval(reviewId, !review.isApproved)}
                         className={`text-xs px-2 py-1 rounded ${
                           review.isApproved
                             ? 'bg-green-100 text-green-800'
@@ -668,7 +691,7 @@ const Reviews: React.FC = () => {
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => {
-                          setEditingId(review._id);
+                          setEditingId(reviewId);
                           setNewReview({
                             ...review,
                             productId: normalizeProductId(review.productId) as string,
@@ -679,7 +702,7 @@ const Reviews: React.FC = () => {
                         <FaEdit size={14} />
                       </button>
                       <button
-                        onClick={() => handleDeleteReview(review._id)}
+                        onClick={() => handleDeleteReview(reviewId)}
                         className="text-red-600 hover:text-red-900"
                       >
                         <FaTrash size={14} />
@@ -687,7 +710,8 @@ const Reviews: React.FC = () => {
                     </div>
                   </td>
                 </tr>
-              ))
+                );
+              })
               )}
             </tbody>
           </table>

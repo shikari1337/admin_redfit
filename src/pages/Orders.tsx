@@ -20,14 +20,16 @@ const Orders: React.FC = () => {
       setLoading(true);
       const params = statusFilter ? { status: statusFilter } : {};
       const response = await ordersAPI.getAll({ ...params, limit: 100 });
-      // Handle different response structures
-      const orders = Array.isArray(response?.data) 
-        ? response.data 
+      // Backend returns: { success: true, data: ordersData, pagination: {...} }
+      const orders = response?.success && Array.isArray(response?.data)
+        ? response.data
         : Array.isArray(response?.data?.data)
           ? response.data.data
-          : Array.isArray(response)
-            ? response
-            : [];
+          : Array.isArray(response?.data)
+            ? response.data
+            : Array.isArray(response)
+              ? response
+              : [];
       setOrders(orders);
     } catch (error: any) {
       console.error('Failed to fetch orders:', error);

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FaArrowLeft, FaSave, FaGlobe, FaImage, FaPalette, FaInstagram, FaFont, FaBars, FaPlus, FaTrash, FaArrowUp, FaArrowDown } from 'react-icons/fa';
 import api from '../services/api';
+import { categoriesAPI, pagesAPI } from '../services/api';
 import ImageInputWithActions from '../components/common/ImageInputWithActions';
 import MegaMenuEditor from '../components/menu/MegaMenuEditor';
 
@@ -68,6 +69,9 @@ const GeneralSettings: React.FC = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [availableCategories, setAvailableCategories] = useState<Array<{ _id: string; name: string; slug: string }>>([]);
+  const [availablePages, setAvailablePages] = useState<Array<{ _id: string; title: string; slug: string }>>([]);
+  const [loadingLookups, setLoadingLookups] = useState(false);
   const [formData, setFormData] = useState<FormData>({
     general: {
       websiteUrl: '',
@@ -104,7 +108,54 @@ const GeneralSettings: React.FC = () => {
 
   useEffect(() => {
     fetchSettings();
+    fetchLookups();
   }, []);
+
+  const fetchLookups = async () => {
+    setLoadingLookups(true);
+    try {
+      const [catResponse, pagesResponse] = await Promise.all([
+        categoriesAPI.list().catch(() => ({ data: [] })),
+        pagesAPI.getAll().catch(() => ({ data: { data: [] } })),
+      ]);
+      
+      const categories = Array.isArray(catResponse?.data) 
+        ? catResponse.data 
+        : Array.isArray(catResponse?.data?.data)
+          ? catResponse.data.data
+          : [];
+      
+      const pages = Array.isArray(pagesResponse?.data?.data)
+        ? pagesResponse.data.data
+        : Array.isArray(pagesResponse?.data)
+          ? pagesResponse.data
+          : [];
+      
+      // Ensure all _id fields are strings
+      const sanitizedCategories = categories.map((cat: any) => ({
+        ...cat,
+        _id: typeof cat._id === 'string' ? cat._id : String(cat._id || ''),
+        slug: cat.slug || '',
+        name: cat.name || '',
+      }));
+      
+      const sanitizedPages = pages.map((page: any) => ({
+        ...page,
+        _id: typeof page._id === 'string' ? page._id : String(page._id || ''),
+        slug: page.slug || '',
+        title: page.title || '',
+      }));
+      
+      setAvailableCategories(sanitizedCategories);
+      setAvailablePages(sanitizedPages);
+    } catch (error) {
+      console.error('Failed to fetch lookups:', error);
+      setAvailableCategories([]);
+      setAvailablePages([]);
+    } finally {
+      setLoadingLookups(false);
+    }
+  };
 
   const fetchSettings = async () => {
     try {
@@ -666,15 +717,53 @@ const GeneralSettings: React.FC = () => {
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Target {item.type === 'link' ? '(URL)' : item.type === 'category' ? '(Category Slug)' : '(Page Name)'}
+                      Target {item.type === 'link' ? '(URL)' : item.type === 'category' ? '(Select Category)' : '(Select Page)'}
                     </label>
-                    <input
-                      type="text"
-                      value={item.target || ''}
-                      onChange={(e) => handleMenuItemChange(index, 'target', e.target.value)}
-                      placeholder={item.type === 'link' ? 'https://example.com' : item.type === 'category' ? 'category-slug' : 'home'}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                    />
+                    {item.type === 'category' ? (
+                      <select
+                        value={item.target || ''}
+                        onChange={(e) => handleMenuItemChange(index, 'target', e.target.value)}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                        disabled={loadingLookups}
+                      >
+                        <option value="">Select Category</option>
+                        {availableCategories.map((cat) => {
+                          const catId = typeof cat._id === 'string' ? cat._id : String(cat._id || '');
+                          const catSlug = cat.slug || cat.name || '';
+                          return (
+                            <option key={catId} value={catSlug}>
+                              {cat.name} {cat.slug && `(${cat.slug})`}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    ) : item.type === 'page' ? (
+                      <select
+                        value={item.target || ''}
+                        onChange={(e) => handleMenuItemChange(index, 'target', e.target.value)}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                        disabled={loadingLookups}
+                      >
+                        <option value="">Select Page</option>
+                        {availablePages.map((page) => {
+                          const pageId = typeof page._id === 'string' ? page._id : String(page._id || '');
+                          const pageSlug = page.slug || page.title || '';
+                          return (
+                            <option key={pageId} value={pageSlug}>
+                              {page.title} {page.slug && `(${page.slug})`}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        value={item.target || ''}
+                        onChange={(e) => handleMenuItemChange(index, 'target', e.target.value)}
+                        placeholder="https://example.com"
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                      />
+                    )}
                   </div>
                   <div className="flex items-end gap-2">
                     <div className="flex-1">

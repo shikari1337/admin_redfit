@@ -37,42 +37,49 @@ const Coupons: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      const data = await couponsAPI.getAll();
-      console.log('Fetched coupons:', data); // Debug log
-      // Handle array or object with data property
-      const couponsList = Array.isArray(data) ? data : (data.data || []);
-      setCoupons(couponsList);
+      const response = await couponsAPI.getAll();
+      // Backend returns: { data: coupons[] } or direct array
+      const couponsData = response?.data || response?.data?.data || Array.isArray(response) ? response : [];
+      // Ensure all _id fields are strings
+      const sanitizedCoupons = Array.isArray(couponsData) ? couponsData.map((coupon: any) => ({
+        ...coupon,
+        _id: typeof coupon._id === 'string' ? coupon._id : String(coupon._id || ''),
+      })) : [];
+      setCoupons(sanitizedCoupons);
     } catch (err: any) {
-      setError(err.message || 'Failed to fetch coupons');
+      setError(err.response?.data?.message || err.message || 'Failed to fetch coupons');
       console.error('Error fetching coupons:', err);
+      setCoupons([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (id: string | any) => {
     if (!window.confirm('Are you sure you want to delete this coupon?')) {
       return;
     }
 
     try {
-      await couponsAPI.delete(id);
+      const couponId = typeof id === 'string' ? id : String(id || '');
+      await couponsAPI.delete(couponId);
       fetchCoupons();
     } catch (err: any) {
-      alert(err.message || 'Failed to delete coupon');
+      alert(err.response?.data?.message || err.message || 'Failed to delete coupon');
       console.error('Error deleting coupon:', err);
     }
   };
 
   const handleToggleActive = async (coupon: Coupon) => {
     try {
-      await couponsAPI.update(coupon._id, {
+      const couponId = typeof coupon._id === 'string' ? coupon._id : String(coupon._id || '');
+      await couponsAPI.update(couponId, {
         ...coupon,
         isActive: !coupon.isActive,
       });
       fetchCoupons();
     } catch (err: any) {
-      alert(err.message || 'Failed to update coupon');
+      alert(err.response?.data?.message || err.message || 'Failed to update coupon');
       console.error('Error updating coupon:', err);
     }
   };
@@ -163,8 +170,10 @@ const Coupons: React.FC = () => {
                 </td>
               </tr>
             ) : (
-              coupons.map((coupon) => (
-                <tr key={coupon._id}>
+              coupons.map((coupon) => {
+                const couponId = typeof coupon._id === 'string' ? coupon._id : String(coupon._id || '');
+                return (
+                <tr key={couponId}>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-gray-900">{coupon.code}</div>
                   </td>
@@ -212,20 +221,21 @@ const Coupons: React.FC = () => {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <button
-                      onClick={() => navigate(`/coupons/${coupon._id}/edit`)}
+                      onClick={() => navigate(`/coupons/${couponId}/edit`)}
                       className="text-blue-600 hover:text-blue-900 mr-4"
                     >
                       <FaEdit />
                     </button>
                     <button
-                      onClick={() => handleDelete(coupon._id)}
+                      onClick={() => handleDelete(couponId)}
                       className="text-red-600 hover:text-red-900"
                     >
                       <FaTrash />
                     </button>
                   </td>
                 </tr>
-              ))
+                );
+              })
             )}
           </tbody>
         </table>

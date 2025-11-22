@@ -417,6 +417,8 @@ export const ordersAPI = {
     page?: number;
   }) => {
     const response = await api.get('/orders', { params });
+    // Backend returns: { success: true, data: orders[], pagination: {...} }
+    // Return the full response so frontend can access both data and pagination
     return response.data;
   },
   getById: async (id: string) => {
@@ -550,6 +552,7 @@ export const pagesAPI = {
 export const reviewsAPI = {
   getAll: async (params?: { productId?: string; approved?: boolean; page?: number; limit?: number }) => {
     const response = await api.get('/reviews', { params });
+    // Backend returns: { data: reviews[], pagination: {...} }
     return response.data;
   },
   getById: async (id: string) => {

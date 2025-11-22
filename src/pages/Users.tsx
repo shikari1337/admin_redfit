@@ -31,11 +31,19 @@ const Users: React.FC = () => {
         params.role = roleFilter;
       }
       const response = await usersAPI.getAll(params);
-      setUsers(response.data || []);
-      setTotalPages(response.pagination?.pages || 1);
-      setTotal(response.pagination?.total || 0);
+      // Backend returns: { data: users[], pagination: {...} }
+      const usersData = response?.data || response?.data?.data || Array.isArray(response) ? response : [];
+      // Ensure all _id fields are strings
+      const sanitizedUsers = Array.isArray(usersData) ? usersData.map((user: any) => ({
+        ...user,
+        _id: typeof user._id === 'string' ? user._id : String(user._id || ''),
+      })) : [];
+      setUsers(sanitizedUsers);
+      setTotalPages(response?.pagination?.pages || response?.pages || 1);
+      setTotal(response?.pagination?.total || response?.total || 0);
     } catch (error) {
       console.error('Failed to fetch users:', error);
+      setUsers([]);
     } finally {
       setLoading(false);
     }
@@ -130,8 +138,10 @@ const Users: React.FC = () => {
                 </td>
               </tr>
             ) : (
-              users.map((user) => (
-                <tr key={user._id} className="hover:bg-gray-50">
+              users.map((user) => {
+                const userId = typeof user._id === 'string' ? user._id : String(user._id || '');
+                return (
+                <tr key={userId} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
                       <div className="flex-shrink-0 h-10 w-10 rounded-full bg-gray-200 flex items-center justify-center">
@@ -141,7 +151,7 @@ const Users: React.FC = () => {
                         <div className="text-sm font-medium text-gray-900">
                           {user.displayName || user.name || 'No name'}
                         </div>
-                        <div className="text-sm text-gray-500">ID: {user._id.slice(-8)}</div>
+                        <div className="text-sm text-gray-500">ID: {String(user._id || '').slice(-8)}</div>
                       </div>
                     </div>
                   </td>
@@ -191,7 +201,7 @@ const Users: React.FC = () => {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <Link
-                      to={`/users/${user._id}`}
+                      to={`/users/${userId}`}
                       className="inline-flex items-center gap-1 text-red-600 hover:text-red-900"
                     >
                       <FaEye size={14} />
@@ -199,7 +209,8 @@ const Users: React.FC = () => {
                     </Link>
                   </td>
                 </tr>
-              ))
+                );
+              })
             )}
           </tbody>
         </table>
