@@ -477,6 +477,48 @@ export const uploadAPI = {
   },
 };
 
+// Pages API
+export const pagesAPI = {
+  getAll: async () => {
+    const response = await api.get('/pages/admin/all');
+    return response.data;
+  },
+  getById: async (id: string) => {
+    const response = await api.get(`/pages/admin/${id}`);
+    return response.data;
+  },
+  create: async (pageData: any) => {
+    const response = await api.post('/pages', pageData);
+    return response.data;
+  },
+  update: async (id: string, pageData: any) => {
+    const response = await api.put(`/pages/${id}`, pageData);
+    return response.data;
+  },
+  delete: async (id: string) => {
+    const response = await api.delete(`/pages/${id}`);
+    return response.data;
+  },
+  getTemplates: async () => {
+    const response = await api.get('/pages/templates');
+    return response.data;
+  },
+  getBlockTypes: async () => {
+    const response = await api.get('/pages/block-types');
+    return response.data;
+  },
+  generateBlockContent: async (blockType: string, pageTitle?: string, pageDescription?: string, customPrompt?: string, existingData?: any) => {
+    const response = await api.post('/pages/generate-block-content', {
+      blockType,
+      pageTitle,
+      pageDescription,
+      customPrompt,
+      existingData,
+    });
+    return response.data;
+  },
+};
+
 // Reviews API
 export const reviewsAPI = {
   getAll: async (params?: { productId?: string; approved?: boolean; page?: number; limit?: number }) => {
