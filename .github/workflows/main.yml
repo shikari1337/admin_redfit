@@ -23,11 +23,13 @@ jobs:
       - name: 📦 Install Dependencies
         run: npm ci
 
-      - name: 🏗️ Build Admin Panel
-        run: npm run build
-        env:
-          VITE_API_SERVER_URL: ${{ secrets.VITE_API_SERVER_URL }}
-          VITE_API_VERSION: ${{ secrets.VITE_API_VERSION }}
+          - name: 🏗️ Build Admin Panel
+            run: npm run build
+            env:
+              # Leave VITE_API_SERVER_URL empty for multi-tenant (uses relative URLs)
+              # Backend identifies tenant from domain (admin.redfit.in -> redfit)
+              VITE_API_SERVER_URL: ${{ secrets.VITE_API_SERVER_URL || '' }}
+              VITE_API_VERSION: ${{ secrets.VITE_API_VERSION || 'v1' }}
 
       - name: 🔍 Verify Build
         run: |

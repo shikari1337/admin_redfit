@@ -1,15 +1,35 @@
 import axios from 'axios';
 
-// API Configuration
-// Production: https://api.redfit.in
-// Development: http://localhost:3000
-// Normalize API base URL (remove trailing slashes to avoid double slashes)
-let API_BASE_URL = import.meta.env.VITE_API_SERVER_URL || 
-  (import.meta.env.PROD ? 'https://api.redfit.in' : 'http://localhost:3000');
-API_BASE_URL = API_BASE_URL.replace(/\/+$/, ''); // Remove trailing slashes
-
+// Multi-tenant API Configuration
+// For multi-tenant support, use relative URLs so backend can identify tenant from domain
+// This allows the admin to work with the multi-tenant backend
+// 
+// If VITE_API_SERVER_URL is set, use it (for backward compatibility or specific deployments)
+// Otherwise, use relative URLs (recommended for multi-tenant)
 const API_VERSION = import.meta.env.VITE_API_VERSION || 'v1';
-const API_URL = `${API_BASE_URL}/api/${API_VERSION}`;
+
+// Check if explicit API URL is configured
+let rawBaseUrl = import.meta.env.VITE_API_SERVER_URL;
+let useRelativeUrls = false;
+
+if (!rawBaseUrl || rawBaseUrl.trim() === '') {
+  // No explicit URL configured - use relative URLs (recommended for multi-tenant)
+  useRelativeUrls = true;
+  rawBaseUrl = ''; // Empty means relative URLs
+} else {
+  // Remove trailing /api if it exists (handle cases where user includes it)
+  if (rawBaseUrl.endsWith('/api')) {
+    rawBaseUrl = rawBaseUrl.slice(0, -4);
+  }
+  // Remove trailing slashes
+  rawBaseUrl = rawBaseUrl.replace(/\/+$/, '');
+}
+
+const API_BASE_URL = rawBaseUrl;
+// Use relative URL if no base URL is set, otherwise construct full URL
+const API_URL = useRelativeUrls 
+  ? `/api/${API_VERSION}` 
+  : `${API_BASE_URL}/api/${API_VERSION}`;
 
 const api = axios.create({
   baseURL: API_URL,
@@ -19,14 +39,21 @@ const api = axios.create({
 });
 
 // Log API configuration
-console.log('🔧 API Configuration:', {
-  baseURL: API_URL,
-  apiBaseUrl: API_BASE_URL,
-  apiVersion: API_VERSION,
-  isProduction: import.meta.env.PROD,
+console.log('🔧 Admin API Configuration:', {
+  VITE_API_SERVER_URL: import.meta.env.VITE_API_SERVER_URL,
+  VITE_API_VERSION: import.meta.env.VITE_API_VERSION,
+  PROD: import.meta.env.PROD,
+  MODE: import.meta.env.MODE,
+  API_BASE_URL: useRelativeUrls ? '(relative)' : API_BASE_URL,
+  API_VERSION,
+  API_URL,
+  USE_RELATIVE_URLS: useRelativeUrls,
   currentOrigin: window.location.origin,
   currentHostname: window.location.hostname,
-  protocol: window.location.protocol
+  protocol: window.location.protocol,
+  NOTE: useRelativeUrls 
+    ? 'Using relative URLs for multi-tenant support (backend identifies tenant from domain)'
+    : 'Using explicit API URL (set VITE_API_SERVER_URL to empty string to use relative URLs)'
 });
 
 // Add auth token to requests
