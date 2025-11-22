@@ -12,8 +12,8 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Configuration (adjust these as needed)
-DEPLOY_PATH="/home/[username]/htdocs/admin.redfit.in"
-SSH_USER="your-username"
+DEPLOY_PATH="/var/www/admin"
+SSH_USER="root"
 SSH_HOST="your-server-ip"
 BRANCH="main"
 
@@ -79,8 +79,8 @@ fi
 # Deploy to server
 echo -e "${GREEN}🚀 Deploying to server...${NC}"
 
-# Create deployment directory if it doesn't exist
-ssh ${SSH_USER}@${SSH_HOST} "mkdir -p ${DEPLOY_PATH}/dist"
+# Create deployment directory if it doesn't exist (with sudo)
+ssh ${SSH_USER}@${SSH_HOST} "sudo mkdir -p ${DEPLOY_PATH}/dist && sudo chown -R ${SSH_USER}:www-data ${DEPLOY_PATH}"
 
 # Sync files to server
 rsync -avz --delete \
@@ -88,6 +88,9 @@ rsync -avz --delete \
     --exclude='.well-known/' \
     --exclude='node_modules/' \
     dist/ ${SSH_USER}@${SSH_HOST}:${DEPLOY_PATH}/dist/
+
+# Set correct permissions
+ssh ${SSH_USER}@${SSH_HOST} "sudo chown -R www-data:www-data ${DEPLOY_PATH}/dist && sudo chmod -R 755 ${DEPLOY_PATH}/dist"
 
 # Copy .env if it exists locally (optional)
 if [ -f ".env" ]; then

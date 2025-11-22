@@ -112,8 +112,11 @@ See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed deployment instructions.
   - `SSH_PRIVATE_KEY`: Private SSH key
   - `SSH_USER`: SSH username
   - `SSH_HOST`: Server IP/domain
-  - `SSH_PATH`: Deployment path (e.g., `/home/user/htdocs/admin.redfit.in/dist`)
-  - `VITE_API_SERVER_URL`: Production API URL (e.g., `https://api.redfit.in`)
+   - `VITE_API_SERVER_URL`: Production API URL (e.g., `https://api.redfit.in`)
+   - `VITE_API_VERSION`: `v1` (optional)
+   - `SSH_RELOAD_NGINX`: `true` (optional, to auto-reload Nginx)
+   
+   **Note:** The deployment automatically goes to `/var/www/admin/dist/` to match your server structure.
 
 **Option 2: Using Deployment Script**
 ```bash

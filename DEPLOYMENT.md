@@ -17,16 +17,15 @@ This guide covers deploying the Redfit Admin Panel to a production server where 
 Recommended directory structure on the server:
 
 ```
-/home/[username]/htdocs/admin.redfit.in/
-├── .git/
-├── dist/              # Built admin panel files
-├── src/               # Source files (optional, can be removed after build)
-├── package.json
-├── package-lock.json
-├── vite.config.ts
-├── .env               # Production environment variables
-└── nginx.conf         # Nginx configuration (optional, can be in sites-available)
+/var/www/admin/
+├── dist/              # Built admin panel files (deployed here)
+└── .env               # Production environment variables (optional)
+
+# Source code can be in a separate location like:
+/home/[username]/admin/  # Git repository
 ```
+
+**Note:** The deployment script deploys directly to `/var/www/admin/dist/` to match your server structure (`/var/www/redfit`, `/var/www/superadmin`).
 
 ## 📦 Step 1: Clone Repository on Server
 
@@ -36,24 +35,26 @@ If the admin repo is already on the server, skip to Step 2. Otherwise:
 # SSH into your server
 ssh user@your-server-ip
 
-# Navigate to your web directory
-cd ~/htdocs/  # or /var/www/html/ or wherever you keep web files
+# Option 1: Clone to a development location (for building)
+cd ~/
+git clone [YOUR_ADMIN_REPO_URL] admin
+cd admin
 
-# Clone the admin repository
-git clone [YOUR_ADMIN_REPO_URL] admin.redfit.in
-# OR if using SSH:
-# git clone git@github.com:yourusername/redfit-admin.git admin.redfit.in
-
-cd admin.redfit.in
+# Option 2: Or use GitHub Actions to deploy directly to /var/www/admin/dist
+# No need to clone on server if using automated deployment
 ```
 
 ## ⚙️ Step 2: Configure Environment Variables
 
-Create a `.env` file in the admin directory:
+Create a `.env` file (optional, can be in source directory or `/var/www/admin/`):
 
 ```bash
-cd admin.redfit.in
+# If you cloned the repo locally
+cd ~/admin
 nano .env
+
+# OR create in deployment directory
+sudo nano /var/www/admin/.env
 ```
 
 Add the following content:
@@ -116,8 +117,8 @@ server {
     ssl_ciphers HIGH:!aNULL:!MD5;
     ssl_prefer_server_ciphers on;
 
-    # Root directory (point to dist folder)
-    root /home/[username]/htdocs/admin.redfit.in/dist;
+    # Root directory (matches server structure)
+    root /var/www/admin/dist;
     index index.html;
 
     # Logging
@@ -164,9 +165,9 @@ server {
 ```
 
 **Important:** 
-- Replace `[username]` with your actual server username
-- Replace `admin.redfit.in` with your actual admin domain
-- Adjust SSL certificate paths if using a different provider
+- The `root` path is set to `/var/www/admin/dist` to match your server structure
+- Replace `admin.redfit.in` with your actual admin domain if different
+- SSL certificate paths will be auto-configured by certbot
 
 Enable the site:
 
@@ -318,7 +319,7 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: ${{ secrets.SERVER_PORT || 22 }}
           source: "dist/*"
-          target: "/home/[username]/htdocs/admin.redfit.in/dist"
+          target: "/var/www/admin/dist"
       
       - name: Reload Nginx
         uses: appleboy/ssh-action@master
@@ -349,12 +350,13 @@ Add these secrets to your GitHub repository:
 
 2. **Verify dist folder exists:**
    ```bash
-   ls -la /home/[username]/htdocs/admin.redfit.in/dist
+   ls -la /var/www/admin/dist
    ```
 
 3. **Check file permissions:**
    ```bash
-   sudo chown -R www-data:www-data /home/[username]/htdocs/admin.redfit.in/dist
+   sudo chown -R www-data:www-data /var/www/admin/dist
+   sudo chmod -R 755 /var/www/admin/dist
    ```
 
 ### API connection errors
@@ -399,13 +401,15 @@ Add these secrets to your GitHub repository:
 ### Regular Updates
 
 ```bash
-# Pull latest changes
+# If using manual deployment:
+cd ~/admin  # or wherever you cloned the repo
 git pull origin main
-
-# Rebuild
+npm install
 npm run build
+rsync -avz --delete dist/ root@your-server:/var/www/admin/dist/
+ssh root@your-server "sudo chown -R www-data:www-data /var/www/admin/dist"
 
-# No need to restart anything - Nginx serves static files
+# If using GitHub Actions, just push to main branch - deployment is automatic
 ```
 
 ### Clear Cache

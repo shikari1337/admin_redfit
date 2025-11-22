@@ -8,31 +8,39 @@
 
 ## Step-by-Step Deployment
 
-### 1. Clone Repository on Server
+### 1. Set Up Deployment Directory
 
 ```bash
-ssh user@your-server-ip
-cd ~/htdocs  # or your web directory
-git clone [YOUR_ADMIN_REPO_URL] admin.redfit.in
-cd admin.redfit.in
+ssh root@your-server-ip
+sudo mkdir -p /var/www/admin/dist
+sudo chown -R root:www-data /var/www/admin
 ```
 
-### 2. Create Environment File
+**Note:** If using GitHub Actions, you don't need to clone on the server - it deploys directly to `/var/www/admin/dist/`.
+
+### 2. Configure GitHub Actions (Recommended)
+
+Add these secrets to your GitHub repository:
+- `SSH_PRIVATE_KEY`: Your private SSH key
+- `SSH_USER`: `root` (or your SSH username)
+- `SSH_HOST`: Your server IP/domain
+- `VITE_API_SERVER_URL`: `https://api.redfit.in`
+
+Then push to `main` branch - deployment is automatic!
+
+### 3. Manual Deployment (Alternative)
+
+If deploying manually:
 
 ```bash
-cat > .env << EOF
-VITE_API_SERVER_URL=https://api.redfit.in
-VITE_API_VERSION=v1
-EOF
-```
-
-**Important:** Replace `https://api.redfit.in` with your actual backend API URL.
-
-### 3. Install and Build
-
-```bash
+# On your local machine or CI/CD
+cd admin
 npm install
 npm run build
+
+# Deploy to server
+rsync -avz --delete dist/ root@your-server:/var/www/admin/dist/
+ssh root@your-server "sudo chown -R www-data:www-data /var/www/admin/dist"
 ```
 
 ### 4. Configure Nginx
@@ -69,20 +77,23 @@ Visit `https://admin.redfit.in` in your browser.
 
 2. Add these secrets:
    - `SSH_PRIVATE_KEY`: Your private SSH key
-   - `SSH_USER`: SSH username
+   - `SSH_USER`: `root` (or your SSH username)
    - `SSH_HOST`: Server IP or domain
-   - `SSH_PATH`: Deployment path (e.g., `/home/user/htdocs/admin.redfit.in/dist`)
-   - `VITE_API_SERVER_URL`: Production API URL
+   - `VITE_API_SERVER_URL`: Production API URL (e.g., `https://api.redfit.in`)
+   - `VITE_API_VERSION`: `v1` (optional)
+   - `SSH_RELOAD_NGINX`: `true` (optional, to auto-reload Nginx)
 
 3. Push to `main` branch to trigger deployment
 
 ## Manual Update
 
 ```bash
-cd ~/htdocs/admin.redfit.in
+# On your local machine
+cd admin
 git pull origin main
 npm install
 npm run build
-# Files are automatically served from dist/ folder
+rsync -avz --delete dist/ root@your-server:/var/www/admin/dist/
+ssh root@your-server "sudo chown -R www-data:www-data /var/www/admin/dist"
 ```
 

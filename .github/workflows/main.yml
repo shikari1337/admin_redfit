@@ -46,7 +46,7 @@ jobs:
       - name: 🧩 Ensure target path exists
         run: |
           ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
-            "mkdir -p '${{ secrets.SSH_PATH }}/dist'"
+            "sudo mkdir -p /var/www/admin/dist && sudo chown -R ${{ secrets.SSH_USER }}:www-data /var/www/admin"
 
       - name: 🚀 Upload Build to Server
         run: |
@@ -55,14 +55,18 @@ jobs:
           # rsync over SSH with strict host checking disabled
           RSYNC_SSH='ssh -o StrictHostKeyChecking=no'
           
-          # Sync dist/ contents to the deployment path
+          # Sync dist/ contents directly to /var/www/admin/dist
           # Delete old files but preserve .env and .well-known if present
           rsync -avz --delete \
             --exclude='.env' \
             --exclude='.well-known/' \
             --exclude='node_modules/' \
             -e "$RSYNC_SSH" \
-            dist/ "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.SSH_PATH }}/dist/"
+            dist/ "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/var/www/admin/dist/"
+          
+          # Set correct permissions
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+            "sudo chown -R www-data:www-data /var/www/admin/dist && sudo chmod -R 755 /var/www/admin/dist"
           
           echo "✅ Deployment completed!"
 
