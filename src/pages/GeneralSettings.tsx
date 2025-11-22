@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaArrowLeft, FaSave, FaGlobe, FaImage, FaPalette, FaInstagram, FaFont, FaBars, FaPlus, FaTrash, FaArrowUp, FaArrowDown } from 'react-icons/fa';
+import { FaArrowLeft, FaSave, FaGlobe, FaImage, FaPalette, FaInstagram, FaFont, FaBars, FaPlus, FaTrash, FaArrowUp, FaArrowDown, FaChevronDown, FaChevronUp } from 'react-icons/fa';
 import api from '../services/api';
 import ImageInputWithActions from '../components/common/ImageInputWithActions';
+import MegaMenuEditor from '../components/menu/MegaMenuEditor';
 
 const GeneralSettings: React.FC = () => {
   const navigate = useNavigate();
@@ -138,14 +139,24 @@ const GeneralSettings: React.FC = () => {
 
   const handleMenuItemChange = (index: number, field: string, value: any) => {
     setFormData(prev => {
-      const newItems = [...(prev.menu.items || [])];
-      newItems[index] = {
-        ...newItems[index],
-        [field]: value,
-      };
+      const newItems = [...(prev.menu?.items || [])];
+      if (newItems[index]) {
+        if (field === 'megaMenu') {
+          newItems[index] = {
+            ...newItems[index],
+            megaMenu: value,
+          };
+        } else {
+          newItems[index] = {
+            ...newItems[index],
+            [field]: value,
+          };
+        }
+      }
       return {
         ...prev,
         menu: {
+          ...prev.menu,
           items: newItems,
         },
       };
@@ -153,34 +164,42 @@ const GeneralSettings: React.FC = () => {
   };
 
   const addMenuItem = () => {
-    setFormData(prev => ({
-      ...prev,
-      menu: {
-        items: [
-          ...(prev.menu.items || []),
-          {
-            label: '',
-            type: 'link',
-            target: '',
-            order: (prev.menu.items || []).length,
-            isVisible: true,
-            openInNewTab: false,
-          },
-        ],
-      },
-    }));
+    setFormData(prev => {
+      const currentItems = prev.menu?.items || [];
+      return {
+        ...prev,
+        menu: {
+          ...prev.menu,
+          items: [
+            ...currentItems,
+            {
+              label: '',
+              type: 'link' as const,
+              target: '',
+              order: currentItems.length,
+              isVisible: true,
+              openInNewTab: false,
+            },
+          ],
+        },
+      };
+    });
   };
 
   const removeMenuItem = (index: number) => {
-    setFormData(prev => ({
-      ...prev,
-      menu: {
-        items: (prev.menu.items || []).filter((_, i) => i !== index).map((item, i) => ({
-          ...item,
-          order: i,
-        })),
-      },
-    }));
+    setFormData(prev => {
+      const currentItems = prev.menu?.items || [];
+      return {
+        ...prev,
+        menu: {
+          ...prev.menu,
+          items: currentItems.filter((_, i) => i !== index).map((item, i) => ({
+            ...item,
+            order: i,
+          })),
+        },
+      };
+    });
   };
 
   const moveMenuItem = (index: number, direction: 'up' | 'down') => {
@@ -631,6 +650,13 @@ const GeneralSettings: React.FC = () => {
                     </label>
                   )}
                 </div>
+
+                {/* Mega Menu Configuration */}
+                <MegaMenuEditor
+                  megaMenu={item.megaMenu}
+                  onChange={(megaMenu) => handleMenuItemChange(index, 'megaMenu', megaMenu)}
+                  menuItemIndex={index}
+                />
               </div>
             ))}
             <button
