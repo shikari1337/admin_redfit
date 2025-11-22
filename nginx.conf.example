@@ -1,0 +1,106 @@
+# Nginx Configuration for Admin Panel
+# Copy this to /etc/nginx/sites-available/admin.redfit.in
+# Then enable it: sudo ln -s /etc/nginx/sites-available/admin.redfit.in /etc/nginx/sites-enabled/
+# Test: sudo nginx -t
+# Reload: sudo systemctl reload nginx
+
+# HTTP to HTTPS redirect
+server {
+    listen 80;
+    listen [::]:80;
+    server_name admin.redfit.in;
+
+    # Redirect HTTP to HTTPS
+    return 301 https://$server_name$request_uri;
+}
+
+# HTTPS server
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name admin.redfit.in;
+
+    # SSL Certificate (Let's Encrypt)
+    ssl_certificate /etc/letsencrypt/live/admin.redfit.in/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/admin.redfit.in/privkey.pem;
+    
+    # SSL Configuration
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+
+    # Root directory (adjust path to your deployment directory)
+    root /home/[username]/htdocs/admin.redfit.in/dist;
+    index index.html;
+
+    # Logging
+    access_log /var/log/nginx/admin.redfit.in.access.log;
+    error_log /var/log/nginx/admin.redfit.in.error.log;
+
+    # Security Headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://api.redfit.in;" always;
+
+    # Gzip Compression
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_comp_level 6;
+    gzip_types
+        text/plain
+        text/css
+        text/xml
+        text/javascript
+        application/x-javascript
+        application/xml+rss
+        application/javascript
+        application/json
+        application/xml
+        image/svg+xml;
+
+    # Handle React Router (SPA fallback) - IMPORTANT for client-side routing
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Cache static assets with long expiration
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot|webp|avif)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        access_log off;
+    }
+
+    # Don't cache index.html - always serve fresh version
+    location = /index.html {
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+        add_header Pragma "no-cache";
+        add_header Expires "0";
+    }
+
+    # Security: Block access to sensitive files
+    location ~ /\. {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+
+    # Block access to source files (if present)
+    location ~ ^/(src|node_modules|\.git|package\.json|vite\.config\.ts) {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+
+    # Block access to .env file
+    location ~ /\.env {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+}
+

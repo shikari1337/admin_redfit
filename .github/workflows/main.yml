@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -24,6 +25,18 @@ jobs:
 
       - name: 🏗️ Build Admin Panel
         run: npm run build
+        env:
+          VITE_API_SERVER_URL: ${{ secrets.VITE_API_SERVER_URL }}
+          VITE_API_VERSION: ${{ secrets.VITE_API_VERSION || 'v1' }}
+
+      - name: 🔍 Verify Build
+        run: |
+          if [ ! -d "dist" ]; then
+            echo "❌ Build failed: dist folder not found"
+            exit 1
+          fi
+          echo "✅ Build verified: dist folder exists"
+          ls -lh dist/
 
       - name: 🔐 Start SSH Agent
         uses: webfactory/ssh-agent@v0.9.0
@@ -33,21 +46,29 @@ jobs:
       - name: 🧩 Ensure target path exists
         run: |
           ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
-            "mkdir -p '${{ secrets.SSH_PATH }}'"
+            "mkdir -p '${{ secrets.SSH_PATH }}/dist'"
 
-      - name: 🚀 Upload Build to CloudPanel (safe sync)
+      - name: 🚀 Upload Build to Server
         run: |
-          echo "Uploading dist/ to server..."
-
+          echo "🚀 Uploading dist/ to server..."
+          
           # rsync over SSH with strict host checking disabled
           RSYNC_SSH='ssh -o StrictHostKeyChecking=no'
-
-          # Sync dist/ into the ROOT path (no extra subfolder),
-          # delete old files but keep .env and .well-known if present
+          
+          # Sync dist/ contents to the deployment path
+          # Delete old files but preserve .env and .well-known if present
           rsync -avz --delete \
             --exclude='.env' \
             --exclude='.well-known/' \
+            --exclude='node_modules/' \
             -e "$RSYNC_SSH" \
-            dist/ "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.SSH_PATH }}/"
-
+            dist/ "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.SSH_PATH }}/dist/"
+          
           echo "✅ Deployment completed!"
+
+      - name: 🔄 Reload Nginx (optional)
+        if: ${{ secrets.SSH_RELOAD_NGINX == 'true' }}
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+            "sudo systemctl reload nginx"
+          echo "✅ Nginx reloaded"
