@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { FaDownload, FaSearch, FaSms, FaSyncAlt } from 'react-icons/fa';
 import { cartsAPI } from '../services/api';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -45,33 +45,54 @@ const AbandonedCarts: React.FC = () => {
   const [status, setStatus] = useState<'abandoned' | 'active' | 'converted'>('abandoned');
   const [error, setError] = useState<string | null>(null);
 
-  const fetchCarts = async () => {
+  const fetchCarts = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
+      console.log('🔍 Fetching carts with params:', { status, search });
+      
       const data = await cartsAPI.listAdmin({ status, search });
-      setCarts(Array.isArray(data) ? data : data?.data || []);
+      console.log('📦 Received carts data:', { 
+        isArray: Array.isArray(data), 
+        hasData: !!data?.data,
+        dataLength: Array.isArray(data) ? data.length : data?.data?.length || 0,
+        fullData: data 
+      });
+      
+      const cartsData = Array.isArray(data) ? data : data?.data || [];
+      
+      // Sanitize cart data - ensure _id and recoveryToken are strings
+      const sanitizedCarts = cartsData.map((cart: any) => ({
+        ...cart,
+        _id: String(cart._id || ''),
+        recoveryToken: String(cart.recoveryToken || ''),
+        cartId: cart.cartId ? String(cart.cartId) : undefined,
+        userId: cart.userId ? String(cart.userId) : undefined,
+      }));
+      
+      console.log('✅ Sanitized carts:', { count: sanitizedCarts.length, sample: sanitizedCarts[0] });
+      setCarts(sanitizedCarts);
     } catch (err: any) {
-      console.error('Failed to load carts', err);
-      setError(err.message || 'Failed to load carts');
+      console.error('❌ Failed to load carts', err);
+      setError(err.response?.data?.message || err.message || 'Failed to load carts');
     } finally {
       setLoading(false);
     }
-  };
+  }, [status, search]);
 
   useEffect(() => {
     fetchCarts();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [fetchCarts]);
 
   const handleSearch = async (event: React.FormEvent) => {
     event.preventDefault();
-    fetchCarts();
+    await fetchCarts();
   };
 
-  const handleStatusChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    setStatus(event.target.value as typeof status);
-    setTimeout(fetchCarts, 0);
+  const handleStatusChange = async (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const newStatus = event.target.value as typeof status;
+    setStatus(newStatus);
+    // fetchCarts will be called automatically by useEffect when status changes
   };
 
   const handleExport = async () => {
@@ -91,21 +112,23 @@ const AbandonedCarts: React.FC = () => {
       ];
       const csv = [
         header.join(','),
-        ...(Array.isArray(rows) ? rows : []).map((row: any) =>
-          [
-            row.cartId || row._id.slice(-8),
+        ...(Array.isArray(rows) ? rows : []).map((row: any) => {
+          // Ensure _id is a string before calling slice
+          const cartIdStr = row.cartId || (row._id ? String(row._id).slice(-8) : '');
+          return [
+            cartIdStr,
             row.isGuest ? 'Guest' : 'Logged In',
-            row.recoveryToken,
-            row.status,
-            row.lastActiveAt,
-            row.lastRecoveredAt,
-            row.lastRecoverySmsAt,
-            row.itemCount,
-            row.total,
+            row.recoveryToken || '',
+            row.status || '',
+            row.lastActiveAt || '',
+            row.lastRecoveredAt || '',
+            row.lastRecoverySmsAt || '',
+            row.itemCount || 0,
+            row.total || 0,
           ]
             .map((value) => `"${value ?? ''}"`)
-            .join(',')
-        ),
+            .join(',');
+        }),
       ].join('\n');
 
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -125,8 +148,10 @@ const AbandonedCarts: React.FC = () => {
 
   const handleSendRecovery = async (cart: CartRecord) => {
     try {
-      setSendingSmsIds((prev) => new Set(prev).add(cart._id));
-      await cartsAPI.sendRecovery(cart._id);
+      // Ensure _id is a string
+      const cartIdStr = String(cart._id || '');
+      setSendingSmsIds((prev) => new Set(prev).add(cartIdStr));
+      await cartsAPI.sendRecovery(cartIdStr);
       fetchCarts();
     } catch (err: any) {
       console.error('Failed to send recovery message', err);
@@ -134,7 +159,8 @@ const AbandonedCarts: React.FC = () => {
     } finally {
       setSendingSmsIds((prev) => {
         const next = new Set(prev);
-        next.delete(cart._id);
+        const cartIdStr = String(cart._id || '');
+        next.delete(cartIdStr);
         return next;
       });
     }
@@ -265,11 +291,16 @@ const AbandonedCarts: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                carts.map((cart) => (
-                  <tr key={cart._id} className="hover:bg-gray-50">
+                carts.map((cart) => {
+                  // Ensure _id and recoveryToken are strings before calling slice
+                  const cartIdStr = String(cart._id || '');
+                  const recoveryTokenStr = String(cart.recoveryToken || '');
+                  
+                  return (
+                  <tr key={cartIdStr} className="hover:bg-gray-50">
                     <td className="px-6 py-4 align-top">
                       <div className="text-sm font-semibold text-gray-900">
-                        Cart ID: {cart.cartId || cart._id.slice(-8)}
+                        Cart ID: {cart.cartId || cartIdStr.slice(-8)}
                       </div>
                       <div className="text-xs text-gray-500">
                         {cart.isGuest ? (
@@ -282,16 +313,20 @@ const AbandonedCarts: React.FC = () => {
                           </span>
                         )}
                       </div>
-                      <div className="text-xs text-gray-400">Token: {cart.recoveryToken.slice(0, 8)}...</div>
+                      {recoveryTokenStr && (
+                        <div className="text-xs text-gray-400">Token: {recoveryTokenStr.slice(0, 8)}...</div>
+                      )}
                       <div className="text-xs text-gray-500 mt-1">
                         Status:{' '}
                         <span className="font-medium capitalize">
                           {cart.status}
                         </span>
                       </div>
-                      <div className="text-xs text-gray-400 mt-1">
-                        Cart ID: {cart._id.slice(-6)}
-                      </div>
+                      {cartIdStr && (
+                        <div className="text-xs text-gray-400 mt-1">
+                          Cart ID: {cartIdStr.slice(-6)}
+                        </div>
+                      )}
                     </td>
                     <td className="px-6 py-4 align-top">
                       {cart.user ? (
@@ -314,15 +349,15 @@ const AbandonedCarts: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 align-top">
                       <div className="space-y-2 text-sm text-gray-700">
-                        {cart.items.slice(0, 3).map((item, index) => (
-                          <div key={`${cart._id}-item-${index}`}>
+                        {Array.isArray(cart.items) && cart.items.slice(0, 3).map((item, index) => (
+                          <div key={`${cartIdStr}-item-${index}`}>
                             <span className="font-medium">{item.productName}</span>
                             <div className="text-xs text-gray-500">
                               Qty: {item.quantity} · ₹{item.price} {item.size && `· Size ${item.size}`}
                             </div>
                           </div>
                         ))}
-                        {cart.items.length > 3 && (
+                        {Array.isArray(cart.items) && cart.items.length > 3 && (
                           <div className="text-xs text-gray-400">
                             +{cart.items.length - 3} more items
                           </div>
@@ -346,15 +381,16 @@ const AbandonedCarts: React.FC = () => {
                     <td className="px-6 py-4 align-top text-right">
                       <button
                         onClick={() => handleSendRecovery(cart)}
-                        disabled={sendingSmsIds.has(cart._id)}
+                        disabled={sendingSmsIds.has(cartIdStr)}
                         className="inline-flex items-center px-3 py-2 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-400"
                       >
                         <FaSms className="mr-2" />
-                        {sendingSmsIds.has(cart._id) ? 'Sending...' : 'Send Recovery'}
+                        {sendingSmsIds.has(cartIdStr) ? 'Sending...' : 'Send Recovery'}
                       </button>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>

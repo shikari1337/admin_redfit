@@ -19,6 +19,7 @@ import {
   FaImages,
   FaFileAlt,
   FaTruck,
+  FaFile,
 } from 'react-icons/fa';
 import { authAPI } from '../services/api';
 import PageTransitionLoader from './PageTransitionLoader';
@@ -72,6 +73,7 @@ const Layout: React.FC = () => {
     { path: '/coupons', icon: FaTicketAlt, label: 'Coupons' },
     { path: '/reviews', icon: FaStar, label: 'Reviews' },
     { path: '/faqs', icon: FaQuestionCircle, label: 'FAQs' },
+    { path: '/pages', icon: FaFile, label: 'Pages' },
     { path: '/logs', icon: FaFileAlt, label: 'Logs' },
     { path: '/settings', icon: FaCog, label: 'Settings' },
   ];

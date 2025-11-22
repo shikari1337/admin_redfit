@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaArrowLeft, FaSave, FaGlobe, FaImage, FaPalette, FaInstagram } from 'react-icons/fa';
+import { FaArrowLeft, FaSave, FaGlobe, FaImage, FaPalette, FaInstagram, FaFont, FaBars, FaPlus, FaTrash, FaArrowUp, FaArrowDown } from 'react-icons/fa';
 import api from '../services/api';
 import ImageInputWithActions from '../components/common/ImageInputWithActions';
 
@@ -26,6 +26,15 @@ const GeneralSettings: React.FC = () => {
       backgroundColor: '#FFFFFF',
       textColor: '#111827',
       linkColor: '#3B82F6',
+    },
+    fonts: {
+      fontFamily: 'Inter',
+      headingFontFamily: '',
+      bodyFontFamily: '',
+      fontSize: {},
+    },
+    menu: {
+      items: [],
     },
     instagram: {
       username: '',
@@ -62,6 +71,15 @@ const GeneralSettings: React.FC = () => {
             textColor: settings.colors?.textColor || '#111827',
             linkColor: settings.colors?.linkColor || '#3B82F6',
           },
+          fonts: {
+            fontFamily: settings.fonts?.fontFamily || 'Inter',
+            headingFontFamily: settings.fonts?.headingFontFamily || '',
+            bodyFontFamily: settings.fonts?.bodyFontFamily || '',
+            fontSize: settings.fonts?.fontSize || {},
+          },
+          menu: {
+            items: settings.menu?.items || [],
+          },
           instagram: {
             username: settings.instagram?.username || '',
             isEnabled: settings.instagram?.isEnabled || false,
@@ -85,6 +103,8 @@ const GeneralSettings: React.FC = () => {
         general: formData.general,
         logo: formData.logo,
         colors: formData.colors,
+        fonts: formData.fonts,
+        menu: formData.menu,
         instagram: formData.instagram,
       };
       
@@ -106,7 +126,7 @@ const GeneralSettings: React.FC = () => {
     }
   };
 
-  const handleChange = (section: string, field: string, value: string | boolean) => {
+  const handleChange = (section: string, field: string, value: string | boolean | any) => {
     setFormData(prev => ({
       ...prev,
       [section]: {
@@ -114,6 +134,74 @@ const GeneralSettings: React.FC = () => {
         [field]: value,
       },
     }));
+  };
+
+  const handleMenuItemChange = (index: number, field: string, value: any) => {
+    setFormData(prev => {
+      const newItems = [...(prev.menu.items || [])];
+      newItems[index] = {
+        ...newItems[index],
+        [field]: value,
+      };
+      return {
+        ...prev,
+        menu: {
+          items: newItems,
+        },
+      };
+    });
+  };
+
+  const addMenuItem = () => {
+    setFormData(prev => ({
+      ...prev,
+      menu: {
+        items: [
+          ...(prev.menu.items || []),
+          {
+            label: '',
+            type: 'link',
+            target: '',
+            order: (prev.menu.items || []).length,
+            isVisible: true,
+            openInNewTab: false,
+          },
+        ],
+      },
+    }));
+  };
+
+  const removeMenuItem = (index: number) => {
+    setFormData(prev => ({
+      ...prev,
+      menu: {
+        items: (prev.menu.items || []).filter((_, i) => i !== index).map((item, i) => ({
+          ...item,
+          order: i,
+        })),
+      },
+    }));
+  };
+
+  const moveMenuItem = (index: number, direction: 'up' | 'down') => {
+    setFormData(prev => {
+      const items = [...(prev.menu.items || [])];
+      if (direction === 'up' && index > 0) {
+        [items[index - 1], items[index]] = [items[index], items[index - 1]];
+        items[index - 1].order = index - 1;
+        items[index].order = index;
+      } else if (direction === 'down' && index < items.length - 1) {
+        [items[index], items[index + 1]] = [items[index + 1], items[index]];
+        items[index].order = index;
+        items[index + 1].order = index + 1;
+      }
+      return {
+        ...prev,
+        menu: {
+          items,
+        },
+      };
+    });
   };
 
   if (loading) {
@@ -368,6 +456,194 @@ const GeneralSettings: React.FC = () => {
                 />
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Font Settings */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center gap-4 mb-6">
+            <div className="flex-shrink-0 w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center">
+              <FaFont className="w-6 h-6 text-indigo-600" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Font Configuration</h2>
+              <p className="text-sm text-gray-600">Configure fonts for your website</p>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Primary Font Family
+              </label>
+              <input
+                type="text"
+                value={formData.fonts.fontFamily}
+                onChange={(e) => handleChange('fonts', 'fontFamily', e.target.value)}
+                placeholder="Inter, sans-serif"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+              />
+              <p className="text-xs text-gray-500 mt-1">Default font family for the entire site (e.g., Inter, Roboto, Poppins)</p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Heading Font Family (Optional)
+              </label>
+              <input
+                type="text"
+                value={formData.fonts.headingFontFamily}
+                onChange={(e) => handleChange('fonts', 'headingFontFamily', e.target.value)}
+                placeholder="Leave empty to use primary font"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+              />
+              <p className="text-xs text-gray-500 mt-1">Font family for headings. Leave empty to use primary font.</p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Body Font Family (Optional)
+              </label>
+              <input
+                type="text"
+                value={formData.fonts.bodyFontFamily}
+                onChange={(e) => handleChange('fonts', 'bodyFontFamily', e.target.value)}
+                placeholder="Leave empty to use primary font"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+              />
+              <p className="text-xs text-gray-500 mt-1">Font family for body text. Leave empty to use primary font.</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Menu Settings */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center gap-4 mb-6">
+            <div className="flex-shrink-0 w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+              <FaBars className="w-6 h-6 text-green-600" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Menu Configuration</h2>
+              <p className="text-sm text-gray-600">Configure navigation menu items</p>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            {formData.menu.items.map((item, index) => (
+              <div key={index} className="border border-gray-200 rounded-lg p-4 space-y-3">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm font-medium text-gray-700">Menu Item #{index + 1}</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => moveMenuItem(index, 'up')}
+                      disabled={index === 0}
+                      className="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-30"
+                      title="Move up"
+                    >
+                      <FaArrowUp className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => moveMenuItem(index, 'down')}
+                      disabled={index === formData.menu.items.length - 1}
+                      className="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-30"
+                      title="Move down"
+                    >
+                      <FaArrowDown className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeMenuItem(index)}
+                      className="p-1 text-red-400 hover:text-red-600"
+                      title="Remove"
+                    >
+                      <FaTrash className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Label</label>
+                    <input
+                      type="text"
+                      value={item.label}
+                      onChange={(e) => handleMenuItemChange(index, 'label', e.target.value)}
+                      placeholder="Home"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Type</label>
+                    <select
+                      value={item.type}
+                      onChange={(e) => handleMenuItemChange(index, 'type', e.target.value)}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                    >
+                      <option value="link">Link (External)</option>
+                      <option value="page">Page (Internal)</option>
+                      <option value="category">Category</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Target {item.type === 'link' ? '(URL)' : item.type === 'category' ? '(Category Slug)' : '(Page Name)'}
+                    </label>
+                    <input
+                      type="text"
+                      value={item.target || ''}
+                      onChange={(e) => handleMenuItemChange(index, 'target', e.target.value)}
+                      placeholder={item.type === 'link' ? 'https://example.com' : item.type === 'category' ? 'category-slug' : 'home'}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                    />
+                  </div>
+                  <div className="flex items-end gap-2">
+                    <div className="flex-1">
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Order</label>
+                      <input
+                        type="number"
+                        value={item.order}
+                        onChange={(e) => handleMenuItemChange(index, 'order', parseInt(e.target.value) || 0)}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                  <label className="flex items-center gap-2 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={item.isVisible}
+                      onChange={(e) => handleMenuItemChange(index, 'isVisible', e.target.checked)}
+                      className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
+                    />
+                    Visible
+                  </label>
+                  {item.type === 'link' && (
+                    <label className="flex items-center gap-2 text-sm text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={item.openInNewTab || false}
+                        onChange={(e) => handleMenuItemChange(index, 'openInNewTab', e.target.checked)}
+                        className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
+                      />
+                      Open in New Tab
+                    </label>
+                  )}
+                </div>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={addMenuItem}
+              className="w-full py-2 px-4 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-red-500 hover:text-red-600 transition-colors flex items-center justify-center gap-2"
+            >
+              <FaPlus className="w-4 h-4" />
+              Add Menu Item
+            </button>
+            {formData.menu.items.length === 0 && (
+              <p className="text-sm text-gray-500 text-center">No menu items configured. Add items above or use default menu.</p>
+            )}
           </div>
         </div>
 

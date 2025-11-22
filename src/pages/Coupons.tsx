@@ -6,18 +6,21 @@ import { FaPlus, FaEdit, FaTrash, FaCheckCircle, FaTimesCircle } from 'react-ico
 interface Coupon {
   _id: string;
   code: string;
-  type: 'percentage' | 'fixed_amount' | 'buy_x_get_y';
-  value: number;
-  minOrderAmount?: number;
-  maxDiscountAmount?: number;
+  type: 'percentage' | 'fixed' | 'b2g1';
+  value?: number;
+  description: string;
+  minPurchase?: number;
+  maxDiscount?: number;
   usageLimit?: number;
-  usedCount: number;
+  usageCount: number;
+  userLimit?: number;
+  clubbedWithOtherCoupons: boolean;
   validFrom: string;
-  validUntil?: string;
+  validUntil: string;
   isActive: boolean;
-  discountOn: 'all_products' | 'specific_products' | 'specific_categories';
-  buyX?: number;
-  getY?: number;
+  applicableProducts?: string[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 const Coupons: React.FC = () => {
@@ -35,7 +38,10 @@ const Coupons: React.FC = () => {
       setLoading(true);
       setError(null);
       const data = await couponsAPI.getAll();
-      setCoupons(data);
+      console.log('Fetched coupons:', data); // Debug log
+      // Handle array or object with data property
+      const couponsList = Array.isArray(data) ? data : (data.data || []);
+      setCoupons(couponsList);
     } catch (err: any) {
       setError(err.message || 'Failed to fetch coupons');
       console.error('Error fetching coupons:', err);
@@ -75,22 +81,24 @@ const Coupons: React.FC = () => {
     switch (type) {
       case 'percentage':
         return 'Percentage';
-      case 'fixed_amount':
+      case 'fixed':
         return 'Fixed Amount';
-      case 'buy_x_get_y':
-        return 'Buy X Get Y';
+      case 'b2g1':
+        return 'Buy 2 Get 1 Free';
       default:
         return type;
     }
   };
 
   const getTypeValue = (coupon: Coupon) => {
-    if (coupon.type === 'buy_x_get_y') {
-      return 'Buy X Get Y';
+    if (coupon.type === 'b2g1') {
+      return 'Buy 2 Get 1 Free';
     } else if (coupon.type === 'percentage') {
       return `${coupon.value || 0}%`;
-    } else {
+    } else if (coupon.type === 'fixed') {
       return `₹${coupon.value || 0}`;
+    } else {
+      return '-';
     }
   };
 
@@ -168,7 +176,10 @@ const Coupons: React.FC = () => {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm text-gray-900">
-                      {coupon.usedCount} / {coupon.usageLimit || '∞'}
+                      {coupon.usageCount || 0} / {coupon.usageLimit || '∞'}
+                      {coupon.userLimit && (
+                        <div className="text-xs text-gray-500">Per user: {coupon.userLimit}</div>
+                      )}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">

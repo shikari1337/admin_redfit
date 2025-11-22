@@ -30,6 +30,8 @@ import Users from './pages/Users';
 import UserDetail from './pages/UserDetail';
 import Gallery from './pages/Gallery';
 import Logs from './pages/Logs';
+import Pages from './pages/Pages';
+import PageForm from './pages/PageForm';
 import Layout from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
@@ -72,6 +74,9 @@ function App() {
           <Route path="coupons" element={<Coupons />} />
           <Route path="coupons/new" element={<CouponForm />} />
           <Route path="coupons/:id/edit" element={<CouponForm />} />
+          <Route path="pages" element={<Pages />} />
+          <Route path="pages/new" element={<PageForm />} />
+          <Route path="pages/:id/edit" element={<PageForm />} />
           <Route path="settings" element={<Settings />} />
           <Route path="settings/general" element={<GeneralSettings />} />
           <Route path="settings/api-integrations" element={<ApiIntegrationSettings />} />
