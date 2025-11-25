@@ -196,7 +196,6 @@ const GeneralSettings: React.FC = () => {
             isEnabled: settings.instagram?.isEnabled || false,
           },
         });
-      }
     } catch (error: any) {
       console.error('Failed to fetch settings:', error);
       alert('Failed to load settings');
