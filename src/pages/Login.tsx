@@ -64,6 +64,8 @@ const Login: React.FC = () => {
       
       const response = await authAPI.login(email, password);
       console.log('✅ Login response:', response);
+      console.log('✅ Login response type:', typeof response);
+      console.log('✅ Login response keys:', response ? Object.keys(response) : 'null');
       
       // Handle different response formats:
       // 1. {success: true, data: {user, token}} - normalized to {user, token}
@@ -71,10 +73,40 @@ const Login: React.FC = () => {
       // 3. {success: true, data: {token}} - normalized to {token}
       const token = response?.token || response?.data?.token;
       
+      console.log('🔑 Extracted token:', token ? `${token.substring(0, 20)}...` : 'NOT FOUND');
+      console.log('🔑 Token exists:', !!token);
+      console.log('🔑 Full response structure:', JSON.stringify(response, null, 2));
+      
       if (token) {
+        // Store token
         localStorage.setItem('admin_token', token);
-        console.log('✅ Token stored, navigating to dashboard');
-        navigate('/dashboard');
+        
+        // Verify token was stored
+        const storedToken = localStorage.getItem('admin_token');
+        console.log('✅ Token stored in localStorage:', storedToken ? `${storedToken.substring(0, 20)}...` : 'NOT FOUND');
+        console.log('✅ Token verification - stored matches:', storedToken === token);
+        
+        if (!storedToken || storedToken !== token) {
+          console.error('❌ Token storage failed!');
+          setError('Failed to store authentication token. Please try again.');
+          setLoading(false);
+          return;
+        }
+        
+        // Small delay to ensure localStorage is written (browser optimization)
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // Verify again after delay
+        const verifyToken = localStorage.getItem('admin_token');
+        console.log('✅ Token verification after delay:', verifyToken ? `${verifyToken.substring(0, 20)}...` : 'NOT FOUND');
+        
+        if (verifyToken) {
+          console.log('✅ Token confirmed, navigating to dashboard');
+          navigate('/dashboard', { replace: true });
+        } else {
+          console.error('❌ Token disappeared from localStorage!');
+          setError('Authentication failed. Please try again.');
+        }
       } else {
         console.error('❌ Invalid response - no token found:', response);
         setError('Invalid credentials or server error');
