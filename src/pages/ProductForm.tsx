@@ -172,10 +172,28 @@ const ProductForm: React.FC = () => {
 
   const loadPrefilledData = (data: any) => {
     try {
+      // Extract category IDs from various formats - ALWAYS return string IDs
       const productCategories =
-        (data.categories || []).map((cat: any) =>
-          typeof cat === 'string' ? cat : cat?._id || ''
-        ).filter(Boolean) || [];
+        (data.categories || []).map((cat: any) => {
+          // Already a string ID
+          if (typeof cat === 'string' && cat.length === 24) {
+            return cat.trim();
+          }
+          // Object with _id property
+          if (cat?._id) {
+            // _id might be a string or ObjectId
+            const idStr = typeof cat._id === 'string' ? cat._id : String(cat._id);
+            if (idStr && idStr !== '[object Object]' && idStr.length === 24) {
+              return idStr.trim();
+            }
+          }
+          // Try to convert to string (for ObjectId instances)
+          const str = String(cat);
+          if (str && str !== '[object Object]' && str.length === 24) {
+            return str.trim();
+          }
+          return null;
+        }).filter((id: any): id is string => id !== null && typeof id === 'string' && id.length === 24) || [];
       
       const inferredSizeChartId =
         data.sizeChartId ||
@@ -274,26 +292,35 @@ const ProductForm: React.FC = () => {
       sanitized._id = String(sanitized._id);
     }
     
-    // Sanitize categories - remove buffer objects
+    // Sanitize categories - convert all to string IDs
     if (Array.isArray(sanitized.categories)) {
       sanitized.categories = sanitized.categories.map((cat: any) => {
+        // Already a string ID
         if (typeof cat === 'string') {
-          return cat;
+          return cat.trim();
         }
+        // ObjectId instance or object with _id
         if (cat && typeof cat === 'object') {
-          // Check if it has buffer property (Mongoose internal)
-          if (cat.buffer || cat.constructor?.name === 'Buffer') {
-            return null;
+          // Extract _id if available
+          if (cat._id) {
+            // _id might be string, ObjectId, or object with buffer
+            if (typeof cat._id === 'string') {
+              return cat._id.trim();
+            }
+            // Try to convert _id to string
+            const idStr = String(cat._id);
+            if (idStr && idStr !== '[object Object]' && idStr.length === 24) {
+              return idStr;
+            }
           }
-          // Only include serializable properties
-          const cleanCat: any = {};
-          if (cat._id) cleanCat._id = String(cat._id);
-          if (cat.name) cleanCat.name = String(cat.name);
-          if (cat.slug) cleanCat.slug = String(cat.slug);
-          return cleanCat;
+          // If no _id, try to convert the whole object
+          const idStr = String(cat);
+          if (idStr && idStr !== '[object Object]' && idStr.length === 24) {
+            return idStr;
+          }
         }
         return null;
-      }).filter((cat: any) => cat !== null);
+      }).filter((cat: any): cat is string => cat !== null && typeof cat === 'string' && cat.length === 24);
     }
     
     // Sanitize sizeChart if it's an object
@@ -1504,6 +1531,18 @@ const ProductForm: React.FC = () => {
         }
       }
 
+      // Ensure categories are always string IDs (never objects or buffers)
+      const sanitizedCategories = (selectedCategories || []).map((cat: any) => {
+        if (typeof cat === 'string' && cat.length === 24) {
+          return cat.trim();
+        }
+        if (cat?._id && typeof cat._id === 'string' && cat._id.length === 24) {
+          return cat._id.trim();
+        }
+        const str = String(cat);
+        return (str && str !== '[object Object]' && str.length === 24) ? str.trim() : null;
+      }).filter((id): id is string => id !== null && typeof id === 'string' && id.length === 24);
+
       const data: Record<string, any> = {
         ...rest,
         price: parseFloat(formData.price),
@@ -1516,7 +1555,7 @@ const ProductForm: React.FC = () => {
         showOutOfStockVariants: formData.showOutOfStockVariants,
         showFeatures: formData.showFeatures,
         variants: cleanedVariants,
-        categories: selectedCategories,
+        categories: sanitizedCategories,
       };
 
       data.slug = normalizedSlug;
