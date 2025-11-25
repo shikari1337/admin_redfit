@@ -56,6 +56,30 @@ console.log('🔧 Admin API Configuration:', {
     : 'Using explicit API URL (set VITE_API_SERVER_URL to empty string to use relative URLs)'
 });
 
+/**
+ * Normalize API response to ensure consistent format
+ * Backend returns: { success: true, data: ... }
+ * This function extracts the data field if present, otherwise returns the full response
+ */
+const normalizeResponse = (response: any): any => {
+  if (!response || typeof response !== 'object') {
+    return response;
+  }
+  
+  // If response has success and data fields, extract data
+  if (response.success !== undefined && response.data !== undefined) {
+    return response.data;
+  }
+  
+  // If response.data exists and has success/data structure, extract nested data
+  if (response.data && typeof response.data === 'object' && response.data.success !== undefined && response.data.data !== undefined) {
+    return response.data.data;
+  }
+  
+  // Return as-is if no standard structure found
+  return response;
+};
+
 // Add auth token to requests
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('admin_token');
@@ -72,9 +96,13 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Handle auth errors
+// Handle auth errors and normalize responses
 api.interceptors.response.use(
   (response) => {
+    // Normalize response data to ensure consistent format
+    if (response.data) {
+      response.data = normalizeResponse(response.data);
+    }
     console.log('📥 Response:', {
       status: response.status,
       url: response.config.url,
@@ -251,7 +279,9 @@ export const authAPI = {
 export const productsAPI = {
   getAll: async (params?: { active?: boolean; search?: string }) => {
     const response = await api.get('/products', { params });
-    return response.data;
+    // Response is already normalized by interceptor, but ensure data field exists
+    const data = response.data;
+    return Array.isArray(data) ? { data } : data;
   },
   getById: async (id: string) => {
     const response = await api.get(`/products/${id}`);
@@ -423,13 +453,8 @@ export const ordersAPI = {
   },
   getById: async (id: string) => {
     const response = await api.get(`/orders/${id}`);
-    // Backend returns { success: true, data: orderData }
-    // Extract and return the order data in the format expected by frontend
-    if (response.data?.success && response.data?.data) {
-      return { data: response.data.data };
-    }
-    // Fallback for non-standard responses
-    return response.data?.data ? { data: response.data.data } : response.data;
+    // Response is already normalized by interceptor
+    return response.data;
   },
   confirmOrder: async (id: string) => {
     const response = await api.post(`/orders/${id}/confirm`);
@@ -818,19 +843,19 @@ export const couponsAPI = {
   getAll: async () => {
     // Admin route - get all coupons (including inactive)
     const response = await api.get('/coupons/admin');
-    return response.data.data || response.data;
+    return response.data;
   },
   getById: async (id: string) => {
     const response = await api.get(`/coupons/${id}`);
-    return response.data.data || response.data;
+    return response.data;
   },
   create: async (data: any) => {
     const response = await api.post('/coupons', data);
-    return response.data.data || response.data;
+    return response.data;
   },
   update: async (id: string, data: any) => {
     const response = await api.put(`/coupons/${id}`, data);
-    return response.data.data || response.data;
+    return response.data;
   },
   delete: async (id: string) => {
     const response = await api.delete(`/coupons/${id}`);
@@ -841,7 +866,7 @@ export const couponsAPI = {
 export const smsTemplatesAPI = {
   list: async () => {
     const response = await api.get('/sms-templates');
-    return response.data.data || response.data;
+    return response.data;
   },
   update: async (
     event: string,
@@ -853,14 +878,14 @@ export const smsTemplatesAPI = {
     }
   ) => {
     const response = await api.put(`/sms-templates/${event}`, data);
-    return response.data.data || response.data;
+    return response.data;
   },
 };
 
 export const smsConfigAPI = {
   get: async () => {
     const response = await api.get('/sms-config');
-    return response.data.data || response.data;
+    return response.data;
   },
   update: async (data: {
     baseUrl?: string;
@@ -870,14 +895,14 @@ export const smsConfigAPI = {
     apiKey?: string;
   }) => {
     const response = await api.put('/sms-config', data);
-    return response.data.data || response.data;
+    return response.data;
   },
 };
 
 export const gstSettingsAPI = {
   get: async () => {
     const response = await api.get('/settings/gst');
-    return response.data.data || response.data;
+    return response.data;
   },
   update: async (data: {
     showPriceIncludingGst?: boolean;
@@ -886,26 +911,26 @@ export const gstSettingsAPI = {
     stores?: Array<{ name: string; address: string; pincode: string; state: string; gstin?: string; isActive: boolean }>;
   }) => {
     const response = await api.put('/settings/gst', data);
-    return response.data.data || response.data;
+    return response.data;
   },
 };
 
 export const bundlesAPI = {
   list: async (params?: { active?: boolean; search?: string }) => {
     const response = await api.get('/product-bundles', { params });
-    return response.data.data || response.data;
+    return response.data;
   },
   getById: async (id: string) => {
     const response = await api.get(`/product-bundles/${id}`);
-    return response.data.data || response.data;
+    return response.data;
   },
   create: async (data: any) => {
     const response = await api.post('/product-bundles', data);
-    return response.data.data || response.data;
+    return response.data;
   },
   update: async (id: string, data: any) => {
     const response = await api.put(`/product-bundles/${id}`, data);
-    return response.data.data || response.data;
+    return response.data;
   },
   delete: async (id: string) => {
     const response = await api.delete(`/product-bundles/${id}`);
@@ -917,11 +942,11 @@ export const bundlesAPI = {
 export const productQuantityBundlesAPI = {
   get: async (productId: string) => {
     const response = await api.get(`/product-bundles/product/${productId}/quantity`);
-    return response.data.data || response.data;
+    return response.data;
   },
   update: async (productId: string, bundles: any[]) => {
     const response = await api.put(`/product-bundles/product/${productId}/quantity`, { bundles });
-    return response.data.data || response.data;
+    return response.data;
   },
   delete: async (productId: string) => {
     const response = await api.delete(`/product-bundles/product/${productId}/quantity`);
@@ -932,11 +957,11 @@ export const productQuantityBundlesAPI = {
 export const cartsAPI = {
   listAdmin: async (params?: { status?: string; search?: string }) => {
     const response = await api.get('/carts/admin', { params });
-    return response.data.data || response.data;
+    return response.data;
   },
   exportAdmin: async () => {
     const response = await api.get('/carts/admin/export');
-    return response.data.data || response.data;
+    return response.data;
   },
   sendRecovery: async (cartId: string) => {
     const response = await api.post(`/carts/${cartId}/send-recovery`);

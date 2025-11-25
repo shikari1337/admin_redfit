@@ -70,7 +70,8 @@ const Products: React.FC = () => {
   const fetchProducts = async () => {
     try {
       const response = await productsAPI.getAll();
-      const products = response.data || [];
+      // Response is normalized by API interceptor
+      const products = Array.isArray(response) ? response : (response?.data || []);
       // Sanitize all products to remove any buffer objects or non-serializable data
       setProducts(products.map(sanitizeProduct));
     } catch (error) {

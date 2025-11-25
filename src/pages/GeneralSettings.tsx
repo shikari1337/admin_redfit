@@ -161,8 +161,8 @@ const GeneralSettings: React.FC = () => {
     try {
       setLoading(true);
       const response = await api.get('/settings/admin');
-      if (response.data.success && response.data.data) {
-        const settings = response.data.data;
+      // Response is normalized by API interceptor
+      const settings = response.data;
         setFormData({
           general: {
             websiteUrl: settings.general?.websiteUrl || '',
