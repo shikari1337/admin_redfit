@@ -65,13 +65,19 @@ const Login: React.FC = () => {
       const response = await authAPI.login(email, password);
       console.log('✅ Login response:', response);
       
-      if (response.success && response.data.token) {
-        localStorage.setItem('admin_token', response.data.token);
+      // Handle different response formats:
+      // 1. {success: true, data: {user, token}} - normalized to {user, token}
+      // 2. {user, token} - direct format
+      // 3. {success: true, data: {token}} - normalized to {token}
+      const token = response?.token || response?.data?.token;
+      
+      if (token) {
+        localStorage.setItem('admin_token', token);
         console.log('✅ Token stored, navigating to dashboard');
         navigate('/dashboard');
       } else {
-        console.error('❌ Invalid response:', response);
-        setError('Invalid credentials');
+        console.error('❌ Invalid response - no token found:', response);
+        setError('Invalid credentials or server error');
       }
     } catch (err: any) {
       console.error('❌ Login error:', err);
