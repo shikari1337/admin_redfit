@@ -1581,36 +1581,58 @@ const ProductForm: React.FC = () => {
         }
       }
 
+      // Root cause fix: Always use formData.categories directly (not destructured selectedCategories)
+      // This ensures we get the latest state, not a stale value from destructuring
+      const categoriesFromFormData = formData.categories || [];
+      
       // Ensure categories are always string IDs (never objects or buffers)
       // Root cause fix: Log categories before sanitization to debug empty array issue
       if (import.meta.env.DEV) {
-        console.log('🔍 Categories before sanitization (handleSubmit):', {
-          selectedCategories,
-          selectedCategoriesType: typeof selectedCategories,
-          isArray: Array.isArray(selectedCategories),
-          length: Array.isArray(selectedCategories) ? selectedCategories.length : 0,
+        console.log('🔍 Categories Debug (handleSubmit):', {
           formDataCategories: formData.categories,
+          formDataCategoriesType: typeof formData.categories,
+          isArray: Array.isArray(formData.categories),
+          length: Array.isArray(formData.categories) ? formData.categories.length : 0,
+          selectedCategories,
+          categoriesFromFormData,
         });
       }
       
-      const sanitizedCategories = (selectedCategories || []).map((cat: any) => {
-        if (typeof cat === 'string' && cat.length === 24) {
-          return cat.trim();
+      const sanitizedCategories = (categoriesFromFormData || []).map((cat: any) => {
+        // Already a string ID
+        if (typeof cat === 'string') {
+          const trimmed = cat.trim();
+          if (trimmed.length === 24 && /^[0-9a-fA-F]{24}$/.test(trimmed)) {
+            return trimmed;
+          }
+          return null;
         }
-        if (cat?._id && typeof cat._id === 'string' && cat._id.length === 24) {
-          return cat._id.trim();
+        // Object with _id property
+        if (cat?._id) {
+          const idStr = typeof cat._id === 'string' ? cat._id.trim() : String(cat._id).trim();
+          if (idStr && idStr !== '[object Object]' && idStr.length === 24 && /^[0-9a-fA-F]{24}$/.test(idStr)) {
+            return idStr;
+          }
+          return null;
         }
-        const str = String(cat);
-        return (str && str !== '[object Object]' && str.length === 24) ? str.trim() : null;
+        // Try to convert to string
+        const str = String(cat).trim();
+        if (str && str !== '[object Object]' && str.length === 24 && /^[0-9a-fA-F]{24}$/.test(str)) {
+          return str;
+        }
+        return null;
       }).filter((id): id is string => id !== null && typeof id === 'string' && id.length === 24);
       
       if (import.meta.env.DEV) {
         console.log('✅ Sanitized Categories (handleSubmit):', {
           sanitized: sanitizedCategories,
           count: sanitizedCategories.length,
+          sample: sanitizedCategories[0],
         });
       }
 
+      // Root cause fix: Always include categories explicitly, even if empty
+      // This ensures categories are always sent to backend (empty array means clear categories)
       const data: Record<string, any> = {
         ...rest,
         price: parseFloat(formData.price),
@@ -1623,8 +1645,22 @@ const ProductForm: React.FC = () => {
         showOutOfStockVariants: formData.showOutOfStockVariants,
         showFeatures: formData.showFeatures,
         variants: cleanedVariants,
-        categories: sanitizedCategories,
+        categories: sanitizedCategories, // Always include categories (even if empty array)
       };
+      
+      // Root cause fix: Explicitly ensure categories is in the payload
+      // Double-check that categories are included (defensive programming)
+      if (!('categories' in data)) {
+        data.categories = sanitizedCategories;
+      }
+      
+      if (import.meta.env.DEV) {
+        console.log('📤 Final payload categories:', {
+          categoriesInData: data.categories,
+          categoriesCount: Array.isArray(data.categories) ? data.categories.length : 0,
+          fullPayloadKeys: Object.keys(data),
+        });
+      }
 
       data.slug = normalizedSlug;
       
@@ -1762,7 +1798,20 @@ const ProductForm: React.FC = () => {
               <ProductCategories
                 categories={formData.categories}
                 availableCategories={availableCategories}
-                onCategoriesChange={(categories) => setFormData({ ...formData, categories })}
+                onCategoriesChange={(categories) => {
+                  // Root cause fix: Use functional update to ensure we get latest state
+                  setFormData((prev) => {
+                    if (import.meta.env.DEV) {
+                      console.log('🔄 Categories changed:', {
+                        oldCategories: prev.categories,
+                        newCategories: categories,
+                        oldCount: prev.categories?.length || 0,
+                        newCount: categories?.length || 0,
+                      });
+                    }
+                    return { ...prev, categories };
+                  });
+                }}
                 onRefresh={loadLookups}
                 loading={lookupsLoading}
                 error={errors.categories}
