@@ -145,46 +145,81 @@ api.interceptors.response.use(
       }
     } else {
       // HTTP errors (server responded with error status)
+      const errorData = error.response?.data;
       console.error('❌ Response Error:', {
         status: error.response?.status,
         statusText: error.response?.statusText,
         url: error.config?.url,
         baseURL: error.config?.baseURL,
         fullURL: error.config?.baseURL + error.config?.url,
-        data: error.response?.data,
+        data: errorData,
+        errorCode: errorData?.code,
+        errorMessage: errorData?.message,
         message: error.message,
-        headers: error.response?.headers
+        authorizationHeader: error.config?.headers?.Authorization ? 'Present' : 'Missing'
       });
+      
+      // Log full error data for 401 errors to help debug
+      if (error.response?.status === 401) {
+        console.error('❌ 401 Full Error Details:', JSON.stringify(errorData, null, 2));
+      }
     }
     
     if (error.response?.status === 401) {
-      console.log('🔒 Unauthorized, session expired or invalid');
+      console.log('🔒 Unauthorized response received');
       
       // Check if this is a session-related error
       const errorData = error.response?.data;
       const errorCode = errorData?.code;
-      const errorMessage = errorData?.message || 'Session expired';
+      const errorMessage = errorData?.message || '';
+      const requiresLogin = errorData?.requiresLogin !== false; // Default to true if not specified
       
-      // Session-specific error codes from backend
+      console.log('🔒 401 Error details:', {
+        code: errorCode,
+        message: errorMessage,
+        requiresLogin,
+        url: error.config?.url,
+        data: errorData
+      });
+      
+      // Session-specific error codes from backend that definitely require re-login
       const sessionErrorCodes = [
         'SESSION_EXPIRED',
         'SESSION_INVALID',
         'SESSION_MISMATCH',
         'TOKEN_EXPIRED',
-        'USER_NOT_FOUND',
-        'ACCOUNT_DISABLED'
+        'TOKEN_INVALID',
+        'AUTH_ERROR',
+        'AUTH_REQUIRED'
       ];
       
-      if (sessionErrorCodes.includes(errorCode) || errorMessage.includes('session') || errorMessage.includes('Session')) {
-        console.log('🔒 Session error detected, clearing token and redirecting to login');
+      // Only clear token and redirect if:
+      // 1. Error code indicates session/token issue
+      // 2. Error message explicitly mentions session/token/login
+      // 3. Backend explicitly says requiresLogin: true
+      const isSessionError = sessionErrorCodes.includes(errorCode) || 
+                            errorMessage.toLowerCase().includes('session') ||
+                            errorMessage.toLowerCase().includes('token') ||
+                            errorMessage.toLowerCase().includes('login') ||
+                            errorMessage.toLowerCase().includes('authentication') ||
+                            (requiresLogin && errorCode);
+      
+      if (isSessionError) {
+        console.log('🔒 Session/token error detected, clearing token and redirecting to login');
         localStorage.removeItem('admin_token');
-        window.location.href = '/login';
+        // Use setTimeout to avoid navigation during render
+        setTimeout(() => {
+          window.location.href = '/login';
+        }, 100);
       } else {
-        // Generic 401 - might be temporary, don't redirect immediately
-        console.warn('🔒 Authentication error (non-session):', errorMessage);
-        // Still remove token as it's likely invalid
-        localStorage.removeItem('admin_token');
-        window.location.href = '/login';
+        // Generic 401 - might be permission issue, don't clear token
+        // Let the component handle the error
+        console.warn('🔒 401 error (likely permission issue, not session):', {
+          code: errorCode,
+          message: errorMessage,
+          url: error.config?.url
+        });
+        // Don't clear token or redirect - let the app handle it
       }
     }
     return Promise.reject(error);
