@@ -507,23 +507,73 @@ const ProductForm: React.FC = () => {
         }
       }
       
+      // Extract category IDs from various formats - ALWAYS return string IDs
+      // Root cause fix: Handle all possible category formats from backend (populated objects, string IDs, etc.)
+      const rawCategories = product.categories || [];
+      
+      if (import.meta.env.DEV) {
+        console.log('🔍 Categories Debug (fetchProduct):', {
+          rawCategories,
+          rawCategoriesType: typeof rawCategories,
+          isArray: Array.isArray(rawCategories),
+          length: Array.isArray(rawCategories) ? rawCategories.length : 0,
+          firstCategory: rawCategories[0],
+          firstCategoryType: typeof rawCategories[0],
+          firstCategoryKeys: rawCategories[0] ? Object.keys(rawCategories[0]) : [],
+        });
+      }
+      
       const productCategories =
-        (product.categories || [])
-          .map((cat: any) => {
-            // Skip buffer objects
-            if (cat && typeof cat === 'object' && (cat.buffer || cat.constructor?.name === 'Buffer')) {
-              return null;
-            }
-            // Extract ID safely
-            if (typeof cat === 'string') {
-              return cat;
-            }
-            if (cat && typeof cat === 'object' && cat._id) {
-              return String(cat._id);
+        (Array.isArray(rawCategories) ? rawCategories : []).map((cat: any) => {
+          // Skip null/undefined
+          if (!cat) return null;
+          
+          // Already a string ID (most common case after serialization)
+          if (typeof cat === 'string') {
+            const trimmed = cat.trim();
+            if (trimmed.length === 24 && /^[0-9a-fA-F]{24}$/.test(trimmed)) {
+              return trimmed;
             }
             return null;
-          })
-          .filter((id: any) => id !== null && id !== '') || [];
+          }
+          
+          // Object with _id property (populated category from backend)
+          if (cat && typeof cat === 'object') {
+            // Check _id property (most common for populated objects)
+            if (cat._id) {
+              const idStr = typeof cat._id === 'string' ? cat._id.trim() : String(cat._id).trim();
+              if (idStr && idStr !== '[object Object]' && idStr.length === 24 && /^[0-9a-fA-F]{24}$/.test(idStr)) {
+                return idStr;
+              }
+            }
+            
+            // Check if the object itself is an ObjectId-like structure
+            // Sometimes _id might be nested or the object might be the ID itself
+            const keys = Object.keys(cat);
+            if (keys.length === 1 && keys[0] === '_id') {
+              const idStr = typeof cat._id === 'string' ? cat._id.trim() : String(cat._id).trim();
+              if (idStr && idStr.length === 24 && /^[0-9a-fA-F]{24}$/.test(idStr)) {
+                return idStr;
+              }
+            }
+          }
+          
+          // Try to convert to string as last resort (for ObjectId instances)
+          const str = String(cat).trim();
+          if (str && str !== '[object Object]' && str.length === 24 && /^[0-9a-fA-F]{24}$/.test(str)) {
+            return str;
+          }
+          
+          return null;
+        }).filter((id: any): id is string => id !== null && typeof id === 'string' && id.length === 24) || [];
+      
+      if (import.meta.env.DEV) {
+        console.log('✅ Extracted Categories:', {
+          extracted: productCategories,
+          count: productCategories.length,
+          sample: productCategories[0],
+        });
+      }
       const inferredSizeChartId =
         product.sizeChartId ||
         (typeof product.sizeChart === 'string'
@@ -1532,6 +1582,17 @@ const ProductForm: React.FC = () => {
       }
 
       // Ensure categories are always string IDs (never objects or buffers)
+      // Root cause fix: Log categories before sanitization to debug empty array issue
+      if (import.meta.env.DEV) {
+        console.log('🔍 Categories before sanitization (handleSubmit):', {
+          selectedCategories,
+          selectedCategoriesType: typeof selectedCategories,
+          isArray: Array.isArray(selectedCategories),
+          length: Array.isArray(selectedCategories) ? selectedCategories.length : 0,
+          formDataCategories: formData.categories,
+        });
+      }
+      
       const sanitizedCategories = (selectedCategories || []).map((cat: any) => {
         if (typeof cat === 'string' && cat.length === 24) {
           return cat.trim();
@@ -1542,6 +1603,13 @@ const ProductForm: React.FC = () => {
         const str = String(cat);
         return (str && str !== '[object Object]' && str.length === 24) ? str.trim() : null;
       }).filter((id): id is string => id !== null && typeof id === 'string' && id.length === 24);
+      
+      if (import.meta.env.DEV) {
+        console.log('✅ Sanitized Categories (handleSubmit):', {
+          sanitized: sanitizedCategories,
+          count: sanitizedCategories.length,
+        });
+      }
 
       const data: Record<string, any> = {
         ...rest,
