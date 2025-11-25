@@ -23,45 +23,10 @@ const Login: React.FC = () => {
     setLoading(true);
 
     try {
-      // Normalize API URL (remove trailing slash to avoid double slashes)
-      let apiUrl = import.meta.env.VITE_API_SERVER_URL || 'https://api.redfit.in';
-      apiUrl = apiUrl.replace(/\/+$/, ''); // Remove trailing slashes
-      
-      const apiVersion = import.meta.env.VITE_API_VERSION || 'v1';
-      const fullUrl = `${apiUrl}/api/${apiVersion}/auth/login`;
-      
       console.log('🔐 Login attempt:', { email });
-      console.log('📡 API Configuration:', {
-        apiUrl,
-        apiVersion,
-        fullUrl,
-        isProduction: import.meta.env.PROD
-      });
       
-      // Test connection first
-      try {
-        // Construct health URL properly (avoid double slashes)
-        const healthUrl = `${apiUrl}/health`;
-        console.log('🔍 Testing health endpoint:', healthUrl);
-        
-        const healthCheck = await fetch(healthUrl, {
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' },
-        });
-        
-        if (!healthCheck.ok) {
-          throw new Error(`Health check failed: ${healthCheck.status} ${healthCheck.statusText}`);
-        }
-        
-        const healthData = await healthCheck.json();
-        console.log('✅ Health check passed:', healthCheck.status, healthData);
-      } catch (healthError: any) {
-        console.error('❌ Health check failed:', healthError);
-        setError(`Cannot connect to server at ${apiUrl}. Please check if backend is running on port 3000.`);
-        setLoading(false);
-        return;
-      }
-      
+      // Use authAPI.login which already uses the configured API URL
+      // All requests go through api.redfit.in for consistent tenant identification
       const response = await authAPI.login(email, password);
       console.log('✅ Login response:', response);
       console.log('✅ Login response type:', typeof response);

@@ -1,21 +1,17 @@
 import axios from 'axios';
 
-// Multi-tenant API Configuration
-// For multi-tenant support, use relative URLs so backend can identify tenant from domain
-// This allows the admin to work with the multi-tenant backend
-// 
-// If VITE_API_SERVER_URL is set, use it (for backward compatibility or specific deployments)
-// Otherwise, use relative URLs (recommended for multi-tenant)
+// API Configuration
+// All requests go to api.redfit.in for consistent tenant identification
+// The backend identifies tenant from the Host header or domain
 const API_VERSION = import.meta.env.VITE_API_VERSION || 'v1';
 
-// Check if explicit API URL is configured
+// Get API base URL from environment or use production default
 let rawBaseUrl = import.meta.env.VITE_API_SERVER_URL;
-let useRelativeUrls = false;
 
+// If not set, use production API URL
 if (!rawBaseUrl || rawBaseUrl.trim() === '') {
-  // No explicit URL configured - use relative URLs (recommended for multi-tenant)
-  useRelativeUrls = true;
-  rawBaseUrl = ''; // Empty means relative URLs
+  // Production default
+  rawBaseUrl = 'https://api.redfit.in';
 } else {
   // Remove trailing /api if it exists (handle cases where user includes it)
   if (rawBaseUrl.endsWith('/api')) {
@@ -26,10 +22,7 @@ if (!rawBaseUrl || rawBaseUrl.trim() === '') {
 }
 
 const API_BASE_URL = rawBaseUrl;
-// Use relative URL if no base URL is set, otherwise construct full URL
-const API_URL = useRelativeUrls 
-  ? `/api/${API_VERSION}` 
-  : `${API_BASE_URL}/api/${API_VERSION}`;
+const API_URL = `${API_BASE_URL}/api/${API_VERSION}`;
 
 const api = axios.create({
   baseURL: API_URL,
@@ -44,16 +37,13 @@ console.log('🔧 Admin API Configuration:', {
   VITE_API_VERSION: import.meta.env.VITE_API_VERSION,
   PROD: import.meta.env.PROD,
   MODE: import.meta.env.MODE,
-  API_BASE_URL: useRelativeUrls ? '(relative)' : API_BASE_URL,
+  API_BASE_URL,
   API_VERSION,
   API_URL,
-  USE_RELATIVE_URLS: useRelativeUrls,
   currentOrigin: window.location.origin,
   currentHostname: window.location.hostname,
   protocol: window.location.protocol,
-  NOTE: useRelativeUrls 
-    ? 'Using relative URLs for multi-tenant support (backend identifies tenant from domain)'
-    : 'Using explicit API URL (set VITE_API_SERVER_URL to empty string to use relative URLs)'
+  NOTE: 'All requests go to api.redfit.in for consistent tenant identification'
 });
 
 /**
