@@ -59,6 +59,91 @@ const Bundles: React.FC = () => {
   const [editingBundles, setEditingBundles] = useState<QuantityBasedBundle[]>([]);
   const [saving, setSaving] = useState(false);
 
+  /**
+   * CRITICAL FIX: Normalize bundle ID from any format (string, ObjectId, buffer) to string
+   * This ensures NO buffer objects are ever used in the frontend
+   */
+  const normalizeBundleId = (id: any): string | null => {
+    if (!id) return null;
+    
+    // Already a string ID
+    if (typeof id === 'string' && id.length === 24 && /^[0-9a-fA-F]{24}$/.test(id)) {
+      return id;
+    }
+    
+    // Object with _id property
+    if (id && typeof id === 'object' && id._id) {
+      return normalizeBundleId(id._id);
+    }
+    
+    // Buffer object (the problematic case)
+    if (id && typeof id === 'object' && id.buffer) {
+      try {
+        let bufferArray: number[];
+        if (Array.isArray(id.buffer)) {
+          bufferArray = id.buffer;
+        } else if (typeof id.buffer === 'object') {
+          // Handle object with numeric keys like { "0": 105, "1": 36, ... }
+          const keys = Object.keys(id.buffer).map(k => Number(k)).sort((a, b) => a - b);
+          bufferArray = keys.map(k => Number(id.buffer[k]));
+        } else {
+          return null;
+        }
+        if (bufferArray.length === 12) {
+          // Convert buffer to hex string (MongoDB ObjectId format)
+          const hex = bufferArray.map(b => b.toString(16).padStart(2, '0')).join('');
+          if (hex.length === 24 && /^[0-9a-fA-F]{24}$/.test(hex)) {
+            return hex;
+          }
+        }
+      } catch (error) {
+        console.error('Failed to convert buffer to ObjectId:', error);
+        return null;
+      }
+    }
+    
+    // Try to convert to string as last resort
+    const str = String(id).trim();
+    if (str.length === 24 && /^[0-9a-fA-F]{24}$/.test(str)) {
+      return str;
+    }
+    
+    return null;
+  };
+
+  /**
+   * CRITICAL FIX: Sanitize bundle to ensure all IDs are strings
+   */
+  const sanitizeBundle = (bundle: any): BundleListItem | null => {
+    if (!bundle) return null;
+    
+    const normalizedId = normalizeBundleId(bundle._id);
+    if (!normalizedId) {
+      console.warn('⚠️ Invalid bundle ID, skipping:', bundle);
+      return null;
+    }
+    
+    // Sanitize items - ensure product IDs are strings
+    const sanitizedItems = (bundle.items || []).map((item: any) => {
+      const productId = normalizeBundleId(item.product?._id || item.product);
+      return {
+        product: productId ? {
+          _id: productId,
+          name: item.product?.name || '',
+          slug: item.product?.slug || '',
+          images: item.product?.images || [],
+        } : (typeof item.product === 'string' ? item.product : ''),
+        swatchImage: item.swatchImage || '',
+      };
+    });
+    
+    return {
+      ...bundle,
+      _id: normalizedId,
+      items: sanitizedItems,
+    };
+  };
+
   const fetchBundles = async () => {
     try {
       setLoading(true);
@@ -70,7 +155,14 @@ const Bundles: React.FC = () => {
         params.active = true;
       }
       const response = await bundlesAPI.list(params);
-      setBundles(response || []);
+      const rawBundles = response?.data || response || [];
+      
+      // CRITICAL FIX: Sanitize all bundle IDs to strings (handle buffers)
+      const sanitizedBundles = rawBundles
+        .map(sanitizeBundle)
+        .filter((bundle): bundle is BundleListItem => bundle !== null);
+      
+      setBundles(sanitizedBundles);
     } catch (error: any) {
       console.error('Failed to load bundles', error);
       alert(error.message || 'Failed to load bundles');
@@ -155,12 +247,19 @@ const Bundles: React.FC = () => {
     }, 0);
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (id: any) => {
     if (!window.confirm('Delete this bundle? This action cannot be undone.')) {
       return;
     }
     try {
-      await bundlesAPI.delete(id);
+      // CRITICAL FIX: Normalize bundle ID before using it
+      const normalizedId = normalizeBundleId(id);
+      if (!normalizedId) {
+        console.error('Invalid bundle ID:', id);
+        alert('Invalid bundle ID');
+        return;
+      }
+      await bundlesAPI.delete(normalizedId);
       fetchBundles();
     } catch (error: any) {
       console.error('Failed to delete bundle', error);
@@ -219,8 +318,15 @@ const Bundles: React.FC = () => {
     }
 
     try {
+      // CRITICAL FIX: Normalize product ID before using it
+      const productId = normalizeBundleId(product._id);
+      if (!productId) {
+        console.error('Invalid product ID:', product._id);
+        alert('Invalid product ID');
+        return;
+      }
       // Use dedicated endpoint for deleting bundles
-      await productQuantityBundlesAPI.delete(product._id);
+      await productQuantityBundlesAPI.delete(productId);
 
       // Refresh the list
       await fetchQuantityBasedBundles();
@@ -252,9 +358,17 @@ const Bundles: React.FC = () => {
 
     setSaving(true);
     try {
+      // CRITICAL FIX: Normalize product ID before using it
+      const productId = normalizeBundleId(editingProduct._id);
+      if (!productId) {
+        console.error('Invalid product ID:', editingProduct._id);
+        alert('Invalid product ID');
+        setSaving(false);
+        return;
+      }
       // Use dedicated endpoint for updating bundles only
       await productQuantityBundlesAPI.update(
-        editingProduct._id,
+        productId,
         editingBundles.map((b) => ({
           title: b.title.trim(),
           description: b.description.trim() || '',
@@ -453,10 +567,10 @@ const Bundles: React.FC = () => {
                             return (
                               <Link
                                 key={`${bundle._id}-item-${idx}`}
-                                to={`/products/${product?._id ?? ''}/edit`}
+                                to={`/products/${product?._id ? String(product._id) : ''}/edit`}
                                 className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-full hover:bg-gray-200 transition"
                                 onClick={(e) => {
-                                  if (!product) {
+                                  if (!product || !product._id) {
                                     e.preventDefault();
                                   }
                                 }}
@@ -513,7 +627,16 @@ const Bundles: React.FC = () => {
                       <td className="px-6 py-4 text-right">
                         <div className="inline-flex items-center gap-2">
                           <button
-                            onClick={() => navigate(`/products/bundles/${bundle._id}/edit`)}
+                            onClick={() => {
+                              // CRITICAL FIX: Ensure bundle ID is a string before navigation
+                              const bundleId = normalizeBundleId(bundle._id);
+                              if (bundleId) {
+                                navigate(`/products/bundles/${bundleId}/edit`);
+                              } else {
+                                console.error('Invalid bundle ID:', bundle._id);
+                                alert('Invalid bundle ID');
+                              }
+                            }}
                             className="p-2 text-gray-500 hover:text-gray-700"
                             title="Edit bundle"
                           >

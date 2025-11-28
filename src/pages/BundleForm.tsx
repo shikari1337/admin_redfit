@@ -53,6 +53,56 @@ const BundleForm: React.FC = () => {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
 
+  /**
+   * CRITICAL FIX: Normalize ID from any format (string, ObjectId, buffer) to string
+   * This ensures NO buffer objects are ever used in the frontend
+   */
+  const normalizeId = (id: any): string | null => {
+    if (!id) return null;
+    
+    // Already a string ID
+    if (typeof id === 'string' && id.length === 24 && /^[0-9a-fA-F]{24}$/.test(id)) {
+      return id;
+    }
+    
+    // Object with _id property
+    if (id && typeof id === 'object' && id._id) {
+      return normalizeId(id._id);
+    }
+    
+    // Buffer object (the problematic case)
+    if (id && typeof id === 'object' && id.buffer) {
+      try {
+        let bufferArray: number[];
+        if (Array.isArray(id.buffer)) {
+          bufferArray = id.buffer;
+        } else if (typeof id.buffer === 'object') {
+          const keys = Object.keys(id.buffer).map(k => Number(k)).sort((a, b) => a - b);
+          bufferArray = keys.map(k => Number(id.buffer[k]));
+        } else {
+          return null;
+        }
+        if (bufferArray.length === 12) {
+          const hex = bufferArray.map(b => b.toString(16).padStart(2, '0')).join('');
+          if (hex.length === 24 && /^[0-9a-fA-F]{24}$/.test(hex)) {
+            return hex;
+          }
+        }
+      } catch (error) {
+        console.error('Failed to convert buffer to ObjectId:', error);
+        return null;
+      }
+    }
+    
+    // Try to convert to string as last resort
+    const str = String(id).trim();
+    if (str.length === 24 && /^[0-9a-fA-F]{24}$/.test(str)) {
+      return str;
+    }
+    
+    return null;
+  };
+
   const [formData, setFormData] = useState<BundleFormState>({
     name: '',
     slug: '',
@@ -104,13 +154,14 @@ const BundleForm: React.FC = () => {
             slug: bundle.slug || '',
             description: bundle.description || '',
             isActive: bundle.isActive !== false,
-            items: (bundle.items || []).map((item: any) => ({
-              product:
-                typeof item.product === 'string'
-                  ? item.product
-                  : item.product?._id || '',
-              swatchImage: item.swatchImage || '',
-            })),
+            items: (bundle.items || []).map((item: any) => {
+              // CRITICAL FIX: Normalize product ID to string (handle buffers)
+              const productId = normalizeId(item.product?._id || item.product);
+              return {
+                product: productId || '',
+                swatchImage: item.swatchImage || '',
+              };
+            }),
             options: (bundle.options || []).map((option: any) => ({
               title: option.title || '',
               quantity: option.quantity || 2,
