@@ -44,7 +44,21 @@ const ProductSectionsManager: React.FC = () => {
     try {
       setLoading(true);
       const response = await productsAPI.getById(id!);
-      const product = response.data;
+      
+      // CRITICAL FIX: Handle response structure correctly
+      // Backend returns: { success: true, data: product }
+      // productsAPI.getById returns: response.data (axios response body)
+      // So response = { success: true, data: product }
+      // We need response.data to get the actual product object
+      let product = (response && response.success && response.data) 
+        ? response.data 
+        : (response && response.data) 
+        ? response.data 
+        : response;
+      
+      if (!product || typeof product !== 'object') {
+        throw new Error('Invalid product data received');
+      }
       
       // Initialize sections from product or use defaults
       if (product.pageSections && product.pageSections.length > 0) {
