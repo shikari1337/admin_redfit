@@ -73,6 +73,12 @@ const ProductForm: React.FC = () => {
   // Root cause fix: Use ref to always get latest formData (avoids stale closure issues)
   const formDataRef = useRef(formData);
   useEffect(() => {
+    console.log('🔄 formDataRef updated via useEffect:', {
+      categories: formData.categories,
+      categoriesCount: formData.categories?.length || 0,
+      categoriesType: typeof formData.categories,
+      isArray: Array.isArray(formData.categories),
+    });
     formDataRef.current = formData;
   }, [formData]);
   const [slug, setSlug] = useState('');
@@ -1518,14 +1524,17 @@ const ProductForm: React.FC = () => {
       // Root cause fix: Always read from ref to get latest formData (avoids stale closure)
       const currentFormData = formDataRef.current;
       
-      if (import.meta.env.DEV) {
-        console.log('🔍 handleSubmit - Current formData from ref:', {
-          categories: currentFormData.categories,
-          categoriesCount: currentFormData.categories?.length || 0,
-          categoriesType: typeof currentFormData.categories,
-          isArray: Array.isArray(currentFormData.categories),
-        });
-      }
+      // CRITICAL DEBUG: Log both ref and state to compare
+      console.log('🔍 handleSubmit - CRITICAL DEBUG:', {
+        refCategories: currentFormData.categories,
+        refCategoriesCount: currentFormData.categories?.length || 0,
+        refCategoriesType: typeof currentFormData.categories,
+        refIsArray: Array.isArray(currentFormData.categories),
+        stateCategories: formData.categories,
+        stateCategoriesCount: formData.categories?.length || 0,
+        stateIsArray: Array.isArray(formData.categories),
+        refEqualsState: JSON.stringify(currentFormData.categories) === JSON.stringify(formData.categories),
+      });
       
       const cleanedVideos = currentFormData.videos.filter((v) => v.trim());
       const cleanedInstructions = currentFormData.washCareInstructions.filter((instr) => instr.text.trim() !== '');
@@ -1819,16 +1828,38 @@ const ProductForm: React.FC = () => {
                 availableCategories={availableCategories}
                 onCategoriesChange={(categories) => {
                   // Root cause fix: Use functional update to ensure we get latest state
+                  console.log('🔔 onCategoriesChange CALLED with:', {
+                    receivedCategories: categories,
+                    receivedCount: categories?.length || 0,
+                    receivedType: typeof categories,
+                    isArray: Array.isArray(categories),
+                    currentFormDataCategories: formData.categories,
+                    currentFormDataCount: formData.categories?.length || 0,
+                  });
+                  
                   setFormData((prev) => {
-                    if (import.meta.env.DEV) {
-                      console.log('🔄 Categories changed:', {
-                        oldCategories: prev.categories,
-                        newCategories: categories,
-                        oldCount: prev.categories?.length || 0,
-                        newCount: categories?.length || 0,
-                      });
-                    }
-                    return { ...prev, categories };
+                    const newFormData = { ...prev, categories };
+                    
+                    console.log('🔄 Categories changed (setFormData callback):', {
+                      oldCategories: prev.categories,
+                      newCategories: categories,
+                      oldCount: prev.categories?.length || 0,
+                      newCount: categories?.length || 0,
+                      newFormDataCategories: newFormData.categories,
+                      newFormDataCount: newFormData.categories?.length || 0,
+                      categoriesArray: Array.isArray(categories),
+                      categoriesSample: categories[0],
+                    });
+                    
+                    // Root cause fix: Also update ref immediately (don't wait for useEffect)
+                    // This ensures handleSubmit always has the latest categories
+                    formDataRef.current = newFormData;
+                    console.log('✅ formDataRef.current updated immediately:', {
+                      refCategories: formDataRef.current.categories,
+                      refCount: formDataRef.current.categories?.length || 0,
+                    });
+                    
+                    return newFormData;
                   });
                 }}
                 onRefresh={loadLookups}
