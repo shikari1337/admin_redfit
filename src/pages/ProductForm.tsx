@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { productsAPI, uploadAPI, categoriesAPI, sizeChartsAPI } from '../services/api';
 import api from '../services/api';
@@ -69,6 +69,12 @@ const ProductForm: React.FC = () => {
     isActive: true,
     variants: [] as ProductVariant[],
   });
+  
+  // Root cause fix: Use ref to always get latest formData (avoids stale closure issues)
+  const formDataRef = useRef(formData);
+  useEffect(() => {
+    formDataRef.current = formData;
+  }, [formData]);
   const [slug, setSlug] = useState('');
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
   const [seoData, setSeoData] = useState<SeoFormState>({
@@ -1509,8 +1515,20 @@ const ProductForm: React.FC = () => {
 
     setSaving(true);
     try {
-      const cleanedVideos = formData.videos.filter((v) => v.trim());
-      const cleanedInstructions = formData.washCareInstructions.filter((instr) => instr.text.trim() !== '');
+      // Root cause fix: Always read from ref to get latest formData (avoids stale closure)
+      const currentFormData = formDataRef.current;
+      
+      if (import.meta.env.DEV) {
+        console.log('🔍 handleSubmit - Current formData from ref:', {
+          categories: currentFormData.categories,
+          categoriesCount: currentFormData.categories?.length || 0,
+          categoriesType: typeof currentFormData.categories,
+          isArray: Array.isArray(currentFormData.categories),
+        });
+      }
+      
+      const cleanedVideos = currentFormData.videos.filter((v) => v.trim());
+      const cleanedInstructions = currentFormData.washCareInstructions.filter((instr) => instr.text.trim() !== '');
       
       // Process variants - convert Shopify combinations to variant format if needed
       let cleanedVariants: ProductVariant[] = [];
@@ -1542,7 +1560,7 @@ const ProductForm: React.FC = () => {
         });
       } else {
         // Direct variant format (already in ProductVariant format)
-        cleanedVariants = formData.variants.map((v) => {
+        cleanedVariants = currentFormData.variants.map((v) => {
           const cleanedSizes = v.sizes
             .filter((s) => s.size && s.size.trim()) // Keep only sizes with size value
             .map((s) => {
@@ -1569,32 +1587,33 @@ const ProductForm: React.FC = () => {
       const normalizedSlug = slugifyValue(slug);
       setSlug(normalizedSlug);
 
-      const { sizeChart: sizeChartEntries, categories: selectedCategories, ...rest } = formData;
+      const { sizeChart: sizeChartEntries, categories: selectedCategories, ...rest } = currentFormData;
 
       // Prepare stock data for products without variants (simple number)
       let stockData: number | undefined = undefined;
-      if (formData.variants.length === 0 && formData.stock !== undefined && formData.stock !== null) {
-        stockData = Math.max(0, Math.floor(formData.stock));
+      if (currentFormData.variants.length === 0 && currentFormData.stock !== undefined && currentFormData.stock !== null) {
+        stockData = Math.max(0, Math.floor(currentFormData.stock));
         // Set to undefined if 0 or invalid
         if (stockData === 0 || isNaN(stockData)) {
           stockData = undefined;
         }
       }
 
-      // Root cause fix: Always use formData.categories directly (not destructured selectedCategories)
-      // This ensures we get the latest state, not a stale value from destructuring
-      const categoriesFromFormData = formData.categories || [];
+      // Root cause fix: Always use currentFormData.categories from ref (ensures latest state)
+      // This avoids stale closure issues where handleSubmit might have old formData
+      const categoriesFromFormData = currentFormData.categories || [];
       
       // Ensure categories are always string IDs (never objects or buffers)
       // Root cause fix: Log categories before sanitization to debug empty array issue
       if (import.meta.env.DEV) {
         console.log('🔍 Categories Debug (handleSubmit):', {
-          formDataCategories: formData.categories,
-          formDataCategoriesType: typeof formData.categories,
-          isArray: Array.isArray(formData.categories),
-          length: Array.isArray(formData.categories) ? formData.categories.length : 0,
-          selectedCategories,
+          currentFormDataCategories: currentFormData.categories,
           categoriesFromFormData,
+          categoriesFromFormDataType: typeof categoriesFromFormData,
+          isArray: Array.isArray(categoriesFromFormData),
+          length: Array.isArray(categoriesFromFormData) ? categoriesFromFormData.length : 0,
+          selectedCategories,
+          formDataStateCategories: formData.categories, // For comparison
         });
       }
       
@@ -1635,15 +1654,15 @@ const ProductForm: React.FC = () => {
       // This ensures categories are always sent to backend (empty array means clear categories)
       const data: Record<string, any> = {
         ...rest,
-        price: parseFloat(formData.price),
-        originalPrice: parseFloat(formData.originalPrice),
+        price: parseFloat(currentFormData.price),
+        originalPrice: parseFloat(currentFormData.originalPrice),
         stock: stockData,
         videos: cleanedVideos,
         washCareInstructions: cleanedInstructions,
-        customerOrderImages: formData.customerOrderImages,
-        disableVariants: formData.disableVariants,
-        showOutOfStockVariants: formData.showOutOfStockVariants,
-        showFeatures: formData.showFeatures,
+        customerOrderImages: currentFormData.customerOrderImages,
+        disableVariants: currentFormData.disableVariants,
+        showOutOfStockVariants: currentFormData.showOutOfStockVariants,
+        showFeatures: currentFormData.showFeatures,
         variants: cleanedVariants,
         categories: sanitizedCategories, // Always include categories (even if empty array)
       };
@@ -1665,8 +1684,8 @@ const ProductForm: React.FC = () => {
       data.slug = normalizedSlug;
       
       // Include base SKU if provided (backend will generate if empty)
-      if (formData.sku && formData.sku.trim()) {
-        data.sku = formData.sku.trim().toUpperCase();
+      if (currentFormData.sku && currentFormData.sku.trim()) {
+        data.sku = currentFormData.sku.trim().toUpperCase();
       }
 
       const keywordsArray = seoData.keywords
