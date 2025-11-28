@@ -131,6 +131,58 @@ const ProductForm: React.FC = () => {
     return response.data?.data || response.data || [];
   };
 
+  /**
+   * CRITICAL FIX: Normalize category ID from any format (string, ObjectId, buffer) to string
+   * This ensures NO buffer objects are ever used in the frontend
+   */
+  const normalizeCategoryId = (id: any): string | null => {
+    if (!id) return null;
+    
+    // Already a string ID
+    if (typeof id === 'string' && id.length === 24 && /^[0-9a-fA-F]{24}$/.test(id)) {
+      return id;
+    }
+    
+    // Object with _id property (populated category)
+    if (id && typeof id === 'object' && id._id) {
+      return normalizeCategoryId(id._id);
+    }
+    
+    // Buffer object (the problematic case)
+    if (id && typeof id === 'object' && id.buffer) {
+      try {
+        let bufferArray: number[];
+        if (Array.isArray(id.buffer)) {
+          bufferArray = id.buffer;
+        } else if (typeof id.buffer === 'object') {
+          // Handle object with numeric keys like { "0": 105, "1": 36, ... }
+          const keys = Object.keys(id.buffer).map(k => Number(k)).sort((a, b) => a - b);
+          bufferArray = keys.map(k => Number(id.buffer[k]));
+        } else {
+          return null;
+        }
+        if (bufferArray.length === 12) {
+          // Convert buffer to hex string (MongoDB ObjectId format)
+          const hex = bufferArray.map(b => b.toString(16).padStart(2, '0')).join('');
+          if (hex.length === 24 && /^[0-9a-fA-F]{24}$/.test(hex)) {
+            return hex;
+          }
+        }
+      } catch (error) {
+        console.error('Failed to convert buffer to ObjectId:', error);
+        return null;
+      }
+    }
+    
+    // Try to convert to string as last resort
+    const str = String(id).trim();
+    if (str.length === 24 && /^[0-9a-fA-F]{24}$/.test(str)) {
+      return str;
+    }
+    
+    return null;
+  };
+
   const loadLookups = async () => {
     setLookupsLoading(true);
     try {
@@ -138,8 +190,21 @@ const ProductForm: React.FC = () => {
         categoriesAPI.list(),
         sizeChartsAPI.list(),
       ]);
-      const categoryList: CategoryOption[] = extractListData(catResponse);
+      const rawCategoryList: any[] = extractListData(catResponse);
       const chartList: SizeChartOption[] = extractListData(chartResponse);
+      
+      // CRITICAL FIX: Normalize all category IDs to strings (handle buffers)
+      const categoryList: CategoryOption[] = rawCategoryList.map((cat: any) => {
+        const normalizedId = normalizeCategoryId(cat._id || cat.id);
+        if (!normalizedId) {
+          console.warn('⚠️ Invalid category ID, skipping:', cat);
+          return null;
+        }
+        return {
+          ...cat,
+          _id: normalizedId, // Always use normalized string ID
+        };
+      }).filter((cat): cat is CategoryOption => cat !== null);
       
       // Remove duplicate size charts by _id (keep first occurrence)
       const uniqueCharts = chartList.filter((chart, index, self) => 
