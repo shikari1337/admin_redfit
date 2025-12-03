@@ -87,12 +87,16 @@ const Attributes: React.FC = () => {
     setLoading(true);
     try {
       const response = await attributesAPI.list();
-      const data = Array.isArray(response) ? response : response?.data || [];
+      console.log('Attributes API response:', response);
+      // Response should already be normalized by API interceptor
+      const data = Array.isArray(response) ? response : (response?.data || []);
+      console.log('Parsed attributes:', data);
       setAttributes(data);
       setError(null);
     } catch (err: any) {
       console.error('Failed to fetch attributes', err);
       setError(err?.message || 'Failed to fetch attributes');
+      setAttributes([]);
     } finally {
       setLoading(false);
     }

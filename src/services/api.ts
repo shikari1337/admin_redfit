@@ -466,9 +466,13 @@ export const attributesAPI = {
   list: async (params?: { isActive?: boolean }) => {
     try {
       const response = await api.get('/attributes', { params });
-      return response.data;
+      // Response is normalized by interceptor, should be array or { data: array }
+      const data = response.data;
+      return Array.isArray(data) ? data : (data?.data || []);
     } catch (error: any) {
+      console.error('Failed to fetch attributes:', error);
       safeError(error);
+      return [];
     }
   },
   getBySlug: async (slug: string) => {
