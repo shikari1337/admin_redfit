@@ -462,6 +462,121 @@ export const sizeChartsAPI = {
   },
 };
 
+export const attributesAPI = {
+  list: async (params?: { isActive?: boolean }) => {
+    try {
+      const response = await api.get('/attributes', { params });
+      return response.data;
+    } catch (error: any) {
+      safeError(error);
+    }
+  },
+  getBySlug: async (slug: string) => {
+    try {
+      const response = await api.get(`/attributes/${slug}`);
+      return response.data;
+    } catch (error: any) {
+      safeError(error);
+    }
+  },
+  getValues: async (slug: string, params?: { isActive?: boolean }) => {
+    try {
+      const response = await api.get(`/attributes/${slug}/values`, { params });
+      return response.data;
+    } catch (error: any) {
+      safeError(error);
+    }
+  },
+  getValue: async (slug: string, valueSlug: string) => {
+    try {
+      const response = await api.get(`/attributes/${slug}/${valueSlug}`);
+      return response.data;
+    } catch (error: any) {
+      safeError(error);
+    }
+  },
+  create: async (data: {
+    name: string;
+    slug?: string;
+    type: 'text' | 'color' | 'image' | 'select';
+    description?: string;
+    isActive?: boolean;
+    order?: number;
+  }) => {
+    try {
+      const response = await api.post('/attributes', data);
+      return response.data;
+    } catch (error: any) {
+      safeError(error);
+    }
+  },
+  update: async (id: string, data: {
+    name?: string;
+    slug?: string;
+    type?: 'text' | 'color' | 'image' | 'select';
+    description?: string;
+    isActive?: boolean;
+    order?: number;
+  }) => {
+    try {
+      const response = await api.put(`/attributes/${id}`, data);
+      return response.data;
+    } catch (error: any) {
+      safeError(error);
+    }
+  },
+  delete: async (id: string) => {
+    try {
+      const response = await api.delete(`/attributes/${id}`);
+      return response.data;
+    } catch (error: any) {
+      safeError(error);
+    }
+  },
+  createValue: async (attributeId: string, data: {
+    name: string;
+    slug?: string;
+    value?: string;
+    description?: string;
+    imageUrl?: string;
+    sizeChart?: string;
+    isActive?: boolean;
+    order?: number;
+  }) => {
+    try {
+      const response = await api.post(`/attributes/${attributeId}/values`, data);
+      return response.data;
+    } catch (error: any) {
+      safeError(error);
+    }
+  },
+  updateValue: async (attributeId: string, valueId: string, data: {
+    name?: string;
+    slug?: string;
+    value?: string;
+    description?: string;
+    imageUrl?: string;
+    sizeChart?: string;
+    isActive?: boolean;
+    order?: number;
+  }) => {
+    try {
+      const response = await api.put(`/attributes/${attributeId}/values/${valueId}`, data);
+      return response.data;
+    } catch (error: any) {
+      safeError(error);
+    }
+  },
+  deleteValue: async (attributeId: string, valueId: string) => {
+    try {
+      const response = await api.delete(`/attributes/${attributeId}/values/${valueId}`);
+      return response.data;
+    } catch (error: any) {
+      safeError(error);
+    }
+  },
+};
+
 // Orders API
 export const ordersAPI = {
   getAll: async (params?: {

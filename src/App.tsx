@@ -5,6 +5,7 @@ import Products from './pages/Products';
 import Bundles from './pages/Bundles';
 import AbandonedCarts from './pages/AbandonedCarts';
 import Categories from './pages/Categories';
+import Attributes from './pages/Attributes';
 import SizeCharts from './pages/SizeCharts';
 import Orders from './pages/Orders';
 import ProductForm from './pages/ProductForm';
@@ -60,6 +61,7 @@ function App() {
           <Route path="products/bundles/new" element={<BundleForm />} />
           <Route path="products/bundles/:id/edit" element={<BundleForm />} />
           <Route path="categories" element={<Categories />} />
+          <Route path="attributes" element={<Attributes />} />
           <Route path="gallery" element={<Gallery />} />
           <Route path="size-charts" element={<SizeCharts />} />
           <Route path="orders" element={<Orders />} />

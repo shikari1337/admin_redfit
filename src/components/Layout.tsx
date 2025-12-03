@@ -57,6 +57,7 @@ const Layout: React.FC = () => {
       ],
     },
     { path: '/categories', icon: FaLayerGroup, label: 'Categories' },
+    { path: '/attributes', icon: FaLayerGroup, label: 'Attributes' },
     { path: '/gallery', icon: FaImages, label: 'Gallery' },
     { path: '/size-charts', icon: FaRulerCombined, label: 'Size Charts' },
     {
