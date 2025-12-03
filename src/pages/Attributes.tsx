@@ -38,10 +38,17 @@ interface SizeChartOption {
   name: string;
 }
 
-const emptyAttributeForm = {
+const emptyAttributeForm: {
+  name: string;
+  slug: string;
+  type: 'text' | 'color' | 'image' | 'select';
+  description: string;
+  isActive: boolean;
+  order: number;
+} = {
   name: '',
   slug: '',
-  type: 'text' as const,
+  type: 'text',
   description: '',
   isActive: true,
   order: 0,
