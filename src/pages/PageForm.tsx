@@ -63,18 +63,40 @@ const PageForm: React.FC = () => {
   const fetchTemplates = async () => {
     try {
       const response = await pagesAPI.getTemplates();
-      setTemplates(response.data || []);
+      // Backend returns: { success: true, data: templates[] }
+      // API interceptor normalizes to: templates[] or { data: templates[] }
+      let templates: any[] = [];
+      if (Array.isArray(response)) {
+        templates = response;
+      } else if (Array.isArray(response?.data)) {
+        templates = response.data;
+      } else if (Array.isArray(response?.data?.data)) {
+        templates = response.data.data;
+      }
+      setTemplates(templates);
     } catch (error) {
       console.error('Failed to fetch templates:', error);
+      setTemplates([]);
     }
   };
 
   const fetchBlockTypes = async () => {
     try {
       const response = await pagesAPI.getBlockTypes();
-      setBlockTypes(response.data || []);
+      // Backend returns: { success: true, data: blockTypes[] }
+      // API interceptor normalizes to: blockTypes[] or { data: blockTypes[] }
+      let blockTypes: any[] = [];
+      if (Array.isArray(response)) {
+        blockTypes = response;
+      } else if (Array.isArray(response?.data)) {
+        blockTypes = response.data;
+      } else if (Array.isArray(response?.data?.data)) {
+        blockTypes = response.data.data;
+      }
+      setBlockTypes(blockTypes);
     } catch (error) {
       console.error('Failed to fetch block types:', error);
+      setBlockTypes([]);
     }
   };
 
@@ -82,7 +104,15 @@ const PageForm: React.FC = () => {
     try {
       setLoading(true);
       const response = await pagesAPI.getById(id!);
-      setFormData(response.data);
+      // Backend returns: { success: true, data: page }
+      // API interceptor normalizes to: page or { data: page }
+      const pageData = response?.data || response;
+      
+      if (!pageData || typeof pageData !== 'object') {
+        throw new Error('Invalid page data received');
+      }
+      
+      setFormData(pageData);
     } catch (error: any) {
       console.error('Failed to fetch page:', error);
       alert(error.response?.data?.message || 'Failed to load page');

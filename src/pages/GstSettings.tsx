@@ -27,7 +27,10 @@ const GstSettings: React.FC = () => {
   const fetchSettings = async () => {
     try {
       setLoading(true);
-      const settings = await gstSettingsAPI.get();
+      const response = await gstSettingsAPI.get();
+      // Backend returns: { success: true, data: settings }
+      // API interceptor normalizes to: settings or { data: settings }
+      const settings = response?.data || response;
       if (settings) {
         setShowPriceIncludingGst(settings.showPriceIncludingGst || false);
         setShowGstOnCheckout(settings.showGstOnCheckout !== undefined ? settings.showGstOnCheckout : true);

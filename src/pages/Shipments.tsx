@@ -74,8 +74,16 @@ const Shipments: React.FC = () => {
   const fetchWarehouses = async () => {
     try {
       const response = await warehousesAPI.getAll();
-      // Handle both array response and object with data property
-      const warehousesData = Array.isArray(response.data) ? response.data : (response.data?.data || []);
+      // Backend returns: { success: true, data: warehouses[] }
+      // API interceptor normalizes to: warehouses[] or { data: warehouses[] }
+      let warehousesData: any[] = [];
+      if (Array.isArray(response)) {
+        warehousesData = response;
+      } else if (Array.isArray(response?.data)) {
+        warehousesData = response.data;
+      } else if (Array.isArray(response?.data?.data)) {
+        warehousesData = response.data.data;
+      }
       setWarehouses(warehousesData);
     } catch (error) {
       console.error('Failed to fetch warehouses:', error);
@@ -97,7 +105,18 @@ const Shipments: React.FC = () => {
       if (endDate) params.endDate = endDate;
 
       const response = await shipmentsAPI.getAll(params);
-      const shipmentsData = response.data?.shipments || [];
+      // Backend returns: { success: true, data: { shipments: [], pagination: {...} } }
+      // API interceptor normalizes to: { shipments: [], pagination: {...} } or shipments[]
+      let shipmentsData: any[] = [];
+      if (Array.isArray(response)) {
+        shipmentsData = response;
+      } else if (Array.isArray(response?.data)) {
+        shipmentsData = response.data;
+      } else if (Array.isArray(response?.data?.shipments)) {
+        shipmentsData = response.data.shipments;
+      } else if (Array.isArray(response?.data?.data?.shipments)) {
+        shipmentsData = response.data.data.shipments;
+      }
       
       // Backend now handles multiple statuses, so no need to filter here
       setShipments(Array.isArray(shipmentsData) ? shipmentsData : []);

@@ -46,12 +46,22 @@ const Categories: React.FC = () => {
     setLoading(true);
     try {
       const response = await categoriesAPI.list();
-      const data = response.data || response;
-      setCategories(Array.isArray(data) ? data : data?.data || []);
+      // Backend returns: { success: true, data: categories[] }
+      // API interceptor normalizes to: categories[] or { data: categories[] }
+      let categories: any[] = [];
+      if (Array.isArray(response)) {
+        categories = response;
+      } else if (Array.isArray(response?.data)) {
+        categories = response.data;
+      } else if (Array.isArray(response?.data?.data)) {
+        categories = response.data.data;
+      }
+      setCategories(categories);
       setError(null);
     } catch (err: any) {
       console.error('Failed to fetch categories', err);
       setError(err?.message || 'Failed to fetch categories');
+      setCategories([]);
     } finally {
       setLoading(false);
     }

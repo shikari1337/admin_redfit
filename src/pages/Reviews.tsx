@@ -67,9 +67,17 @@ const Reviews: React.FC = () => {
         limit: pagination.limit,
       });
       // Backend returns: { data: reviews[], pagination: {...} }
-      const reviewsData = response?.data || response?.data?.data || Array.isArray(response) ? response : [];
+      // API interceptor normalizes to: { data: reviews[], pagination: {...} } or reviews[]
+      let reviewsData: any[] = [];
+      if (Array.isArray(response)) {
+        reviewsData = response;
+      } else if (Array.isArray(response?.data)) {
+        reviewsData = response.data;
+      } else if (Array.isArray(response?.data?.data)) {
+        reviewsData = response.data.data;
+      }
       // Ensure all _id fields are strings
-      const sanitizedReviews = Array.isArray(reviewsData) ? reviewsData.map((review: any) => ({
+      const sanitizedReviews = reviewsData.map((review: any) => ({
         ...review,
         _id: typeof review._id === 'string' ? review._id : String(review._id || ''),
         productId: typeof review.productId === 'string' 
@@ -77,7 +85,7 @@ const Reviews: React.FC = () => {
           : (typeof review.productId === 'object' && review.productId?._id 
             ? (typeof review.productId._id === 'string' ? review.productId._id : String(review.productId._id || ''))
             : ''),
-      })) : [];
+      }));
       setReviews(sanitizedReviews);
       if (response?.pagination) {
         setPagination(prev => ({ ...prev, ...response.pagination }));
@@ -92,14 +100,23 @@ const Reviews: React.FC = () => {
 
   const fetchProducts = async () => {
     try {
-      const response = await reviewsAPI.getProducts?.() || await fetch('/api/v1/products').then(r => r.json());
-      const productsData = response?.data || response?.data?.data || Array.isArray(response) ? response : [];
+      const response = await reviewsAPI.getProducts();
+      // Backend returns: { success: true, data: products[], count: number }
+      // API interceptor normalizes to: products[] or { data: products[] }
+      let productsData: any[] = [];
+      if (Array.isArray(response)) {
+        productsData = response;
+      } else if (Array.isArray(response?.data)) {
+        productsData = response.data;
+      } else if (Array.isArray(response?.data?.data)) {
+        productsData = response.data.data;
+      }
       // Ensure we have SKU field and _id is string
-      setProducts(Array.isArray(productsData) ? productsData.map((p: any) => ({
+      setProducts(productsData.map((p: any) => ({
         _id: typeof p._id === 'string' ? p._id : String(p._id || ''),
         name: p.name || '',
         sku: p.sku || '',
-      })) : []);
+      })));
     } catch (error) {
       console.error('Failed to fetch products:', error);
       setProducts([]);

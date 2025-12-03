@@ -80,11 +80,21 @@ const Warehouses: React.FC = () => {
     try {
       setLoading(true);
       const response = await warehousesAPI.getAll();
-      if (response.success) {
-        setWarehouses(response.data?.warehouses || response.data || []);
-      } else {
-        setWarehouses(response.data || []);
+      // Backend returns: { success: true, data: warehouses[] }
+      // API interceptor normalizes to: warehouses[] or { data: warehouses[] }
+      let warehousesData: any[] = [];
+      if (Array.isArray(response)) {
+        warehousesData = response;
+      } else if (response?.success && Array.isArray(response?.data)) {
+        warehousesData = response.data;
+      } else if (Array.isArray(response?.data)) {
+        warehousesData = response.data;
+      } else if (Array.isArray(response?.data?.warehouses)) {
+        warehousesData = response.data.warehouses;
+      } else if (Array.isArray(response?.data?.data)) {
+        warehousesData = response.data.data;
       }
+      setWarehouses(warehousesData);
     } catch (error: any) {
       console.error('Failed to fetch warehouses:', error);
       alert('Failed to load warehouses');

@@ -21,8 +21,15 @@ const ContactSettings: React.FC = () => {
     try {
       setLoading(true);
       const response = await api.get('/contact');
-      if (response.data.success && response.data.data) {
-        setFormData(response.data.data);
+      // Backend returns: { success: true, data: contact }
+      // API interceptor normalizes to: contact or { data: contact }
+      const contactData = response.data?.success && response.data?.data 
+        ? response.data.data 
+        : response.data?.data 
+        ? response.data.data 
+        : response.data;
+      if (contactData) {
+        setFormData(contactData);
       }
     } catch (error: any) {
       console.error('Failed to fetch contact details:', error);

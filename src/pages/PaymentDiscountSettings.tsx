@@ -26,15 +26,23 @@ const PaymentDiscountSettings: React.FC = () => {
     try {
       setLoading(true);
       const response = await api.get('/settings/admin');
-      if (response.data.success && response.data.data) {
+      // Backend returns: { success: true, data: settings }
+      // API interceptor normalizes to: settings or { data: settings }
+      const settings = response.data?.success && response.data?.data 
+        ? response.data.data 
+        : response.data?.data 
+        ? response.data.data 
+        : response.data;
+      
+      if (settings) {
         setFormData({
-          razorpayDiscountPercent: response.data.data.razorpayDiscountPercent || 2,
-          quantityDiscounts: response.data.data.quantityDiscounts || [
+          razorpayDiscountPercent: settings.razorpayDiscountPercent || 2,
+          quantityDiscounts: settings.quantityDiscounts || [
             { minQuantity: 5, discountPercent: 5 },
             { minQuantity: 10, discountPercent: 10 },
             { minQuantity: 20, discountPercent: 15 },
           ],
-          excludeBundledProductsFromQuantityDiscount: response.data.data.excludeBundledProductsFromQuantityDiscount || false,
+          excludeBundledProductsFromQuantityDiscount: settings.excludeBundledProductsFromQuantityDiscount || false,
         });
       }
     } catch (error: any) {

@@ -20,22 +20,26 @@ const Dashboard: React.FC = () => {
           ordersAPI.getAll({ limit: 1000 }),
         ]);
 
+        // Backend returns: { success: true, data: products[], count: number }
         // Handle different response structures
-        const products = Array.isArray(productsRes?.data) 
-          ? productsRes.data 
-          : Array.isArray(productsRes?.data?.data) 
-            ? productsRes.data.data 
-            : Array.isArray(productsRes) 
-              ? productsRes 
-              : [];
+        let products: any[] = [];
+        if (Array.isArray(productsRes)) {
+          products = productsRes;
+        } else if (Array.isArray(productsRes?.data)) {
+          products = productsRes.data;
+        } else if (Array.isArray(productsRes?.data?.data)) {
+          products = productsRes.data.data;
+        }
         
-        const orders = Array.isArray(ordersRes?.data) 
-          ? ordersRes.data 
-          : Array.isArray(ordersRes?.data?.data) 
-            ? ordersRes.data.data 
-            : Array.isArray(ordersRes) 
-              ? ordersRes 
-              : [];
+        // Backend returns: { success: true, data: orders[], pagination: {...} }
+        let orders: any[] = [];
+        if (Array.isArray(ordersRes)) {
+          orders = ordersRes;
+        } else if (Array.isArray(ordersRes?.data)) {
+          orders = ordersRes.data;
+        } else if (Array.isArray(ordersRes?.data?.data)) {
+          orders = ordersRes.data.data;
+        }
 
         const revenue = orders.reduce((sum: number, order: any) => {
           const total = order.total || order.totalAmount || 0;

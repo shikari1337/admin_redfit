@@ -105,7 +105,18 @@ const SmsTemplates: React.FC = () => {
           smsConfigAPI.get(),
         ]);
 
-        const mapped: TemplateForm[] = (templatesData || []).map((template: any) => ({
+        // Backend returns: { success: true, data: templates[] }
+        // API interceptor normalizes to: templates[] or { data: templates[] }
+        let templates: any[] = [];
+        if (Array.isArray(templatesData)) {
+          templates = templatesData;
+        } else if (Array.isArray(templatesData?.data)) {
+          templates = templatesData.data;
+        } else if (Array.isArray(templatesData?.data?.data)) {
+          templates = templatesData.data.data;
+        }
+
+        const mapped: TemplateForm[] = templates.map((template: any) => ({
           event: template.event,
           content: template.content,
           templateId: template.templateId,
@@ -121,13 +132,16 @@ const SmsTemplates: React.FC = () => {
         setTemplates(mapped);
         setOriginalTemplates(originals);
 
+        // Backend returns: { success: true, data: config }
+        // API interceptor normalizes to: config or { data: config }
+        const config = configData?.data || configData;
         const updatedConfig: SmsConfigForm = {
-          baseUrl: configData.baseUrl || '',
-          route: configData.route || 'Transactional',
-          senderId: configData.senderId || '',
-          isEnabled: Boolean(configData.isEnabled),
+          baseUrl: config?.baseUrl || '',
+          route: config?.route || 'Transactional',
+          senderId: config?.senderId || '',
+          isEnabled: Boolean(config?.isEnabled),
           apiKey: '',
-          apiKeySet: Boolean(configData.apiKeySet),
+          apiKeySet: Boolean(config?.apiKeySet),
         };
         setConfig(updatedConfig);
         setOriginalConfig({ ...updatedConfig });

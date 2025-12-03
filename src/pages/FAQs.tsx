@@ -34,10 +34,21 @@ const FAQs: React.FC = () => {
     try {
       setLoading(true);
       const response = await faqsAPI.getAll({ active: undefined }); // Get all FAQs (including inactive) for admin
-      setFaqs(response.data || []);
+      // Backend returns: { success: true, data: faqs[], count: number }
+      // API interceptor normalizes to: faqs[] or { data: faqs[] }
+      let faqs: any[] = [];
+      if (Array.isArray(response)) {
+        faqs = response;
+      } else if (Array.isArray(response?.data)) {
+        faqs = response.data;
+      } else if (Array.isArray(response?.data?.data)) {
+        faqs = response.data.data;
+      }
+      setFaqs(faqs);
     } catch (error) {
       console.error('Failed to fetch FAQs:', error);
       alert('Failed to fetch FAQs');
+      setFaqs([]);
     } finally {
       setLoading(false);
     }

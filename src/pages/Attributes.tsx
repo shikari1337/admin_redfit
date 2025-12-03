@@ -87,11 +87,17 @@ const Attributes: React.FC = () => {
     setLoading(true);
     try {
       const response = await attributesAPI.list();
-      console.log('Attributes API response:', response);
-      // Response should already be normalized by API interceptor
-      const data = Array.isArray(response) ? response : (response?.data || []);
-      console.log('Parsed attributes:', data);
-      setAttributes(data);
+      // Backend returns: { success: true, data: attributes[] }
+      // API interceptor normalizes to: attributes[] or { data: attributes[] }
+      let attributes: any[] = [];
+      if (Array.isArray(response)) {
+        attributes = response;
+      } else if (response?.data && Array.isArray(response.data)) {
+        attributes = response.data;
+      } else if (response?.data?.data && Array.isArray(response.data.data)) {
+        attributes = response.data.data;
+      }
+      setAttributes(attributes);
       setError(null);
     } catch (err: any) {
       console.error('Failed to fetch attributes', err);
@@ -118,8 +124,17 @@ const Attributes: React.FC = () => {
       if (!attribute) return;
 
       const response = await attributesAPI.getValues(attribute.slug);
-      const data = Array.isArray(response) ? response : response?.data || [];
-      setAttributeValues(prev => ({ ...prev, [attributeId]: data }));
+      // Backend returns: { success: true, data: values[] }
+      // API interceptor normalizes to: values[] or { data: values[] }
+      let values: any[] = [];
+      if (Array.isArray(response)) {
+        values = response;
+      } else if (response?.data && Array.isArray(response.data)) {
+        values = response.data;
+      } else if (response?.data?.data && Array.isArray(response.data.data)) {
+        values = response.data.data;
+      }
+      setAttributeValues(prev => ({ ...prev, [attributeId]: values }));
     } catch (err: any) {
       console.error('Failed to fetch attribute values', err);
     }
@@ -304,119 +319,197 @@ const Attributes: React.FC = () => {
   }
 
   return (
-    <div className="p-6">
+    <div className="p-6 max-w-7xl mx-auto">
       <div className="mb-6 flex justify-between items-center">
-        <h1 className="text-2xl font-bold">Attributes</h1>
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Attributes & Values</h1>
+          <p className="text-gray-600 mt-1">Manage product attributes like Color, Size, Material, etc.</p>
+        </div>
+        <button
+          onClick={resetAttributeForm}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+        >
+          <FaPlus /> New Attribute
+        </button>
       </div>
 
       {error && (
-        <div className="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded">
-          {error}
+        <div className="mb-4 p-4 bg-red-50 border-l-4 border-red-400 text-red-700 rounded-lg">
+          <div className="flex items-center">
+            <span className="font-semibold mr-2">Error:</span>
+            <span>{error}</span>
+          </div>
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Attributes List */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold mb-4">Attributes</h2>
-          <div className="space-y-2">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        {/* Attributes List - Takes 2 columns */}
+        <div className="xl:col-span-2 bg-white rounded-lg shadow-lg p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold text-gray-900">Attributes ({attributes.length})</h2>
+            {attributes.length > 0 && (
+              <span className="text-sm text-gray-500">Sorted by order</span>
+            )}
+          </div>
+          <div className="space-y-3">
             {attributes.length === 0 ? (
-              <div className="text-gray-500 text-center py-8">No attributes found</div>
+              <div className="text-center py-12 border-2 border-dashed border-gray-300 rounded-lg">
+                <FaPlus className="mx-auto text-gray-400 text-4xl mb-3" />
+                <p className="text-gray-500 text-lg mb-2">No attributes yet</p>
+                <p className="text-gray-400 text-sm mb-4">Create your first attribute to get started</p>
+                <button
+                  onClick={resetAttributeForm}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Create Attribute
+                </button>
+              </div>
             ) : (
               attributes
                 .sort((a, b) => (a.order || 0) - (b.order || 0))
                 .map((attribute) => (
-                  <div key={attribute._id} className="border rounded-lg">
-                    <div className="flex items-center justify-between p-3 bg-gray-50">
-                      <div className="flex items-center gap-2 flex-1">
-                        <button
-                          onClick={() => toggleAttribute(attribute._id)}
-                          className="text-gray-600 hover:text-gray-800"
-                        >
-                          {expandedAttributes.has(attribute._id) ? (
-                            <FaChevronDown />
-                          ) : (
-                            <FaChevronRight />
-                          )}
-                        </button>
-                        <span className="font-medium">{attribute.name}</span>
-                        <span className="text-sm text-gray-500">({attribute.slug})</span>
-                        <span className={`text-xs px-2 py-1 rounded ${
-                          attribute.type === 'color' ? 'bg-blue-100 text-blue-800' :
-                          attribute.type === 'image' ? 'bg-purple-100 text-purple-800' :
-                          'bg-gray-100 text-gray-800'
-                        }`}>
-                          {attribute.type}
-                        </span>
-                        {!attribute.isActive && (
-                          <span className="text-xs px-2 py-1 rounded bg-red-100 text-red-800">
-                            Inactive
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleEditAttribute(attribute)}
-                          className="text-blue-600 hover:text-blue-800"
-                        >
-                          <FaEdit />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteAttribute(attribute._id)}
-                          className="text-red-600 hover:text-red-800"
-                        >
-                          <FaTrash />
-                        </button>
+                  <div key={attribute._id} className="border border-gray-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
+                    <div className="bg-gradient-to-r from-gray-50 to-white p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          <button
+                            onClick={() => toggleAttribute(attribute._id)}
+                            className="text-gray-600 hover:text-gray-800 transition-colors flex-shrink-0"
+                            title={expandedAttributes.has(attribute._id) ? 'Collapse' : 'Expand'}
+                          >
+                            {expandedAttributes.has(attribute._id) ? (
+                              <FaChevronDown className="text-lg" />
+                            ) : (
+                              <FaChevronRight className="text-lg" />
+                            )}
+                          </button>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-semibold text-gray-900">{attribute.name}</span>
+                              <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
+                                {attribute.slug}
+                              </span>
+                              <span className={`text-xs px-2 py-1 rounded font-medium ${
+                                attribute.type === 'color' ? 'bg-blue-100 text-blue-800' :
+                                attribute.type === 'image' ? 'bg-purple-100 text-purple-800' :
+                                attribute.type === 'select' ? 'bg-green-100 text-green-800' :
+                                'bg-gray-100 text-gray-800'
+                              }`}>
+                                {attribute.type}
+                              </span>
+                              {!attribute.isActive && (
+                                <span className="text-xs px-2 py-1 rounded bg-red-100 text-red-800 font-medium">
+                                  Inactive
+                                </span>
+                              )}
+                            </div>
+                            {attribute.description && (
+                              <p className="text-sm text-gray-600 mt-1 truncate">{attribute.description}</p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex gap-2 ml-4">
+                          <button
+                            onClick={() => handleEditAttribute(attribute)}
+                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                            title="Edit Attribute"
+                          >
+                            <FaEdit />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteAttribute(attribute._id)}
+                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            title="Delete Attribute"
+                          >
+                            <FaTrash />
+                          </button>
+                        </div>
                       </div>
                     </div>
                     {expandedAttributes.has(attribute._id) && (
-                      <div className="p-3 border-t">
-                        {selectedAttributeId === attribute._id ? (
-                          <div className="text-sm text-gray-600 mb-2">
-                            Editing attribute values below
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => {
-                              setSelectedAttributeId(attribute._id);
-                              resetValueForm();
-                            }}
-                            className="text-sm text-blue-600 hover:text-blue-800"
-                          >
-                            <FaPlus className="inline mr-1" /> Add Value
-                          </button>
-                        )}
-                        {attributeValues[attribute._id] && (
-                          <div className="mt-2 space-y-1">
+                      <div className="p-4 bg-white border-t border-gray-200">
+                        <div className="flex items-center justify-between mb-3">
+                          <h3 className="text-sm font-semibold text-gray-700">
+                            Values ({attributeValues[attribute._id]?.length || 0})
+                          </h3>
+                          {selectedAttributeId !== attribute._id && (
+                            <button
+                              onClick={() => {
+                                setSelectedAttributeId(attribute._id);
+                                resetValueForm();
+                              }}
+                              className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 font-medium"
+                            >
+                              <FaPlus className="text-xs" /> Add Value
+                            </button>
+                          )}
+                        </div>
+                        {attributeValues[attribute._id] && attributeValues[attribute._id].length > 0 ? (
+                          <div className="space-y-2">
                             {attributeValues[attribute._id]
                               .sort((a, b) => (a.order || 0) - (b.order || 0))
                               .map((value) => (
-                                <div key={value._id} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                                  <div>
-                                    <span className="font-medium">{value.name}</span>
-                                    <span className="text-sm text-gray-500 ml-2">({value.slug})</span>
-                                    {value.value && (
-                                      <span className="ml-2 text-xs px-2 py-1 rounded bg-gray-200">
-                                        {value.value}
-                                      </span>
+                                <div key={value._id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                                    {attribute.type === 'color' && value.value && (
+                                      <div
+                                        className="w-6 h-6 rounded border-2 border-gray-300 flex-shrink-0"
+                                        style={{ backgroundColor: value.value }}
+                                        title={value.value}
+                                      />
                                     )}
+                                    {attribute.type === 'image' && value.imageUrl && (
+                                      <img
+                                        src={value.imageUrl}
+                                        alt={value.name}
+                                        className="w-8 h-8 rounded object-cover flex-shrink-0"
+                                        onError={(e) => {
+                                          (e.target as HTMLImageElement).style.display = 'none';
+                                        }}
+                                      />
+                                    )}
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="font-medium text-gray-900">{value.name}</span>
+                                        <span className="text-xs text-gray-500">{value.slug}</span>
+                                        {value.value && attribute.type !== 'color' && (
+                                          <span className="text-xs px-2 py-0.5 rounded bg-gray-200 text-gray-700">
+                                            {value.value}
+                                          </span>
+                                        )}
+                                        {!value.isActive && (
+                                          <span className="text-xs px-2 py-0.5 rounded bg-red-100 text-red-800">
+                                            Inactive
+                                          </span>
+                                        )}
+                                      </div>
+                                      {value.description && (
+                                        <p className="text-xs text-gray-600 mt-1 truncate">{value.description}</p>
+                                      )}
+                                    </div>
                                   </div>
-                                  <div className="flex gap-2">
+                                  <div className="flex gap-2 ml-4">
                                     <button
                                       onClick={() => handleEditValue(value)}
-                                      className="text-blue-600 hover:text-blue-800 text-sm"
+                                      className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                      title="Edit Value"
                                     >
-                                      <FaEdit />
+                                      <FaEdit className="text-sm" />
                                     </button>
                                     <button
                                       onClick={() => handleDeleteValue(attribute._id, value._id)}
-                                      className="text-red-600 hover:text-red-800 text-sm"
+                                      className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                      title="Delete Value"
                                     >
-                                      <FaTrash />
+                                      <FaTrash className="text-sm" />
                                     </button>
                                   </div>
                                 </div>
                               ))}
+                          </div>
+                        ) : (
+                          <div className="text-center py-6 text-gray-500 text-sm">
+                            No values yet. Click "Add Value" to create one.
                           </div>
                         )}
                       </div>
@@ -428,10 +521,15 @@ const Attributes: React.FC = () => {
         </div>
 
         {/* Attribute Form */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold mb-4">
-            {selectedAttributeId ? 'Edit Attribute' : 'New Attribute'}
-          </h2>
+        <div className="bg-white rounded-lg shadow-lg p-6 sticky top-6">
+          <div className="mb-6 pb-4 border-b border-gray-200">
+            <h2 className="text-xl font-semibold text-gray-900">
+              {selectedAttributeId ? 'Edit Attribute' : 'New Attribute'}
+            </h2>
+            <p className="text-sm text-gray-500 mt-1">
+              {selectedAttributeId ? 'Update attribute details' : 'Create a new product attribute'}
+            </p>
+          </div>
           <form onSubmit={handleSubmitAttribute} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -441,7 +539,8 @@ const Attributes: React.FC = () => {
                 type="text"
                 value={attributeFormState.name}
                 onChange={(e) => handleNameChange(e.target.value, true)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                placeholder="e.g., Color, Size, Material"
                 required
               />
             </div>
@@ -453,8 +552,9 @@ const Attributes: React.FC = () => {
                 type="text"
                 value={attributeFormState.slug}
                 onChange={(e) => setAttributeFormState(prev => ({ ...prev, slug: slugifyValue(e.target.value) }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 pattern="[a-z0-9-]+"
+                placeholder="auto-generated-from-name"
               />
             </div>
             <div>
@@ -464,13 +564,13 @@ const Attributes: React.FC = () => {
               <select
                 value={attributeFormState.type}
                 onChange={(e) => setAttributeFormState(prev => ({ ...prev, type: e.target.value as any }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 required
               >
-                <option value="text">Text</option>
-                <option value="color">Color</option>
-                <option value="image">Image</option>
-                <option value="select">Select</option>
+                <option value="text">Text - Plain text values</option>
+                <option value="color">Color - Color swatches with hex codes</option>
+                <option value="image">Image - Image-based values</option>
+                <option value="select">Select - Dropdown selection</option>
               </select>
             </div>
             <div>
@@ -480,8 +580,9 @@ const Attributes: React.FC = () => {
               <textarea
                 value={attributeFormState.description}
                 onChange={(e) => setAttributeFormState(prev => ({ ...prev, description: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 rows={3}
+                placeholder="Optional description for this attribute"
               />
             </div>
             <div>
@@ -492,46 +593,64 @@ const Attributes: React.FC = () => {
                 type="number"
                 value={attributeFormState.order}
                 onChange={(e) => setAttributeFormState(prev => ({ ...prev, order: parseInt(e.target.value) || 0 }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 min="0"
+                placeholder="0"
               />
             </div>
-            <div className="flex items-center">
+            <div className="flex items-center p-3 bg-gray-50 rounded-lg">
               <input
                 type="checkbox"
                 id="attributeIsActive"
                 checked={attributeFormState.isActive}
                 onChange={(e) => setAttributeFormState(prev => ({ ...prev, isActive: e.target.checked }))}
-                className="mr-2"
+                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
               />
-              <label htmlFor="attributeIsActive" className="text-sm font-medium text-gray-700">
-                Active
+              <label htmlFor="attributeIsActive" className="ml-2 text-sm font-medium text-gray-700 cursor-pointer">
+                Active (visible in product forms)
               </label>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 pt-4">
               <button
                 type="submit"
                 disabled={saving}
-                className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-medium transition-colors"
               >
-                {saving ? 'Saving...' : <><FaSave /> Save</>}
+                {saving ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                    </svg>
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <FaSave /> {selectedAttributeId ? 'Update' : 'Create'} Attribute
+                  </>
+                )}
               </button>
               <button
                 type="button"
                 onClick={resetAttributeForm}
-                className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 flex items-center gap-2"
+                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-2 transition-colors"
               >
-                <FaUndo /> Reset
+                <FaUndo /> Clear
               </button>
             </div>
           </form>
 
           {/* Value Form */}
           {selectedAttributeId && (
-            <div className="mt-8 pt-8 border-t">
-              <h3 className="text-lg font-semibold mb-4">
-                {selectedValueId ? 'Edit Value' : 'New Value'}
-              </h3>
+            <div className="mt-8 pt-8 border-t border-gray-200">
+              <div className="mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  {selectedValueId ? 'Edit Value' : 'New Value'}
+                </h3>
+                <p className="text-sm text-gray-500 mt-1">
+                  {selectedValueId ? 'Update value details' : `Add a value for "${attributes.find(a => a._id === selectedAttributeId)?.name || 'this attribute'}"`}
+                </p>
+              </div>
               <form onSubmit={handleSubmitValue} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -541,7 +660,8 @@ const Attributes: React.FC = () => {
                     type="text"
                     value={valueFormState.name}
                     onChange={(e) => handleNameChange(e.target.value, false)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
+                    placeholder="e.g., Red, Small, Cotton"
                     required
                   />
                 </div>
@@ -553,8 +673,9 @@ const Attributes: React.FC = () => {
                     type="text"
                     value={valueFormState.slug}
                     onChange={(e) => setValueFormState(prev => ({ ...prev, slug: slugifyValue(e.target.value) }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
                     pattern="[a-z0-9-]+"
+                    placeholder="auto-generated-from-name"
                   />
                 </div>
                 {attributes.find(a => a._id === selectedAttributeId)?.type === 'color' && (
@@ -562,13 +683,22 @@ const Attributes: React.FC = () => {
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Color Code (Hex)
                     </label>
-                    <input
-                      type="text"
-                      value={valueFormState.value}
-                      onChange={(e) => setValueFormState(prev => ({ ...prev, value: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="#FF0000"
-                    />
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="text"
+                        value={valueFormState.value}
+                        onChange={(e) => setValueFormState(prev => ({ ...prev, value: e.target.value }))}
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
+                        placeholder="#FF0000"
+                      />
+                      {valueFormState.value && /^#[0-9A-Fa-f]{6}$/.test(valueFormState.value) && (
+                        <div
+                          className="w-10 h-10 rounded border-2 border-gray-300 flex-shrink-0"
+                          style={{ backgroundColor: valueFormState.value }}
+                          title={valueFormState.value}
+                        />
+                      )}
+                    </div>
                   </div>
                 )}
                 {attributes.find(a => a._id === selectedAttributeId)?.type === 'image' && (
@@ -576,13 +706,25 @@ const Attributes: React.FC = () => {
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Image URL
                     </label>
-                    <input
-                      type="text"
-                      value={valueFormState.imageUrl}
-                      onChange={(e) => setValueFormState(prev => ({ ...prev, imageUrl: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="https://..."
-                    />
+                    <div className="space-y-2">
+                      <input
+                        type="text"
+                        value={valueFormState.imageUrl}
+                        onChange={(e) => setValueFormState(prev => ({ ...prev, imageUrl: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
+                        placeholder="https://example.com/image.jpg"
+                      />
+                      {valueFormState.imageUrl && (
+                        <img
+                          src={valueFormState.imageUrl}
+                          alt="Preview"
+                          className="w-20 h-20 rounded border border-gray-300 object-cover"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = 'none';
+                          }}
+                        />
+                      )}
+                    </div>
                   </div>
                 )}
                 <div>
@@ -592,8 +734,9 @@ const Attributes: React.FC = () => {
                   <textarea
                     value={valueFormState.description}
                     onChange={(e) => setValueFormState(prev => ({ ...prev, description: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
                     rows={2}
+                    placeholder="Optional description for this value"
                   />
                 </div>
                 <div>
@@ -603,9 +746,9 @@ const Attributes: React.FC = () => {
                   <select
                     value={valueFormState.sizeChart}
                     onChange={(e) => setValueFormState(prev => ({ ...prev, sizeChart: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
                   >
-                    <option value="">None</option>
+                    <option value="">No size chart</option>
                     {sizeCharts.map((chart) => (
                       <option key={chart._id} value={chart._id}>
                         {chart.name}
@@ -621,36 +764,49 @@ const Attributes: React.FC = () => {
                     type="number"
                     value={valueFormState.order}
                     onChange={(e) => setValueFormState(prev => ({ ...prev, order: parseInt(e.target.value) || 0 }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
                     min="0"
+                    placeholder="0"
                   />
                 </div>
-                <div className="flex items-center">
+                <div className="flex items-center p-3 bg-gray-50 rounded-lg">
                   <input
                     type="checkbox"
                     id="valueIsActive"
                     checked={valueFormState.isActive}
                     onChange={(e) => setValueFormState(prev => ({ ...prev, isActive: e.target.checked }))}
-                    className="mr-2"
+                    className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
                   />
-                  <label htmlFor="valueIsActive" className="text-sm font-medium text-gray-700">
-                    Active
+                  <label htmlFor="valueIsActive" className="ml-2 text-sm font-medium text-gray-700 cursor-pointer">
+                    Active (visible in product forms)
                   </label>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 pt-4">
                   <button
                     type="submit"
                     disabled={saving}
-                    className="flex-1 bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                    className="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-medium transition-colors"
                   >
-                    {saving ? 'Saving...' : <><FaSave /> Save Value</>}
+                    {saving ? (
+                      <>
+                        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                        </svg>
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <FaSave /> {selectedValueId ? 'Update' : 'Create'} Value
+                      </>
+                    )}
                   </button>
                   <button
                     type="button"
                     onClick={resetValueForm}
-                    className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 flex items-center gap-2"
+                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-2 transition-colors"
                   >
-                    <FaUndo /> Reset
+                    <FaUndo /> Clear
                   </button>
                 </div>
               </form>

@@ -20,16 +20,18 @@ const Orders: React.FC = () => {
       setLoading(true);
       const params = statusFilter ? { status: statusFilter } : {};
       const response = await ordersAPI.getAll({ ...params, limit: 100 });
-      // Backend returns: { success: true, data: ordersData, pagination: {...} }
-      const orders = response?.success && Array.isArray(response?.data)
-        ? response.data
-        : Array.isArray(response?.data?.data)
-          ? response.data.data
-          : Array.isArray(response?.data)
-            ? response.data
-            : Array.isArray(response)
-              ? response
-              : [];
+      // Backend returns: { success: true, data: orders[], pagination: {...} }
+      // API interceptor normalizes to: { data: orders[], pagination: {...} } or orders[]
+      let orders: any[] = [];
+      if (Array.isArray(response)) {
+        orders = response;
+      } else if (response?.success && Array.isArray(response?.data)) {
+        orders = response.data;
+      } else if (Array.isArray(response?.data)) {
+        orders = response.data;
+      } else if (Array.isArray(response?.data?.data)) {
+        orders = response.data.data;
+      }
       setOrders(orders);
     } catch (error: any) {
       console.error('Failed to fetch orders:', error);

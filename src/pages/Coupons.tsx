@@ -38,13 +38,21 @@ const Coupons: React.FC = () => {
       setLoading(true);
       setError(null);
       const response = await couponsAPI.getAll();
-      // Backend returns: { data: coupons[] } or direct array
-      const couponsData = response?.data || response?.data?.data || Array.isArray(response) ? response : [];
+      // Backend returns: { success: true, data: coupons[] }
+      // API interceptor normalizes to: coupons[] or { data: coupons[] }
+      let couponsData: any[] = [];
+      if (Array.isArray(response)) {
+        couponsData = response;
+      } else if (Array.isArray(response?.data)) {
+        couponsData = response.data;
+      } else if (Array.isArray(response?.data?.data)) {
+        couponsData = response.data.data;
+      }
       // Ensure all _id fields are strings
-      const sanitizedCoupons = Array.isArray(couponsData) ? couponsData.map((coupon: any) => ({
+      const sanitizedCoupons = couponsData.map((coupon: any) => ({
         ...coupon,
         _id: typeof coupon._id === 'string' ? coupon._id : String(coupon._id || ''),
-      })) : [];
+      }));
       setCoupons(sanitizedCoupons);
     } catch (err: any) {
       setError(err.response?.data?.message || err.message || 'Failed to fetch coupons');

@@ -34,8 +34,15 @@ const ShippingSettings: React.FC = () => {
     try {
       setLoading(true);
       const response = await api.get('/settings/admin');
-      if (response.data.success && response.data.data) {
-        const settings = response.data.data;
+      // Backend returns: { success: true, data: settings }
+      // API interceptor normalizes to: settings or { data: settings }
+      const settings = response.data?.success && response.data?.data 
+        ? response.data.data 
+        : response.data?.data 
+        ? response.data.data 
+        : response.data;
+      
+      if (settings) {
         
         // Shiprocket settings
         if (settings.shiprocket) {

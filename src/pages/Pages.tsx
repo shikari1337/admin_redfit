@@ -30,10 +30,21 @@ const Pages: React.FC = () => {
     try {
       setLoading(true);
       const response = await api.get('/pages/admin/all');
-      setPages(response.data.data || []);
+      // Backend returns: { success: true, data: pages[] }
+      // API interceptor normalizes to: pages[] or { data: pages[] }
+      let pages: any[] = [];
+      if (Array.isArray(response.data)) {
+        pages = response.data;
+      } else if (Array.isArray(response.data?.data)) {
+        pages = response.data.data;
+      } else if (Array.isArray(response.data?.data?.data)) {
+        pages = response.data.data.data;
+      }
+      setPages(pages);
     } catch (error: any) {
       console.error('Failed to fetch pages:', error);
       alert(error.response?.data?.message || 'Failed to fetch pages');
+      setPages([]);
     } finally {
       setLoading(false);
     }

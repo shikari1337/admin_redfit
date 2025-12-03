@@ -46,7 +46,14 @@ const CouponForm: React.FC = () => {
   const fetchCoupon = async () => {
     try {
       setLoading(true);
-      const coupon = await couponsAPI.getById(id!);
+      const response = await couponsAPI.getById(id!);
+      // Backend returns: { success: true, data: coupon }
+      // API interceptor normalizes to: coupon or { data: coupon }
+      const coupon = response?.data || response;
+      
+      if (!coupon || typeof coupon !== 'object') {
+        throw new Error('Invalid coupon data received');
+      }
       
       // Convert dates to YYYY-MM-DD format
       const validFrom = coupon.validFrom ? new Date(coupon.validFrom).toISOString().split('T')[0] : '';

@@ -69,13 +69,23 @@ const Products: React.FC = () => {
 
   const fetchProducts = async () => {
     try {
+      setLoading(true);
       const response = await productsAPI.getAll();
-      // Response is normalized by API interceptor
-      const products = Array.isArray(response) ? response : (response?.data || []);
+      // Backend returns: { success: true, data: products[], count: number }
+      // API interceptor normalizes to: products[] or { data: products[] }
+      let products: any[] = [];
+      if (Array.isArray(response)) {
+        products = response;
+      } else if (response?.data && Array.isArray(response.data)) {
+        products = response.data;
+      } else if (response?.data?.data && Array.isArray(response.data.data)) {
+        products = response.data.data;
+      }
       // Sanitize all products to remove any buffer objects or non-serializable data
       setProducts(products.map(sanitizeProduct));
     } catch (error) {
       console.error('Failed to fetch products:', error);
+      setProducts([]);
     } finally {
       setLoading(false);
     }

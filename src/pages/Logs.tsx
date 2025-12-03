@@ -47,16 +47,30 @@ const Logs: React.FC = () => {
   const fetchLogFiles = async () => {
     try {
       const response = await logsAPI.getLogFiles();
-      if (response.success && response.data) {
-        setLogFiles(response.data);
+      // Backend returns: { success: true, data: { files: [], filesByType: {}, total: number } }
+      // API interceptor normalizes to: { files: [], filesByType: {}, total: number } or nested in data
+      let filesData: any = null;
+      if (response?.success && response?.data) {
+        filesData = response.data;
+      } else if (response?.files) {
+        filesData = response;
+      } else if (response?.data?.files) {
+        filesData = response.data;
+      } else {
+        filesData = response;
+      }
+      
+      if (filesData) {
+        setLogFiles(filesData);
         // Auto-select today's file for the selected type
         const today = new Date().toISOString().split('T')[0];
         const todayFile = `${logType}-${today}.log`;
-        if (response.data.files.includes(todayFile)) {
+        if (filesData.files && Array.isArray(filesData.files) && filesData.files.includes(todayFile)) {
           setSelectedFile(todayFile);
         }
       }
     } catch (err: any) {
+      console.error('Failed to fetch log files:', err);
       setError(err.message || 'Failed to fetch log files');
     }
   };
@@ -79,12 +93,28 @@ const Logs: React.FC = () => {
       }
 
       const response = await logsAPI.getLogs(params);
-      if (response.success && response.data) {
-        setLogs(response.data.logs || []);
+      // Backend returns: { success: true, data: { logs: [], total: number, file: string, exists: boolean, filters: {} } }
+      // API interceptor normalizes to: { logs: [], total: number, ... } or nested in data
+      let logsData: any = null;
+      if (response?.success && response?.data) {
+        logsData = response.data;
+      } else if (response?.logs) {
+        logsData = response;
+      } else if (response?.data?.logs) {
+        logsData = response.data;
       } else {
-        setError('Failed to fetch logs');
+        logsData = response;
+      }
+      
+      if (logsData && Array.isArray(logsData.logs)) {
+        setLogs(logsData.logs);
+      } else if (Array.isArray(logsData)) {
+        setLogs(logsData);
+      } else {
+        setLogs([]);
       }
     } catch (err: any) {
+      console.error('Failed to fetch logs:', err);
       setError(err.message || 'Failed to fetch logs');
       setLogs([]);
     } finally {

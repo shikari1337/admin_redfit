@@ -119,17 +119,27 @@ const GeneralSettings: React.FC = () => {
         pagesAPI.getAll().catch(() => ({ data: { data: [] } })),
       ]);
       
-      const categories = Array.isArray(catResponse?.data) 
-        ? catResponse.data 
-        : Array.isArray(catResponse?.data?.data)
-          ? catResponse.data.data
-          : [];
+      // Backend returns: { success: true, data: categories[] }
+      // API interceptor normalizes to: categories[] or { data: categories[] }
+      let categories: any[] = [];
+      if (Array.isArray(catResponse)) {
+        categories = catResponse;
+      } else if (Array.isArray(catResponse?.data)) {
+        categories = catResponse.data;
+      } else if (Array.isArray(catResponse?.data?.data)) {
+        categories = catResponse.data.data;
+      }
       
-      const pages = Array.isArray(pagesResponse?.data?.data)
-        ? pagesResponse.data.data
-        : Array.isArray(pagesResponse?.data)
-          ? pagesResponse.data
-          : [];
+      // Backend returns: { success: true, data: pages[] }
+      // API interceptor normalizes to: pages[] or { data: pages[] }
+      let pages: any[] = [];
+      if (Array.isArray(pagesResponse)) {
+        pages = pagesResponse;
+      } else if (Array.isArray(pagesResponse?.data)) {
+        pages = pagesResponse.data;
+      } else if (Array.isArray(pagesResponse?.data?.data)) {
+        pages = pagesResponse.data.data;
+      }
       
       // Ensure all _id fields are strings
       const sanitizedCategories = categories.map((cat: any) => ({
@@ -161,8 +171,13 @@ const GeneralSettings: React.FC = () => {
     try {
       setLoading(true);
       const response = await api.get('/settings/admin');
-      // Response is normalized by API interceptor
-      const settings = response.data;
+      // Backend returns: { success: true, data: settings }
+      // API interceptor normalizes to: settings or { data: settings }
+      const settings = response.data?.success && response.data?.data 
+        ? response.data.data 
+        : response.data?.data 
+        ? response.data.data 
+        : response.data;
         setFormData({
           general: {
             websiteUrl: settings.general?.websiteUrl || '',

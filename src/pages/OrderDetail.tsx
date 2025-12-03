@@ -23,8 +23,13 @@ import {
 } from '../components/order';
 
 const OrderDetail: React.FC = () => {
-  const { id } = useParams();
+  const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  
+  if (!id) {
+    navigate('/orders');
+    return null;
+  }
   const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
@@ -60,10 +65,14 @@ const OrderDetail: React.FC = () => {
 
   const fetchOrder = async () => {
     try {
-      const response = await ordersAPI.getById(id!);
-      setOrder(response.data);
-      setNotesText(response.data?.notes || '');
+      const response = await ordersAPI.getById(id);
+      // Backend returns: { success: true, data: order }
+      // API interceptor normalizes to: order or { data: order }
+      const orderData = response?.data || response;
+      setOrder(orderData);
+      setNotesText(orderData?.notes || '');
     } catch (error) {
+      console.error('Failed to load order:', error);
       alert('Failed to load order');
       navigate('/orders');
     } finally {
@@ -109,18 +118,18 @@ const OrderDetail: React.FC = () => {
     try {
       // Use shipping API to get warehouses (returns active warehouses only)
       const response = await shippingAPI.getWarehouses();
-      console.log('📦 Warehouses API response:', response);
-      
-      // API service returns response.data, which is { success: true, data: [...] }
-      // So we need to access response.data to get the array
-      const warehousesData = (response && response.success && response.data) 
-        ? response.data 
-        : (response && Array.isArray(response))
-        ? response
-        : [];
-      
-      console.log('📦 Parsed warehouses data:', warehousesData);
-      console.log('📦 Number of warehouses:', warehousesData.length);
+      // Backend returns: { success: true, data: warehouses[] }
+      // API interceptor normalizes to: warehouses[] or { data: warehouses[] }
+      let warehousesData: any[] = [];
+      if (Array.isArray(response)) {
+        warehousesData = response;
+      } else if (response?.success && Array.isArray(response?.data)) {
+        warehousesData = response.data;
+      } else if (Array.isArray(response?.data)) {
+        warehousesData = response.data;
+      } else if (Array.isArray(response?.data?.data)) {
+        warehousesData = response.data.data;
+      }
       
       setWarehouses(Array.isArray(warehousesData) ? warehousesData : []);
       
@@ -175,11 +184,24 @@ const OrderDetail: React.FC = () => {
   const fetchShippingProviders = async () => {
     try {
       const response = await shippingAPI.getProviders();
-      if (response.success && response.data && response.data.length > 0) {
-        setShippingProviders(response.data);
+      // Backend returns: { success: true, data: providers[] }
+      // API interceptor normalizes to: providers[] or { data: providers[] }
+      let providersData: any[] = [];
+      if (Array.isArray(response)) {
+        providersData = response;
+      } else if (response?.success && Array.isArray(response?.data)) {
+        providersData = response.data;
+      } else if (Array.isArray(response?.data)) {
+        providersData = response.data;
+      } else if (Array.isArray(response?.data?.data)) {
+        providersData = response.data.data;
+      }
+      
+      if (providersData.length > 0) {
+        setShippingProviders(providersData);
         // Auto-select first provider if no provider selected
-        if (!selectedShippingProvider && response.data.length > 0) {
-          const firstProvider = response.data[0];
+        if (!selectedShippingProvider && providersData.length > 0) {
+          const firstProvider = providersData[0];
           setSelectedShippingProvider(firstProvider.id || 'manual');
         }
       } else {

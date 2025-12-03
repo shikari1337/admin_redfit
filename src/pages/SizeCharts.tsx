@@ -61,11 +61,22 @@ const SizeCharts: React.FC = () => {
     setLoading(true);
     try {
       const response = await sizeChartsAPI.list(params);
-      const data = response.data || response;
-      setCharts(Array.isArray(data) ? data : data?.data || []);
+      // Backend returns: { success: true, data: charts[] }
+      // API interceptor normalizes to: charts[] or { data: charts[] }
+      let charts: any[] = [];
+      if (Array.isArray(response)) {
+        charts = response;
+      } else if (Array.isArray(response?.data)) {
+        charts = response.data;
+      } else if (Array.isArray(response?.data?.data)) {
+        charts = response.data.data;
+      }
+      setCharts(charts);
+      setError(null);
     } catch (err: any) {
       console.error('Failed to fetch size charts', err);
-      setError(err.response?.data?.message || 'Failed to fetch size charts');
+      setError(err.response?.data?.message || err?.message || 'Failed to fetch size charts');
+      setCharts([]);
     } finally {
       setLoading(false);
     }

@@ -49,7 +49,10 @@ const UserDetail: React.FC = () => {
     try {
       setLoading(true);
       const response = await usersAPI.getById(id!);
-      setUser(response.data);
+      // Backend returns: { success: true, data: user }
+      // API interceptor normalizes to: user or { data: user }
+      const userData = response?.data || response;
+      setUser(userData);
     } catch (error) {
       console.error('Failed to fetch user:', error);
     } finally {
@@ -60,27 +63,60 @@ const UserDetail: React.FC = () => {
   const fetchOrders = async () => {
     try {
       const response = await usersAPI.getOrders(id!, { limit: 50 });
-      setOrders(response.data || []);
+      // Backend returns: { success: true, data: orders[], pagination: {...} }
+      // API interceptor normalizes to: { data: orders[], pagination: {...} } or orders[]
+      let ordersData: any[] = [];
+      if (Array.isArray(response)) {
+        ordersData = response;
+      } else if (Array.isArray(response?.data)) {
+        ordersData = response.data;
+      } else if (Array.isArray(response?.data?.data)) {
+        ordersData = response.data.data;
+      }
+      setOrders(ordersData);
     } catch (error) {
       console.error('Failed to fetch orders:', error);
+      setOrders([]);
     }
   };
 
   const fetchAddresses = async () => {
     try {
       const response = await usersAPI.getAddresses(id!);
-      setAddresses(response.data || []);
+      // Backend returns: { success: true, data: addresses[] }
+      // API interceptor normalizes to: addresses[] or { data: addresses[] }
+      let addressesData: any[] = [];
+      if (Array.isArray(response)) {
+        addressesData = response;
+      } else if (Array.isArray(response?.data)) {
+        addressesData = response.data;
+      } else if (Array.isArray(response?.data?.data)) {
+        addressesData = response.data.data;
+      }
+      setAddresses(addressesData);
     } catch (error) {
       console.error('Failed to fetch addresses:', error);
+      setAddresses([]);
     }
   };
 
   const fetchBrowsedProducts = async () => {
     try {
       const response = await usersAPI.getBrowsedProducts(id!);
-      setBrowsedProducts(response.data || []);
+      // Backend returns: { success: true, data: products[] }
+      // API interceptor normalizes to: products[] or { data: products[] }
+      let productsData: any[] = [];
+      if (Array.isArray(response)) {
+        productsData = response;
+      } else if (Array.isArray(response?.data)) {
+        productsData = response.data;
+      } else if (Array.isArray(response?.data?.data)) {
+        productsData = response.data.data;
+      }
+      setBrowsedProducts(productsData);
     } catch (error) {
       console.error('Failed to fetch browsed products:', error);
+      setBrowsedProducts([]);
     }
   };
 

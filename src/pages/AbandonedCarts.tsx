@@ -52,14 +52,16 @@ const AbandonedCarts: React.FC = () => {
       console.log('🔍 Fetching carts with params:', { status, search });
       
       const data = await cartsAPI.listAdmin({ status, search });
-      console.log('📦 Received carts data:', { 
-        isArray: Array.isArray(data), 
-        hasData: !!data?.data,
-        dataLength: Array.isArray(data) ? data.length : data?.data?.length || 0,
-        fullData: data 
-      });
-      
-      const cartsData = Array.isArray(data) ? data : data?.data || [];
+      // Backend returns: { success: true, data: carts[] }
+      // API interceptor normalizes to: carts[] or { data: carts[] }
+      let cartsData: any[] = [];
+      if (Array.isArray(data)) {
+        cartsData = data;
+      } else if (Array.isArray(data?.data)) {
+        cartsData = data.data;
+      } else if (Array.isArray(data?.data?.data)) {
+        cartsData = data.data.data;
+      }
       
       // Sanitize cart data - ensure _id and recoveryToken are strings
       const sanitizedCarts = cartsData.map((cart: any) => ({

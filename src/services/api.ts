@@ -302,11 +302,12 @@ export const authAPI = {
 
 // Products API
 export const productsAPI = {
-  getAll: async (params?: { active?: boolean; search?: string }) => {
+  getAll: async (params?: { active?: boolean; search?: string; category?: string }) => {
     const response = await api.get('/products', { params });
-    // Response is already normalized by interceptor, but ensure data field exists
-    const data = response.data;
-    return Array.isArray(data) ? { data } : data;
+    // Backend returns: { success: true, data: products[], count: number }
+    // Interceptor normalizes to: products[] or { data: products[] }
+    // Return as-is so frontend can handle both formats
+    return response.data;
   },
   getById: async (id: string) => {
     const response = await api.get(`/products/${id}`);
@@ -1155,10 +1156,14 @@ export const logsAPI = {
     level?: 'error' | 'warn' | 'info' | 'http' | 'debug';
   }) => {
     const response = await api.get('/logs', { params });
+    // Backend returns: { success: true, data: { logs: [], total: number, file: string, exists: boolean, filters: {} } }
+    // Return as-is, let frontend handle normalization
     return response.data;
   },
   getLogFiles: async () => {
     const response = await api.get('/logs/files');
+    // Backend returns: { success: true, data: { files: [], filesByType: {}, total: number } }
+    // Return as-is, let frontend handle normalization
     return response.data;
   },
 };

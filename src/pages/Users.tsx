@@ -31,13 +31,21 @@ const Users: React.FC = () => {
         params.role = roleFilter;
       }
       const response = await usersAPI.getAll(params);
-      // Backend returns: { data: users[], pagination: {...} }
-      const usersData = response?.data || response?.data?.data || Array.isArray(response) ? response : [];
+      // Backend returns: { success: true, data: users[], pagination: {...} }
+      // API interceptor normalizes to: { data: users[], pagination: {...} } or users[]
+      let usersData: any[] = [];
+      if (Array.isArray(response)) {
+        usersData = response;
+      } else if (Array.isArray(response?.data)) {
+        usersData = response.data;
+      } else if (Array.isArray(response?.data?.data)) {
+        usersData = response.data.data;
+      }
       // Ensure all _id fields are strings
-      const sanitizedUsers = Array.isArray(usersData) ? usersData.map((user: any) => ({
+      const sanitizedUsers = usersData.map((user: any) => ({
         ...user,
         _id: typeof user._id === 'string' ? user._id : String(user._id || ''),
-      })) : [];
+      }));
       setUsers(sanitizedUsers);
       setTotalPages(response?.pagination?.pages || response?.pages || 1);
       setTotal(response?.pagination?.total || response?.total || 0);
