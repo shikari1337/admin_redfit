@@ -160,7 +160,7 @@ const Bundles: React.FC = () => {
       // CRITICAL FIX: Sanitize all bundle IDs to strings (handle buffers)
       const sanitizedBundles = rawBundles
         .map(sanitizeBundle)
-        .filter((bundle): bundle is BundleListItem => bundle !== null);
+        .filter((bundle: BundleListItem | null): bundle is BundleListItem => bundle !== null);
       
       setBundles(sanitizedBundles);
     } catch (error: any) {
