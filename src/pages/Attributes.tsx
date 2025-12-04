@@ -68,6 +68,21 @@ const Attributes: React.FC = () => {
   const [attributeValues, setAttributeValues] = useState<Record<string, AttributeValue[]>>({});
   const [error, setError] = useState<string | null>(null);
 
+  // Normalize ID to string (handles MongoDB ObjectId objects)
+  // Must be defined before any functions that use it
+  const normalizeId = (id: any): string | null => {
+    if (!id) return null;
+    if (typeof id === 'string') return id;
+    if (typeof id === 'object' && id._id) return normalizeId(id._id);
+    if (typeof id === 'object' && id.toString && typeof id.toString === 'function') {
+      const str = id.toString();
+      if (str && str !== '[object Object]' && /^[0-9a-fA-F]{24}$/.test(str)) {
+        return str;
+      }
+    }
+    return String(id);
+  };
+
   useEffect(() => {
     fetchAttributes();
   }, []);
@@ -100,8 +115,22 @@ const Attributes: React.FC = () => {
 
   const fetchAttributeValues = async (attributeId: string) => {
     try {
-      const attribute = attributes.find(a => a._id === attributeId);
-      if (!attribute) return;
+      // Normalize attributeId to handle object IDs
+      const normalizedId = normalizeId(attributeId);
+      if (!normalizedId) {
+        console.error('Invalid attribute ID in fetchAttributeValues:', attributeId);
+        return;
+      }
+      
+      // Find attribute by normalized ID
+      const attribute = attributes.find(a => {
+        const attrId = normalizeId(a._id);
+        return attrId === normalizedId;
+      });
+      if (!attribute) {
+        console.error('Attribute not found:', normalizedId);
+        return;
+      }
 
       const response = await attributesAPI.getValues(attribute.slug);
       // Backend returns: { success: true, data: values[] }
@@ -114,7 +143,8 @@ const Attributes: React.FC = () => {
       } else if (response?.data?.data && Array.isArray(response.data.data)) {
         values = response.data.data;
       }
-      setAttributeValues(prev => ({ ...prev, [attributeId]: values }));
+      // Use normalized ID as key
+      setAttributeValues(prev => ({ ...prev, [normalizedId]: values }));
     } catch (err: any) {
       console.error('Failed to fetch attribute values', err);
     }
@@ -150,20 +180,6 @@ const Attributes: React.FC = () => {
     setSelectedValueId(null);
     setValueFormState({ ...emptyValueForm });
     setError(null);
-  };
-
-  // Normalize ID to string (handles MongoDB ObjectId objects)
-  const normalizeId = (id: any): string | null => {
-    if (!id) return null;
-    if (typeof id === 'string') return id;
-    if (typeof id === 'object' && id._id) return normalizeId(id._id);
-    if (typeof id === 'object' && id.toString && typeof id.toString === 'function') {
-      const str = id.toString();
-      if (str && str !== '[object Object]' && /^[0-9a-fA-F]{24}$/.test(str)) {
-        return str;
-      }
-    }
-    return String(id);
   };
 
   const handleEditAttribute = (attribute: Attribute) => {
@@ -602,7 +618,9 @@ const Attributes: React.FC = () => {
                       </div>
                     )}
                   </div>
-                ))
+                  );
+                })
+                .filter(Boolean)
             )}
           </div>
         </div>
