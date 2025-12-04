@@ -85,18 +85,17 @@ const Attributes: React.FC = () => {
 
   // Track if form has unsaved changes
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [lastSavedAttributeId, setLastSavedAttributeId] = useState<string | null>(null);
+  // Track which attribute is selected for editing (separate from value form selection)
+  const [editingAttributeId, setEditingAttributeId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchAttributes();
   }, []);
 
-  // Reset form when selectedAttributeId changes (switching between attributes)
+  // Only populate attribute form when explicitly editing an attribute (not when just adding values)
   useEffect(() => {
-    // If switching to a different attribute, reset the form
-    if (selectedAttributeId && lastSavedAttributeId && selectedAttributeId !== lastSavedAttributeId) {
-      // Only reset if we're switching to a different attribute
-      const currentAttribute = attributes.find(a => normalizeId(a._id) === normalizeId(selectedAttributeId));
+    if (editingAttributeId) {
+      const currentAttribute = attributes.find(a => normalizeId(a._id) === normalizeId(editingAttributeId));
       if (currentAttribute) {
         setAttributeFormState({
           name: currentAttribute.name || '',
@@ -108,12 +107,12 @@ const Attributes: React.FC = () => {
         });
         setHasUnsavedChanges(false);
       }
-    } else if (!selectedAttributeId) {
-      // If no attribute selected, reset to empty form
+    } else if (editingAttributeId === null && selectedAttributeId === null) {
+      // Only reset to empty form if both are null (new attribute)
       setAttributeFormState({ ...emptyAttributeForm });
       setHasUnsavedChanges(false);
     }
-  }, [selectedAttributeId, attributes, lastSavedAttributeId]);
+  }, [editingAttributeId, attributes]);
 
   const fetchAttributes = async () => {
     setLoading(true);
@@ -199,16 +198,16 @@ const Attributes: React.FC = () => {
   };
 
   const resetAttributeForm = () => {
-    if (hasUnsavedChanges && selectedAttributeId) {
+    if (hasUnsavedChanges && editingAttributeId) {
       if (!confirm('You have unsaved changes. Are you sure you want to discard them?')) {
         return;
       }
     }
+    setEditingAttributeId(null);
     setSelectedAttributeId(null);
     setAttributeFormState({ ...emptyAttributeForm });
     setError(null);
     setHasUnsavedChanges(false);
-    setLastSavedAttributeId(null);
     resetValueForm(); // Also reset value form
   };
 
@@ -226,7 +225,7 @@ const Attributes: React.FC = () => {
     }
 
     // Check if switching from another attribute with unsaved changes
-    if (hasUnsavedChanges && selectedAttributeId && normalizeId(selectedAttributeId) !== normalizedId) {
+    if (hasUnsavedChanges && editingAttributeId && normalizeId(editingAttributeId) !== normalizedId) {
       if (!confirm('You have unsaved changes. Are you sure you want to switch to another attribute?')) {
         return;
       }
@@ -235,18 +234,11 @@ const Attributes: React.FC = () => {
     // Reset value form when switching attributes
     resetValueForm();
     
+    // Set both editingAttributeId (for form) and selectedAttributeId (for value form)
+    setEditingAttributeId(normalizedId);
     setSelectedAttributeId(normalizedId);
-    setAttributeFormState({
-      name: attribute.name || '',
-      slug: attribute.slug || '',
-      type: attribute.type || 'text',
-      description: attribute.description || '',
-      isActive: attribute.isActive !== false,
-      order: attribute.order || 0,
-    });
     setError(null);
     setHasUnsavedChanges(false);
-    setLastSavedAttributeId(normalizedId);
   };
 
   const handleEditValue = (value: AttributeValue, attributeId: string) => {
@@ -287,16 +279,13 @@ const Attributes: React.FC = () => {
     setError(null);
 
     try {
-      const normalizedId = selectedAttributeId ? normalizeId(selectedAttributeId) : null;
+      const normalizedId = editingAttributeId ? normalizeId(editingAttributeId) : null;
       if (normalizedId) {
         await attributesAPI.update(normalizedId, attributeFormState);
-        setLastSavedAttributeId(normalizedId);
       } else {
         await attributesAPI.create(attributeFormState);
         // If creating, fetch the new attribute and select it
         await fetchAttributes();
-        // The new attribute should be in the list now, but we'll keep the form cleared
-        setLastSavedAttributeId(null);
       }
       await fetchAttributes();
       setHasUnsavedChanges(false);
@@ -523,7 +512,8 @@ const Attributes: React.FC = () => {
                     return null;
                   }
                   const isExpanded = expandedAttributes.has(normalizedAttrId);
-                  const isSelected = normalizeId(selectedAttributeId) === normalizedAttrId;
+                  const isSelected = normalizeId(editingAttributeId) === normalizedAttrId;
+                  const isSelectedForValue = normalizeId(selectedAttributeId) === normalizedAttrId;
                   return (
                   <div key={normalizedAttrId} className={`border rounded-lg overflow-hidden hover:shadow-md transition-shadow ${
                     isSelected ? 'border-blue-500 border-2 shadow-lg' : 'border-gray-200'
@@ -595,9 +585,11 @@ const Attributes: React.FC = () => {
                           <h3 className="text-sm font-semibold text-gray-700">
                             Values ({attributeValues[normalizedAttrId]?.length || 0})
                           </h3>
-                          {!isSelected && (
+                          {!isSelectedForValue && (
                             <button
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation(); // Prevent any parent click handlers
+                                // Only set selectedAttributeId for value form, don't change editingAttributeId
                                 setSelectedAttributeId(normalizedAttrId);
                                 resetValueForm();
                               }}
@@ -697,14 +689,14 @@ const Attributes: React.FC = () => {
           <div className="pb-4 border-b border-gray-200 mb-4">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-xl font-semibold text-gray-900">
-                  {selectedAttributeId ? 'Edit Attribute' : 'New Attribute'}
-                </h2>
-                <p className="text-sm text-gray-500 mt-1">
-                  {selectedAttributeId 
-                    ? `Editing: ${attributes.find(a => normalizeId(a._id) === normalizeId(selectedAttributeId))?.name || 'Unknown'}`
-                    : 'Create a new product attribute'}
-                </p>
+            <h2 className="text-xl font-semibold text-gray-900">
+              {editingAttributeId ? 'Edit Attribute' : 'New Attribute'}
+            </h2>
+            <p className="text-sm text-gray-500 mt-1">
+              {editingAttributeId 
+                ? `Editing: ${attributes.find(a => normalizeId(a._id) === normalizeId(editingAttributeId))?.name || 'Unknown'}`
+                : 'Create a new product attribute'}
+            </p>
               </div>
               {hasUnsavedChanges && (
                 <span className="text-xs px-2 py-1 rounded bg-yellow-100 text-yellow-800 font-medium">
