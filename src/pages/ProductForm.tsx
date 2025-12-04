@@ -1166,6 +1166,16 @@ const ProductForm: React.FC = () => {
       const cleanedVideos = currentFormData.videos.filter((v) => v.trim());
       const cleanedInstructions = currentFormData.washCareInstructions.filter((instr) => instr.text.trim() !== '');
       
+      // Process attributeIds FIRST (needed for variation processing)
+      // CRITICAL FIX: Always preserve attributeIds if productType is 'variation', even if variations are empty
+      // This ensures attributes don't disappear when saving
+      const cleanedAttributeIds = (currentFormData.attributeIds || [])
+        .filter((id): id is string => typeof id === 'string' && id.trim().length === 24 && /^[0-9a-fA-F]{24}$/.test(id.trim()))
+        .map(id => id.trim());
+      
+      // Determine productType if not explicitly set (needed for variation processing)
+      let productType: 'single' | 'variation' = currentFormData.productType || 'single';
+      
       // Process attribute-based variations
       let cleanedVariations: any[] | undefined = undefined;
       if (currentFormData.variations && currentFormData.variations.length > 0) {
@@ -1246,15 +1256,7 @@ const ProductForm: React.FC = () => {
         }
       }
       
-      // Process attributeIds
-      // CRITICAL FIX: Always preserve attributeIds if productType is 'variation', even if variations are empty
-      // This ensures attributes don't disappear when saving
-      const cleanedAttributeIds = (currentFormData.attributeIds || [])
-        .filter((id): id is string => typeof id === 'string' && id.trim().length === 24 && /^[0-9a-fA-F]{24}$/.test(id.trim()))
-        .map(id => id.trim());
-      
-      // Determine productType if not explicitly set
-      let productType: 'single' | 'variation' = currentFormData.productType || 'single';
+      // Update productType based on processed variations and attributes
       if (cleanedVariations && cleanedVariations.length > 0) {
         productType = 'variation';
       } else if (cleanedAttributeIds.length > 0) {
