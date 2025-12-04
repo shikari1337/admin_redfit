@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { FaPlus, FaSave, FaUndo, FaTrash, FaEdit, FaChevronDown, FaChevronRight } from 'react-icons/fa';
-import { attributesAPI } from '../services/api';
+import { attributesAPI, sizeChartsAPI } from '../services/api';
 import { slugifyValue } from '../utils/slugify';
 
 interface Attribute {
@@ -8,6 +8,8 @@ interface Attribute {
   name: string;
   slug: string;
   type: 'text' | 'color' | 'image' | 'select';
+  chartType?: 'none' | 'size' | 'color' | 'measurement' | 'table';
+  chartId?: string;
   description?: string;
   isActive: boolean;
   order: number;
@@ -34,6 +36,8 @@ const emptyAttributeForm: {
   name: string;
   slug: string;
   type: 'text' | 'color' | 'image' | 'select';
+  chartType: 'none' | 'size' | 'color' | 'measurement' | 'table';
+  chartId: string;
   description: string;
   isActive: boolean;
   order: number;
@@ -41,6 +45,8 @@ const emptyAttributeForm: {
   name: '',
   slug: '',
   type: 'text',
+  chartType: 'none',
+  chartId: '',
   description: '',
   isActive: true,
   order: 0,
@@ -67,6 +73,7 @@ const Attributes: React.FC = () => {
   const [selectedValueId, setSelectedValueId] = useState<string | null>(null);
   const [attributeValues, setAttributeValues] = useState<Record<string, AttributeValue[]>>({});
   const [error, setError] = useState<string | null>(null);
+  const [availableSizeCharts, setAvailableSizeCharts] = useState<Array<{ _id: string; name: string }>>([]);
 
   // Normalize ID to string (handles MongoDB ObjectId objects)
   // Must be defined before any functions that use it
@@ -146,7 +153,21 @@ const Attributes: React.FC = () => {
 
   useEffect(() => {
     fetchAttributes();
+    fetchSizeCharts();
   }, []);
+
+  const fetchSizeCharts = async () => {
+    try {
+      const response = await sizeChartsAPI.list();
+      const charts = Array.isArray(response) ? response : (response?.data || []);
+      setAvailableSizeCharts(charts.map((chart: any) => ({
+        _id: typeof chart._id === 'string' ? chart._id : String(chart._id || ''),
+        name: chart.name || 'Unnamed Chart',
+      })));
+    } catch (err) {
+      console.error('Failed to fetch size charts:', err);
+    }
+  };
 
   // Only populate attribute form when explicitly editing an attribute (not when just adding values)
   useEffect(() => {
@@ -157,6 +178,8 @@ const Attributes: React.FC = () => {
           name: currentAttribute.name || '',
           slug: currentAttribute.slug || '',
           type: currentAttribute.type || 'text',
+          chartType: currentAttribute.chartType || 'none',
+          chartId: currentAttribute.chartId || '',
           description: currentAttribute.description || '',
           isActive: currentAttribute.isActive !== false,
           order: currentAttribute.order || 0,
@@ -814,6 +837,55 @@ const Attributes: React.FC = () => {
                 <option value="select">Select - Dropdown selection</option>
               </select>
             </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Chart Type
+              </label>
+              <select
+                value={attributeFormState.chartType}
+                onChange={(e) => {
+                  const chartType = e.target.value as 'none' | 'size' | 'color' | 'measurement' | 'table';
+                  handleAttributeFormChange('chartType', chartType);
+                  // Clear chartId if chartType is 'none'
+                  if (chartType === 'none') {
+                    handleAttributeFormChange('chartId', '');
+                  }
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+              >
+                <option value="none">None - No chart</option>
+                <option value="size">Size Chart - Size measurements</option>
+                <option value="color">Color Chart - Color guide</option>
+                <option value="measurement">Measurement Chart - Measurement guide</option>
+                <option value="table">Table Chart - Data table</option>
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                Select a chart type to display next to this attribute selector on product pages
+              </p>
+            </div>
+            {attributeFormState.chartType !== 'none' && (attributeFormState.chartType === 'size' || attributeFormState.chartType === 'measurement' || attributeFormState.chartType === 'table') && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Size Chart *
+                </label>
+                <select
+                  value={attributeFormState.chartId}
+                  onChange={(e) => handleAttributeFormChange('chartId', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                  required={attributeFormState.chartType !== 'none' && (attributeFormState.chartType === 'size' || attributeFormState.chartType === 'measurement' || attributeFormState.chartType === 'table')}
+                >
+                  <option value="">Select a size chart...</option>
+                  {availableSizeCharts.map((chart) => (
+                    <option key={chart._id} value={chart._id}>
+                      {chart.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  Choose a size chart to display when this attribute is selected
+                </p>
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Description
