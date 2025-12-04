@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { FaPlus, FaSave, FaUndo, FaTrash, FaEdit, FaChevronDown, FaChevronRight } from 'react-icons/fa';
-import { attributesAPI, sizeChartsAPI } from '../services/api';
+import { attributesAPI } from '../services/api';
 import { slugifyValue } from '../utils/slugify';
 
 interface Attribute {
@@ -23,20 +23,12 @@ interface AttributeValue {
   value?: string;
   description?: string;
   imageUrl?: string;
-  sizeChart?: {
-    _id: string;
-    name: string;
-  };
   isActive: boolean;
   order: number;
   createdAt?: string;
   updatedAt?: string;
 }
 
-interface SizeChartOption {
-  _id: string;
-  name: string;
-}
 
 const emptyAttributeForm: {
   name: string;
@@ -60,7 +52,6 @@ const emptyValueForm = {
   value: '',
   description: '',
   imageUrl: '',
-  sizeChart: '',
   isActive: true,
   order: 0,
 };
@@ -75,12 +66,10 @@ const Attributes: React.FC = () => {
   const [valueFormState, setValueFormState] = useState({ ...emptyValueForm });
   const [selectedValueId, setSelectedValueId] = useState<string | null>(null);
   const [attributeValues, setAttributeValues] = useState<Record<string, AttributeValue[]>>({});
-  const [sizeCharts, setSizeCharts] = useState<SizeChartOption[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchAttributes();
-    fetchSizeCharts();
   }, []);
 
   const fetchAttributes = async () => {
@@ -108,15 +97,6 @@ const Attributes: React.FC = () => {
     }
   };
 
-  const fetchSizeCharts = async () => {
-    try {
-      const response = await sizeChartsAPI.list();
-      const data = Array.isArray(response) ? response : response?.data || [];
-      setSizeCharts(data);
-    } catch (err: any) {
-      console.error('Failed to fetch size charts', err);
-    }
-  };
 
   const fetchAttributeValues = async (attributeId: string) => {
     try {
@@ -188,7 +168,6 @@ const Attributes: React.FC = () => {
       value: value.value || '',
       description: value.description || '',
       imageUrl: value.imageUrl || '',
-      sizeChart: value.sizeChart?._id || '',
       isActive: value.isActive !== false,
       order: value.order || 0,
     });
@@ -241,8 +220,9 @@ const Attributes: React.FC = () => {
     try {
       const payload = {
         ...valueFormState,
-        sizeChart: valueFormState.sizeChart || undefined,
       };
+      // Remove sizeChart from payload if it exists
+      delete (payload as any).sizeChart;
 
       if (selectedValueId) {
         await attributesAPI.updateValue(selectedAttributeId, selectedValueId, payload);
@@ -521,8 +501,8 @@ const Attributes: React.FC = () => {
         </div>
 
         {/* Attribute Form */}
-        <div className="bg-white rounded-lg shadow-lg p-6 sticky top-6">
-          <div className="mb-6 pb-4 border-b border-gray-200">
+        <div className="bg-white rounded-lg shadow-lg p-6 sticky top-6 space-y-6">
+          <div className="pb-4 border-b border-gray-200">
             <h2 className="text-xl font-semibold text-gray-900">
               {selectedAttributeId ? 'Edit Attribute' : 'New Attribute'}
             </h2>
@@ -640,15 +620,18 @@ const Attributes: React.FC = () => {
             </div>
           </form>
 
-          {/* Value Form */}
+          {/* Value Form - Only shown when an attribute is selected */}
           {selectedAttributeId && (
-            <div className="mt-8 pt-8 border-t border-gray-200">
+            <div className="pt-6 border-t-2 border-gray-200 bg-gray-50 -mx-6 -mb-6 px-6 pb-6 rounded-b-lg">
               <div className="mb-4">
-                <h3 className="text-lg font-semibold text-gray-900">
-                  {selectedValueId ? 'Edit Value' : 'New Value'}
+                <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                  <span className="w-1 h-6 bg-green-500 rounded"></span>
+                  {selectedValueId ? 'Edit Value' : 'Add New Value'}
                 </h3>
-                <p className="text-sm text-gray-500 mt-1">
-                  {selectedValueId ? 'Update value details' : `Add a value for "${attributes.find(a => a._id === selectedAttributeId)?.name || 'this attribute'}"`}
+                <p className="text-sm text-gray-600 mt-1 ml-3">
+                  {selectedValueId 
+                    ? 'Update value details' 
+                    : `Add a value for "${attributes.find(a => a._id === selectedAttributeId)?.name || 'this attribute'}"`}
                 </p>
               </div>
               <form onSubmit={handleSubmitValue} className="space-y-4">
@@ -738,23 +721,6 @@ const Attributes: React.FC = () => {
                     rows={2}
                     placeholder="Optional description for this value"
                   />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Size Chart (optional)
-                  </label>
-                  <select
-                    value={valueFormState.sizeChart}
-                    onChange={(e) => setValueFormState(prev => ({ ...prev, sizeChart: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
-                  >
-                    <option value="">No size chart</option>
-                    {sizeCharts.map((chart) => (
-                      <option key={chart._id} value={chart._id}>
-                        {chart.name}
-                      </option>
-                    ))}
-                  </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
