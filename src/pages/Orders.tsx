@@ -20,21 +20,40 @@ const Orders: React.FC = () => {
       setLoading(true);
       const params = statusFilter ? { status: statusFilter } : {};
       const response = await ordersAPI.getAll({ ...params, limit: 100 });
+      
       // Backend returns: { success: true, data: orders[], pagination: {...} }
-      // API interceptor normalizes to: { data: orders[], pagination: {...} } or orders[]
+      // API interceptor normalizes to: orders[] (extracts data field)
+      // But sometimes it might return: { data: orders[], pagination: {...} }
       let orders: any[] = [];
+      
       if (Array.isArray(response)) {
+        // Normalized response - direct array
         orders = response;
-      } else if (response?.success && Array.isArray(response?.data)) {
+      } else if (response?.data && Array.isArray(response.data)) {
+        // Response structure: { data: orders[], pagination: {...} }
         orders = response.data;
-      } else if (Array.isArray(response?.data)) {
+      } else if (response?.success && response?.data && Array.isArray(response.data)) {
+        // Unnormalized response: { success: true, data: orders[], pagination: {...} }
         orders = response.data;
-      } else if (Array.isArray(response?.data?.data)) {
+      } else if (response?.data?.data && Array.isArray(response.data.data)) {
+        // Nested response structure
         orders = response.data.data;
+      } else {
+        // Log unexpected response structure for debugging
+        console.warn('Unexpected orders response structure:', response);
+        orders = [];
       }
+      
+      console.log('Fetched orders:', { count: orders.length, sample: orders[0] });
       setOrders(orders);
     } catch (error: any) {
       console.error('Failed to fetch orders:', error);
+      console.error('Error details:', {
+        message: error?.message,
+        response: error?.response?.data,
+        status: error?.response?.status,
+        url: error?.config?.url,
+      });
       alert(error?.response?.data?.message || 'Failed to load orders. Please try again.');
       setOrders([]);
     } finally {

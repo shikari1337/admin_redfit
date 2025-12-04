@@ -32,12 +32,20 @@ const Dashboard: React.FC = () => {
         }
         
         // Backend returns: { success: true, data: orders[], pagination: {...} }
+        // API interceptor normalizes to: orders[] (extracts data field)
+        // But sometimes it might return: { data: orders[], pagination: {...} }
         let orders: any[] = [];
         if (Array.isArray(ordersRes)) {
+          // Normalized response - direct array
           orders = ordersRes;
-        } else if (Array.isArray(ordersRes?.data)) {
+        } else if (ordersRes?.data && Array.isArray(ordersRes.data)) {
+          // Response structure: { data: orders[], pagination: {...} }
           orders = ordersRes.data;
-        } else if (Array.isArray(ordersRes?.data?.data)) {
+        } else if (ordersRes?.success && ordersRes?.data && Array.isArray(ordersRes.data)) {
+          // Unnormalized response: { success: true, data: orders[], pagination: {...} }
+          orders = ordersRes.data;
+        } else if (ordersRes?.data?.data && Array.isArray(ordersRes.data.data)) {
+          // Nested response structure
           orders = ordersRes.data.data;
         }
 

@@ -63,6 +63,8 @@ const ProductForm: React.FC = () => {
     showOutOfStockVariants: true,
     showFeatures: true,
     isActive: true,
+    // Product type: 'single' for products without variations, 'variation' for products with attribute-based variations
+    productType: 'single' as 'single' | 'variation',
     // Attribute-based variations
     attributeIds: [] as string[],
     variations: [] as ProductVariation[],
@@ -315,6 +317,7 @@ const ProductForm: React.FC = () => {
         showOutOfStockVariants: data.showOutOfStockVariants !== false,
         showFeatures: data.showFeatures !== false,
         isActive: data.isActive !== false,
+        productType: data.productType || (data.variations && data.variations.length > 0) || (data.attributeIds && data.attributeIds.length > 0) ? 'variation' : 'single',
         attributeIds: data.attributeIds || [],
         variations: (data.variations || []).map((v: any, idx: number) => {
           // CRITICAL FIX: Normalize attribute value IDs to strings (handle buffer objects)
@@ -1177,9 +1180,22 @@ const ProductForm: React.FC = () => {
       }
       
       // Process attributeIds
+      // CRITICAL FIX: Always preserve attributeIds if productType is 'variation', even if variations are empty
+      // This ensures attributes don't disappear when saving
       const cleanedAttributeIds = (currentFormData.attributeIds || [])
         .filter((id): id is string => typeof id === 'string' && id.trim().length === 24 && /^[0-9a-fA-F]{24}$/.test(id.trim()))
         .map(id => id.trim());
+      
+      // Determine productType if not explicitly set
+      let productType: 'single' | 'variation' = currentFormData.productType || 'single';
+      if (cleanedVariations && cleanedVariations.length > 0) {
+        productType = 'variation';
+      } else if (cleanedAttributeIds.length > 0) {
+        productType = 'variation';
+      } else if (cleanedVariations === undefined && cleanedAttributeIds.length === 0) {
+        productType = 'single';
+      }
+      
       const normalizedSlug = slugifyValue(slug);
       setSlug(normalizedSlug);
 
@@ -1259,7 +1275,10 @@ const ProductForm: React.FC = () => {
         disableVariants: currentFormData.disableVariants,
         showOutOfStockVariants: currentFormData.showOutOfStockVariants,
         showFeatures: currentFormData.showFeatures,
-        attributeIds: cleanedAttributeIds.length > 0 ? cleanedAttributeIds : undefined,
+        productType: productType,
+        // CRITICAL FIX: Always preserve attributeIds if productType is 'variation'
+        // This ensures attributes don't disappear when saving
+        attributeIds: productType === 'variation' && cleanedAttributeIds.length > 0 ? cleanedAttributeIds : (productType === 'variation' ? [] : undefined),
         variations: cleanedVariations,
         categories: sanitizedCategories, // Always include categories (even if empty array)
       };
@@ -1511,8 +1530,61 @@ const ProductForm: React.FC = () => {
               onRemoveVideo={removeVideo}
             />
 
-            {/* Attribute-based Variations */}
-            <ProductAttributeVariations
+            {/* Product Type Selector */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Product Type</h2>
+              <p className="text-sm text-gray-500 mb-4">
+                Choose whether this is a single product or a product with variations (e.g., different sizes, colors).
+              </p>
+              <div className="flex gap-4">
+                <label className="flex items-center p-4 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors flex-1" style={{ borderColor: formData.productType === 'single' ? '#3B82F6' : '#E5E7EB' }}>
+                  <input
+                    type="radio"
+                    name="productType"
+                    value="single"
+                    checked={formData.productType === 'single'}
+                    onChange={(e) => {
+                      const newType = e.target.value as 'single' | 'variation';
+                      setFormData({ 
+                        ...formData, 
+                        productType: newType,
+                        // Clear variations and attributes when switching to single
+                        ...(newType === 'single' ? { variations: [], attributeIds: [] } : {})
+                      });
+                    }}
+                    className="mr-3 w-4 h-4 text-blue-600 focus:ring-blue-500"
+                  />
+                  <div>
+                    <div className="font-medium text-gray-900">Single Product</div>
+                    <div className="text-sm text-gray-500">No variations - single price and stock</div>
+                  </div>
+                </label>
+                <label className="flex items-center p-4 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors flex-1" style={{ borderColor: formData.productType === 'variation' ? '#3B82F6' : '#E5E7EB' }}>
+                  <input
+                    type="radio"
+                    name="productType"
+                    value="variation"
+                    checked={formData.productType === 'variation'}
+                    onChange={(e) => {
+                      const newType = e.target.value as 'single' | 'variation';
+                      setFormData({ 
+                        ...formData, 
+                        productType: newType
+                      });
+                    }}
+                    className="mr-3 w-4 h-4 text-blue-600 focus:ring-blue-500"
+                  />
+                  <div>
+                    <div className="font-medium text-gray-900">Product with Variations</div>
+                    <div className="text-sm text-gray-500">Multiple variations with different attributes (size, color, etc.)</div>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            {/* Attribute-based Variations - Only show if productType is 'variation' */}
+            {formData.productType === 'variation' && (
+              <ProductAttributeVariations
               selectedAttributeIds={formData.attributeIds}
               onAttributeIdsChange={(ids) => setFormData({ ...formData, attributeIds: ids })}
               variations={formData.variations}
@@ -1561,6 +1633,7 @@ const ProductForm: React.FC = () => {
               }}
               uploading={uploading}
             />
+            )}
 
             {/* Bundles moved notice */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
@@ -1581,7 +1654,7 @@ const ProductForm: React.FC = () => {
               originalPrice={formData.originalPrice}
               sku={formData.sku}
               stock={formData.stock}
-              showStock={formData.variations.length === 0}
+              showStock={formData.productType === 'single'}
               onPriceChange={(price) => {
                 setFormData({ ...formData, price });
                 setErrors({ ...errors, price: '' });
