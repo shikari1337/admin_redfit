@@ -746,6 +746,7 @@ const ProductForm: React.FC = () => {
         showOutOfStockVariants: product.showOutOfStockVariants !== false,
         showFeatures: product.showFeatures !== false,
         isActive: product.isActive !== false,
+        productType: (product.productType || ((product.variations && product.variations.length > 0) || (product.attributeIds && product.attributeIds.length > 0) ? 'variation' : 'single')) as 'single' | 'variation',
         attributeIds: product.attributeIds || [],
         variations: (product.variations || []).map((v: any, idx: number) => {
           // CRITICAL FIX: Normalize attribute value IDs to strings (handle buffer objects)
