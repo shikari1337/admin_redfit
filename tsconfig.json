@@ -17,6 +17,10 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src", "src/vite-env.d.ts"],
+  "exclude": [
+    "src/components/product/ProductVariants.tsx",
+    "src/hooks/useProductVariants.ts"
+  ],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
 

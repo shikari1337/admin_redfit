@@ -1,45 +1,3 @@
-export interface ProductSize {
-  size: string;
-  stock: number;
-  sku: string;
-  price: number;
-  originalPrice: number;
-}
-
-export interface ProductVariant {
-  colorName: string;
-  colorCode: string;
-  price: number;
-  originalPrice: number;
-  images: string[];
-  sizes: ProductSize[];
-}
-
-// Shopify-style variant management interfaces
-export interface VariantType {
-  id: string;
-  name: string;
-  isColor?: boolean;
-}
-
-export interface VariantOption {
-  typeId: string;
-  typeName: string;
-  value: string;
-  colorCode?: string;
-}
-
-export interface VariantCombination {
-  id: string;
-  options: VariantOption[];
-  sku: string;
-  price: number;
-  originalPrice: number;
-  stock: number;
-  image?: string;
-  images?: string[];
-}
-
 export interface CategoryOption {
   _id: string;
   name: string;
@@ -76,6 +34,37 @@ export interface SeoFormState {
   ogImage: string;
 }
 
+// Attribute-based variation system (WordPress/WooCommerce style)
+export interface AttributeOption {
+  _id: string;
+  name: string;
+  slug: string;
+  type: 'text' | 'color' | 'image' | 'select';
+  description?: string;
+  values?: AttributeValueOption[];
+}
+
+export interface AttributeValueOption {
+  _id: string;
+  name: string;
+  slug: string;
+  value?: string; // For color attributes, this is the hex code
+  imageUrl?: string; // For image attributes
+  attributeId: string;
+}
+
+export interface ProductVariation {
+  id: string; // Temporary ID for frontend
+  attributes: Record<string, string>; // { attributeSlug: attributeValueId }
+  price?: number;
+  originalPrice?: number;
+  stock: number;
+  sku: string;
+  images?: string[];
+  shortDescription?: string;
+  isActive?: boolean;
+}
+
 export interface ProductFormData {
   name: string;
   sku: string;
@@ -86,8 +75,7 @@ export interface ProductFormData {
   descriptionImage: string;
   images: string[];
   videos: string[];
-  sizes: string[];
-  stock: Record<string, number>;
+  stock: number | undefined;
   categories: string[];
   sizeChart: SizeChartEntry[];
   washCareInstructions: Array<{ text: string; iconUrl?: string; iconName?: string }>;
@@ -96,7 +84,9 @@ export interface ProductFormData {
   showOutOfStockVariants: boolean;
   showFeatures: boolean;
   isActive: boolean;
-  variants: ProductVariant[];
+  // Attribute-based variations
+  attributeIds: string[];
+  variations: ProductVariation[];
 }
 
 export const SLUG_MAX_LENGTH = 40;
@@ -112,4 +102,3 @@ export const emptySizeChartEntry: SizeChartEntry = {
   sleeve: '',
   imageUrl: '',
 };
-

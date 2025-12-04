@@ -9,6 +9,6 @@ export { default as ProductVideos } from './ProductVideos';
 export { default as ProductWashCare } from './ProductWashCare';
 export { default as ProductCustomerImages } from './ProductCustomerImages';
 export { default as ProductDisplayOptions } from './ProductDisplayOptions';
-export { default as ProductVariants } from './ProductVariants';
+// ProductVariants removed - using ProductAttributeVariations instead
 export { default as ProductSingleProductDetails } from './ProductSingleProductDetails';
 

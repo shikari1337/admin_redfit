@@ -13,18 +13,14 @@ import {
   ProductWashCare,
   ProductCustomerImages,
   ProductDisplayOptions,
-  ProductVariants,
 } from '../components/product';
+import ProductAttributeVariations from '../components/product/ProductAttributeVariations';
 import {
-  ProductVariant,
-  ProductSize,
   CategoryOption,
   SizeChartEntry,
   SizeChartOption,
   SeoFormState,
-  VariantType,
-  VariantOption,
-  VariantCombination,
+  ProductVariation,
   SLUG_MAX_LENGTH,
   META_TITLE_LIMIT,
   META_DESCRIPTION_LIMIT,
@@ -67,7 +63,9 @@ const ProductForm: React.FC = () => {
     showOutOfStockVariants: true,
     showFeatures: true,
     isActive: true,
-    variants: [] as ProductVariant[],
+    // Attribute-based variations
+    attributeIds: [] as string[],
+    variations: [] as ProductVariation[],
   });
   
   // Root cause fix: Use ref to always get latest formData (avoids stale closure issues)
@@ -111,14 +109,6 @@ const ProductForm: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // Shopify-style variant management state
-  const [variantTypes, setVariantTypes] = useState<VariantType[]>([]);
-  const [variantOptions, setVariantOptions] = useState<Record<string, string[]>>({}); // typeId -> option values
-  const [variantColorCodes, setVariantColorCodes] = useState<Record<string, Record<string, string>>>({}); // typeId -> optionValue -> colorCode
-  const [variantCombinations, setVariantCombinations] = useState<VariantCombination[]>([]);
-  const [useShopifyVariants, setUseShopifyVariants] = useState(false);
-  const [newVariantTypeName, setNewVariantTypeName] = useState('');
-  const [newOptionInputs, setNewOptionInputs] = useState<Record<string, string>>({}); // typeId -> input value
 
   const extractListData = (response: any) => {
     if (!response) return [];
@@ -319,7 +309,11 @@ const ProductForm: React.FC = () => {
         showOutOfStockVariants: data.showOutOfStockVariants !== false,
         showFeatures: data.showFeatures !== false,
         isActive: data.isActive !== false,
-        variants: data.variants || [],
+        attributeIds: data.attributeIds || [],
+        variations: (data.variations || []).map((v: any, idx: number) => ({
+          ...v,
+          id: v.id || `var-${Date.now()}-${idx}`, // Add temporary ID for frontend
+        })),
         stock: stockValue,
       });
 
@@ -422,31 +416,51 @@ const ProductForm: React.FC = () => {
         .filter((img: any) => img !== null);
     }
     
-    // Sanitize variants
-    if (Array.isArray(sanitized.variants)) {
-      sanitized.variants = sanitized.variants.map((variant: any) => {
-        if (!variant || typeof variant !== 'object') return variant;
-        const cleanVariant = { ...variant };
-        // Sanitize variant images
-        if (Array.isArray(cleanVariant.images)) {
-          cleanVariant.images = cleanVariant.images
+    // Sanitize attributeIds
+    if (Array.isArray(sanitized.attributeIds)) {
+      sanitized.attributeIds = sanitized.attributeIds
+        .map((id: any) => {
+          if (typeof id === 'string') return id.trim();
+          if (id && typeof id === 'object' && id._id) {
+            const idStr = String(id._id);
+            if (idStr && idStr !== '[object Object]' && idStr.length === 24) {
+              return idStr;
+            }
+          }
+          return null;
+        })
+        .filter((id: any): id is string => id !== null && typeof id === 'string' && id.length === 24);
+    }
+    
+    // Sanitize variations
+    if (Array.isArray(sanitized.variations)) {
+      sanitized.variations = sanitized.variations.map((variation: any, idx: number) => {
+        if (!variation || typeof variation !== 'object') return variation;
+        const cleanVariation: any = {
+          ...variation,
+          id: variation.id || `var-${Date.now()}-${idx}`, // Add temporary ID for frontend
+        };
+        // Sanitize variation images
+        if (Array.isArray(cleanVariation.images)) {
+          cleanVariation.images = cleanVariation.images
             .map((img: any) => typeof img === 'string' ? img : null)
             .filter((img: any) => img !== null);
         }
-        // Sanitize sizes
-        if (Array.isArray(cleanVariant.sizes)) {
-          cleanVariant.sizes = cleanVariant.sizes.map((size: any) => {
-            if (!size || typeof size !== 'object') return size;
-            return {
-              size: String(size.size || ''),
-              stock: typeof size.stock === 'number' ? size.stock : Number(size.stock) || 0,
-              sku: String(size.sku || ''),
-              price: typeof size.price === 'number' ? size.price : Number(size.price) || 0,
-              originalPrice: typeof size.originalPrice === 'number' ? size.originalPrice : Number(size.originalPrice) || 0,
-            };
-          });
+        // Ensure attributes is an object
+        if (!cleanVariation.attributes || typeof cleanVariation.attributes !== 'object') {
+          cleanVariation.attributes = {};
         }
-        return cleanVariant;
+        // Ensure numeric fields
+        if (cleanVariation.stock !== undefined) {
+          cleanVariation.stock = typeof cleanVariation.stock === 'number' ? cleanVariation.stock : Number(cleanVariation.stock) || 0;
+        }
+        if (cleanVariation.price !== undefined) {
+          cleanVariation.price = typeof cleanVariation.price === 'number' ? cleanVariation.price : Number(cleanVariation.price) || undefined;
+        }
+        if (cleanVariation.originalPrice !== undefined) {
+          cleanVariation.originalPrice = typeof cleanVariation.originalPrice === 'number' ? cleanVariation.originalPrice : Number(cleanVariation.originalPrice) || undefined;
+        }
+        return cleanVariation;
       });
     }
     
@@ -694,7 +708,11 @@ const ProductForm: React.FC = () => {
         showOutOfStockVariants: product.showOutOfStockVariants !== false,
         showFeatures: product.showFeatures !== false,
         isActive: product.isActive !== false,
-        variants: product.variants || [],
+        attributeIds: product.attributeIds || [],
+        variations: (product.variations || []).map((v: any, idx: number) => ({
+          ...v,
+          id: v.id || `var-${Date.now()}-${idx}`, // Add temporary ID for frontend
+        })),
       });
       setSizeChartMode(initialMode);
       setSelectedSizeChartId(inferredSizeChartId || '');
@@ -979,544 +997,7 @@ const ProductForm: React.FC = () => {
   };
 
 
-  const addVariant = () => {
-    setFormData({
-      ...formData,
-      variants: [
-        ...formData.variants,
-        {
-          colorName: '',
-          colorCode: '#000000',
-          price: parseFloat(formData.price) || 0,
-          originalPrice: parseFloat(formData.originalPrice) || 0,
-          images: [],
-          sizes: [],
-        },
-      ],
-    });
-  };
-
-  const updateVariant = (index: number, field: keyof ProductVariant, value: any) => {
-    const newVariants = [...formData.variants];
-    newVariants[index] = { ...newVariants[index], [field]: value };
-    setFormData({ ...formData, variants: newVariants });
-  };
-
-  const removeVariant = (index: number) => {
-    setFormData({
-      ...formData,
-      variants: formData.variants.filter((_, i) => i !== index),
-    });
-  };
-
-  const addVariantSize = (variantIndex: number) => {
-    const variant = formData.variants[variantIndex];
-    const newVariants = [...formData.variants];
-    
-    // Generate a temporary SKU for the new size
-    const baseSku = getBaseSku();
-    const colorCode = (variant.colorName || 'DEF').toUpperCase().slice(0, 3).replace(/[^A-Z0-9]/g, '') || 'DEF';
-    const tempSku = `${baseSku}-${colorCode}-NEW`;
-    
-    newVariants[variantIndex] = {
-      ...variant,
-      sizes: [
-        ...variant.sizes,
-        {
-          size: '',
-          stock: 0,
-          sku: tempSku,
-          price: variant.price,
-          originalPrice: variant.originalPrice,
-        },
-      ],
-    };
-    setFormData({ ...formData, variants: newVariants });
-  };
-
-  // Get base SKU from form or generate from slug
-  const getBaseSku = (): string => {
-    if (formData.sku && formData.sku.trim()) {
-      return formData.sku.trim().toUpperCase();
-    }
-    // Fallback to slug-based SKU
-    return slug.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10) || 'PROD';
-  };
-
-  // Generate SKU for a variant size
-  const generateSkuForSize = (baseSku: string, colorName: string, size: string): string => {
-    const colorCode = (colorName || 'DEF').toUpperCase().slice(0, 4).replace(/[^A-Z0-9]/g, '') || 'DEF';
-    const sizeCode = (size || 'UNK').toUpperCase().slice(0, 4).replace(/[^A-Z0-9]/g, '') || 'UNK';
-    const base = (baseSku || getBaseSku()).toUpperCase();
-    return `${base}-${colorCode}-${sizeCode}`.slice(0, 48);
-  };
-
-  // Regenerate all SKUs for variant sizes
-  const regenerateAllSkus = () => {
-    if (!confirm('This will regenerate all SKUs for variant sizes based on the base SKU. Continue?')) {
-      return;
-    }
-
-    const baseSku = getBaseSku();
-    const usedSkus = new Set<string>();
-    const newVariants = formData.variants.map((variant) => {
-      const newSizes = variant.sizes.map((size) => {
-        if (!size.size || !size.size.trim()) {
-          return size; // Skip sizes without size value
-        }
-        
-        let newSku = generateSkuForSize(baseSku, variant.colorName, size.size);
-        let counter = 1;
-        
-        // Ensure uniqueness within this regeneration
-        while (usedSkus.has(newSku)) {
-          newSku = `${generateSkuForSize(baseSku, variant.colorName, size.size)}-${counter++}`.slice(0, 48);
-        }
-        
-        usedSkus.add(newSku);
-        return {
-          ...size,
-          sku: newSku,
-        };
-      });
-      
-      return {
-        ...variant,
-        sizes: newSizes,
-      };
-    });
-    
-    setFormData({ ...formData, variants: newVariants });
-    alert('SKUs regenerated successfully!');
-  };
-
-  // Regenerate SKUs for a specific variant
-  const regenerateVariantSkus = (variantIndex: number) => {
-    const variant = formData.variants[variantIndex];
-    const baseSku = getBaseSku();
-    const usedSkus = new Set<string>();
-    
-    const newSizes = variant.sizes.map((size) => {
-      if (!size.size || !size.size.trim()) {
-        return size; // Skip sizes without size value
-      }
-      
-      let newSku = generateSkuForSize(baseSku, variant.colorName, size.size);
-      let counter = 1;
-      
-      while (usedSkus.has(newSku)) {
-        newSku = `${generateSkuForSize(baseSku, variant.colorName, size.size)}-${counter++}`.slice(0, 48);
-      }
-      
-      usedSkus.add(newSku);
-      return {
-        ...size,
-        sku: newSku,
-      };
-    });
-    
-    const newVariants = [...formData.variants];
-    newVariants[variantIndex] = {
-      ...variant,
-      sizes: newSizes,
-    };
-    
-    setFormData({ ...formData, variants: newVariants });
-  };
-
-  const updateVariantSize = (variantIndex: number, sizeIndex: number, field: keyof ProductSize, value: any) => {
-    const newVariants = [...formData.variants];
-    const variant = newVariants[variantIndex];
-    const newSizes = [...variant.sizes];
-    newSizes[sizeIndex] = { ...newSizes[sizeIndex], [field]: value };
-    newVariants[variantIndex] = { ...variant, sizes: newSizes };
-    setFormData({ ...formData, variants: newVariants });
-  };
-
-  // Wrapper for ProductVariants component (accepts string field)
-  const updateVariantSizeWrapper = (variantIndex: number, sizeIndex: number, field: string, value: any) => {
-    updateVariantSize(variantIndex, sizeIndex, field as keyof ProductSize, value);
-  };
-
-  const removeVariantSize = (variantIndex: number, sizeIndex: number) => {
-    const newVariants = [...formData.variants];
-    const variant = newVariants[variantIndex];
-    variant.sizes = variant.sizes.filter((_, i) => i !== sizeIndex);
-    setFormData({ ...formData, variants: newVariants });
-  };
-
-  const handleVariantImageUpload = async (variantIndex: number, files: FileList) => {
-    const imageFiles = Array.from(files).filter(file => file.type.startsWith('image/'));
-    if (imageFiles.length === 0) return;
-
-    setUploading(true);
-    try {
-      const response = await uploadAPI.uploadMultiple(imageFiles, 'products');
-      const newVariants = [...formData.variants];
-      newVariants[variantIndex] = {
-        ...newVariants[variantIndex],
-        images: [...newVariants[variantIndex].images, ...response.data.files.map((f: any) => f.url || f)],
-      };
-      setFormData({ ...formData, variants: newVariants });
-    } catch (error) {
-      alert('Failed to upload variant images');
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const removeVariantImage = (variantIndex: number, imageIndex: number) => {
-    const newVariants = [...formData.variants];
-    newVariants[variantIndex] = {
-      ...newVariants[variantIndex],
-      images: newVariants[variantIndex].images.filter((_, i) => i !== imageIndex),
-    };
-    setFormData({ ...formData, variants: newVariants });
-  };
-
-  // Shopify-style variant management functions
-  const addVariantType = (typeName: string, isColor: boolean = false) => {
-    const newType: VariantType = {
-      id: `type-${Date.now()}-${Math.random()}`,
-      name: typeName.trim(),
-      isColor,
-    };
-    const updatedTypes = [...variantTypes, newType];
-    const updatedOptions = { ...variantOptions, [newType.id]: [] };
-    const updatedColorCodes = { ...variantColorCodes, [newType.id]: {} };
-    setVariantTypes(updatedTypes);
-    setVariantOptions(updatedOptions);
-    setVariantColorCodes(updatedColorCodes);
-    setNewVariantTypeName('');
-    // Generate combinations after state updates
-    setTimeout(() => {
-      generateVariantCombinations();
-    }, 0);
-  };
-
-  const removeVariantType = (typeId: string) => {
-    const newTypes = variantTypes.filter(t => t.id !== typeId);
-    const newOptions = { ...variantOptions };
-    const newColorCodes = { ...variantColorCodes };
-    delete newOptions[typeId];
-    delete newColorCodes[typeId];
-    setVariantTypes(newTypes);
-    setVariantOptions(newOptions);
-    setVariantColorCodes(newColorCodes);
-    // Generate combinations after state updates
-    setTimeout(() => {
-      generateVariantCombinations();
-    }, 0);
-  };
-
-  const addVariantOption = (typeId: string, value: string, colorCode?: string) => {
-    const trimmedValue = value.trim();
-    if (!trimmedValue) return;
-
-    const currentOptions = variantOptions[typeId] || [];
-    if (currentOptions.includes(trimmedValue)) return; // Avoid duplicates
-
-    setVariantOptions({
-      ...variantOptions,
-      [typeId]: [...currentOptions, trimmedValue],
-    });
-
-    if (colorCode) {
-      const typeColorCodes = variantColorCodes[typeId] || {};
-      setVariantColorCodes({
-        ...variantColorCodes,
-        [typeId]: {
-          ...typeColorCodes,
-          [trimmedValue]: colorCode,
-        },
-      });
-    }
-
-    // Clear input
-    const updatedInputs = { ...newOptionInputs, [typeId]: '' };
-    setNewOptionInputs(updatedInputs);
-
-    // Generate combinations after state updates
-    setTimeout(() => {
-      generateVariantCombinations();
-    }, 0);
-  };
-
-  const removeVariantOption = (typeId: string, value: string) => {
-    const currentOptions = variantOptions[typeId] || [];
-    setVariantOptions({
-      ...variantOptions,
-      [typeId]: currentOptions.filter(opt => opt !== value),
-    });
-
-    const typeColorCodes = variantColorCodes[typeId] || {};
-    if (typeColorCodes[value]) {
-      const newColorCodes = { ...typeColorCodes };
-      delete newColorCodes[value];
-      setVariantColorCodes({
-        ...variantColorCodes,
-        [typeId]: newColorCodes,
-      });
-    }
-
-    // Generate combinations after state updates
-    setTimeout(() => {
-      generateVariantCombinations();
-    }, 0);
-  };
-
-  const generateVariantCombinations = () => {
-    if (variantTypes.length === 0) {
-      setVariantCombinations([]);
-      return;
-    }
-
-    // Get all option arrays
-    const optionArrays = variantTypes.map(type => {
-      const options = variantOptions[type.id] || [];
-      return options.map(value => ({
-        typeId: type.id,
-        typeName: type.name,
-        value,
-        colorCode: variantColorCodes[type.id]?.[value],
-      }));
-    }).filter(arr => arr.length > 0);
-
-    if (optionArrays.length === 0) {
-      setVariantCombinations([]);
-      return;
-    }
-
-    // Generate cartesian product
-    const combinations: VariantCombination[] = [];
-    const existingCombinationsMap = new Map<string, VariantCombination>();
-    
-    // Create a map of existing combinations by their option signature
-    variantCombinations.forEach(comb => {
-      const signature = comb.options.map(o => `${o.typeId}:${o.value}`).join('|');
-      existingCombinationsMap.set(signature, comb);
-    });
-
-    const generate = (current: VariantOption[], index: number) => {
-      if (index === optionArrays.length) {
-        const signature = current.map(o => `${o.typeId}:${o.value}`).join('|');
-        const existing = existingCombinationsMap.get(signature);
-        
-        if (existing) {
-          // Preserve existing combination data
-          combinations.push(existing);
-        } else {
-          // Create new combination
-          const baseSku = getBaseSku();
-          const skuParts = current.map(opt => {
-            const value = opt.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
-            return value || 'DEF';
-          });
-          const sku = `${baseSku}-${skuParts.join('-')}`.slice(0, 48);
-
-          combinations.push({
-            id: `comb-${Date.now()}-${Math.random()}`,
-            options: [...current],
-            sku,
-            price: parseFloat(formData.price) || 0,
-            originalPrice: parseFloat(formData.originalPrice) || 0,
-            stock: 0,
-            images: [],
-          });
-        }
-        return;
-      }
-
-      optionArrays[index].forEach(option => {
-        generate([...current, option], index + 1);
-      });
-    };
-
-    generate([], 0);
-    setVariantCombinations(combinations);
-  };
-
-  const updateVariantCombination = (combinationId: string, field: keyof VariantCombination, value: any) => {
-    setVariantCombinations(prev =>
-      prev.map(comb =>
-        comb.id === combinationId ? { ...comb, [field]: value } : comb
-      )
-    );
-  };
-
-  const regenerateAllShopifySkus = () => {
-    const baseSku = getBaseSku();
-    setVariantCombinations((prev) =>
-      prev.map((comb) => {
-        const skuParts = comb.options.map((opt) =>
-          opt.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4)
-        );
-        const newSku = `${baseSku}-${skuParts.join('-')}`.slice(0, 48);
-        return { ...comb, sku: newSku };
-      })
-    );
-  };
-
-
-  // Convert Shopify-style combinations to existing format
-  const convertCombinationsToVariants = (combinations: VariantCombination[]): ProductVariant[] => {
-    // Group by color (if color type exists)
-    const colorType = variantTypes.find(t => t.isColor || t.name.toLowerCase() === 'color');
-    const sizeType = variantTypes.find(t => t.name.toLowerCase() === 'size');
-
-    if (!colorType && !sizeType) {
-      // No color or size, create one variant per combination
-      return combinations.map(comb => ({
-        colorName: comb.options.map(o => o.value).join(' / ') || 'Default',
-        colorCode: '#000000',
-        price: comb.price,
-        originalPrice: comb.originalPrice,
-        images: comb.images || [],
-        sizes: [
-          {
-            size: 'One Size',
-            stock: comb.stock,
-            sku: comb.sku,
-            price: comb.price,
-            originalPrice: comb.originalPrice,
-          },
-        ],
-      }));
-    }
-
-    // Group by color
-    const variantsMap = new Map<string, ProductVariant>();
-
-    combinations.forEach(comb => {
-      const colorOption = comb.options.find(o => o.typeId === colorType?.id);
-      const sizeOptions = comb.options.filter(o => o.typeId === sizeType?.id);
-
-      const colorName = colorOption?.value || 'Default';
-      const colorCode = colorOption?.colorCode || '#000000';
-      const variantKey = colorName;
-
-      if (!variantsMap.has(variantKey)) {
-        variantsMap.set(variantKey, {
-          colorName,
-          colorCode,
-          price: comb.price,
-          originalPrice: comb.originalPrice,
-          images: comb.images || [],
-          sizes: [],
-        });
-      }
-
-      const variant = variantsMap.get(variantKey)!;
-      if (sizeOptions.length > 0) {
-        sizeOptions.forEach(sizeOpt => {
-          variant.sizes.push({
-            size: sizeOpt.value,
-            stock: comb.stock,
-            sku: comb.sku,
-            price: comb.price,
-            originalPrice: comb.originalPrice,
-          });
-        });
-      } else {
-        variant.sizes.push({
-          size: 'One Size',
-          stock: comb.stock,
-          sku: comb.sku,
-          price: comb.price,
-          originalPrice: comb.originalPrice,
-        });
-      }
-    });
-
-    return Array.from(variantsMap.values());
-  };
-
-  // Convert existing variants to Shopify-style format
-  const convertVariantsToShopifyFormat = (variants: ProductVariant[]) => {
-    if (variants.length === 0) return;
-
-    // Detect color and size from existing variants
-    const hasColors = variants.some(v => v.colorName);
-    const hasSizes = variants.some(v => v.sizes.length > 0);
-
-    const newTypes: VariantType[] = [];
-    const newOptions: Record<string, string[]> = {};
-    const newColorCodes: Record<string, Record<string, string>> = {};
-
-    if (hasColors) {
-      const colorType: VariantType = {
-        id: 'type-color',
-        name: 'Color',
-        isColor: true,
-      };
-      newTypes.push(colorType);
-      const colors = [...new Set(variants.map(v => v.colorName))];
-      newOptions[colorType.id] = colors;
-      newColorCodes[colorType.id] = {};
-      variants.forEach(v => {
-        if (v.colorCode) {
-          newColorCodes[colorType.id][v.colorName] = v.colorCode;
-        }
-      });
-    }
-
-    if (hasSizes) {
-      const sizeType: VariantType = {
-        id: 'type-size',
-        name: 'Size',
-        isColor: false,
-      };
-      newTypes.push(sizeType);
-      const sizes = new Set<string>();
-      variants.forEach(v => {
-        v.sizes.forEach(s => sizes.add(s.size));
-      });
-      newOptions[sizeType.id] = Array.from(sizes);
-    }
-
-    setVariantTypes(newTypes);
-    setVariantOptions(newOptions);
-    setVariantColorCodes(newColorCodes);
-
-    // Generate combinations from existing variants
-    const combinations: VariantCombination[] = [];
-    variants.forEach(variant => {
-      variant.sizes.forEach(size => {
-        const options: VariantOption[] = [];
-        if (hasColors) {
-          options.push({
-            typeId: 'type-color',
-            typeName: 'Color',
-            value: variant.colorName,
-            colorCode: variant.colorCode,
-          });
-        }
-        if (hasSizes) {
-          options.push({
-            typeId: 'type-size',
-            typeName: 'Size',
-            value: size.size,
-          });
-        }
-        combinations.push({
-          id: `comb-${Date.now()}-${Math.random()}`,
-          options,
-          sku: size.sku,
-          price: size.price || variant.price,
-          originalPrice: size.originalPrice || variant.originalPrice,
-          stock: size.stock,
-          images: variant.images,
-        });
-      });
-    });
-
-    setVariantCombinations(combinations);
-    setUseShopifyVariants(true);
-  };
-
-  // Effect to regenerate combinations when variant types or options change
-  // Note: This effect is intentionally minimal to avoid infinite loops
-  // Combinations are also generated manually when options are added/removed
+  // Legacy variant functions removed - using attribute-based variations now
 
   const handleVideoUpload = async () => {
     if (newVideos.length === 0) return;
@@ -1604,68 +1085,45 @@ const ProductForm: React.FC = () => {
       const cleanedVideos = currentFormData.videos.filter((v) => v.trim());
       const cleanedInstructions = currentFormData.washCareInstructions.filter((instr) => instr.text.trim() !== '');
       
-      // Process variants - convert Shopify combinations to variant format if needed
-      let cleanedVariants: ProductVariant[] = [];
-      if (useShopifyVariants && variantCombinations.length > 0) {
-        // Convert Shopify combinations to variant format
-        const convertedVariants = convertCombinationsToVariants(variantCombinations);
-        cleanedVariants = convertedVariants.map((v) => {
-          const cleanedSizes = v.sizes
-            .filter((s) => s.size && s.size.trim()) // Keep only sizes with size value
-            .map((s) => {
-              // Ensure SKU is present and valid
-              if (!s.sku || !s.sku.trim()) {
-                // Generate SKU if missing
-                const baseSku = getBaseSku();
-                s.sku = generateSkuForSize(baseSku, v.colorName, s.size);
-              }
-              return {
-                ...s,
-                sku: s.sku.trim().toUpperCase(),
-                stock: Math.max(0, s.stock || 0),
-                price: Math.max(0, s.price || 0),
-                originalPrice: Math.max(0, s.originalPrice || 0),
-              };
-            });
-          return {
-            ...v,
-            sizes: cleanedSizes,
-          };
-        });
-      } else {
-        // Direct variant format (already in ProductVariant format)
-        cleanedVariants = currentFormData.variants.map((v) => {
-          const cleanedSizes = v.sizes
-            .filter((s) => s.size && s.size.trim()) // Keep only sizes with size value
-            .map((s) => {
-              // Ensure SKU is present and valid
-              if (!s.sku || !s.sku.trim() || s.sku.includes('NEW')) {
-                // Generate SKU if missing or temporary
-                const baseSku = getBaseSku();
-                s.sku = generateSkuForSize(baseSku, v.colorName, s.size);
-              }
-              return {
-                ...s,
-                sku: s.sku.trim().toUpperCase(),
-                stock: Math.max(0, s.stock || 0),
-                price: Math.max(0, s.price || 0),
-                originalPrice: Math.max(0, s.originalPrice || 0),
-              };
-            });
-          return {
-            ...v,
-            sizes: cleanedSizes,
-          };
-        });
+      // Process attribute-based variations
+      let cleanedVariations: any[] | undefined = undefined;
+      if (currentFormData.variations && currentFormData.variations.length > 0) {
+        cleanedVariations = currentFormData.variations
+          .filter((v) => v.attributes && Object.keys(v.attributes).length > 0 && v.sku && v.sku.trim())
+          .map((v) => {
+            // Remove temporary id field before sending to backend
+            const { id, ...variationData } = v;
+            return {
+              ...variationData,
+              attributes: v.attributes, // { attributeSlug: attributeValueId }
+              sku: v.sku.trim().toUpperCase().slice(0, 48),
+              stock: Math.max(0, v.stock || 0),
+              price: v.price !== undefined ? Math.max(0, v.price) : undefined,
+              originalPrice: v.originalPrice !== undefined ? Math.max(0, v.originalPrice) : undefined,
+              images: v.images && v.images.length > 0 ? v.images : undefined,
+              shortDescription: v.shortDescription?.trim() || undefined,
+              isActive: v.isActive !== false,
+            };
+          });
+        
+        // Only include if we have valid variations
+        if (cleanedVariations.length === 0) {
+          cleanedVariations = undefined;
+        }
       }
+      
+      // Process attributeIds
+      const cleanedAttributeIds = (currentFormData.attributeIds || [])
+        .filter((id): id is string => typeof id === 'string' && id.trim().length === 24 && /^[0-9a-fA-F]{24}$/.test(id.trim()))
+        .map(id => id.trim());
       const normalizedSlug = slugifyValue(slug);
       setSlug(normalizedSlug);
 
       const { sizeChart: sizeChartEntries, categories: selectedCategories, ...rest } = currentFormData;
 
-      // Prepare stock data for products without variants (simple number)
+      // Prepare stock data for products without variations (simple number)
       let stockData: number | undefined = undefined;
-      if (currentFormData.variants.length === 0 && currentFormData.stock !== undefined && currentFormData.stock !== null) {
+      if ((!cleanedVariations || cleanedVariations.length === 0) && currentFormData.stock !== undefined && currentFormData.stock !== null) {
         stockData = Math.max(0, Math.floor(currentFormData.stock));
         // Set to undefined if 0 or invalid
         if (stockData === 0 || isNaN(stockData)) {
@@ -1737,7 +1195,8 @@ const ProductForm: React.FC = () => {
         disableVariants: currentFormData.disableVariants,
         showOutOfStockVariants: currentFormData.showOutOfStockVariants,
         showFeatures: currentFormData.showFeatures,
-        variants: cleanedVariants,
+        attributeIds: cleanedAttributeIds.length > 0 ? cleanedAttributeIds : undefined,
+        variations: cleanedVariations,
         categories: sanitizedCategories, // Always include categories (even if empty array)
       };
       
@@ -1976,47 +1435,54 @@ const ProductForm: React.FC = () => {
               onRemoveVideo={removeVideo}
             />
 
-            {/* Variants */}
-            <ProductVariants
-              variants={formData.variants}
-              onAddVariant={addVariant}
-              onUpdateVariant={updateVariant}
-              onRemoveVariant={removeVariant}
-              onAddVariantSize={addVariantSize}
-              onUpdateVariantSize={updateVariantSizeWrapper}
-              onRemoveVariantSize={removeVariantSize}
-              onRegenerateAllSkus={regenerateAllSkus}
-              onRegenerateVariantSkus={regenerateVariantSkus}
-              onVariantImageUpload={handleVariantImageUpload}
-              onRemoveVariantImage={removeVariantImage}
-              useShopifyVariants={useShopifyVariants}
-              onUseShopifyVariantsChange={(checked) => {
-                setUseShopifyVariants(checked);
-                if (!checked) {
-                  setVariantTypes([]);
-                  setVariantOptions({});
-                  setVariantCombinations([]);
+            {/* Attribute-based Variations */}
+            <ProductAttributeVariations
+              selectedAttributeIds={formData.attributeIds}
+              onAttributeIdsChange={(ids) => setFormData({ ...formData, attributeIds: ids })}
+              variations={formData.variations}
+              onVariationsChange={(variations) => setFormData({ ...formData, variations })}
+              baseSku={formData.sku || slug.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10) || 'PROD'}
+              basePrice={parseFloat(formData.price) || 0}
+              baseOriginalPrice={parseFloat(formData.originalPrice) || 0}
+              onRegenerateAllSkus={() => {
+                // Regenerate SKUs for all variations
+                const baseSku = formData.sku || slug.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10) || 'PROD';
+                const newVariations = formData.variations.map((v, idx) => {
+                  // Generate SKU from attributes
+                  const attrSlugs = Object.keys(v.attributes).join('-').toUpperCase().slice(0, 20);
+                  const sku = `${baseSku}-${attrSlugs}-${idx + 1}`.toUpperCase().slice(0, 48);
+                  return { ...v, sku };
+                });
+                setFormData({ ...formData, variations: newVariations });
+              }}
+              onVariationImageUpload={async (variationId, files) => {
+                const imageFiles = Array.from(files).filter(file => file.type.startsWith('image/'));
+                if (imageFiles.length === 0) return;
+
+                setUploading(true);
+                try {
+                  const response = await uploadAPI.uploadMultiple(imageFiles, 'products');
+                  const uploadedUrls = response.data?.files?.map((f: any) => f.url) || response.data?.urls || [];
+                  const newVariations = formData.variations.map(v =>
+                    v.id === variationId
+                      ? { ...v, images: [...(v.images || []), ...uploadedUrls] }
+                      : v
+                  );
+                  setFormData({ ...formData, variations: newVariations });
+                } catch (error) {
+                  alert('Failed to upload variation images');
+                } finally {
+                  setUploading(false);
                 }
               }}
-              variantTypes={variantTypes}
-              variantOptions={variantOptions}
-              variantColorCodes={variantColorCodes}
-              variantCombinations={variantCombinations}
-              newVariantTypeName={newVariantTypeName}
-              newOptionInputs={newOptionInputs}
-              onAddVariantType={addVariantType}
-              onRemoveVariantType={removeVariantType}
-              onAddVariantOption={addVariantOption}
-              onRemoveVariantOption={removeVariantOption}
-              onUpdateVariantCombination={updateVariantCombination}
-              onRegenerateAllSkusShopify={regenerateAllShopifySkus}
-              onNewVariantTypeNameChange={setNewVariantTypeName}
-              onNewOptionInputsChange={setNewOptionInputs}
-              onVariantColorCodesChange={setVariantColorCodes}
-              onConvertVariantsToShopifyFormat={convertVariantsToShopifyFormat}
-              getBaseSku={getBaseSku}
-              generateSkuForSize={generateSkuForSize}
-              basePrice={parseFloat(formData.price) || 0}
+              onRemoveVariationImage={(variationId, imageIndex) => {
+                const newVariations = formData.variations.map(v =>
+                  v.id === variationId
+                    ? { ...v, images: (v.images || []).filter((_, i) => i !== imageIndex) }
+                    : v
+                );
+                setFormData({ ...formData, variations: newVariations });
+              }}
               uploading={uploading}
             />
 
@@ -2039,7 +1505,7 @@ const ProductForm: React.FC = () => {
               originalPrice={formData.originalPrice}
               sku={formData.sku}
               stock={formData.stock}
-              showStock={formData.variants.length === 0}
+              showStock={formData.variations.length === 0}
               onPriceChange={(price) => {
                 setFormData({ ...formData, price });
                 setErrors({ ...errors, price: '' });

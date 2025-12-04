@@ -12,7 +12,6 @@ export interface ValidationErrors {
   price?: string;
   originalPrice?: string;
   images?: string;
-  sizes?: string;
   categories?: string;
   sizeChart?: string;
   slug?: string;
@@ -65,10 +64,8 @@ export const validateProductForm = (
     errors.images = 'At least one image is required';
   }
 
-  // Sizes or variants validation
-  if (formData.sizes.length === 0 && formData.variants.length === 0) {
-    errors.sizes = 'Add at least one size or variant';
-  }
+  // Variations validation (optional - products can be simple without variations)
+  // No validation needed - products can exist without variations
 
   // Categories validation
   if (formData.categories.length === 0) {
