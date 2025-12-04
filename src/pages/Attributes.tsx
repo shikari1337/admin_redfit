@@ -83,9 +83,37 @@ const Attributes: React.FC = () => {
     return String(id);
   };
 
+  // Track if form has unsaved changes
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [lastSavedAttributeId, setLastSavedAttributeId] = useState<string | null>(null);
+
   useEffect(() => {
     fetchAttributes();
   }, []);
+
+  // Reset form when selectedAttributeId changes (switching between attributes)
+  useEffect(() => {
+    // If switching to a different attribute, reset the form
+    if (selectedAttributeId && lastSavedAttributeId && selectedAttributeId !== lastSavedAttributeId) {
+      // Only reset if we're switching to a different attribute
+      const currentAttribute = attributes.find(a => normalizeId(a._id) === normalizeId(selectedAttributeId));
+      if (currentAttribute) {
+        setAttributeFormState({
+          name: currentAttribute.name || '',
+          slug: currentAttribute.slug || '',
+          type: currentAttribute.type || 'text',
+          description: currentAttribute.description || '',
+          isActive: currentAttribute.isActive !== false,
+          order: currentAttribute.order || 0,
+        });
+        setHasUnsavedChanges(false);
+      }
+    } else if (!selectedAttributeId) {
+      // If no attribute selected, reset to empty form
+      setAttributeFormState({ ...emptyAttributeForm });
+      setHasUnsavedChanges(false);
+    }
+  }, [selectedAttributeId, attributes, lastSavedAttributeId]);
 
   const fetchAttributes = async () => {
     setLoading(true);
@@ -171,9 +199,17 @@ const Attributes: React.FC = () => {
   };
 
   const resetAttributeForm = () => {
+    if (hasUnsavedChanges && selectedAttributeId) {
+      if (!confirm('You have unsaved changes. Are you sure you want to discard them?')) {
+        return;
+      }
+    }
     setSelectedAttributeId(null);
     setAttributeFormState({ ...emptyAttributeForm });
     setError(null);
+    setHasUnsavedChanges(false);
+    setLastSavedAttributeId(null);
+    resetValueForm(); // Also reset value form
   };
 
   const resetValueForm = () => {
@@ -188,6 +224,17 @@ const Attributes: React.FC = () => {
       setError('Invalid attribute ID');
       return;
     }
+
+    // Check if switching from another attribute with unsaved changes
+    if (hasUnsavedChanges && selectedAttributeId && normalizeId(selectedAttributeId) !== normalizedId) {
+      if (!confirm('You have unsaved changes. Are you sure you want to switch to another attribute?')) {
+        return;
+      }
+    }
+
+    // Reset value form when switching attributes
+    resetValueForm();
+    
     setSelectedAttributeId(normalizedId);
     setAttributeFormState({
       name: attribute.name || '',
@@ -198,6 +245,8 @@ const Attributes: React.FC = () => {
       order: attribute.order || 0,
     });
     setError(null);
+    setHasUnsavedChanges(false);
+    setLastSavedAttributeId(normalizedId);
   };
 
   const handleEditValue = (value: AttributeValue, attributeId: string) => {
@@ -238,18 +287,23 @@ const Attributes: React.FC = () => {
     setError(null);
 
     try {
-      if (selectedAttributeId) {
-        const normalizedId = normalizeId(selectedAttributeId);
-        if (!normalizedId) {
-          setError('Invalid attribute ID');
-          return;
-        }
+      const normalizedId = selectedAttributeId ? normalizeId(selectedAttributeId) : null;
+      if (normalizedId) {
         await attributesAPI.update(normalizedId, attributeFormState);
+        setLastSavedAttributeId(normalizedId);
       } else {
         await attributesAPI.create(attributeFormState);
+        // If creating, fetch the new attribute and select it
+        await fetchAttributes();
+        // The new attribute should be in the list now, but we'll keep the form cleared
+        setLastSavedAttributeId(null);
       }
       await fetchAttributes();
-      resetAttributeForm();
+      setHasUnsavedChanges(false);
+      // Don't reset form if editing - keep it open for further edits
+      if (!normalizedId) {
+        resetAttributeForm();
+      }
     } catch (err: any) {
       console.error('Failed to save attribute', err);
       setError(err?.response?.data?.message || err?.message || 'Failed to save attribute');
@@ -389,6 +443,7 @@ const Attributes: React.FC = () => {
         name,
         slug: prev.slug || slugifyValue(name),
       }));
+      setHasUnsavedChanges(true);
     } else {
       setValueFormState(prev => ({
         ...prev,
@@ -396,6 +451,12 @@ const Attributes: React.FC = () => {
         slug: prev.slug || slugifyValue(name),
       }));
     }
+  };
+
+  // Track form changes
+  const handleAttributeFormChange = (field: string, value: any) => {
+    setAttributeFormState(prev => ({ ...prev, [field]: value }));
+    setHasUnsavedChanges(true);
   };
 
   if (loading) {
@@ -464,8 +525,14 @@ const Attributes: React.FC = () => {
                   const isExpanded = expandedAttributes.has(normalizedAttrId);
                   const isSelected = normalizeId(selectedAttributeId) === normalizedAttrId;
                   return (
-                  <div key={normalizedAttrId} className="border border-gray-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
-                    <div className="bg-gradient-to-r from-gray-50 to-white p-4">
+                  <div key={normalizedAttrId} className={`border rounded-lg overflow-hidden hover:shadow-md transition-shadow ${
+                    isSelected ? 'border-blue-500 border-2 shadow-lg' : 'border-gray-200'
+                  }`}>
+                    <div className={`p-4 ${
+                      isSelected 
+                        ? 'bg-gradient-to-r from-blue-50 to-blue-100' 
+                        : 'bg-gradient-to-r from-gray-50 to-white'
+                    }`}>
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3 flex-1 min-w-0">
                           <button
@@ -628,12 +695,23 @@ const Attributes: React.FC = () => {
         {/* Attribute Form - Middle Column */}
         <div className="bg-white rounded-lg shadow-lg p-6 sticky top-6">
           <div className="pb-4 border-b border-gray-200 mb-4">
-            <h2 className="text-xl font-semibold text-gray-900">
-              {selectedAttributeId ? 'Edit Attribute' : 'New Attribute'}
-            </h2>
-            <p className="text-sm text-gray-500 mt-1">
-              {selectedAttributeId ? 'Update attribute details' : 'Create a new product attribute'}
-            </p>
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900">
+                  {selectedAttributeId ? 'Edit Attribute' : 'New Attribute'}
+                </h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  {selectedAttributeId 
+                    ? `Editing: ${attributes.find(a => normalizeId(a._id) === normalizeId(selectedAttributeId))?.name || 'Unknown'}`
+                    : 'Create a new product attribute'}
+                </p>
+              </div>
+              {hasUnsavedChanges && (
+                <span className="text-xs px-2 py-1 rounded bg-yellow-100 text-yellow-800 font-medium">
+                  Unsaved changes
+                </span>
+              )}
+            </div>
           </div>
           <form onSubmit={handleSubmitAttribute} className="space-y-4">
             <div>
@@ -656,7 +734,7 @@ const Attributes: React.FC = () => {
               <input
                 type="text"
                 value={attributeFormState.slug}
-                onChange={(e) => setAttributeFormState(prev => ({ ...prev, slug: slugifyValue(e.target.value) }))}
+                onChange={(e) => handleAttributeFormChange('slug', slugifyValue(e.target.value))}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 pattern="[a-z0-9-]+"
                 placeholder="auto-generated-from-name"
@@ -668,7 +746,7 @@ const Attributes: React.FC = () => {
               </label>
               <select
                 value={attributeFormState.type}
-                onChange={(e) => setAttributeFormState(prev => ({ ...prev, type: e.target.value as any }))}
+                onChange={(e) => handleAttributeFormChange('type', e.target.value as any)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 required
               >
@@ -684,7 +762,7 @@ const Attributes: React.FC = () => {
               </label>
               <textarea
                 value={attributeFormState.description}
-                onChange={(e) => setAttributeFormState(prev => ({ ...prev, description: e.target.value }))}
+                onChange={(e) => handleAttributeFormChange('description', e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 rows={3}
                 placeholder="Optional description for this attribute"
@@ -697,7 +775,7 @@ const Attributes: React.FC = () => {
               <input
                 type="number"
                 value={attributeFormState.order}
-                onChange={(e) => setAttributeFormState(prev => ({ ...prev, order: parseInt(e.target.value) || 0 }))}
+                onChange={(e) => handleAttributeFormChange('order', parseInt(e.target.value) || 0)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 min="0"
                 placeholder="0"
@@ -708,7 +786,7 @@ const Attributes: React.FC = () => {
                 type="checkbox"
                 id="attributeIsActive"
                 checked={attributeFormState.isActive}
-                onChange={(e) => setAttributeFormState(prev => ({ ...prev, isActive: e.target.checked }))}
+                onChange={(e) => handleAttributeFormChange('isActive', e.target.checked)}
                 className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
               />
               <label htmlFor="attributeIsActive" className="ml-2 text-sm font-medium text-gray-700 cursor-pointer">
