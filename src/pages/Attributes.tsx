@@ -121,14 +121,19 @@ const Attributes: React.FC = () => {
   };
 
   const toggleAttribute = (attributeId: string) => {
+    const normalizedId = normalizeId(attributeId);
+    if (!normalizedId) {
+      console.error('Invalid attribute ID in toggleAttribute:', attributeId);
+      return;
+    }
     setExpandedAttributes(prev => {
       const newSet = new Set(prev);
-      if (newSet.has(attributeId)) {
-        newSet.delete(attributeId);
+      if (newSet.has(normalizedId)) {
+        newSet.delete(normalizedId);
       } else {
-        newSet.add(attributeId);
-        if (!attributeValues[attributeId]) {
-          fetchAttributeValues(attributeId);
+        newSet.add(normalizedId);
+        if (!attributeValues[normalizedId]) {
+          fetchAttributeValues(normalizedId);
         }
       }
       return newSet;
@@ -147,8 +152,27 @@ const Attributes: React.FC = () => {
     setError(null);
   };
 
+  // Normalize ID to string (handles MongoDB ObjectId objects)
+  const normalizeId = (id: any): string | null => {
+    if (!id) return null;
+    if (typeof id === 'string') return id;
+    if (typeof id === 'object' && id._id) return normalizeId(id._id);
+    if (typeof id === 'object' && id.toString && typeof id.toString === 'function') {
+      const str = id.toString();
+      if (str && str !== '[object Object]' && /^[0-9a-fA-F]{24}$/.test(str)) {
+        return str;
+      }
+    }
+    return String(id);
+  };
+
   const handleEditAttribute = (attribute: Attribute) => {
-    setSelectedAttributeId(attribute._id);
+    const normalizedId = normalizeId(attribute._id);
+    if (!normalizedId) {
+      setError('Invalid attribute ID');
+      return;
+    }
+    setSelectedAttributeId(normalizedId);
     setAttributeFormState({
       name: attribute.name || '',
       slug: attribute.slug || '',
@@ -162,8 +186,18 @@ const Attributes: React.FC = () => {
 
   const handleEditValue = (value: AttributeValue, attributeId: string) => {
     // Ensure the attribute is selected so the value form is visible
-    setSelectedAttributeId(attributeId);
-    setSelectedValueId(value._id);
+    const normalizedAttributeId = normalizeId(attributeId);
+    const normalizedValueId = normalizeId(value._id);
+    if (!normalizedAttributeId) {
+      setError('Invalid attribute ID');
+      return;
+    }
+    if (!normalizedValueId) {
+      setError('Invalid value ID');
+      return;
+    }
+    setSelectedAttributeId(normalizedAttributeId);
+    setSelectedValueId(normalizedValueId);
     setValueFormState({
       name: value.name || '',
       slug: value.slug || '',
@@ -189,7 +223,12 @@ const Attributes: React.FC = () => {
 
     try {
       if (selectedAttributeId) {
-        await attributesAPI.update(selectedAttributeId, attributeFormState);
+        const normalizedId = normalizeId(selectedAttributeId);
+        if (!normalizedId) {
+          setError('Invalid attribute ID');
+          return;
+        }
+        await attributesAPI.update(normalizedId, attributeFormState);
       } else {
         await attributesAPI.create(attributeFormState);
       }
@@ -213,6 +252,13 @@ const Attributes: React.FC = () => {
 
     if (!selectedAttributeId) {
       setError('Please select an attribute first');
+      return;
+    }
+
+    // Normalize selectedAttributeId to ensure it's a string
+    const normalizedAttributeId = normalizeId(selectedAttributeId);
+    if (!normalizedAttributeId) {
+      setError('Invalid attribute ID. Please select an attribute again.');
       return;
     }
 
@@ -252,13 +298,16 @@ const Attributes: React.FC = () => {
         payload.imageUrl = valueFormState.imageUrl.trim();
       }
 
-      if (selectedValueId) {
-        await attributesAPI.updateValue(selectedAttributeId, selectedValueId, payload);
+      // Normalize selectedValueId if editing
+      const normalizedValueId = selectedValueId ? normalizeId(selectedValueId) : null;
+      
+      if (normalizedValueId) {
+        await attributesAPI.updateValue(normalizedAttributeId, normalizedValueId, payload);
       } else {
-        await attributesAPI.createValue(selectedAttributeId, payload);
+        await attributesAPI.createValue(normalizedAttributeId, payload);
       }
       
-      await fetchAttributeValues(selectedAttributeId);
+      await fetchAttributeValues(normalizedAttributeId);
       resetValueForm();
     } catch (err: any) {
       console.error('Failed to save attribute value', err);
@@ -282,7 +331,9 @@ const Attributes: React.FC = () => {
     try {
       await attributesAPI.delete(id);
       await fetchAttributes();
-      if (selectedAttributeId === id) {
+      const normalizedSelectedId = normalizeId(selectedAttributeId);
+      const normalizedDeletedId = normalizeId(id);
+      if (normalizedSelectedId === normalizedDeletedId) {
         resetAttributeForm();
       }
     } catch (err: any) {
@@ -297,9 +348,16 @@ const Attributes: React.FC = () => {
     }
 
     try {
-      await attributesAPI.deleteValue(attributeId, valueId);
-      await fetchAttributeValues(attributeId);
-      if (selectedValueId === valueId) {
+      const normalizedAttributeId = normalizeId(attributeId);
+      const normalizedValueId = normalizeId(valueId);
+      if (!normalizedAttributeId || !normalizedValueId) {
+        setError('Invalid ID');
+        return;
+      }
+      await attributesAPI.deleteValue(normalizedAttributeId, normalizedValueId);
+      await fetchAttributeValues(normalizedAttributeId);
+      const normalizedSelectedValueId = normalizeId(selectedValueId);
+      if (normalizedSelectedValueId === normalizedValueId) {
         resetValueForm();
       }
     } catch (err: any) {
@@ -381,17 +439,25 @@ const Attributes: React.FC = () => {
             ) : (
               attributes
                 .sort((a, b) => (a.order || 0) - (b.order || 0))
-                .map((attribute) => (
-                  <div key={attribute._id} className="border border-gray-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
+                .map((attribute) => {
+                  const normalizedAttrId = normalizeId(attribute._id);
+                  if (!normalizedAttrId) {
+                    console.error('Invalid attribute ID, skipping:', attribute);
+                    return null;
+                  }
+                  const isExpanded = expandedAttributes.has(normalizedAttrId);
+                  const isSelected = normalizeId(selectedAttributeId) === normalizedAttrId;
+                  return (
+                  <div key={normalizedAttrId} className="border border-gray-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
                     <div className="bg-gradient-to-r from-gray-50 to-white p-4">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3 flex-1 min-w-0">
                           <button
-                            onClick={() => toggleAttribute(attribute._id)}
+                            onClick={() => toggleAttribute(normalizedAttrId)}
                             className="text-gray-600 hover:text-gray-800 transition-colors flex-shrink-0"
-                            title={expandedAttributes.has(attribute._id) ? 'Collapse' : 'Expand'}
+                            title={isExpanded ? 'Collapse' : 'Expand'}
                           >
-                            {expandedAttributes.has(attribute._id) ? (
+                            {isExpanded ? (
                               <FaChevronDown className="text-lg" />
                             ) : (
                               <FaChevronRight className="text-lg" />
@@ -431,7 +497,7 @@ const Attributes: React.FC = () => {
                             <FaEdit />
                           </button>
                           <button
-                            onClick={() => handleDeleteAttribute(attribute._id)}
+                            onClick={() => handleDeleteAttribute(normalizedAttrId)}
                             className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                             title="Delete Attribute"
                           >
@@ -440,16 +506,16 @@ const Attributes: React.FC = () => {
                         </div>
                       </div>
                     </div>
-                    {expandedAttributes.has(attribute._id) && (
+                    {isExpanded && (
                       <div className="p-4 bg-white border-t border-gray-200">
                         <div className="flex items-center justify-between mb-3">
                           <h3 className="text-sm font-semibold text-gray-700">
-                            Values ({attributeValues[attribute._id]?.length || 0})
+                            Values ({attributeValues[normalizedAttrId]?.length || 0})
                           </h3>
-                          {selectedAttributeId !== attribute._id && (
+                          {!isSelected && (
                             <button
                               onClick={() => {
-                                setSelectedAttributeId(attribute._id);
+                                setSelectedAttributeId(normalizedAttrId);
                                 resetValueForm();
                               }}
                               className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 font-medium"
@@ -458,12 +524,18 @@ const Attributes: React.FC = () => {
                             </button>
                           )}
                         </div>
-                        {attributeValues[attribute._id] && attributeValues[attribute._id].length > 0 ? (
+                        {attributeValues[normalizedAttrId] && attributeValues[normalizedAttrId].length > 0 ? (
                           <div className="space-y-2">
-                            {attributeValues[attribute._id]
+                            {attributeValues[normalizedAttrId]
                               .sort((a, b) => (a.order || 0) - (b.order || 0))
-                              .map((value) => (
-                                <div key={value._id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                              .map((value) => {
+                                const normalizedValueId = normalizeId(value._id);
+                                if (!normalizedValueId) {
+                                  console.error('Invalid value ID, skipping:', value);
+                                  return null;
+                                }
+                                return (
+                                <div key={normalizedValueId} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
                                   <div className="flex items-center gap-3 flex-1 min-w-0">
                                     {attribute.type === 'color' && value.value && (
                                       <div
@@ -504,14 +576,14 @@ const Attributes: React.FC = () => {
                                   </div>
                                   <div className="flex gap-2 ml-4">
                                     <button
-                                      onClick={() => handleEditValue(value, attribute._id)}
+                                      onClick={() => handleEditValue(value, normalizedAttrId)}
                                       className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
                                       title="Edit Value"
                                     >
                                       <FaEdit className="text-sm" />
                                     </button>
                                     <button
-                                      onClick={() => handleDeleteValue(attribute._id, value._id)}
+                                      onClick={() => handleDeleteValue(normalizedAttrId, normalizedValueId)}
                                       className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
                                       title="Delete Value"
                                     >
@@ -519,7 +591,8 @@ const Attributes: React.FC = () => {
                                     </button>
                                   </div>
                                 </div>
-                              ))}
+                              );
+                              }).filter(Boolean)}
                           </div>
                         ) : (
                           <div className="text-center py-6 text-gray-500 text-sm">
@@ -667,7 +740,7 @@ const Attributes: React.FC = () => {
                 <p className="text-sm text-gray-600 mt-1">
                   {selectedValueId 
                     ? 'Update value details' 
-                    : `Add a value for "${attributes.find(a => a._id === selectedAttributeId)?.name || 'this attribute'}"`}
+                    : `Add a value for "${attributes.find(a => normalizeId(a._id) === normalizeId(selectedAttributeId))?.name || 'this attribute'}"`}
                 </p>
               </div>
               <form onSubmit={handleSubmitValue} className="space-y-4">
@@ -697,7 +770,7 @@ const Attributes: React.FC = () => {
                     placeholder="auto-generated-from-name"
                   />
                 </div>
-                {attributes.find(a => a._id === selectedAttributeId)?.type === 'color' && (
+                {attributes.find(a => normalizeId(a._id) === normalizeId(selectedAttributeId))?.type === 'color' && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Color Code (Hex)
@@ -720,7 +793,7 @@ const Attributes: React.FC = () => {
                     </div>
                   </div>
                 )}
-                {attributes.find(a => a._id === selectedAttributeId)?.type === 'image' && (
+                {attributes.find(a => normalizeId(a._id) === normalizeId(selectedAttributeId))?.type === 'image' && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Image URL
