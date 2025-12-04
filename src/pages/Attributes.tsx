@@ -70,17 +70,73 @@ const Attributes: React.FC = () => {
 
   // Normalize ID to string (handles MongoDB ObjectId objects)
   // Must be defined before any functions that use it
+  // CRITICAL: This must return null for invalid IDs, not a fallback string
   const normalizeId = (id: any): string | null => {
     if (!id) return null;
-    if (typeof id === 'string') return id;
-    if (typeof id === 'object' && id._id) return normalizeId(id._id);
+    
+    // Already a valid string ID
+    if (typeof id === 'string') {
+      const trimmed = id.trim();
+      if (trimmed.length === 24 && /^[0-9a-fA-F]{24}$/.test(trimmed)) {
+        return trimmed;
+      }
+      return null; // Invalid string format
+    }
+    
+    // Object with _id property - recurse
+    if (typeof id === 'object' && id._id) {
+      return normalizeId(id._id);
+    }
+    
+    // Object with toString method
     if (typeof id === 'object' && id.toString && typeof id.toString === 'function') {
-      const str = id.toString();
-      if (str && str !== '[object Object]' && /^[0-9a-fA-F]{24}$/.test(str)) {
-        return str;
+      try {
+        const str = id.toString();
+        if (str && str !== '[object Object]' && typeof str === 'string') {
+          const trimmed = str.trim();
+          if (trimmed.length === 24 && /^[0-9a-fA-F]{24}$/.test(trimmed)) {
+            return trimmed;
+          }
+        }
+      } catch (e) {
+        // Ignore toString errors
       }
     }
-    return String(id);
+    
+    // Buffer object handling
+    if (typeof id === 'object' && id.buffer) {
+      try {
+        let bufferArray: number[];
+        if (Array.isArray(id.buffer)) {
+          bufferArray = id.buffer;
+        } else if (typeof id.buffer === 'object') {
+          const keys = Object.keys(id.buffer).map(k => Number(k)).sort((a, b) => a - b);
+          bufferArray = keys.map(k => Number(id.buffer[k]));
+        } else {
+          return null;
+        }
+        if (bufferArray.length === 12) {
+          const hex = bufferArray.map(b => b.toString(16).padStart(2, '0')).join('');
+          if (hex.length === 24 && /^[0-9a-fA-F]{24}$/.test(hex)) {
+            return hex;
+          }
+        }
+      } catch (error) {
+        // Ignore buffer conversion errors
+      }
+    }
+    
+    // Last resort: try to convert to string
+    try {
+      const str = String(id).trim();
+      if (str.length === 24 && /^[0-9a-fA-F]{24}$/.test(str)) {
+        return str;
+      }
+    } catch (e) {
+      // Ignore conversion errors
+    }
+    
+    return null; // Invalid ID
   };
 
   // Track if form has unsaved changes
@@ -203,12 +259,12 @@ const Attributes: React.FC = () => {
         return;
       }
     }
+    // CRITICAL FIX: Only reset editingAttributeId, keep selectedAttributeId if it's set for value form
     setEditingAttributeId(null);
-    setSelectedAttributeId(null);
     setAttributeFormState({ ...emptyAttributeForm });
     setError(null);
     setHasUnsavedChanges(false);
-    resetValueForm(); // Also reset value form
+    // Don't reset value form here - it's independent
   };
 
   const resetValueForm = () => {
@@ -225,18 +281,20 @@ const Attributes: React.FC = () => {
     }
 
     // Check if switching from another attribute with unsaved changes
-    if (hasUnsavedChanges && editingAttributeId && normalizeId(editingAttributeId) !== normalizedId) {
+    const currentEditingId = editingAttributeId ? normalizeId(editingAttributeId) : null;
+    if (hasUnsavedChanges && currentEditingId && currentEditingId !== normalizedId) {
       if (!confirm('You have unsaved changes. Are you sure you want to switch to another attribute?')) {
         return;
       }
     }
 
-    // Reset value form when switching attributes
+    // Reset value form when switching attributes (clear value selection)
     resetValueForm();
     
-    // Set both editingAttributeId (for form) and selectedAttributeId (for value form)
+    // CRITICAL FIX: Only set editingAttributeId when editing, NOT selectedAttributeId
+    // selectedAttributeId should only be set when adding/editing values
     setEditingAttributeId(normalizedId);
-    setSelectedAttributeId(normalizedId);
+    // DO NOT set selectedAttributeId here - that's only for value form
     setError(null);
     setHasUnsavedChanges(false);
   };
@@ -253,6 +311,7 @@ const Attributes: React.FC = () => {
       setError('Invalid value ID');
       return;
     }
+    // CRITICAL FIX: Only set selectedAttributeId for value form, NOT editingAttributeId
     setSelectedAttributeId(normalizedAttributeId);
     setSelectedValueId(normalizedValueId);
     setValueFormState({
@@ -512,8 +571,11 @@ const Attributes: React.FC = () => {
                     return null;
                   }
                   const isExpanded = expandedAttributes.has(normalizedAttrId);
-                  const isSelected = normalizeId(editingAttributeId) === normalizedAttrId;
-                  const isSelectedForValue = normalizeId(selectedAttributeId) === normalizedAttrId;
+                  // CRITICAL FIX: Strict comparison with null checks
+                  const currentEditingId = editingAttributeId ? normalizeId(editingAttributeId) : null;
+                  const currentSelectedId = selectedAttributeId ? normalizeId(selectedAttributeId) : null;
+                  const isSelected = currentEditingId !== null && currentEditingId === normalizedAttrId;
+                  const isSelectedForValue = currentSelectedId !== null && currentSelectedId === normalizedAttrId;
                   return (
                   <div key={normalizedAttrId} className={`border rounded-lg overflow-hidden hover:shadow-md transition-shadow ${
                     isSelected ? 'border-blue-500 border-2 shadow-lg' : 'border-gray-200'
@@ -589,9 +651,13 @@ const Attributes: React.FC = () => {
                             <button
                               onClick={(e) => {
                                 e.stopPropagation(); // Prevent any parent click handlers
-                                // Only set selectedAttributeId for value form, don't change editingAttributeId
+                                e.preventDefault(); // Prevent form submission
+                                // CRITICAL FIX: Only set selectedAttributeId for value form
+                                // DO NOT touch editingAttributeId - that's only for attribute editing
                                 setSelectedAttributeId(normalizedAttrId);
-                                resetValueForm();
+                                setSelectedValueId(null); // Clear any selected value
+                                setValueFormState({ ...emptyValueForm }); // Reset value form
+                                setError(null);
                               }}
                               className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 font-medium"
                             >
@@ -801,7 +867,7 @@ const Attributes: React.FC = () => {
                   </>
                 ) : (
                   <>
-                    <FaSave /> {selectedAttributeId ? 'Update' : 'Create'} Attribute
+                    <FaSave /> {editingAttributeId ? 'Update' : 'Create'} Attribute
                   </>
                 )}
               </button>
