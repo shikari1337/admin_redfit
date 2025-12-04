@@ -262,11 +262,17 @@ const ProductForm: React.FC = () => {
           return null;
         }).filter((id: any): id is string => id !== null && typeof id === 'string' && id.length === 24) || [];
       
-      const inferredSizeChartId =
-        data.sizeChartId ||
-        (typeof data.sizeChart === 'string'
-          ? data.sizeChart
-          : data.sizeChart?._id);
+      // CRITICAL FIX: Normalize sizeChart ID to string (handle buffer objects)
+      let inferredSizeChartId: string | null = null;
+      if (data.sizeChartId) {
+        inferredSizeChartId = normalizeCategoryId(data.sizeChartId);
+      } else if (data.sizeChart) {
+        inferredSizeChartId = normalizeCategoryId(
+          typeof data.sizeChart === 'string'
+            ? data.sizeChart
+            : data.sizeChart?._id
+        );
+      }
       
       const sizeChartEntries: SizeChartEntry[] =
         data.sizeChartEntries ||
@@ -310,10 +316,23 @@ const ProductForm: React.FC = () => {
         showFeatures: data.showFeatures !== false,
         isActive: data.isActive !== false,
         attributeIds: data.attributeIds || [],
-        variations: (data.variations || []).map((v: any, idx: number) => ({
-          ...v,
-          id: v.id || `var-${Date.now()}-${idx}`, // Add temporary ID for frontend
-        })),
+        variations: (data.variations || []).map((v: any, idx: number) => {
+          // CRITICAL FIX: Normalize attribute value IDs to strings (handle buffer objects)
+          const normalizedAttrs: Record<string, string> = {};
+          if (v.attributes && typeof v.attributes === 'object') {
+            for (const [attrSlug, valueId] of Object.entries(v.attributes)) {
+              const normalizedId = normalizeCategoryId(valueId);
+              if (normalizedId) {
+                normalizedAttrs[attrSlug] = normalizedId;
+              }
+            }
+          }
+          return {
+            ...v,
+            id: v.id || `var-${Date.now()}-${idx}`, // Add temporary ID for frontend
+            attributes: normalizedAttrs, // Use normalized attributes
+          };
+        }),
         stock: stockValue,
       });
 
@@ -446,9 +465,19 @@ const ProductForm: React.FC = () => {
             .map((img: any) => typeof img === 'string' ? img : null)
             .filter((img: any) => img !== null);
         }
-        // Ensure attributes is an object
+        // Ensure attributes is an object and normalize all attribute value IDs to strings
         if (!cleanVariation.attributes || typeof cleanVariation.attributes !== 'object') {
           cleanVariation.attributes = {};
+        } else {
+          // CRITICAL FIX: Normalize all attribute value IDs to strings (handle buffer objects)
+          const normalizedAttrs: Record<string, string> = {};
+          for (const [attrSlug, valueId] of Object.entries(cleanVariation.attributes)) {
+            const normalizedId = normalizeCategoryId(valueId);
+            if (normalizedId) {
+              normalizedAttrs[attrSlug] = normalizedId;
+            }
+          }
+          cleanVariation.attributes = normalizedAttrs;
         }
         // Ensure numeric fields
         if (cleanVariation.stock !== undefined) {
@@ -665,11 +694,17 @@ const ProductForm: React.FC = () => {
           sample: productCategories[0],
         });
       }
-      const inferredSizeChartId =
-        product.sizeChartId ||
-        (typeof product.sizeChart === 'string'
-          ? product.sizeChart
-          : product.sizeChart?._id);
+      // CRITICAL FIX: Normalize sizeChart ID to string (handle buffer objects)
+      let inferredSizeChartId: string | null = null;
+      if (product.sizeChartId) {
+        inferredSizeChartId = normalizeCategoryId(product.sizeChartId);
+      } else if (product.sizeChart) {
+        inferredSizeChartId = normalizeCategoryId(
+          typeof product.sizeChart === 'string'
+            ? product.sizeChart
+            : product.sizeChart?._id
+        );
+      }
       const sizeChartEntries: SizeChartEntry[] =
         product.sizeChartEntries ||
         (Array.isArray(product.sizeChart) ? product.sizeChart : []) ||
@@ -709,10 +744,23 @@ const ProductForm: React.FC = () => {
         showFeatures: product.showFeatures !== false,
         isActive: product.isActive !== false,
         attributeIds: product.attributeIds || [],
-        variations: (product.variations || []).map((v: any, idx: number) => ({
-          ...v,
-          id: v.id || `var-${Date.now()}-${idx}`, // Add temporary ID for frontend
-        })),
+        variations: (product.variations || []).map((v: any, idx: number) => {
+          // CRITICAL FIX: Normalize attribute value IDs to strings (handle buffer objects)
+          const normalizedAttrs: Record<string, string> = {};
+          if (v.attributes && typeof v.attributes === 'object') {
+            for (const [attrSlug, valueId] of Object.entries(v.attributes)) {
+              const normalizedId = normalizeCategoryId(valueId);
+              if (normalizedId) {
+                normalizedAttrs[attrSlug] = normalizedId;
+              }
+            }
+          }
+          return {
+            ...v,
+            id: v.id || `var-${Date.now()}-${idx}`, // Add temporary ID for frontend
+            attributes: normalizedAttrs, // Use normalized attributes
+          };
+        }),
       });
       setSizeChartMode(initialMode);
       setSelectedSizeChartId(inferredSizeChartId || '');
@@ -1093,9 +1141,24 @@ const ProductForm: React.FC = () => {
           .map((v) => {
             // Remove temporary id field before sending to backend
             const { id, ...variationData } = v;
+            
+            // CRITICAL FIX: Normalize all attribute value IDs to strings (handle buffer objects)
+            const normalizedAttributes: Record<string, string> = {};
+            for (const [attrSlug, valueId] of Object.entries(v.attributes)) {
+              const normalizedId = normalizeCategoryId(valueId); // Reuse the same normalization function
+              if (normalizedId) {
+                normalizedAttributes[attrSlug] = normalizedId;
+              }
+            }
+            
+            // Only include variation if it has valid normalized attributes
+            if (Object.keys(normalizedAttributes).length === 0) {
+              return null;
+            }
+            
             return {
               ...variationData,
-              attributes: v.attributes, // { attributeSlug: attributeValueId }
+              attributes: normalizedAttributes, // { attributeSlug: attributeValueId (string) }
               sku: v.sku.trim().toUpperCase().slice(0, 48),
               stock: Math.max(0, v.stock || 0),
               price: v.price !== undefined ? Math.max(0, v.price) : undefined,
@@ -1104,7 +1167,8 @@ const ProductForm: React.FC = () => {
               shortDescription: v.shortDescription?.trim() || undefined,
               isActive: v.isActive !== false,
             };
-          });
+          })
+          .filter((v): v is any => v !== null); // Remove null entries
         
         // Only include if we have valid variations
         if (cleanedVariations.length === 0) {
@@ -1255,8 +1319,13 @@ const ProductForm: React.FC = () => {
 
       data.seo = Object.keys(seoPayload).length > 0 ? seoPayload : null;
 
+      // CRITICAL FIX: Normalize sizeChart to ensure it's either null, undefined, or a valid string ObjectId
       if (sizeChartMode === 'reference') {
-        data.sizeChart = selectedSizeChartId || null;
+        // Normalize selectedSizeChartId to ensure it's a valid string ObjectId
+        const normalizedSizeChartId = selectedSizeChartId 
+          ? normalizeCategoryId(selectedSizeChartId) 
+          : null;
+        data.sizeChart = normalizedSizeChartId || null;
       } else if (sizeChartMode === 'custom') {
         const customEntries = sizeChartEntries
           .filter((entry) => entry.size && entry.size.trim())
@@ -1275,6 +1344,13 @@ const ProductForm: React.FC = () => {
         data.sizeChart = customEntries.length > 0 ? customEntries : null;
       } else {
         data.sizeChart = null;
+      }
+      
+      // CRITICAL FIX: Ensure sizeChart is never "[object Object]" - if it's an object, set to null
+      if (data.sizeChart && typeof data.sizeChart === 'object' && !Array.isArray(data.sizeChart)) {
+        // If it's an object (not an array), try to extract _id or set to null
+        const extractedId = normalizeCategoryId(data.sizeChart);
+        data.sizeChart = extractedId || null;
       }
 
       if (isEdit) {
