@@ -872,7 +872,7 @@ const Attributes: React.FC = () => {
                   value={attributeFormState.chartId}
                   onChange={(e) => handleAttributeFormChange('chartId', e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                  required={attributeFormState.chartType !== 'none' && (attributeFormState.chartType === 'size' || attributeFormState.chartType === 'measurement' || attributeFormState.chartType === 'table')}
+                  required={true}
                 >
                   <option value="">Select a size chart...</option>
                   {availableSizeCharts.map((chart) => (
