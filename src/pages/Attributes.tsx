@@ -160,7 +160,9 @@ const Attributes: React.FC = () => {
     setError(null);
   };
 
-  const handleEditValue = (value: AttributeValue) => {
+  const handleEditValue = (value: AttributeValue, attributeId: string) => {
+    // Ensure the attribute is selected so the value form is visible
+    setSelectedAttributeId(attributeId);
     setSelectedValueId(value._id);
     setValueFormState({
       name: value.name || '',
@@ -218,11 +220,37 @@ const Attributes: React.FC = () => {
     setError(null);
 
     try {
-      const payload = {
-        ...valueFormState,
+      // Build payload - only include defined/non-empty values
+      const payload: any = {
+        name: valueFormState.name.trim(),
+        isActive: valueFormState.isActive,
+        order: valueFormState.order || 0,
       };
-      // Remove sizeChart from payload if it exists
-      delete (payload as any).sizeChart;
+
+      // Only include slug if it's not empty and matches pattern (backend will auto-generate if not provided)
+      if (valueFormState.slug && valueFormState.slug.trim()) {
+        const trimmedSlug = valueFormState.slug.trim();
+        // Validate slug format matches backend requirement: /^[a-z0-9-]+$/i
+        if (/^[a-z0-9-]+$/i.test(trimmedSlug)) {
+          payload.slug = trimmedSlug;
+        } else {
+          // If slug doesn't match pattern, don't send it - backend will auto-generate
+          console.warn('Slug format invalid, backend will auto-generate:', trimmedSlug);
+        }
+      }
+
+      // Only include optional fields if they have values
+      if (valueFormState.value && valueFormState.value.trim()) {
+        payload.value = valueFormState.value.trim();
+      }
+
+      if (valueFormState.description && valueFormState.description.trim()) {
+        payload.description = valueFormState.description.trim();
+      }
+
+      if (valueFormState.imageUrl && valueFormState.imageUrl.trim()) {
+        payload.imageUrl = valueFormState.imageUrl.trim();
+      }
 
       if (selectedValueId) {
         await attributesAPI.updateValue(selectedAttributeId, selectedValueId, payload);
@@ -234,7 +262,13 @@ const Attributes: React.FC = () => {
       resetValueForm();
     } catch (err: any) {
       console.error('Failed to save attribute value', err);
-      setError(err?.response?.data?.message || err?.message || 'Failed to save attribute value');
+      const errorMessage = err?.response?.data?.message || err?.message || 'Failed to save attribute value';
+      setError(errorMessage);
+      // Show detailed error if available
+      if (err?.response?.data?.errors) {
+        const validationErrors = Object.values(err.response.data.errors).flat().join(', ');
+        setError(`${errorMessage}: ${validationErrors}`);
+      }
     } finally {
       setSaving(false);
     }
@@ -322,9 +356,9 @@ const Attributes: React.FC = () => {
         </div>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        {/* Attributes List - Takes 2 columns */}
-        <div className="xl:col-span-2 bg-white rounded-lg shadow-lg p-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Attributes List - Left Column */}
+        <div className="lg:col-span-1 bg-white rounded-lg shadow-lg p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-semibold text-gray-900">Attributes ({attributes.length})</h2>
             {attributes.length > 0 && (
@@ -470,7 +504,7 @@ const Attributes: React.FC = () => {
                                   </div>
                                   <div className="flex gap-2 ml-4">
                                     <button
-                                      onClick={() => handleEditValue(value)}
+                                      onClick={() => handleEditValue(value, attribute._id)}
                                       className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
                                       title="Edit Value"
                                     >
@@ -500,9 +534,9 @@ const Attributes: React.FC = () => {
           </div>
         </div>
 
-        {/* Attribute Form */}
-        <div className="bg-white rounded-lg shadow-lg p-6 sticky top-6 space-y-6">
-          <div className="pb-4 border-b border-gray-200">
+        {/* Attribute Form - Middle Column */}
+        <div className="bg-white rounded-lg shadow-lg p-6 sticky top-6">
+          <div className="pb-4 border-b border-gray-200 mb-4">
             <h2 className="text-xl font-semibold text-gray-900">
               {selectedAttributeId ? 'Edit Attribute' : 'New Attribute'}
             </h2>
@@ -619,16 +653,18 @@ const Attributes: React.FC = () => {
               </button>
             </div>
           </form>
+        </div>
 
-          {/* Value Form - Only shown when an attribute is selected */}
-          {selectedAttributeId && (
-            <div className="pt-6 border-t-2 border-gray-200 bg-gray-50 -mx-6 -mb-6 px-6 pb-6 rounded-b-lg">
-              <div className="mb-4">
-                <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+        {/* Value Form - Right Column */}
+        <div className="bg-white rounded-lg shadow-lg p-6 sticky top-6">
+          {selectedAttributeId ? (
+            <>
+              <div className="pb-4 border-b border-gray-200 mb-4">
+                <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
                   <span className="w-1 h-6 bg-green-500 rounded"></span>
-                  {selectedValueId ? 'Edit Value' : 'Add New Value'}
-                </h3>
-                <p className="text-sm text-gray-600 mt-1 ml-3">
+                  {selectedValueId ? 'Edit Value' : 'Add Value'}
+                </h2>
+                <p className="text-sm text-gray-600 mt-1">
                   {selectedValueId 
                     ? 'Update value details' 
                     : `Add a value for "${attributes.find(a => a._id === selectedAttributeId)?.name || 'this attribute'}"`}
@@ -776,6 +812,12 @@ const Attributes: React.FC = () => {
                   </button>
                 </div>
               </form>
+            </>
+          ) : (
+            <div className="text-center py-12 text-gray-500">
+              <FaPlus className="mx-auto text-gray-400 text-4xl mb-3" />
+              <p className="text-lg mb-2">Select an attribute</p>
+              <p className="text-sm">Choose an attribute from the list to add values</p>
             </div>
           )}
         </div>
