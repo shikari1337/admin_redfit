@@ -183,7 +183,7 @@ const ProductForm: React.FC = () => {
         sizeChartsAPI.list(),
       ]);
       const rawCategoryList: any[] = extractListData(catResponse);
-      const chartList: SizeChartOption[] = extractListData(chartResponse);
+      const rawChartList: any[] = extractListData(chartResponse);
       
       // CRITICAL FIX: Normalize all category IDs to strings (handle buffers)
       const categoryList: CategoryOption[] = rawCategoryList.map((cat: any) => {
@@ -198,10 +198,25 @@ const ProductForm: React.FC = () => {
         };
       }).filter((cat): cat is CategoryOption => cat !== null);
       
+      // CRITICAL FIX: Normalize all size chart IDs to strings (handle buffers)
+      const normalizedChartList: SizeChartOption[] = rawChartList.map((chart: any) => {
+        const normalizedId = normalizeCategoryId(chart._id || chart.id);
+        if (!normalizedId) {
+          console.warn('⚠️ Invalid size chart ID, skipping:', chart);
+          return null;
+        }
+        return {
+          ...chart,
+          _id: normalizedId, // Always use normalized string ID
+        };
+      }).filter((chart): chart is SizeChartOption => chart !== null);
+      
       // Remove duplicate size charts by _id (keep first occurrence)
-      const uniqueCharts = chartList.filter((chart, index, self) => 
+      const uniqueCharts = normalizedChartList.filter((chart, index, self) => 
         index === self.findIndex((c) => c._id === chart._id)
       );
+      
+      console.log('📊 Loaded size charts:', { count: uniqueCharts.length, charts: uniqueCharts.map(c => ({ id: c._id, name: c.name })) });
       
       setAvailableCategories(categoryList);
       setAvailableSizeCharts(uniqueCharts);
@@ -945,10 +960,24 @@ const ProductForm: React.FC = () => {
   };
 
   const handleSelectSizeChartId = (chartId: string) => {
-    setSelectedSizeChartId(chartId);
+    // Normalize the chart ID to ensure it matches the normalized IDs in availableSizeCharts
+    const normalizedId = normalizeCategoryId(chartId);
+    if (!normalizedId) {
+      console.warn('⚠️ Invalid size chart ID selected:', chartId);
+      return;
+    }
+    
+    console.log('📊 Selecting size chart:', { 
+      originalId: chartId, 
+      normalizedId, 
+      availableCharts: availableSizeCharts.map(c => c._id),
+      found: availableSizeCharts.find(c => c._id === normalizedId)
+    });
+    
+    setSelectedSizeChartId(normalizedId);
     setErrors((prev) => ({ ...prev, sizeChart: '' }));
     if (sizeChartMode === 'custom') {
-      const chart = availableSizeCharts.find((c) => c._id === chartId);
+      const chart = availableSizeCharts.find((c) => c._id === normalizedId);
       if (chart?.entries?.length) {
         setFormData((prev) => ({
           ...prev,
@@ -1140,8 +1169,24 @@ const ProductForm: React.FC = () => {
       // Process attribute-based variations
       let cleanedVariations: any[] | undefined = undefined;
       if (currentFormData.variations && currentFormData.variations.length > 0) {
+        if (import.meta.env.DEV) {
+          console.log('🔍 Processing variations:', {
+            count: currentFormData.variations.length,
+            variations: currentFormData.variations,
+          });
+        }
+        
         cleanedVariations = currentFormData.variations
-          .filter((v) => v.attributes && Object.keys(v.attributes).length > 0 && v.sku && v.sku.trim())
+          .filter((v) => {
+            const hasAttributes = v.attributes && Object.keys(v.attributes).length > 0;
+            const hasSku = v.sku && v.sku.trim();
+            if (!hasAttributes || !hasSku) {
+              if (import.meta.env.DEV) {
+                console.warn('⚠️ Variation filtered out:', { hasAttributes, hasSku, variation: v });
+              }
+            }
+            return hasAttributes && hasSku;
+          })
           .map((v) => {
             // Remove temporary id field before sending to backend
             const { id, ...variationData } = v;
@@ -1152,11 +1197,18 @@ const ProductForm: React.FC = () => {
               const normalizedId = normalizeCategoryId(valueId); // Reuse the same normalization function
               if (normalizedId) {
                 normalizedAttributes[attrSlug] = normalizedId;
+              } else {
+                if (import.meta.env.DEV) {
+                  console.warn(`⚠️ Invalid attribute value ID for ${attrSlug}:`, valueId);
+                }
               }
             }
             
             // Only include variation if it has valid normalized attributes
             if (Object.keys(normalizedAttributes).length === 0) {
+              if (import.meta.env.DEV) {
+                console.warn('⚠️ Variation skipped: no valid attribute IDs', v);
+              }
               return null;
             }
             
@@ -1174,9 +1226,23 @@ const ProductForm: React.FC = () => {
           })
           .filter((v): v is any => v !== null); // Remove null entries
         
-        // Only include if we have valid variations
+        if (import.meta.env.DEV) {
+          console.log('✅ Cleaned variations:', {
+            original: currentFormData.variations.length,
+            cleaned: cleanedVariations.length,
+            variations: cleanedVariations,
+          });
+        }
+        
+        // CRITICAL FIX: Only set to undefined if productType is 'single'
+        // If productType is 'variation', keep empty array to preserve the field
         if (cleanedVariations.length === 0) {
-          cleanedVariations = undefined;
+          if (productType === 'variation' && cleanedAttributeIds.length > 0) {
+            // Keep as empty array for variation products (user might add variations later)
+            cleanedVariations = [];
+          } else {
+            cleanedVariations = undefined;
+          }
         }
       }
       
@@ -1280,7 +1346,9 @@ const ProductForm: React.FC = () => {
         // CRITICAL FIX: Always preserve attributeIds if productType is 'variation'
         // This ensures attributes don't disappear when saving
         attributeIds: productType === 'variation' && cleanedAttributeIds.length > 0 ? cleanedAttributeIds : (productType === 'variation' ? [] : undefined),
-        variations: cleanedVariations,
+        // CRITICAL FIX: Always send variations array (even if empty) for variation products
+        // This prevents backend from removing variations when productType is 'variation'
+        variations: productType === 'variation' ? (cleanedVariations || []) : cleanedVariations,
         categories: sanitizedCategories, // Always include categories (even if empty array)
       };
       

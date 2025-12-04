@@ -137,20 +137,42 @@ const ProductSizeChart: React.FC<ProductSizeChartProps> = ({
             <label className="block text-sm font-medium text-gray-700">
               Select size chart <span className="text-red-500">*</span>
             </label>
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                value={selectedSizeChartId}
-                onChange={(e) => onSelectedSizeChartIdChange(e.target.value)}
-                className="flex-1 min-w-[200px] px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:border-red-500"
-              >
-                <option value="">Choose size chart…</option>
-                {availableSizeCharts.map((chart, index) => (
-                  <option key={`chart-${chart._id}-${index}`} value={chart._id}>
-                    {chart.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {availableSizeCharts.length === 0 ? (
+              <div className="text-sm text-yellow-600 bg-yellow-50 border border-yellow-200 rounded-md p-3">
+                <p>No size charts available. Please create a size chart first.</p>
+                <button
+                  type="button"
+                  onClick={onRefresh}
+                  className="mt-2 text-sm text-yellow-800 underline hover:text-yellow-900"
+                >
+                  Refresh size charts
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={selectedSizeChartId || ''}
+                  onChange={(e) => {
+                    console.log('📊 Size chart dropdown changed:', { 
+                      value: e.target.value, 
+                      availableCharts: availableSizeCharts.map(c => ({ id: c._id, name: c.name }))
+                    });
+                    onSelectedSizeChartIdChange(e.target.value);
+                  }}
+                  className="flex-1 min-w-[200px] px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                >
+                  <option value="">Choose size chart…</option>
+                  {availableSizeCharts.map((chart, index) => {
+                    const chartId = chart._id || String(chart._id);
+                    return (
+                      <option key={`chart-${chartId}-${index}`} value={chartId}>
+                        {chart.name || 'Unnamed Chart'}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            )}
             {selectedSizeChart ? (
               <div className="border border-gray-200 rounded-lg p-3 bg-gray-50">
                 <p className="text-xs text-gray-500 mb-2">
