@@ -155,12 +155,34 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
     onVariationsChange(newVariations);
   };
 
-  // Auto-generate variations when attributes change
+  // Auto-generate variations when attributes and values are loaded
   useEffect(() => {
-    if (selectedAttributeIds.length > 0 && availableAttributes.length > 0) {
-      generateVariations();
+    if (selectedAttributeIds.length > 0 && availableAttributes.length > 0 && !loadingAttributes) {
+      // Check if all selected attributes have values loaded
+      const selectedAttrs = availableAttributes.filter(a => selectedAttributeIds.includes(a._id));
+      if (selectedAttrs.length === 0) {
+        onVariationsChange([]);
+        return;
+      }
+      
+      const allValuesLoaded = selectedAttrs.every(attr => {
+        const values = attributeValuesMap[attr._id];
+        return values && Array.isArray(values) && values.length > 0;
+      });
+      
+      if (allValuesLoaded) {
+        // Use setTimeout to ensure state is fully updated
+        const timer = setTimeout(() => {
+          generateVariations();
+        }, 200);
+        return () => clearTimeout(timer);
+      }
+    } else if (selectedAttributeIds.length === 0) {
+      // Clear variations if no attributes selected
+      onVariationsChange([]);
     }
-  }, [selectedAttributeIds, attributeValuesMap, baseSku, basePrice, baseOriginalPrice]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAttributeIds, attributeValuesMap, baseSku, basePrice, baseOriginalPrice, loadingAttributes]);
 
   const handleAttributeToggle = (attributeId: string) => {
     if (selectedAttributeIds.includes(attributeId)) {
@@ -556,11 +578,37 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
         </div>
       )}
 
-      {selectedAttributeIds.length > 0 && variations.length === 0 && (
-        <div className="text-sm text-gray-500 p-4 bg-gray-50 rounded-lg">
-          No variations generated. Make sure selected attributes have values.
-        </div>
-      )}
+      {selectedAttributeIds.length > 0 && variations.length === 0 && !loadingAttributes && (() => {
+        const selectedAttrs = availableAttributes.filter(a => selectedAttributeIds.includes(a._id));
+        const attrsWithoutValues = selectedAttrs.filter(attr => {
+          const values = attributeValuesMap[attr._id] || [];
+          return values.length === 0;
+        });
+        
+        if (attrsWithoutValues.length > 0) {
+          return (
+            <div className="text-sm text-red-600 p-4 bg-red-50 border border-red-200 rounded-lg">
+              <strong>Warning:</strong> The following attributes have no values: {attrsWithoutValues.map(a => a.name).join(', ')}. 
+              Add values to these attributes first.
+            </div>
+          );
+        }
+        
+        return (
+          <div className="text-sm text-blue-600 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <p className="mb-2">
+              <strong>Ready to generate variations.</strong> Click the button below to create all variation combinations from selected attributes.
+            </p>
+            <button
+              type="button"
+              onClick={generateVariations}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium"
+            >
+              Generate Variations
+            </button>
+          </div>
+        );
+      })()}
     </div>
   );
 };

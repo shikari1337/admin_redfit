@@ -1728,11 +1728,14 @@ const ProductForm: React.FC = () => {
             </div>
 
             {/* Attributes - WordPress style: can attach to single products too */}
-            <ProductAttributes
-              selectedAttributeIds={formData.attributeIds}
-              onAttributeIdsChange={(ids) => setFormData({ ...formData, attributeIds: ids })}
-              allowVariations={formData.productType === 'variation'}
-            />
+            {/* For variation products, attribute selection is inside ProductAttributeVariations */}
+            {formData.productType === 'single' && (
+              <ProductAttributes
+                selectedAttributeIds={formData.attributeIds}
+                onAttributeIdsChange={(ids) => setFormData({ ...formData, attributeIds: ids })}
+                allowVariations={false}
+              />
+            )}
 
             {/* Attribute-based Variations - Only show if productType is 'variation' */}
             {formData.productType === 'variation' && (
