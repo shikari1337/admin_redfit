@@ -68,6 +68,7 @@ const ProductForm: React.FC = () => {
     productType: 'single' as 'single' | 'variation',
     // Attribute-based variations
     attributeIds: [] as string[],
+    selectedAttributeValues: {} as Record<string, string[]>, // { attributeId: [valueId1, valueId2] }
     variations: [] as ProductVariation[],
   });
   
@@ -335,6 +336,7 @@ const ProductForm: React.FC = () => {
         isActive: data.isActive !== false,
         productType: data.productType || (data.variations && data.variations.length > 0) || (data.attributeIds && data.attributeIds.length > 0) ? 'variation' : 'single',
         attributeIds: data.attributeIds || [],
+        selectedAttributeValues: {}, // Will be populated from variations if needed
         variations: (data.variations || []).map((v: any, idx: number) => {
           // SIMPLIFIED: Normalize slugs (not IDs) - WordPress style
           const normalizedAttrs: Record<string, string> = {};
@@ -764,6 +766,7 @@ const ProductForm: React.FC = () => {
         isActive: product.isActive !== false,
         productType: (product.productType || ((product.variations && product.variations.length > 0) || (product.attributeIds && product.attributeIds.length > 0) ? 'variation' : 'single')) as 'single' | 'variation',
         attributeIds: product.attributeIds || [],
+        selectedAttributeValues: {}, // Will be populated from variations if needed
         variations: (product.variations || []).map((v: any, idx: number) => {
           // CRITICAL FIX: Normalize attribute value IDs to strings (handle buffer objects, Maps, ObjectIds)
           const normalizedAttrs: Record<string, string> = {};
@@ -1694,7 +1697,7 @@ const ProductForm: React.FC = () => {
                         ...formData, 
                         productType: newType,
                         // Clear variations and attributes when switching to single
-                        ...(newType === 'single' ? { variations: [], attributeIds: [] } : {})
+                        ...(newType === 'single' ? { variations: [], attributeIds: [], selectedAttributeValues: {} } : {})
                       });
                     }}
                     className="mr-3 w-4 h-4 text-blue-600 focus:ring-blue-500"
@@ -1728,11 +1731,12 @@ const ProductForm: React.FC = () => {
             </div>
 
             {/* Attributes - WordPress style: can attach to single products too */}
-            {/* For variation products, attribute selection is inside ProductAttributeVariations */}
             {formData.productType === 'single' && (
               <ProductAttributes
                 selectedAttributeIds={formData.attributeIds}
+                selectedAttributeValues={formData.selectedAttributeValues || {}}
                 onAttributeIdsChange={(ids) => setFormData({ ...formData, attributeIds: ids })}
+                onAttributeValuesChange={(values) => setFormData({ ...formData, selectedAttributeValues: values })}
                 allowVariations={false}
               />
             )}
@@ -1741,7 +1745,9 @@ const ProductForm: React.FC = () => {
             {formData.productType === 'variation' && (
               <ProductAttributeVariations
               selectedAttributeIds={formData.attributeIds}
+              selectedAttributeValues={formData.selectedAttributeValues || {}}
               onAttributeIdsChange={(ids) => setFormData({ ...formData, attributeIds: ids })}
+              onAttributeValuesChange={(values) => setFormData({ ...formData, selectedAttributeValues: values })}
               variations={formData.variations}
               onVariationsChange={(variations) => setFormData({ ...formData, variations })}
               baseSku={formData.sku || slug.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10) || 'PROD'}

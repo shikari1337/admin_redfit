@@ -88,6 +88,7 @@ export interface ProductFormData {
   productType?: 'single' | 'variation';
   // Attribute-based variations
   attributeIds: string[];
+  selectedAttributeValues?: Record<string, string[]>; // { attributeId: [valueId1, valueId2] } - for single products and variation generation
   variations: ProductVariation[];
 }
 
