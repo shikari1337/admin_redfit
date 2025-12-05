@@ -15,6 +15,7 @@ import {
   ProductDisplayOptions,
 } from '../components/product';
 import ProductAttributeVariations from '../components/product/ProductAttributeVariations';
+import ProductAttributes from '../components/product/ProductAttributes';
 import {
   CategoryOption,
   SizeChartEntry,
@@ -335,20 +336,20 @@ const ProductForm: React.FC = () => {
         productType: data.productType || (data.variations && data.variations.length > 0) || (data.attributeIds && data.attributeIds.length > 0) ? 'variation' : 'single',
         attributeIds: data.attributeIds || [],
         variations: (data.variations || []).map((v: any, idx: number) => {
-          // CRITICAL FIX: Normalize attribute value IDs to strings (handle buffer objects)
+          // SIMPLIFIED: Normalize slugs (not IDs) - WordPress style
           const normalizedAttrs: Record<string, string> = {};
           if (v.attributes && typeof v.attributes === 'object') {
-            for (const [attrSlug, valueId] of Object.entries(v.attributes)) {
-              const normalizedId = normalizeCategoryId(valueId);
-              if (normalizedId) {
-                normalizedAttrs[attrSlug] = normalizedId;
+            for (const [attrSlug, valueSlug] of Object.entries(v.attributes)) {
+              const normalizedSlug = String(valueSlug).toLowerCase().trim();
+              if (normalizedSlug) {
+                normalizedAttrs[attrSlug.toLowerCase().trim()] = normalizedSlug;
               }
             }
           }
           return {
             ...v,
             id: v.id || `var-${Date.now()}-${idx}`, // Add temporary ID for frontend
-            attributes: normalizedAttrs, // Use normalized attributes
+            attributes: normalizedAttrs, // Use normalized slugs
           };
         }),
         stock: stockValue,
@@ -1725,6 +1726,13 @@ const ProductForm: React.FC = () => {
                 </label>
               </div>
             </div>
+
+            {/* Attributes - WordPress style: can attach to single products too */}
+            <ProductAttributes
+              selectedAttributeIds={formData.attributeIds}
+              onAttributeIdsChange={(ids) => setFormData({ ...formData, attributeIds: ids })}
+              allowVariations={formData.productType === 'variation'}
+            />
 
             {/* Attribute-based Variations - Only show if productType is 'variation' */}
             {formData.productType === 'variation' && (

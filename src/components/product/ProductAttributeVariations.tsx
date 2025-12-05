@@ -102,11 +102,14 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
       }
 
       for (const value of values) {
-        // SIMPLIFIED: Use slug instead of ID
-        generateCombinations(
-          { ...current, [attr.slug]: value.slug },
-          attrIndex + 1
-        );
+        // SIMPLIFIED: Use slug instead of ID - normalize to lowercase for consistent matching
+        const normalizedSlug = value.slug?.toLowerCase().trim() || value.name?.toLowerCase().trim().replace(/\s+/g, '-');
+        if (normalizedSlug) {
+          generateCombinations(
+            { ...current, [attr.slug.toLowerCase()]: normalizedSlug },
+            attrIndex + 1
+          );
+        }
       }
     };
 
@@ -125,12 +128,15 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
         return existing;
       }
 
-      // Generate SKU from attribute values
+      // Generate SKU from attribute values - FIXED: use slug lookup
       const attrNames = selectedAttrs.map(attr => {
-        const valueId = attrs[attr.slug];
-        const value = attributeValuesMap[attr._id]?.find(v => v._id === valueId);
-        return value?.slug || value?.name || 'UNK';
-      }).join('-').toUpperCase().slice(0, 20);
+        const valueSlug = attrs[attr.slug];
+        // Find value by slug (case-insensitive)
+        const value = attributeValuesMap[attr._id]?.find(v => 
+          v.slug?.toLowerCase() === String(valueSlug).toLowerCase()
+        );
+        return value?.slug?.toUpperCase() || value?.name?.toUpperCase() || 'UNK';
+      }).join('-').slice(0, 20);
       
       const sku = `${baseSku}-${attrNames}`.toUpperCase().slice(0, 48);
 
