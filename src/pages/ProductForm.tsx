@@ -1268,7 +1268,9 @@ const ProductForm: React.FC = () => {
       const normalizedSlug = slugifyValue(slug);
       setSlug(normalizedSlug);
 
-      const { sizeChart: sizeChartEntries, categories: selectedCategories, ...rest } = currentFormData;
+      // CRITICAL FIX: Extract sizeChart entries separately (don't remove from data yet)
+      const sizeChartEntries = currentFormData.sizeChart || [];
+      const { categories: selectedCategories, ...rest } = currentFormData;
 
       // Prepare stock data for products without variations (simple number)
       let stockData: number | undefined = undefined;
@@ -1354,6 +1356,29 @@ const ProductForm: React.FC = () => {
         categories: sanitizedCategories, // Always include categories (even if empty array)
       };
       
+      // CRITICAL FIX: Explicitly ensure variations and attributeIds are in payload
+      // Double-check that these fields are included (defensive programming)
+      if (productType === 'variation') {
+        if (!('variations' in data)) {
+          data.variations = cleanedVariations || [];
+        }
+        if (!('attributeIds' in data)) {
+          data.attributeIds = cleanedAttributeIds.length > 0 ? cleanedAttributeIds : [];
+        }
+      }
+      
+      if (import.meta.env.DEV) {
+        console.log('📤 Final payload (before sizeChart):', {
+          hasVariations: 'variations' in data,
+          variationsCount: Array.isArray(data.variations) ? data.variations.length : 'not array',
+          hasAttributeIds: 'attributeIds' in data,
+          attributeIdsCount: Array.isArray(data.attributeIds) ? data.attributeIds.length : 'not array',
+          productType: data.productType,
+          hasSizeChart: 'sizeChart' in data,
+          sizeChartValue: data.sizeChart,
+        });
+      }
+      
       // Root cause fix: Explicitly ensure categories is in the payload
       // Double-check that categories are included (defensive programming)
       if (!('categories' in data)) {
@@ -1409,13 +1434,21 @@ const ProductForm: React.FC = () => {
 
       data.seo = Object.keys(seoPayload).length > 0 ? seoPayload : null;
 
-      // CRITICAL FIX: Normalize sizeChart to ensure it's either null, undefined, or a valid string ObjectId
+      // CRITICAL FIX: Always process and set sizeChart explicitly
+      // This ensures sizeChart is always included in the payload, even if null
       if (sizeChartMode === 'reference') {
         // Normalize selectedSizeChartId to ensure it's a valid string ObjectId
         const normalizedSizeChartId = selectedSizeChartId 
           ? normalizeCategoryId(selectedSizeChartId) 
           : null;
         data.sizeChart = normalizedSizeChartId || null;
+        if (import.meta.env.DEV) {
+          console.log('📊 SizeChart (reference):', {
+            selectedSizeChartId,
+            normalizedSizeChartId,
+            final: data.sizeChart,
+          });
+        }
       } else if (sizeChartMode === 'custom') {
         const customEntries = sizeChartEntries
           .filter((entry) => entry.size && entry.size.trim())
@@ -1432,8 +1465,19 @@ const ProductForm: React.FC = () => {
             return trimmed;
           });
         data.sizeChart = customEntries.length > 0 ? customEntries : null;
+        if (import.meta.env.DEV) {
+          console.log('📊 SizeChart (custom):', {
+            entriesCount: sizeChartEntries.length,
+            customEntriesCount: customEntries.length,
+            final: data.sizeChart,
+          });
+        }
       } else {
+        // sizeChartMode === 'none' - explicitly set to null
         data.sizeChart = null;
+        if (import.meta.env.DEV) {
+          console.log('📊 SizeChart (none):', { final: data.sizeChart });
+        }
       }
       
       // CRITICAL FIX: Ensure sizeChart is never "[object Object]" - if it's an object, set to null
@@ -1441,6 +1485,15 @@ const ProductForm: React.FC = () => {
         // If it's an object (not an array), try to extract _id or set to null
         const extractedId = normalizeCategoryId(data.sizeChart);
         data.sizeChart = extractedId || null;
+        if (import.meta.env.DEV) {
+          console.warn('⚠️ SizeChart was object, extracted ID:', { extractedId, final: data.sizeChart });
+        }
+      }
+      
+      // CRITICAL FIX: Always explicitly include sizeChart in payload (even if null)
+      // This ensures backend receives the sizeChart field for updates
+      if (!('sizeChart' in data)) {
+        data.sizeChart = null;
       }
 
       if (isEdit) {
