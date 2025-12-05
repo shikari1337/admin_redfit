@@ -40,7 +40,7 @@ const ProductAttributes: React.FC<ProductAttributesProps> = ({
   const loadAttributes = async () => {
     try {
       setLoadingAttributes(true);
-      const response = await attributesAPI.getAll();
+      const response = await attributesAPI.list({ isActive: true });
       const attributes = Array.isArray(response) ? response : (response?.data || []);
       setAvailableAttributes(attributes.filter((a: any) => a.isActive !== false));
 
@@ -48,13 +48,19 @@ const ProductAttributes: React.FC<ProductAttributesProps> = ({
       const valuesMap: Record<string, AttributeValue[]> = {};
       for (const attr of attributes) {
         try {
-          const valuesResponse = await attributesAPI.getValues(attr._id);
-          const values = Array.isArray(valuesResponse) 
-            ? valuesResponse 
-            : (valuesResponse?.data || []);
+          // getValues takes slug, not _id
+          const valuesResponse = await attributesAPI.getValues(attr.slug, { isActive: true });
+          let values: any[] = [];
+          if (Array.isArray(valuesResponse)) {
+            values = valuesResponse;
+          } else if (valuesResponse?.data && Array.isArray(valuesResponse.data)) {
+            values = valuesResponse.data;
+          } else if (valuesResponse?.data?.data && Array.isArray(valuesResponse.data.data)) {
+            values = valuesResponse.data.data;
+          }
           valuesMap[attr._id] = values.filter((v: any) => v.isActive !== false);
         } catch (error) {
-          console.error(`Failed to load values for attribute ${attr._id}:`, error);
+          console.error(`Failed to load values for attribute ${attr.slug}:`, error);
           valuesMap[attr._id] = [];
         }
       }
