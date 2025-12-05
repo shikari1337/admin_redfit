@@ -1221,15 +1221,15 @@ const ProductForm: React.FC = () => {
             // Remove temporary id field before sending to backend
             const { id, ...variationData } = v;
             
-            // CRITICAL FIX: Normalize all attribute value IDs to strings (handle buffer objects)
+            // SIMPLIFIED: Normalize slugs (not IDs) - WordPress style
             const normalizedAttributes: Record<string, string> = {};
-            for (const [attrSlug, valueId] of Object.entries(v.attributes)) {
-              const normalizedId = normalizeCategoryId(valueId); // Reuse the same normalization function
-              if (normalizedId) {
-                normalizedAttributes[attrSlug] = normalizedId;
+            for (const [attrSlug, valueSlug] of Object.entries(v.attributes)) {
+              const normalizedSlug = String(valueSlug).toLowerCase().trim();
+              if (normalizedSlug) {
+                normalizedAttributes[attrSlug.toLowerCase().trim()] = normalizedSlug;
               } else {
                 if (import.meta.env.DEV) {
-                  console.warn(`⚠️ Invalid attribute value ID for ${attrSlug}:`, valueId);
+                  console.warn(`⚠️ Invalid attribute value slug for ${attrSlug}:`, valueSlug);
                 }
               }
             }

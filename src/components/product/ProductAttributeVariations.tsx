@@ -102,8 +102,9 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
       }
 
       for (const value of values) {
+        // SIMPLIFIED: Use slug instead of ID
         generateCombinations(
-          { ...current, [attr.slug]: value._id },
+          { ...current, [attr.slug]: value.slug },
           attrIndex + 1
         );
       }
@@ -189,24 +190,16 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
 
   const getVariationLabel = (variation: ProductVariation) => {
     const labels: string[] = [];
-    for (const [attrSlug, valueId] of Object.entries(variation.attributes)) {
-      // Normalize valueId to string (handle ObjectId, buffer, etc.)
-      let normalizedValueId: string;
-      if (typeof valueId === 'string') {
-        normalizedValueId = valueId;
-      } else if (valueId && typeof valueId === 'object' && '_id' in valueId) {
-        normalizedValueId = String((valueId as any)._id);
-      } else {
-        normalizedValueId = String(valueId);
-      }
+    for (const [attrSlug, valueSlug] of Object.entries(variation.attributes)) {
+      // SIMPLIFIED: Now using slugs, not IDs
+      const normalizedValueSlug = String(valueSlug).toLowerCase().trim();
       
       const attr = availableAttributes.find(a => a.slug === attrSlug);
       if (attr) {
-        // Try to find value in attributeValuesMap
-        const value = attributeValuesMap[attr._id]?.find(v => {
-          const normalizedVId = typeof v._id === 'string' ? v._id : String(v._id);
-          return normalizedVId === normalizedValueId;
-        });
+        // Find value by slug in attributeValuesMap
+        const value = attributeValuesMap[attr._id]?.find(v => 
+          v.slug?.toLowerCase() === normalizedValueSlug
+        );
         
         if (value) {
           labels.push(value.name);
@@ -214,10 +207,10 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
           // Fallback: try to get from variation's attributeDetails (if backend populated it)
           const attrDetails = (variation as any).attributeDetails;
           if (attrDetails && attrDetails[attrSlug]) {
-            labels.push(attrDetails[attrSlug].name || normalizedValueId);
+            labels.push(attrDetails[attrSlug].name || normalizedValueSlug);
           } else {
-            // Last resort: show the ID
-            labels.push(normalizedValueId.slice(0, 8));
+            // Last resort: show the slug
+            labels.push(normalizedValueSlug);
           }
         }
       } else {
