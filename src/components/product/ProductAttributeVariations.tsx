@@ -191,9 +191,14 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
     const labels: string[] = [];
     for (const [attrSlug, valueId] of Object.entries(variation.attributes)) {
       // Normalize valueId to string (handle ObjectId, buffer, etc.)
-      const normalizedValueId = typeof valueId === 'string' 
-        ? valueId 
-        : (valueId?._id ? String(valueId._id) : String(valueId));
+      let normalizedValueId: string;
+      if (typeof valueId === 'string') {
+        normalizedValueId = valueId;
+      } else if (valueId && typeof valueId === 'object' && '_id' in valueId) {
+        normalizedValueId = String((valueId as any)._id);
+      } else {
+        normalizedValueId = String(valueId);
+      }
       
       const attr = availableAttributes.find(a => a.slug === attrSlug);
       if (attr) {
@@ -354,9 +359,14 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
                       <div className="flex flex-wrap gap-2 mt-2">
                         {Object.entries(variation.attributes).map(([attrSlug, valueId]) => {
                           // Normalize valueId to string (handle ObjectId, buffer, etc.)
-                          const normalizedValueId = typeof valueId === 'string' 
-                            ? valueId 
-                            : (valueId?._id ? String(valueId._id) : String(valueId));
+                          let normalizedValueId: string;
+                          if (typeof valueId === 'string') {
+                            normalizedValueId = valueId;
+                          } else if (valueId && typeof valueId === 'object' && '_id' in valueId) {
+                            normalizedValueId = String((valueId as any)._id);
+                          } else {
+                            normalizedValueId = String(valueId);
+                          }
                           
                           const attr = availableAttributes.find(a => a.slug === attrSlug);
                           if (!attr) {
