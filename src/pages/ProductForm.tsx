@@ -1201,83 +1201,95 @@ const ProductForm: React.FC = () => {
       let productType: 'single' | 'variation' = currentFormData.productType || 'single';
       
       // Process attribute-based variations
+      // CRITICAL: Always process variations if they exist, even if empty array
       let cleanedVariations: any[] | undefined = undefined;
-      if (currentFormData.variations && currentFormData.variations.length > 0) {
-        if (import.meta.env.DEV) {
-          console.log('🔍 Processing variations:', {
-            count: currentFormData.variations.length,
-            variations: currentFormData.variations,
-          });
-        }
-        
-        cleanedVariations = currentFormData.variations
-          .filter((v) => {
-            const hasAttributes = v.attributes && Object.keys(v.attributes).length > 0;
-            const hasSku = v.sku && v.sku.trim();
-            if (!hasAttributes || !hasSku) {
-              if (import.meta.env.DEV) {
-                console.warn('⚠️ Variation filtered out:', { hasAttributes, hasSku, variation: v });
-              }
-            }
-            return hasAttributes && hasSku;
-          })
-          .map((v) => {
-            // Remove temporary id field before sending to backend
-            const { id, ...variationData } = v;
-            
-            // SIMPLIFIED: Normalize slugs (not IDs) - WordPress style
-            const normalizedAttributes: Record<string, string> = {};
-            for (const [attrSlug, valueSlug] of Object.entries(v.attributes)) {
-              const normalizedSlug = String(valueSlug).toLowerCase().trim();
-              if (normalizedSlug) {
-                normalizedAttributes[attrSlug.toLowerCase().trim()] = normalizedSlug;
-              } else {
+      
+      if (import.meta.env.DEV) {
+        console.log('🔍 Variations Debug:', {
+          hasVariations: !!currentFormData.variations,
+          variationsLength: currentFormData.variations?.length || 0,
+          variations: currentFormData.variations,
+          productType,
+        });
+      }
+      
+      if (Array.isArray(currentFormData.variations)) {
+        if (currentFormData.variations.length > 0) {
+          if (import.meta.env.DEV) {
+            console.log('🔍 Processing variations:', {
+              count: currentFormData.variations.length,
+              variations: currentFormData.variations,
+            });
+          }
+          
+          cleanedVariations = currentFormData.variations
+            .filter((v) => {
+              const hasAttributes = v.attributes && Object.keys(v.attributes).length > 0;
+              const hasSku = v.sku && v.sku.trim();
+              if (!hasAttributes || !hasSku) {
                 if (import.meta.env.DEV) {
-                  console.warn(`⚠️ Invalid attribute value slug for ${attrSlug}:`, valueSlug);
+                  console.warn('⚠️ Variation filtered out:', { hasAttributes, hasSku, variation: v });
                 }
               }
-            }
-            
-            // Only include variation if it has valid normalized attributes
-            if (Object.keys(normalizedAttributes).length === 0) {
-              if (import.meta.env.DEV) {
-                console.warn('⚠️ Variation skipped: no valid attribute IDs', v);
+              return hasAttributes && hasSku;
+            })
+            .map((v) => {
+              // Remove temporary id field before sending to backend
+              const { id, ...variationData } = v;
+              
+              // SIMPLIFIED: Normalize slugs (not IDs) - WordPress style
+              const normalizedAttributes: Record<string, string> = {};
+              for (const [attrSlug, valueSlug] of Object.entries(v.attributes)) {
+                const normalizedSlug = String(valueSlug).toLowerCase().trim();
+                if (normalizedSlug) {
+                  normalizedAttributes[attrSlug.toLowerCase().trim()] = normalizedSlug;
+                } else {
+                  if (import.meta.env.DEV) {
+                    console.warn(`⚠️ Invalid attribute value slug for ${attrSlug}:`, valueSlug);
+                  }
+                }
               }
-              return null;
-            }
-            
-            return {
-              ...variationData,
-              attributes: normalizedAttributes, // { attributeSlug: attributeValueId (string) }
-              sku: v.sku.trim().toUpperCase().slice(0, 48),
-              stock: Math.max(0, v.stock || 0),
-              price: v.price !== undefined ? Math.max(0, v.price) : undefined,
-              originalPrice: v.originalPrice !== undefined ? Math.max(0, v.originalPrice) : undefined,
-              images: v.images && v.images.length > 0 ? v.images : undefined,
-              shortDescription: v.shortDescription?.trim() || undefined,
-              isActive: v.isActive !== false,
-            };
-          })
-          .filter((v): v is any => v !== null); // Remove null entries
-        
-        if (import.meta.env.DEV) {
-          console.log('✅ Cleaned variations:', {
-            original: currentFormData.variations.length,
-            cleaned: cleanedVariations.length,
-            variations: cleanedVariations,
-          });
-        }
-        
-        // CRITICAL FIX: Only set to undefined if productType is 'single'
-        // If productType is 'variation', keep empty array to preserve the field
-        if (cleanedVariations.length === 0) {
-          if (productType === 'variation' && cleanedAttributeIds.length > 0) {
-            // Keep as empty array for variation products (user might add variations later)
+              
+              // Only include variation if it has valid normalized attributes
+              if (Object.keys(normalizedAttributes).length === 0) {
+                if (import.meta.env.DEV) {
+                  console.warn('⚠️ Variation skipped: no valid attribute slugs', v);
+                }
+                return null;
+              }
+              
+              return {
+                ...variationData,
+                attributes: normalizedAttributes, // { attributeSlug: valueSlug }
+                sku: v.sku.trim().toUpperCase().slice(0, 48),
+                stock: Math.max(0, v.stock || 0),
+                price: v.price !== undefined ? Math.max(0, v.price) : undefined,
+                originalPrice: v.originalPrice !== undefined ? Math.max(0, v.originalPrice) : undefined,
+                images: v.images && v.images.length > 0 ? v.images : undefined,
+                shortDescription: v.shortDescription?.trim() || undefined,
+                isActive: v.isActive !== false,
+              };
+            })
+            .filter((v): v is any => v !== null); // Remove null entries
+          
+          if (import.meta.env.DEV) {
+            console.log('✅ Cleaned variations:', {
+              original: currentFormData.variations.length,
+              cleaned: cleanedVariations.length,
+              variations: cleanedVariations,
+            });
+          }
+        } else {
+          // Empty array - handle based on productType
+          if (productType === 'variation') {
             cleanedVariations = [];
           } else {
             cleanedVariations = undefined;
           }
         }
+      } else if (productType === 'variation') {
+        // Variations is undefined but productType is variation - set to empty array
+        cleanedVariations = [];
       }
       
       // Update productType based on processed variations and attributes
@@ -1376,18 +1388,31 @@ const ProductForm: React.FC = () => {
         attributeIds: productType === 'variation' && cleanedAttributeIds.length > 0 ? cleanedAttributeIds : (productType === 'variation' ? [] : undefined),
         // CRITICAL FIX: Always send variations array (even if empty) for variation products
         // This prevents backend from removing variations when productType is 'variation'
-        variations: productType === 'variation' ? (cleanedVariations || []) : cleanedVariations,
+        variations: productType === 'variation' 
+          ? (cleanedVariations !== undefined ? cleanedVariations : []) 
+          : (cleanedVariations !== undefined ? cleanedVariations : undefined),
         categories: sanitizedCategories, // Always include categories (even if empty array)
       };
       
       // CRITICAL FIX: Explicitly ensure variations and attributeIds are in payload
       // Double-check that these fields are included (defensive programming)
       if (productType === 'variation') {
-        if (!('variations' in data)) {
-          data.variations = cleanedVariations || [];
-        }
-        if (!('attributeIds' in data)) {
-          data.attributeIds = cleanedAttributeIds.length > 0 ? cleanedAttributeIds : [];
+        // Always include variations (even if empty array)
+        data.variations = cleanedVariations !== undefined ? cleanedVariations : [];
+        // Always include attributeIds (even if empty array)
+        data.attributeIds = cleanedAttributeIds.length > 0 ? cleanedAttributeIds : [];
+        
+        if (import.meta.env.DEV) {
+          console.log('✅ Variation Product Payload:', {
+            productType: data.productType,
+            attributeIds: data.attributeIds,
+            attributeIdsCount: data.attributeIds.length,
+            variations: data.variations,
+            variationsCount: Array.isArray(data.variations) ? data.variations.length : 'not array',
+            variationsType: typeof data.variations,
+            cleanedVariations,
+            cleanedVariationsType: typeof cleanedVariations,
+          });
         }
       }
       
