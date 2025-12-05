@@ -190,12 +190,34 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
   const getVariationLabel = (variation: ProductVariation) => {
     const labels: string[] = [];
     for (const [attrSlug, valueId] of Object.entries(variation.attributes)) {
+      // Normalize valueId to string (handle ObjectId, buffer, etc.)
+      const normalizedValueId = typeof valueId === 'string' 
+        ? valueId 
+        : (valueId?._id ? String(valueId._id) : String(valueId));
+      
       const attr = availableAttributes.find(a => a.slug === attrSlug);
       if (attr) {
-        const value = attributeValuesMap[attr._id]?.find(v => v._id === valueId);
+        // Try to find value in attributeValuesMap
+        const value = attributeValuesMap[attr._id]?.find(v => {
+          const normalizedVId = typeof v._id === 'string' ? v._id : String(v._id);
+          return normalizedVId === normalizedValueId;
+        });
+        
         if (value) {
           labels.push(value.name);
+        } else {
+          // Fallback: try to get from variation's attributeDetails (if backend populated it)
+          const attrDetails = (variation as any).attributeDetails;
+          if (attrDetails && attrDetails[attrSlug]) {
+            labels.push(attrDetails[attrSlug].name || normalizedValueId);
+          } else {
+            // Last resort: show the ID
+            labels.push(normalizedValueId.slice(0, 8));
+          }
         }
+      } else {
+        // Attribute not found, show slug
+        labels.push(attrSlug);
       }
     }
     return labels.join(' / ') || 'Variation';
@@ -331,10 +353,56 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
                       </h3>
                       <div className="flex flex-wrap gap-2 mt-2">
                         {Object.entries(variation.attributes).map(([attrSlug, valueId]) => {
+                          // Normalize valueId to string (handle ObjectId, buffer, etc.)
+                          const normalizedValueId = typeof valueId === 'string' 
+                            ? valueId 
+                            : (valueId?._id ? String(valueId._id) : String(valueId));
+                          
                           const attr = availableAttributes.find(a => a.slug === attrSlug);
-                          if (!attr) return null;
-                          const value = attributeValuesMap[attr._id]?.find(v => v._id === valueId);
-                          if (!value) return null;
+                          if (!attr) {
+                            // Attribute not found - show slug and ID
+                            return (
+                              <span
+                                key={attrSlug}
+                                className="text-xs px-2 py-1 bg-yellow-100 text-yellow-700 rounded"
+                                title={`Attribute ${attrSlug} not found`}
+                              >
+                                {attrSlug}: {normalizedValueId.slice(0, 8)}
+                              </span>
+                            );
+                          }
+                          
+                          // Try to find value in attributeValuesMap
+                          const value = attributeValuesMap[attr._id]?.find(v => {
+                            const normalizedVId = typeof v._id === 'string' ? v._id : String(v._id);
+                            return normalizedVId === normalizedValueId;
+                          });
+                          
+                          if (!value) {
+                            // Value not found - try attributeDetails from backend
+                            const attrDetails = (variation as any).attributeDetails;
+                            if (attrDetails && attrDetails[attrSlug]) {
+                              return (
+                                <span
+                                  key={attrSlug}
+                                  className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded"
+                                >
+                                  {attr.name}: {attrDetails[attrSlug].name}
+                                </span>
+                              );
+                            }
+                            // Last resort: show ID
+                            return (
+                              <span
+                                key={attrSlug}
+                                className="text-xs px-2 py-1 bg-orange-100 text-orange-700 rounded"
+                                title={`Value ${normalizedValueId} not found`}
+                              >
+                                {attr.name}: {normalizedValueId.slice(0, 8)}...
+                              </span>
+                            );
+                          }
+                          
                           return (
                             <span
                               key={attrSlug}

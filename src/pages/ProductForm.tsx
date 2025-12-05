@@ -764,21 +764,41 @@ const ProductForm: React.FC = () => {
         productType: (product.productType || ((product.variations && product.variations.length > 0) || (product.attributeIds && product.attributeIds.length > 0) ? 'variation' : 'single')) as 'single' | 'variation',
         attributeIds: product.attributeIds || [],
         variations: (product.variations || []).map((v: any, idx: number) => {
-          // CRITICAL FIX: Normalize attribute value IDs to strings (handle buffer objects)
+          // CRITICAL FIX: Normalize attribute value IDs to strings (handle buffer objects, Maps, ObjectIds)
           const normalizedAttrs: Record<string, string> = {};
           if (v.attributes && typeof v.attributes === 'object') {
-            for (const [attrSlug, valueId] of Object.entries(v.attributes)) {
-              const normalizedId = normalizeCategoryId(valueId);
-              if (normalizedId) {
-                normalizedAttrs[attrSlug] = normalizedId;
+            // Handle Map objects (MongoDB returns Maps for variation attributes)
+            if (v.attributes instanceof Map) {
+              for (const [attrSlug, valueId] of v.attributes.entries()) {
+                const normalizedId = normalizeCategoryId(valueId);
+                if (normalizedId) {
+                  normalizedAttrs[attrSlug] = normalizedId;
+                }
+              }
+            } else {
+              // Handle plain objects
+              for (const [attrSlug, valueId] of Object.entries(v.attributes)) {
+                const normalizedId = normalizeCategoryId(valueId);
+                if (normalizedId) {
+                  normalizedAttrs[attrSlug] = normalizedId;
+                }
               }
             }
           }
-          return {
+          
+          // Preserve attributeDetails if backend populated it (for display purposes)
+          const variationData: any = {
             ...v,
             id: v.id || `var-${Date.now()}-${idx}`, // Add temporary ID for frontend
             attributes: normalizedAttrs, // Use normalized attributes
           };
+          
+          // Preserve attributeDetails from backend if available (helps with display)
+          if (v.attributeDetails && typeof v.attributeDetails === 'object') {
+            variationData.attributeDetails = v.attributeDetails;
+          }
+          
+          return variationData;
         }),
       });
       setSizeChartMode(initialMode);
