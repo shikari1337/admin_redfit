@@ -54,8 +54,8 @@ const ProductAttributes: React.FC<ProductAttributesProps> = ({
       const valuesMap: Record<string, AttributeValue[]> = {};
       for (const attr of attributes) {
         try {
-          // Use attributeValuesAPI.getAll with attributeId
-          const valuesResponse = await attributeValuesAPI.getAll({ attributeId: attr._id, isActive: true });
+          // Use attributeValuesAPI.getByAttributeSlug with attribute slug
+          const valuesResponse = await attributeValuesAPI.getByAttributeSlug(attr.slug, { isActive: true });
           let values: any[] = [];
           if (Array.isArray(valuesResponse)) {
             values = valuesResponse;

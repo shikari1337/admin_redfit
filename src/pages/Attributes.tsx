@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { FaPlus, FaSave, FaUndo, FaTrash, FaEdit, FaChevronDown, FaChevronRight } from 'react-icons/fa';
-import { attributesAPI, attributeValuesAPI } from '../services/api';
+import { FaPlus, FaSave, FaUndo, FaTrash, FaEdit, FaChevronDown, FaChevronRight, FaUpload } from 'react-icons/fa';
+import { attributesAPI, attributeValuesAPI, uploadAPI } from '../services/api';
 import { slugifyValue } from '../utils/slugify';
 
 interface Attribute {
@@ -70,6 +70,7 @@ const Attributes: React.FC = () => {
   const [selectedValueId, setSelectedValueId] = useState<string | null>(null);
   const [attributeValues, setAttributeValues] = useState<Record<string, AttributeValue[]>>({});
   const [error, setError] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   // Normalize ID to string (handles MongoDB ObjectId objects)
   // Must be defined before any functions that use it
@@ -220,8 +221,8 @@ const Attributes: React.FC = () => {
         return;
       }
 
-      // Use attributeValuesAPI with attributeId parameter
-      const response = await attributeValuesAPI.getAll({ attributeId: normalizedId });
+      // Use attributeValuesAPI.getByAttributeSlug with attribute slug
+      const response = await attributeValuesAPI.getByAttributeSlug(attribute.slug);
       // Backend returns: { success: true, data: values[] }
       // API interceptor normalizes to: values[] or { data: values[] }
       let values: any[] = [];
@@ -426,14 +427,11 @@ const Attributes: React.FC = () => {
       const normalizedValueId = selectedValueId ? normalizeId(selectedValueId) : null;
       
       if (normalizedValueId) {
-        // Update: use attributeValuesAPI.update with valueId
-        await attributeValuesAPI.update(normalizedValueId, payload);
+        // Update: use attributeValuesAPI.update with attributeId and valueId
+        await attributeValuesAPI.update(normalizedAttributeId, normalizedValueId, payload);
       } else {
-        // Create: use attributeValuesAPI.create with attributeId in payload
-        await attributeValuesAPI.create({
-          ...payload,
-          attributeId: normalizedAttributeId,
-        });
+        // Create: use attributeValuesAPI.create with attributeId as first param
+        await attributeValuesAPI.create(normalizedAttributeId, payload);
       }
       
       await fetchAttributeValues(normalizedAttributeId);
@@ -483,8 +481,8 @@ const Attributes: React.FC = () => {
         setError('Invalid ID');
         return;
       }
-      // Use attributeValuesAPI.delete with valueId only
-      await attributeValuesAPI.delete(normalizedValueId);
+      // Use attributeValuesAPI.delete with attributeId and valueId
+      await attributeValuesAPI.delete(normalizedAttributeId, normalizedValueId);
       await fetchAttributeValues(normalizedAttributeId);
       const normalizedSelectedValueId = normalizeId(selectedValueId);
       if (normalizedSelectedValueId === normalizedValueId) {
@@ -981,32 +979,76 @@ const Attributes: React.FC = () => {
                     </div>
                   </div>
                 )}
-                {attributes.find(a => normalizeId(a._id) === normalizeId(selectedAttributeId))?.type === 'image' && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Image URL
-                    </label>
-                    <div className="space-y-2">
+                {/* Image upload - available for all attribute values (especially useful for size charts) */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Image {attributes.find(a => normalizeId(a._id) === normalizeId(selectedAttributeId))?.type === 'image' ? '(Required)' : '(Optional - e.g., size chart image)'}
+                  </label>
+                  <div className="space-y-2">
+                    <div className="flex gap-2">
                       <input
                         type="text"
                         value={valueFormState.imageUrl}
                         onChange={(e) => setValueFormState(prev => ({ ...prev, imageUrl: e.target.value }))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
-                        placeholder="https://example.com/image.jpg"
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
+                        placeholder="Enter image URL or upload image below"
                       />
-                      {valueFormState.imageUrl && (
+                      <label className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 cursor-pointer flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                        <FaUpload />
+                        {uploadingImage ? 'Uploading...' : 'Upload'}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          disabled={uploadingImage}
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            
+                            setUploadingImage(true);
+                            setError(null);
+                            try {
+                              const response = await uploadAPI.uploadSingle(file, 'attributes');
+                              const imageUrl = response.data?.url || response.data?.data?.url || response.url;
+                              if (imageUrl) {
+                                setValueFormState(prev => ({ ...prev, imageUrl }));
+                              } else {
+                                throw new Error('No URL in upload response');
+                              }
+                            } catch (error: any) {
+                              console.error('Image upload error:', error);
+                              setError(error.response?.data?.message || error.message || 'Failed to upload image');
+                            } finally {
+                              setUploadingImage(false);
+                              // Reset input
+                              e.target.value = '';
+                            }
+                          }}
+                        />
+                      </label>
+                    </div>
+                    {valueFormState.imageUrl && (
+                      <div className="relative inline-block">
                         <img
                           src={valueFormState.imageUrl}
                           alt="Preview"
-                          className="w-20 h-20 rounded border border-gray-300 object-cover"
+                          className="w-32 h-32 rounded border border-gray-300 object-cover"
                           onError={(e) => {
                             (e.target as HTMLImageElement).style.display = 'none';
                           }}
                         />
-                      )}
-                    </div>
+                        <button
+                          type="button"
+                          onClick={() => setValueFormState(prev => ({ ...prev, imageUrl: '' }))}
+                          className="absolute top-1 right-1 bg-red-600 text-white rounded-full p-1 hover:bg-red-700"
+                          title="Remove image"
+                        >
+                          <FaTrash size={12} />
+                        </button>
+                      </div>
+                    )}
                   </div>
-                )}
+                </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Description

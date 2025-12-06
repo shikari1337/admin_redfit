@@ -537,12 +537,16 @@ export const attributesAPI = {
   },
 };
 
-// Attribute Values API (separate from Attributes API per Postman collection)
+// Attribute Values API - Uses existing backend routes: /attributes/:id/values
 export const attributeValuesAPI = {
-  getAll: async (params?: { attributeId?: string; isActive?: boolean }) => {
+  // Get values by attribute slug (public endpoint)
+  getByAttributeSlug: async (attributeSlug: string, params?: { isActive?: boolean }) => {
     try {
-      const response = await api.get('/attribute-values', { params });
-      // Response is normalized by interceptor, should be array or { data: array }
+      const queryParams: any = {};
+      if (params?.isActive !== undefined) {
+        queryParams.isActive = params.isActive;
+      }
+      const response = await api.get(`/attributes/${attributeSlug}/values`, { params: queryParams });
       const data = response.data;
       return Array.isArray(data) ? data : (data?.data || []);
     } catch (error: any) {
@@ -551,16 +555,31 @@ export const attributeValuesAPI = {
       return [];
     }
   },
-  getById: async (id: string) => {
+  // Get values by attribute ID (for admin - needs to find attribute first)
+  getAll: async (params?: { attributeId?: string; isActive?: boolean }) => {
     try {
-      const response = await api.get(`/attribute-values/${id}`);
-      return response.data;
+      // Backend doesn't have direct /attribute-values endpoint
+      // We need to get attribute slug first, then use getByAttributeSlug
+      if (!params?.attributeId) {
+        throw new Error('attributeId is required');
+      }
+      
+      // Get attribute to find its slug
+      const attrResponse = await attributesAPI.getById(params.attributeId);
+      const attribute = attrResponse?.data || attrResponse;
+      if (!attribute || !attribute.slug) {
+        throw new Error('Attribute not found or missing slug');
+      }
+      
+      // Use the slug-based endpoint
+      return await attributeValuesAPI.getByAttributeSlug(attribute.slug, { isActive: params.isActive });
     } catch (error: any) {
+      console.error('Failed to fetch attribute values:', error);
       safeError(error);
+      return [];
     }
   },
-  create: async (data: {
-    attributeId: string;
+  create: async (attributeId: string, data: {
     name: string;
     slug?: string;
     value?: string;
@@ -571,13 +590,14 @@ export const attributeValuesAPI = {
     order?: number;
   }) => {
     try {
-      const response = await api.post('/attribute-values', data);
+      // Backend route: POST /attributes/:id/values
+      const response = await api.post(`/attributes/${attributeId}/values`, data);
       return response.data;
     } catch (error: any) {
       safeError(error);
     }
   },
-  update: async (id: string, data: {
+  update: async (attributeId: string, valueId: string, data: {
     name?: string;
     slug?: string;
     value?: string;
@@ -588,15 +608,17 @@ export const attributeValuesAPI = {
     order?: number;
   }) => {
     try {
-      const response = await api.put(`/attribute-values/${id}`, data);
+      // Backend route: PUT /attributes/:id/values/:valueId
+      const response = await api.put(`/attributes/${attributeId}/values/${valueId}`, data);
       return response.data;
     } catch (error: any) {
       safeError(error);
     }
   },
-  delete: async (id: string) => {
+  delete: async (attributeId: string, valueId: string) => {
     try {
-      const response = await api.delete(`/attribute-values/${id}`);
+      // Backend route: DELETE /attributes/:id/values/:valueId
+      const response = await api.delete(`/attributes/${attributeId}/values/${valueId}`);
       return response.data;
     } catch (error: any) {
       safeError(error);

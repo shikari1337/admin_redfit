@@ -61,8 +61,8 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
         const valuesMap: Record<string, AttributeValueOption[]> = {};
         for (const attr of attributesList) {
           try {
-            // Use attributeValuesAPI.getAll with attributeId
-            const valuesResponse = await attributeValuesAPI.getAll({ attributeId: attr._id, isActive: true });
+            // Use attributeValuesAPI.getByAttributeSlug with attribute slug
+            const valuesResponse = await attributeValuesAPI.getByAttributeSlug(attr.slug, { isActive: true });
             let values: any[] = [];
             if (Array.isArray(valuesResponse)) {
               values = valuesResponse;
