@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { FaChevronDown, FaChevronUp } from 'react-icons/fa';
-import { attributesAPI } from '../../services/api';
+import { attributesAPI, attributeValuesAPI } from '../../services/api';
 
 interface Attribute {
   _id: string;
@@ -54,7 +54,8 @@ const ProductAttributes: React.FC<ProductAttributesProps> = ({
       const valuesMap: Record<string, AttributeValue[]> = {};
       for (const attr of attributes) {
         try {
-          const valuesResponse = await attributesAPI.getValues(attr.slug, { isActive: true });
+          // Use attributeValuesAPI.getAll with attributeId
+          const valuesResponse = await attributeValuesAPI.getAll({ attributeId: attr._id, isActive: true });
           let values: any[] = [];
           if (Array.isArray(valuesResponse)) {
             values = valuesResponse;
@@ -65,7 +66,7 @@ const ProductAttributes: React.FC<ProductAttributesProps> = ({
           }
           valuesMap[attr._id] = values.filter((v: any) => v.isActive !== false);
         } catch (error) {
-          console.error(`Failed to load values for attribute ${attr.slug}:`, error);
+          console.error(`Failed to load values for attribute ${attr._id}:`, error);
           valuesMap[attr._id] = [];
         }
       }

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { FaPlus, FaSave, FaUndo, FaTrash, FaEdit, FaChevronDown, FaChevronRight } from 'react-icons/fa';
-import { attributesAPI } from '../services/api';
+import { attributesAPI, attributeValuesAPI } from '../services/api';
 import { slugifyValue } from '../utils/slugify';
 
 interface Attribute {
@@ -220,7 +220,8 @@ const Attributes: React.FC = () => {
         return;
       }
 
-      const response = await attributesAPI.getValues(attribute.slug);
+      // Use attributeValuesAPI with attributeId parameter
+      const response = await attributeValuesAPI.getAll({ attributeId: normalizedId });
       // Backend returns: { success: true, data: values[] }
       // API interceptor normalizes to: values[] or { data: values[] }
       let values: any[] = [];
@@ -425,9 +426,14 @@ const Attributes: React.FC = () => {
       const normalizedValueId = selectedValueId ? normalizeId(selectedValueId) : null;
       
       if (normalizedValueId) {
-        await attributesAPI.updateValue(normalizedAttributeId, normalizedValueId, payload);
+        // Update: use attributeValuesAPI.update with valueId
+        await attributeValuesAPI.update(normalizedValueId, payload);
       } else {
-        await attributesAPI.createValue(normalizedAttributeId, payload);
+        // Create: use attributeValuesAPI.create with attributeId in payload
+        await attributeValuesAPI.create({
+          ...payload,
+          attributeId: normalizedAttributeId,
+        });
       }
       
       await fetchAttributeValues(normalizedAttributeId);
@@ -477,7 +483,8 @@ const Attributes: React.FC = () => {
         setError('Invalid ID');
         return;
       }
-      await attributesAPI.deleteValue(normalizedAttributeId, normalizedValueId);
+      // Use attributeValuesAPI.delete with valueId only
+      await attributeValuesAPI.delete(normalizedValueId);
       await fetchAttributeValues(normalizedAttributeId);
       const normalizedSelectedValueId = normalizeId(selectedValueId);
       if (normalizedSelectedValueId === normalizedValueId) {
@@ -799,7 +806,7 @@ const Attributes: React.FC = () => {
                 value={attributeFormState.slug}
                 onChange={(e) => handleAttributeFormChange('slug', slugifyValue(e.target.value))}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                pattern="[a-z0-9-]+"
+                pattern="[a-z0-9\-]+"
                 placeholder="auto-generated-from-name"
               />
             </div>
@@ -947,7 +954,7 @@ const Attributes: React.FC = () => {
                     value={valueFormState.slug}
                     onChange={(e) => setValueFormState(prev => ({ ...prev, slug: slugifyValue(e.target.value) }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
-                    pattern="[a-z0-9-]+"
+                    pattern="[a-z0-9\-]+"
                     placeholder="auto-generated-from-name"
                   />
                 </div>

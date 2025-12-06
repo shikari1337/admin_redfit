@@ -1385,6 +1385,7 @@ const ProductForm: React.FC = () => {
         productType: productType,
         // CRITICAL FIX: Always preserve attributeIds if productType is 'variation'
         // This ensures attributes don't disappear when saving
+        // Note: Backend will auto-derive attributeIds from variations if not provided (see PRODUCT_VARIATIONS_FIX.md)
         attributeIds: productType === 'variation' && cleanedAttributeIds.length > 0 ? cleanedAttributeIds : (productType === 'variation' ? [] : undefined),
         // CRITICAL FIX: Always send variations array (even if empty) for variation products
         // This prevents backend from removing variations when productType is 'variation'

@@ -29,6 +29,8 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  // Add timeout to prevent hanging requests
+  timeout: 30000, // 30 seconds
 });
 
 // Log API configuration
@@ -302,8 +304,13 @@ export const authAPI = {
 
 // Products API
 export const productsAPI = {
-  getAll: async (params?: { active?: boolean; search?: string; category?: string }) => {
-    const response = await api.get('/products', { params });
+  getAll: async (params?: { active?: boolean; search?: string; category?: string; attributes?: string | object }) => {
+    // Handle attributes parameter - if it's an object, stringify it
+    const queryParams: any = { ...params };
+    if (queryParams.attributes && typeof queryParams.attributes === 'object') {
+      queryParams.attributes = JSON.stringify(queryParams.attributes);
+    }
+    const response = await api.get('/products', { params: queryParams });
     // Backend returns: { success: true, data: products[], count: number }
     // Interceptor normalizes to: products[] or { data: products[] }
     // Return as-is so frontend can handle both formats
@@ -311,6 +318,10 @@ export const productsAPI = {
   },
   getById: async (id: string) => {
     const response = await api.get(`/products/${id}`);
+    return response.data;
+  },
+  getBySlug: async (slug: string) => {
+    const response = await api.get(`/products/slug/${slug}`);
     return response.data;
   },
   create: async (data: any) => {
@@ -476,25 +487,9 @@ export const attributesAPI = {
       return [];
     }
   },
-  getBySlug: async (slug: string) => {
+  getById: async (id: string) => {
     try {
-      const response = await api.get(`/attributes/${slug}`);
-      return response.data;
-    } catch (error: any) {
-      safeError(error);
-    }
-  },
-  getValues: async (slug: string, params?: { isActive?: boolean }) => {
-    try {
-      const response = await api.get(`/attributes/${slug}/values`, { params });
-      return response.data;
-    } catch (error: any) {
-      safeError(error);
-    }
-  },
-  getValue: async (slug: string, valueSlug: string) => {
-    try {
-      const response = await api.get(`/attributes/${slug}/${valueSlug}`);
+      const response = await api.get(`/attributes/${id}`);
       return response.data;
     } catch (error: any) {
       safeError(error);
@@ -504,6 +499,7 @@ export const attributesAPI = {
     name: string;
     slug?: string;
     type: 'text' | 'color' | 'image' | 'select';
+    chartType?: 'none' | 'size' | 'color' | 'measurement' | 'table';
     description?: string;
     isActive?: boolean;
     order?: number;
@@ -519,6 +515,7 @@ export const attributesAPI = {
     name?: string;
     slug?: string;
     type?: 'text' | 'color' | 'image' | 'select';
+    chartType?: 'none' | 'size' | 'color' | 'measurement' | 'table';
     description?: string;
     isActive?: boolean;
     order?: number;
@@ -538,7 +535,32 @@ export const attributesAPI = {
       safeError(error);
     }
   },
-  createValue: async (attributeId: string, data: {
+};
+
+// Attribute Values API (separate from Attributes API per Postman collection)
+export const attributeValuesAPI = {
+  getAll: async (params?: { attributeId?: string; isActive?: boolean }) => {
+    try {
+      const response = await api.get('/attribute-values', { params });
+      // Response is normalized by interceptor, should be array or { data: array }
+      const data = response.data;
+      return Array.isArray(data) ? data : (data?.data || []);
+    } catch (error: any) {
+      console.error('Failed to fetch attribute values:', error);
+      safeError(error);
+      return [];
+    }
+  },
+  getById: async (id: string) => {
+    try {
+      const response = await api.get(`/attribute-values/${id}`);
+      return response.data;
+    } catch (error: any) {
+      safeError(error);
+    }
+  },
+  create: async (data: {
+    attributeId: string;
     name: string;
     slug?: string;
     value?: string;
@@ -549,13 +571,13 @@ export const attributesAPI = {
     order?: number;
   }) => {
     try {
-      const response = await api.post(`/attributes/${attributeId}/values`, data);
+      const response = await api.post('/attribute-values', data);
       return response.data;
     } catch (error: any) {
       safeError(error);
     }
   },
-  updateValue: async (attributeId: string, valueId: string, data: {
+  update: async (id: string, data: {
     name?: string;
     slug?: string;
     value?: string;
@@ -566,15 +588,15 @@ export const attributesAPI = {
     order?: number;
   }) => {
     try {
-      const response = await api.put(`/attributes/${attributeId}/values/${valueId}`, data);
+      const response = await api.put(`/attribute-values/${id}`, data);
       return response.data;
     } catch (error: any) {
       safeError(error);
     }
   },
-  deleteValue: async (attributeId: string, valueId: string) => {
+  delete: async (id: string) => {
     try {
-      const response = await api.delete(`/attributes/${attributeId}/values/${valueId}`);
+      const response = await api.delete(`/attribute-values/${id}`);
       return response.data;
     } catch (error: any) {
       safeError(error);
