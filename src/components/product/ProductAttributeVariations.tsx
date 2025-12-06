@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FaTrash, FaUpload, FaCog, FaChevronDown, FaChevronRight, FaEdit, FaCheck, FaTimes } from 'react-icons/fa';
+import { FaTrash, FaCog, FaChevronDown, FaChevronRight, FaEdit, FaCheck, FaTimes } from 'react-icons/fa';
 import { attributesAPI, attributeValuesAPI } from '../../services/api';
 import type { AttributeOption, AttributeValueOption, ProductVariation } from '../../types/productForm';
 
@@ -30,9 +30,9 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
   basePrice,
   baseOriginalPrice,
   onRegenerateAllSkus,
-  onVariationImageUpload,
-  onRemoveVariationImage,
-  uploading,
+  onVariationImageUpload: _onVariationImageUpload,
+  onRemoveVariationImage: _onRemoveVariationImage,
+  uploading: _uploading,
 }) => {
   const [availableAttributes, setAvailableAttributes] = useState<AttributeOption[]>([]);
   const [attributeValuesMap, setAttributeValuesMap] = useState<Record<string, AttributeValueOption[]>>({});
@@ -295,22 +295,7 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
     setSelectedVariationIds(newSet);
   };
 
-  const getVariationLabel = (variation: ProductVariation) => {
-    const labels: string[] = [];
-    for (const [attrSlug, valueSlug] of Object.entries(variation.attributes)) {
-      const normalizedValueSlug = String(valueSlug).toLowerCase().trim();
-      const attr = availableAttributes.find(a => a.slug === attrSlug);
-      if (attr) {
-        const value = attributeValuesMap[attr._id]?.find(v => 
-          v.slug?.toLowerCase() === normalizedValueSlug
-        );
-        labels.push(value?.name || normalizedValueSlug);
-      } else {
-        labels.push(attrSlug);
-      }
-    }
-    return labels.join(' / ') || 'Variation';
-  };
+  // Helper function removed - variations are displayed inline in table using direct attribute/value mapping
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
