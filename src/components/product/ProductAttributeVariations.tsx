@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FaTrash, FaCog, FaChevronDown, FaChevronRight, FaEdit, FaCheck, FaTimes } from 'react-icons/fa';
+import { FaTrash, FaCog, FaChevronDown, FaChevronRight, FaEdit, FaCheck, FaTimes, FaMagic } from 'react-icons/fa';
 import { attributesAPI, attributeValuesAPI } from '../../services/api';
 import type { AttributeOption, AttributeValueOption, ProductVariation } from '../../types/productForm';
 
@@ -184,26 +184,13 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
     onVariationsChange(newVariations);
   };
 
-  // Auto-generate when selected values change
+  // Clear variations when no attributes are selected
   useEffect(() => {
-    if (selectedAttributeIds.length > 0 && !loadingAttributes) {
-      const selectedAttrs = availableAttributes.filter(a => selectedAttributeIds.includes(a._id));
-      const allHaveValues = selectedAttrs.every(attr => {
-        const allValues = attributeValuesMap[attr._id] || [];
-        return allValues.length > 0;
-      });
-      
-      if (allHaveValues) {
-        const timer = setTimeout(() => {
-          generateVariations();
-        }, 300);
-        return () => clearTimeout(timer);
-      }
-    } else if (selectedAttributeIds.length === 0) {
+    if (selectedAttributeIds.length === 0) {
       onVariationsChange([]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAttributeIds, selectedAttributeValues, attributeValuesMap, loadingAttributes, baseSku, basePrice, baseOriginalPrice]);
+  }, [selectedAttributeIds]);
 
   const handleAttributeToggle = (attributeId: string) => {
     const newIds = selectedAttributeIds.includes(attributeId)
@@ -309,7 +296,7 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
       <div className="mb-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-2">Product Variations</h2>
         <p className="text-sm text-gray-500">
-          Select attributes and their values to automatically generate all variation combinations (WordPress style)
+          Select attributes and their values, then click "Generate Variations" to create all variation combinations
         </p>
       </div>
 
@@ -417,6 +404,28 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
           </div>
         )}
       </div>
+
+      {/* Generate Variations Button */}
+      {selectedAttributeIds.length > 0 && (
+        <div className="mb-6 flex justify-center">
+          <button
+            type="button"
+            onClick={generateVariations}
+            disabled={(() => {
+              const selectedAttrs = availableAttributes.filter(a => selectedAttributeIds.includes(a._id));
+              const allHaveSelectedValues = selectedAttrs.every(attr => {
+                const selectedValues = selectedAttributeValues[attr._id] || [];
+                return selectedValues.length > 0;
+              });
+              return !allHaveSelectedValues || loadingAttributes;
+            })()}
+            className="px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+          >
+            <FaMagic className="w-4 h-4" />
+            Generate Variations
+          </button>
+        </div>
+      )}
 
       {/* Variations Table - WordPress Style */}
       {variations.length > 0 && (
