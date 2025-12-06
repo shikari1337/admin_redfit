@@ -57,26 +57,32 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
         const attributesList = Array.isArray(attrs) ? attrs : (attrs?.data || []);
         setAvailableAttributes(attributesList);
         
-        // Load values for all attributes
+        // Load values for all attributes - use Promise.all to prevent race conditions
         const valuesMap: Record<string, AttributeValueOption[]> = {};
-        for (const attr of attributesList) {
-          try {
-            // Use attributeValuesAPI.getByAttributeSlug with attribute slug
-            const valuesResponse = await attributeValuesAPI.getByAttributeSlug(attr.slug, { isActive: true });
-            let values: any[] = [];
-            if (Array.isArray(valuesResponse)) {
-              values = valuesResponse;
-            } else if (valuesResponse?.data && Array.isArray(valuesResponse.data)) {
-              values = valuesResponse.data;
-            } else if (valuesResponse?.data?.data && Array.isArray(valuesResponse.data.data)) {
-              values = valuesResponse.data.data;
+        
+        // Use Promise.all to load all values in parallel but maintain correct mapping
+        await Promise.all(
+          attributesList.map(async (attr: AttributeOption) => {
+            const currentAttributeId = attr._id; // Capture attribute ID for this iteration
+            try {
+              // Use attributeValuesAPI.getByAttributeSlug with attribute slug
+              const valuesResponse = await attributeValuesAPI.getByAttributeSlug(attr.slug, { isActive: true });
+              let values: any[] = [];
+              if (Array.isArray(valuesResponse)) {
+                values = valuesResponse;
+              } else if (valuesResponse?.data && Array.isArray(valuesResponse.data)) {
+                values = valuesResponse.data;
+              } else if (valuesResponse?.data?.data && Array.isArray(valuesResponse.data.data)) {
+                values = valuesResponse.data.data;
+              }
+              // Use captured attribute ID to ensure correct mapping
+              valuesMap[currentAttributeId] = values;
+            } catch (err) {
+              console.error(`Failed to load values for attribute ${currentAttributeId} (${attr.slug}):`, err);
+              valuesMap[currentAttributeId] = [];
             }
-            valuesMap[attr._id] = values;
-          } catch (err) {
-            console.error(`Failed to load values for attribute ${attr._id}:`, err);
-            valuesMap[attr._id] = [];
-          }
-        }
+          })
+        );
         setAttributeValuesMap(valuesMap);
       } catch (error) {
         console.error('Failed to load attributes:', error);

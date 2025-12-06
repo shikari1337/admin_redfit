@@ -10,6 +10,7 @@ interface Attribute {
   type: 'text' | 'color' | 'image' | 'select';
   chartType?: 'none' | 'size' | 'color' | 'measurement' | 'table';
   description?: string;
+  imageUrl?: string;
   isActive: boolean;
   order: number;
   createdAt?: string;
@@ -37,6 +38,7 @@ const emptyAttributeForm: {
   type: 'text' | 'color' | 'image' | 'select';
   chartType: 'none' | 'size' | 'color' | 'measurement' | 'table';
   description: string;
+  imageUrl: string;
   isActive: boolean;
   order: number;
 } = {
@@ -45,6 +47,7 @@ const emptyAttributeForm: {
   type: 'text',
   chartType: 'none',
   description: '',
+  imageUrl: '',
   isActive: true,
   order: 0,
 };
@@ -71,6 +74,7 @@ const Attributes: React.FC = () => {
   const [attributeValues, setAttributeValues] = useState<Record<string, AttributeValue[]>>({});
   const [error, setError] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [uploadingAttributeImage, setUploadingAttributeImage] = useState(false);
 
   // Normalize ID to string (handles MongoDB ObjectId objects)
   // Must be defined before any functions that use it
@@ -164,6 +168,7 @@ const Attributes: React.FC = () => {
           type: currentAttribute.type || 'text',
           chartType: currentAttribute.chartType || 'none',
           description: currentAttribute.description || '',
+          imageUrl: currentAttribute.imageUrl || '',
           isActive: currentAttribute.isActive !== false,
           order: currentAttribute.order || 0,
         });
@@ -346,10 +351,27 @@ const Attributes: React.FC = () => {
 
     try {
       const normalizedId = editingAttributeId ? normalizeId(editingAttributeId) : null;
+      
+      // Prepare payload with imageUrl only if it has a value
+      const payload: any = {
+        name: attributeFormState.name.trim(),
+        slug: attributeFormState.slug.trim() || undefined,
+        type: attributeFormState.type,
+        chartType: attributeFormState.chartType,
+        description: attributeFormState.description.trim() || undefined,
+        isActive: attributeFormState.isActive,
+        order: attributeFormState.order,
+      };
+      
+      // Only include imageUrl if it has a value
+      if (attributeFormState.imageUrl && attributeFormState.imageUrl.trim()) {
+        payload.imageUrl = attributeFormState.imageUrl.trim();
+      }
+      
       if (normalizedId) {
-        await attributesAPI.update(normalizedId, attributeFormState);
+        await attributesAPI.update(normalizedId, payload);
       } else {
-        await attributesAPI.create(attributeFormState);
+        await attributesAPI.create(payload);
         // If creating, fetch the new attribute and select it
         await fetchAttributes();
       }
@@ -857,6 +879,76 @@ const Attributes: React.FC = () => {
                 rows={3}
                 placeholder="Optional description for this attribute"
               />
+            </div>
+            {/* Image upload for attribute */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Image (Optional)
+              </label>
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={attributeFormState.imageUrl}
+                    onChange={(e) => handleAttributeFormChange('imageUrl', e.target.value)}
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                    placeholder="Enter image URL or upload image below"
+                  />
+                  <label className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <FaUpload />
+                    {uploadingAttributeImage ? 'Uploading...' : 'Upload'}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      disabled={uploadingAttributeImage}
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        
+                        setUploadingAttributeImage(true);
+                        setError(null);
+                        try {
+                          const response = await uploadAPI.uploadSingle(file, 'attributes');
+                          const imageUrl = response.data?.url || response.data?.data?.url || response.url;
+                          if (imageUrl) {
+                            handleAttributeFormChange('imageUrl', imageUrl);
+                          } else {
+                            throw new Error('No URL in upload response');
+                          }
+                        } catch (error: any) {
+                          console.error('Image upload error:', error);
+                          setError(error.response?.data?.message || error.message || 'Failed to upload image');
+                        } finally {
+                          setUploadingAttributeImage(false);
+                          // Reset input
+                          e.target.value = '';
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+                {attributeFormState.imageUrl && (
+                  <div className="relative inline-block">
+                    <img
+                      src={attributeFormState.imageUrl}
+                      alt="Preview"
+                      className="w-32 h-32 rounded border border-gray-300 object-cover"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleAttributeFormChange('imageUrl', '')}
+                      className="absolute top-1 right-1 bg-red-600 text-white rounded-full p-1 hover:bg-red-700"
+                      title="Remove image"
+                    >
+                      <FaTrash size={12} />
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">

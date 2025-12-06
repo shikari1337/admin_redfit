@@ -478,8 +478,11 @@ export const attributesAPI = {
   list: async (params?: { isActive?: boolean }) => {
     try {
       const response = await api.get('/attributes', { params });
-      // Response is normalized by interceptor, should be array or { data: array }
+      // Response format: { success: true, data: [...] } or array
       const data = response.data;
+      if (data?.success && Array.isArray(data.data)) {
+        return data.data;
+      }
       return Array.isArray(data) ? data : (data?.data || []);
     } catch (error: any) {
       console.error('Failed to fetch attributes:', error);
@@ -487,10 +490,30 @@ export const attributesAPI = {
       return [];
     }
   },
+  getBySlug: async (slug: string) => {
+    try {
+      // Backend route: GET /api/v1/attributes/:slug
+      const response = await api.get(`/attributes/${slug}`);
+      // Response format: { success: true, data: {...} }
+      const data = response.data;
+      if (data?.success && data.data) {
+        return data.data;
+      }
+      return data?.data || data;
+    } catch (error: any) {
+      safeError(error);
+    }
+  },
   getById: async (id: string) => {
     try {
+      // Backend route: GET /api/v1/attributes/:id (using ID, not slug)
       const response = await api.get(`/attributes/${id}`);
-      return response.data;
+      // Response format: { success: true, data: {...} }
+      const data = response.data;
+      if (data?.success && data.data) {
+        return data.data;
+      }
+      return data?.data || data;
     } catch (error: any) {
       safeError(error);
     }
@@ -501,6 +524,7 @@ export const attributesAPI = {
     type: 'text' | 'color' | 'image' | 'select';
     chartType?: 'none' | 'size' | 'color' | 'measurement' | 'table';
     description?: string;
+    imageUrl?: string;
     isActive?: boolean;
     order?: number;
   }) => {
@@ -517,6 +541,7 @@ export const attributesAPI = {
     type?: 'text' | 'color' | 'image' | 'select';
     chartType?: 'none' | 'size' | 'color' | 'measurement' | 'table';
     description?: string;
+    imageUrl?: string;
     isActive?: boolean;
     order?: number;
   }) => {
@@ -540,6 +565,7 @@ export const attributesAPI = {
 // Attribute Values API - Uses existing backend routes: /attributes/:id/values
 export const attributeValuesAPI = {
   // Get values by attribute slug (public endpoint)
+  // Backend route: GET /api/v1/attributes/:slug/values
   getByAttributeSlug: async (attributeSlug: string, params?: { isActive?: boolean }) => {
     try {
       const queryParams: any = {};
@@ -547,7 +573,11 @@ export const attributeValuesAPI = {
         queryParams.isActive = params.isActive;
       }
       const response = await api.get(`/attributes/${attributeSlug}/values`, { params: queryParams });
+      // Response format: { success: true, data: [...] } or array
       const data = response.data;
+      if (data?.success && Array.isArray(data.data)) {
+        return data.data;
+      }
       return Array.isArray(data) ? data : (data?.data || []);
     } catch (error: any) {
       console.error('Failed to fetch attribute values:', error);
@@ -633,7 +663,12 @@ export const attributeValuesAPI = {
       
       // Backend route: POST /api/v1/attributes/:id/values
       const response = await api.post(`/attributes/${normalizedId}/values`, data);
-      return response.data;
+      // Response format: { success: true, message: "...", data: {...} }
+      const responseData = response.data;
+      if (responseData?.success && responseData.data) {
+        return responseData.data;
+      }
+      return responseData?.data || responseData;
     } catch (error: any) {
       safeError(error);
     }
@@ -689,7 +724,12 @@ export const attributeValuesAPI = {
       
       // Backend route: PUT /api/v1/attributes/:id/values/:valueId
       const response = await api.put(`/attributes/${normalizedAttributeId}/values/${normalizedValueId}`, data);
-      return response.data;
+      // Response format: { success: true, message: "...", data: {...} }
+      const responseData = response.data;
+      if (responseData?.success && responseData.data) {
+        return responseData.data;
+      }
+      return responseData?.data || responseData;
     } catch (error: any) {
       safeError(error);
     }
@@ -736,7 +776,12 @@ export const attributeValuesAPI = {
       
       // Backend route: DELETE /api/v1/attributes/:id/values/:valueId
       const response = await api.delete(`/attributes/${normalizedAttributeId}/values/${normalizedValueId}`);
-      return response.data;
+      // Response format: { success: true, message: "...", data: {...} }
+      const responseData = response.data;
+      if (responseData?.success && responseData.data) {
+        return responseData.data;
+      }
+      return responseData?.data || responseData;
     } catch (error: any) {
       safeError(error);
     }
