@@ -486,16 +486,18 @@ const ProductForm: React.FC = () => {
             .map((img: any) => typeof img === 'string' ? img : null)
             .filter((img: any) => img !== null);
         }
-        // Ensure attributes is an object and normalize all attribute value IDs to strings
+        // Ensure attributes is an object and normalize all attribute value slugs
+        // CRITICAL: Variations use SLUGS not IDs (WordPress/WooCommerce style)
         if (!cleanVariation.attributes || typeof cleanVariation.attributes !== 'object') {
           cleanVariation.attributes = {};
         } else {
-          // CRITICAL FIX: Normalize all attribute value IDs to strings (handle buffer objects)
+          // Normalize slugs (not IDs) - lowercase and trim
           const normalizedAttrs: Record<string, string> = {};
-          for (const [attrSlug, valueId] of Object.entries(cleanVariation.attributes)) {
-            const normalizedId = normalizeCategoryId(valueId);
-            if (normalizedId) {
-              normalizedAttrs[attrSlug] = normalizedId;
+          for (const [attrSlug, valueSlug] of Object.entries(cleanVariation.attributes)) {
+            const normalizedAttrSlug = String(attrSlug).toLowerCase().trim();
+            const normalizedValueSlug = String(valueSlug).toLowerCase().trim();
+            if (normalizedAttrSlug && normalizedValueSlug) {
+              normalizedAttrs[normalizedAttrSlug] = normalizedValueSlug;
             }
           }
           cleanVariation.attributes = normalizedAttrs;
@@ -768,23 +770,28 @@ const ProductForm: React.FC = () => {
         attributeIds: product.attributeIds || [],
         selectedAttributeValues: {}, // Will be populated from variations if needed
         variations: (product.variations || []).map((v: any, idx: number) => {
-          // CRITICAL FIX: Normalize attribute value IDs to strings (handle buffer objects, Maps, ObjectIds)
+          // CRITICAL FIX: Variations use SLUGS not IDs (WordPress/WooCommerce style)
+          // Format: {"size": "l"} where "size" is attribute slug and "l" is value slug
           const normalizedAttrs: Record<string, string> = {};
           if (v.attributes && typeof v.attributes === 'object') {
             // Handle Map objects (MongoDB returns Maps for variation attributes)
             if (v.attributes instanceof Map) {
-              for (const [attrSlug, valueId] of v.attributes.entries()) {
-                const normalizedId = normalizeCategoryId(valueId);
-                if (normalizedId) {
-                  normalizedAttrs[attrSlug] = normalizedId;
+              for (const [attrSlug, valueSlug] of v.attributes.entries()) {
+                // Normalize slugs (not IDs) - lowercase and trim
+                const normalizedAttrSlug = String(attrSlug).toLowerCase().trim();
+                const normalizedValueSlug = String(valueSlug).toLowerCase().trim();
+                if (normalizedAttrSlug && normalizedValueSlug) {
+                  normalizedAttrs[normalizedAttrSlug] = normalizedValueSlug;
                 }
               }
             } else {
               // Handle plain objects
-              for (const [attrSlug, valueId] of Object.entries(v.attributes)) {
-                const normalizedId = normalizeCategoryId(valueId);
-                if (normalizedId) {
-                  normalizedAttrs[attrSlug] = normalizedId;
+              for (const [attrSlug, valueSlug] of Object.entries(v.attributes)) {
+                // Normalize slugs (not IDs) - lowercase and trim
+                const normalizedAttrSlug = String(attrSlug).toLowerCase().trim();
+                const normalizedValueSlug = String(valueSlug).toLowerCase().trim();
+                if (normalizedAttrSlug && normalizedValueSlug) {
+                  normalizedAttrs[normalizedAttrSlug] = normalizedValueSlug;
                 }
               }
             }
@@ -794,7 +801,7 @@ const ProductForm: React.FC = () => {
           const variationData: any = {
             ...v,
             id: v.id || `var-${Date.now()}-${idx}`, // Add temporary ID for frontend
-            attributes: normalizedAttrs, // Use normalized attributes
+            attributes: normalizedAttrs, // Use normalized slugs
           };
           
           // Preserve attributeDetails from backend if available (helps with display)
