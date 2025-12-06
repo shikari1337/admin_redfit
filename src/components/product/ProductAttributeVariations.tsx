@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { FaTrash, FaCog, FaChevronDown, FaChevronRight, FaEdit, FaCheck, FaTimes, FaMagic } from 'react-icons/fa';
-import { attributesAPI, attributeValuesAPI } from '../../services/api';
+import React, { useState, useEffect, useRef } from 'react';
+import { FaTrash, FaCog, FaChevronDown, FaChevronRight, FaEdit, FaCheck, FaTimes, FaMagic, FaUpload } from 'react-icons/fa';
+import { attributesAPI, attributeValuesAPI, uploadAPI } from '../../services/api';
 import type { AttributeOption, AttributeValueOption, ProductVariation } from '../../types/productForm';
 
 interface ProductAttributeVariationsProps {
@@ -47,6 +47,8 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
     isActive: true,
   });
   const [editingVariationId, setEditingVariationId] = useState<string | null>(null);
+  const [uploadingImages, setUploadingImages] = useState<Record<string, boolean>>({});
+  const editRowRef = useRef<HTMLTableRowElement>(null);
 
   // Load available attributes
   useEffect(() => {
@@ -235,6 +237,55 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
       )
     );
   };
+
+  // Handle image upload for variation
+  const handleImageUpload = async (variationId: string, files: FileList) => {
+    const imageFiles = Array.from(files).filter(file => file.type.startsWith('image/'));
+    if (imageFiles.length === 0) return;
+
+    setUploadingImages(prev => ({ ...prev, [variationId]: true }));
+    try {
+      const response = await uploadAPI.uploadMultiple(imageFiles, 'products');
+      const uploadedUrls = response.data?.files?.map((f: any) => f.url) || response.data?.urls || [];
+      const variation = variations.find(v => v.id === variationId);
+      if (variation) {
+        handleVariationChange(variationId, 'images', [...(variation.images || []), ...uploadedUrls]);
+      }
+    } catch (error) {
+      console.error('Failed to upload images:', error);
+    } finally {
+      setUploadingImages(prev => ({ ...prev, [variationId]: false }));
+    }
+  };
+
+  // Handle image removal
+  const handleRemoveImage = (variationId: string, imageIndex: number) => {
+    const variation = variations.find(v => v.id === variationId);
+    if (variation && variation.images) {
+      const newImages = variation.images.filter((_, idx) => idx !== imageIndex);
+      handleVariationChange(variationId, 'images', newImages);
+    }
+  };
+
+  // Close edit mode when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (editingVariationId && editRowRef.current && !editRowRef.current.contains(event.target as Node)) {
+        // Don't close if clicking on edit/done button
+        const target = event.target as HTMLElement;
+        if (!target.closest('button[title="Done"]') && !target.closest('button[title="Edit"]') && !target.closest('button[title*="Edit"]')) {
+          setEditingVariationId(null);
+        }
+      }
+    };
+
+    if (editingVariationId) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [editingVariationId]);
 
   const handleRemoveVariation = (variationId: string) => {
     onVariationsChange(variations.filter(v => v.id !== variationId));
@@ -595,149 +646,232 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
                   const isEditing = editingVariationId === variation.id;
                   
                   return (
-                    <tr key={variation.id} className={isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'}>
-                      <td className="px-4 py-3">
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => toggleSelectVariation(variation.id)}
-                          className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                        />
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          {Object.entries(variation.attributes).map(([attrSlug, valueSlug]) => {
-                            const attr = availableAttributes.find(a => a.slug === attrSlug);
-                            if (!attr) return null;
-                            const value = attributeValuesMap[attr._id]?.find(v => 
-                              v.slug?.toLowerCase() === String(valueSlug).toLowerCase()
-                            );
-                            return (
-                              <span
-                                key={attrSlug}
-                                className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded"
-                              >
-                                {attr.type === 'color' && value?.value && (
-                                  <span
-                                    className="w-3 h-3 rounded-full border border-gray-300"
-                                    style={{ backgroundColor: value.value }}
-                                  />
-                                )}
-                                <span className="font-medium">{attr.name}:</span>
-                                <span>{value?.name || valueSlug}</span>
-                              </span>
-                            );
-                          })}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        {isEditing ? (
+                    <React.Fragment key={variation.id}>
+                      <tr ref={isEditing ? editRowRef : null} className={isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'}>
+                        <td className="px-4 py-3">
                           <input
-                            type="text"
-                            value={variation.sku}
-                            onChange={(e) => handleVariationChange(variation.id, 'sku', e.target.value.toUpperCase().slice(0, 48))}
-                            className="w-full px-2 py-1 text-xs border border-gray-300 rounded-md font-mono"
-                            onBlur={() => setEditingVariationId(null)}
-                            autoFocus
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleSelectVariation(variation.id)}
+                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                            disabled={isEditing}
                           />
-                        ) : (
-                          <span
-                            className="text-xs font-mono text-gray-700 cursor-pointer hover:text-blue-600"
-                            onClick={() => setEditingVariationId(variation.id)}
-                          >
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            {Object.entries(variation.attributes).map(([attrSlug, valueSlug]) => {
+                              const attr = availableAttributes.find(a => a.slug === attrSlug);
+                              if (!attr) return null;
+                              const value = attributeValuesMap[attr._id]?.find(v => 
+                                v.slug?.toLowerCase() === String(valueSlug).toLowerCase()
+                              );
+                              return (
+                                <span
+                                  key={attrSlug}
+                                  className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded"
+                                >
+                                  {attr.type === 'color' && value?.value && (
+                                    <span
+                                      className="w-3 h-3 rounded-full border border-gray-300"
+                                      style={{ backgroundColor: value.value }}
+                                    />
+                                  )}
+                                  <span className="font-medium">{attr.name}:</span>
+                                  <span>{value?.name || valueSlug}</span>
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-xs font-mono text-gray-700">
                             {variation.sku}
                           </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        {isEditing ? (
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={variation.price || ''}
-                            onChange={(e) => handleVariationChange(variation.id, 'price', parseFloat(e.target.value) || undefined)}
-                            className="w-20 px-2 py-1 text-xs border border-gray-300 rounded-md"
-                            onBlur={() => setEditingVariationId(null)}
-                          />
-                        ) : (
-                          <span
-                            className="text-xs text-gray-700 cursor-pointer hover:text-blue-600"
-                            onClick={() => setEditingVariationId(variation.id)}
-                          >
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-xs text-gray-700">
                             {variation.price ? `₹${variation.price.toFixed(2)}` : `₹${basePrice.toFixed(2)}`}
                           </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        {isEditing ? (
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={variation.originalPrice || ''}
-                            onChange={(e) => handleVariationChange(variation.id, 'originalPrice', parseFloat(e.target.value) || undefined)}
-                            className="w-20 px-2 py-1 text-xs border border-gray-300 rounded-md"
-                            onBlur={() => setEditingVariationId(null)}
-                          />
-                        ) : (
-                          <span
-                            className="text-xs text-gray-700 cursor-pointer hover:text-blue-600"
-                            onClick={() => setEditingVariationId(variation.id)}
-                          >
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-xs text-gray-700">
                             {variation.originalPrice ? `₹${variation.originalPrice.toFixed(2)}` : `₹${baseOriginalPrice.toFixed(2)}`}
                           </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        {isEditing ? (
-                          <input
-                            type="number"
-                            min="0"
-                            value={variation.stock}
-                            onChange={(e) => handleVariationChange(variation.id, 'stock', Math.max(0, parseInt(e.target.value) || 0))}
-                            className="w-20 px-2 py-1 text-xs border border-gray-300 rounded-md"
-                            onBlur={() => setEditingVariationId(null)}
-                          />
-                        ) : (
-                          <span
-                            className="text-xs text-gray-700 cursor-pointer hover:text-blue-600"
-                            onClick={() => setEditingVariationId(variation.id)}
-                          >
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-xs text-gray-700">
                             {variation.stock}
                           </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                          variation.isActive !== false
-                            ? 'bg-green-100 text-green-800'
-                            : 'bg-gray-100 text-gray-800'
-                        }`}>
-                          {variation.isActive !== false ? 'Active' : 'Inactive'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setEditingVariationId(isEditing ? null : variation.id)}
-                            className="text-blue-600 hover:text-blue-800"
-                            title={isEditing ? 'Done' : 'Edit'}
-                          >
-                            <FaEdit size={14} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveVariation(variation.id)}
-                            className="text-red-600 hover:text-red-800"
-                            title="Delete"
-                          >
-                            <FaTrash size={14} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                            variation.isActive !== false
+                              ? 'bg-green-100 text-green-800'
+                              : 'bg-gray-100 text-gray-800'
+                          }`}>
+                            {variation.isActive !== false ? 'Active' : 'Inactive'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setEditingVariationId(isEditing ? null : variation.id)}
+                              className="text-blue-600 hover:text-blue-800"
+                              title={isEditing ? 'Done' : 'Edit'}
+                            >
+                              {isEditing ? <FaCheck size={14} /> : <FaEdit size={14} />}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveVariation(variation.id)}
+                              className="text-red-600 hover:text-red-800"
+                              title="Delete"
+                              disabled={isEditing}
+                            >
+                              <FaTrash size={14} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                      {isEditing && (
+                        <tr className="bg-blue-50">
+                          <td colSpan={8} className="px-4 py-4">
+                            <div className="bg-white rounded-lg border border-blue-200 p-4 space-y-4">
+                              <h4 className="font-medium text-gray-900 mb-3">Edit Variation</h4>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {/* SKU */}
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">SKU *</label>
+                                  <input
+                                    type="text"
+                                    value={variation.sku}
+                                    onChange={(e) => handleVariationChange(variation.id, 'sku', e.target.value.toUpperCase().slice(0, 48))}
+                                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="SKU"
+                                  />
+                                </div>
+                                
+                                {/* Price */}
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">Price</label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={variation.price || ''}
+                                    onChange={(e) => handleVariationChange(variation.id, 'price', parseFloat(e.target.value) || undefined)}
+                                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="0.00"
+                                  />
+                                </div>
+                                
+                                {/* Original Price */}
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">Original Price</label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={variation.originalPrice || ''}
+                                    onChange={(e) => handleVariationChange(variation.id, 'originalPrice', parseFloat(e.target.value) || undefined)}
+                                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="0.00"
+                                  />
+                                </div>
+                                
+                                {/* Stock */}
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">Stock *</label>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    value={variation.stock}
+                                    onChange={(e) => handleVariationChange(variation.id, 'stock', Math.max(0, parseInt(e.target.value) || 0))}
+                                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="0"
+                                  />
+                                </div>
+                                
+                                {/* Is Active */}
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                                  <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      checked={variation.isActive !== false}
+                                      onChange={(e) => handleVariationChange(variation.id, 'isActive', e.target.checked)}
+                                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                    />
+                                    <span className="text-sm text-gray-700">Active</span>
+                                  </label>
+                                </div>
+                              </div>
+                              
+                              {/* Short Description */}
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Short Description</label>
+                                <textarea
+                                  value={variation.shortDescription || ''}
+                                  onChange={(e) => handleVariationChange(variation.id, 'shortDescription', e.target.value)}
+                                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  rows={3}
+                                  placeholder="Optional short description for this variation"
+                                />
+                              </div>
+                              
+                              {/* Images */}
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Images</label>
+                                <div className="space-y-2">
+                                  {/* Image Upload */}
+                                  <label className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+                                    <FaUpload size={14} />
+                                    {uploadingImages[variation.id] ? 'Uploading...' : 'Upload Images'}
+                                    <input
+                                      type="file"
+                                      accept="image/*"
+                                      multiple
+                                      className="hidden"
+                                      disabled={uploadingImages[variation.id]}
+                                      onChange={(e) => {
+                                        if (e.target.files) {
+                                          handleImageUpload(variation.id, e.target.files);
+                                          e.target.value = '';
+                                        }
+                                      }}
+                                    />
+                                  </label>
+                                  
+                                  {/* Image Preview Grid */}
+                                  {variation.images && variation.images.length > 0 && (
+                                    <div className="grid grid-cols-4 gap-2 mt-2">
+                                      {variation.images.map((imageUrl, idx) => (
+                                        <div key={idx} className="relative group">
+                                          <img
+                                            src={imageUrl}
+                                            alt={`Variation ${idx + 1}`}
+                                            className="w-full h-24 object-cover rounded border border-gray-300"
+                                          />
+                                          <button
+                                            type="button"
+                                            onClick={() => handleRemoveImage(variation.id, idx)}
+                                            className="absolute top-1 right-1 bg-red-600 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                                            title="Remove image"
+                                          >
+                                            <FaTimes size={10} />
+                                          </button>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   );
                 })}
               </tbody>
