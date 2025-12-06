@@ -46,6 +46,8 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
     stock: '',
     isActive: true,
   });
+  const [bulkEditColumn, setBulkEditColumn] = useState<'price' | 'originalPrice' | 'stock' | 'status' | null>(null);
+  const [bulkEditColumnValue, setBulkEditColumnValue] = useState<string>('');
   const [editingVariationId, setEditingVariationId] = useState<string | null>(null);
   const [uploadingImages, setUploadingImages] = useState<Record<string, boolean>>({});
   const editRowRef = useRef<HTMLTableRowElement>(null);
@@ -267,21 +269,47 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
     }
   };
 
-  // Close edit mode when clicking outside
+  // Close edit mode when clicking outside - but NOT when clicking inside the edit form
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (editingVariationId && editRowRef.current && !editRowRef.current.contains(event.target as Node)) {
-        // Don't close if clicking on edit/done button
-        const target = event.target as HTMLElement;
-        if (!target.closest('button[title="Done"]') && !target.closest('button[title="Edit"]') && !target.closest('button[title*="Edit"]')) {
-          setEditingVariationId(null);
+      if (!editingVariationId) return;
+      
+      const target = event.target as HTMLElement;
+      
+      // Don't close if clicking inside the edit form row
+      if (editRowRef.current && editRowRef.current.contains(target)) {
+        return;
+      }
+      
+      // Don't close if clicking on the edit/done button that opened this edit mode
+      // Find the button that corresponds to the current editing variation
+      const editButton = target.closest('button[title="Done"]') || target.closest('button[title="Edit"]');
+      if (editButton) {
+        // Check if this button is for the currently editing variation
+        const row = editButton.closest('tr');
+        if (row) {
+          // Get the variation ID from the row's data or context
+          // Since we can't easily get it, we'll just check if it's in the same table
+          const table = row.closest('table');
+          if (table && editRowRef.current && table.contains(editRowRef.current)) {
+            // This is likely the button for this variation, don't close
+            return;
+          }
         }
       }
+      
+      // Close if clicking outside
+      setEditingVariationId(null);
     };
 
     if (editingVariationId) {
-      document.addEventListener('mousedown', handleClickOutside);
+      // Use a small delay to avoid immediate closure when opening edit mode
+      const timeoutId = setTimeout(() => {
+        document.addEventListener('mousedown', handleClickOutside);
+      }, 200);
+      
       return () => {
+        clearTimeout(timeoutId);
         document.removeEventListener('mousedown', handleClickOutside);
       };
     }
@@ -319,6 +347,40 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
     setSelectedVariationIds(new Set());
     setBulkEditMode(false);
     setBulkEditValues({ price: '', originalPrice: '', stock: '', isActive: true });
+  };
+
+  // Handle column-specific bulk edit
+  const handleColumnBulkEdit = (column: 'price' | 'originalPrice' | 'stock' | 'status') => {
+    if (selectedVariationIds.size === 0) {
+      alert('Please select at least one variation to update');
+      return;
+    }
+    setBulkEditColumn(column);
+    setBulkEditColumnValue('');
+  };
+
+  const applyColumnBulkEdit = () => {
+    if (!bulkEditColumn || bulkEditColumnValue === '') return;
+
+    const updatedVariations = variations.map(v => {
+      if (selectedVariationIds.has(v.id)) {
+        const updated = { ...v };
+        if (bulkEditColumn === 'price') {
+          updated.price = parseFloat(bulkEditColumnValue) || undefined;
+        } else if (bulkEditColumn === 'originalPrice') {
+          updated.originalPrice = parseFloat(bulkEditColumnValue) || undefined;
+        } else if (bulkEditColumn === 'stock') {
+          updated.stock = Math.max(0, parseInt(bulkEditColumnValue) || 0);
+        } else if (bulkEditColumn === 'status') {
+          updated.isActive = bulkEditColumnValue === 'active';
+        }
+        return updated;
+      }
+      return v;
+    });
+    onVariationsChange(updatedVariations);
+    setBulkEditColumn(null);
+    setBulkEditColumnValue('');
   };
 
   const toggleSelectAll = () => {
@@ -604,6 +666,88 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
             </div>
           )}
 
+          {/* Column-specific Bulk Edit Form */}
+          {bulkEditColumn && selectedVariationIds.size > 0 && (
+            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-medium text-blue-900">
+                    Bulk Update {bulkEditColumn === 'price' ? 'Price' : bulkEditColumn === 'originalPrice' ? 'Original Price' : bulkEditColumn === 'stock' ? 'Stock' : 'Status'} ({selectedVariationIds.size} variations)
+                  </span>
+                  {bulkEditColumn === 'price' && (
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={bulkEditColumnValue}
+                      onChange={(e) => setBulkEditColumnValue(e.target.value)}
+                      className="px-3 py-1.5 text-sm border border-gray-300 rounded-md w-32"
+                      placeholder="Enter price"
+                      autoFocus
+                    />
+                  )}
+                  {bulkEditColumn === 'originalPrice' && (
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={bulkEditColumnValue}
+                      onChange={(e) => setBulkEditColumnValue(e.target.value)}
+                      className="px-3 py-1.5 text-sm border border-gray-300 rounded-md w-32"
+                      placeholder="Enter original price"
+                      autoFocus
+                    />
+                  )}
+                  {bulkEditColumn === 'stock' && (
+                    <input
+                      type="number"
+                      min="0"
+                      value={bulkEditColumnValue}
+                      onChange={(e) => setBulkEditColumnValue(e.target.value)}
+                      className="px-3 py-1.5 text-sm border border-gray-300 rounded-md w-32"
+                      placeholder="Enter stock"
+                      autoFocus
+                    />
+                  )}
+                  {bulkEditColumn === 'status' && (
+                    <select
+                      value={bulkEditColumnValue}
+                      onChange={(e) => setBulkEditColumnValue(e.target.value)}
+                      className="px-3 py-1.5 text-sm border border-gray-300 rounded-md w-32"
+                      autoFocus
+                    >
+                      <option value="">Select status</option>
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                    </select>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={applyColumnBulkEdit}
+                    disabled={bulkEditColumnValue === ''}
+                    className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <FaCheck className="inline mr-1" size={12} />
+                    Apply
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBulkEditColumn(null);
+                      setBulkEditColumnValue('');
+                    }}
+                    className="px-3 py-1.5 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+                  >
+                    <FaTimes className="inline mr-1" size={12} />
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Variations Table */}
           <div className="overflow-x-auto border border-gray-200 rounded-lg">
             <table className="min-w-full divide-y divide-gray-200">
@@ -624,16 +768,64 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
                     SKU
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Price
+                    <div className="flex items-center gap-2">
+                      <span>Price</span>
+                      {selectedVariationIds.size > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => handleColumnBulkEdit('price')}
+                          className="text-blue-600 hover:text-blue-800"
+                          title="Bulk update price"
+                        >
+                          <FaEdit size={10} />
+                        </button>
+                      )}
+                    </div>
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Original Price
+                    <div className="flex items-center gap-2">
+                      <span>Original Price</span>
+                      {selectedVariationIds.size > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => handleColumnBulkEdit('originalPrice')}
+                          className="text-blue-600 hover:text-blue-800"
+                          title="Bulk update original price"
+                        >
+                          <FaEdit size={10} />
+                        </button>
+                      )}
+                    </div>
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Stock
+                    <div className="flex items-center gap-2">
+                      <span>Stock</span>
+                      {selectedVariationIds.size > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => handleColumnBulkEdit('stock')}
+                          className="text-blue-600 hover:text-blue-800"
+                          title="Bulk update stock"
+                        >
+                          <FaEdit size={10} />
+                        </button>
+                      )}
+                    </div>
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
+                    <div className="flex items-center gap-2">
+                      <span>Status</span>
+                      {selectedVariationIds.size > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => handleColumnBulkEdit('status')}
+                          className="text-blue-600 hover:text-blue-800"
+                          title="Bulk update status"
+                        >
+                          <FaEdit size={10} />
+                        </button>
+                      )}
+                    </div>
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Actions
@@ -647,7 +839,7 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
                   
                   return (
                     <React.Fragment key={variation.id}>
-                      <tr ref={isEditing ? editRowRef : null} className={isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'}>
+                      <tr className={isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'}>
                         <td className="px-4 py-3">
                           <input
                             type="checkbox"
@@ -735,7 +927,7 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
                         </td>
                       </tr>
                       {isEditing && (
-                        <tr className="bg-blue-50">
+                        <tr ref={editRowRef} className="bg-blue-50">
                           <td colSpan={8} className="px-4 py-4">
                             <div className="bg-white rounded-lg border border-blue-200 p-4 space-y-4">
                               <h4 className="font-medium text-gray-900 mb-3">Edit Variation</h4>
