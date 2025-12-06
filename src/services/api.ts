@@ -556,7 +556,7 @@ export const attributeValuesAPI = {
     }
   },
   // Get values by attribute ID (for admin - needs to find attribute first)
-  getAll: async (params?: { attributeId?: string; isActive?: boolean }) => {
+  getAll: async (params?: { attributeId?: string | any; isActive?: boolean }) => {
     try {
       // Backend doesn't have direct /attribute-values endpoint
       // We need to get attribute slug first, then use getByAttributeSlug
@@ -564,8 +564,31 @@ export const attributeValuesAPI = {
         throw new Error('attributeId is required');
       }
       
+      // Normalize attributeId to string (handles MongoDB ObjectId buffers/objects)
+      let normalizedAttributeId: string;
+      if (typeof params.attributeId === 'string') {
+        normalizedAttributeId = params.attributeId.trim();
+      } else if (params.attributeId && typeof params.attributeId === 'object') {
+        // Handle MongoDB ObjectId objects (buffer or object with toString)
+        if (params.attributeId.toString && typeof params.attributeId.toString === 'function') {
+          normalizedAttributeId = params.attributeId.toString();
+        } else if (params.attributeId._id) {
+          normalizedAttributeId = String(params.attributeId._id);
+        } else if (params.attributeId.id) {
+          normalizedAttributeId = String(params.attributeId.id);
+        } else {
+          throw new Error('Invalid attributeId format');
+        }
+      } else {
+        normalizedAttributeId = String(params.attributeId);
+      }
+      
+      if (!normalizedAttributeId) {
+        throw new Error('Invalid attributeId');
+      }
+      
       // Get attribute to find its slug
-      const attrResponse = await attributesAPI.getById(params.attributeId);
+      const attrResponse = await attributesAPI.getById(normalizedAttributeId);
       const attribute = attrResponse?.data || attrResponse;
       if (!attribute || !attribute.slug) {
         throw new Error('Attribute not found or missing slug');
@@ -579,7 +602,7 @@ export const attributeValuesAPI = {
       return [];
     }
   },
-  create: async (attributeId: string, data: {
+  create: async (attributeId: string | any, data: {
     name: string;
     slug?: string;
     value?: string;
@@ -590,14 +613,32 @@ export const attributeValuesAPI = {
     order?: number;
   }) => {
     try {
-      // Backend route: POST /attributes/:id/values
-      const response = await api.post(`/attributes/${attributeId}/values`, data);
+      // Normalize attributeId to string (handles MongoDB ObjectId buffers/objects)
+      let normalizedId: string;
+      if (typeof attributeId === 'string') {
+        normalizedId = attributeId.trim();
+      } else if (attributeId && typeof attributeId === 'object') {
+        if (attributeId.toString && typeof attributeId.toString === 'function') {
+          normalizedId = attributeId.toString();
+        } else if (attributeId._id) {
+          normalizedId = String(attributeId._id);
+        } else if (attributeId.id) {
+          normalizedId = String(attributeId.id);
+        } else {
+          normalizedId = String(attributeId);
+        }
+      } else {
+        normalizedId = String(attributeId);
+      }
+      
+      // Backend route: POST /api/v1/attributes/:id/values
+      const response = await api.post(`/attributes/${normalizedId}/values`, data);
       return response.data;
     } catch (error: any) {
       safeError(error);
     }
   },
-  update: async (attributeId: string, valueId: string, data: {
+  update: async (attributeId: string | any, valueId: string | any, data: {
     name?: string;
     slug?: string;
     value?: string;
@@ -608,17 +649,93 @@ export const attributeValuesAPI = {
     order?: number;
   }) => {
     try {
-      // Backend route: PUT /attributes/:id/values/:valueId
-      const response = await api.put(`/attributes/${attributeId}/values/${valueId}`, data);
+      // Normalize IDs to strings (handles MongoDB ObjectId buffers/objects)
+      let normalizedAttributeId: string;
+      let normalizedValueId: string;
+      
+      // Normalize attributeId
+      if (typeof attributeId === 'string') {
+        normalizedAttributeId = attributeId.trim();
+      } else if (attributeId && typeof attributeId === 'object') {
+        if (attributeId.toString && typeof attributeId.toString === 'function') {
+          normalizedAttributeId = attributeId.toString();
+        } else if (attributeId._id) {
+          normalizedAttributeId = String(attributeId._id);
+        } else if (attributeId.id) {
+          normalizedAttributeId = String(attributeId.id);
+        } else {
+          normalizedAttributeId = String(attributeId);
+        }
+      } else {
+        normalizedAttributeId = String(attributeId);
+      }
+      
+      // Normalize valueId
+      if (typeof valueId === 'string') {
+        normalizedValueId = valueId.trim();
+      } else if (valueId && typeof valueId === 'object') {
+        if (valueId.toString && typeof valueId.toString === 'function') {
+          normalizedValueId = valueId.toString();
+        } else if (valueId._id) {
+          normalizedValueId = String(valueId._id);
+        } else if (valueId.id) {
+          normalizedValueId = String(valueId.id);
+        } else {
+          normalizedValueId = String(valueId);
+        }
+      } else {
+        normalizedValueId = String(valueId);
+      }
+      
+      // Backend route: PUT /api/v1/attributes/:id/values/:valueId
+      const response = await api.put(`/attributes/${normalizedAttributeId}/values/${normalizedValueId}`, data);
       return response.data;
     } catch (error: any) {
       safeError(error);
     }
   },
-  delete: async (attributeId: string, valueId: string) => {
+  delete: async (attributeId: string | any, valueId: string | any) => {
     try {
-      // Backend route: DELETE /attributes/:id/values/:valueId
-      const response = await api.delete(`/attributes/${attributeId}/values/${valueId}`);
+      // Normalize IDs to strings (handles MongoDB ObjectId buffers/objects)
+      let normalizedAttributeId: string;
+      let normalizedValueId: string;
+      
+      // Normalize attributeId
+      if (typeof attributeId === 'string') {
+        normalizedAttributeId = attributeId.trim();
+      } else if (attributeId && typeof attributeId === 'object') {
+        if (attributeId.toString && typeof attributeId.toString === 'function') {
+          normalizedAttributeId = attributeId.toString();
+        } else if (attributeId._id) {
+          normalizedAttributeId = String(attributeId._id);
+        } else if (attributeId.id) {
+          normalizedAttributeId = String(attributeId.id);
+        } else {
+          normalizedAttributeId = String(attributeId);
+        }
+      } else {
+        normalizedAttributeId = String(attributeId);
+      }
+      
+      // Normalize valueId
+      if (typeof valueId === 'string') {
+        normalizedValueId = valueId.trim();
+      } else if (valueId && typeof valueId === 'object') {
+        if (valueId.toString && typeof valueId.toString === 'function') {
+          normalizedValueId = valueId.toString();
+        } else if (valueId._id) {
+          normalizedValueId = String(valueId._id);
+        } else if (valueId.id) {
+          normalizedValueId = String(valueId.id);
+        } else {
+          normalizedValueId = String(valueId);
+        }
+      } else {
+        normalizedValueId = String(valueId);
+      }
+      
+      // Backend route: DELETE /api/v1/attributes/:id/values/:valueId
+      const response = await api.delete(`/attributes/${normalizedAttributeId}/values/${normalizedValueId}`);
       return response.data;
     } catch (error: any) {
       safeError(error);
