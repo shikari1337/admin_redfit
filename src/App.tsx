@@ -7,6 +7,10 @@ import AbandonedCarts from './pages/AbandonedCarts';
 import Categories from './pages/Categories';
 import Attributes from './pages/Attributes';
 import SizeCharts from './pages/SizeCharts';
+import Tags from './pages/Tags';
+import TagForm from './pages/TagForm';
+import Specifications from './pages/Specifications';
+import SpecificationForm from './pages/SpecificationForm';
 import Orders from './pages/Orders';
 import ProductForm from './pages/ProductForm';
 import BundleForm from './pages/BundleForm';
@@ -60,10 +64,16 @@ function App() {
           <Route path="products/bundles" element={<Bundles />} />
           <Route path="products/bundles/new" element={<BundleForm />} />
           <Route path="products/bundles/:id/edit" element={<BundleForm />} />
-          <Route path="categories" element={<Categories />} />
-          <Route path="attributes" element={<Attributes />} />
+          <Route path="products/categories" element={<Categories />} />
+          <Route path="products/attributes" element={<Attributes />} />
+          <Route path="products/tags" element={<Tags />} />
+          <Route path="products/size-charts" element={<SizeCharts />} />
+          <Route path="products/specifications" element={<Specifications />} />
+          <Route path="products/specifications/new" element={<SpecificationForm />} />
+          <Route path="products/specifications/:id/edit" element={<SpecificationForm />} />
+          <Route path="products/tags/:id/edit" element={<TagForm />} />
+          <Route path="products/tags/new" element={<TagForm />} />
           <Route path="gallery" element={<Gallery />} />
-          <Route path="size-charts" element={<SizeCharts />} />
           <Route path="orders" element={<Orders />} />
           <Route path="orders/abandoned-carts" element={<AbandonedCarts />} />
           <Route path="orders/:id" element={<OrderDetail />} />

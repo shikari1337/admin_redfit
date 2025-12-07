@@ -317,12 +317,24 @@ export const productsAPI = {
     return response.data;
   },
   getById: async (id: string) => {
+    // Backend route: GET /api/v1/products/:id
     const response = await api.get(`/products/${id}`);
-    return response.data;
+    // Response format: { success: true, data: {...} }
+    const responseData = response.data;
+    if (responseData?.success && responseData.data) {
+      return responseData.data;
+    }
+    return responseData?.data || responseData;
   },
   getBySlug: async (slug: string) => {
+    // Backend route: GET /api/v1/products/slug/:slug
     const response = await api.get(`/products/slug/${slug}`);
-    return response.data;
+    // Response format: { success: true, data: {...} }
+    const responseData = response.data;
+    if (responseData?.success && responseData.data) {
+      return responseData.data;
+    }
+    return responseData?.data || responseData;
   },
   create: async (data: any) => {
     const response = await api.post('/products', data);
@@ -337,21 +349,29 @@ export const productsAPI = {
     return response.data;
   },
   duplicate: async (id: string) => {
+    // Backend route: GET /api/v1/products/:id/duplicate
     // Get prefilled data for duplication (doesn't create product)
     const response = await api.get(`/products/${id}/duplicate`);
-    return response.data;
+    // Response format: { success: true, data: {...} }
+    const responseData = response.data;
+    if (responseData?.success && responseData.data) {
+      return responseData.data;
+    }
+    return responseData?.data || responseData;
   },
-  generateContent: async (id: string, sectionId: string, options: {
-    generateText: boolean;
-    generateImages: boolean;
-    generateVideos: boolean;
-    overrideExisting: boolean;
-  }) => {
+  generateContent: async (id: string, sectionId: string, prompt?: string) => {
+    // Backend route: POST /api/v1/products/:id/generate-content
+    // Body: { sectionId: string, prompt?: string }
     const response = await api.post(`/products/${id}/generate-content`, {
       sectionId,
-      options,
+      ...(prompt && { prompt }),
     });
-    return response.data;
+    // Response format: { success: true, message: "...", data: {...} }
+    const responseData = response.data;
+    if (responseData?.success && responseData.data) {
+      return responseData.data;
+    }
+    return responseData?.data || responseData;
   },
   generateField: async (
     id: string,
@@ -1407,6 +1427,180 @@ export const faqsAPI = {
   delete: async (id: string) => {
     const response = await api.delete(`/faqs/${id}`);
     return response.data;
+  },
+};
+
+// Specifications API
+export const specificationsAPI = {
+  getAll: async (params?: { productId?: string; shared?: boolean; active?: boolean }) => {
+    // Backend route: GET /api/v1/specifications
+    const response = await api.get('/specifications', { params });
+    // Response format: { success: true, data: [...], count: number }
+    const responseData = response.data;
+    if (responseData?.success && responseData.data) {
+      return responseData.data;
+    }
+    return responseData?.data || responseData;
+  },
+  getById: async (id: string) => {
+    // Backend route: GET /api/v1/specifications/:id
+    const response = await api.get(`/specifications/${id}`);
+    // Response format: { success: true, data: {...} }
+    const responseData = response.data;
+    if (responseData?.success && responseData.data) {
+      return responseData.data;
+    }
+    return responseData?.data || responseData;
+  },
+  getByProductId: async (productId: string) => {
+    // Backend route: GET /api/v1/specifications/product/:productId
+    const response = await api.get(`/specifications/product/${productId}`);
+    // Response format: { success: true, data: { type: "inline"|"linked", sections: [...] } }
+    const responseData = response.data;
+    if (responseData?.success && responseData.data) {
+      return responseData.data;
+    }
+    return responseData?.data || responseData;
+  },
+  create: async (data: {
+    name: string;
+    slug?: string;
+    productId?: string;
+    sections: Array<{
+      heading: string;
+      items: Array<{ key: string; value: string }>;
+    }>;
+    isActive?: boolean;
+  }) => {
+    // Backend route: POST /api/v1/specifications
+    const response = await api.post('/specifications', data);
+    // Response format: { success: true, message: "...", data: {...} }
+    const responseData = response.data;
+    if (responseData?.success && responseData.data) {
+      return responseData.data;
+    }
+    return responseData?.data || responseData;
+  },
+  update: async (id: string, data: {
+    name?: string;
+    slug?: string;
+    sections?: Array<{
+      heading: string;
+      items: Array<{ key: string; value: string }>;
+    }>;
+    isActive?: boolean;
+  }) => {
+    // Backend route: PUT /api/v1/specifications/:id
+    const response = await api.put(`/specifications/${id}`, data);
+    // Response format: { success: true, message: "...", data: {...} }
+    const responseData = response.data;
+    if (responseData?.success && responseData.data) {
+      return responseData.data;
+    }
+    return responseData?.data || responseData;
+  },
+  delete: async (id: string) => {
+    // Backend route: DELETE /api/v1/specifications/:id
+    const response = await api.delete(`/specifications/${id}`);
+    // Response format: { success: true, message: "..." }
+    const responseData = response.data;
+    if (responseData?.success && responseData.data) {
+      return responseData.data;
+    }
+    return responseData?.data || responseData;
+  },
+  assignToProduct: async (id: string, productId: string) => {
+    // Backend route: POST /api/v1/specifications/:id/assign-to-product
+    const response = await api.post(`/specifications/${id}/assign-to-product`, { productId });
+    // Response format: { success: true, message: "...", data: {...} }
+    const responseData = response.data;
+    if (responseData?.success && responseData.data) {
+      return responseData.data;
+    }
+    return responseData?.data || responseData;
+  },
+};
+
+// Tags API
+export const tagsAPI = {
+  getAll: async (params?: { active?: boolean; search?: string; limit?: number }) => {
+    // Backend route: GET /api/v1/tags
+    const response = await api.get('/tags', { params });
+    // Response format: { success: true, data: [...], count: number }
+    const responseData = response.data;
+    if (responseData?.success && responseData.data) {
+      return responseData.data;
+    }
+    return responseData?.data || responseData;
+  },
+  getById: async (id: string) => {
+    // Backend route: GET /api/v1/tags/:id
+    const response = await api.get(`/tags/${id}`);
+    // Response format: { success: true, data: {...} }
+    const responseData = response.data;
+    if (responseData?.success && responseData.data) {
+      return responseData.data;
+    }
+    return responseData?.data || responseData;
+  },
+  getBySlug: async (slug: string) => {
+    // Backend route: GET /api/v1/tags/slug/:slug
+    const response = await api.get(`/tags/slug/${slug}`);
+    // Response format: { success: true, data: {...} }
+    const responseData = response.data;
+    if (responseData?.success && responseData.data) {
+      return responseData.data;
+    }
+    return responseData?.data || responseData;
+  },
+  create: async (data: {
+    name: string;
+    slug?: string;
+    description?: string;
+    isActive?: boolean;
+  }) => {
+    // Backend route: POST /api/v1/tags
+    const response = await api.post('/tags', data);
+    // Response format: { success: true, message: "...", data: {...} }
+    const responseData = response.data;
+    if (responseData?.success && responseData.data) {
+      return responseData.data;
+    }
+    return responseData?.data || responseData;
+  },
+  bulkCreate: async (names: string[]) => {
+    // Backend route: POST /api/v1/tags/bulk-create
+    const response = await api.post('/tags/bulk-create', { names });
+    // Response format: { success: true, message: "...", data: [...] }
+    const responseData = response.data;
+    if (responseData?.success && responseData.data) {
+      return responseData.data;
+    }
+    return responseData?.data || responseData;
+  },
+  update: async (id: string, data: {
+    name?: string;
+    description?: string;
+    isActive?: boolean;
+  }) => {
+    // Backend route: PUT /api/v1/tags/:id
+    const response = await api.put(`/tags/${id}`, data);
+    // Response format: { success: true, message: "...", data: {...} }
+    const responseData = response.data;
+    if (responseData?.success && responseData.data) {
+      return responseData.data;
+    }
+    return responseData?.data || responseData;
+  },
+  delete: async (id: string) => {
+    // Backend route: DELETE /api/v1/tags/:id
+    const response = await api.delete(`/tags/${id}`);
+    // Response format: { success: true, message: "..." }
+    const responseData = response.data;
+    if (responseData?.success && responseData.data) {
+      return responseData.data;
+    }
+    return responseData?.data || responseData;
   },
 };
 

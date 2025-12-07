@@ -20,6 +20,7 @@ import {
   FaFileAlt,
   FaTruck,
   FaFile,
+  FaTags,
 } from 'react-icons/fa';
 import { authAPI } from '../services/api';
 import PageTransitionLoader from './PageTransitionLoader';
@@ -52,14 +53,16 @@ const Layout: React.FC = () => {
       label: 'Products',
       children: [
         { path: '/products', label: 'All Products' },
-        { path: '/products/bundles', label: 'Bundles', icon: FaCubes },
         { path: '/products/new', label: 'Create Product' },
+        { path: '/products/bundles', label: 'Bundles', icon: FaCubes },
+        { path: '/products/categories', label: 'Categories', icon: FaLayerGroup },
+        { path: '/products/attributes', label: 'Attributes', icon: FaLayerGroup },
+        { path: '/products/tags', label: 'Tags', icon: FaTags },
+        { path: '/products/size-charts', label: 'Size Charts', icon: FaRulerCombined },
+        { path: '/products/specifications', label: 'Specifications', icon: FaFileAlt },
       ],
     },
-    { path: '/categories', icon: FaLayerGroup, label: 'Categories' },
-    { path: '/attributes', icon: FaLayerGroup, label: 'Attributes' },
     { path: '/gallery', icon: FaImages, label: 'Gallery' },
-    { path: '/size-charts', icon: FaRulerCombined, label: 'Size Charts' },
     {
       path: '/orders',
       icon: FaShoppingCart,

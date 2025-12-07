@@ -299,12 +299,7 @@ const SectionContentEditor: React.FC<SectionContentEditorProps> = ({ section, on
 
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const [generateOptions, setGenerateOptions] = useState({
-    generateText: true,
-    generateImages: false,
-    generateVideos: false,
-    overrideExisting: false,
-  });
+  const [generatePrompt, setGeneratePrompt] = useState('');
 
   const handleSave = () => {
     onSave(formData);
@@ -321,57 +316,17 @@ const SectionContentEditor: React.FC<SectionContentEditorProps> = ({ section, on
       const response = await productsAPI.generateContent(
         effectiveProductId,
         section.sectionId,
-        generateOptions
+        generatePrompt || undefined
       );
 
-      if (response.success && response.data) {
-        // Merge generated content with existing form data
-        let merged: any;
-        if (generateOptions.overrideExisting) {
-          // Completely replace with generated content
-          merged = response.data;
-        } else {
-          // Merge: fill missing fields, keep existing ones
-          merged = { ...formData };
-          Object.keys(response.data).forEach(key => {
-            if (Array.isArray(response.data[key])) {
-              // For arrays, merge items if array is empty or add new ones
-              if (!merged[key] || merged[key].length === 0) {
-                merged[key] = response.data[key];
-              } else {
-                // Merge arrays, avoiding duplicates
-                const existingIds = new Set(merged[key].map((item: any) => item.id || item.title || JSON.stringify(item)));
-                const newItems = response.data[key].filter((item: any) => {
-                  const itemId = item.id || item.title || JSON.stringify(item);
-                  return !existingIds.has(itemId);
-                });
-                merged[key] = [...merged[key], ...newItems];
-              }
-            } else if (typeof response.data[key] === 'object' && response.data[key] !== null) {
-              // For objects, recursively merge
-              merged[key] = { ...merged[key], ...response.data[key] };
-            } else if (!merged[key] || merged[key] === '') {
-              // Fill missing fields
-              merged[key] = response.data[key];
-            }
-          });
-        }
-        
+      // Response is already normalized by API service
+      if (response) {
+        // Replace form data with generated content
+        const merged = { ...formData, ...response };
         setFormData(merged);
-        
-        // Show success message
-        if (response.errors) {
-          const errors = Object.values(response.errors).filter(Boolean);
-          if (errors.length > 0) {
-            alert(`Content generated successfully, but some errors occurred: ${errors.join(', ')}`);
-          } else {
-            alert('Content generated successfully!');
-          }
-        } else {
-          alert('Content generated successfully!');
-        }
-        
+        alert('Content generated successfully!');
         setShowGenerateModal(false);
+        setGeneratePrompt('');
       } else {
         alert('Failed to generate content');
       }
@@ -469,55 +424,24 @@ const SectionContentEditor: React.FC<SectionContentEditorProps> = ({ section, on
             
             <div className="space-y-4 mb-6">
               <p className="text-sm text-gray-600">
-                Select what content to generate for the <strong>{section.name}</strong> section.
+                Generate AI content for the <strong>{section.name}</strong> section.
                 Content will be generated based on the product details.
               </p>
 
-              <div className="space-y-3">
-                <label className="flex items-center">
-                  <input
-                    type="checkbox"
-                    checked={generateOptions.generateText}
-                    onChange={(e) => setGenerateOptions({ ...generateOptions, generateText: e.target.checked })}
-                    className="mr-2"
-                  />
-                  <span className="text-sm font-medium text-gray-700">Generate Text Content</span>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Custom Prompt (Optional)
                 </label>
-
-                <label className="flex items-center">
-                  <input
-                    type="checkbox"
-                    checked={generateOptions.generateImages}
-                    onChange={(e) => setGenerateOptions({ ...generateOptions, generateImages: e.target.checked })}
-                    className="mr-2"
-                  />
-                  <span className="text-sm font-medium text-gray-700">Generate Images</span>
-                </label>
-
-                <label className="flex items-center">
-                  <input
-                    type="checkbox"
-                    checked={generateOptions.generateVideos}
-                    onChange={(e) => setGenerateOptions({ ...generateOptions, generateVideos: e.target.checked })}
-                    className="mr-2"
-                  />
-                  <span className="text-sm font-medium text-gray-700">Generate Videos</span>
-                </label>
-
-                <div className="pt-3 border-t border-gray-200">
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={generateOptions.overrideExisting}
-                      onChange={(e) => setGenerateOptions({ ...generateOptions, overrideExisting: e.target.checked })}
-                      className="mr-2"
-                    />
-                    <span className="text-sm font-medium text-gray-700">Override Existing Content</span>
-                  </label>
-                  <p className="text-xs text-gray-500 mt-1 ml-6">
-                    If unchecked, only missing fields will be filled
-                  </p>
-                </div>
+                <textarea
+                  value={generatePrompt}
+                  onChange={(e) => setGeneratePrompt(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  rows={3}
+                  placeholder="e.g., Generate product features highlighting quality and durability"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Leave blank to use default prompt for this section
+                </p>
               </div>
             </div>
 
@@ -531,7 +455,7 @@ const SectionContentEditor: React.FC<SectionContentEditorProps> = ({ section, on
               </button>
               <button
                 onClick={handleGenerateContent}
-                disabled={generating || (!generateOptions.generateText && !generateOptions.generateImages && !generateOptions.generateVideos)}
+                disabled={generating}
                 className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {generating ? (
