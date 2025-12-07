@@ -1414,8 +1414,8 @@ const ProductForm: React.FC = () => {
               return hasAttributes && hasSku;
             })
             .map((v) => {
-              // Remove temporary id field and variationId (backend auto-generates it) before sending to backend
-              const { id, variationId, ...variationData } = v;
+              // Note: We don't send 'id' (temporary frontend ID) or 'variationId' (backend auto-generates it)
+              // We build the payload explicitly to match API structure
               
               // SIMPLIFIED: Normalize slugs (not IDs) - WordPress style
               const normalizedAttributes: Record<string, string> = {};
