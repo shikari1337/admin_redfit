@@ -427,12 +427,27 @@ const ProductForm: React.FC = () => {
         selectedAttributeValues: {}, // Will be populated from variations if needed
         variations: (data.variations || []).map((v: any, idx: number) => {
           // SIMPLIFIED: Normalize slugs (not IDs) - WordPress style
+          // Handle both string slugs and nested objects with slug/name
           const normalizedAttrs: Record<string, string> = {};
           if (v.attributes && typeof v.attributes === 'object') {
-            for (const [attrSlug, valueSlug] of Object.entries(v.attributes)) {
-              const normalizedSlug = String(valueSlug).toLowerCase().trim();
-              if (normalizedSlug) {
-                normalizedAttrs[attrSlug.toLowerCase().trim()] = normalizedSlug;
+            for (const [attrSlug, valueData] of Object.entries(v.attributes)) {
+              // Extract value slug - handle both string slugs and nested objects
+              let normalizedValueSlug: string | null = null;
+              if (typeof valueData === 'string') {
+                // Direct slug string: "l"
+                normalizedValueSlug = valueData.toLowerCase().trim();
+              } else if (valueData && typeof valueData === 'object') {
+                // Nested object with slug/name: {slug: "l", name: "L"}
+                if (valueData.slug && typeof valueData.slug === 'string') {
+                  normalizedValueSlug = valueData.slug.toLowerCase().trim();
+                } else if (valueData.name && typeof valueData.name === 'string') {
+                  // Fallback to name if slug not available
+                  normalizedValueSlug = valueData.name.toLowerCase().trim();
+                }
+              }
+              
+              if (normalizedValueSlug) {
+                normalizedAttrs[attrSlug.toLowerCase().trim()] = normalizedValueSlug;
               }
             }
           }
@@ -898,20 +913,50 @@ const ProductForm: React.FC = () => {
           if (v.attributes && typeof v.attributes === 'object') {
             // Handle Map objects (MongoDB returns Maps for variation attributes)
             if (v.attributes instanceof Map) {
-              for (const [attrSlug, valueSlug] of v.attributes.entries()) {
-                // Normalize slugs (not IDs) - lowercase and trim
+              for (const [attrSlug, valueData] of v.attributes.entries()) {
+                // Normalize attribute slug
                 const normalizedAttrSlug = String(attrSlug).toLowerCase().trim();
-                const normalizedValueSlug = String(valueSlug).toLowerCase().trim();
+                
+                // Extract value slug - handle both string slugs and nested objects with slug/name
+                let normalizedValueSlug: string | null = null;
+                if (typeof valueData === 'string') {
+                  // Direct slug string: "l"
+                  normalizedValueSlug = valueData.toLowerCase().trim();
+                } else if (valueData && typeof valueData === 'object') {
+                  // Nested object with slug/name: {slug: "l", name: "L"}
+                  if (valueData.slug && typeof valueData.slug === 'string') {
+                    normalizedValueSlug = valueData.slug.toLowerCase().trim();
+                  } else if (valueData.name && typeof valueData.name === 'string') {
+                    // Fallback to name if slug not available (shouldn't happen, but handle gracefully)
+                    normalizedValueSlug = valueData.name.toLowerCase().trim();
+                  }
+                }
+                
                 if (normalizedAttrSlug && normalizedValueSlug) {
                   normalizedAttrs[normalizedAttrSlug] = normalizedValueSlug;
                 }
               }
             } else {
               // Handle plain objects
-              for (const [attrSlug, valueSlug] of Object.entries(v.attributes)) {
-                // Normalize slugs (not IDs) - lowercase and trim
+              for (const [attrSlug, valueData] of Object.entries(v.attributes)) {
+                // Normalize attribute slug
                 const normalizedAttrSlug = String(attrSlug).toLowerCase().trim();
-                const normalizedValueSlug = String(valueSlug).toLowerCase().trim();
+                
+                // Extract value slug - handle both string slugs and nested objects with slug/name
+                let normalizedValueSlug: string | null = null;
+                if (typeof valueData === 'string') {
+                  // Direct slug string: "l"
+                  normalizedValueSlug = valueData.toLowerCase().trim();
+                } else if (valueData && typeof valueData === 'object') {
+                  // Nested object with slug/name: {slug: "l", name: "L"}
+                  if (valueData.slug && typeof valueData.slug === 'string') {
+                    normalizedValueSlug = valueData.slug.toLowerCase().trim();
+                  } else if (valueData.name && typeof valueData.name === 'string') {
+                    // Fallback to name if slug not available (shouldn't happen, but handle gracefully)
+                    normalizedValueSlug = valueData.name.toLowerCase().trim();
+                  }
+                }
+                
                 if (normalizedAttrSlug && normalizedValueSlug) {
                   normalizedAttrs[normalizedAttrSlug] = normalizedValueSlug;
                 }
@@ -1366,8 +1411,8 @@ const ProductForm: React.FC = () => {
               return hasAttributes && hasSku;
             })
             .map((v) => {
-              // Remove temporary id field before sending to backend
-              const { id, ...variationData } = v;
+              // Remove temporary id field and variationId (backend auto-generates it) before sending to backend
+              const { id, variationId, ...variationData } = v;
               
               // SIMPLIFIED: Normalize slugs (not IDs) - WordPress style
               const normalizedAttributes: Record<string, string> = {};
@@ -1390,17 +1435,35 @@ const ProductForm: React.FC = () => {
                 return null;
               }
               
-              return {
-                ...variationData,
+              // Build variation payload matching API structure exactly
+              // API expects: { attributes: {size: "s"}, price, originalPrice, stock, sku, isActive }
+              // Note: variationId is auto-generated by backend, so we don't send it
+              const variationPayload: Record<string, any> = {
                 attributes: normalizedAttributes, // { attributeSlug: valueSlug }
                 sku: v.sku.trim().toUpperCase().slice(0, 48),
                 stock: Math.max(0, v.stock || 0),
-                price: v.price !== undefined ? Math.max(0, v.price) : undefined,
-                originalPrice: v.originalPrice !== undefined ? Math.max(0, v.originalPrice) : undefined,
-                images: v.images && v.images.length > 0 ? v.images : undefined,
-                shortDescription: v.shortDescription?.trim() || undefined,
                 isActive: v.isActive !== false,
               };
+              
+              // Only include price fields if they are defined and valid
+              if (v.price !== undefined && v.price !== null) {
+                variationPayload.price = Math.max(0, v.price);
+              }
+              if (v.originalPrice !== undefined && v.originalPrice !== null) {
+                variationPayload.originalPrice = Math.max(0, v.originalPrice);
+              }
+              
+              // Only include images if they exist
+              if (v.images && Array.isArray(v.images) && v.images.length > 0) {
+                variationPayload.images = v.images;
+              }
+              
+              // Only include shortDescription if it exists
+              if (v.shortDescription && v.shortDescription.trim()) {
+                variationPayload.shortDescription = v.shortDescription.trim();
+              }
+              
+              return variationPayload;
             })
             .filter((v): v is any => v !== null); // Remove null entries
           
