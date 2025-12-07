@@ -436,13 +436,14 @@ const ProductForm: React.FC = () => {
               if (typeof valueData === 'string') {
                 // Direct slug string: "l"
                 normalizedValueSlug = valueData.toLowerCase().trim();
-              } else if (valueData && typeof valueData === 'object') {
+              } else if (valueData && typeof valueData === 'object' && valueData !== null) {
                 // Nested object with slug/name: {slug: "l", name: "L"}
-                if (valueData.slug && typeof valueData.slug === 'string') {
-                  normalizedValueSlug = valueData.slug.toLowerCase().trim();
-                } else if (valueData.name && typeof valueData.name === 'string') {
+                const valueObj = valueData as { slug?: string; name?: string };
+                if (valueObj.slug && typeof valueObj.slug === 'string') {
+                  normalizedValueSlug = valueObj.slug.toLowerCase().trim();
+                } else if (valueObj.name && typeof valueObj.name === 'string') {
                   // Fallback to name if slug not available
-                  normalizedValueSlug = valueData.name.toLowerCase().trim();
+                  normalizedValueSlug = valueObj.name.toLowerCase().trim();
                 }
               }
               
@@ -922,13 +923,14 @@ const ProductForm: React.FC = () => {
                 if (typeof valueData === 'string') {
                   // Direct slug string: "l"
                   normalizedValueSlug = valueData.toLowerCase().trim();
-                } else if (valueData && typeof valueData === 'object') {
+                } else if (valueData && typeof valueData === 'object' && valueData !== null) {
                   // Nested object with slug/name: {slug: "l", name: "L"}
-                  if (valueData.slug && typeof valueData.slug === 'string') {
-                    normalizedValueSlug = valueData.slug.toLowerCase().trim();
-                  } else if (valueData.name && typeof valueData.name === 'string') {
+                  const valueObj = valueData as { slug?: string; name?: string };
+                  if (valueObj.slug && typeof valueObj.slug === 'string') {
+                    normalizedValueSlug = valueObj.slug.toLowerCase().trim();
+                  } else if (valueObj.name && typeof valueObj.name === 'string') {
                     // Fallback to name if slug not available (shouldn't happen, but handle gracefully)
-                    normalizedValueSlug = valueData.name.toLowerCase().trim();
+                    normalizedValueSlug = valueObj.name.toLowerCase().trim();
                   }
                 }
                 
