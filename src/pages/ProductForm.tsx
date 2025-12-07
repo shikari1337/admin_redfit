@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { productsAPI, uploadAPI, categoriesAPI, sizeChartsAPI } from '../services/api';
+import { productsAPI, uploadAPI, categoriesAPI, sizeChartsAPI, specificationsAPI } from '../services/api';
 import api from '../services/api';
 import { FaArrowLeft } from 'react-icons/fa';
 import {
@@ -70,6 +70,12 @@ const ProductForm: React.FC = () => {
     attributeIds: [] as string[],
     selectedAttributeValues: {} as Record<string, string[]>, // { attributeId: [valueId1, valueId2] }
     variations: [] as ProductVariation[],
+    // Specifications
+    specificationId: undefined as string | undefined, // Linked specification template ID
+    specifications: undefined as Array<{
+      heading: string;
+      items: Array<{ key: string; value: string }>;
+    }> | undefined, // Inline specifications (overrides specificationId)
   });
   
   // Root cause fix: Use ref to always get latest formData (avoids stale closure issues)
@@ -99,6 +105,7 @@ const ProductForm: React.FC = () => {
 
   const [availableCategories, setAvailableCategories] = useState<CategoryOption[]>([]);
   const [availableSizeCharts, setAvailableSizeCharts] = useState<SizeChartOption[]>([]);
+  const [availableSpecifications, setAvailableSpecifications] = useState<Array<{ _id: string; name: string; slug?: string }>>([]);
   const [lookupsLoading, setLookupsLoading] = useState(false);
   const [sizeChartMode, setSizeChartMode] = useState<'none' | 'reference' | 'custom'>('none');
   const [selectedSizeChartId, setSelectedSizeChartId] = useState<string>('');
@@ -180,12 +187,14 @@ const ProductForm: React.FC = () => {
   const loadLookups = async () => {
     setLookupsLoading(true);
     try {
-      const [catResponse, chartResponse] = await Promise.all([
+      const [catResponse, chartResponse, specResponse] = await Promise.all([
         categoriesAPI.list(),
         sizeChartsAPI.list(),
+        specificationsAPI.getAll({ shared: true, active: true }),
       ]);
       const rawCategoryList: any[] = extractListData(catResponse);
       const rawChartList: any[] = extractListData(chartResponse);
+      const rawSpecList: any[] = extractListData(specResponse);
       
       // CRITICAL FIX: Normalize all category IDs to strings (handle buffers)
       const categoryList: CategoryOption[] = rawCategoryList.map((cat: any) => {
@@ -222,6 +231,20 @@ const ProductForm: React.FC = () => {
       
       setAvailableCategories(categoryList);
       setAvailableSizeCharts(uniqueCharts);
+      
+      // Normalize specification IDs
+      const specList = rawSpecList.map((spec: any) => {
+        const normalizedId = normalizeCategoryId(spec._id || spec.id);
+        if (!normalizedId) {
+          console.warn('⚠️ Invalid specification ID, skipping:', spec);
+          return null;
+        }
+        return {
+          ...spec,
+          _id: normalizedId,
+        };
+      }).filter((spec: any): spec is { _id: string; name: string; slug?: string } => spec !== null);
+      setAvailableSpecifications(specList);
     } catch (err) {
       console.error('Failed to load lookups', err);
     } finally {
@@ -355,6 +378,9 @@ const ProductForm: React.FC = () => {
           };
         }),
         stock: stockValue,
+        // Specifications
+        specificationId: data.specificationId ? normalizeCategoryId(data.specificationId) || undefined : undefined,
+        specifications: data.specifications || undefined,
       });
 
       if (data.slug) {
@@ -811,6 +837,9 @@ const ProductForm: React.FC = () => {
           
           return variationData;
         }),
+        // Specifications
+        specificationId: product.specificationId ? normalizeCategoryId(product.specificationId) || undefined : undefined,
+        specifications: product.specifications || undefined,
       });
       setSizeChartMode(initialMode);
       setSelectedSizeChartId(inferredSizeChartId || '');
@@ -1400,6 +1429,9 @@ const ProductForm: React.FC = () => {
           ? (cleanedVariations !== undefined ? cleanedVariations : []) 
           : (cleanedVariations !== undefined ? cleanedVariations : undefined),
         categories: sanitizedCategories, // Always include categories (even if empty array)
+        // Specifications - include specificationId if set, or specifications if set (inline overrides linked)
+        ...(currentFormData.specificationId ? { specificationId: currentFormData.specificationId } : {}),
+        ...(currentFormData.specifications ? { specifications: currentFormData.specifications } : {}),
       };
       
       // CRITICAL FIX: Explicitly ensure variations and attributeIds are in payload
@@ -1620,6 +1652,193 @@ const ProductForm: React.FC = () => {
               uploading={uploading}
               errors={errors}
             />
+
+            {/* Specifications */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Product Specifications</h2>
+              <p className="text-sm text-gray-500 mb-4">
+                Attach a shared specification template or create inline specifications for this product.
+                Inline specifications override linked templates.
+              </p>
+              
+              <div className="space-y-4">
+                {/* Linked Specification Template */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Linked Specification Template (Optional)
+                  </label>
+                  <select
+                    value={formData.specificationId || ''}
+                    onChange={(e) => {
+                      const specId = e.target.value || undefined;
+                      setFormData({ ...formData, specificationId: specId });
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">None - No linked specification</option>
+                    {availableSpecifications.map((spec) => (
+                      <option key={spec._id} value={spec._id}>
+                        {spec.name} {spec.slug ? `(${spec.slug})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Select a shared specification template to link to this product
+                  </p>
+                </div>
+
+                {/* Inline Specifications */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-medium text-gray-700">
+                      Inline Specifications (Optional)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newSpecs = formData.specifications || [];
+                        setFormData({
+                          ...formData,
+                          specifications: [
+                            ...newSpecs,
+                            { heading: '', items: [{ key: '', value: '' }] }
+                          ]
+                        });
+                      }}
+                      className="text-sm text-blue-600 hover:text-blue-800"
+                    >
+                      + Add Section
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 mb-3">
+                    Create product-specific specifications. These override linked templates.
+                  </p>
+                  
+                  {(formData.specifications || []).map((section, sectionIdx) => (
+                    <div key={sectionIdx} className="mb-4 p-4 border border-gray-200 rounded-lg bg-gray-50">
+                      <div className="flex items-center justify-between mb-3">
+                        <input
+                          type="text"
+                          value={section.heading}
+                          onChange={(e) => {
+                            const newSpecs = [...(formData.specifications || [])];
+                            newSpecs[sectionIdx] = { ...section, heading: e.target.value };
+                            setFormData({ ...formData, specifications: newSpecs });
+                          }}
+                          placeholder="Section Heading (e.g., General, Technical)"
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const newSpecs = [...(formData.specifications || [])];
+                            newSpecs.splice(sectionIdx, 1);
+                            setFormData({
+                              ...formData,
+                              specifications: newSpecs.length > 0 ? newSpecs : undefined
+                            });
+                          }}
+                          className="ml-2 px-3 py-2 text-sm text-red-600 hover:text-red-800"
+                        >
+                          Remove Section
+                        </button>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        {section.items.map((item, itemIdx) => (
+                          <div key={itemIdx} className="flex gap-2">
+                            <input
+                              type="text"
+                              value={item.key}
+                              onChange={(e) => {
+                                const newSpecs = [...(formData.specifications || [])];
+                                const newItems = [...section.items];
+                                newItems[itemIdx] = { ...item, key: e.target.value };
+                                newSpecs[sectionIdx] = { ...section, items: newItems };
+                                setFormData({ ...formData, specifications: newSpecs });
+                              }}
+                              placeholder="Key (e.g., Material)"
+                              className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                            <input
+                              type="text"
+                              value={item.value}
+                              onChange={(e) => {
+                                const newSpecs = [...(formData.specifications || [])];
+                                const newItems = [...section.items];
+                                newItems[itemIdx] = { ...item, value: e.target.value };
+                                newSpecs[sectionIdx] = { ...section, items: newItems };
+                                setFormData({ ...formData, specifications: newSpecs });
+                              }}
+                              placeholder="Value (e.g., 100% Cotton)"
+                              className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const newSpecs = [...(formData.specifications || [])];
+                                const newItems = [...section.items];
+                                newItems.splice(itemIdx, 1);
+                                newSpecs[sectionIdx] = { ...section, items: newItems.length > 0 ? newItems : [{ key: '', value: '' }] };
+                                setFormData({ ...formData, specifications: newSpecs });
+                              }}
+                              className="px-3 py-2 text-sm text-red-600 hover:text-red-800"
+                              disabled={section.items.length === 1}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const newSpecs = [...(formData.specifications || [])];
+                            const newItems = [...section.items, { key: '', value: '' }];
+                            newSpecs[sectionIdx] = { ...section, items: newItems };
+                            setFormData({ ...formData, specifications: newSpecs });
+                          }}
+                          className="text-sm text-blue-600 hover:text-blue-800"
+                        >
+                          + Add Item
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {(!formData.specifications || formData.specifications.length === 0) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFormData({
+                          ...formData,
+                          specifications: [{ heading: '', items: [{ key: '', value: '' }] }]
+                        });
+                      }}
+                      className="w-full px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-blue-500 hover:text-blue-600"
+                    >
+                      + Create Inline Specifications
+                    </button>
+                  )}
+                </div>
+
+                {/* Clear Specifications */}
+                {(formData.specificationId || formData.specifications) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormData({
+                        ...formData,
+                        specificationId: undefined,
+                        specifications: undefined,
+                      });
+                    }}
+                    className="text-sm text-red-600 hover:text-red-800"
+                  >
+                    Clear All Specifications
+                  </button>
+                )}
+              </div>
+            </div>
 
             {/* Categories - moved to Basic Info section but can be separate */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
