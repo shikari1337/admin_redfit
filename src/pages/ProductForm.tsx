@@ -193,12 +193,39 @@ const ProductForm: React.FC = () => {
       const [catResponse, chartResponse, specResponse, tagsResponse] = await Promise.all([
         categoriesAPI.list(),
         sizeChartsAPI.list(),
-        specificationsAPI.getAll({ shared: true, active: true }),
+        specificationsAPI.getAll({ active: true }), // Show all active specifications (shared and product-specific)
         tagsAPI.getAll({ active: true }),
       ]);
       const rawCategoryList: any[] = extractListData(catResponse);
       const rawChartList: any[] = extractListData(chartResponse);
-      const rawSpecList: any[] = extractListData(specResponse);
+      
+      // Debug specifications response
+      if (import.meta.env.DEV) {
+        console.log('🔍 Specifications API Response:', {
+          rawResponse: specResponse,
+          isArray: Array.isArray(specResponse),
+          hasData: specResponse?.data,
+          hasSuccess: specResponse?.success,
+        });
+      }
+      
+      // Handle specifications response - it might already be an array or wrapped
+      let rawSpecList: any[] = [];
+      if (Array.isArray(specResponse)) {
+        rawSpecList = specResponse;
+      } else if (specResponse?.data && Array.isArray(specResponse.data)) {
+        rawSpecList = specResponse.data;
+      } else {
+        rawSpecList = extractListData(specResponse);
+      }
+      
+      if (import.meta.env.DEV) {
+        console.log('✅ Extracted Specifications:', {
+          count: rawSpecList.length,
+          specs: rawSpecList.map(s => ({ id: s._id, name: s.name, productId: s.productId })),
+        });
+      }
+      
       const rawTagList: any[] = extractListData(tagsResponse);
       
       // CRITICAL FIX: Normalize all category IDs to strings (handle buffers)
