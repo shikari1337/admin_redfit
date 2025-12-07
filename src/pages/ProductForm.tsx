@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { productsAPI, uploadAPI, categoriesAPI, sizeChartsAPI, specificationsAPI } from '../services/api';
+import { productsAPI, uploadAPI, categoriesAPI, sizeChartsAPI, specificationsAPI, tagsAPI } from '../services/api';
 import api from '../services/api';
 import { FaArrowLeft } from 'react-icons/fa';
 import {
   ProductBasicInfo,
   ProductPricing,
   ProductCategories,
+  ProductTags,
   ProductSEO,
   ProductSizeChart,
   ProductVideos,
@@ -57,6 +58,7 @@ const ProductForm: React.FC = () => {
     videos: [] as string[],
     stock: undefined as number | undefined, // Stock for products without variants (simple number)
     categories: [] as string[],
+    tags: [] as Array<string | { _id: string; name: string }>, // Tags can be IDs (strings) or names (strings) or objects
     sizeChart: [] as SizeChartEntry[],
     washCareInstructions: [] as Array<{ text: string; iconUrl?: string; iconName?: string }>,
     customerOrderImages: [] as string[],
@@ -106,6 +108,7 @@ const ProductForm: React.FC = () => {
   const [availableCategories, setAvailableCategories] = useState<CategoryOption[]>([]);
   const [availableSizeCharts, setAvailableSizeCharts] = useState<SizeChartOption[]>([]);
   const [availableSpecifications, setAvailableSpecifications] = useState<Array<{ _id: string; name: string; slug?: string }>>([]);
+  const [availableTags, setAvailableTags] = useState<Array<{ _id: string; name: string; slug?: string; isActive?: boolean }>>([]);
   const [lookupsLoading, setLookupsLoading] = useState(false);
   const [sizeChartMode, setSizeChartMode] = useState<'none' | 'reference' | 'custom'>('none');
   const [selectedSizeChartId, setSelectedSizeChartId] = useState<string>('');
@@ -187,14 +190,16 @@ const ProductForm: React.FC = () => {
   const loadLookups = async () => {
     setLookupsLoading(true);
     try {
-      const [catResponse, chartResponse, specResponse] = await Promise.all([
+      const [catResponse, chartResponse, specResponse, tagsResponse] = await Promise.all([
         categoriesAPI.list(),
         sizeChartsAPI.list(),
         specificationsAPI.getAll({ shared: true, active: true }),
+        tagsAPI.getAll({ active: true }),
       ]);
       const rawCategoryList: any[] = extractListData(catResponse);
       const rawChartList: any[] = extractListData(chartResponse);
       const rawSpecList: any[] = extractListData(specResponse);
+      const rawTagList: any[] = extractListData(tagsResponse);
       
       // CRITICAL FIX: Normalize all category IDs to strings (handle buffers)
       const categoryList: CategoryOption[] = rawCategoryList.map((cat: any) => {
@@ -245,6 +250,20 @@ const ProductForm: React.FC = () => {
         };
       }).filter((spec: any): spec is { _id: string; name: string; slug?: string } => spec !== null);
       setAvailableSpecifications(specList);
+      
+      // Normalize tag IDs
+      const tagList = rawTagList.map((tag: any) => {
+        const normalizedId = normalizeCategoryId(tag._id || tag.id);
+        if (!normalizedId) {
+          console.warn('⚠️ Invalid tag ID, skipping:', tag);
+          return null;
+        }
+        return {
+          ...tag,
+          _id: normalizedId,
+        };
+      }).filter((tag: any): tag is { _id: string; name: string; slug?: string; isActive?: boolean } => tag !== null);
+      setAvailableTags(tagList);
     } catch (err) {
       console.error('Failed to load lookups', err);
     } finally {
@@ -345,6 +364,25 @@ const ProductForm: React.FC = () => {
         images: data.images || [],
         videos: data.videos || [],
         categories: productCategories,
+        tags: (data.tags || []).map((tag: any) => {
+          // Tags can be ObjectIds, tag objects, or tag names (strings)
+          if (typeof tag === 'string') {
+            // Check if it's a valid ObjectId (24 chars hex)
+            if (tag.length === 24 && /^[0-9a-fA-F]{24}$/.test(tag)) {
+              return tag; // Return as ID string
+            }
+            // Otherwise it's a tag name string
+            return tag;
+          }
+          // Object with _id property
+          if (tag?._id) {
+            const normalizedId = normalizeCategoryId(tag._id);
+            return normalizedId || tag.name || tag;
+          }
+          // Try to normalize as ID
+          const normalizedId = normalizeCategoryId(tag);
+          return normalizedId || tag;
+        }).filter((tag: any) => tag !== null && tag !== undefined),
         sizeChart:
           initialMode === 'custom'
             ? sizeChartEntries
@@ -736,11 +774,41 @@ const ProductForm: React.FC = () => {
           return null;
         }).filter((id: any): id is string => id !== null && typeof id === 'string' && id.length === 24) || [];
       
+      // Extract tags - can be ObjectIds, tag objects, or tag names
+      const productTags = (product.tags || []).map((tag: any) => {
+        // Tags can be ObjectIds, tag objects, or tag names (strings)
+        if (typeof tag === 'string') {
+          // Check if it's a valid ObjectId (24 chars hex)
+          if (tag.length === 24 && /^[0-9a-fA-F]{24}$/.test(tag)) {
+            return tag; // Return as ID string
+          }
+          // Otherwise it's a tag name string
+          return tag;
+        }
+        // Object with _id property (populated tag)
+        if (tag?._id) {
+          const normalizedId = normalizeCategoryId(tag._id);
+          if (normalizedId) {
+            return normalizedId; // Return as ID string
+          }
+          // Fallback to name if ID normalization fails
+          return tag.name || tag;
+        }
+        // Try to normalize as ID
+        const normalizedId = normalizeCategoryId(tag);
+        return normalizedId || tag;
+      }).filter((tag: any) => tag !== null && tag !== undefined);
+      
       if (import.meta.env.DEV) {
         console.log('✅ Extracted Categories:', {
           extracted: productCategories,
           count: productCategories.length,
           sample: productCategories[0],
+        });
+        console.log('✅ Extracted Tags:', {
+          extracted: productTags,
+          count: productTags.length,
+          sample: productTags[0],
         });
       }
       // CRITICAL FIX: Normalize sizeChart ID to string (handle buffer objects)
@@ -780,6 +848,7 @@ const ProductForm: React.FC = () => {
         videos: product.videos || [],
         stock: stockValue,
         categories: productCategories,
+        tags: productTags,
         sizeChart:
           initialMode === 'custom'
             ? sizeChartEntries
@@ -1429,6 +1498,17 @@ const ProductForm: React.FC = () => {
           ? (cleanedVariations !== undefined ? cleanedVariations : []) 
           : (cleanedVariations !== undefined ? cleanedVariations : undefined),
         categories: sanitizedCategories, // Always include categories (even if empty array)
+        // Tags - can be array of IDs (strings) or tag names (strings) - WordPress style
+        tags: currentFormData.tags && currentFormData.tags.length > 0 
+          ? currentFormData.tags.map(tag => {
+              // If tag is an object with _id, use the _id
+              if (typeof tag === 'object' && tag._id) {
+                return tag._id;
+              }
+              // Otherwise return as-is (string ID or string name)
+              return tag;
+            })
+          : undefined,
         // Specifications - include specificationId if set, or specifications if set (inline overrides linked)
         ...(currentFormData.specificationId ? { specificationId: currentFormData.specificationId } : {}),
         ...(currentFormData.specifications ? { specifications: currentFormData.specifications } : {}),
@@ -1838,6 +1918,20 @@ const ProductForm: React.FC = () => {
                   </button>
                 )}
               </div>
+            </div>
+
+            {/* Tags */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <ProductTags
+                tags={formData.tags}
+                availableTags={availableTags}
+                onTagsChange={(tags) => {
+                  setFormData({ ...formData, tags });
+                }}
+                onRefresh={loadLookups}
+                loading={lookupsLoading}
+                error={errors.tags}
+              />
             </div>
 
             {/* Categories - moved to Basic Info section but can be separate */}

@@ -2,6 +2,7 @@ export { default as ProductBasicInfo } from './ProductBasicInfo';
 export { default as ProductPricing } from './ProductPricing';
 export { default as ProductSizesStock } from './ProductSizesStock';
 export { default as ProductCategories } from './ProductCategories';
+export { default as ProductTags } from './ProductTags';
 export { default as ProductImageUpload } from './ProductImageUpload';
 export { default as ProductSEO } from './ProductSEO';
 export { default as ProductSizeChart } from './ProductSizeChart';
