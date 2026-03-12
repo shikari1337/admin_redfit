@@ -8,6 +8,11 @@ import {
   FeaturesBlockEditor,
   CTABlockEditor,
   FAQAccordionBlockEditor,
+  ProductCategoriesBlockEditor,
+  ProductCardsBlockEditor,
+  ProductSelectionBlockEditor,
+  ProductFeaturedBlockEditor,
+  ProductBestSellersBlockEditor,
 } from './BlockEditors';
 
 interface BlockEditorProps {
@@ -19,7 +24,7 @@ interface BlockEditorProps {
     data: any;
   };
   onChange: (data: any) => void;
-  onGenerateAI?: (blockType: string, existingData: any) => Promise<any>;
+  onGenerateAI?: (blockType: string, existingData: any, customPrompt?: string) => Promise<any>;
 }
 
 const BlockEditor: React.FC<BlockEditorProps> = ({ block, onChange, onGenerateAI }) => {
@@ -27,17 +32,21 @@ const BlockEditor: React.FC<BlockEditorProps> = ({ block, onChange, onGenerateAI
   const [showAIModal, setShowAIModal] = useState(false);
   const [customPrompt, setCustomPrompt] = useState('');
 
+  if (!block) return null;
+
   const handleGenerateAI = async () => {
     if (!onGenerateAI) {
       alert('AI generation is not available');
       return;
     }
+    const blockType = block?.blockType || 'text';
+    const existingData = block?.data && typeof block.data === 'object' ? block.data : {};
 
     setGenerating(true);
     try {
-      const generated = await onGenerateAI(block.blockType, block.data);
-      if (generated) {
-        onChange({ ...block.data, ...generated });
+      const generated = await onGenerateAI(blockType, existingData, customPrompt || undefined);
+      if (generated && typeof generated === 'object') {
+        onChange({ ...(block?.data || {}), ...generated });
         setShowAIModal(false);
         setCustomPrompt('');
         alert('Content generated successfully!');
@@ -72,6 +81,16 @@ const BlockEditor: React.FC<BlockEditorProps> = ({ block, onChange, onGenerateAI
         return <CTABlockEditor {...editorProps} />;
       case 'faq-accordion':
         return <FAQAccordionBlockEditor {...editorProps} />;
+      case 'product-categories':
+        return <ProductCategoriesBlockEditor {...editorProps} />;
+      case 'product-cards':
+        return <ProductCardsBlockEditor {...editorProps} />;
+      case 'product-selection':
+        return <ProductSelectionBlockEditor {...editorProps} />;
+      case 'product-featured':
+        return <ProductFeaturedBlockEditor {...editorProps} />;
+      case 'product-best-sellers':
+        return <ProductBestSellersBlockEditor {...editorProps} />;
       default:
         return (
           <div className="space-y-4">

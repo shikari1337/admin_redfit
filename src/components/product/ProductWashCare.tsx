@@ -72,7 +72,7 @@ const ProductWashCare: React.FC<ProductWashCareProps> = ({
             </div>
             <div className="flex-1">
               <IconPicker
-                label="Icon (React Icon)"
+                label="Icon"
                 value={instruction.iconName || ''}
                 onChange={(iconName) => updateInstruction(index, 'iconName', iconName)}
               />

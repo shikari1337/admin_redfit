@@ -2,6 +2,14 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { FaPlus, FaSave, FaUndo, FaTrash } from 'react-icons/fa';
 import { categoriesAPI } from '../services/api';
 import ImageInputWithActions from '../components/common/ImageInputWithActions';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 
 interface Category {
   _id: string;
@@ -22,7 +30,7 @@ const emptyForm = {
   description: '',
   imageUrl: '',
   displayOrder: '',
-  parent: '',
+  parent: 'none',
   isActive: true,
 };
 
@@ -46,8 +54,6 @@ const Categories: React.FC = () => {
     setLoading(true);
     try {
       const response = await categoriesAPI.list();
-      // Backend returns: { success: true, data: categories[] }
-      // API interceptor normalizes to: categories[] or { data: categories[] }
       let categories: any[] = [];
       if (Array.isArray(response)) {
         categories = response;
@@ -86,7 +92,7 @@ const Categories: React.FC = () => {
         category.displayOrder !== undefined && category.displayOrder !== null
           ? String(category.displayOrder)
           : '',
-      parent: category.parent ? String(category.parent) : '',
+      parent: category.parent ? String(category.parent) : 'none',
       isActive: category.isActive !== false,
     });
     setError(null);
@@ -121,7 +127,7 @@ const Categories: React.FC = () => {
       imageUrl: formState.imageUrl?.trim() || undefined,
       displayOrder: formState.displayOrder ? Number(formState.displayOrder) : undefined,
       isActive: formState.isActive,
-      parent: formState.parent ? formState.parent : null,
+      parent: formState.parent && formState.parent !== 'none' ? formState.parent : null,
     };
 
     if (formState.slug?.trim()) {
@@ -164,218 +170,222 @@ const Categories: React.FC = () => {
   }, [categories, selectedId]);
 
   return (
-    <div className="max-w-6xl mx-auto">
+    <div className="max-w-6xl mx-auto space-y-6">
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Categories</h1>
-          <p className="text-sm text-gray-500">Manage category hierarchy for the storefront.</p>
+          <h1 className="text-3xl font-bold tracking-tight">Categories</h1>
+          <p className="text-muted-foreground">Manage category hierarchy for the storefront.</p>
         </div>
-        <button
-          onClick={resetForm}
-          className="flex items-center px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-        >
-          <FaPlus className="mr-2" />
+        <Button onClick={resetForm} variant="outline" className="flex items-center gap-2">
+          <FaPlus className="h-4 w-4" />
           New Category
-        </button>
+        </Button>
       </div>
 
       {error && (
-        <div className="mb-4 p-3 border border-red-200 bg-red-50 text-sm text-red-700 rounded">
+        <div className="p-4 border border-destructive/50 bg-destructive/10 text-sm text-destructive rounded-md">
           {error}
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-          <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-gray-900">Category List</h2>
-            <span className="text-sm text-gray-500">{categories.length} total</span>
-          </div>
-          <div className="divide-y divide-gray-100 max-h-[600px] overflow-y-auto">
-            {loading ? (
-              <div className="flex items-center justify-center h-48">
-                <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-red-500"></div>
-              </div>
-            ) : categories.length === 0 ? (
-              <div className="p-6 text-center text-gray-500 text-sm">No categories added yet.</div>
-            ) : (
-              categories.map(category => (
-                <div
-                  key={category._id}
-                  className={`px-6 py-4 flex items-start justify-between ${
-                    selectedId === category._id ? 'bg-red-50' : ''
-                  }`}
-                >
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-sm font-semibold text-gray-900">{category.name}</h3>
-                      {!category.isActive && (
-                        <span className="text-xs px-2 py-0.5 bg-gray-200 text-gray-600 rounded-full">
-                          Inactive
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-gray-500">Slug: {category.slug}</p>
-                    {category.description && (
-                      <p className="text-xs text-gray-600 mt-1">{category.description}</p>
-                    )}
-                    <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
-                      <span>Display Order: {category.displayOrder ?? 0}</span>
-                      {category.parent && (
-                        <span>
-                          Parent:{' '}
-                          {categories.find(cat => cat._id === category.parent)?.name || category.parent}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <button
-                      onClick={() => handleEdit(category)}
-                      className="px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(category)}
-                      className="px-3 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
-                    >
-                      <FaTrash className="inline mr-1" />
-                      Delete
-                    </button>
-                  </div>
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+        {/* Left Column: Category List (Span 3) */}
+        <Card className="lg:col-span-3 shadow-sm h-fit">
+          <CardHeader className="pb-4 border-b flex flex-row items-center justify-between space-y-0">
+            <div>
+              <CardTitle>Category List</CardTitle>
+              <CardDescription>{categories.length} total categories</CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="divide-y max-h-[700px] overflow-y-auto">
+              {loading ? (
+                <div className="flex items-center justify-center p-12">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
                 </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-          <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-gray-900">
-              {selectedId ? 'Edit Category' : 'Create Category'}
-            </h2>
-            {selectedId && (
-              <button
-                onClick={resetForm}
-                className="text-sm text-gray-500 hover:text-gray-700 flex items-center"
-              >
-                <FaUndo className="mr-1" /> Reset
-              </button>
-            )}
-          </div>
-
-          <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Name <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                value={formState.name}
-                onChange={e => setFormState({ ...formState, name: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                placeholder="Category name"
-                required
-              />
+              ) : categories.length === 0 ? (
+                <div className="p-12 text-center text-muted-foreground transition-all">
+                  No categories found. Create one.
+                </div>
+              ) : (
+                categories.map(category => (
+                  <div
+                    key={category._id}
+                    className={`flex items-start justify-between p-4 transition-colors hover:bg-muted/50 ${
+                      selectedId === category._id ? 'bg-muted/80' : ''
+                    }`}
+                  >
+                    <div className="flex-1 min-w-0 pr-4">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-semibold text-foreground truncate">{category.name}</span>
+                        {!category.isActive && (
+                          <Badge variant="secondary" className="text-xs">Inactive</Badge>
+                        )}
+                        {category.parent && (
+                          <Badge variant="outline" className="text-xs">
+                            Parent: {categories.find(cat => cat._id === category.parent)?.name || 'Unknown'}
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="text-xs text-muted-foreground flex items-center flex-wrap gap-x-3 gap-y-1">
+                        <span className="font-mono bg-muted px-1.5 py-0.5 rounded">{category.slug}</span>
+                        {category.displayOrder !== undefined && (
+                          <span>Order: {category.displayOrder}</span>
+                        )}
+                      </div>
+                      {category.description && (
+                        <p className="text-sm text-muted-foreground mt-2 line-clamp-1">
+                          {category.description}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex gap-2 isolate">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => handleEdit(category)}
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => handleDelete(category)}
+                      >
+                        <FaTrash className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
+          </CardContent>
+        </Card>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Slug</label>
-              <input
-                type="text"
-                value={formState.slug}
-                onChange={e => setFormState({ ...formState, slug: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                placeholder="Optional custom slug (auto-generated if empty)"
-              />
+        {/* Right Column: Create/Edit Form (Span 2) */}
+        <Card className="lg:col-span-2 shadow-sm h-fit sticky top-6">
+          <CardHeader className="pb-4 border-b">
+            <div className="flex items-center justify-between">
+              <CardTitle>{selectedId ? 'Edit Category' : 'Create Category'}</CardTitle>
+              {selectedId && (
+                <Button variant="ghost" size="sm" onClick={resetForm} className="h-8 px-2 text-muted-foreground">
+                  <FaUndo className="mr-2 h-3.5 w-3.5" /> Reset
+                </Button>
+              )}
             </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-              <textarea
-                rows={3}
-                value={formState.description}
-                onChange={e => setFormState({ ...formState, description: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500"
-                placeholder="Optional description"
-              />
-            </div>
-
-            <ImageInputWithActions
-              value={formState.imageUrl || ''}
-              onChange={(url: string) => setFormState({ ...formState, imageUrl: url })}
-              label="Category Image"
-              placeholder="Enter category image URL manually (https://...)"
-            />
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Display Order</label>
-                <input
-                  type="number"
-                  value={formState.displayOrder}
-                  onChange={e => setFormState({ ...formState, displayOrder: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                  placeholder="0"
+          </CardHeader>
+          <CardContent className="pt-6">
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <div className="space-y-2">
+                <Label htmlFor="name">Name <span className="text-destructive">*</span></Label>
+                <Input
+                  id="name"
+                  value={formState.name}
+                  onChange={e => setFormState({ ...formState, name: e.target.value })}
+                  placeholder="Category name"
+                  required
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Parent Category</label>
-                <select
-                  value={formState.parent}
-                  onChange={e => setFormState({ ...formState, parent: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                >
-                  <option value="">No parent (top-level)</option>
-                  {parentOptions.map(parent => (
-                    <option key={parent._id} value={parent._id}>
-                      {parent.name}
-                    </option>
-                  ))}
-                </select>
+              <div className="space-y-2">
+                <Label htmlFor="slug">Slug</Label>
+                <Input
+                  id="slug"
+                  value={formState.slug}
+                  onChange={e => setFormState({ ...formState, slug: e.target.value })}
+                  placeholder="Optional custom slug"
+                />
               </div>
-            </div>
 
-            <div className="flex items-center">
-              <input
-                id="category-active"
-                type="checkbox"
-                checked={formState.isActive}
-                onChange={e => setFormState({ ...formState, isActive: e.target.checked })}
-                className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300 rounded"
-              />
-              <label htmlFor="category-active" className="ml-2 text-sm text-gray-700">
-                Category is active
-              </label>
-            </div>
+              <div className="space-y-2">
+                <Label htmlFor="description">Description</Label>
+                <Textarea
+                  id="description"
+                  rows={3}
+                  value={formState.description}
+                  onChange={e => setFormState({ ...formState, description: e.target.value })}
+                  placeholder="Optional description"
+                  className="resize-y"
+                />
+              </div>
 
-            <div className="pt-3 border-t border-gray-200 flex gap-3">
-              <button
-                type="submit"
-                disabled={saving}
-                className="flex items-center px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-60"
-              >
-                <FaSave className="mr-2" />
-                {saving ? 'Saving...' : selectedId ? 'Update Category' : 'Create Category'}
-              </button>
-              <button
-                type="button"
-                onClick={resetForm}
-                className="flex items-center px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
-              >
-                <FaUndo className="mr-2" />
-                Clear
-              </button>
-            </div>
-          </form>
-        </div>
+              <div className="space-y-2">
+                <Label>Category Image</Label>
+                <ImageInputWithActions
+                  value={formState.imageUrl || ''}
+                  onChange={(url: string) => setFormState({ ...formState, imageUrl: url })}
+                  label=""
+                  placeholder="Image URL (https://...)"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="displayOrder">Display Order</Label>
+                  <Input
+                    id="displayOrder"
+                    type="number"
+                    value={formState.displayOrder}
+                    onChange={e => setFormState({ ...formState, displayOrder: e.target.value })}
+                    placeholder="0"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="parent">Parent Category</Label>
+                  <Select 
+                    value={formState.parent} 
+                    onValueChange={(val) => setFormState({ ...formState, parent: val })}
+                  >
+                    <SelectTrigger id="parent">
+                      <SelectValue placeholder="No Parent" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No parent (top-level)</SelectItem>
+                      {parentOptions.map(parent => (
+                        <SelectItem key={parent._id} value={parent._id}>
+                          {parent.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-2 pt-2">
+                <Switch
+                  id="isActive"
+                  checked={formState.isActive}
+                  onCheckedChange={(checked) => setFormState({ ...formState, isActive: checked })}
+                />
+                <Label htmlFor="isActive" className="cursor-pointer">Category is active</Label>
+              </div>
+
+              <div className="pt-4 border-t flex gap-3">
+                <Button
+                  type="submit"
+                  disabled={saving}
+                  className="flex-1"
+                >
+                  <FaSave className="mr-2" />
+                  {saving ? 'Saving...' : selectedId ? 'Update Category' : 'Create Category'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={resetForm}
+                  className="flex-none"
+                >
+                  <FaUndo className="mr-2" />
+                  Clear
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
 };
 
 export default Categories;
-
-

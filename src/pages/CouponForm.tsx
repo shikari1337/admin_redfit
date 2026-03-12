@@ -2,6 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { couponsAPI } from '../services/api';
 import { FaArrowLeft, FaSave } from 'react-icons/fa';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 
 interface CouponFormData {
   code: string;
@@ -47,15 +51,12 @@ const CouponForm: React.FC = () => {
     try {
       setLoading(true);
       const response = await couponsAPI.getById(id!);
-      // Backend returns: { success: true, data: coupon }
-      // API interceptor normalizes to: coupon or { data: coupon }
       const coupon = response?.data || response;
       
       if (!coupon || typeof coupon !== 'object') {
         throw new Error('Invalid coupon data received');
       }
       
-      // Convert dates to YYYY-MM-DD format
       const validFrom = coupon.validFrom ? new Date(coupon.validFrom).toISOString().split('T')[0] : '';
       const validUntil = coupon.validUntil ? new Date(coupon.validUntil).toISOString().split('T')[0] : '';
 
@@ -81,7 +82,6 @@ const CouponForm: React.FC = () => {
     try {
       setLoading(true);
 
-      // Convert date strings to Date objects
       const submitData = {
         ...formData,
         validFrom: new Date(formData.validFrom).toISOString(),
@@ -109,253 +109,246 @@ const CouponForm: React.FC = () => {
       ...prev,
       [name]: name === 'value' || name === 'minPurchase' || name === 'maxDiscount' || name === 'usageLimit' || name === 'userLimit'
         ? (value ? parseFloat(value) : undefined)
-        : name === 'isActive' || name === 'clubbedWithOtherCoupons'
-        ? (e.target as HTMLInputElement).checked
         : value,
     }));
   };
 
   if (loading && isEdit) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-gray-600">Loading coupon...</div>
+      <div className="flex items-center justify-center p-12">
+        <div className="text-muted-foreground animate-pulse">Loading coupon...</div>
       </div>
     );
   }
 
   return (
-    <div className="p-6">
-      <div className="flex items-center gap-4 mb-6">
-        <button
+    <div className="max-w-4xl mx-auto space-y-6">
+      <div className="flex items-center gap-4">
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={() => navigate('/coupons')}
-          className="text-gray-600 hover:text-gray-800"
+          className="text-muted-foreground hover:text-foreground"
         >
-          <FaArrowLeft />
-        </button>
-        <h1 className="text-2xl font-bold text-gray-800">
-          {isEdit ? 'Edit Coupon' : 'Create Coupon'}
-        </h1>
+          <FaArrowLeft className="h-4 w-4" />
+        </Button>
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">
+            {isEdit ? 'Edit Coupon' : 'Create Coupon'}
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">Configure discount rules and validity.</p>
+        </div>
       </div>
 
       {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+        <div className="bg-red-50 text-red-700 p-4 border border-red-200 rounded-lg text-sm font-medium">
           {error}
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow p-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Code */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Coupon Code *
-            </label>
-            <input
-              type="text"
-              name="code"
-              value={formData.code}
-              onChange={handleChange}
-              required
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="B2G1"
-            />
-          </div>
+      <form onSubmit={handleSubmit}>
+        <Card>
+          <CardContent className="p-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Code */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                  Coupon Code *
+                </label>
+                <Input
+                  type="text"
+                  name="code"
+                  value={formData.code}
+                  onChange={handleChange}
+                  required
+                  placeholder="e.g. SUMMER50"
+                  className="uppercase"
+                />
+              </div>
 
-          {/* Type */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Coupon Type *
-            </label>
-            <select
-              name="type"
-              value={formData.type}
-              onChange={handleChange}
-              required
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="percentage">Percentage Discount</option>
-              <option value="fixed">Fixed Amount Discount</option>
-              <option value="b2g1">Buy 2 Get 1 Free</option>
-            </select>
-          </div>
+              {/* Type */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                  Coupon Type *
+                </label>
+                <select
+                  name="type"
+                  value={formData.type}
+                  onChange={handleChange}
+                  required
+                  className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <option value="percentage">Percentage Discount</option>
+                  <option value="fixed">Fixed Amount Discount</option>
+                  <option value="b2g1">Buy 2 Get 1 Free</option>
+                </select>
+              </div>
 
-          {/* Description */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Description *
-            </label>
-            <input
-              type="text"
-              name="description"
-              value={formData.description}
-              onChange={handleChange}
-              required
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="Buy 2 Get 1 Free"
-            />
-          </div>
+              {/* Description */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                  Description *
+                </label>
+                <Input
+                  type="text"
+                  name="description"
+                  value={formData.description}
+                  onChange={handleChange}
+                  required
+                  placeholder="e.g. 50% off on summer collection"
+                />
+              </div>
 
-          {/* Value (for percentage/fixed) */}
-          {formData.type !== 'b2g1' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                {formData.type === 'percentage' ? 'Percentage (%)' : 'Discount Amount (₹)'}
-                *
-              </label>
-              <input
-                type="number"
-                name="value"
-                value={formData.value || ''}
-                onChange={handleChange}
-                required={true}
-                min="0"
-                step={formData.type === 'percentage' ? '1' : '0.01'}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
+              {/* Value (for percentage/fixed) */}
+              {formData.type !== 'b2g1' && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                    {formData.type === 'percentage' ? 'Percentage (%)' : 'Discount Amount (₹)'} *
+                  </label>
+                  <Input
+                    type="number"
+                    name="value"
+                    value={formData.value || ''}
+                    onChange={handleChange}
+                    required={true}
+                    min="0"
+                    step={formData.type === 'percentage' ? '1' : '0.01'}
+                    placeholder={formData.type === 'percentage' ? '50' : '500'}
+                  />
+                </div>
+              )}
+
+              {/* Min Purchase */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                  Minimum Purchase Amount (₹)
+                </label>
+                <Input
+                  type="number"
+                  name="minPurchase"
+                  value={formData.minPurchase || ''}
+                  onChange={handleChange}
+                  min="0"
+                  step="0.01"
+                  placeholder="Optional"
+                />
+              </div>
+
+              {/* Max Discount */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                  Maximum Discount Amount (₹)
+                </label>
+                <Input
+                  type="number"
+                  name="maxDiscount"
+                  value={formData.maxDiscount || ''}
+                  onChange={handleChange}
+                  min="0"
+                  step="0.01"
+                  placeholder="Optional"
+                />
+              </div>
+
+              {/* Usage Limit */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                  Usage Limit (Total)
+                </label>
+                <Input
+                  type="number"
+                  name="usageLimit"
+                  value={formData.usageLimit || ''}
+                  onChange={handleChange}
+                  min="1"
+                  placeholder="Leave empty for unlimited"
+                />
+                <p className="text-[10px] text-muted-foreground">Maximum total uses across all customers</p>
+              </div>
+
+              {/* User Limit */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                  Limit Per User
+                </label>
+                <Input
+                  type="number"
+                  name="userLimit"
+                  value={formData.userLimit || ''}
+                  onChange={handleChange}
+                  min="1"
+                  placeholder="Leave empty for unlimited"
+                />
+                <p className="text-[10px] text-muted-foreground">Maximum uses per individual customer</p>
+              </div>
+
+              {/* Valid From */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                  Valid From *
+                </label>
+                <Input
+                  type="date"
+                  name="validFrom"
+                  value={formData.validFrom}
+                  onChange={handleChange}
+                  required
+                />
+              </div>
+
+              {/* Valid Until */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                  Valid Until *
+                </label>
+                <Input
+                  type="date"
+                  name="validUntil"
+                  value={formData.validUntil}
+                  onChange={handleChange}
+                  required
+                />
+              </div>
+
+              {/* Is Active & Clubbed */}
+              <div className="flex flex-col gap-4 mt-2 md:col-span-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <Checkbox
+                    checked={formData.isActive}
+                    onCheckedChange={(checked) => setFormData(prev => ({ ...prev, isActive: checked as boolean }))}
+                  />
+                  <span className="text-sm font-medium leading-none">Active Strategy</span>
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <Checkbox
+                    checked={formData.clubbedWithOtherCoupons}
+                    onCheckedChange={(checked) => setFormData(prev => ({ ...prev, clubbedWithOtherCoupons: checked as boolean }))}
+                  />
+                  <span className="text-sm font-medium leading-none">Can be clubbed with other coupons</span>
+                </label>
+              </div>
             </div>
-          )}
 
-          {/* Min Purchase */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Minimum Purchase Amount (₹)
-            </label>
-            <input
-              type="number"
-              name="minPurchase"
-              value={formData.minPurchase || ''}
-              onChange={handleChange}
-              min="0"
-              step="0.01"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-
-          {/* Max Discount */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Maximum Discount Amount (₹)
-            </label>
-            <input
-              type="number"
-              name="maxDiscount"
-              value={formData.maxDiscount || ''}
-              onChange={handleChange}
-              min="0"
-              step="0.01"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-
-          {/* Usage Limit */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Usage Limit (Total)
-            </label>
-            <input
-              type="number"
-              name="usageLimit"
-              value={formData.usageLimit || ''}
-              onChange={handleChange}
-              min="1"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="Leave empty for unlimited"
-            />
-            <p className="mt-1 text-xs text-gray-500">Maximum number of times this coupon can be used in total</p>
-          </div>
-
-          {/* User Limit */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Limit Per User
-            </label>
-            <input
-              type="number"
-              name="userLimit"
-              value={formData.userLimit || ''}
-              onChange={handleChange}
-              min="1"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="Leave empty for unlimited per user"
-            />
-            <p className="mt-1 text-xs text-gray-500">Maximum number of times a single user can use this coupon</p>
-          </div>
-
-          {/* Valid From */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Valid From *
-            </label>
-            <input
-              type="date"
-              name="validFrom"
-              value={formData.validFrom}
-              onChange={handleChange}
-              required
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-
-          {/* Valid Until */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Valid Until *
-            </label>
-            <input
-              type="date"
-              name="validUntil"
-              value={formData.validUntil}
-              onChange={handleChange}
-              required
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-
-          {/* Is Active */}
-          <div className="flex items-center">
-            <input
-              type="checkbox"
-              name="isActive"
-              checked={formData.isActive}
-              onChange={handleChange}
-              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-            />
-            <label className="ml-2 block text-sm text-gray-700">
-              Active
-            </label>
-          </div>
-
-          {/* Clubbed With Other Coupons */}
-          <div className="flex items-center">
-            <input
-              type="checkbox"
-              name="clubbedWithOtherCoupons"
-              checked={formData.clubbedWithOtherCoupons}
-              onChange={handleChange}
-              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-            />
-            <label className="ml-2 block text-sm text-gray-700">
-              Can be clubbed with other coupons
-            </label>
-          </div>
-        </div>
-
-        <div className="mt-6 flex justify-end gap-4">
-          <button
-            type="button"
-            onClick={() => navigate('/coupons')}
-            className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={loading}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 disabled:opacity-50"
-          >
-            <FaSave /> {loading ? 'Saving...' : isEdit ? 'Update' : 'Create'} Coupon
-          </button>
-        </div>
+            <div className="mt-8 flex justify-end gap-3 pt-4 border-t">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => navigate('/coupons')}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={loading}
+                className="bg-blue-600 hover:bg-blue-700 text-white min-w-[120px]"
+              >
+                <FaSave className="mr-2 h-4 w-4" />
+                {loading ? 'Saving...' : isEdit ? 'Update Coupon' : 'Create Coupon'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </form>
     </div>
   );

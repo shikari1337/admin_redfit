@@ -1,0 +1,257 @@
+import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { FaArrowLeft, FaSave, FaGlobe, FaImage, FaPalette, FaFont, FaInstagram } from 'react-icons/fa';
+import api from '../services/api';
+import ImageInputWithActions from '../components/common/ImageInputWithActions';
+
+interface FormData {
+  general: { websiteUrl: string; siteName: string; siteDescription: string };
+  logo: { logoUrl: string; faviconUrl: string; adminLogoUrl: string };
+  colors: {
+    primaryColor: string;
+    secondaryColor: string;
+    accentColor: string;
+    backgroundColor: string;
+    textColor: string;
+    linkColor: string;
+  };
+  fonts: {
+    fontFamily: string;
+    headingFontFamily: string;
+    bodyFontFamily: string;
+  };
+  instagram: { username: string; isEnabled: boolean };
+}
+
+const AppearanceStyle: React.FC = () => {
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [formData, setFormData] = useState<FormData>({
+    general: { websiteUrl: '', siteName: '', siteDescription: '' },
+    logo: { logoUrl: '', faviconUrl: '', adminLogoUrl: '' },
+    colors: {
+      primaryColor: '#EF4444',
+      secondaryColor: '#F59E0B',
+      accentColor: '#10B981',
+      backgroundColor: '#000000',
+      textColor: '#FFFFFF',
+      linkColor: '#EF4444',
+    },
+    fonts: { fontFamily: 'Inter', headingFontFamily: '', bodyFontFamily: '' },
+    instagram: { username: '', isEnabled: false },
+  });
+
+  useEffect(() => {
+    fetchSettings();
+  }, []);
+
+  const fetchSettings = async () => {
+    try {
+      setLoading(true);
+      const response = await api.get('/settings/admin');
+      const settings = response.data?.success && response.data?.data ? response.data.data : response.data?.data ?? response.data;
+      setFormData({
+        general: {
+          websiteUrl: settings.general?.websiteUrl || '',
+          siteName: settings.general?.siteName || '',
+          siteDescription: settings.general?.siteDescription || '',
+        },
+        logo: {
+          logoUrl: settings.logo?.logoUrl || '',
+          faviconUrl: settings.logo?.faviconUrl || '',
+          adminLogoUrl: settings.logo?.adminLogoUrl || '',
+        },
+        colors: {
+          primaryColor: settings.colors?.primaryColor || '#EF4444',
+          secondaryColor: settings.colors?.secondaryColor || '#F59E0B',
+          accentColor: settings.colors?.accentColor || '#10B981',
+          backgroundColor: settings.colors?.backgroundColor || '#000000',
+          textColor: settings.colors?.textColor || '#FFFFFF',
+          linkColor: settings.colors?.linkColor || '#EF4444',
+        },
+        fonts: {
+          fontFamily: settings.fonts?.fontFamily || 'Inter',
+          headingFontFamily: settings.fonts?.headingFontFamily || '',
+          bodyFontFamily: settings.fonts?.bodyFontFamily || '',
+        },
+        instagram: {
+          username: settings.instagram?.username || '',
+          isEnabled: settings.instagram?.isEnabled || false,
+        },
+      });
+    } catch {
+      // Keep defaults
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleChange = (section: keyof FormData, field: string, value: any) => {
+    setFormData((prev) => ({
+      ...prev,
+      [section]: { ...prev[section], [field]: value },
+    }));
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await api.put('/settings', formData);
+      alert('Style settings saved! Your storefront will reflect these changes.');
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex justify-center h-64 items-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-4xl mx-auto">
+      <div className="mb-6">
+        <button onClick={() => navigate('/appearance/pages')} className="flex items-center text-gray-600 hover:text-gray-900 mb-4">
+          <FaArrowLeft className="mr-2" />
+          Back to Appearance
+        </button>
+        <h1 className="text-3xl font-bold text-gray-900">Style Settings</h1>
+        <p className="text-sm text-gray-600 mt-2">Colors, fonts, logos – everything that defines your storefront look</p>
+      </div>
+
+      <form onSubmit={handleSave} className="space-y-6">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center gap-4 mb-6">
+            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+              <FaGlobe className="w-6 h-6 text-blue-600" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">General</h2>
+              <p className="text-sm text-gray-600">Site name and description</p>
+            </div>
+          </div>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Website URL</label>
+              <input type="text" value={formData.general.websiteUrl} onChange={(e) => handleChange('general', 'websiteUrl', e.target.value)} placeholder="https://redfit.in" className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Site Name</label>
+              <input type="text" value={formData.general.siteName} onChange={(e) => handleChange('general', 'siteName', e.target.value)} placeholder="Redfit" className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Site Description</label>
+              <textarea value={formData.general.siteDescription} onChange={(e) => handleChange('general', 'siteDescription', e.target.value)} placeholder="Premium apparel" rows={2} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center gap-4 mb-6">
+            <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+              <FaImage className="w-6 h-6 text-purple-600" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Logo & Icons</h2>
+              <p className="text-sm text-gray-600">Logo, favicon, admin logo</p>
+            </div>
+          </div>
+          <div className="space-y-4">
+            <ImageInputWithActions value={formData.logo.logoUrl} onChange={(url) => handleChange('logo', 'logoUrl', url)} label="Main Logo" placeholder="https://..." />
+            <ImageInputWithActions value={formData.logo.faviconUrl} onChange={(url) => handleChange('logo', 'faviconUrl', url)} label="Favicon" placeholder="https://..." />
+            <ImageInputWithActions value={formData.logo.adminLogoUrl} onChange={(url) => handleChange('logo', 'adminLogoUrl', url)} label="Admin Logo" placeholder="https://..." />
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center gap-4 mb-6">
+            <div className="w-12 h-12 bg-pink-100 rounded-lg flex items-center justify-center">
+              <FaPalette className="w-6 h-6 text-pink-600" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Colors</h2>
+              <p className="text-sm text-gray-600">Applied across the storefront</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {(['primaryColor', 'secondaryColor', 'accentColor', 'backgroundColor', 'textColor', 'linkColor'] as const).map((key) => (
+              <div key={key}>
+                <label className="block text-sm font-medium text-gray-700 mb-2">{key.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase())}</label>
+                <div className="flex gap-3">
+                  <input type="color" value={formData.colors[key]} onChange={(e) => handleChange('colors', key, e.target.value)} className="w-16 h-10 border border-gray-300 rounded cursor-pointer" />
+                  <input type="text" value={formData.colors[key]} onChange={(e) => handleChange('colors', key, e.target.value)} className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center gap-4 mb-6">
+            <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center">
+              <FaFont className="w-6 h-6 text-indigo-600" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Fonts</h2>
+              <p className="text-sm text-gray-600">Primary, heading, body fonts</p>
+            </div>
+          </div>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Primary Font</label>
+              <input type="text" value={formData.fonts.fontFamily} onChange={(e) => handleChange('fonts', 'fontFamily', e.target.value)} placeholder="Inter, sans-serif" className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Heading Font (optional)</label>
+              <input type="text" value={formData.fonts.headingFontFamily} onChange={(e) => handleChange('fonts', 'headingFontFamily', e.target.value)} placeholder="Same as primary if empty" className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Body Font (optional)</label>
+              <input type="text" value={formData.fonts.bodyFontFamily} onChange={(e) => handleChange('fonts', 'bodyFontFamily', e.target.value)} placeholder="Same as primary if empty" className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center gap-4 mb-6">
+            <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
+              <FaInstagram className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Instagram Feed</h2>
+              <p className="text-sm text-gray-600">Enable and configure Instagram username</p>
+            </div>
+          </div>
+          <div className="space-y-4">
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={formData.instagram.isEnabled} onChange={(e) => handleChange('instagram', 'isEnabled', e.target.checked)} className="w-4 h-4 text-red-600 rounded focus:ring-red-500" />
+              Enable Instagram Feed
+            </label>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Instagram Username</label>
+              <input type="text" value={formData.instagram.username} onChange={(e) => handleChange('instagram', 'username', e.target.value)} placeholder="thestreetwear_clothings" disabled={!formData.instagram.isEnabled} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500" />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3">
+          <button type="button" onClick={() => navigate('/appearance/pages')} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">
+            Cancel
+          </button>
+          <button type="submit" disabled={saving} className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-400 font-medium flex items-center gap-2">
+            <FaSave className="w-4 h-4" /> {saving ? 'Saving...' : 'Save'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+export default AppearanceStyle;

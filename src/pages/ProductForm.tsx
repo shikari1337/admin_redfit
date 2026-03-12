@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { productsAPI, uploadAPI, categoriesAPI, sizeChartsAPI, specificationsAPI, tagsAPI } from '../services/api';
+import { productsAPI, uploadAPI, categoriesAPI, sizeChartsAPI, specificationsAPI, tagsAPI, taxRulesAPI } from '../services/api';
 import api from '../services/api';
 import { FaArrowLeft } from 'react-icons/fa';
 import {
@@ -34,11 +34,11 @@ const ProductForm: React.FC = () => {
   const { id: rawId } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  
+
   // Clean and validate the ID
   const id = rawId ? String(rawId).trim() : undefined;
   const isEdit = !!id;
-  
+
   // Validate ID format if in edit mode
   if (isEdit && id && !/^[0-9a-fA-F]{24}$/.test(id)) {
     console.error('Invalid product ID format from URL:', id);
@@ -49,6 +49,8 @@ const ProductForm: React.FC = () => {
   const [formData, setFormData] = useState({
     name: '',
     sku: '', // Base SKU for the product
+    hsnCode: '', // HSN code for GST compliance
+    taxRuleId: '', // Optional tax rule association
     price: '',
     originalPrice: '',
     description: '',
@@ -72,6 +74,10 @@ const ProductForm: React.FC = () => {
     attributeIds: [] as string[],
     selectedAttributeValues: {} as Record<string, string[]>, // { attributeId: [valueId1, valueId2] }
     variations: [] as ProductVariation[],
+    weight: '0.5',
+    length: '10',
+    breadth: '10',
+    height: '5',
     // Specifications
     specificationId: undefined as string | undefined, // Linked specification template ID
     specifications: undefined as Array<{
@@ -79,7 +85,7 @@ const ProductForm: React.FC = () => {
       items: Array<{ key: string; value: string }>;
     }> | undefined, // Inline specifications (overrides specificationId)
   });
-  
+
   // Root cause fix: Use ref to always get latest formData (avoids stale closure issues)
   const formDataRef = useRef(formData);
   useEffect(() => {
@@ -109,6 +115,7 @@ const ProductForm: React.FC = () => {
   const [availableSizeCharts, setAvailableSizeCharts] = useState<SizeChartOption[]>([]);
   const [availableSpecifications, setAvailableSpecifications] = useState<Array<{ _id: string; name: string; slug?: string }>>([]);
   const [availableTags, setAvailableTags] = useState<Array<{ _id: string; name: string; slug?: string; isActive?: boolean }>>([]);
+  const [availableTaxRules, setAvailableTaxRules] = useState<Array<{ _id: string; name: string; rate?: number }>>([]);
   const [lookupsLoading, setLookupsLoading] = useState(false);
   const [sizeChartMode, setSizeChartMode] = useState<'none' | 'reference' | 'custom'>('none');
   const [selectedSizeChartId, setSelectedSizeChartId] = useState<string>('');
@@ -141,17 +148,17 @@ const ProductForm: React.FC = () => {
    */
   const normalizeCategoryId = (id: any): string | null => {
     if (!id) return null;
-    
+
     // Already a string ID
     if (typeof id === 'string' && id.length === 24 && /^[0-9a-fA-F]{24}$/.test(id)) {
       return id;
     }
-    
+
     // Object with _id property (populated category)
     if (id && typeof id === 'object' && id._id) {
       return normalizeCategoryId(id._id);
     }
-    
+
     // Buffer object (the problematic case)
     if (id && typeof id === 'object' && id.buffer) {
       try {
@@ -177,28 +184,30 @@ const ProductForm: React.FC = () => {
         return null;
       }
     }
-    
+
     // Try to convert to string as last resort
     const str = String(id).trim();
     if (str.length === 24 && /^[0-9a-fA-F]{24}$/.test(str)) {
       return str;
     }
-    
+
     return null;
   };
 
   const loadLookups = async () => {
     setLookupsLoading(true);
     try {
-      const [catResponse, chartResponse, specResponse, tagsResponse] = await Promise.all([
+      const [catResponse, chartResponse, specResponse, tagsResponse, taxResponse] = await Promise.all([
         categoriesAPI.list(),
         sizeChartsAPI.list(),
         specificationsAPI.getAll({ active: true }), // Show all active specifications (shared and product-specific)
         tagsAPI.getAll({ active: true }),
+        taxRulesAPI.getAll(),
       ]);
       const rawCategoryList: any[] = extractListData(catResponse);
       const rawChartList: any[] = extractListData(chartResponse);
-      
+      const rawTaxList: any[] = extractListData(taxResponse);
+
       // Debug specifications response
       if (import.meta.env.DEV) {
         console.log('🔍 Specifications API Response:', {
@@ -208,7 +217,7 @@ const ProductForm: React.FC = () => {
           hasSuccess: specResponse?.success,
         });
       }
-      
+
       // Handle specifications response - it might already be an array or wrapped
       let rawSpecList: any[] = [];
       if (Array.isArray(specResponse)) {
@@ -218,16 +227,16 @@ const ProductForm: React.FC = () => {
       } else {
         rawSpecList = extractListData(specResponse);
       }
-      
+
       if (import.meta.env.DEV) {
         console.log('✅ Extracted Specifications:', {
           count: rawSpecList.length,
           specs: rawSpecList.map(s => ({ id: s._id, name: s.name, productId: s.productId })),
         });
       }
-      
+
       const rawTagList: any[] = extractListData(tagsResponse);
-      
+
       // CRITICAL FIX: Normalize all category IDs to strings (handle buffers)
       const categoryList: CategoryOption[] = rawCategoryList.map((cat: any) => {
         const normalizedId = normalizeCategoryId(cat._id || cat.id);
@@ -240,7 +249,7 @@ const ProductForm: React.FC = () => {
           _id: normalizedId, // Always use normalized string ID
         };
       }).filter((cat): cat is CategoryOption => cat !== null);
-      
+
       // CRITICAL FIX: Normalize all size chart IDs to strings (handle buffers)
       const normalizedChartList: SizeChartOption[] = rawChartList.map((chart: any) => {
         const normalizedId = normalizeCategoryId(chart._id || chart.id);
@@ -253,17 +262,17 @@ const ProductForm: React.FC = () => {
           _id: normalizedId, // Always use normalized string ID
         };
       }).filter((chart): chart is SizeChartOption => chart !== null);
-      
+
       // Remove duplicate size charts by _id (keep first occurrence)
-      const uniqueCharts = normalizedChartList.filter((chart, index, self) => 
+      const uniqueCharts = normalizedChartList.filter((chart, index, self) =>
         index === self.findIndex((c) => c._id === chart._id)
       );
-      
+
       console.log('📊 Loaded size charts:', { count: uniqueCharts.length, charts: uniqueCharts.map(c => ({ id: c._id, name: c.name })) });
-      
+
       setAvailableCategories(categoryList);
       setAvailableSizeCharts(uniqueCharts);
-      
+
       // Normalize specification IDs
       const specList = rawSpecList.map((spec: any) => {
         const normalizedId = normalizeCategoryId(spec._id || spec.id);
@@ -277,7 +286,7 @@ const ProductForm: React.FC = () => {
         };
       }).filter((spec: any): spec is { _id: string; name: string; slug?: string } => spec !== null);
       setAvailableSpecifications(specList);
-      
+
       // Normalize tag IDs
       const tagList = rawTagList.map((tag: any) => {
         const normalizedId = normalizeCategoryId(tag._id || tag.id);
@@ -291,6 +300,13 @@ const ProductForm: React.FC = () => {
         };
       }).filter((tag: any): tag is { _id: string; name: string; slug?: string; isActive?: boolean } => tag !== null);
       setAvailableTags(tagList);
+
+      const taxList = rawTaxList.map((tax: any) => ({
+        _id: normalizeCategoryId(tax._id || tax.id) || '',
+        name: tax.name || 'Unnamed Tax Rule',
+        rate: tax.rate,
+      })).filter((tax) => tax._id !== '');
+      setAvailableTaxRules(taxList);
     } catch (err) {
       console.error('Failed to load lookups', err);
     } finally {
@@ -349,7 +365,7 @@ const ProductForm: React.FC = () => {
           }
           return null;
         }).filter((id: any): id is string => id !== null && typeof id === 'string' && id.length === 24) || [];
-      
+
       // CRITICAL FIX: Normalize sizeChart ID to string (handle buffer objects)
       let inferredSizeChartId: string | null = null;
       if (data.sizeChartId) {
@@ -361,28 +377,30 @@ const ProductForm: React.FC = () => {
             : data.sizeChart?._id
         );
       }
-      
+
       const sizeChartEntries: SizeChartEntry[] =
         data.sizeChartEntries ||
         (Array.isArray(data.sizeChart) ? data.sizeChart : []) ||
         [];
-      
+
       const initialMode = inferredSizeChartId
         ? 'reference'
         : sizeChartEntries.length > 0
-        ? 'custom'
-        : 'none';
+          ? 'custom'
+          : 'none';
 
       // Stock is always a number (for products without variants)
-      const stockValue: number | undefined = 
+      const stockValue: number | undefined =
         typeof data.stock === 'number' ? data.stock : undefined;
 
       // Extract SKU - check multiple possible locations
       const dataSku = data.sku || data.baseSku || '';
-      
+
       setFormData({
         name: data.name || '',
         sku: dataSku,
+        hsnCode: data.hsnCode || '',
+        taxRuleId: data.taxRuleId || '',
         price: data.price?.toString() || '',
         originalPrice: data.originalPrice?.toString() || '',
         description: data.description || '',
@@ -414,8 +432,8 @@ const ProductForm: React.FC = () => {
           initialMode === 'custom'
             ? sizeChartEntries
             : sizeChartEntries.length > 0
-            ? sizeChartEntries
-            : [],
+              ? sizeChartEntries
+              : [],
         washCareInstructions: data.washCareInstructions || [],
         customerOrderImages: data.customerOrderImages || [],
         disableVariants: data.disableVariants || false,
@@ -446,7 +464,7 @@ const ProductForm: React.FC = () => {
                   normalizedValueSlug = valueObj.name.toLowerCase().trim();
                 }
               }
-              
+
               if (normalizedValueSlug) {
                 normalizedAttrs[attrSlug.toLowerCase().trim()] = normalizedValueSlug;
               }
@@ -459,7 +477,10 @@ const ProductForm: React.FC = () => {
           };
         }),
         stock: stockValue,
-        // Specifications
+        weight: data.weight != null ? String(data.weight) : '0.5',
+        length: data.length != null ? String(data.length) : '10',
+        breadth: data.breadth != null ? String(data.breadth) : '10',
+        height: data.height != null ? String(data.height) : '5',
         specificationId: data.specificationId ? normalizeCategoryId(data.specificationId) || undefined : undefined,
         specifications: data.specifications || undefined,
       });
@@ -502,14 +523,14 @@ const ProductForm: React.FC = () => {
 
   const sanitizeProductData = (product: any): any => {
     if (!product || typeof product !== 'object') return product;
-    
+
     const sanitized = { ...product };
-    
+
     // Ensure _id is a string
     if (sanitized._id) {
       sanitized._id = String(sanitized._id);
     }
-    
+
     // Sanitize categories - convert all to string IDs
     if (Array.isArray(sanitized.categories)) {
       sanitized.categories = sanitized.categories.map((cat: any) => {
@@ -540,7 +561,7 @@ const ProductForm: React.FC = () => {
         return null;
       }).filter((cat: any): cat is string => cat !== null && typeof cat === 'string' && cat.length === 24);
     }
-    
+
     // Sanitize sizeChart if it's an object
     if (sanitized.sizeChart && typeof sanitized.sizeChart === 'object') {
       if (sanitized.sizeChart.buffer || sanitized.sizeChart.constructor?.name === 'Buffer') {
@@ -549,7 +570,7 @@ const ProductForm: React.FC = () => {
         sanitized.sizeChart = String(sanitized.sizeChart._id);
       }
     }
-    
+
     // Sanitize images - ensure they're strings
     if (Array.isArray(sanitized.images)) {
       sanitized.images = sanitized.images
@@ -562,7 +583,7 @@ const ProductForm: React.FC = () => {
         })
         .filter((img: any) => img !== null);
     }
-    
+
     // Sanitize attributeIds
     if (Array.isArray(sanitized.attributeIds)) {
       sanitized.attributeIds = sanitized.attributeIds
@@ -578,7 +599,7 @@ const ProductForm: React.FC = () => {
         })
         .filter((id: any): id is string => id !== null && typeof id === 'string' && id.length === 24);
     }
-    
+
     // Sanitize variations
     if (Array.isArray(sanitized.variations)) {
       sanitized.variations = sanitized.variations.map((variation: any, idx: number) => {
@@ -599,11 +620,23 @@ const ProductForm: React.FC = () => {
           cleanVariation.attributes = {};
         } else {
           // Normalize slugs (not IDs) - lowercase and trim
+          // Normalize slugs (not IDs) - lowercase and trim
           const normalizedAttrs: Record<string, string> = {};
-          for (const [attrSlug, valueSlug] of Object.entries(cleanVariation.attributes)) {
+          for (const [attrSlug, valueData] of Object.entries(cleanVariation.attributes)) {
             const normalizedAttrSlug = String(attrSlug).toLowerCase().trim();
-            const normalizedValueSlug = String(valueSlug).toLowerCase().trim();
-            if (normalizedAttrSlug && normalizedValueSlug) {
+
+            let normalizedValueSlug: string | null = null;
+            if (typeof valueData === 'string') {
+              normalizedValueSlug = valueData.toLowerCase().trim();
+            } else if (valueData && typeof valueData === 'object') {
+              // Handle populated object
+              const valObj = valueData as any;
+              if (valObj.slug) normalizedValueSlug = String(valObj.slug).toLowerCase().trim();
+              else if (valObj.name) normalizedValueSlug = String(valObj.name).toLowerCase().trim();
+              else if (valObj.value) normalizedValueSlug = String(valObj.value).toLowerCase().trim();
+            }
+
+            if (normalizedAttrSlug && normalizedValueSlug && normalizedValueSlug !== '[object object]') {
               normalizedAttrs[normalizedAttrSlug] = normalizedValueSlug;
             }
           }
@@ -622,7 +655,7 @@ const ProductForm: React.FC = () => {
         return cleanVariation;
       });
     }
-    
+
     // Ensure numeric fields are numbers
     if (sanitized.price !== undefined) {
       sanitized.price = typeof sanitized.price === 'number' ? sanitized.price : Number(sanitized.price) || 0;
@@ -633,7 +666,7 @@ const ProductForm: React.FC = () => {
     if (sanitized.stock !== undefined && sanitized.stock !== null) {
       sanitized.stock = typeof sanitized.stock === 'number' ? sanitized.stock : Number(sanitized.stock) || undefined;
     }
-    
+
     // Ensure string fields are strings
     if (sanitized.name !== undefined) sanitized.name = String(sanitized.name || '');
     if (sanitized.sku !== undefined) sanitized.sku = String(sanitized.sku || '');
@@ -641,7 +674,7 @@ const ProductForm: React.FC = () => {
     if (sanitized.description !== undefined) sanitized.description = String(sanitized.description || '');
     if (sanitized.richDescription !== undefined) sanitized.richDescription = String(sanitized.richDescription || '');
     if (sanitized.descriptionImage !== undefined) sanitized.descriptionImage = String(sanitized.descriptionImage || '');
-    
+
     return sanitized;
   };
 
@@ -650,7 +683,7 @@ const ProductForm: React.FC = () => {
   const extractObjectId = (idValue: string | undefined): string | null => {
     if (!idValue) return null;
     const idStr = String(idValue).trim();
-    
+
     // MongoDB ObjectId must be exactly 24 hexadecimal characters
     // Backend validates with Types.ObjectId.isValid() which requires exactly 24 hex chars
     if (/^[0-9a-fA-F]{24}$/.test(idStr)) {
@@ -659,7 +692,7 @@ const ProductForm: React.FC = () => {
       }
       return idStr;
     }
-    
+
     // Try to extract 24 hex characters from the string
     const match = idStr.match(/^([0-9a-fA-F]{24})/);
     if (match) {
@@ -669,7 +702,7 @@ const ProductForm: React.FC = () => {
       }
       return extracted;
     }
-    
+
     if (import.meta.env.DEV) {
       console.warn('⚠️ Invalid ObjectId format:', { idValue, idStr, length: idStr.length });
     }
@@ -684,15 +717,15 @@ const ProductForm: React.FC = () => {
         console.error('❌ No product ID provided');
         throw new Error('Product ID is required');
       }
-      
+
       if (import.meta.env.DEV) {
         console.log('📥 Fetching product with ID:', id);
       }
-      
+
       // Extract clean MongoDB ObjectId
       // Backend API requires exactly 24 hex characters (MongoDB ObjectId format)
       const cleanId = extractObjectId(id);
-      
+
       // Backend validates with Types.ObjectId.isValid() - must be exactly 24 hex chars
       if (!cleanId) {
         console.error('❌ Invalid MongoDB ObjectId format:', {
@@ -705,7 +738,7 @@ const ProductForm: React.FC = () => {
         navigate('/products');
         return;
       }
-      
+
       if (import.meta.env.DEV) {
         console.log('✅ Using ID:', cleanId);
       }
@@ -714,19 +747,19 @@ const ProductForm: React.FC = () => {
       // productsAPI.getById returns: response.data (axios response body)
       // So response = { success: true, data: product }
       // We need response.data to get the actual product object
-      let product = (response && response.success && response.data) 
-        ? response.data 
-        : (response && response.data) 
-        ? response.data 
-        : response;
-      
+      let product = (response && response.success && response.data)
+        ? response.data
+        : (response && response.data)
+          ? response.data
+          : response;
+
       // Sanitize product data to remove buffer objects
       product = sanitizeProductData(product);
-      
+
       if (!product) {
         throw new Error('Product data is null or undefined');
       }
-      
+
       // Extract SKU from product - check multiple possible locations
       let productSku = '';
       if (product) {
@@ -734,10 +767,10 @@ const ProductForm: React.FC = () => {
         productSku = (product.sku && typeof product.sku === 'string' && product.sku.trim())
           ? product.sku.trim()
           : (product.baseSku && typeof product.baseSku === 'string' && product.baseSku.trim())
-          ? product.baseSku.trim()
-          : '';
+            ? product.baseSku.trim()
+            : '';
       }
-      
+
       // Debug: Log SKU extraction (only in development)
       if (import.meta.env.DEV) {
         console.log('🔍 Product SKU Debug:', {
@@ -751,16 +784,16 @@ const ProductForm: React.FC = () => {
           skuType: typeof product?.sku,
           allProductKeys: product ? Object.keys(product) : []
         });
-        
+
         if (!productSku && product) {
           console.warn('⚠️ SKU not found in product. Available fields:', Object.keys(product));
         }
       }
-      
+
       // Extract category IDs from various formats - ALWAYS return string IDs
       // Root cause fix: Handle all possible category formats from backend (populated objects, string IDs, etc.)
       const rawCategories = product.categories || [];
-      
+
       if (import.meta.env.DEV) {
         console.log('🔍 Categories Debug (fetchProduct):', {
           rawCategories,
@@ -772,12 +805,12 @@ const ProductForm: React.FC = () => {
           firstCategoryKeys: rawCategories[0] ? Object.keys(rawCategories[0]) : [],
         });
       }
-      
+
       const productCategories =
         (Array.isArray(rawCategories) ? rawCategories : []).map((cat: any) => {
           // Skip null/undefined
           if (!cat) return null;
-          
+
           // Already a string ID (most common case after serialization)
           if (typeof cat === 'string') {
             const trimmed = cat.trim();
@@ -786,7 +819,7 @@ const ProductForm: React.FC = () => {
             }
             return null;
           }
-          
+
           // Object with _id property (populated category from backend)
           if (cat && typeof cat === 'object') {
             // Check _id property (most common for populated objects)
@@ -796,7 +829,7 @@ const ProductForm: React.FC = () => {
                 return idStr;
               }
             }
-            
+
             // Check if the object itself is an ObjectId-like structure
             // Sometimes _id might be nested or the object might be the ID itself
             const keys = Object.keys(cat);
@@ -807,16 +840,16 @@ const ProductForm: React.FC = () => {
               }
             }
           }
-          
+
           // Try to convert to string as last resort (for ObjectId instances)
           const str = String(cat).trim();
           if (str && str !== '[object Object]' && str.length === 24 && /^[0-9a-fA-F]{24}$/.test(str)) {
             return str;
           }
-          
+
           return null;
         }).filter((id: any): id is string => id !== null && typeof id === 'string' && id.length === 24) || [];
-      
+
       // Extract tags - can be ObjectIds, tag objects, or tag names
       const productTags = (product.tags || []).map((tag: any) => {
         // Tags can be ObjectIds, tag objects, or tag names (strings)
@@ -841,7 +874,7 @@ const ProductForm: React.FC = () => {
         const normalizedId = normalizeCategoryId(tag);
         return normalizedId || tag;
       }).filter((tag: any) => tag !== null && tag !== undefined);
-      
+
       if (import.meta.env.DEV) {
         console.log('✅ Extracted Categories:', {
           extracted: productCategories,
@@ -872,16 +905,18 @@ const ProductForm: React.FC = () => {
       const initialMode = inferredSizeChartId
         ? 'reference'
         : sizeChartEntries.length > 0
-        ? 'custom'
-        : 'none';
+          ? 'custom'
+          : 'none';
 
       // Stock is always a number (for products without variants)
-      const stockValue: number | undefined = 
+      const stockValue: number | undefined =
         typeof product.stock === 'number' ? product.stock : undefined;
 
       setFormData({
         name: product.name || '',
         sku: productSku,
+        hsnCode: product.hsnCode || '',
+        taxRuleId: product.taxRuleId || '',
         price: product.price?.toString() || '',
         originalPrice: product.originalPrice?.toString() || '',
         description: product.description || '',
@@ -896,8 +931,8 @@ const ProductForm: React.FC = () => {
           initialMode === 'custom'
             ? sizeChartEntries
             : sizeChartEntries.length > 0
-            ? sizeChartEntries
-            : [],
+              ? sizeChartEntries
+              : [],
         washCareInstructions: product.washCareInstructions || [],
         customerOrderImages: product.customerOrderImages || [],
         disableVariants: product.disableVariants || false,
@@ -917,7 +952,7 @@ const ProductForm: React.FC = () => {
               for (const [attrSlug, valueData] of v.attributes.entries()) {
                 // Normalize attribute slug
                 const normalizedAttrSlug = String(attrSlug).toLowerCase().trim();
-                
+
                 // Extract value slug - handle both string slugs and nested objects with slug/name
                 let normalizedValueSlug: string | null = null;
                 if (typeof valueData === 'string') {
@@ -933,7 +968,7 @@ const ProductForm: React.FC = () => {
                     normalizedValueSlug = valueObj.name.toLowerCase().trim();
                   }
                 }
-                
+
                 if (normalizedAttrSlug && normalizedValueSlug) {
                   normalizedAttrs[normalizedAttrSlug] = normalizedValueSlug;
                 }
@@ -943,7 +978,7 @@ const ProductForm: React.FC = () => {
               for (const [attrSlug, valueData] of Object.entries(v.attributes)) {
                 // Normalize attribute slug
                 const normalizedAttrSlug = String(attrSlug).toLowerCase().trim();
-                
+
                 // Extract value slug - handle both string slugs and nested objects with slug/name
                 let normalizedValueSlug: string | null = null;
                 if (typeof valueData === 'string') {
@@ -959,29 +994,32 @@ const ProductForm: React.FC = () => {
                     normalizedValueSlug = valueObj.name.toLowerCase().trim();
                   }
                 }
-                
+
                 if (normalizedAttrSlug && normalizedValueSlug) {
                   normalizedAttrs[normalizedAttrSlug] = normalizedValueSlug;
                 }
               }
             }
           }
-          
+
           // Preserve attributeDetails if backend populated it (for display purposes)
           const variationData: any = {
             ...v,
             id: v.id || `var-${Date.now()}-${idx}`, // Add temporary ID for frontend
             attributes: normalizedAttrs, // Use normalized slugs
           };
-          
+
           // Preserve attributeDetails from backend if available (helps with display)
           if (v.attributeDetails && typeof v.attributeDetails === 'object') {
             variationData.attributeDetails = v.attributeDetails;
           }
-          
+
           return variationData;
         }),
-        // Specifications
+        weight: product.weight != null ? String(product.weight) : '0.5',
+        length: product.length != null ? String(product.length) : '10',
+        breadth: product.breadth != null ? String(product.breadth) : '10',
+        height: product.height != null ? String(product.height) : '5',
         specificationId: product.specificationId ? normalizeCategoryId(product.specificationId) || undefined : undefined,
         specifications: product.specifications || undefined,
       });
@@ -1011,8 +1049,8 @@ const ProductForm: React.FC = () => {
       const keywordString = Array.isArray(productSeo.keywords)
         ? productSeo.keywords.join(', ')
         : typeof productSeo.keywords === 'string'
-        ? productSeo.keywords
-        : '';
+          ? productSeo.keywords
+          : '';
 
       setSeoData({
         title: productSeo.title || '',
@@ -1037,18 +1075,18 @@ const ProductForm: React.FC = () => {
       }
     } catch (error: any) {
       console.error('Failed to load product:', error);
-      
+
       // Check if it's an ID format error from backend
       const backendError = error?.response?.data;
       const errorCode = backendError?.code;
       const errorMessage = backendError?.message || error?.message || 'Failed to load product';
-      
+
       if (errorCode === 'INVALID_PRODUCT_ID' || errorMessage.includes('Invalid product ID format')) {
         alert(`Invalid product ID format.\n\nPlease go back to the products list and try again.\n\nID used: ${id}`);
       } else {
         alert(errorMessage);
       }
-      
+
       navigate('/products');
     } finally {
       setLoading(false);
@@ -1083,6 +1121,23 @@ const ProductForm: React.FC = () => {
 
     if (formData.categories.length === 0) {
       newErrors.categories = 'Select at least one category';
+    }
+
+    const weightNum = parseFloat(formData.weight);
+    if (!formData.weight || isNaN(weightNum) || weightNum <= 0) {
+      newErrors.weight = 'Weight (kg) is required and must be greater than 0';
+    }
+    const lengthNum = parseFloat(formData.length);
+    if (!formData.length || isNaN(lengthNum) || lengthNum <= 0) {
+      newErrors.length = 'Length (cm) is required and must be greater than 0';
+    }
+    const breadthNum = parseFloat(formData.breadth);
+    if (!formData.breadth || isNaN(breadthNum) || breadthNum <= 0) {
+      newErrors.breadth = 'Breadth (cm) is required and must be greater than 0';
+    }
+    const heightNum = parseFloat(formData.height);
+    if (!formData.height || isNaN(heightNum) || heightNum <= 0) {
+      newErrors.height = 'Height (cm) is required and must be greater than 0';
     }
 
     if (sizeChartMode === 'reference' && !selectedSizeChartId) {
@@ -1170,14 +1225,14 @@ const ProductForm: React.FC = () => {
       console.warn('⚠️ Invalid size chart ID selected:', chartId);
       return;
     }
-    
-    console.log('📊 Selecting size chart:', { 
-      originalId: chartId, 
-      normalizedId, 
+
+    console.log('📊 Selecting size chart:', {
+      originalId: chartId,
+      normalizedId,
       availableCharts: availableSizeCharts.map(c => c._id),
       found: availableSizeCharts.find(c => c._id === normalizedId)
     });
-    
+
     setSelectedSizeChartId(normalizedId);
     setErrors((prev) => ({ ...prev, sizeChart: '' }));
     if (sizeChartMode === 'custom') {
@@ -1294,7 +1349,7 @@ const ProductForm: React.FC = () => {
       // Backend returns { success: true, data: { files: [{ url, key }] } }
       // Check response structure - it might be response.data or response
       let uploadedUrls: string[] = [];
-      
+
       if (response.data?.files && Array.isArray(response.data.files)) {
         uploadedUrls = response.data.files.map((f: any) => f.url || f);
       } else if (response.files && Array.isArray(response.files)) {
@@ -1304,12 +1359,12 @@ const ProductForm: React.FC = () => {
       } else if (Array.isArray(response.data)) {
         uploadedUrls = response.data.map((f: any) => f.url || f);
       }
-      
+
       if (uploadedUrls.length === 0) {
         console.error('No URLs found in response:', response);
         throw new Error('Failed to get uploaded video URLs from response');
       }
-      
+
       setFormData({
         ...formData,
         videos: [...formData.videos, ...uploadedUrls],
@@ -1354,7 +1409,7 @@ const ProductForm: React.FC = () => {
     try {
       // Root cause fix: Always read from ref to get latest formData (avoids stale closure)
       const currentFormData = formDataRef.current;
-      
+
       // CRITICAL DEBUG: Log both ref and state to compare
       console.log('🔍 handleSubmit - CRITICAL DEBUG:', {
         refCategories: currentFormData.categories,
@@ -1366,24 +1421,24 @@ const ProductForm: React.FC = () => {
         stateIsArray: Array.isArray(formData.categories),
         refEqualsState: JSON.stringify(currentFormData.categories) === JSON.stringify(formData.categories),
       });
-      
+
       const cleanedVideos = currentFormData.videos.filter((v) => v.trim());
       const cleanedInstructions = currentFormData.washCareInstructions.filter((instr) => instr.text.trim() !== '');
-      
+
       // Process attributeIds FIRST (needed for variation processing)
       // CRITICAL FIX: Always preserve attributeIds if productType is 'variation', even if variations are empty
       // This ensures attributes don't disappear when saving
       const cleanedAttributeIds = (currentFormData.attributeIds || [])
         .filter((id): id is string => typeof id === 'string' && id.trim().length === 24 && /^[0-9a-fA-F]{24}$/.test(id.trim()))
         .map(id => id.trim());
-      
+
       // Determine productType if not explicitly set (needed for variation processing)
       let productType: 'single' | 'variation' = currentFormData.productType || 'single';
-      
+
       // Process attribute-based variations
       // CRITICAL: Always process variations if they exist, even if empty array
       let cleanedVariations: any[] | undefined = undefined;
-      
+
       if (import.meta.env.DEV) {
         console.log('🔍 Variations Debug:', {
           hasVariations: !!currentFormData.variations,
@@ -1392,7 +1447,7 @@ const ProductForm: React.FC = () => {
           productType,
         });
       }
-      
+
       if (Array.isArray(currentFormData.variations)) {
         if (currentFormData.variations.length > 0) {
           if (import.meta.env.DEV) {
@@ -1401,7 +1456,7 @@ const ProductForm: React.FC = () => {
               variations: currentFormData.variations,
             });
           }
-          
+
           cleanedVariations = currentFormData.variations
             .filter((v) => {
               const hasAttributes = v.attributes && Object.keys(v.attributes).length > 0;
@@ -1416,7 +1471,7 @@ const ProductForm: React.FC = () => {
             .map((v) => {
               // Note: We don't send 'id' (temporary frontend ID) or 'variationId' (backend auto-generates it)
               // We build the payload explicitly to match API structure
-              
+
               // SIMPLIFIED: Normalize slugs (not IDs) - WordPress style
               const normalizedAttributes: Record<string, string> = {};
               for (const [attrSlug, valueSlug] of Object.entries(v.attributes)) {
@@ -1429,7 +1484,7 @@ const ProductForm: React.FC = () => {
                   }
                 }
               }
-              
+
               // Only include variation if it has valid normalized attributes
               if (Object.keys(normalizedAttributes).length === 0) {
                 if (import.meta.env.DEV) {
@@ -1437,7 +1492,7 @@ const ProductForm: React.FC = () => {
                 }
                 return null;
               }
-              
+
               // Build variation payload matching API structure exactly
               // API expects: { attributes: {size: "s"}, price, originalPrice, stock, sku, isActive }
               // Note: variationId is auto-generated by backend, so we don't send it
@@ -1447,7 +1502,7 @@ const ProductForm: React.FC = () => {
                 stock: Math.max(0, v.stock || 0),
                 isActive: v.isActive !== false,
               };
-              
+
               // Only include price fields if they are defined and valid
               if (v.price !== undefined && v.price !== null) {
                 variationPayload.price = Math.max(0, v.price);
@@ -1455,21 +1510,21 @@ const ProductForm: React.FC = () => {
               if (v.originalPrice !== undefined && v.originalPrice !== null) {
                 variationPayload.originalPrice = Math.max(0, v.originalPrice);
               }
-              
+
               // Only include images if they exist
               if (v.images && Array.isArray(v.images) && v.images.length > 0) {
                 variationPayload.images = v.images;
               }
-              
+
               // Only include shortDescription if it exists
               if (v.shortDescription && v.shortDescription.trim()) {
                 variationPayload.shortDescription = v.shortDescription.trim();
               }
-              
+
               return variationPayload;
             })
             .filter((v): v is any => v !== null); // Remove null entries
-          
+
           if (import.meta.env.DEV) {
             console.log('✅ Cleaned variations:', {
               original: currentFormData.variations.length,
@@ -1489,7 +1544,7 @@ const ProductForm: React.FC = () => {
         // Variations is undefined but productType is variation - set to empty array
         cleanedVariations = [];
       }
-      
+
       // Update productType based on processed variations and attributes
       if (cleanedVariations && cleanedVariations.length > 0) {
         productType = 'variation';
@@ -1498,7 +1553,7 @@ const ProductForm: React.FC = () => {
       } else if (cleanedVariations === undefined && cleanedAttributeIds.length === 0) {
         productType = 'single';
       }
-      
+
       const normalizedSlug = slugifyValue(slug);
       setSlug(normalizedSlug);
 
@@ -1519,7 +1574,7 @@ const ProductForm: React.FC = () => {
       // Root cause fix: Always use currentFormData.categories from ref (ensures latest state)
       // This avoids stale closure issues where handleSubmit might have old formData
       const categoriesFromFormData = currentFormData.categories || [];
-      
+
       // Ensure categories are always string IDs (never objects or buffers)
       // Root cause fix: Log categories before sanitization to debug empty array issue
       if (import.meta.env.DEV) {
@@ -1533,7 +1588,7 @@ const ProductForm: React.FC = () => {
           formDataStateCategories: formData.categories, // For comparison
         });
       }
-      
+
       const sanitizedCategories = (categoriesFromFormData || []).map((cat: any) => {
         // Already a string ID
         if (typeof cat === 'string') {
@@ -1558,7 +1613,7 @@ const ProductForm: React.FC = () => {
         }
         return null;
       }).filter((id): id is string => id !== null && typeof id === 'string' && id.length === 24);
-      
+
       if (import.meta.env.DEV) {
         console.log('✅ Sanitized Categories (handleSubmit):', {
           sanitized: sanitizedCategories,
@@ -1571,6 +1626,8 @@ const ProductForm: React.FC = () => {
       // This ensures categories are always sent to backend (empty array means clear categories)
       const data: Record<string, any> = {
         ...rest,
+        hsnCode: currentFormData.hsnCode || undefined,
+        taxRuleId: currentFormData.taxRuleId || undefined,
         price: parseFloat(currentFormData.price),
         originalPrice: parseFloat(currentFormData.originalPrice),
         stock: stockData,
@@ -1587,26 +1644,29 @@ const ProductForm: React.FC = () => {
         attributeIds: productType === 'variation' && cleanedAttributeIds.length > 0 ? cleanedAttributeIds : (productType === 'variation' ? [] : undefined),
         // CRITICAL FIX: Always send variations array (even if empty) for variation products
         // This prevents backend from removing variations when productType is 'variation'
-        variations: productType === 'variation' 
-          ? (cleanedVariations !== undefined ? cleanedVariations : []) 
+        variations: productType === 'variation'
+          ? (cleanedVariations !== undefined ? cleanedVariations : [])
           : (cleanedVariations !== undefined ? cleanedVariations : undefined),
         categories: sanitizedCategories, // Always include categories (even if empty array)
         // Tags - can be array of IDs (strings) or tag names (strings) - WordPress style
-        tags: currentFormData.tags && currentFormData.tags.length > 0 
+        tags: currentFormData.tags && currentFormData.tags.length > 0
           ? currentFormData.tags.map(tag => {
-              // If tag is an object with _id, use the _id
-              if (typeof tag === 'object' && tag._id) {
-                return tag._id;
-              }
-              // Otherwise return as-is (string ID or string name)
-              return tag;
-            })
+            // If tag is an object with _id, use the _id
+            if (typeof tag === 'object' && tag._id) {
+              return tag._id;
+            }
+            // Otherwise return as-is (string ID or string name)
+            return tag;
+          })
           : undefined,
-        // Specifications - include specificationId if set, or specifications if set (inline overrides linked)
+        weight: parseFloat(currentFormData.weight) || 0.5,
+        length: parseFloat(currentFormData.length) || 10,
+        breadth: parseFloat(currentFormData.breadth) || 10,
+        height: parseFloat(currentFormData.height) || 5,
         ...(currentFormData.specificationId ? { specificationId: currentFormData.specificationId } : {}),
         ...(currentFormData.specifications ? { specifications: currentFormData.specifications } : {}),
       };
-      
+
       // CRITICAL FIX: Explicitly ensure variations and attributeIds are in payload
       // Double-check that these fields are included (defensive programming)
       if (productType === 'variation') {
@@ -1614,7 +1674,7 @@ const ProductForm: React.FC = () => {
         data.variations = cleanedVariations !== undefined ? cleanedVariations : [];
         // Always include attributeIds (even if empty array)
         data.attributeIds = cleanedAttributeIds.length > 0 ? cleanedAttributeIds : [];
-        
+
         if (import.meta.env.DEV) {
           console.log('✅ Variation Product Payload:', {
             productType: data.productType,
@@ -1628,7 +1688,7 @@ const ProductForm: React.FC = () => {
           });
         }
       }
-      
+
       if (import.meta.env.DEV) {
         console.log('📤 Final payload (before sizeChart):', {
           hasVariations: 'variations' in data,
@@ -1640,13 +1700,13 @@ const ProductForm: React.FC = () => {
           sizeChartValue: data.sizeChart,
         });
       }
-      
+
       // Root cause fix: Explicitly ensure categories is in the payload
       // Double-check that categories are included (defensive programming)
       if (!('categories' in data)) {
         data.categories = sanitizedCategories;
       }
-      
+
       if (import.meta.env.DEV) {
         console.log('📤 Final payload categories:', {
           categoriesInData: data.categories,
@@ -1656,7 +1716,7 @@ const ProductForm: React.FC = () => {
       }
 
       data.slug = normalizedSlug;
-      
+
       // Include base SKU if provided (backend will generate if empty)
       if (currentFormData.sku && currentFormData.sku.trim()) {
         data.sku = currentFormData.sku.trim().toUpperCase();
@@ -1700,8 +1760,8 @@ const ProductForm: React.FC = () => {
       // This ensures sizeChart is always included in the payload, even if null
       if (sizeChartMode === 'reference') {
         // Normalize selectedSizeChartId to ensure it's a valid string ObjectId
-        const normalizedSizeChartId = selectedSizeChartId 
-          ? normalizeCategoryId(selectedSizeChartId) 
+        const normalizedSizeChartId = selectedSizeChartId
+          ? normalizeCategoryId(selectedSizeChartId)
           : null;
         data.sizeChart = normalizedSizeChartId || null;
         if (import.meta.env.DEV) {
@@ -1741,7 +1801,7 @@ const ProductForm: React.FC = () => {
           console.log('📊 SizeChart (none):', { final: data.sizeChart });
         }
       }
-      
+
       // CRITICAL FIX: Ensure sizeChart is never "[object Object]" - if it's an object, set to null
       if (data.sizeChart && typeof data.sizeChart === 'object' && !Array.isArray(data.sizeChart)) {
         // If it's an object (not an array), try to extract _id or set to null
@@ -1751,7 +1811,7 @@ const ProductForm: React.FC = () => {
           console.warn('⚠️ SizeChart was object, extracted ID:', { extractedId, final: data.sizeChart });
         }
       }
-      
+
       // CRITICAL FIX: Always explicitly include sizeChart in payload (even if null)
       // This ensures backend receives the sizeChart field for updates
       if (!('sizeChart' in data)) {
@@ -1833,7 +1893,7 @@ const ProductForm: React.FC = () => {
                 Attach a shared specification template or create inline specifications for this product.
                 Inline specifications override linked templates.
               </p>
-              
+
               <div className="space-y-4">
                 {/* Linked Specification Template */}
                 <div>
@@ -1886,7 +1946,7 @@ const ProductForm: React.FC = () => {
                   <p className="text-xs text-gray-500 mb-3">
                     Create product-specific specifications. These override linked templates.
                   </p>
-                  
+
                   {(formData.specifications || []).map((section, sectionIdx) => (
                     <div key={sectionIdx} className="mb-4 p-4 border border-gray-200 rounded-lg bg-gray-50">
                       <div className="flex items-center justify-between mb-3">
@@ -1916,7 +1976,7 @@ const ProductForm: React.FC = () => {
                           Remove Section
                         </button>
                       </div>
-                      
+
                       <div className="space-y-2">
                         {section.items.map((item, itemIdx) => (
                           <div key={itemIdx} className="flex gap-2">
@@ -1977,7 +2037,7 @@ const ProductForm: React.FC = () => {
                       </div>
                     </div>
                   ))}
-                  
+
                   {(!formData.specifications || formData.specifications.length === 0) && (
                     <button
                       type="button"
@@ -2042,10 +2102,10 @@ const ProductForm: React.FC = () => {
                     currentFormDataCategories: formData.categories,
                     currentFormDataCount: formData.categories?.length || 0,
                   });
-                  
+
                   setFormData((prev) => {
                     const newFormData = { ...prev, categories };
-                    
+
                     console.log('🔄 Categories changed (setFormData callback):', {
                       oldCategories: prev.categories,
                       newCategories: categories,
@@ -2056,7 +2116,7 @@ const ProductForm: React.FC = () => {
                       categoriesArray: Array.isArray(categories),
                       categoriesSample: categories[0],
                     });
-                    
+
                     // Root cause fix: Also update ref immediately (don't wait for useEffect)
                     // This ensures handleSubmit always has the latest categories
                     formDataRef.current = newFormData;
@@ -2064,7 +2124,7 @@ const ProductForm: React.FC = () => {
                       refCategories: formDataRef.current.categories,
                       refCount: formDataRef.current.categories?.length || 0,
                     });
-                    
+
                     return newFormData;
                   });
                 }}
@@ -2132,8 +2192,8 @@ const ProductForm: React.FC = () => {
                     checked={formData.productType === 'single'}
                     onChange={(e) => {
                       const newType = e.target.value as 'single' | 'variation';
-                      setFormData({ 
-                        ...formData, 
+                      setFormData({
+                        ...formData,
                         productType: newType,
                         // Clear variations and attributes when switching to single
                         ...(newType === 'single' ? { variations: [], attributeIds: [], selectedAttributeValues: {} } : {})
@@ -2154,8 +2214,8 @@ const ProductForm: React.FC = () => {
                     checked={formData.productType === 'variation'}
                     onChange={(e) => {
                       const newType = e.target.value as 'single' | 'variation';
-                      setFormData({ 
-                        ...formData, 
+                      setFormData({
+                        ...formData,
                         productType: newType
                       });
                     }}
@@ -2183,56 +2243,56 @@ const ProductForm: React.FC = () => {
             {/* Attribute-based Variations - Only show if productType is 'variation' */}
             {formData.productType === 'variation' && (
               <ProductAttributeVariations
-              selectedAttributeIds={formData.attributeIds}
-              selectedAttributeValues={formData.selectedAttributeValues || {}}
-              onAttributeIdsChange={(ids) => setFormData({ ...formData, attributeIds: ids })}
-              onAttributeValuesChange={(values) => setFormData({ ...formData, selectedAttributeValues: values })}
-              variations={formData.variations}
-              onVariationsChange={(variations) => setFormData({ ...formData, variations })}
-              baseSku={formData.sku || slug.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10) || 'PROD'}
-              basePrice={parseFloat(formData.price) || 0}
-              baseOriginalPrice={parseFloat(formData.originalPrice) || 0}
-              onRegenerateAllSkus={() => {
-                // Regenerate SKUs for all variations
-                const baseSku = formData.sku || slug.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10) || 'PROD';
-                const newVariations = formData.variations.map((v, idx) => {
-                  // Generate SKU from attributes
-                  const attrSlugs = Object.keys(v.attributes).join('-').toUpperCase().slice(0, 20);
-                  const sku = `${baseSku}-${attrSlugs}-${idx + 1}`.toUpperCase().slice(0, 48);
-                  return { ...v, sku };
-                });
-                setFormData({ ...formData, variations: newVariations });
-              }}
-              onVariationImageUpload={async (variationId, files) => {
-                const imageFiles = Array.from(files).filter(file => file.type.startsWith('image/'));
-                if (imageFiles.length === 0) return;
+                selectedAttributeIds={formData.attributeIds}
+                selectedAttributeValues={formData.selectedAttributeValues || {}}
+                onAttributeIdsChange={(ids) => setFormData({ ...formData, attributeIds: ids })}
+                onAttributeValuesChange={(values) => setFormData({ ...formData, selectedAttributeValues: values })}
+                variations={formData.variations}
+                onVariationsChange={(variations) => setFormData({ ...formData, variations })}
+                baseSku={formData.sku || slug.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10) || 'PROD'}
+                basePrice={parseFloat(formData.price) || 0}
+                baseOriginalPrice={parseFloat(formData.originalPrice) || 0}
+                onRegenerateAllSkus={() => {
+                  // Regenerate SKUs for all variations
+                  const baseSku = formData.sku || slug.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10) || 'PROD';
+                  const newVariations = formData.variations.map((v, idx) => {
+                    // Generate SKU from attributes
+                    const attrSlugs = Object.keys(v.attributes).join('-').toUpperCase().slice(0, 20);
+                    const sku = `${baseSku}-${attrSlugs}-${idx + 1}`.toUpperCase().slice(0, 48);
+                    return { ...v, sku };
+                  });
+                  setFormData({ ...formData, variations: newVariations });
+                }}
+                onVariationImageUpload={async (variationId, files) => {
+                  const imageFiles = Array.from(files).filter(file => file.type.startsWith('image/'));
+                  if (imageFiles.length === 0) return;
 
-                setUploading(true);
-                try {
-                  const response = await uploadAPI.uploadMultiple(imageFiles, 'products');
-                  const uploadedUrls = response.data?.files?.map((f: any) => f.url) || response.data?.urls || [];
+                  setUploading(true);
+                  try {
+                    const response = await uploadAPI.uploadMultiple(imageFiles, 'products');
+                    const uploadedUrls = response.data?.files?.map((f: any) => f.url) || response.data?.urls || [];
+                    const newVariations = formData.variations.map(v =>
+                      v.id === variationId
+                        ? { ...v, images: [...(v.images || []), ...uploadedUrls] }
+                        : v
+                    );
+                    setFormData({ ...formData, variations: newVariations });
+                  } catch (error) {
+                    alert('Failed to upload variation images');
+                  } finally {
+                    setUploading(false);
+                  }
+                }}
+                onRemoveVariationImage={(variationId, imageIndex) => {
                   const newVariations = formData.variations.map(v =>
                     v.id === variationId
-                      ? { ...v, images: [...(v.images || []), ...uploadedUrls] }
+                      ? { ...v, images: (v.images || []).filter((_, i) => i !== imageIndex) }
                       : v
                   );
                   setFormData({ ...formData, variations: newVariations });
-                } catch (error) {
-                  alert('Failed to upload variation images');
-                } finally {
-                  setUploading(false);
-                }
-              }}
-              onRemoveVariationImage={(variationId, imageIndex) => {
-                const newVariations = formData.variations.map(v =>
-                  v.id === variationId
-                    ? { ...v, images: (v.images || []).filter((_, i) => i !== imageIndex) }
-                    : v
-                );
-                setFormData({ ...formData, variations: newVariations });
-              }}
-              uploading={uploading}
-            />
+                }}
+                uploading={uploading}
+              />
             )}
 
             {/* Bundles moved notice */}
@@ -2253,8 +2313,15 @@ const ProductForm: React.FC = () => {
               price={formData.price}
               originalPrice={formData.originalPrice}
               sku={formData.sku}
+              hsnCode={formData.hsnCode}
+              taxRuleId={formData.taxRuleId}
+              taxRules={availableTaxRules}
               stock={formData.stock}
               showStock={formData.productType === 'single'}
+              weight={formData.weight}
+              length={formData.length}
+              breadth={formData.breadth}
+              height={formData.height}
               onPriceChange={(price) => {
                 setFormData({ ...formData, price });
                 setErrors({ ...errors, price: '' });
@@ -2267,9 +2334,15 @@ const ProductForm: React.FC = () => {
                 const skuValue = sku.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 48);
                 setFormData({ ...formData, sku: skuValue });
               }}
+              onHsnCodeChange={(hsnCode) => setFormData({ ...formData, hsnCode })}
+              onTaxRuleIdChange={(taxRuleId) => setFormData({ ...formData, taxRuleId })}
               onStockChange={(stock) => {
                 setFormData({ ...formData, stock });
               }}
+              onWeightChange={(weight) => setFormData({ ...formData, weight })}
+              onLengthChange={(length) => setFormData({ ...formData, length })}
+              onBreadthChange={(breadth) => setFormData({ ...formData, breadth })}
+              onHeightChange={(height) => setFormData({ ...formData, height })}
               errors={errors}
             />
 

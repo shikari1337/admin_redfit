@@ -1,7 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaArrowLeft, FaSave, FaPercent, FaPlus, FaTrash, FaEdit, FaCheck, FaTimes, FaWarehouse } from 'react-icons/fa';
+import { ArrowLeft, Save, Percent, Plus, Trash2, Edit, Check, X, Warehouse, Loader2 } from 'lucide-react';
 import { gstSettingsAPI } from '../services/api';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 
 interface TaxBracket {
   _id?: string;
@@ -28,8 +32,6 @@ const GstSettings: React.FC = () => {
     try {
       setLoading(true);
       const response = await gstSettingsAPI.get();
-      // Backend returns: { success: true, data: settings }
-      // API interceptor normalizes to: settings or { data: settings }
       const settings = response?.data || response;
       if (settings) {
         setShowPriceIncludingGst(settings.showPriceIncludingGst || false);
@@ -92,228 +94,240 @@ const GstSettings: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500"></div>
+      <div className="flex items-center justify-center p-12">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
   }
 
   return (
-    <div className="max-w-6xl mx-auto">
-      <div className="mb-6">
-        <button
+    <div className="max-w-4xl mx-auto space-y-6">
+      <div>
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => navigate('/settings')}
-          className="flex items-center text-gray-600 hover:text-gray-900 mb-4"
+          className="text-muted-foreground mb-4"
         >
-          <FaArrowLeft className="mr-2" />
+          <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Settings
-        </button>
-        <h1 className="text-3xl font-bold text-gray-900">GST Settings</h1>
-        <p className="text-sm text-gray-600 mt-2">Configure GST tax brackets. Warehouses act as GST stores - manage them in the Warehouses section.</p>
+        </Button>
+        <h1 className="text-3xl font-bold tracking-tight text-foreground">GST Settings</h1>
+        <p className="text-sm text-muted-foreground mt-2">Configure GST tax brackets. Warehouses act as GST stores - manage them in the Warehouses section.</p>
       </div>
 
-      {/* Show Price Including GST */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900 mb-1">Show Price Including GST</h2>
-            <p className="text-sm text-gray-600">Display product prices with GST included on the frontend</p>
-          </div>
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showPriceIncludingGst}
-              onChange={(e) => setShowPriceIncludingGst(e.target.checked)}
-              className="sr-only peer"
-            />
-            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-red-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600"></div>
-          </label>
-        </div>
-      </div>
-
-      {/* Show GST on Checkout */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900 mb-1">Show GST on Checkout</h2>
-            <p className="text-sm text-gray-600">Display GST calculation breakdown on checkout page</p>
-          </div>
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showGstOnCheckout}
-              onChange={(e) => setShowGstOnCheckout(e.target.checked)}
-              className="sr-only peer"
-            />
-            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-red-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600"></div>
-          </label>
-        </div>
-      </div>
-
-      {/* Tax Brackets */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-        <div className="flex items-center gap-4 mb-6">
-          <div className="flex-shrink-0 w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-            <FaPercent className="w-6 h-6 text-green-600" />
-          </div>
-          <div className="flex-1">
-            <h2 className="text-lg font-semibold text-gray-900">Tax Brackets</h2>
-            <p className="text-sm text-gray-600">Configure GST tax rates (e.g., 5%, 12%, 18%, 28%)</p>
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          {/* Existing Brackets */}
-          {taxBrackets.map((bracket) => (
-            <div key={bracket._id} className="flex items-center gap-4 p-4 border border-gray-200 rounded-lg">
-              {editingBracket === bracket._id ? (
-                <>
-                  <input
-                    type="text"
-                    value={bracket.name}
-                    onChange={(e) => setTaxBrackets(taxBrackets.map(b => 
-                      b._id === bracket._id ? { ...b, name: e.target.value } : b
-                    ))}
-                    placeholder="Bracket Name (e.g., 18% GST)"
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                  />
-                  <input
-                    type="number"
-                    value={bracket.rate}
-                    onChange={(e) => setTaxBrackets(taxBrackets.map(b => 
-                      b._id === bracket._id ? { ...b, rate: parseFloat(e.target.value) || 0 } : b
-                    ))}
-                    placeholder="Rate %"
-                    min="0"
-                    max="100"
-                    step="0.01"
-                    className="w-32 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                  />
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={bracket.isActive}
-                      onChange={(e) => setTaxBrackets(taxBrackets.map(b => 
-                        b._id === bracket._id ? { ...b, isActive: e.target.checked } : b
-                      ))}
-                      className="w-4 h-4 text-red-600 rounded focus:ring-red-500"
-                    />
-                    <span className="text-sm text-gray-700">Active</span>
-                  </label>
-                  <button
-                    onClick={() => handleUpdateBracket(bracket._id!)}
-                    className="p-2 text-green-600 hover:bg-green-50 rounded"
-                  >
-                    <FaCheck />
-                  </button>
-                  <button
-                    onClick={() => setEditingBracket(null)}
-                    className="p-2 text-gray-600 hover:bg-gray-50 rounded"
-                  >
-                    <FaTimes />
-                  </button>
-                </>
-              ) : (
-                <>
-                  <div className="flex-1">
-                    <div className="font-medium text-gray-900">{bracket.name}</div>
-                    <div className="text-sm text-gray-500">{bracket.rate}%</div>
-                  </div>
-                  <div className={`px-3 py-1 rounded-full text-xs font-medium ${
-                    bracket.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                  }`}>
-                    {bracket.isActive ? 'Active' : 'Inactive'}
-                  </div>
-                  <button
-                    onClick={() => setEditingBracket(bracket._id!)}
-                    className="p-2 text-blue-600 hover:bg-blue-50 rounded"
-                  >
-                    <FaEdit />
-                  </button>
-                  <button
-                    onClick={() => handleDeleteBracket(bracket._id!)}
-                    className="p-2 text-red-600 hover:bg-red-50 rounded"
-                  >
-                    <FaTrash />
-                  </button>
-                </>
-              )}
+      <div className="space-y-6 pb-12">
+        {/* Show Price Including GST */}
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-foreground mb-1">Show Price Including GST</h2>
+                <p className="text-sm text-muted-foreground">Display product prices with GST included on the frontend</p>
+              </div>
+              <label className="flex items-center cursor-pointer">
+                <Checkbox
+                  checked={showPriceIncludingGst}
+                  onCheckedChange={(checked) => setShowPriceIncludingGst(checked as boolean)}
+                />
+              </label>
             </div>
-          ))}
+          </CardContent>
+        </Card>
 
-          {/* Add New Bracket */}
-          <div className="flex items-center gap-4 p-4 border-2 border-dashed border-gray-300 rounded-lg">
-            <input
-              type="text"
-              value={newBracket.name}
-              onChange={(e) => setNewBracket({ ...newBracket, name: e.target.value })}
-              placeholder="Bracket Name (e.g., 18% GST)"
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-            />
-            <input
-              type="number"
-              value={newBracket.rate}
-              onChange={(e) => setNewBracket({ ...newBracket, rate: parseFloat(e.target.value) || 0 })}
-              placeholder="Rate %"
-              min="0"
-              max="100"
-              step="0.01"
-              className="w-32 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-            />
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={newBracket.isActive}
-                onChange={(e) => setNewBracket({ ...newBracket, isActive: e.target.checked })}
-                className="w-4 h-4 text-red-600 rounded focus:ring-red-500"
+        {/* Show GST on Checkout */}
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-foreground mb-1">Show GST on Checkout</h2>
+                <p className="text-sm text-muted-foreground">Display GST calculation breakdown on checkout page</p>
+              </div>
+              <label className="flex items-center cursor-pointer">
+                <Checkbox
+                  checked={showGstOnCheckout}
+                  onCheckedChange={(checked) => setShowGstOnCheckout(checked as boolean)}
+                />
+              </label>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Tax Brackets */}
+        <Card>
+          <CardHeader className="flex flex-row items-center gap-4">
+            <div className="flex-shrink-0 w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+              <Percent className="w-6 h-6 text-green-600" />
+            </div>
+            <div>
+              <CardTitle>Tax Brackets</CardTitle>
+              <CardDescription>Configure GST tax rates (e.g., 5%, 12%, 18%, 28%)</CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Existing Brackets */}
+            {taxBrackets.map((bracket) => (
+              <div key={bracket._id} className="flex items-center gap-4 p-4 border rounded-lg bg-card">
+                {editingBracket === bracket._id ? (
+                  <>
+                    <Input
+                      type="text"
+                      value={bracket.name}
+                      onChange={(e) => setTaxBrackets(taxBrackets.map(b => 
+                        b._id === bracket._id ? { ...b, name: e.target.value } : b
+                      ))}
+                      placeholder="Bracket Name (e.g., 18% GST)"
+                      className="flex-1"
+                    />
+                    <Input
+                      type="number"
+                      value={bracket.rate}
+                      onChange={(e) => setTaxBrackets(taxBrackets.map(b => 
+                        b._id === bracket._id ? { ...b, rate: parseFloat(e.target.value) || 0 } : b
+                      ))}
+                      placeholder="Rate %"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      className="w-32"
+                    />
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <Checkbox
+                        checked={bracket.isActive}
+                        onCheckedChange={(checked) => setTaxBrackets(taxBrackets.map(b => 
+                          b._id === bracket._id ? { ...b, isActive: checked as boolean } : b
+                        ))}
+                      />
+                      <span className="text-sm font-medium">Active</span>
+                    </label>
+                    <div className="flex gap-1 ml-auto">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleUpdateBracket(bracket._id!)}
+                        className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                      >
+                        <Check className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setEditingBracket(null)}
+                        className="text-muted-foreground"
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex-1">
+                      <div className="font-medium text-foreground">{bracket.name}</div>
+                      <div className="text-sm text-muted-foreground">{bracket.rate}%</div>
+                    </div>
+                    <div className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                      bracket.isActive ? 'bg-green-100 text-green-800' : 'bg-muted text-muted-foreground'
+                    }`}>
+                      {bracket.isActive ? 'Active' : 'Inactive'}
+                    </div>
+                    <div className="flex gap-1 ml-auto">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setEditingBracket(bracket._id!)}
+                        className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleDeleteBracket(bracket._id!)}
+                        className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
+
+            {/* Add New Bracket */}
+            <div className="flex items-center gap-4 p-4 border-2 border-dashed rounded-lg bg-card">
+              <Input
+                type="text"
+                value={newBracket.name}
+                onChange={(e) => setNewBracket({ ...newBracket, name: e.target.value })}
+                placeholder="Bracket Name (e.g., 18% GST)"
+                className="flex-1"
               />
-              <span className="text-sm text-gray-700">Active</span>
-            </label>
-            <button
-              onClick={handleAddBracket}
-              className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 flex items-center gap-2"
-            >
-              <FaPlus /> Add
-            </button>
-          </div>
-        </div>
-      </div>
+              <Input
+                type="number"
+                value={newBracket.rate}
+                onChange={(e) => setNewBracket({ ...newBracket, rate: parseFloat(e.target.value) || 0 })}
+                placeholder="Rate %"
+                min="0"
+                max="100"
+                step="0.01"
+                className="w-32"
+              />
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox
+                  checked={newBracket.isActive}
+                  onCheckedChange={(checked) => setNewBracket({ ...newBracket, isActive: checked as boolean })}
+                />
+                <span className="text-sm font-medium">Active</span>
+              </label>
+              <Button
+                type="button"
+                onClick={handleAddBracket}
+                className="ml-auto"
+              >
+                <Plus className="w-4 h-4 mr-2" /> Add
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
-      {/* Warehouses Info */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-        <div className="flex items-center gap-4 mb-4">
-          <div className="flex-shrink-0 w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-            <FaWarehouse className="w-6 h-6 text-blue-600" />
-          </div>
-          <div className="flex-1">
-            <h2 className="text-lg font-semibold text-gray-900">GST Stores (Warehouses)</h2>
-            <p className="text-sm text-gray-600">Warehouses act as GST stores. Manage warehouses in the <strong>Warehouses</strong> section.</p>
-          </div>
-        </div>
-        <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
-          <p className="text-sm text-blue-800">
-            <strong>Note:</strong> GST calculation now uses warehouses instead of separate stores. Each warehouse can have a GSTIN configured. 
-            Go to <strong>Settings → Warehouses</strong> to manage warehouse locations and configure GSTIN for each warehouse.
-          </p>
-        </div>
-      </div>
+        {/* Warehouses Info */}
+        <Card>
+          <CardHeader className="flex flex-row items-center gap-4">
+            <div className="flex-shrink-0 w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+              <Warehouse className="w-6 h-6 text-blue-600" />
+            </div>
+            <div>
+              <CardTitle>GST Stores (Warehouses)</CardTitle>
+              <CardDescription>Warehouses act as GST stores. Manage warehouses in the <strong>Warehouses</strong> section.</CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <p className="text-sm text-blue-800">
+                <strong>Note:</strong> GST calculation now uses warehouses instead of separate stores. Each warehouse can have a GSTIN configured. 
+                Go to <strong>Settings → Warehouses</strong> to manage warehouse locations and configure GSTIN for each warehouse.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
 
-      <div className="flex justify-end gap-3">
-        <button
-          type="button"
-          onClick={() => navigate('/settings')}
-          className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-400 font-medium flex items-center gap-2"
-        >
-          <FaSave className="w-4 h-4" />
-          {saving ? 'Saving...' : 'Save Changes'}
-        </button>
+        <div className="flex justify-end gap-3 pt-4">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => navigate('/settings')}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSave}
+            disabled={saving}
+            className="bg-blue-600 hover:bg-blue-700"
+          >
+            {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+            {saving ? 'Saving...' : 'Save Changes'}
+          </Button>
+        </div>
       </div>
     </div>
   );

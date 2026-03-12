@@ -151,17 +151,39 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
       
       const response = await shippingAPI.getCourierRates(
         orderId,
-        warehouseIdStr || undefined
+        warehouseIdStr || undefined,
+        {
+          weight: parseFloat(weight) || undefined,
+          length: parseFloat(length) || undefined,
+          breadth: parseFloat(breadth) || undefined,
+          height: parseFloat(height) || undefined,
+        }
       );
       console.log('Shiprocket rates response:', response);
-      
-      if (response.success && response.data && Array.isArray(response.data) && response.data.length > 0) {
-        // Sort by rate (lowest first) and filter out invalid rates
-        const sortedRates = [...response.data]
-          .filter(c => c && c.rate > 0 && c.courierName)
+
+      // API interceptor may return array directly (normalized) or { success, data }
+      const ratesArray: any[] = Array.isArray(response)
+        ? response
+        : (response?.data && Array.isArray(response.data))
+          ? response.data
+          : [];
+
+      if (ratesArray.length > 0) {
+        const sortedRates = [...ratesArray]
+          .filter((c: any) => c && (c.rate > 0 || c.total_price > 0) && (c.courierName || c.courier_name || c.name))
+          .map((c: any) => ({
+            courierCompanyId: c.courier_company_id ?? c.courierCompanyId ?? c.id,
+            courierName: c.courier_name ?? c.courierName ?? c.name ?? 'Unknown Courier',
+            rate: parseFloat(c.rate ?? c.total_price ?? 0),
+            estimatedDeliveryDays: c.estimated_delivery_days ?? c.estimatedDeliveryDays ?? c.delivery_days ?? 0,
+            estimatedDeliveryDate: c.estimated_delivery_date ?? c.estimatedDeliveryDate,
+            codAvailable: c.cod === 1 || c.cod === true || c.cod === 'Y',
+            airAvailable: c.air === 1 || c.air === true || c.air === 'Y',
+            surfaceAvailable: c.surface === 1 || c.surface === true || c.surface === 'Y',
+            qty: c.qty || 1,
+          }))
           .sort((a, b) => a.rate - b.rate);
         setCourierRates(sortedRates);
-        // Auto-select cheapest option if shiprocket is selected
         if (sortedRates.length > 0 && selectedShippingProvider === 'shiprocket') {
           setSelectedCourierId(sortedRates[0].courierCompanyId);
         }
@@ -200,80 +222,59 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
       }
       
       // Fetch DELHIVERY rates for both Express and Surface
-      // Use Promise.allSettled to handle errors gracefully
+      // Backend automatically uses warehouse pincode from warehouseId for rate calculation
+      const dims = {
+        weight: parseFloat(weight) || undefined,
+        length: parseFloat(length) || undefined,
+        breadth: parseFloat(breadth) || undefined,
+        height: parseFloat(height) || undefined,
+      };
       const [expressResult, surfaceResult] = await Promise.allSettled([
-        shippingAPI.getDelhiveryRates(orderId, warehouseIdStr, 'express'),
-        shippingAPI.getDelhiveryRates(orderId, warehouseIdStr, 'surface'),
+        shippingAPI.getDelhiveryRates(orderId, warehouseIdStr, 'express', dims),
+        shippingAPI.getDelhiveryRates(orderId, warehouseIdStr, 'surface', dims),
       ]);
 
       console.log('DELHIVERY rates response:', { expressResult, surfaceResult });
       
       const rates: DelhiveryServiceType[] = [];
       
+      // Helper: extract rates array (API may return array directly or { success, data })
+      const getRatesArray = (resp: any): any[] => {
+        if (Array.isArray(resp)) return resp;
+        if (resp?.data && Array.isArray(resp.data)) return resp.data;
+        return [];
+      };
+
       // Process Express rates
       if (expressResult.status === 'fulfilled') {
         const expressResponse = expressResult.value;
-        console.log('📦 DELHIVERY Express response:', expressResponse);
-        
-        if (expressResponse?.success && expressResponse?.data && Array.isArray(expressResponse.data) && expressResponse.data.length > 0) {
-          // Find the express rate in the data array
-          const expressRate = expressResponse.data.find((r: any) => r.serviceType === 'express') || expressResponse.data[0];
-          console.log('📦 DELHIVERY Express rate found:', expressRate);
-          
-          if (expressRate && expressRate.rate && expressRate.rate > 0) {
-            rates.push({
-              type: 'express',
-              rate: expressRate.rate || 0,
-              estimatedDeliveryDays: expressRate.estimatedDeliveryDays || 0,
-              codAvailable: expressRate.codAvailable || false,
-            });
-          } else {
-            console.warn('⚠️ DELHIVERY Express rate is invalid:', expressRate);
-          }
-        } else {
-          console.warn('⚠️ DELHIVERY Express response structure invalid:', {
-            success: expressResponse?.success,
-            hasData: !!expressResponse?.data,
-            isArray: Array.isArray(expressResponse?.data),
-            dataLength: expressResponse?.data?.length,
-            fullResponse: expressResponse,
+        const expressData = getRatesArray(expressResponse);
+        const expressRate = expressData.find((r: any) => r.serviceType === 'express') || expressData[0];
+
+        if (expressRate && (expressRate.rate > 0 || expressRate.charges > 0)) {
+          rates.push({
+            type: 'express',
+            rate: expressRate.rate ?? expressRate.charges ?? 0,
+            estimatedDeliveryDays: expressRate.estimatedDeliveryDays ?? expressRate.estimated_delivery_days ?? 0,
+            codAvailable: expressRate.codAvailable ?? false,
           });
         }
-      } else {
-        console.warn('❌ Failed to fetch DELHIVERY Express rates:', expressResult.reason);
       }
-      
+
       // Process Surface rates
       if (surfaceResult.status === 'fulfilled') {
         const surfaceResponse = surfaceResult.value;
-        console.log('📦 DELHIVERY Surface response:', surfaceResponse);
-        
-        if (surfaceResponse?.success && surfaceResponse?.data && Array.isArray(surfaceResponse.data) && surfaceResponse.data.length > 0) {
-          // Find the surface rate in the data array
-          const surfaceRate = surfaceResponse.data.find((r: any) => r.serviceType === 'surface') || surfaceResponse.data[0];
-          console.log('📦 DELHIVERY Surface rate found:', surfaceRate);
-          
-          if (surfaceRate && surfaceRate.rate && surfaceRate.rate > 0) {
-            rates.push({
-              type: 'surface',
-              rate: surfaceRate.rate || 0,
-              estimatedDeliveryDays: surfaceRate.estimatedDeliveryDays || 0,
-              codAvailable: surfaceRate.codAvailable || false,
-            });
-          } else {
-            console.warn('⚠️ DELHIVERY Surface rate is invalid:', surfaceRate);
-          }
-        } else {
-          console.warn('⚠️ DELHIVERY Surface response structure invalid:', {
-            success: surfaceResponse?.success,
-            hasData: !!surfaceResponse?.data,
-            isArray: Array.isArray(surfaceResponse?.data),
-            dataLength: surfaceResponse?.data?.length,
-            fullResponse: surfaceResponse,
+        const surfaceData = getRatesArray(surfaceResponse);
+        const surfaceRate = surfaceData.find((r: any) => r.serviceType === 'surface') || surfaceData[0];
+
+        if (surfaceRate && (surfaceRate.rate > 0 || surfaceRate.charges > 0)) {
+          rates.push({
+            type: 'surface',
+            rate: surfaceRate.rate ?? surfaceRate.charges ?? 0,
+            estimatedDeliveryDays: surfaceRate.estimatedDeliveryDays ?? surfaceRate.estimated_delivery_days ?? 0,
+            codAvailable: surfaceRate.codAvailable ?? false,
           });
         }
-      } else {
-        console.warn('❌ Failed to fetch DELHIVERY Surface rates:', surfaceResult.reason);
       }
 
       console.log('📦 Final DELHIVERY rates array:', rates);
@@ -983,9 +984,9 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
                         </div>
                       ) : courierRates.length > 0 ? (
                         <div className="space-y-2 max-h-96 overflow-y-auto">
-                          {courierRates.map((courier) => (
+                          {courierRates.map((courier, idx) => (
                             <div
-                              key={courier.courierCompanyId}
+                              key={courier.courierCompanyId ?? `courier-${idx}`}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setSelectedCourierId(courier.courierCompanyId);

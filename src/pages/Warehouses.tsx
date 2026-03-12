@@ -23,6 +23,7 @@ interface Warehouse {
   shippingProviders: {
     shiprocket?: {
       pickupLocation?: string;
+      warehouseId?: string;
       enabled: boolean;
     };
     delhivery?: {
@@ -34,7 +35,17 @@ interface Warehouse {
   isActive: boolean;
   priority?: number;
   linkedStores?: Array<{ name: string; storeIndex: number }>;
+  gstin?: string;
 }
+
+/** Safely extract string ID from MongoDB _id (handles ObjectId, object, or string) */
+const toIdString = (id: any): string => {
+  if (id == null) return '';
+  if (typeof id === 'string') return id;
+  if (typeof id === 'object' && id?.toString) return id.toString();
+  if (typeof id === 'object' && id?._id) return toIdString(id._id);
+  return String(id);
+};
 
 const Warehouses: React.FC = () => {
   const navigate = useNavigate();
@@ -61,6 +72,7 @@ const Warehouses: React.FC = () => {
     shippingProviders: {
       shiprocket: {
         pickupLocation: '',
+        warehouseId: '',
         enabled: false,
       },
       delhivery: {
@@ -68,6 +80,7 @@ const Warehouses: React.FC = () => {
         enabled: false,
       },
     },
+    gstin: '',
     isActive: true,
     priority: 0,
   });
@@ -89,6 +102,8 @@ const Warehouses: React.FC = () => {
         warehousesData = response.data;
       } else if (Array.isArray(response?.data)) {
         warehousesData = response.data;
+      } else if (Array.isArray(response?.warehouses)) {
+        warehousesData = response.warehouses;
       } else if (Array.isArray(response?.data?.warehouses)) {
         warehousesData = response.data.warehouses;
       } else if (Array.isArray(response?.data?.data)) {
@@ -140,6 +155,7 @@ const Warehouses: React.FC = () => {
       shippingProviders: {
         shiprocket: {
           pickupLocation: warehouse.shippingProviders?.shiprocket?.pickupLocation || '',
+          warehouseId: warehouse.shippingProviders?.shiprocket?.warehouseId || '',
           enabled: warehouse.shippingProviders?.shiprocket?.enabled || false,
         },
         delhivery: {
@@ -147,14 +163,17 @@ const Warehouses: React.FC = () => {
           enabled: warehouse.shippingProviders?.delhivery?.enabled || false,
         },
       },
+      gstin: warehouse.gstin || '',
       isActive: warehouse.isActive,
       priority: warehouse.priority || 0,
     });
     setShowForm(true);
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (warehouse: Warehouse) => {
     if (!confirm('Are you sure you want to delete this warehouse?')) return;
+    const id = toIdString(warehouse._id);
+    if (!id) return alert('Invalid warehouse ID');
     try {
       await warehousesAPI.delete(id);
       alert('Warehouse deleted successfully!');
@@ -165,10 +184,12 @@ const Warehouses: React.FC = () => {
     }
   };
 
-  const handleSyncWithStore = async (warehouseId: string) => {
+  const handleSyncWithStore = async (warehouse: Warehouse) => {
     if (!confirm('This will sync the warehouse address and contact info with the linked GST store. Continue?')) return;
+    const id = toIdString(warehouse._id);
+    if (!id) return alert('Invalid warehouse ID');
     try {
-      await warehousesAPI.syncWithStore(warehouseId, { syncAddress: true, syncContact: true });
+      await warehousesAPI.syncWithStore(id, { syncAddress: true, syncContact: true });
       alert('Warehouse synced with GST store successfully!');
       fetchWarehouses();
     } catch (error: any) {
@@ -197,6 +218,7 @@ const Warehouses: React.FC = () => {
       shippingProviders: {
         shiprocket: {
           pickupLocation: '',
+          warehouseId: '',
           enabled: false,
         },
         delhivery: {
@@ -204,6 +226,7 @@ const Warehouses: React.FC = () => {
           enabled: false,
         },
       },
+      gstin: '',
       isActive: true,
       priority: 0,
     });
@@ -405,6 +428,18 @@ const Warehouses: React.FC = () => {
                 />
               </div>
               <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">GSTIN</label>
+                <input
+                  type="text"
+                  value={formData.gstin}
+                  onChange={(e) => handleChange('gstin', e.target.value.toUpperCase())}
+                  placeholder="e.g. 27AABCU9603R1ZM"
+                  maxLength={15}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">GST Identification Number for this warehouse (used in GST Settings for billing)</p>
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Priority</label>
                 <input
                   type="number"
@@ -440,15 +475,30 @@ const Warehouses: React.FC = () => {
                   </label>
                 </div>
                 {formData.shippingProviders.shiprocket.enabled && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Pickup Location Name</label>
-                    <input
-                      type="text"
-                      value={formData.shippingProviders.shiprocket.pickupLocation}
-                      onChange={(e) => handleChange('shippingProviders.shiprocket.pickupLocation', e.target.value)}
-                      placeholder="Default Location"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                    />
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Shiprocket Warehouse ID</label>
+                      <input
+                        type="text"
+                        value={formData.shippingProviders.shiprocket.warehouseId}
+                        onChange={(e) => handleChange('shippingProviders.shiprocket.warehouseId', e.target.value)}
+                        placeholder="e.g. 12345 (from Shiprocket dashboard)"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Map this warehouse to your Shiprocket warehouse. Find the ID in Shiprocket → Settings → Pickup Locations.
+                      </p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Pickup Location Name</label>
+                      <input
+                        type="text"
+                        value={formData.shippingProviders.shiprocket.pickupLocation}
+                        onChange={(e) => handleChange('shippingProviders.shiprocket.pickupLocation', e.target.value)}
+                        placeholder="Default Location (fallback if warehouse ID not set)"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                      />
+                    </div>
                   </div>
                 )}
               </div>
@@ -530,7 +580,7 @@ const Warehouses: React.FC = () => {
       <div className="grid grid-cols-1 gap-4">
         {warehouses.map((warehouse) => (
           <div
-            key={warehouse._id}
+            key={toIdString(warehouse._id) || warehouse.name}
             className={`bg-white rounded-lg shadow-sm border ${
               warehouse.isActive ? 'border-gray-200' : 'border-gray-300 opacity-60'
             } p-6`}
@@ -580,6 +630,12 @@ const Warehouses: React.FC = () => {
                       )}
                     </p>
                   </div>
+                  {warehouse.gstin && (
+                    <div>
+                      <p className="text-sm text-gray-600 mb-1">GSTIN</p>
+                      <p className="text-sm text-gray-900 font-medium">{warehouse.gstin}</p>
+                    </div>
+                  )}
                 </div>
 
                 {/* Shipping Providers */}
@@ -588,8 +644,10 @@ const Warehouses: React.FC = () => {
                     <span className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-800 text-xs rounded">
                       <FaTruck className="w-3 h-3" />
                       Shiprocket
-                      {warehouse.shippingProviders.shiprocket.pickupLocation && (
-                        <span className="ml-1">({warehouse.shippingProviders.shiprocket.pickupLocation})</span>
+                      {(warehouse.shippingProviders.shiprocket.warehouseId || warehouse.shippingProviders.shiprocket.pickupLocation) && (
+                        <span className="ml-1">
+                          ({warehouse.shippingProviders.shiprocket.warehouseId || warehouse.shippingProviders.shiprocket.pickupLocation})
+                        </span>
                       )}
                     </span>
                   )}
@@ -634,7 +692,7 @@ const Warehouses: React.FC = () => {
               <div className="flex gap-2 ml-4">
                 {warehouse.linkedStores && warehouse.linkedStores.length > 0 && (
                   <button
-                    onClick={() => handleSyncWithStore(warehouse._id)}
+                    onClick={() => handleSyncWithStore(warehouse)}
                     className="p-2 text-green-600 hover:bg-green-50 rounded"
                     title="Sync with GST Store"
                   >
@@ -649,7 +707,7 @@ const Warehouses: React.FC = () => {
                   <FaEdit className="w-5 h-5" />
                 </button>
                 <button
-                  onClick={() => handleDelete(warehouse._id)}
+                  onClick={() => handleDelete(warehouse)}
                   className="p-2 text-red-600 hover:bg-red-50 rounded"
                   title="Delete"
                 >

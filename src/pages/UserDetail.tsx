@@ -3,17 +3,30 @@ import { useParams, Link } from 'react-router-dom';
 import { usersAPI } from '../services/api';
 import { format } from 'date-fns';
 import {
-  FaUser,
-  FaEnvelope,
-  FaPhone,
-  FaShoppingCart,
-  FaMapMarkerAlt,
-  FaKey,
-  FaEye,
-  FaEyeSlash,
-  FaArrowLeft,
-  FaBox,
-} from 'react-icons/fa';
+  User,
+  Mail,
+  Phone,
+  ShoppingCart,
+  MapPin,
+  Key,
+  Eye,
+  EyeOff,
+  ArrowLeft,
+  Package,
+} from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 
 const UserDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -22,9 +35,7 @@ const UserDetail: React.FC = () => {
   const [addresses, setAddresses] = useState<any[]>([]);
   const [browsedProducts, setBrowsedProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'orders' | 'addresses' | 'browsed' | 'password'>(
-    'orders'
-  );
+  const [activeTab, setActiveTab] = useState('orders');
   const [newPassword, setNewPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [resetting, setResetting] = useState(false);
@@ -49,8 +60,6 @@ const UserDetail: React.FC = () => {
     try {
       setLoading(true);
       const response = await usersAPI.getById(id!);
-      // Backend returns: { success: true, data: user }
-      // API interceptor normalizes to: user or { data: user }
       const userData = response?.data || response;
       setUser(userData);
     } catch (error) {
@@ -63,8 +72,6 @@ const UserDetail: React.FC = () => {
   const fetchOrders = async () => {
     try {
       const response = await usersAPI.getOrders(id!, { limit: 50 });
-      // Backend returns: { success: true, data: orders[], pagination: {...} }
-      // API interceptor normalizes to: { data: orders[], pagination: {...} } or orders[]
       let ordersData: any[] = [];
       if (Array.isArray(response)) {
         ordersData = response;
@@ -83,8 +90,6 @@ const UserDetail: React.FC = () => {
   const fetchAddresses = async () => {
     try {
       const response = await usersAPI.getAddresses(id!);
-      // Backend returns: { success: true, data: addresses[] }
-      // API interceptor normalizes to: addresses[] or { data: addresses[] }
       let addressesData: any[] = [];
       if (Array.isArray(response)) {
         addressesData = response;
@@ -103,8 +108,6 @@ const UserDetail: React.FC = () => {
   const fetchBrowsedProducts = async () => {
     try {
       const response = await usersAPI.getBrowsedProducts(id!);
-      // Backend returns: { success: true, data: products[] }
-      // API interceptor normalizes to: products[] or { data: products[] }
       let productsData: any[] = [];
       if (Array.isArray(response)) {
         productsData = response;
@@ -126,7 +129,7 @@ const UserDetail: React.FC = () => {
       return;
     }
 
-    if (!confirm('Are you sure you want to reset this user\'s password?')) {
+    if (!confirm("Are you sure you want to reset this user's password?")) {
       return;
     }
 
@@ -143,343 +146,266 @@ const UserDetail: React.FC = () => {
     }
   };
 
-  const getStatusColor = (status: string) => {
-    const colors: Record<string, string> = {
-      pending: 'bg-yellow-100 text-yellow-800',
-      confirmed: 'bg-blue-100 text-blue-800',
-      processing: 'bg-purple-100 text-purple-800',
-      shipped: 'bg-indigo-100 text-indigo-800',
-      delivered: 'bg-green-100 text-green-800',
-      cancelled: 'bg-red-100 text-red-800',
-    };
-    return colors[status] || 'bg-gray-100 text-gray-800';
+  const getStatusVariant = (status: string) => {
+    switch (status) {
+      case 'pending': return 'warning';
+      case 'confirmed': return 'default';
+      case 'processing': return 'secondary';
+      case 'shipped': return 'default';
+      case 'delivered': return 'success';
+      case 'cancelled': return 'destructive';
+      default: return 'outline';
+    }
   };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500"></div>
+      <div className="flex flex-col h-full items-center justify-center p-8">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
       </div>
     );
   }
 
   if (!user) {
     return (
-      <div className="text-center py-12">
-        <p className="text-gray-500">User not found</p>
-        <Link to="/users" className="text-red-600 hover:text-red-900 mt-4 inline-block">
-          Back to Users
-        </Link>
+      <div className="flex flex-col items-center justify-center py-12">
+        <p className="text-muted-foreground mb-4">User not found</p>
+        <Button variant="outline" asChild>
+          <Link to="/users">Back to Users</Link>
+        </Button>
       </div>
     );
   }
 
   return (
-    <div>
-      <div className="mb-6">
-        <Link
-          to="/users"
-          className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-4"
-        >
-          <FaArrowLeft size={14} />
-          Back to Users
-        </Link>
-        <h1 className="text-3xl font-bold text-gray-900">User Details</h1>
+    <div className="space-y-6">
+      <div className="flex flex-col gap-4">
+        <Button variant="ghost" className="w-fit -ml-4" asChild>
+          <Link to="/users" className="text-muted-foreground hover:text-foreground">
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to Users
+          </Link>
+        </Button>
+        <h1 className="text-3xl font-bold tracking-tight">User Details</h1>
       </div>
 
       {/* User Info Card */}
-      <div className="bg-white rounded-lg shadow p-6 mb-6">
-        <div className="flex items-start justify-between">
-          <div className="flex items-center gap-4">
-            <div className="h-16 w-16 rounded-full bg-gray-200 flex items-center justify-center">
-              <FaUser className="text-gray-600 text-2xl" />
+      <Card>
+        <CardContent className="p-6">
+          <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
+            <div className="flex items-center gap-4">
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-muted">
+                <User className="h-8 w-8 text-muted-foreground" />
+              </div>
+              <div className="space-y-1">
+                <h2 className="text-2xl font-bold">{user.displayName || user.name || 'No name'}</h2>
+                <div className="flex flex-col gap-1 text-sm text-muted-foreground">
+                  {user.email && (
+                    <div className="flex items-center gap-2">
+                      <Mail className="h-4 w-4" />
+                      {user.email}
+                    </div>
+                  )}
+                  {user.phoneNumber && (
+                    <div className="flex items-center gap-2">
+                      <Phone className="h-4 w-4" />
+                      {user.phoneNumber}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900">{user.displayName || user.name || 'No name'}</h2>
-              <div className="mt-2 space-y-1">
-                {user.email && (
-                  <div className="flex items-center gap-2 text-gray-600">
-                    <FaEnvelope size={14} />
-                    {user.email}
-                  </div>
-                )}
-                {user.phoneNumber && (
-                  <div className="flex items-center gap-2 text-gray-600">
-                    <FaPhone size={14} />
-                    {user.phoneNumber}
-                  </div>
-                )}
+            <div className="flex flex-col md:items-end gap-2 text-sm">
+              <Badge variant={user.role === 'admin' ? 'destructive' : 'default'} className="w-fit">
+                {user.role}
+              </Badge>
+              <Badge variant={(user.isActive ? 'success' : 'destructive') as any} className="w-fit">
+                {user.isActive ? 'Active' : 'Inactive'}
+              </Badge>
+              <div className="text-muted-foreground mt-2 md:text-right">
+                <div>Created: {user.createdAt ? format(new Date(user.createdAt), 'MMM dd, yyyy HH:mm') : 'N/A'}</div>
+                {user.lastLogin && <div>Last Login: {format(new Date(user.lastLogin), 'MMM dd, yyyy HH:mm')}</div>}
               </div>
             </div>
           </div>
-          <div className="text-right">
-            <span
-              className={`px-3 py-1 inline-flex text-sm font-semibold rounded-full ${
-                user.role === 'admin'
-                  ? 'bg-purple-100 text-purple-800'
-                  : 'bg-blue-100 text-blue-800'
-              }`}
-            >
-              {user.role}
-            </span>
-            <div className="mt-2">
-              <span
-                className={`px-3 py-1 inline-flex text-sm font-semibold rounded-full ${
-                  user.isActive
-                    ? 'bg-green-100 text-green-800'
-                    : 'bg-red-100 text-red-800'
-                }`}
-              >
-                {user.isActive ? 'Active' : 'Inactive'}
-              </span>
-            </div>
-          </div>
-        </div>
-        <div className="mt-4 pt-4 border-t border-gray-200 text-sm text-gray-600">
-          <div>Created: {user.createdAt ? format(new Date(user.createdAt), 'MMM dd, yyyy HH:mm') : 'N/A'}</div>
-          {user.lastLogin && (
-            <div>Last Login: {format(new Date(user.lastLogin), 'MMM dd, yyyy HH:mm')}</div>
-          )}
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
       {/* Tabs */}
-      <div className="bg-white rounded-lg shadow mb-6">
-        <div className="border-b border-gray-200">
-          <nav className="flex -mb-px">
-            <button
-              onClick={() => setActiveTab('orders')}
-              className={`px-6 py-3 text-sm font-medium border-b-2 ${
-                activeTab === 'orders'
-                  ? 'border-red-500 text-red-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              <FaShoppingCart className="inline mr-2" />
-              Orders ({orders.length})
-            </button>
-            <button
-              onClick={() => setActiveTab('addresses')}
-              className={`px-6 py-3 text-sm font-medium border-b-2 ${
-                activeTab === 'addresses'
-                  ? 'border-red-500 text-red-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              <FaMapMarkerAlt className="inline mr-2" />
-              Saved Addresses ({addresses.length})
-            </button>
-            <button
-              onClick={() => setActiveTab('browsed')}
-              className={`px-6 py-3 text-sm font-medium border-b-2 ${
-                activeTab === 'browsed'
-                  ? 'border-red-500 text-red-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              <FaBox className="inline mr-2" />
-              Browsed Products ({browsedProducts.length})
-            </button>
-            <button
-              onClick={() => setActiveTab('password')}
-              className={`px-6 py-3 text-sm font-medium border-b-2 ${
-                activeTab === 'password'
-                  ? 'border-red-500 text-red-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              <FaKey className="inline mr-2" />
-              Password Reset
-            </button>
-          </nav>
-        </div>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="mb-4">
+          <TabsTrigger value="orders" className="gap-2">
+            <ShoppingCart className="h-4 w-4" />
+            Orders ({orders.length})
+          </TabsTrigger>
+          <TabsTrigger value="addresses" className="gap-2">
+            <MapPin className="h-4 w-4" />
+            Saved Addresses ({addresses.length})
+          </TabsTrigger>
+          <TabsTrigger value="browsed" className="gap-2">
+            <Package className="h-4 w-4" />
+            Browsed Products ({browsedProducts.length})
+          </TabsTrigger>
+          <TabsTrigger value="password" className="gap-2">
+            <Key className="h-4 w-4" />
+            Password Reset
+          </TabsTrigger>
+        </TabsList>
 
-        <div className="p-6">
-          {/* Orders Tab */}
-          {activeTab === 'orders' && (
-            <div>
+        <Card>
+          <CardContent className="p-6">
+            <TabsContent value="orders" className="m-0 border-0 p-0">
               {orders.length === 0 ? (
-                <p className="text-gray-500 text-center py-8">No orders found</p>
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <ShoppingCart className="h-10 w-10 text-muted-foreground mb-4" />
+                  <p className="text-muted-foreground">No orders found</p>
+                </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                          Order ID
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                          Amount
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                          Status
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                          Date
-                        </th>
-                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                          Actions
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {orders.map((order) => (
-                        <tr key={order._id} className="hover:bg-gray-50">
-                          <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                            {order.orderId}
-                          </td>
-                          <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
-                            ₹{order.total?.toLocaleString('en-IN')}
-                          </td>
-                          <td className="px-4 py-4 whitespace-nowrap">
-                            <span
-                              className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(
-                                order.orderStatus
-                              )}`}
-                            >
-                              {order.orderStatus}
-                            </span>
-                          </td>
-                          <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {order.createdAt
-                              ? format(new Date(order.createdAt), 'MMM dd, yyyy')
-                              : 'N/A'}
-                          </td>
-                          <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
-                            <Link
-                              to={`/orders/${order._id}`}
-                              className="text-red-600 hover:text-red-900"
-                            >
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Order ID</TableHead>
+                      <TableHead>Amount</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {orders.map((order) => (
+                      <TableRow key={order._id}>
+                        <TableCell className="font-medium">{order.orderId}</TableCell>
+                        <TableCell>₹{order.total?.toLocaleString('en-IN')}</TableCell>
+                        <TableCell>
+                          <Badge variant={getStatusVariant(order.orderStatus) as any} className="capitalize">
+                            {order.orderStatus}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {order.createdAt ? format(new Date(order.createdAt), 'MMM dd, yyyy') : 'N/A'}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button variant="ghost" size="sm" asChild>
+                            <Link to={`/orders/${order._id}`} className="text-primary hover:text-primary/80">
                               View
                             </Link>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               )}
-            </div>
-          )}
+            </TabsContent>
 
-          {/* Addresses Tab */}
-          {activeTab === 'addresses' && (
-            <div>
+            <TabsContent value="addresses" className="m-0 border-0 p-0">
               {addresses.length === 0 ? (
-                <p className="text-gray-500 text-center py-8">No saved addresses found</p>
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <MapPin className="h-10 w-10 text-muted-foreground mb-4" />
+                  <p className="text-muted-foreground">No saved addresses found</p>
+                </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {addresses.map((address) => (
-                    <div
-                      key={address._id}
-                      className={`border rounded-lg p-4 ${
-                        address.isDefault ? 'border-red-500 bg-red-50' : 'border-gray-200'
-                      }`}
-                    >
-                      {address.isDefault && (
-                        <span className="inline-block mb-2 px-2 py-1 text-xs font-semibold bg-red-500 text-white rounded">
-                          Default
-                        </span>
-                      )}
-                      <div className="font-semibold text-gray-900 mb-2">{address.fullName}</div>
-                      <div className="text-sm text-gray-600 space-y-1">
-                        <div>{address.address}</div>
-                        {address.addressLine2 && <div>{address.addressLine2}</div>}
-                        <div>
-                          {address.district && `${address.district}, `}
-                          {address.state} - {address.pincode}
-                        </div>
-                        <div className="mt-2">
-                          <span className="font-medium">Phone:</span> {address.mobileNumber}
-                        </div>
-                        {address.email && (
-                          <div>
-                            <span className="font-medium">Email:</span> {address.email}
-                          </div>
+                    <Card key={address._id} className={address.isDefault ? 'border-primary bg-primary/5' : ''}>
+                      <CardContent className="p-4">
+                        {address.isDefault && (
+                          <Badge className="mb-2">Default</Badge>
                         )}
-                        {address.label && (
-                          <div className="mt-2">
-                            <span className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded">
-                              {address.label === 'other' && address.customLabel
-                                ? address.customLabel
-                                : address.label}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                        <div className="font-semibold mb-2">{address.fullName}</div>
+                        <div className="text-sm text-muted-foreground space-y-1">
+                          <p>{address.address}</p>
+                          {address.addressLine2 && <p>{address.addressLine2}</p>}
+                          <p>
+                            {address.district && `${address.district}, `}
+                            {address.state} - {address.pincode}
+                          </p>
+                          <p className="pt-2">
+                            <span className="font-medium text-foreground">Phone:</span> {address.mobileNumber}
+                          </p>
+                          {address.email && (
+                            <p>
+                              <span className="font-medium text-foreground">Email:</span> {address.email}
+                            </p>
+                          )}
+                          {address.label && (
+                            <Badge variant="secondary" className="mt-2">
+                              {address.label === 'other' && address.customLabel ? address.customLabel : address.label}
+                            </Badge>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
                   ))}
                 </div>
               )}
-            </div>
-          )}
+            </TabsContent>
 
-          {/* Browsed Products Tab */}
-          {activeTab === 'browsed' && (
-            <div>
+            <TabsContent value="browsed" className="m-0 border-0 p-0">
               {browsedProducts.length === 0 ? (
-                <div className="text-center py-8">
-                  <FaBox className="mx-auto text-gray-400 text-4xl mb-4" />
-                  <p className="text-gray-500">
-                    Browsed products tracking is not currently implemented in the database.
-                  </p>
-                  <p className="text-sm text-gray-400 mt-2">
-                    Product views are tracked via analytics services but not stored in the database.
-                  </p>
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <Package className="mx-auto text-muted-foreground h-10 w-10 mb-4" />
+                  <p className="text-muted-foreground font-medium">Browsed products tracking is not currently implemented.</p>
+                  <p className="text-sm text-muted-foreground mt-1">Product views are tracked via analytics services but not stored in the database.</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                   {browsedProducts.map((product) => (
-                    <div key={product._id} className="border border-gray-200 rounded-lg p-4">
-                      {/* Product display would go here */}
-                    </div>
+                    <Card key={product._id}>
+                      <CardContent className="p-4">
+                        {/* Empty placeholder for product display */}
+                      </CardContent>
+                    </Card>
                   ))}
                 </div>
               )}
-            </div>
-          )}
+            </TabsContent>
 
-          {/* Password Reset Tab */}
-          {activeTab === 'password' && (
-            <div className="max-w-md">
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  New Password
-                </label>
-                <div className="relative">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Enter new password (min 6 characters)"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-red-500 pr-10"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
-                    {showPassword ? <FaEyeSlash size={18} /> : <FaEye size={18} />}
-                  </button>
+            <TabsContent value="password" className="m-0 border-0 p-0">
+              <div className="max-w-md space-y-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                    New Password
+                  </label>
+                  <div className="relative">
+                    <Input
+                      type={showPassword ? 'text' : 'password'}
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Enter new password (min 6 characters)"
+                      className="pr-10"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                      onClick={() => setShowPassword(!showPassword)}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <Eye className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </Button>
+                  </div>
+                  <p className="text-sm text-muted-foreground">Password must be at least 6 characters long</p>
                 </div>
-                <p className="mt-1 text-sm text-gray-500">
-                  Password must be at least 6 characters long
-                </p>
+                <Button
+                  onClick={handleResetPassword}
+                  disabled={!newPassword || newPassword.length < 6 || resetting}
+                >
+                  {resetting ? 'Resetting...' : 'Reset Password'}
+                </Button>
               </div>
-              <button
-                onClick={handleResetPassword}
-                disabled={!newPassword || newPassword.length < 6 || resetting}
-                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {resetting ? 'Resetting...' : 'Reset Password'}
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
+            </TabsContent>
+          </CardContent>
+        </Card>
+      </Tabs>
     </div>
   );
 };
 
 export default UserDetail;
+
 

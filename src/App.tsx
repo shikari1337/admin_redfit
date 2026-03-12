@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
+
 import Products from './pages/Products';
 import Bundles from './pages/Bundles';
 import AbandonedCarts from './pages/AbandonedCarts';
@@ -23,7 +24,6 @@ import ProductSectionsManager from './pages/ProductSectionsManager';
 import ContactSettings from './pages/ContactSettings';
 import PaymentDiscountSettings from './pages/PaymentDiscountSettings';
 import SmsTemplates from './pages/SmsTemplates';
-import GeneralSettings from './pages/GeneralSettings';
 import ApiIntegrationSettings from './pages/ApiIntegrationSettings';
 import PaymentGatewaySettings from './pages/PaymentGatewaySettings';
 import GstSettings from './pages/GstSettings';
@@ -37,12 +37,31 @@ import Gallery from './pages/Gallery';
 import Logs from './pages/Logs';
 import Pages from './pages/Pages';
 import PageForm from './pages/PageForm';
+import AppearanceMenus from './pages/AppearanceMenus';
+import AppearanceStyle from './pages/AppearanceStyle';
+import Leads from './pages/Leads';
+import ContentManager from './pages/ContentManager';
+import PageEditor from './pages/PageEditor';
+import Staff from './pages/Staff';
 import Layout from './components/Layout';
+import { ProtectedModuleRoute } from './components/ProtectedModuleRoute';
 import { ProtectedRoute } from './components/ProtectedRoute';
+
+import AnalyticsDashboard from './pages/analytics/AnalyticsDashboard';
+import StoreAnalytics from './pages/analytics/StoreAnalytics';
+import UserAnalytics from './pages/analytics/UserAnalytics';
+import RealtimeAnalytics from './pages/analytics/RealtimeAnalytics';
+import CustomAnalytics from './pages/analytics/CustomAnalytics';
+import Modules from './pages/Modules';
+import PackageBoxes from './pages/PackageBoxes';
+import B2B from './pages/B2B';
+import Marketing from './pages/Marketing';
+import Billing from './pages/Billing';
+import Inventory from './pages/Inventory';
 
 function App() {
   console.log('📱 Admin Panel: App component rendering...');
-  
+
   return (
     <BrowserRouter>
       <Routes>
@@ -57,6 +76,12 @@ function App() {
         >
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard />} />
+          <Route path="analytics" element={<Navigate to="/analytics/dashboard" replace />} />
+          <Route path="analytics/dashboard" element={<AnalyticsDashboard />} />
+          <Route path="analytics/store" element={<StoreAnalytics />} />
+          <Route path="analytics/users" element={<UserAnalytics />} />
+          <Route path="analytics/realtime" element={<RealtimeAnalytics />} />
+          <Route path="analytics/custom" element={<CustomAnalytics />} />
           <Route path="products" element={<Products />} />
           <Route path="products/new" element={<ProductForm />} />
           <Route path="products/:id/edit" element={<ProductForm />} />
@@ -82,15 +107,44 @@ function App() {
           <Route path="users/:id" element={<UserDetail />} />
           <Route path="logs" element={<Logs />} />
           <Route path="faqs" element={<FAQs />} />
-          <Route path="reviews" element={<Reviews />} />
-          <Route path="coupons" element={<Coupons />} />
-          <Route path="coupons/new" element={<CouponForm />} />
-          <Route path="coupons/:id/edit" element={<CouponForm />} />
-          <Route path="pages" element={<Pages />} />
+          <Route path="reviews" element={<ProtectedModuleRoute module="reviews"><Reviews /></ProtectedModuleRoute>} />
+          <Route path="coupons" element={<ProtectedModuleRoute module="coupons"><Coupons /></ProtectedModuleRoute>} />
+          <Route path="coupons/new" element={<ProtectedModuleRoute module="coupons"><CouponForm /></ProtectedModuleRoute>} />
+          <Route path="coupons/:id/edit" element={<ProtectedModuleRoute module="coupons"><CouponForm /></ProtectedModuleRoute>} />
+          <Route path="appearance" element={<Navigate to="/appearance/pages" replace />} />
+          <Route path="appearance/menus" element={<AppearanceMenus />} />
+          <Route path="appearance/pages" element={<Pages />} />
+          <Route path="appearance/style" element={<AppearanceStyle />} />
+          <Route path="pages" element={<Navigate to="/appearance/pages" replace />} />
           <Route path="pages/new" element={<PageForm />} />
           <Route path="pages/:id/edit" element={<PageForm />} />
+          <Route
+            path="leads"
+            element={
+              <ProtectedModuleRoute module="leads_manager">
+                <Leads />
+              </ProtectedModuleRoute>
+            }
+          />
+          <Route
+            path="content"
+            element={
+              <ProtectedModuleRoute module="page_editor">
+                <ContentManager />
+              </ProtectedModuleRoute>
+            }
+          />
+          <Route
+            path="content/:pageSlug/edit"
+            element={
+              <ProtectedModuleRoute module="page_editor">
+                <PageEditor />
+              </ProtectedModuleRoute>
+            }
+          />
           <Route path="settings" element={<Settings />} />
-          <Route path="settings/general" element={<GeneralSettings />} />
+          <Route path="settings/staff" element={<Staff />} />
+          <Route path="settings/general" element={<Navigate to="/appearance/style" replace />} />
           <Route path="settings/api-integrations" element={<ApiIntegrationSettings />} />
           <Route path="settings/contact" element={<ContactSettings />} />
           <Route path="settings/payment-discount" element={<PaymentDiscountSettings />} />
@@ -98,7 +152,13 @@ function App() {
           <Route path="settings/sms-templates" element={<SmsTemplates />} />
           <Route path="settings/gst" element={<GstSettings />} />
           <Route path="settings/shipping" element={<ShippingSettings />} />
+          <Route path="settings/modules" element={<Modules />} />
+          <Route path="settings/packages" element={<PackageBoxes />} />
+          <Route path="settings/billing" element={<Billing />} />
           <Route path="warehouses" element={<Warehouses />} />
+          <Route path="inventory" element={<Inventory />} />
+          <Route path="b2b" element={<ProtectedModuleRoute module="b2b"><B2B /></ProtectedModuleRoute>} />
+          <Route path="marketing" element={<Marketing />} />
         </Route>
       </Routes>
     </BrowserRouter>

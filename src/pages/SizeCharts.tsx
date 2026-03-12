@@ -36,6 +36,17 @@ const createEmptyEntry = (measurementKeys: string[]): SizeChartEntry => {
   return entry;
 };
 
+// Normalize ID to string (handles MongoDB ObjectId objects from API)
+const normalizeId = (id: any): string | null => {
+  if (id == null) return null;
+  if (typeof id === 'string') return id.trim() || null;
+  if (typeof id === 'object' && id?.toString && typeof id.toString === 'function') {
+    const s = id.toString();
+    return s && s !== '[object Object]' ? s : null;
+  }
+  return String(id);
+};
+
 const SizeCharts: React.FC = () => {
   const [charts, setCharts] = useState<SizeChart[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,7 +82,25 @@ const SizeCharts: React.FC = () => {
       } else if (Array.isArray(response?.data?.data)) {
         charts = response.data.data;
       }
-      setCharts(charts);
+      // Normalize _id to string (API may return ObjectId objects or BSON { $oid })
+      const normalizedCharts = charts.map((c: any, idx: number) => {
+        let id: string;
+        if (c._id == null) {
+          id = `chart-${idx}`;
+        } else if (typeof c._id === 'string') {
+          id = c._id.trim() || `chart-${idx}`;
+        } else if (typeof c._id === 'object' && c._id?.$oid) {
+          id = c._id.$oid;
+        } else if (c._id?.toString && typeof c._id.toString === 'function') {
+          const s = c._id.toString();
+          id = s && s !== '[object Object]' ? s : `chart-${idx}`;
+        } else {
+          const s = String(c._id);
+          id = s !== '[object Object]' ? s : `chart-${idx}`;
+        }
+        return { ...c, _id: id };
+      });
+      setCharts(normalizedCharts);
       setError(null);
     } catch (err: any) {
       console.error('Failed to fetch size charts', err);
@@ -103,7 +132,7 @@ const SizeCharts: React.FC = () => {
   };
 
   const handleEdit = (chart: SizeChart) => {
-    setSelectedId(chart._id);
+    setSelectedId(normalizeId(chart._id) ?? (chart._id != null ? String(chart._id) : null));
     const keys = chart.measurementKeys && chart.measurementKeys.length > 0 
       ? chart.measurementKeys 
       : DEFAULT_MEASUREMENT_KEYS;
@@ -267,7 +296,8 @@ const SizeCharts: React.FC = () => {
 
     try {
       if (selectedId) {
-        await sizeChartsAPI.update(selectedId, payload);
+        const idToUpdate = normalizeId(selectedId) ?? String(selectedId);
+        await sizeChartsAPI.update(idToUpdate, payload);
       } else {
         await sizeChartsAPI.create(payload);
       }
@@ -285,15 +315,20 @@ const SizeCharts: React.FC = () => {
   const handleDelete = async (chart: SizeChart) => {
     if (!confirm(`Delete size chart "${chart.name}"?`)) return;
     setError(null);
+    const chartId = normalizeId(chart._id) ?? (typeof chart._id === 'string' ? chart._id : null);
+    if (!chartId || chartId === '[object Object]' || chartId.startsWith('chart-')) {
+      setError('Invalid chart ID. Please refresh the page and try again.');
+      return;
+    }
     try {
-      await sizeChartsAPI.delete(chart._id);
+      await sizeChartsAPI.delete(chartId);
       await fetchCharts(search ? { search } : undefined);
-      if (selectedId === chart._id) {
+      if (selectedId && normalizeId(selectedId) === chartId) {
         resetForm();
       }
     } catch (err: any) {
       console.error('Failed to delete size chart', err);
-      setError(err.response?.data?.message || 'Failed to delete size chart');
+      setError(err?.response?.data?.message || err?.message || 'Failed to delete size chart');
     }
   };
 
@@ -352,11 +387,14 @@ const SizeCharts: React.FC = () => {
                 No size charts found.
               </div>
             ) : (
-              filteredCharts.map(chart => (
+              filteredCharts.map((chart, index) => {
+                let chartId = normalizeId(chart._id) ?? (chart._id != null ? String(chart._id) : null);
+                if (!chartId || chartId === '[object Object]') chartId = `chart-${index}`;
+                return (
                 <div
-                  key={chart._id}
+                  key={chartId}
                   className={`px-6 py-4 flex items-start justify-between ${
-                    selectedId === chart._id ? 'bg-red-50' : ''
+                    selectedId && normalizeId(selectedId) === chartId ? 'bg-red-50' : ''
                   }`}
                 >
                   <div className="flex-1 pr-3">
@@ -388,7 +426,7 @@ const SizeCharts: React.FC = () => {
                               ? chart.measurementKeys
                               : DEFAULT_MEASUREMENT_KEYS
                             ).slice(0, 4).map((key) => (
-                              <th key={key} className="text-left font-medium capitalize">
+                              <th key={String(key)} className="text-left font-medium capitalize">
                                 {key}
                               </th>
                             ))}
@@ -403,7 +441,7 @@ const SizeCharts: React.FC = () => {
                               <tr key={idx}>
                                 <td className="py-1">{entry.size}</td>
                                 {keys.slice(0, 4).map((key) => (
-                                  <td key={key}>{entry[key] || '-'}</td>
+                                  <td key={String(key)}>{entry[key] || '-'}</td>
                                 ))}
                               </tr>
                             );
@@ -433,7 +471,8 @@ const SizeCharts: React.FC = () => {
                     </button>
                   </div>
                 </div>
-              ))
+              );
+              })
             )}
           </div>
         </div>

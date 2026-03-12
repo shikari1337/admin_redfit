@@ -1,5 +1,6 @@
 import React from 'react';
 import { FaTrash, FaPlus } from 'react-icons/fa';
+import IconPicker from '../IconPicker';
 import ImageInputWithActions from '../common/ImageInputWithActions';
 
 // Hero Block Editor
@@ -173,7 +174,7 @@ export const FeaturesBlockEditor: React.FC<{ data: any; onChange: (data: any) =>
   const addItem = () => {
     onChange({
       ...data,
-      items: [...(data?.items || []), { icon: '✨', title: '', description: '' }]
+      items: [...(data?.items || []), { icon: '✨', iconName: '', title: '', description: '' }]
     });
   };
 
@@ -198,13 +199,31 @@ export const FeaturesBlockEditor: React.FC<{ data: any; onChange: (data: any) =>
         <label className="block text-sm font-medium text-gray-700 mb-2">Features</label>
         {(data?.items || []).map((item: any, index: number) => (
           <div key={index} className="flex flex-col gap-2 p-3 border border-gray-200 rounded-md bg-gray-50 mb-2">
-            <input
-              type="text"
-              value={item.icon || ''}
-              onChange={(e) => updateItem(index, 'icon', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-              placeholder="Icon (emoji or URL)"
-            />
+            <div className="flex gap-2 items-end">
+              <div className="flex-1">
+                <IconPicker
+                  label="Icon"
+                  value={item.iconName || ''}
+                  onChange={(name) => {
+                    updateItem(index, 'iconName', name);
+                    if (name) updateItem(index, 'icon', '');
+                  }}
+                />
+              </div>
+              <div className="flex-1">
+                <label className="block text-xs font-medium text-gray-600 mb-1">Or emoji/URL</label>
+                <input
+                  type="text"
+                  value={item.icon || ''}
+                  onChange={(e) => {
+                    updateItem(index, 'icon', e.target.value);
+                    if (e.target.value) updateItem(index, 'iconName', '');
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                  placeholder="✨ or https://..."
+                />
+              </div>
+            </div>
             <input
               type="text"
               value={item.title || ''}
@@ -279,6 +298,253 @@ export const CTABlockEditor: React.FC<{ data: any; onChange: (data: any) => void
           onChange={(e) => onChange({ ...data, buttonLink: e.target.value })}
           className="w-full px-3 py-2 border border-gray-300 rounded-md"
         />
+      </div>
+    </div>
+  );
+};
+
+// Product Categories Block Editor
+export const ProductCategoriesBlockEditor: React.FC<{ data: any; onChange: (data: any) => void }> = ({ data, onChange }) => {
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Section Title</label>
+        <input
+          type="text"
+          value={data?.title || ''}
+          onChange={(e) => onChange({ ...data, title: e.target.value })}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+          placeholder="Shop by Category"
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Maximum Categories</label>
+        <input
+          type="number"
+          min={1}
+          max={24}
+          value={data?.limit ?? 8}
+          onChange={(e) => onChange({ ...data, limit: parseInt(e.target.value, 10) || 8 })}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+        />
+        <p className="text-xs text-gray-500 mt-1">Number of categories to display (1–24)</p>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Layout</label>
+        <select
+          value={data?.layout || 'grid'}
+          onChange={(e) => onChange({ ...data, layout: e.target.value })}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+        >
+          <option value="grid">Grid</option>
+          <option value="carousel">Carousel</option>
+        </select>
+      </div>
+    </div>
+  );
+};
+
+// Product Cards Block Editor
+export const ProductCardsBlockEditor: React.FC<{ data: any; onChange: (data: any) => void }> = ({ data, onChange }) => {
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Section Title</label>
+        <input
+          type="text"
+          value={data?.title || ''}
+          onChange={(e) => onChange({ ...data, title: e.target.value })}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+          placeholder="Featured Products"
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Product Limit</label>
+        <input
+          type="number"
+          min={1}
+          max={24}
+          value={data?.limit ?? 8}
+          onChange={(e) => onChange({ ...data, limit: parseInt(e.target.value, 10) || 8 })}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+        />
+        <p className="text-xs text-gray-500 mt-1">Number of products to display (1–24)</p>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Sort By</label>
+        <select
+          value={data?.sort || 'newest'}
+          onChange={(e) => onChange({ ...data, sort: e.target.value })}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+        >
+          <option value="newest">Newest First</option>
+          <option value="oldest">Oldest First</option>
+          <option value="price-asc">Price: Low to High</option>
+          <option value="price-desc">Price: High to Low</option>
+        </select>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Category Slug</label>
+        <input
+          type="text"
+          value={data?.categorySlug || ''}
+          onChange={(e) => onChange({ ...data, categorySlug: e.target.value.trim() })}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+          placeholder="e.g. jackets (leave empty for all)"
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Layout</label>
+        <select
+          value={data?.layout || 'grid'}
+          onChange={(e) => onChange({ ...data, layout: e.target.value })}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+        >
+          <option value="grid">Grid</option>
+          <option value="carousel">Carousel</option>
+        </select>
+      </div>
+    </div>
+  );
+};
+
+// Product Selection Block Editor (manual product slugs)
+export const ProductSelectionBlockEditor: React.FC<{ data: any; onChange: (data: any) => void }> = ({ data, onChange }) => {
+  const slugs = (data?.productSlugs || '').toString().split(',').map((s: string) => s.trim()).filter(Boolean);
+  const slugStr = slugs.join(', ');
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Section Title</label>
+        <input
+          type="text"
+          value={data?.title || ''}
+          onChange={(e) => onChange({ ...data, title: e.target.value })}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+          placeholder="Handpicked for You"
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Product Slugs (comma-separated)</label>
+        <input
+          type="text"
+          value={slugStr}
+          onChange={(e) =>
+            onChange({
+              ...data,
+              productSlugs: e.target.value
+                .split(',')
+                .map((s: string) => s.trim())
+                .filter(Boolean)
+                .join(','),
+            })
+          }
+          className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono text-sm"
+          placeholder="product-slug-1, product-slug-2, product-slug-3"
+        />
+        <p className="text-xs text-gray-500 mt-1">Enter product slugs in the order you want them displayed</p>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Layout</label>
+        <select
+          value={data?.layout || 'grid'}
+          onChange={(e) => onChange({ ...data, layout: e.target.value })}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+        >
+          <option value="grid">Grid</option>
+          <option value="carousel">Carousel</option>
+        </select>
+      </div>
+    </div>
+  );
+};
+
+// Product Featured Block Editor (single product highlight)
+export const ProductFeaturedBlockEditor: React.FC<{ data: any; onChange: (data: any) => void }> = ({ data, onChange }) => {
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Section Title</label>
+        <input
+          type="text"
+          value={data?.title || ''}
+          onChange={(e) => onChange({ ...data, title: e.target.value })}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+          placeholder="Product of the Week"
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Product Slug *</label>
+        <input
+          type="text"
+          value={data?.productSlug || ''}
+          onChange={(e) => onChange({ ...data, productSlug: e.target.value.trim().toLowerCase() })}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+          placeholder="product-slug"
+        />
+        <p className="text-xs text-gray-500 mt-1">The slug of the product to feature</p>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Call to Action Text</label>
+        <input
+          type="text"
+          value={data?.ctaText || 'View Product'}
+          onChange={(e) => onChange({ ...data, ctaText: e.target.value })}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+        />
+      </div>
+    </div>
+  );
+};
+
+// Product Best Sellers Block Editor
+export const ProductBestSellersBlockEditor: React.FC<{ data: any; onChange: (data: any) => void }> = ({ data, onChange }) => {
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Section Title</label>
+        <input
+          type="text"
+          value={data?.title || ''}
+          onChange={(e) => onChange({ ...data, title: e.target.value })}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+          placeholder="Best Sellers"
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Product Limit</label>
+        <input
+          type="number"
+          min={1}
+          max={24}
+          value={data?.limit ?? 8}
+          onChange={(e) => onChange({ ...data, limit: parseInt(e.target.value, 10) || 8 })}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+        />
+        <p className="text-xs text-gray-500 mt-1">Number of products (1–24)</p>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Tag for Best Sellers</label>
+        <input
+          type="text"
+          value={data?.tagSlug || 'bestseller'}
+          onChange={(e) => onChange({ ...data, tagSlug: e.target.value.trim().toLowerCase() })}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+          placeholder="bestseller"
+        />
+        <p className="text-xs text-gray-500 mt-1">Products with this tag are shown. If none, falls back to newest products.</p>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Layout</label>
+        <select
+          value={data?.layout || 'grid'}
+          onChange={(e) => onChange({ ...data, layout: e.target.value })}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+        >
+          <option value="grid">Grid</option>
+          <option value="carousel">Carousel</option>
+        </select>
       </div>
     </div>
   );

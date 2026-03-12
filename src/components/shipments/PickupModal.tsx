@@ -1,4 +1,22 @@
 import React from 'react';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 
 interface PickupModalProps {
   isOpen: boolean;
@@ -29,77 +47,73 @@ const PickupModal: React.FC<PickupModalProps> = ({
   onNotesChange,
   isSubmitting,
 }) => {
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg p-6 max-w-md w-full">
-        <h2 className="text-xl font-bold mb-4">
-          {isBulk ? 'Schedule Bulk Pickup' : 'Schedule Pickup'}
-        </h2>
-        {isBulk && (
-          <div className="mb-4">
-            <p className="text-sm text-gray-600">
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>{isBulk ? 'Schedule Bulk Pickup' : 'Schedule Pickup'}</DialogTitle>
+          {isBulk && (
+            <p className="text-sm text-muted-foreground mt-2">
               Scheduling pickup for <strong>{shipmentCount}</strong> shipment(s)
             </p>
-          </div>
-        )}
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Pickup Date *</label>
-            <input
+          )}
+        </DialogHeader>
+
+        <div className="grid gap-4 py-4">
+          <div className="grid gap-2">
+            <Label htmlFor="pickupDate">Pickup Date *</Label>
+            <Input
+              id="pickupDate"
               type="datetime-local"
               value={pickupDate}
               onChange={(e) => onDateChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-red-500"
               required
               min={new Date().toISOString().slice(0, 16)}
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Time Slot *</label>
-            <select
-              value={pickupTimeSlot}
-              onChange={(e) => onTimeSlotChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-red-500"
-              required
-            >
-              <option value="">Select Time Slot</option>
-              <option value="09:00 AM - 12:00 PM">Morning: 09:00 AM - 12:00 PM</option>
-              <option value="12:00 PM - 03:00 PM">Afternoon: 12:00 PM - 03:00 PM</option>
-              <option value="03:00 PM - 06:00 PM">Evening: 03:00 PM - 06:00 PM</option>
-              <option value="06:00 PM - 09:00 PM">Night: 06:00 PM - 09:00 PM</option>
-            </select>
-            <p className="text-xs text-gray-500 mt-1">Select preferred time slot for pickup</p>
+
+          <div className="grid gap-2">
+            <Label htmlFor="timeSlot">Time Slot *</Label>
+            <Select value={pickupTimeSlot} onValueChange={onTimeSlotChange}>
+              <SelectTrigger id="timeSlot">
+                <SelectValue placeholder="Select Time Slot" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="09:00 AM - 12:00 PM">Morning: 09:00 AM - 12:00 PM</SelectItem>
+                <SelectItem value="12:00 PM - 03:00 PM">Afternoon: 12:00 PM - 03:00 PM</SelectItem>
+                <SelectItem value="03:00 PM - 06:00 PM">Evening: 03:00 PM - 06:00 PM</SelectItem>
+                <SelectItem value="06:00 PM - 09:00 PM">Night: 06:00 PM - 09:00 PM</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">Select preferred time slot for pickup</p>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Notes (Optional)</label>
-            <textarea
+
+          <div className="grid gap-2">
+            <Label htmlFor="notes">Notes (Optional)</Label>
+            <Textarea
+              id="notes"
               value={pickupNotes}
               onChange={(e) => onNotesChange(e.target.value)}
               rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-red-500"
               placeholder={isBulk ? "Additional notes for bulk pickup..." : "Additional notes for pickup..."}
             />
           </div>
         </div>
-        <div className="flex justify-end gap-2 mt-6">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
-          >
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={onSubmit}
             disabled={isSubmitting || !pickupDate || !pickupTimeSlot}
-            className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+            className="bg-red-600 hover:bg-red-700 text-white"
           >
             {isSubmitting ? 'Scheduling...' : isBulk ? `Schedule Pickup (${shipmentCount})` : 'Schedule Pickup'}
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 };
 

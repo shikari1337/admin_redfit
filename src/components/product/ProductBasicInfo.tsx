@@ -58,9 +58,8 @@ const ProductBasicInfo: React.FC<ProductBasicInfoProps> = ({
           <input
             type="text"
             required
-            className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
-              errors.name ? 'border-red-500' : 'border-gray-300'
-            }`}
+            className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${errors.name ? 'border-red-500' : 'border-gray-300'
+              }`}
             value={name}
             onChange={(e) => onNameChange(e.target.value)}
             placeholder="e.g., Redfit Premium T-Shirt"
@@ -80,9 +79,8 @@ const ProductBasicInfo: React.FC<ProductBasicInfoProps> = ({
                 const skuValue = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 48);
                 onSkuChange(skuValue);
               }}
-              className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 font-mono text-sm ${
-                sku && sku.trim() ? 'bg-gray-50 border-gray-300' : 'border-gray-300'
-              }`}
+              className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 font-mono text-sm ${sku && sku.trim() ? 'bg-gray-50 border-gray-300' : 'border-gray-300'
+                }`}
               placeholder="Auto-generated from product name"
             />
             <p className="mt-1 text-xs text-gray-500">

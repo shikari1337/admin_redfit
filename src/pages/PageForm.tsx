@@ -4,6 +4,11 @@ import { FaArrowLeft, FaSave, FaPlus, FaTrash, FaArrowUp, FaArrowDown, FaEye, Fa
 import { pagesAPI } from '../services/api';
 import LoadingSpinner from '../components/LoadingSpinner';
 import BlockEditor from '../components/pages/BlockEditor';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 
 interface PageTemplate {
   name: string;
@@ -63,8 +68,6 @@ const PageForm: React.FC = () => {
   const fetchTemplates = async () => {
     try {
       const response = await pagesAPI.getTemplates();
-      // Backend returns: { success: true, data: templates[] }
-      // API interceptor normalizes to: templates[] or { data: templates[] }
       let templates: any[] = [];
       if (Array.isArray(response)) {
         templates = response;
@@ -83,8 +86,6 @@ const PageForm: React.FC = () => {
   const fetchBlockTypes = async () => {
     try {
       const response = await pagesAPI.getBlockTypes();
-      // Backend returns: { success: true, data: blockTypes[] }
-      // API interceptor normalizes to: blockTypes[] or { data: blockTypes[] }
       let blockTypes: any[] = [];
       if (Array.isArray(response)) {
         blockTypes = response;
@@ -104,8 +105,6 @@ const PageForm: React.FC = () => {
     try {
       setLoading(true);
       const response = await pagesAPI.getById(id!);
-      // Backend returns: { success: true, data: page }
-      // API interceptor normalizes to: page or { data: page }
       const pageData = response?.data || response;
       
       if (!pageData || typeof pageData !== 'object') {
@@ -213,6 +212,16 @@ const PageForm: React.FC = () => {
             { question: 'How long does shipping take?', answer: '<p>Standard shipping takes 5-7 business days.</p>' },
           ],
         };
+      case 'product-categories':
+        return { title: 'Shop by Category', limit: 8, layout: 'grid' };
+      case 'product-cards':
+        return { title: 'Featured Products', limit: 8, sort: 'newest', categorySlug: '', layout: 'grid' };
+      case 'product-selection':
+        return { title: 'Handpicked for You', productSlugs: '', layout: 'grid' };
+      case 'product-featured':
+        return { title: 'Product of the Week', productSlug: '', ctaText: 'View Product' };
+      case 'product-best-sellers':
+        return { title: 'Best Sellers', limit: 8, tagSlug: 'bestseller', layout: 'grid' };
       default:
         return {};
     }
@@ -283,16 +292,17 @@ const PageForm: React.FC = () => {
     });
   };
 
-  const handleGenerateAI = async (blockType: string, existingData: any): Promise<any> => {
+  const handleGenerateAI = async (blockType: string, existingData: any, customPrompt?: string): Promise<any> => {
     try {
       const response = await pagesAPI.generateBlockContent(
         blockType,
         formData.title,
         formData.description,
-        undefined, // customPrompt - can be added later
+        customPrompt,
         existingData
       );
-      return response.data;
+      const content = response?.data ?? response;
+      return content;
     } catch (error: any) {
       console.error('Failed to generate content:', error);
       throw error;
@@ -316,139 +326,133 @@ const PageForm: React.FC = () => {
   }
 
   return (
-    <div className="max-w-6xl mx-auto">
+    <div className="max-w-6xl mx-auto pb-12">
       <div className="mb-6">
         <button
           onClick={() => navigate('/pages')}
-          className="flex items-center text-gray-600 hover:text-gray-900 mb-4"
+          className="flex items-center text-muted-foreground hover:text-foreground mb-4 text-sm font-medium transition-colors"
         >
           <FaArrowLeft className="mr-2" />
           Back to Pages
         </button>
-        <h1 className="text-3xl font-bold text-gray-900">
+        <h1 className="text-3xl font-bold tracking-tight">
           {id ? 'Edit Page' : 'Create Page'}
         </h1>
-        <p className="text-sm text-gray-600 mt-2">Configure your page with content blocks</p>
+        <p className="text-muted-foreground text-sm mt-1">Configure your page with content blocks</p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Basic Information */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Basic Information</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Title *
-              </label>
-              <input
-                type="text"
-                value={formData.title}
-                onChange={(e) => {
-                  setFormData({
-                    ...formData,
-                    title: e.target.value,
-                    slug: formData.slug || generateSlug(e.target.value),
-                  });
-                }}
-                required
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Slug *
-              </label>
-              <input
-                type="text"
-                value={formData.slug}
-                onChange={(e) => {
-                  const slug = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-                  setFormData({ ...formData, slug });
-                }}
-                required
-                pattern="[a-z0-9\-]+"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-              />
-              <p className="text-xs text-gray-500 mt-1">URL: /{formData.slug || 'page-slug'}</p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Page Type *
-              </label>
-              <select
-                value={formData.pageType}
-                onChange={(e) => setFormData({ ...formData, pageType: e.target.value })}
-                required
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-              >
-                <option value="custom">Custom</option>
-                <option value="about">About</option>
-                <option value="contact">Contact</option>
-                <option value="faq">FAQ</option>
-                <option value="landing">Landing Page</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Template
-              </label>
-              <select
-                value={formData.template}
-                onChange={(e) => handleTemplateChange(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-              >
-                {templates.map(template => (
-                  <option key={template.name} value={template.name}>
-                    {template.displayName} - {template.description}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Description
-              </label>
-              <textarea
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                rows={3}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-              />
-            </div>
-
-            <div className="flex items-center gap-4">
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={formData.isActive}
-                  onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
-                  className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
+        <Card>
+          <CardHeader>
+            <CardTitle>Basic Information</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                  Title *
+                </label>
+                <Input
+                  value={formData.title}
+                  onChange={(e) => {
+                    setFormData({
+                      ...formData,
+                      title: e.target.value,
+                      slug: formData.slug || generateSlug(e.target.value),
+                    });
+                  }}
+                  required
                 />
-                <span className="text-sm font-medium text-gray-700">Active/Published</span>
-              </label>
+              </div>
 
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={formData.isVisible}
-                  onChange={(e) => setFormData({ ...formData, isVisible: e.target.checked })}
-                  className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
+              <div className="space-y-2">
+                <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                  Slug *
+                </label>
+                <Input
+                  value={formData.slug}
+                  onChange={(e) => {
+                    const slug = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+                    setFormData({ ...formData, slug });
+                  }}
+                  required
+                  pattern="[a-z0-9\-]+"
                 />
-                <span className="text-sm font-medium text-gray-700">Visible in Navigation</span>
-              </label>
+                <p className="text-xs text-muted-foreground">URL: /{formData.slug || 'page-slug'}</p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                  Page Type *
+                </label>
+                <select
+                  value={formData.pageType}
+                  onChange={(e) => setFormData({ ...formData, pageType: e.target.value })}
+                  required
+                  className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <option value="custom">Custom</option>
+                  <option value="about">About</option>
+                  <option value="contact">Contact</option>
+                  <option value="faq">FAQ</option>
+                  <option value="landing">Landing Page</option>
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                  Template
+                </label>
+                <select
+                  value={formData.template}
+                  onChange={(e) => handleTemplateChange(e.target.value)}
+                  className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {templates.map(template => (
+                    <option key={template.name} value={template.name}>
+                      {template.displayName} - {template.description}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="md:col-span-2 space-y-2">
+                <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                  Description
+                </label>
+                <Textarea
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  rows={3}
+                />
+              </div>
+
+              <div className="flex items-center gap-6 pt-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <Checkbox
+                    checked={formData.isActive}
+                    onCheckedChange={(checked) => setFormData({ ...formData, isActive: checked as boolean })}
+                  />
+                  <span className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">Active/Published</span>
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <Checkbox
+                    checked={formData.isVisible}
+                    onCheckedChange={(checked) => setFormData({ ...formData, isVisible: checked as boolean })}
+                  />
+                  <span className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">Visible in Navigation</span>
+                </label>
+              </div>
             </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
 
         {/* Content Blocks */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold text-gray-900">Content Blocks</h2>
-            <div className="flex items-center gap-2">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle>Content Blocks</CardTitle>
+            <div className="flex items-center gap-3">
               <select
                 onChange={(e) => {
                   if (e.target.value) {
@@ -456,149 +460,167 @@ const PageForm: React.FC = () => {
                     e.target.value = '';
                   }
                 }}
-                className="px-3 py-2 border border-gray-300 rounded-md text-sm"
+                className="flex h-9 w-[200px] items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <option value="">Select block type...</option>
                 {blockTypes.map(type => (
                   <option key={type} value={type}>{type}</option>
                 ))}
               </select>
-              <button
-                type="button"
-                onClick={() => addBlock()}
-                className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-              >
-                <FaPlus className="w-4 h-4" />
+              <Button type="button" onClick={() => addBlock()} className="bg-red-600 hover:bg-red-700 h-9">
+                <FaPlus className="w-3.5 h-3.5 mr-2" />
                 Add Block
-              </button>
+              </Button>
             </div>
-          </div>
-
-          {formData.contentBlocks.length === 0 ? (
-            <p className="text-gray-500 text-center py-8">No content blocks. Add blocks to build your page.</p>
-          ) : (
-            <div className="space-y-4">
-              {formData.contentBlocks
-                .sort((a, b) => a.order - b.order)
-                .map((block) => {
-                  const sortedIndex = formData.contentBlocks.findIndex(b => b.blockId === block.blockId);
-                  return (
-                    <div key={block.blockId} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium text-gray-700">Block #{sortedIndex + 1}</span>
-                          <span className="px-2 py-1 text-xs font-medium rounded bg-blue-100 text-blue-800 capitalize">
-                            {block.blockType}
-                          </span>
-                          {!block.enabled && (
-                            <span className="px-2 py-1 text-xs font-medium rounded bg-gray-200 text-gray-600">
-                              Disabled
+          </CardHeader>
+          <CardContent>
+            {formData.contentBlocks.length === 0 ? (
+              <div className="text-center py-12 border-2 border-dashed rounded-lg">
+                <p className="text-muted-foreground">No content blocks. Add blocks to build your page.</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {formData.contentBlocks
+                  .filter((b) => b && (b.blockId || b.blockType))
+                  .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+                  .map((block) => {
+                    const sortedIndex = formData.contentBlocks.findIndex((b) => b === block);
+                    const safeBlock = {
+                      blockId: block?.blockId ?? `block-${sortedIndex}-${Math.random().toString(36).slice(2)}`,
+                      blockType: block?.blockType ?? 'text',
+                      enabled: block?.enabled !== false,
+                      order: block?.order ?? 0,
+                      data: block?.data && typeof block.data === 'object' ? block.data : {},
+                    };
+                    return (
+                      <div key={safeBlock.blockId} className="border border-border rounded-lg bg-card overflow-hidden shadow-sm">
+                        <div className="flex items-center justify-between p-4 bg-muted/50 border-b border-border">
+                          <div className="flex items-center gap-3">
+                            <span className="text-sm font-semibold text-foreground">Block #{sortedIndex + 1}</span>
+                            <span className="px-2.5 py-0.5 text-[10px] font-semibold tracking-wide rounded-full bg-blue-100 text-blue-800 uppercase">
+                              {safeBlock.blockType}
                             </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => updateBlock(sortedIndex, 'enabled', !block.enabled)}
-                            className={`p-1 ${block.enabled ? 'text-green-600' : 'text-gray-400'} hover:text-gray-600`}
-                            title={block.enabled ? 'Disable' : 'Enable'}
-                          >
-                            {block.enabled ? <FaEye className="w-4 h-4" /> : <FaEyeSlash className="w-4 h-4" />}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => moveBlock(sortedIndex, 'up')}
-                            disabled={sortedIndex === 0}
-                            className="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-30"
-                            title="Move up"
-                          >
-                            <FaArrowUp className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => moveBlock(sortedIndex, 'down')}
-                            disabled={sortedIndex === formData.contentBlocks.length - 1}
-                            className="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-30"
-                            title="Move down"
-                          >
-                            <FaArrowDown className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => removeBlock(sortedIndex)}
-                            className="p-1 text-red-400 hover:text-red-600"
-                            title="Remove"
-                          >
-                            <FaTrash className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Block Type
-                          </label>
-                          <select
-                            value={block.blockType}
-                            onChange={(e) => {
-                              updateBlock(sortedIndex, 'blockType', e.target.value);
-                              // Reset data to default for new block type
-                              updateBlockData(sortedIndex, getDefaultBlockData(e.target.value));
-                            }}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                          >
-                            {blockTypes.map(type => (
-                              <option key={type} value={type}>{type}</option>
-                            ))}
-                          </select>
+                            {!safeBlock.enabled && (
+                              <span className="px-2.5 py-0.5 text-[10px] font-semibold tracking-wide rounded-full bg-secondary text-secondary-foreground uppercase">
+                                Disabled
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => updateBlock(sortedIndex, 'enabled', !safeBlock.enabled)}
+                              className={`h-8 w-8 ${safeBlock.enabled ? 'text-green-600' : 'text-muted-foreground'}`}
+                              title={safeBlock.enabled ? 'Disable' : 'Enable'}
+                            >
+                              {safeBlock.enabled ? <FaEye className="w-4 h-4" /> : <FaEyeSlash className="w-4 h-4" />}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => moveBlock(sortedIndex, 'up')}
+                              disabled={sortedIndex === 0}
+                              className="h-8 w-8 text-muted-foreground"
+                              title="Move up"
+                            >
+                              <FaArrowUp className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => moveBlock(sortedIndex, 'down')}
+                              disabled={sortedIndex === formData.contentBlocks.length - 1}
+                              className="h-8 w-8 text-muted-foreground"
+                              title="Move down"
+                            >
+                              <FaArrowDown className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => removeBlock(sortedIndex)}
+                              className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                              title="Remove"
+                            >
+                              <FaTrash className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
                         </div>
 
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Block ID
-                          </label>
-                          <input
-                            type="text"
-                            value={block.blockId}
-                            onChange={(e) => updateBlock(sortedIndex, 'blockId', e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                          />
+                        <div className="p-4 space-y-4">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-1.5">
+                              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                                Block Type
+                              </label>
+                              <select
+                                value={safeBlock.blockType}
+                                onChange={(e) => {
+                                  updateBlock(sortedIndex, 'blockType', e.target.value);
+                                  updateBlockData(sortedIndex, getDefaultBlockData(e.target.value));
+                                }}
+                                className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                {blockTypes.map(type => (
+                                  <option key={type} value={type}>{type}</option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                                Block ID
+                              </label>
+                              <Input
+                                value={safeBlock.blockId}
+                                onChange={(e) => updateBlock(sortedIndex, 'blockId', e.target.value)}
+                                className="h-9"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="pt-4 border-t border-border">
+                            <BlockEditor
+                              block={safeBlock}
+                              onChange={(data) => updateBlockData(sortedIndex, data)}
+                              onGenerateAI={handleGenerateAI}
+                            />
+                          </div>
                         </div>
                       </div>
-
-                      {/* Block Editor */}
-                      <div className="mt-4 pt-4 border-t border-gray-200 bg-white rounded-lg p-4">
-                        <BlockEditor
-                          block={block}
-                          onChange={(data) => updateBlockData(sortedIndex, data)}
-                          onGenerateAI={handleGenerateAI}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-            </div>
-          )}
-        </div>
+                    );
+                  })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Actions */}
-        <div className="flex justify-end gap-3">
-          <button
+        <div className="flex items-center justify-end gap-3 sticky bottom-4 p-4 bg-background/80 backdrop-blur-sm border border-border rounded-lg shadow-sm">
+          <Button
             type="button"
+            variant="outline"
             onClick={() => navigate('/pages')}
-            className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             type="submit"
             disabled={saving}
-            className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-400 font-medium flex items-center gap-2"
+            className="bg-red-600 hover:bg-red-700 text-white min-w-[140px]"
           >
-            <FaSave className="w-4 h-4" />
+            {saving ? (
+              <LoadingSpinner className="w-4 h-4 mr-2 border-white border-t-transparent" />
+            ) : (
+              <FaSave className="w-4 h-4 mr-2" />
+            )}
             {saving ? 'Saving...' : id ? 'Update Page' : 'Create Page'}
-          </button>
+          </Button>
         </div>
       </form>
     </div>

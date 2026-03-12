@@ -2,7 +2,26 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { usersAPI } from '../services/api';
 import { format } from 'date-fns';
-import { FaUser, FaEnvelope, FaPhone, FaEye } from 'react-icons/fa';
+import { User, Mail, Phone, Eye, Search } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 
 const Users: React.FC = () => {
   const [users, setUsers] = useState<any[]>([]);
@@ -27,7 +46,7 @@ const Users: React.FC = () => {
       if (searchTerm) {
         params.search = searchTerm;
       }
-      if (roleFilter) {
+      if (roleFilter && roleFilter !== 'all') {
         params.role = roleFilter;
       }
       const response = await usersAPI.getAll(params);
@@ -57,194 +76,188 @@ const Users: React.FC = () => {
     }
   };
 
-  const getRoleColor = (role: string) => {
-    return role === 'admin' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800';
+  const getRoleVariant = (role: string) => {
+    return role === 'admin' ? 'destructive' : 'default';
   };
 
   if (loading && users.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
       </div>
     );
   }
 
   return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Users</h1>
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h1 className="text-3xl font-bold tracking-tight">Users</h1>
       </div>
 
-      {/* Filters */}
-      <div className="bg-white rounded-lg shadow p-4 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Search</label>
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value);
-                setPage(1);
-              }}
-              placeholder="Search by name, email, or phone..."
-              className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-red-500"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Role</label>
-            <select
-              value={roleFilter}
-              onChange={(e) => {
-                setRoleFilter(e.target.value);
-                setPage(1);
-              }}
-              className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-red-500"
-            >
-              <option value="">All Roles</option>
-              <option value="admin">Admin</option>
-              <option value="user">User</option>
-            </select>
-          </div>
-          <div className="flex items-end">
-            <div className="text-sm text-gray-600">
-              Total: <span className="font-semibold">{total}</span> users
+      <Card>
+        <CardContent className="p-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                Search
+              </label>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => {
+                    setSearchTerm(e.target.value);
+                    setPage(1);
+                  }}
+                  placeholder="Search by name, email, or phone..."
+                  className="pl-8"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                Role
+              </label>
+              <Select
+                value={roleFilter || 'all'}
+                onValueChange={(val) => {
+                  setRoleFilter(val === 'all' ? '' : val);
+                  setPage(1);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="All Roles" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Roles</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
+                  <SelectItem value="user">User</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-end justify-end">
+              <div className="text-sm text-muted-foreground pb-2">
+                Total: <span className="font-semibold text-foreground">{total}</span> users
+              </div>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <div className="rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>User</TableHead>
+                <TableHead>Contact</TableHead>
+                <TableHead>Role</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Created</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {users.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="h-24 text-center">
+                    No users found
+                  </TableCell>
+                </TableRow>
+              ) : (
+                users.map((user) => {
+                  const userId = typeof user._id === 'string' ? user._id : String(user._id || '');
+                  return (
+                    <TableRow key={userId}>
+                      <TableCell>
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted">
+                            <User className="h-5 w-5 text-muted-foreground" />
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="font-medium">
+                              {user.displayName || user.name || 'No name'}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              ID: {String(user._id || '').slice(-8)}
+                            </span>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-col gap-1 text-sm">
+                          {user.email && (
+                            <div className="flex items-center gap-2">
+                              <Mail className="h-3 w-3 text-muted-foreground" />
+                              <span>{user.email}</span>
+                            </div>
+                          )}
+                          {user.phoneNumber && (
+                            <div className="flex items-center gap-2">
+                              <Phone className="h-3 w-3 text-muted-foreground" />
+                              <span>{user.phoneNumber}</span>
+                            </div>
+                          )}
+                          {!user.email && !user.phoneNumber && (
+                            <span className="text-muted-foreground">No contact info</span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={getRoleVariant(user.role) as any} className="capitalize">
+                          {user.role}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={(user.isActive ? 'success' : 'destructive') as any} className="capitalize">
+                          {user.isActive ? 'Active' : 'Inactive'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-sm">
+                        {user.createdAt
+                          ? format(new Date(user.createdAt), 'MMM dd, yyyy')
+                          : 'N/A'}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button variant="ghost" size="sm" asChild>
+                          <Link to={`/users/${userId}`} className="text-primary hover:text-primary/80">
+                            <Eye className="mr-2 h-4 w-4" />
+                            View Details
+                          </Link>
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
         </div>
-      </div>
+      </Card>
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                User
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                Contact
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                Role
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                Status
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                Created
-              </th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {users.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="px-6 py-4 text-center text-gray-500">
-                  No users found
-                </td>
-              </tr>
-            ) : (
-              users.map((user) => {
-                const userId = typeof user._id === 'string' ? user._id : String(user._id || '');
-                return (
-                <tr key={userId} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      <div className="flex-shrink-0 h-10 w-10 rounded-full bg-gray-200 flex items-center justify-center">
-                        <FaUser className="text-gray-600" />
-                      </div>
-                      <div className="ml-4">
-                        <div className="text-sm font-medium text-gray-900">
-                          {user.displayName || user.name || 'No name'}
-                        </div>
-                        <div className="text-sm text-gray-500">ID: {String(user._id || '').slice(-8)}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">
-                      {user.email && (
-                        <div className="flex items-center gap-2 mb-1">
-                          <FaEnvelope size={12} className="text-gray-400" />
-                          {user.email}
-                        </div>
-                      )}
-                      {user.phoneNumber && (
-                        <div className="flex items-center gap-2">
-                          <FaPhone size={12} className="text-gray-400" />
-                          {user.phoneNumber}
-                        </div>
-                      )}
-                      {!user.email && !user.phoneNumber && (
-                        <span className="text-gray-400">No contact info</span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span
-                      className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getRoleColor(
-                        user.role
-                      )}`}
-                    >
-                      {user.role}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span
-                      className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        user.isActive
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-red-100 text-red-800'
-                      }`}
-                    >
-                      {user.isActive ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {user.createdAt
-                      ? format(new Date(user.createdAt), 'MMM dd, yyyy')
-                      : 'N/A'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <Link
-                      to={`/users/${userId}`}
-                      className="inline-flex items-center gap-1 text-red-600 hover:text-red-900"
-                    >
-                      <FaEye size={14} />
-                      View Details
-                    </Link>
-                  </td>
-                </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Pagination */}
       {totalPages > 1 && (
-        <div className="mt-6 flex items-center justify-between">
-          <div className="text-sm text-gray-700">
+        <div className="flex items-center justify-between">
+          <div className="text-sm text-muted-foreground">
             Showing page {page} of {totalPages}
           </div>
           <div className="flex gap-2">
-            <button
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page === 1}
-              className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Previous
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={page === totalPages}
-              className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Next
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -253,4 +266,5 @@ const Users: React.FC = () => {
 };
 
 export default Users;
+
 

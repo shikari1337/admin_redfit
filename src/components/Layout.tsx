@@ -1,213 +1,183 @@
-import React, { useState } from 'react';
-import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
-import {
-  FaHome,
-  FaBox,
-  FaShoppingCart,
-  FaSignOutAlt,
-  FaBars,
-  FaTimes,
-  FaQuestionCircle,
-  FaStar,
-  FaTicketAlt,
-  FaCog,
-  FaLayerGroup,
-  FaRulerCombined,
-  FaCubes,
-  FaSms,
-  FaUsers,
-  FaImages,
-  FaFileAlt,
-  FaTruck,
-  FaFile,
-  FaTags,
-} from 'react-icons/fa';
+import React, { useState, useEffect } from 'react';
+import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { authAPI } from '../services/api';
 import PageTransitionLoader from './PageTransitionLoader';
+import { AppSidebar } from './app-sidebar';
+import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
+import {
+  Home, ShoppingCart, Truck, Warehouse, Users, Factory,
+  Megaphone, Ticket, Star, HelpCircle, Palette, FileText, Settings,
+  UserCheck, Edit, Images, Package2, LineChart
+} from 'lucide-react';
 
 const Layout: React.FC = () => {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [userPerms, setUserPerms] = useState<{ role?: string; permissions?: string[]; name?: string; email?: string }>({});
+  const [storeModules, setStoreModules] = useState<Record<string, boolean>>({});
   const location = useLocation();
   const navigate = useNavigate();
 
+  useEffect(() => {
+    const loadUser = async () => {
+      try {
+        const user = await authAPI.me();
+        const data = user?.data ?? user;
+        setUserPerms({ role: data?.role, permissions: data?.permissions || [], name: data?.name, email: data?.email });
+        
+        // Also fetch global store module enabled states
+        try {
+          const { modulesAPI } = await import('../services/api');
+          const mods = await modulesAPI.list();
+          const modsList = Array.isArray(mods) ? mods : mods?.modules ?? mods?.data ?? [];
+          const modMap: Record<string, boolean> = {};
+          for (const m of modsList) {
+            modMap[m.key] = m.enabled !== false; // default true if missing
+          }
+          setStoreModules(modMap);
+        } catch (e) {
+          console.warn('Could not fetch store modules:', e);
+        }
+      } catch {
+        setUserPerms({});
+      }
+    };
+    loadUser();
+  }, []);
+
+  const canAccess = (module: string) => {
+    // 1. Is the module globally enabled for this store? (B2B, CRM, etc)
+    if (storeModules && module in storeModules && !storeModules[module]) {
+      return false; // globally disabled for store
+    }
+    // 2. Does the staff user have permission?
+    if (userPerms.role === 'admin') return true;
+    return userPerms.permissions?.includes(module) ?? false;
+  };
+
   const handleLogout = async () => {
     try {
-      // Call logout endpoint to invalidate session on server
       await authAPI.logout();
     } catch (error) {
-      // Even if logout fails, clear local token
       console.warn('Logout request failed, clearing local token anyway:', error);
     } finally {
-      // Always remove token from local storage
       localStorage.removeItem('admin_token');
-      // Navigate to login page
       navigate('/login', { replace: true });
     }
   };
 
-  const menuItems = [
-    { path: '/dashboard', icon: FaHome, label: 'Dashboard' },
+  const menuGroups = [
     {
-      path: '/products',
-      icon: FaBox,
-      label: 'Products',
-      children: [
-        { path: '/products', label: 'All Products' },
-        { path: '/products/new', label: 'Create Product' },
-        { path: '/products/bundles', label: 'Bundles', icon: FaCubes },
-        { path: '/products/categories', label: 'Categories', icon: FaLayerGroup },
-        { path: '/products/attributes', label: 'Attributes', icon: FaLayerGroup },
-        { path: '/products/tags', label: 'Tags', icon: FaTags },
-        { path: '/products/size-charts', label: 'Size Charts', icon: FaRulerCombined },
-        { path: '/products/specifications', label: 'Specifications', icon: FaFileAlt },
-      ],
+      title: "Overview",
+      items: [
+        { title: 'Dashboard', url: '/dashboard', icon: Home },
+        { title: 'Analytics', url: '/analytics', icon: LineChart, items: [
+          { title: 'Dashboard', url: '/analytics/dashboard' },
+          { title: 'Store', url: '/analytics/store' },
+          { title: 'Users', url: '/analytics/users' },
+          { title: 'Realtime', url: '/analytics/realtime' },
+          { title: 'Custom', url: '/analytics/custom' },
+        ]},
+      ]
     },
-    { path: '/gallery', icon: FaImages, label: 'Gallery' },
     {
-      path: '/orders',
-      icon: FaShoppingCart,
-      label: 'Orders',
-      children: [
-        { path: '/orders', label: 'All Orders' },
-        { path: '/orders/abandoned-carts', label: 'Abandoned Carts', icon: FaSms },
-      ],
+      title: "Sales & CRM",
+      items: [
+        { title: 'Orders', url: '/orders', icon: ShoppingCart, items: [
+          { title: 'All Orders', url: '/orders' },
+          { title: 'Abandoned Carts', url: '/orders/abandoned-carts' },
+        ]},
+        ...(canAccess('leads_manager') ? [{ title: 'Leads (CRM)', url: '/leads', icon: UserCheck }] : []),
+        { title: 'Users', url: '/users', icon: Users },
+        ...(canAccess('b2b') ? [{ title: 'B2B', url: '/b2b', icon: Factory }] : []),
+      ]
     },
-    { path: '/shipments', icon: FaTruck, label: 'Shipments' },
-    { path: '/users', icon: FaUsers, label: 'Users' },
-    { path: '/coupons', icon: FaTicketAlt, label: 'Coupons' },
-    { path: '/reviews', icon: FaStar, label: 'Reviews' },
-    { path: '/faqs', icon: FaQuestionCircle, label: 'FAQs' },
-    { path: '/pages', icon: FaFile, label: 'Pages' },
-    { path: '/logs', icon: FaFileAlt, label: 'Logs' },
-    { path: '/settings', icon: FaCog, label: 'Settings' },
+    {
+      title: "Catalog & Operations",
+      items: [
+        { title: 'Products', url: '/products', icon: Package2, items: [
+          { title: 'All Products', url: '/products' },
+          { title: 'Create Product', url: '/products/new' },
+          { title: 'Bundles', url: '/products/bundles' },
+          { title: 'Categories', url: '/products/categories' },
+          { title: 'Attributes', url: '/products/attributes' },
+          { title: 'Tags', url: '/products/tags' },
+          { title: 'Size Charts', url: '/products/size-charts' },
+          { title: 'Specifications', url: '/products/specifications' },
+        ]},
+        { title: 'Shipments', url: '/shipments', icon: Truck },
+        { title: 'Inventory', url: '/inventory', icon: Warehouse },
+      ]
+    },
+    {
+      title: "Content & Marketing",
+      items: [
+        ...(canAccess('page_editor') ? [{ title: 'Content Editor', url: '/content', icon: Edit }] : []),
+        { title: 'Gallery', url: '/gallery', icon: Images },
+        { title: 'Appearance', url: '/appearance', icon: Palette, items: [
+          { title: 'Menus', url: '/appearance/menus' },
+          { title: 'Pages', url: '/appearance/pages' },
+          { title: 'Style', url: '/appearance/style' },
+        ]},
+        { title: 'Marketing', url: '/marketing', icon: Megaphone },
+        ...(canAccess('coupons') ? [{ title: 'Coupons', url: '/coupons', icon: Ticket }] : []),
+        ...(canAccess('reviews') ? [{ title: 'Reviews', url: '/reviews', icon: Star }] : []),
+        { title: 'FAQs', url: '/faqs', icon: HelpCircle },
+      ]
+    },
+    {
+      title: "System",
+      items: [
+        { title: 'Settings', url: '/settings', icon: Settings, items: [
+          { title: 'General', url: '/settings' },
+          { title: 'Staff', url: '/settings/staff' },
+          { title: 'Modules', url: '/settings/modules' },
+          { title: 'Package Boxes', url: '/settings/packages' },
+          { title: 'Billing', url: '/settings/billing' },
+          { title: 'API Integrations', url: '/settings/api-integrations' },
+          { title: 'Contact', url: '/settings/contact' },
+          { title: 'Payment Discount', url: '/settings/payment-discount' },
+          { title: 'Payment Gateways', url: '/settings/payment-gateways' },
+          { title: 'SMS Templates', url: '/settings/sms-templates' },
+          { title: 'GST Settings', url: '/settings/gst' },
+          { title: 'Shipping', url: '/settings/shipping' },
+        ]},
+        { title: 'Logs', url: '/logs', icon: FileText },
+      ]
+    }
   ];
 
+  // Map flat path segments to breadcrumbs (naive implementation)
+  const pathSegments = location.pathname.split('/').filter(Boolean);
+
   return (
-    <div className="min-h-screen bg-gray-50 flex">
+    <SidebarProvider>
       <PageTransitionLoader />
-      {/* Sidebar */}
-      <aside
-        className={`fixed inset-y-0 left-0 z-50 w-64 bg-gray-900 text-white transform transition-transform duration-300 ease-in-out ${
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        } lg:translate-x-0 lg:static lg:z-auto flex flex-col`}
-      >
-        {/* Sidebar Header */}
-        <div className="flex items-center justify-between h-16 px-6 border-b border-gray-800 flex-shrink-0">
-          <h1 className="text-xl font-bold text-red-500">Redfit Admin</h1>
-          <button
-            onClick={() => setSidebarOpen(false)}
-            className="lg:hidden text-gray-400 hover:text-white transition-colors"
-          >
-            <FaTimes size={20} />
-          </button>
-        </div>
-
-        {/* Navigation Menu */}
-        <nav className="flex-1 overflow-y-auto mt-4 space-y-1">
-          {menuItems.map((item) => {
-            const Icon = item.icon;
-            const hasChildren = Array.isArray(item.children) && item.children.length > 0;
-            const isActive =
-              location.pathname === item.path ||
-              (item.path !== '/dashboard' && location.pathname.startsWith(item.path));
-
-            if (!hasChildren) {
-              return (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                  onClick={() => setSidebarOpen(false)}
-                  className={`flex items-center px-6 py-3 text-gray-300 hover:bg-gray-800 hover:text-white transition-colors ${
-                    isActive ? 'bg-gray-800 text-white border-r-2 border-red-500' : ''
-                  }`}
-                >
-                  <Icon className="mr-3" size={18} />
-                  <span className="font-medium">{item.label}</span>
-                </Link>
-              );
-            }
-
-            const childActive =
-              item.children?.some((child) => location.pathname.startsWith(child.path)) ?? false;
-
-            return (
-              <div key={item.path} className="px-3">
-                <div
-                  className={`flex items-center px-3 py-3 text-gray-300 transition-colors ${
-                    childActive ? 'bg-gray-800 text-white border-r-2 border-red-500 rounded-md' : ''
-                  }`}
-                >
-                  <Icon className="mr-3" size={18} />
-                  <span className="font-medium">{item.label}</span>
-                </div>
-                <div className="ml-8 mt-1 space-y-1">
-                  {item.children?.map((child) => {
-                    const isChildActive = location.pathname.startsWith(child.path);
-                    return (
-                      <Link
-                        key={child.path}
-                        to={child.path}
-                        onClick={() => setSidebarOpen(false)}
-                        className={`flex items-center px-3 py-2 text-sm rounded-md transition-colors ${
-                          isChildActive
-                            ? 'bg-gray-800 text-white'
-                            : 'text-gray-400 hover:bg-gray-800 hover:text-white'
-                        }`}
-                      >
-                        {child.icon && <child.icon className="mr-2" size={14} />}
-                        {child.label}
-                      </Link>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </nav>
-
-        {/* Logout Button */}
-        <div className="border-t border-gray-800 p-4 flex-shrink-0">
-          <button
-            onClick={handleLogout}
-            className="flex items-center w-full px-4 py-2 text-gray-300 hover:bg-gray-800 hover:text-white rounded transition-colors"
-          >
-            <FaSignOutAlt className="mr-3" size={18} />
-            <span className="font-medium">Logout</span>
-          </button>
-        </div>
-      </aside>
-
-      {/* Overlay for mobile */}
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-
-      {/* Main content */}
-      <div className="flex-1 flex flex-col lg:ml-0">
-        {/* Top bar */}
-        <header className="bg-white shadow-sm h-16 flex items-center justify-between px-6 flex-shrink-0">
-          <button
-            onClick={() => setSidebarOpen(true)}
-            className="lg:hidden text-gray-600 hover:text-gray-900 transition-colors"
-          >
-            <FaBars size={20} />
-          </button>
-          <div className="flex items-center space-x-4 ml-auto">
-            <span className="text-gray-600 font-medium">Admin Panel</span>
+      <AppSidebar userPerms={userPerms} onLogout={handleLogout} menuGroups={menuGroups} />
+      <main className="flex flex-1 flex-col min-h-screen bg-gray-50/50">
+        <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center justify-between gap-2 border-b bg-background px-4 shadow-sm md:px-6">
+          <div className="flex items-center gap-2">
+            <SidebarTrigger className="-ml-1" />
+            <div className="hidden md:flex flex-row items-center space-x-2 text-sm text-muted-foreground capitalize">
+              {pathSegments.map((segment, index) => (
+                <React.Fragment key={segment}>
+                  {index > 0 && <span>/</span>}
+                  <span className={index === pathSegments.length - 1 ? 'font-medium text-foreground' : ''}>
+                    {segment.replace(/-/g, ' ')}
+                  </span>
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="text-sm font-medium hidden sm:inline-block">Admin Panel</span>
           </div>
         </header>
 
-        {/* Page content */}
-        <main className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-x-hidden p-4 md:p-6 lg:p-8">
           <Outlet />
-        </main>
-      </div>
-    </div>
+        </div>
+      </main>
+    </SidebarProvider>
   );
 };
 
 export default Layout;
-

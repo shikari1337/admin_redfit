@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaArrowLeft, FaSave } from 'react-icons/fa';
+import { ArrowLeft, Save, Loader2 } from 'lucide-react';
 import api from '../services/api';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 
 const ContactSettings: React.FC = () => {
   const navigate = useNavigate();
@@ -59,91 +62,94 @@ const ContactSettings: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500"></div>
+      <div className="flex items-center justify-center p-12">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
   }
 
   return (
-    <div className="max-w-4xl mx-auto">
-      <div className="mb-6">
-        <button
+    <div className="max-w-4xl mx-auto space-y-6">
+      <div>
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => navigate('/settings')}
-          className="flex items-center text-gray-600 hover:text-gray-900 mb-4"
+          className="text-muted-foreground mb-4"
         >
-          <FaArrowLeft className="mr-2" />
+          <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Settings
-        </button>
-        <h1 className="text-3xl font-bold text-gray-900">Contact Details</h1>
-        <p className="text-sm text-gray-600 mt-2">Manage contact information displayed on the contact us page</p>
+        </Button>
+        <h1 className="text-3xl font-bold tracking-tight text-foreground">Contact Details</h1>
+        <p className="text-sm text-muted-foreground mt-2">Manage contact information displayed on the contact us page</p>
       </div>
 
-      <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <div className="space-y-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Phone Number <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              required
-              value={formData.phoneNumber}
-              onChange={(e) => handleChange('phoneNumber', e.target.value)}
-              placeholder="+91 9876543210"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-            />
-            <p className="text-xs text-gray-500 mt-1">Phone number for customers to call</p>
-          </div>
+      <form onSubmit={handleSubmit}>
+        <Card>
+          <CardContent className="p-6 space-y-6">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                  Phone Number <span className="text-destructive">*</span>
+                </label>
+                <Input
+                  type="text"
+                  required
+                  value={formData.phoneNumber}
+                  onChange={(e) => handleChange('phoneNumber', e.target.value)}
+                  placeholder="+91 9876543210"
+                />
+                <p className="text-[10px] text-muted-foreground">Phone number for customers to call</p>
+              </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              WhatsApp Number <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              required
-              value={formData.whatsappNumber}
-              onChange={(e) => handleChange('whatsappNumber', e.target.value)}
-              placeholder="+91 9876543210"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-            />
-            <p className="text-xs text-gray-500 mt-1">WhatsApp number for customers to message</p>
-          </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                  WhatsApp Number <span className="text-destructive">*</span>
+                </label>
+                <Input
+                  type="text"
+                  required
+                  value={formData.whatsappNumber}
+                  onChange={(e) => handleChange('whatsappNumber', e.target.value)}
+                  placeholder="+91 9876543210"
+                />
+                <p className="text-[10px] text-muted-foreground">WhatsApp number for customers to message</p>
+              </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Email <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="email"
-              required
-              value={formData.email}
-              onChange={(e) => handleChange('email', e.target.value)}
-              placeholder="contact@redfit.in"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-            />
-            <p className="text-xs text-gray-500 mt-1">Email address for customer inquiries</p>
-          </div>
-        </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                  Email <span className="text-destructive">*</span>
+                </label>
+                <Input
+                  type="email"
+                  required
+                  value={formData.email}
+                  onChange={(e) => handleChange('email', e.target.value)}
+                  placeholder="contact@redfit.in"
+                />
+                <p className="text-[10px] text-muted-foreground">Email address for customer inquiries</p>
+              </div>
+            </div>
 
-        <div className="mt-6 flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={() => navigate('/settings')}
-            className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={saving}
-            className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-400 font-medium flex items-center gap-2"
-          >
-            <FaSave className="w-4 h-4" />
-            {saving ? 'Saving...' : 'Save Changes'}
-          </button>
-        </div>
+            <div className="flex justify-end gap-3 pt-4">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => navigate('/settings')}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={saving}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                {saving ? 'Saving...' : 'Save Changes'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </form>
     </div>
   );

@@ -1,4 +1,6 @@
 import React from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 
 interface OrderItem {
   productName: string;
@@ -21,48 +23,66 @@ interface OrderItemsProps {
 
 const OrderItems: React.FC<OrderItemsProps> = ({ items }) => {
   return (
-    <div className="bg-white rounded-lg shadow p-6">
-      <h2 className="text-xl font-bold mb-4">Order Items</h2>
-      <div className="space-y-4">
-        {items?.map((item, index) => (
-          <div key={index} className="flex items-center space-x-4 border-b pb-4">
-            {item.image && (
-              <img
-                src={item.image}
-                alt={item.productName}
-                className="w-20 h-20 object-cover rounded"
-              />
-            )}
-            <div className="flex-1">
-              <h3 className="font-medium">{item.productName}</h3>
-              <p className="text-sm text-gray-500">
-                Size: {item.size} | Qty: {item.quantity}
-              </p>
-              {item.variant && (
-                <p className="text-sm text-gray-500">
-                  Color: {item.variant.colorName}
-                </p>
+    <Card className="shadow-sm">
+      <CardHeader className="pb-3 border-b">
+        <CardTitle className="text-xl">Order Items</CardTitle>
+      </CardHeader>
+      <CardContent className="pt-6">
+        <div className="space-y-6">
+          {items?.map((item, index) => (
+            <div key={index} className="flex items-start sm:items-center space-x-4 border-b last:border-0 pb-6 last:pb-0">
+              {item.image ? (
+                <div className="flex-shrink-0 w-20 h-20 sm:w-24 sm:h-24 bg-muted rounded-md overflow-hidden border">
+                  <img
+                    src={item.image}
+                    alt={item.productName}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              ) : (
+                <div className="flex-shrink-0 w-20 h-20 sm:w-24 sm:h-24 bg-muted rounded-md border flex items-center justify-center">
+                  <span className="text-muted-foreground text-xs">No Image</span>
+                </div>
               )}
-              {item.bundleApplied && (
-                <p className="text-sm text-blue-600 font-semibold">
-                  Bundle: {item.bundleApplied.title}
-                </p>
-              )}
+              <div className="flex-1 min-w-0">
+                <h3 className="font-semibold text-foreground line-clamp-2">{item.productName}</h3>
+                <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                  <span>Size: <span className="font-medium text-foreground">{item.size}</span></span>
+                  <span>Qty: <span className="font-medium text-foreground">{item.quantity}</span></span>
+                  {item.variant && (
+                    <span>Color: <span className="font-medium text-foreground">{item.variant.colorName}</span></span>
+                  )}
+                </div>
+                {item.bundleApplied && (
+                  <Badge variant="secondary" className="mt-2 text-blue-700 bg-blue-100/50 border-blue-200">
+                    Bundle: {item.bundleApplied.title}
+                  </Badge>
+                )}
+              </div>
+              <div className="text-right flex-shrink-0">
+                <p className="font-bold text-foreground">₹{(item.price * item.quantity).toLocaleString('en-IN')}</p>
+                {item.originalPrice && item.originalPrice > item.price && (
+                  <p className="text-sm text-muted-foreground line-through decoration-muted-foreground/50">
+                    ₹{(item.originalPrice * item.quantity).toLocaleString('en-IN')}
+                  </p>
+                )}
+                {item.originalPrice && item.originalPrice > item.price && (
+                  <p className="text-xs text-green-600 font-medium mt-1">
+                    Saving: ₹{((item.originalPrice - item.price) * item.quantity).toLocaleString('en-IN')}
+                  </p>
+                )}
+              </div>
             </div>
-            <div className="text-right">
-              <p className="font-medium">₹{(item.price * item.quantity).toLocaleString('en-IN')}</p>
-              {item.originalPrice && item.originalPrice > item.price && (
-                <p className="text-sm text-gray-500 line-through">
-                  ₹{(item.originalPrice * item.quantity).toLocaleString('en-IN')}
-                </p>
-              )}
+          ))}
+          {(!items || items.length === 0) && (
+            <div className="text-center py-6 text-muted-foreground">
+              No items in this order.
             </div>
-          </div>
-        ))}
-      </div>
-    </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 };
 
 export default OrderItems;
-

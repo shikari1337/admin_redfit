@@ -2,59 +2,60 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ordersAPI, shippingAPI } from '../services/api';
 import { format } from 'date-fns';
-import { FaTruck, FaWhatsapp } from 'react-icons/fa';
+import { FaTruck, FaWhatsapp, FaEye } from 'react-icons/fa';
+import { Card, CardContent } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast"; // Assuming useToast is available, fallback to alert if not
 
 const Orders: React.FC = () => {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [sendingToShiprocket, setSendingToShiprocket] = useState<string | null>(null);
+  
+  // Try to use toast, fallback to window.alert if not available
+  let toast: any;
+  try {
+    const hook = useToast();
+    toast = hook.toast;
+  } catch (e) {
+    toast = ({ title, description }: any) => window.alert(`${title ? title + ': ' : ''}${description}`);
+  }
 
   useEffect(() => {
     fetchOrders();
   }, [statusFilter]);
 
-  const [sendingToShiprocket, setSendingToShiprocket] = useState<string | null>(null);
-
   const fetchOrders = async () => {
     try {
       setLoading(true);
-      const params = statusFilter ? { status: statusFilter } : {};
+      const params = statusFilter !== 'all' ? { status: statusFilter } : {};
       const response = await ordersAPI.getAll({ ...params, limit: 100 });
       
-      // Backend returns: { success: true, data: orders[], pagination: {...} }
-      // API interceptor normalizes to: orders[] (extracts data field)
-      // But sometimes it might return: { data: orders[], pagination: {...} }
-      let orders: any[] = [];
-      
+      let fetchedOrders: any[] = [];
       if (Array.isArray(response)) {
-        // Normalized response - direct array
-        orders = response;
+        fetchedOrders = response;
       } else if (response?.data && Array.isArray(response.data)) {
-        // Response structure: { data: orders[], pagination: {...} }
-        orders = response.data;
+        fetchedOrders = response.data;
       } else if (response?.success && response?.data && Array.isArray(response.data)) {
-        // Unnormalized response: { success: true, data: orders[], pagination: {...} }
-        orders = response.data;
+        fetchedOrders = response.data;
       } else if (response?.data?.data && Array.isArray(response.data.data)) {
-        // Nested response structure
-        orders = response.data.data;
+        fetchedOrders = response.data.data;
       } else {
-        // Log unexpected response structure for debugging
         console.warn('Unexpected orders response structure:', response);
-        orders = [];
       }
       
-      console.log('Fetched orders:', { count: orders.length, sample: orders[0] });
-      setOrders(orders);
+      setOrders(fetchedOrders);
     } catch (error: any) {
       console.error('Failed to fetch orders:', error);
-      console.error('Error details:', {
-        message: error?.message,
-        response: error?.response?.data,
-        status: error?.response?.status,
-        url: error?.config?.url,
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error?.response?.data?.message || 'Failed to load orders. Please try again.',
       });
-      alert(error?.response?.data?.message || 'Failed to load orders. Please try again.');
       setOrders([]);
     } finally {
       setLoading(false);
@@ -67,171 +68,173 @@ const Orders: React.FC = () => {
     setSendingToShiprocket(orderId);
     try {
       const response = await shippingAPI.createShipment(orderId);
-      alert(`Shipment created successfully!${response.data?.shipment?.awbCode ? ` AWB: ${response.data.shipment.awbCode}` : ''}`);
-      fetchOrders(); // Refresh orders to show updated status
+      toast({
+        title: "Shipment Created",
+        description: `Shipment created successfully!${response.data?.shipment?.awbCode ? ` AWB: ${response.data.shipment.awbCode}` : ''}`,
+      });
+      fetchOrders(); 
     } catch (error: any) {
       console.error('Failed to create shipment:', error);
-      alert(error.response?.data?.message || 'Failed to create shipment. Please try again.');
+      toast({
+        variant: "destructive",
+        title: "Shipment Failed",
+        description: error.response?.data?.message || 'Failed to create shipment. Please try again.',
+      });
     } finally {
       setSendingToShiprocket(null);
     }
   };
 
   const handleWhatsAppClick = (phoneNumber: string) => {
-    // Remove any non-digit characters and ensure it starts with country code
     const cleanPhone = phoneNumber.replace(/\D/g, '');
     const whatsappUrl = `https://wa.me/${cleanPhone}`;
     window.open(whatsappUrl, '_blank');
   };
 
-  const getStatusColor = (status: string) => {
-    const colors: Record<string, string> = {
-      pending: 'bg-yellow-100 text-yellow-800',
-      confirmed: 'bg-blue-100 text-blue-800',
-      processing: 'bg-purple-100 text-purple-800',
-      shipped: 'bg-indigo-100 text-indigo-800',
-      delivered: 'bg-green-100 text-green-800',
-      cancelled: 'bg-red-100 text-red-800',
-    };
-    return colors[status] || 'bg-gray-100 text-gray-800';
+  const getStatusBadgeVariant = (status: string): "default" | "secondary" | "destructive" | "outline" | null => {
+    const s = status?.toLowerCase();
+    if (['delivered', 'completed', 'shipped'].includes(s)) return 'default';
+    if (['cancelled', 'failed', 'refunded'].includes(s)) return 'destructive';
+    if (['pending'].includes(s)) return 'outline';
+    return 'secondary';
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500"></div>
-      </div>
-    );
-  }
+  const getPaymentBadgeVariant = (status: string): "default" | "secondary" | "destructive" | "outline" | null => {
+    return status?.toLowerCase() === 'completed' ? 'default' : 'secondary';
+  };
 
   return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Orders</h1>
-        <select
+    <div className="max-w-7xl mx-auto space-y-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">Orders</h1>
+          <p className="text-muted-foreground mt-1 text-sm">Manage and track customer orders, shipments, and statuses.</p>
+        </div>
+        <Select
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-red-500"
+          onValueChange={setStatusFilter}
         >
-          <option value="">All Status</option>
-          <option value="pending">Pending</option>
-          <option value="confirmed">Confirmed</option>
-          <option value="processing">Processing</option>
-          <option value="shipped">Shipped</option>
-          <option value="delivered">Delivered</option>
-          <option value="cancelled">Cancelled</option>
-        </select>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="All Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Status</SelectItem>
+            <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="confirmed">Confirmed</SelectItem>
+            <SelectItem value="processing">Processing</SelectItem>
+            <SelectItem value="shipped">Shipped</SelectItem>
+            <SelectItem value="delivered">Delivered</SelectItem>
+            <SelectItem value="cancelled">Cancelled</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                Order ID
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                Customer
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                Amount
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                Payment
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                Status
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                Date
-              </th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {orders.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="px-6 py-4 text-center text-gray-500">
-                  No orders found
-                </td>
-              </tr>
-            ) : (
-              orders.map((order) => (
-                <tr key={order._id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {order.orderId}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{order.shippingAddress?.fullName}</div>
-                    <button
-                      onClick={() => handleWhatsAppClick(order.shippingAddress?.mobileNumber || '')}
-                      className="text-sm text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
-                      title="Open WhatsApp"
-                    >
-                      <FaWhatsapp size={14} />
-                      {order.shippingAddress?.mobileNumber}
-                    </button>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    ₹{order.total?.toLocaleString('en-IN')}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span
-                      className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        order.paymentStatus === 'completed'
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-yellow-100 text-yellow-800'
-                      }`}
-                    >
-                      {order.paymentMethod === 'cod' ? 'COD' : 'Prepaid'} - {order.paymentStatus}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span
-                      className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(
-                        order.orderStatus
-                      )}`}
-                    >
-                      {order.orderStatus}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {order.createdAt
-                      ? format(new Date(order.createdAt), 'MMM dd, yyyy')
-                      : 'N/A'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <div className="flex items-center justify-end gap-2">
-                      {order.orderStatus === 'confirmed' || order.orderStatus === 'processing' ? (
-                        <button
-                          onClick={() => handleSendToShiprocket(order._id)}
-                          disabled={sendingToShiprocket === order._id}
-                          className="flex items-center gap-1 px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                          title="Send to Shiprocket"
-                        >
-                          <FaTruck size={12} />
-                          {sendingToShiprocket === order._id ? 'Sending...' : 'Shiprocket'}
-                        </button>
-                      ) : null}
-                      <Link
-                        to={`/orders/${order._id}`}
-                        className="text-red-600 hover:text-red-900"
-                      >
-                        View
-                      </Link>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+      <Card className="shadow-sm">
+        <CardContent className="p-0">
+          <div className="rounded-md border-0">
+            <Table>
+              <TableHeader className="bg-muted/50">
+                <TableRow>
+                  <TableHead className="font-semibold px-4 py-3">Order ID</TableHead>
+                  <TableHead className="font-semibold px-4 py-3">Customer</TableHead>
+                  <TableHead className="font-semibold px-4 py-3">Amount</TableHead>
+                  <TableHead className="font-semibold px-4 py-3">Payment</TableHead>
+                  <TableHead className="font-semibold px-4 py-3">Status</TableHead>
+                  <TableHead className="font-semibold px-4 py-3">Date</TableHead>
+                  <TableHead className="font-semibold px-4 py-3 text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="h-48 text-center">
+                      <div className="flex items-center justify-center">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : orders.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="h-48 text-center text-muted-foreground">
+                      No orders found matching the filter criteria.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  orders.map((order) => (
+                    <TableRow key={order._id} className="hover:bg-muted/50 transition-colors">
+                      <TableCell className="font-medium px-4 py-3">
+                        {order.orderId || order._id?.substring(0, 8).toUpperCase()}
+                      </TableCell>
+                      <TableCell className="px-4 py-3">
+                        <div className="font-medium">{order.shippingAddress?.fullName || 'Unknown Customer'}</div>
+                        {order.shippingAddress?.mobileNumber && (
+                          <button
+                            onClick={() => handleWhatsAppClick(order.shippingAddress?.mobileNumber || '')}
+                            className="text-xs text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 mt-1 font-medium pb-1"
+                            title="Open WhatsApp"
+                          >
+                            <FaWhatsapp size={13} className="text-green-500" />
+                            {order.shippingAddress?.mobileNumber}
+                          </button>
+                        )}
+                      </TableCell>
+                      <TableCell className="px-4 py-3 font-medium text-foreground">
+                        ₹{(order.total || 0).toLocaleString('en-IN')}
+                      </TableCell>
+                      <TableCell className="px-4 py-3">
+                        <div className="flex flex-col gap-1 items-start">
+                          <span className="text-xs text-muted-foreground uppercase font-semibold">
+                            {order.paymentMethod === 'cod' ? 'COD' : 'Prepaid'}
+                          </span>
+                          <Badge variant={getPaymentBadgeVariant(order.paymentStatus)} className="text-[10px] uppercase font-bold tracking-wider rounded-sm px-1.5 py-0">
+                            {order.paymentStatus}
+                          </Badge>
+                        </div>
+                      </TableCell>
+                      <TableCell className="px-4 py-3">
+                        <Badge variant={getStatusBadgeVariant(order.orderStatus)} className="uppercase text-[11px] font-bold tracking-wider">
+                          {order.orderStatus}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
+                        {order.createdAt
+                          ? format(new Date(order.createdAt), 'MMM dd, yyyy')
+                          : 'N/A'}
+                      </TableCell>
+                      <TableCell className="px-4 py-3 text-right">
+                        <div className="flex items-center justify-end gap-2 isolate">
+                          {(order.orderStatus === 'confirmed' || order.orderStatus === 'processing') && (
+                            <Button
+                              variant="default"
+                              size="sm"
+                              className="h-8 gap-1.5 px-3 bg-blue-600 hover:bg-blue-700"
+                              onClick={() => handleSendToShiprocket(order._id)}
+                              disabled={sendingToShiprocket === order._id}
+                            >
+                              <FaTruck size={12} />
+                              <span className="hidden sm:inline">
+                                {sendingToShiprocket === order._id ? 'Sending...' : 'Shiprocket'}
+                              </span>
+                            </Button>
+                          )}
+                          <Button variant="outline" size="sm" className="h-8 px-3" asChild>
+                            <Link to={`/orders/${order._id}`}>
+                              <FaEye className="mr-1.5 h-3.5 w-3.5 text-muted-foreground" />
+                              View
+                            </Link>
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 };
 
 export default Orders;
-

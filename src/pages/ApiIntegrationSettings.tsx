@@ -1,8 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaArrowLeft, FaSave, FaEnvelope, FaFacebook, FaCreditCard, FaWhatsapp, FaRobot } from 'react-icons/fa';
+import { ArrowLeft, Save, Mail, Facebook, CreditCard, MessageCircle, Bot, Loader2 } from 'lucide-react';
 
 import api from '../services/api';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 
 const ApiIntegrationSettings: React.FC = () => {
   const navigate = useNavigate();
@@ -63,8 +67,6 @@ const ApiIntegrationSettings: React.FC = () => {
     try {
       setLoading(true);
       const response = await api.get('/settings/admin');
-      // Backend returns: { success: true, data: settings }
-      // API interceptor normalizes to: settings or { data: settings }
       const settings = response.data?.success && response.data?.data 
         ? response.data.data 
         : response.data?.data 
@@ -72,8 +74,6 @@ const ApiIntegrationSettings: React.FC = () => {
         : response.data;
       
       if (settings) {
-        
-        // SMTP settings (don't load password, only show if set)
         if (settings.smtp) {
           setFormData(prev => ({
             ...prev,
@@ -86,7 +86,6 @@ const ApiIntegrationSettings: React.FC = () => {
           }));
         }
 
-        // Meta Pixel settings
         if (settings.metaPixel) {
           setFormData(prev => ({
             ...prev,
@@ -99,7 +98,6 @@ const ApiIntegrationSettings: React.FC = () => {
           }));
         }
 
-        // Razorpay settings
         if (settings.razorpay) {
           setFormData(prev => ({
             ...prev,
@@ -113,7 +111,6 @@ const ApiIntegrationSettings: React.FC = () => {
           }));
         }
 
-        // WhatsApp settings
         if (settings.whatsapp) {
           setFormData(prev => ({
             ...prev,
@@ -127,7 +124,6 @@ const ApiIntegrationSettings: React.FC = () => {
           }));
         }
 
-        // Gemini settings
         if (settings.gemini) {
           setFormData(prev => ({
             ...prev,
@@ -152,7 +148,6 @@ const ApiIntegrationSettings: React.FC = () => {
     e.preventDefault();
     setSaving(true);
     try {
-      // Only send password/token fields if they've been changed (not masked values)
       const submitData: any = {
         smtp: {
           ...formData.smtp,
@@ -180,7 +175,7 @@ const ApiIntegrationSettings: React.FC = () => {
 
       await api.put('/settings', submitData);
       alert('Settings saved successfully!');
-      await fetchSettings(); // Reload to get updated masked values
+      await fetchSettings();
     } catch (error: any) {
       console.error('Failed to save settings:', error);
       alert(error.response?.data?.message || 'Failed to save settings');
@@ -189,11 +184,11 @@ const ApiIntegrationSettings: React.FC = () => {
     }
   };
 
-  const handleChange = (section: string, field: string, value: any) => {
+  const handleChange = (section: keyof typeof formData, field: string, value: any) => {
     setFormData(prev => ({
       ...prev,
       [section]: {
-        ...prev[section as keyof typeof prev],
+        ...prev[section],
         [field]: value,
       },
     }));
@@ -201,546 +196,483 @@ const ApiIntegrationSettings: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500"></div>
+      <div className="flex items-center justify-center p-12">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
   }
 
   return (
-    <div className="max-w-6xl mx-auto">
-      <div className="mb-6">
-        <button
+    <div className="max-w-4xl mx-auto space-y-6">
+      <div>
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => navigate('/settings')}
-          className="flex items-center text-gray-600 hover:text-gray-900 mb-4"
+          className="text-muted-foreground mb-4"
         >
-          <FaArrowLeft className="mr-2" />
+          <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Settings
-        </button>
-        <h1 className="text-3xl font-bold text-gray-900">API & Integration Settings</h1>
-        <p className="text-sm text-gray-600 mt-2">Configure third-party API integrations</p>
+        </Button>
+        <h1 className="text-3xl font-bold tracking-tight text-foreground">API & Integration Settings</h1>
+        <p className="text-sm text-muted-foreground mt-2">Configure third-party API integrations</p>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-6 pb-12">
         {/* SMTP Settings */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center justify-between mb-6">
+        <Card>
+          <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               <div className="flex-shrink-0 w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                <FaEnvelope className="w-6 h-6 text-blue-600" />
+                <Mail className="w-6 h-6 text-blue-600" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-gray-900">SMTP Email Configuration</h2>
-                <p className="text-sm text-gray-600">Configure email sending via SMTP</p>
+                <CardTitle>SMTP Email Configuration</CardTitle>
+                <CardDescription>Configure email sending via SMTP</CardDescription>
               </div>
             </div>
-            <div className="flex items-center gap-4">
-              <label className="flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
+            <div className="flex items-center gap-6">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox
                   checked={formData.smtp.useEnvVars}
-                  onChange={(e) => handleChange('smtp', 'useEnvVars', e.target.checked)}
-                  className="mr-2"
+                  onCheckedChange={(checked) => handleChange('smtp', 'useEnvVars', checked as boolean)}
                 />
-                <span className="text-sm text-gray-700">Use Env Vars</span>
+                <span className="text-sm font-medium">Use Env Vars</span>
               </label>
-              <label className="flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox
                   checked={formData.smtp.isEnabled}
-                  onChange={(e) => handleChange('smtp', 'isEnabled', e.target.checked)}
-                  className="mr-2"
+                  onCheckedChange={(checked) => handleChange('smtp', 'isEnabled', checked as boolean)}
                 />
-                <span className="text-sm text-gray-700">Enabled</span>
+                <span className="text-sm font-medium">Enabled</span>
               </label>
             </div>
-          </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {formData.smtp.useEnvVars && (
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg mb-4">
+                <p className="text-sm text-blue-800">
+                  <strong>Using Environment Variables:</strong> SMTP configuration will be read from .env file (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, etc.)
+                </p>
+              </div>
+            )}
 
-          {formData.smtp.useEnvVars && (
-            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
-              <p className="text-sm text-blue-800">
-                <strong>Using Environment Variables:</strong> SMTP configuration will be read from .env file (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, etc.)
-              </p>
+            <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${formData.smtp.useEnvVars ? 'opacity-50 pointer-events-none' : ''}`}>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">SMTP Host</label>
+                <Input
+                  type="text"
+                  value={formData.smtp.host}
+                  onChange={(e) => handleChange('smtp', 'host', e.target.value)}
+                  placeholder="smtp.gmail.com"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">SMTP Port</label>
+                <Input
+                  type="number"
+                  value={formData.smtp.port}
+                  onChange={(e) => handleChange('smtp', 'port', parseInt(e.target.value))}
+                  placeholder="587"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">SMTP User</label>
+                <Input
+                  type="text"
+                  value={formData.smtp.user}
+                  onChange={(e) => handleChange('smtp', 'user', e.target.value)}
+                  placeholder="your-email@gmail.com"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">SMTP Password</label>
+                <Input
+                  type="password"
+                  value={formData.smtp.password}
+                  onChange={(e) => handleChange('smtp', 'password', e.target.value)}
+                  placeholder={formData.smtp.password.startsWith('••••') ? 'Leave blank to keep current' : 'Enter password'}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">From Email</label>
+                <Input
+                  type="email"
+                  value={formData.smtp.fromEmail}
+                  onChange={(e) => handleChange('smtp', 'fromEmail', e.target.value)}
+                  placeholder="noreply@redfit.in"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Admin Email</label>
+                <Input
+                  type="email"
+                  value={formData.smtp.adminEmail}
+                  onChange={(e) => handleChange('smtp', 'adminEmail', e.target.value)}
+                  placeholder="admin@redfit.in"
+                />
+              </div>
             </div>
-          )}
-
-          <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${formData.smtp.useEnvVars ? 'opacity-50' : ''}`}>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">SMTP Host</label>
-              <input
-                type="text"
-                value={formData.smtp.host}
-                onChange={(e) => handleChange('smtp', 'host', e.target.value)}
-                placeholder="smtp.gmail.com"
-                disabled={formData.smtp.useEnvVars}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-              />
+            <div className={`flex flex-col sm:flex-row gap-6 pt-4 ${formData.smtp.useEnvVars ? 'opacity-50 pointer-events-none' : ''}`}>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox
+                  checked={formData.smtp.secure}
+                  onCheckedChange={(checked) => handleChange('smtp', 'secure', checked as boolean)}
+                />
+                <span className="text-sm font-medium">Use SSL/TLS (Port 465)</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox
+                  checked={formData.smtp.requireTls}
+                  onCheckedChange={(checked) => handleChange('smtp', 'requireTls', checked as boolean)}
+                />
+                <span className="text-sm font-medium">Require TLS (Port 587)</span>
+              </label>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">SMTP Port</label>
-              <input
-                type="number"
-                value={formData.smtp.port}
-                onChange={(e) => handleChange('smtp', 'port', parseInt(e.target.value))}
-                placeholder="587"
-                disabled={formData.smtp.useEnvVars}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">SMTP User</label>
-              <input
-                type="text"
-                value={formData.smtp.user}
-                onChange={(e) => handleChange('smtp', 'user', e.target.value)}
-                placeholder="your-email@gmail.com"
-                disabled={formData.smtp.useEnvVars}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">SMTP Password</label>
-              <input
-                type="password"
-                value={formData.smtp.password}
-                onChange={(e) => handleChange('smtp', 'password', e.target.value)}
-                placeholder={formData.smtp.password.startsWith('••••') ? 'Leave blank to keep current' : 'Enter password'}
-                disabled={formData.smtp.useEnvVars}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">From Email</label>
-              <input
-                type="email"
-                value={formData.smtp.fromEmail}
-                onChange={(e) => handleChange('smtp', 'fromEmail', e.target.value)}
-                placeholder="noreply@redfit.in"
-                disabled={formData.smtp.useEnvVars}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Admin Email</label>
-              <input
-                type="email"
-                value={formData.smtp.adminEmail}
-                onChange={(e) => handleChange('smtp', 'adminEmail', e.target.value)}
-                placeholder="admin@redfit.in"
-                disabled={formData.smtp.useEnvVars}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-              />
-            </div>
-          </div>
-          <div className={`mt-4 flex gap-4 ${formData.smtp.useEnvVars ? 'opacity-50' : ''}`}>
-            <label className="flex items-center">
-              <input
-                type="checkbox"
-                checked={formData.smtp.secure}
-                onChange={(e) => handleChange('smtp', 'secure', e.target.checked)}
-                disabled={formData.smtp.useEnvVars}
-                className="mr-2"
-              />
-              <span className="text-sm text-gray-700">Use SSL/TLS (Port 465)</span>
-            </label>
-            <label className="flex items-center">
-              <input
-                type="checkbox"
-                checked={formData.smtp.requireTls}
-                onChange={(e) => handleChange('smtp', 'requireTls', e.target.checked)}
-                disabled={formData.smtp.useEnvVars}
-                className="mr-2"
-              />
-              <span className="text-sm text-gray-700">Require TLS (Port 587)</span>
-            </label>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
 
         {/* Meta Pixel Settings */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center justify-between mb-6">
+        <Card>
+          <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               <div className="flex-shrink-0 w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                <FaFacebook className="w-6 h-6 text-blue-600" />
+                <Facebook className="w-6 h-6 text-blue-600" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-gray-900">Meta Pixel (Facebook)</h2>
-                <p className="text-sm text-gray-600">Configure Meta Conversion API tracking</p>
+                <CardTitle>Meta Pixel (Facebook)</CardTitle>
+                <CardDescription>Configure Meta Conversion API tracking</CardDescription>
               </div>
             </div>
-            <div className="flex items-center gap-4">
-              <label className="flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
+            <div className="flex items-center gap-6">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox
                   checked={formData.metaPixel.useEnvVars}
-                  onChange={(e) => handleChange('metaPixel', 'useEnvVars', e.target.checked)}
-                  className="mr-2"
+                  onCheckedChange={(checked) => handleChange('metaPixel', 'useEnvVars', checked as boolean)}
                 />
-                <span className="text-sm text-gray-700">Use Env Vars</span>
+                <span className="text-sm font-medium">Use Env Vars</span>
               </label>
-              <label className="flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox
                   checked={formData.metaPixel.isEnabled}
-                  onChange={(e) => handleChange('metaPixel', 'isEnabled', e.target.checked)}
-                  className="mr-2"
+                  onCheckedChange={(checked) => handleChange('metaPixel', 'isEnabled', checked as boolean)}
                 />
-                <span className="text-sm text-gray-700">Enabled</span>
+                <span className="text-sm font-medium">Enabled</span>
               </label>
             </div>
-          </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {formData.metaPixel.useEnvVars && (
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg mb-4">
+                <p className="text-sm text-blue-800">
+                  <strong>Using Environment Variables:</strong> Meta Pixel configuration will be read from .env file (META_PIXEL_ID, META_ACCESS_TOKEN, META_API_VERSION)
+                </p>
+              </div>
+            )}
 
-          {formData.metaPixel.useEnvVars && (
-            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
-              <p className="text-sm text-blue-800">
-                <strong>Using Environment Variables:</strong> Meta Pixel configuration will be read from .env file (META_PIXEL_ID, META_ACCESS_TOKEN, META_API_VERSION)
-              </p>
+            <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${formData.metaPixel.useEnvVars ? 'opacity-50 pointer-events-none' : ''}`}>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Pixel ID</label>
+                <Input
+                  type="text"
+                  value={formData.metaPixel.pixelId}
+                  onChange={(e) => handleChange('metaPixel', 'pixelId', e.target.value)}
+                  placeholder="123456789012345"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Access Token</label>
+                <Input
+                  type="password"
+                  value={formData.metaPixel.accessToken}
+                  onChange={(e) => handleChange('metaPixel', 'accessToken', e.target.value)}
+                  placeholder={formData.metaPixel.accessToken.startsWith('••••') ? 'Leave blank to keep current' : 'Enter access token'}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">API Version</label>
+                <Input
+                  type="text"
+                  value={formData.metaPixel.apiVersion}
+                  onChange={(e) => handleChange('metaPixel', 'apiVersion', e.target.value)}
+                  placeholder="v18.0"
+                />
+              </div>
             </div>
-          )}
+          </CardContent>
+        </Card>
 
-          <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${formData.metaPixel.useEnvVars ? 'opacity-50' : ''}`}>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Pixel ID</label>
-              <input
-                type="text"
-                value={formData.metaPixel.pixelId}
-                onChange={(e) => handleChange('metaPixel', 'pixelId', e.target.value)}
-                placeholder="123456789012345"
-                disabled={formData.metaPixel.useEnvVars}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Access Token</label>
-              <input
-                type="password"
-                value={formData.metaPixel.accessToken}
-                onChange={(e) => handleChange('metaPixel', 'accessToken', e.target.value)}
-                placeholder={formData.metaPixel.accessToken.startsWith('••••') ? 'Leave blank to keep current' : 'Enter access token'}
-                disabled={formData.metaPixel.useEnvVars}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">API Version</label>
-              <input
-                type="text"
-                value={formData.metaPixel.apiVersion}
-                onChange={(e) => handleChange('metaPixel', 'apiVersion', e.target.value)}
-                placeholder="v18.0"
-                disabled={formData.metaPixel.useEnvVars}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Razorpay Settings */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center justify-between mb-6">
+        {/* Razorpay API Settings */}
+        <Card>
+          <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               <div className="flex-shrink-0 w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center">
-                <FaCreditCard className="w-6 h-6 text-indigo-600" />
+                <CreditCard className="w-6 h-6 text-indigo-600" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-gray-900">Razorpay Payment Gateway</h2>
-                <p className="text-sm text-gray-600">Configure Razorpay payment keys</p>
+                <CardTitle>Razorpay API Integration</CardTitle>
+                <CardDescription>Configure Razorpay payment keys</CardDescription>
               </div>
             </div>
-            <div className="flex items-center gap-4">
-              <label className="flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
+            <div className="flex items-center gap-6">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox
                   checked={formData.razorpay.useEnvVars}
-                  onChange={(e) => handleChange('razorpay', 'useEnvVars', e.target.checked)}
-                  className="mr-2"
+                  onCheckedChange={(checked) => handleChange('razorpay', 'useEnvVars', checked as boolean)}
                 />
-                <span className="text-sm text-gray-700">Use Env Vars</span>
+                <span className="text-sm font-medium">Use Env Vars</span>
               </label>
-              <label className="flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox
                   checked={formData.razorpay.isEnabled}
-                  onChange={(e) => handleChange('razorpay', 'isEnabled', e.target.checked)}
-                  className="mr-2"
+                  onCheckedChange={(checked) => handleChange('razorpay', 'isEnabled', checked as boolean)}
                 />
-                <span className="text-sm text-gray-700">Enabled</span>
+                <span className="text-sm font-medium">Enabled</span>
               </label>
             </div>
-          </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {formData.razorpay.useEnvVars && (
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg mb-4">
+                <p className="text-sm text-blue-800">
+                  <strong>Using Environment Variables:</strong> Razorpay configuration will be read from .env file (RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET)
+                </p>
+              </div>
+            )}
 
-          {formData.razorpay.useEnvVars && (
-            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
-              <p className="text-sm text-blue-800">
-                <strong>Using Environment Variables:</strong> Razorpay configuration will be read from .env file (RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET)
-              </p>
+            <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${formData.razorpay.useEnvVars ? 'opacity-50 pointer-events-none' : ''}`}>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Key ID</label>
+                <Input
+                  type="text"
+                  value={formData.razorpay.keyId}
+                  onChange={(e) => handleChange('razorpay', 'keyId', e.target.value)}
+                  placeholder={formData.razorpay.keyId.startsWith('••••') ? 'Leave blank to keep current' : 'Enter Razorpay Key ID'}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Key Secret</label>
+                <Input
+                  type="password"
+                  value={formData.razorpay.keySecret}
+                  onChange={(e) => handleChange('razorpay', 'keySecret', e.target.value)}
+                  placeholder={formData.razorpay.keySecret.startsWith('••••') ? 'Leave blank to keep current' : 'Enter Razorpay Key Secret'}
+                />
+              </div>
             </div>
-          )}
-
-          <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${formData.razorpay.useEnvVars ? 'opacity-50' : ''}`}>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Key ID</label>
-              <input
-                type="text"
-                value={formData.razorpay.keyId}
-                onChange={(e) => handleChange('razorpay', 'keyId', e.target.value)}
-                placeholder={formData.razorpay.keyId.startsWith('••••') ? 'Leave blank to keep current' : 'Enter Razorpay Key ID'}
-                disabled={formData.razorpay.useEnvVars}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Key Secret</label>
-              <input
-                type="password"
-                value={formData.razorpay.keySecret}
-                onChange={(e) => handleChange('razorpay', 'keySecret', e.target.value)}
-                placeholder={formData.razorpay.keySecret.startsWith('••••') ? 'Leave blank to keep current' : 'Enter Razorpay Key Secret'}
-                disabled={formData.razorpay.useEnvVars}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-              />
-            </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
 
         {/* WhatsApp Settings */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center justify-between mb-6">
+        <Card>
+          <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               <div className="flex-shrink-0 w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                <FaWhatsapp className="w-6 h-6 text-green-600" />
+                <MessageCircle className="w-6 h-6 text-green-600" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-gray-900">WhatsApp API</h2>
-                <p className="text-sm text-gray-600">Configure WhatsApp messaging integration</p>
+                <CardTitle>WhatsApp API</CardTitle>
+                <CardDescription>Configure WhatsApp messaging integration</CardDescription>
               </div>
             </div>
-            <div className="flex items-center gap-4">
-              <label className="flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
+            <div className="flex items-center gap-6">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox
                   checked={formData.whatsapp.useEnvVars}
-                  onChange={(e) => handleChange('whatsapp', 'useEnvVars', e.target.checked)}
-                  className="mr-2"
+                  onCheckedChange={(checked) => handleChange('whatsapp', 'useEnvVars', checked as boolean)}
                 />
-                <span className="text-sm text-gray-700">Use Env Vars</span>
+                <span className="text-sm font-medium">Use Env Vars</span>
               </label>
-              <label className="flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox
                   checked={formData.whatsapp.isEnabled}
-                  onChange={(e) => handleChange('whatsapp', 'isEnabled', e.target.checked)}
-                  className="mr-2"
+                  onCheckedChange={(checked) => handleChange('whatsapp', 'isEnabled', checked as boolean)}
                 />
-                <span className="text-sm text-gray-700">Enabled</span>
+                <span className="text-sm font-medium">Enabled</span>
               </label>
             </div>
-          </div>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {formData.whatsapp.useEnvVars && (
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg mb-4">
+                <p className="text-sm text-blue-800">
+                  <strong>Using Environment Variables:</strong> WhatsApp configuration will be read from .env file (WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_BUSINESS_ACCOUNT_ID for Meta API, or WHATSAPP_API_URL, WHATSAPP_ACCOUNT_SID, WHATSAPP_AUTH_TOKEN, WHATSAPP_FROM_NUMBER for Twilio)
+                </p>
+              </div>
+            )}
 
-          {formData.whatsapp.useEnvVars && (
-            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
-              <p className="text-sm text-blue-800">
-                <strong>Using Environment Variables:</strong> WhatsApp configuration will be read from .env file (WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_BUSINESS_ACCOUNT_ID for Meta API, or WHATSAPP_API_URL, WHATSAPP_ACCOUNT_SID, WHATSAPP_AUTH_TOKEN, WHATSAPP_FROM_NUMBER for Twilio)
-              </p>
+            <div className={`flex flex-col gap-3 ${formData.whatsapp.useEnvVars ? 'opacity-50 pointer-events-none' : ''}`}>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  checked={formData.whatsapp.useMetaApi}
+                  onChange={() => handleChange('whatsapp', 'useMetaApi', true)}
+                  className="w-4 h-4 text-blue-600"
+                />
+                <span className="text-sm font-medium">Meta WhatsApp Business API (Recommended)</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  checked={!formData.whatsapp.useMetaApi}
+                  onChange={() => handleChange('whatsapp', 'useMetaApi', false)}
+                  className="w-4 h-4 text-blue-600"
+                />
+                <span className="text-sm font-medium">Twilio WhatsApp API</span>
+              </label>
             </div>
-          )}
 
-          <div className={`mb-4 ${formData.whatsapp.useEnvVars ? 'opacity-50' : ''}`}>
-            <label className="flex items-center">
-              <input
-                type="radio"
-                checked={formData.whatsapp.useMetaApi}
-                onChange={() => handleChange('whatsapp', 'useMetaApi', true)}
-                disabled={formData.whatsapp.useEnvVars}
-                className="mr-2"
-              />
-              <span className="text-sm text-gray-700">Meta WhatsApp Business API (Recommended)</span>
-            </label>
-            <label className="flex items-center mt-2">
-              <input
-                type="radio"
-                checked={!formData.whatsapp.useMetaApi}
-                onChange={() => handleChange('whatsapp', 'useMetaApi', false)}
-                disabled={formData.whatsapp.useEnvVars}
-                className="mr-2"
-              />
-              <span className="text-sm text-gray-700">Twilio WhatsApp API</span>
-            </label>
-          </div>
-
-          {formData.whatsapp.useMetaApi ? (
-            <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${formData.whatsapp.useEnvVars ? 'opacity-50' : ''}`}>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Access Token</label>
-                <input
-                  type="password"
-                  value={formData.whatsapp.accessToken}
-                  onChange={(e) => handleChange('whatsapp', 'accessToken', e.target.value)}
-                  placeholder={formData.whatsapp.accessToken.startsWith('••••') ? 'Leave blank to keep current' : 'Enter access token'}
-                  disabled={formData.whatsapp.useEnvVars}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                />
+            {formData.whatsapp.useMetaApi ? (
+              <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${formData.whatsapp.useEnvVars ? 'opacity-50 pointer-events-none' : ''}`}>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">Access Token</label>
+                  <Input
+                    type="password"
+                    value={formData.whatsapp.accessToken}
+                    onChange={(e) => handleChange('whatsapp', 'accessToken', e.target.value)}
+                    placeholder={formData.whatsapp.accessToken.startsWith('••••') ? 'Leave blank to keep current' : 'Enter access token'}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">Phone Number ID</label>
+                  <Input
+                    type="text"
+                    value={formData.whatsapp.phoneNumberId}
+                    onChange={(e) => handleChange('whatsapp', 'phoneNumberId', e.target.value)}
+                    placeholder="Enter phone number ID"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">Business Account ID</label>
+                  <Input
+                    type="text"
+                    value={formData.whatsapp.businessAccountId}
+                    onChange={(e) => handleChange('whatsapp', 'businessAccountId', e.target.value)}
+                    placeholder="Enter business account ID"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">API Version</label>
+                  <Input
+                    type="text"
+                    value={formData.whatsapp.apiVersion}
+                    onChange={(e) => handleChange('whatsapp', 'apiVersion', e.target.value)}
+                    placeholder="v21.0"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Phone Number ID</label>
-                <input
-                  type="text"
-                  value={formData.whatsapp.phoneNumberId}
-                  onChange={(e) => handleChange('whatsapp', 'phoneNumberId', e.target.value)}
-                  placeholder="Enter phone number ID"
-                  disabled={formData.whatsapp.useEnvVars}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                />
+            ) : (
+              <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${formData.whatsapp.useEnvVars ? 'opacity-50 pointer-events-none' : ''}`}>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">API URL</label>
+                  <Input
+                    type="text"
+                    value={formData.whatsapp.apiUrl}
+                    onChange={(e) => handleChange('whatsapp', 'apiUrl', e.target.value)}
+                    placeholder="https://api.twilio.com/2010-04-01/Accounts"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">Account SID</label>
+                  <Input
+                    type="text"
+                    value={formData.whatsapp.accountSid}
+                    onChange={(e) => handleChange('whatsapp', 'accountSid', e.target.value)}
+                    placeholder="Enter Twilio Account SID"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">Auth Token</label>
+                  <Input
+                    type="password"
+                    value={formData.whatsapp.authToken}
+                    onChange={(e) => handleChange('whatsapp', 'authToken', e.target.value)}
+                    placeholder={formData.whatsapp.authToken.startsWith('••••') ? 'Leave blank to keep current' : 'Enter auth token'}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">From Number</label>
+                  <Input
+                    type="text"
+                    value={formData.whatsapp.fromNumber}
+                    onChange={(e) => handleChange('whatsapp', 'fromNumber', e.target.value)}
+                    placeholder="whatsapp:+14155238886"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Business Account ID</label>
-                <input
-                  type="text"
-                  value={formData.whatsapp.businessAccountId}
-                  onChange={(e) => handleChange('whatsapp', 'businessAccountId', e.target.value)}
-                  placeholder="Enter business account ID"
-                  disabled={formData.whatsapp.useEnvVars}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">API Version</label>
-                <input
-                  type="text"
-                  value={formData.whatsapp.apiVersion}
-                  onChange={(e) => handleChange('whatsapp', 'apiVersion', e.target.value)}
-                  placeholder="v21.0"
-                  disabled={formData.whatsapp.useEnvVars}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                />
-              </div>
-            </div>
-          ) : (
-            <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${formData.whatsapp.useEnvVars ? 'opacity-50' : ''}`}>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">API URL</label>
-                <input
-                  type="text"
-                  value={formData.whatsapp.apiUrl}
-                  onChange={(e) => handleChange('whatsapp', 'apiUrl', e.target.value)}
-                  placeholder="https://api.twilio.com/2010-04-01/Accounts"
-                  disabled={formData.whatsapp.useEnvVars}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Account SID</label>
-                <input
-                  type="text"
-                  value={formData.whatsapp.accountSid}
-                  onChange={(e) => handleChange('whatsapp', 'accountSid', e.target.value)}
-                  placeholder="Enter Twilio Account SID"
-                  disabled={formData.whatsapp.useEnvVars}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Auth Token</label>
-                <input
-                  type="password"
-                  value={formData.whatsapp.authToken}
-                  onChange={(e) => handleChange('whatsapp', 'authToken', e.target.value)}
-                  placeholder={formData.whatsapp.authToken.startsWith('••••') ? 'Leave blank to keep current' : 'Enter auth token'}
-                  disabled={formData.whatsapp.useEnvVars}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">From Number</label>
-                <input
-                  type="text"
-                  value={formData.whatsapp.fromNumber}
-                  onChange={(e) => handleChange('whatsapp', 'fromNumber', e.target.value)}
-                  placeholder="whatsapp:+14155238886"
-                  disabled={formData.whatsapp.useEnvVars}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                />
-              </div>
-            </div>
-          )}
-        </div>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Gemini Settings */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center justify-between mb-6">
+        <Card>
+          <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               <div className="flex-shrink-0 w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-                <FaRobot className="w-6 h-6 text-purple-600" />
+                <Bot className="w-6 h-6 text-purple-600" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-gray-900">Google Gemini AI</h2>
-                <p className="text-sm text-gray-600">Configure Gemini API for AI-powered features (e.g., profile image generation)</p>
+                <CardTitle>Google Gemini AI</CardTitle>
+                <CardDescription>Configure Gemini API for AI-powered features</CardDescription>
               </div>
             </div>
-            <div className="flex items-center gap-4">
-              <label className="flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
+            <div className="flex items-center gap-6">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox
                   checked={formData.gemini.useEnvVars}
-                  onChange={(e) => handleChange('gemini', 'useEnvVars', e.target.checked)}
-                  className="mr-2"
+                  onCheckedChange={(checked) => handleChange('gemini', 'useEnvVars', checked as boolean)}
                 />
-                <span className="text-sm text-gray-700">Use Env Vars</span>
+                <span className="text-sm font-medium">Use Env Vars</span>
               </label>
-              <label className="flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox
                   checked={formData.gemini.isEnabled}
-                  onChange={(e) => handleChange('gemini', 'isEnabled', e.target.checked)}
-                  className="mr-2"
+                  onCheckedChange={(checked) => handleChange('gemini', 'isEnabled', checked as boolean)}
                 />
-                <span className="text-sm text-gray-700">Enabled</span>
+                <span className="text-sm font-medium">Enabled</span>
               </label>
             </div>
-          </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {formData.gemini.useEnvVars && (
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg mb-4">
+                <p className="text-sm text-blue-800">
+                  <strong>Using Environment Variables:</strong> Gemini API key will be read from .env file (GEMINI_API_KEY)
+                </p>
+              </div>
+            )}
 
-          {formData.gemini.useEnvVars && (
-            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
-              <p className="text-sm text-blue-800">
-                <strong>Using Environment Variables:</strong> Gemini API key will be read from .env file (GEMINI_API_KEY)
-              </p>
-            </div>
-          )}
-
-          <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${formData.gemini.useEnvVars ? 'opacity-50' : ''}`}>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">API Key</label>
-              <input
+            <div className={`space-y-2 md:w-1/2 ${formData.gemini.useEnvVars ? 'opacity-50 pointer-events-none' : ''}`}>
+              <label className="text-sm font-medium text-foreground">API Key</label>
+              <Input
                 type="password"
                 value={formData.gemini.apiKey}
                 onChange={(e) => handleChange('gemini', 'apiKey', e.target.value)}
                 placeholder={formData.gemini.apiKey.startsWith('••••') ? 'Leave blank to keep current' : 'Enter Gemini API key'}
-                disabled={formData.gemini.useEnvVars}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
               />
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-[10px] text-muted-foreground">
                 Get your API key from <a href="https://makersuite.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Google AI Studio</a>
               </p>
             </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
 
-        <div className="flex justify-end gap-3">
-          <button
+        <div className="flex justify-end gap-3 pt-4">
+          <Button
             type="button"
+            variant="outline"
             onClick={() => navigate('/settings')}
-            className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             type="submit"
             disabled={saving}
-            className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-400 font-medium flex items-center gap-2"
+            className="bg-blue-600 hover:bg-blue-700"
           >
-            <FaSave className="w-4 h-4" />
+            {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
             {saving ? 'Saving...' : 'Save Changes'}
-          </button>
+          </Button>
         </div>
       </form>
     </div>
@@ -748,4 +680,3 @@ const ApiIntegrationSettings: React.FC = () => {
 };
 
 export default ApiIntegrationSettings;
-

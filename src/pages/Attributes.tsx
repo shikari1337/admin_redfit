@@ -462,10 +462,22 @@ const Attributes: React.FC = () => {
       console.error('Failed to save attribute value', err);
       const errorMessage = err?.response?.data?.message || err?.message || 'Failed to save attribute value';
       setError(errorMessage);
-      // Show detailed error if available
+      // Show detailed error if available (defensive: errors may be array or object)
       if (err?.response?.data?.errors) {
-        const validationErrors = Object.values(err.response.data.errors).flat().join(', ');
-        setError(`${errorMessage}: ${validationErrors}`);
+        try {
+          const errors = err.response.data.errors;
+          const arr = Array.isArray(errors) ? errors : (typeof errors === 'object' && errors !== null ? Object.values(errors) : []);
+          const flatArr = Array.isArray(arr) ? arr.flat() : [];
+          const msgParts = flatArr.map((e: any) =>
+            typeof e === 'object' && e !== null && typeof e.msg === 'string' ? e.msg :
+            typeof e === 'string' ? e : ''
+          ).filter(Boolean);
+          if (msgParts.length > 0) {
+            setError(`${errorMessage}: ${msgParts.join(', ')}`);
+          }
+        } catch {
+          // If parsing fails, keep the main error message
+        }
       }
     } finally {
       setSaving(false);
@@ -512,7 +524,25 @@ const Attributes: React.FC = () => {
       }
     } catch (err: any) {
       console.error('Failed to delete attribute value', err);
-      setError(err?.response?.data?.message || err?.message || 'Failed to delete attribute value');
+      const errorMessage = err?.response?.data?.message || err?.message || 'Failed to delete attribute value';
+      setError(errorMessage);
+      // Defensive: append validation errors if present (same pattern as handleSubmitValue)
+      if (err?.response?.data?.errors) {
+        try {
+          const errors = err.response.data.errors;
+          const arr = Array.isArray(errors) ? errors : (typeof errors === 'object' && errors !== null ? Object.values(errors) : []);
+          const flatArr = Array.isArray(arr) ? arr.flat() : [];
+          const msgParts = flatArr.map((e: any) =>
+            typeof e === 'object' && e !== null && typeof e.msg === 'string' ? e.msg :
+            typeof e === 'string' ? e : ''
+          ).filter(Boolean);
+          if (msgParts.length > 0) {
+            setError(`${errorMessage}: ${msgParts.join(', ')}`);
+          }
+        } catch {
+          // Keep main error message if parsing fails
+        }
+      }
     }
   };
 

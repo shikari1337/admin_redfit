@@ -1,7 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaArrowLeft, FaSave, FaTruck, FaWarehouse } from 'react-icons/fa';
+import { ArrowLeft, Save, Truck, Warehouse, Loader2 } from 'lucide-react';
 import api from '../services/api';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 
 const ShippingSettings: React.FC = () => {
   const navigate = useNavigate();
@@ -34,8 +38,6 @@ const ShippingSettings: React.FC = () => {
     try {
       setLoading(true);
       const response = await api.get('/settings/admin');
-      // Backend returns: { success: true, data: settings }
-      // API interceptor normalizes to: settings or { data: settings }
       const settings = response.data?.success && response.data?.data 
         ? response.data.data 
         : response.data?.data 
@@ -43,8 +45,6 @@ const ShippingSettings: React.FC = () => {
         : response.data;
       
       if (settings) {
-        
-        // Shiprocket settings
         if (settings.shiprocket) {
           setFormData(prev => ({
             ...prev,
@@ -57,7 +57,6 @@ const ShippingSettings: React.FC = () => {
           }));
         }
 
-        // DELHIVERY settings
         if (settings.delhivery) {
           setFormData(prev => ({
             ...prev,
@@ -104,11 +103,11 @@ const ShippingSettings: React.FC = () => {
     }
   };
 
-  const handleChange = (section: string, field: string, value: any) => {
+  const handleChange = (section: keyof typeof formData, field: string, value: any) => {
     setFormData(prev => ({
       ...prev,
       [section]: {
-        ...prev[section as keyof typeof prev],
+        ...prev[section],
         [field]: value,
       },
     }));
@@ -116,245 +115,229 @@ const ShippingSettings: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500"></div>
+      <div className="flex items-center justify-center p-12">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
   }
 
   return (
-    <div className="max-w-6xl mx-auto">
-      <div className="mb-6">
-        <button
+    <div className="max-w-4xl mx-auto space-y-6">
+      <div>
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => navigate('/settings')}
-          className="flex items-center text-gray-600 hover:text-gray-900 mb-4"
+          className="text-muted-foreground mb-4"
         >
-          <FaArrowLeft className="mr-2" />
+          <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Settings
-        </button>
+        </Button>
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Shipping Settings</h1>
-            <p className="text-sm text-gray-600 mt-2">Configure shipping providers and manage warehouses</p>
+            <h1 className="text-3xl font-bold tracking-tight text-foreground">Shipping Settings</h1>
+            <p className="text-sm text-muted-foreground mt-2">Configure shipping providers and manage warehouses</p>
           </div>
-          <button
+          <Button
             onClick={() => navigate('/warehouses')}
-            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+            className="bg-blue-600 hover:bg-blue-700"
           >
-            <FaWarehouse className="w-4 h-4" />
+            <Warehouse className="mr-2 w-4 h-4" />
             Manage Warehouses
-          </button>
+          </Button>
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-6 pb-12">
         {/* Shiprocket Settings */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center justify-between mb-6">
+        <Card>
+          <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               <div className="flex-shrink-0 w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                <FaTruck className="w-6 h-6 text-green-600" />
+                <Truck className="w-6 h-6 text-green-600" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-gray-900">Shiprocket Shipping</h2>
-                <p className="text-sm text-gray-600">Configure Shiprocket shipping integration</p>
+                <CardTitle>Shiprocket Shipping</CardTitle>
+                <CardDescription>Configure Shiprocket shipping integration</CardDescription>
               </div>
             </div>
-            <div className="flex items-center gap-4">
-              <label className="flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
+            <div className="flex items-center gap-6">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox
                   checked={formData.shiprocket.useEnvVars}
-                  onChange={(e) => handleChange('shiprocket', 'useEnvVars', e.target.checked)}
-                  className="mr-2"
+                  onCheckedChange={(checked) => handleChange('shiprocket', 'useEnvVars', checked as boolean)}
                 />
-                <span className="text-sm text-gray-700">Use Env Vars</span>
+                <span className="text-sm font-medium">Use Env Vars</span>
               </label>
-              <label className="flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox
                   checked={formData.shiprocket.isEnabled}
-                  onChange={(e) => handleChange('shiprocket', 'isEnabled', e.target.checked)}
-                  className="mr-2"
+                  onCheckedChange={(checked) => handleChange('shiprocket', 'isEnabled', checked as boolean)}
                 />
-                <span className="text-sm text-gray-700">Enabled</span>
+                <span className="text-sm font-medium">Enabled</span>
               </label>
             </div>
-          </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {formData.shiprocket.useEnvVars && (
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg mb-4">
+                <p className="text-sm text-blue-800 leading-relaxed">
+                  <strong>Using Environment Variables:</strong> Shiprocket configuration will be read from .env file (SHIPROCKET_EMAIL, SHIPROCKET_PASSWORD, SHIPROCKET_API_URL, SHIPROCKET_PICKUP_PINCODE, SHIPROCKET_PICKUP_LOCATION). <strong>Note:</strong> Channel ID is not available in env vars, configure it here if needed.
+                </p>
+              </div>
+            )}
 
-          {formData.shiprocket.useEnvVars && (
-            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
-              <p className="text-sm text-blue-800">
-                <strong>Using Environment Variables:</strong> Shiprocket configuration will be read from .env file (SHIPROCKET_EMAIL, SHIPROCKET_PASSWORD, SHIPROCKET_API_URL, SHIPROCKET_PICKUP_PINCODE, SHIPROCKET_PICKUP_LOCATION). <strong>Note:</strong> Channel ID is not available in env vars, configure it here if needed.
-              </p>
+            <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${formData.shiprocket.useEnvVars ? 'opacity-50 pointer-events-none' : ''}`}>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Email</label>
+                <Input
+                  type="email"
+                  value={formData.shiprocket.email}
+                  onChange={(e) => handleChange('shiprocket', 'email', e.target.value)}
+                  placeholder="your-email@shiprocket.com"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Password</label>
+                <Input
+                  type="password"
+                  value={formData.shiprocket.password}
+                  onChange={(e) => handleChange('shiprocket', 'password', e.target.value)}
+                  placeholder={formData.shiprocket.password.startsWith('••••') ? 'Leave blank to keep current' : 'Enter password'}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">API URL</label>
+                <Input
+                  type="text"
+                  value={formData.shiprocket.apiUrl}
+                  onChange={(e) => handleChange('shiprocket', 'apiUrl', e.target.value)}
+                  placeholder="https://apiv2.shiprocket.in"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Channel ID</label>
+                <Input
+                  type="text"
+                  value={formData.shiprocket.channelId}
+                  onChange={(e) => handleChange('shiprocket', 'channelId', e.target.value)}
+                  placeholder="Enter Shiprocket Channel ID"
+                  className={formData.shiprocket.useEnvVars ? "pointer-events-auto opacity-100 bg-background" : ""}
+                  disabled={false}
+                />
+                <p className="text-[10px] text-muted-foreground">Channel ID from Shiprocket settings (configure even when using env vars)</p>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Pickup Pincode</label>
+                <Input
+                  type="text"
+                  value={formData.shiprocket.pickupPincode}
+                  onChange={(e) => handleChange('shiprocket', 'pickupPincode', e.target.value)}
+                  placeholder="110001"
+                />
+                <p className="text-[10px] text-muted-foreground">Default pickup pincode (can be overridden by warehouse configuration)</p>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Pickup Location</label>
+                <Input
+                  type="text"
+                  value={formData.shiprocket.pickupLocation}
+                  onChange={(e) => handleChange('shiprocket', 'pickupLocation', e.target.value)}
+                  placeholder="Default"
+                />
+                <p className="text-[10px] text-muted-foreground">Default pickup location name (can be overridden by warehouse configuration)</p>
+              </div>
             </div>
-          )}
-
-          <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${formData.shiprocket.useEnvVars ? 'opacity-50' : ''}`}>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
-              <input
-                type="email"
-                value={formData.shiprocket.email}
-                onChange={(e) => handleChange('shiprocket', 'email', e.target.value)}
-                placeholder="your-email@shiprocket.com"
-                disabled={formData.shiprocket.useEnvVars}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
-              <input
-                type="password"
-                value={formData.shiprocket.password}
-                onChange={(e) => handleChange('shiprocket', 'password', e.target.value)}
-                placeholder={formData.shiprocket.password.startsWith('••••') ? 'Leave blank to keep current' : 'Enter password'}
-                disabled={formData.shiprocket.useEnvVars}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">API URL</label>
-              <input
-                type="text"
-                value={formData.shiprocket.apiUrl}
-                onChange={(e) => handleChange('shiprocket', 'apiUrl', e.target.value)}
-                placeholder="https://apiv2.shiprocket.in"
-                disabled={formData.shiprocket.useEnvVars}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Channel ID</label>
-              <input
-                type="text"
-                value={formData.shiprocket.channelId}
-                onChange={(e) => handleChange('shiprocket', 'channelId', e.target.value)}
-                placeholder="Enter Shiprocket Channel ID"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-              />
-              <p className="text-xs text-gray-500 mt-1">Channel ID from Shiprocket settings (configure even when using env vars)</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Pickup Pincode</label>
-              <input
-                type="text"
-                value={formData.shiprocket.pickupPincode}
-                onChange={(e) => handleChange('shiprocket', 'pickupPincode', e.target.value)}
-                placeholder="110001"
-                disabled={formData.shiprocket.useEnvVars}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-              />
-              <p className="text-xs text-gray-500 mt-1">Default pickup pincode (can be overridden by warehouse configuration)</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Pickup Location</label>
-              <input
-                type="text"
-                value={formData.shiprocket.pickupLocation}
-                onChange={(e) => handleChange('shiprocket', 'pickupLocation', e.target.value)}
-                placeholder="Default"
-                disabled={formData.shiprocket.useEnvVars}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-              />
-              <p className="text-xs text-gray-500 mt-1">Default pickup location name (can be overridden by warehouse configuration)</p>
-            </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
 
         {/* DELHIVERY Settings */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center justify-between mb-6">
+        <Card>
+          <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               <div className="flex-shrink-0 w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
-                <FaTruck className="w-6 h-6 text-orange-600" />
+                <Truck className="w-6 h-6 text-orange-600" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-gray-900">DELHIVERY Shipping</h2>
-                <p className="text-sm text-gray-600">Configure DELHIVERY shipping integration</p>
+                <CardTitle>DELHIVERY Shipping</CardTitle>
+                <CardDescription>Configure DELHIVERY shipping integration</CardDescription>
               </div>
             </div>
-            <div className="flex items-center gap-4">
-              <label className="flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
+            <div className="flex items-center gap-6">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox
                   checked={formData.delhivery.useEnvVars}
-                  onChange={(e) => handleChange('delhivery', 'useEnvVars', e.target.checked)}
-                  className="mr-2"
+                  onCheckedChange={(checked) => handleChange('delhivery', 'useEnvVars', checked as boolean)}
                 />
-                <span className="text-sm text-gray-700">Use Env Vars</span>
+                <span className="text-sm font-medium">Use Env Vars</span>
               </label>
-              <label className="flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox
                   checked={formData.delhivery.isEnabled}
-                  onChange={(e) => handleChange('delhivery', 'isEnabled', e.target.checked)}
-                  className="mr-2"
+                  onCheckedChange={(checked) => handleChange('delhivery', 'isEnabled', checked as boolean)}
                 />
-                <span className="text-sm text-gray-700">Enabled</span>
+                <span className="text-sm font-medium">Enabled</span>
               </label>
             </div>
-          </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {formData.delhivery.useEnvVars && (
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg mb-4">
+                <p className="text-sm text-blue-800">
+                  <strong>Using Environment Variables:</strong> DELHIVERY configuration will be read from .env file (DELHIVERY_API_TOKEN, DELHIVERY_API_URL)
+                </p>
+              </div>
+            )}
 
-          {formData.delhivery.useEnvVars && (
-            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
-              <p className="text-sm text-blue-800">
-                <strong>Using Environment Variables:</strong> DELHIVERY configuration will be read from .env file (DELHIVERY_API_TOKEN, DELHIVERY_API_URL)
+            <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${formData.delhivery.useEnvVars ? 'opacity-50 pointer-events-none' : ''}`}>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">API Token</label>
+                <Input
+                  type="password"
+                  value={formData.delhivery.apiToken}
+                  onChange={(e) => handleChange('delhivery', 'apiToken', e.target.value)}
+                  placeholder={formData.delhivery.apiToken.startsWith('••••') ? 'Leave blank to keep current' : 'Enter DELHIVERY API Token'}
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  Get your API token from DELHIVERY Dashboard → Settings → API Setup
+                </p>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">API URL</label>
+                <Input
+                  type="text"
+                  value={formData.delhivery.apiUrl}
+                  onChange={(e) => handleChange('delhivery', 'apiUrl', e.target.value)}
+                  placeholder="https://staging-express.delhivery.com/api"
+                />
+                <p className="text-[10px] text-muted-foreground">Production: https://track.delhivery.com/api, Staging: https://staging-express.delhivery.com/api</p>
+              </div>
+            </div>
+
+            <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+              <p className="text-sm text-yellow-800">
+                <strong>Note:</strong> Warehouse configuration is managed separately in the <strong>Warehouses</strong> section. Each warehouse must have a DELHIVERY warehouse code (warehouse name as registered with DELHIVERY) configured.
               </p>
             </div>
-          )}
+          </CardContent>
+        </Card>
 
-          <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${formData.delhivery.useEnvVars ? 'opacity-50' : ''}`}>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">API Token</label>
-              <input
-                type="password"
-                value={formData.delhivery.apiToken}
-                onChange={(e) => handleChange('delhivery', 'apiToken', e.target.value)}
-                placeholder={formData.delhivery.apiToken.startsWith('••••') ? 'Leave blank to keep current' : 'Enter DELHIVERY API Token'}
-                disabled={formData.delhivery.useEnvVars}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Get your API token from <a href="https://delhivery.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">DELHIVERY Dashboard</a> → Settings → API Setup
-              </p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">API URL</label>
-              <input
-                type="text"
-                value={formData.delhivery.apiUrl}
-                onChange={(e) => handleChange('delhivery', 'apiUrl', e.target.value)}
-                placeholder="https://staging-express.delhivery.com/api"
-                disabled={formData.delhivery.useEnvVars}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-              />
-              <p className="text-xs text-gray-500 mt-1">Production: https://track.delhivery.com/api, Staging: https://staging-express.delhivery.com/api</p>
-            </div>
-          </div>
-          <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
-            <p className="text-sm text-yellow-800">
-              <strong>Note:</strong> Warehouse configuration is managed separately in the <strong>Warehouses</strong> section. Each warehouse must have a DELHIVERY warehouse code (warehouse name as registered with DELHIVERY) configured.
-            </p>
-          </div>
-        </div>
-
-        <div className="flex justify-end gap-3">
-          <button
+        <div className="flex justify-end gap-3 pt-4">
+          <Button
             type="button"
+            variant="outline"
             onClick={() => navigate('/settings')}
-            className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             type="submit"
             disabled={saving}
-            className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-400 font-medium flex items-center gap-2"
+            className="bg-blue-600 hover:bg-blue-700"
           >
-            <FaSave className="w-4 h-4" />
+            {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
             {saving ? 'Saving...' : 'Save Changes'}
-          </button>
+          </Button>
         </div>
       </form>
     </div>
@@ -362,4 +345,3 @@ const ShippingSettings: React.FC = () => {
 };
 
 export default ShippingSettings;
-

@@ -7,7 +7,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ordersAPI, shippingAPI, paymentsAPI, shipmentsAPI } from '../services/api';
 import { format } from 'date-fns';
-import { FaCheckCircle, FaEnvelope, FaFileInvoice, FaCreditCard, FaTruck } from 'react-icons/fa';
+import { FaCheckCircle, FaEnvelope, FaFileInvoice, FaCreditCard, FaTruck, FaArrowLeft } from 'react-icons/fa';
 import {
   StatusBadge,
   OrderItems,
@@ -21,6 +21,11 @@ import {
   PaymentVerificationModal,
   UpdateEmailModal,
 } from '../components/order';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast";
 
 const OrderDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -57,6 +62,14 @@ const OrderDetail: React.FC = () => {
   const [updateEmailSubject, setUpdateEmailSubject] = useState('');
   const [updateEmailContent, setUpdateEmailContent] = useState('');
 
+  let toast: any;
+  try {
+    const hook = useToast();
+    toast = hook.toast;
+  } catch (e) {
+    toast = ({ title, description }: any) => window.alert(`${title ? title + ': ' : ''}${description}`);
+  }
+
   useEffect(() => {
     fetchOrder();
     fetchWarehouses();
@@ -66,14 +79,12 @@ const OrderDetail: React.FC = () => {
   const fetchOrder = async () => {
     try {
       const response = await ordersAPI.getById(id);
-      // Backend returns: { success: true, data: order }
-      // API interceptor normalizes to: order or { data: order }
       const orderData = response?.data || response;
       setOrder(orderData);
       setNotesText(orderData?.notes || '');
     } catch (error) {
       console.error('Failed to load order:', error);
-      alert('Failed to load order');
+      toast({ variant: "destructive", title: "Error", description: 'Failed to load order' });
       navigate('/orders');
     } finally {
       setLoading(false);
@@ -85,17 +96,13 @@ const OrderDetail: React.FC = () => {
 
     setUpdating(true);
     try {
-      console.log('Updating order status:', { id, status: newStatus, notes: statusNotes });
-      const response = await ordersAPI.updateStatus(id!, newStatus, statusNotes || undefined);
-      console.log('Status update response:', response);
+      await ordersAPI.updateStatus(id!, newStatus, statusNotes || undefined);
       setStatusNotes('');
       fetchOrder();
-      alert(`Order status updated to ${newStatus} successfully!`);
+      toast({ title: "Success", description: `Order status updated to ${newStatus} successfully!` });
     } catch (error: any) {
-      console.error('Failed to update order status:', error);
-      console.error('Error details:', error.response?.data || error.message);
       const errorMessage = error.response?.data?.message || error.message || 'Failed to update order status';
-      alert(`Failed to update order status: ${errorMessage}`);
+      toast({ variant: "destructive", title: "Update Failed", description: errorMessage });
     } finally {
       setUpdating(false);
     }
@@ -107,8 +114,9 @@ const OrderDetail: React.FC = () => {
       await ordersAPI.updateNotes(id!, notesText);
       setEditingNotes(false);
       fetchOrder();
+      toast({ title: "Success", description: "Notes updated successfully" });
     } catch (error) {
-      alert('Failed to save notes');
+      toast({ variant: "destructive", title: "Error", description: 'Failed to save notes' });
     } finally {
       setSavingNotes(false);
     }
@@ -116,102 +124,58 @@ const OrderDetail: React.FC = () => {
 
   const fetchWarehouses = async () => {
     try {
-      // Use shipping API to get warehouses (returns active warehouses only)
       const response = await shippingAPI.getWarehouses();
-      // Backend returns: { success: true, data: warehouses[] }
-      // API interceptor normalizes to: warehouses[] or { data: warehouses[] }
       let warehousesData: any[] = [];
-      if (Array.isArray(response)) {
-        warehousesData = response;
-      } else if (response?.success && Array.isArray(response?.data)) {
-        warehousesData = response.data;
-      } else if (Array.isArray(response?.data)) {
-        warehousesData = response.data;
-      } else if (Array.isArray(response?.data?.data)) {
-        warehousesData = response.data.data;
-      }
+      if (Array.isArray(response)) warehousesData = response;
+      else if (response?.success && Array.isArray(response?.data)) warehousesData = response.data;
+      else if (Array.isArray(response?.data)) warehousesData = response.data;
+      else if (Array.isArray(response?.data?.data)) warehousesData = response.data.data;
       
       setWarehouses(Array.isArray(warehousesData) ? warehousesData : []);
       
-      // Auto-select first warehouse if available and none selected
       if (warehousesData.length > 0 && !selectedWarehouseId) {
         const firstWarehouse = warehousesData[0];
-        console.log('📦 First warehouse:', firstWarehouse);
         if (firstWarehouse && firstWarehouse._id) {
-          // Ensure _id is converted to string (in case it's an ObjectId)
-          let warehouseIdStr: string;
+          let warehouseIdStr = String(firstWarehouse._id);
           if (typeof firstWarehouse._id === 'object' && firstWarehouse._id !== null) {
-            // Handle ObjectId object - try to extract the string value
-            if ((firstWarehouse._id as any).toString && typeof (firstWarehouse._id as any).toString === 'function') {
+            if ((firstWarehouse._id as any).buffer) {
+               const buffer = (firstWarehouse._id as any).buffer;
+               if (buffer && typeof buffer === 'object') {
+                 warehouseIdStr = Array.from(new Uint8Array(Object.values(buffer) as number[]))
+                   .map(b => b.toString(16).padStart(2, '0')).join('');
+               }
+            } else if ((firstWarehouse._id as any).toString) {
               warehouseIdStr = (firstWarehouse._id as any).toString();
-            } else if ((firstWarehouse._id as any).buffer) {
-              // Handle buffer-based ObjectId
-              const buffer = (firstWarehouse._id as any).buffer;
-              if (buffer && typeof buffer === 'object') {
-                // Convert buffer to hex string
-                const hex = Array.from(new Uint8Array(Object.values(buffer) as number[]))
-                  .map(b => b.toString(16).padStart(2, '0'))
-                  .join('');
-                warehouseIdStr = hex;
-              } else {
-                warehouseIdStr = String(firstWarehouse._id);
-              }
-            } else {
-              warehouseIdStr = String(firstWarehouse._id);
             }
-          } else {
-            warehouseIdStr = String(firstWarehouse._id);
           }
-          
-          // Validate it's a 24-character hex string (MongoDB ObjectId format)
-          if (!/^[0-9a-fA-F]{24}$/.test(warehouseIdStr)) {
-            console.warn('⚠️ Invalid warehouse ID format:', warehouseIdStr);
-            warehouseIdStr = String(firstWarehouse._id);
-          }
-          
-          console.log('📦 Setting selected warehouse ID:', warehouseIdStr);
+          if (!/^[0-9a-fA-F]{24}$/.test(warehouseIdStr)) warehouseIdStr = String(firstWarehouse._id);
           setSelectedWarehouseId(warehouseIdStr);
         }
-      } else {
-        console.log('📦 No warehouse auto-selected. Current selectedWarehouseId:', selectedWarehouseId, 'Warehouses count:', warehousesData.length);
       }
     } catch (error) {
-      console.error('❌ Failed to fetch warehouses:', error);
-      setWarehouses([]); // Set empty array on error
+      setWarehouses([]);
     }
   };
 
   const fetchShippingProviders = async () => {
     try {
       const response = await shippingAPI.getProviders();
-      // Backend returns: { success: true, data: providers[] }
-      // API interceptor normalizes to: providers[] or { data: providers[] }
       let providersData: any[] = [];
-      if (Array.isArray(response)) {
-        providersData = response;
-      } else if (response?.success && Array.isArray(response?.data)) {
-        providersData = response.data;
-      } else if (Array.isArray(response?.data)) {
-        providersData = response.data;
-      } else if (Array.isArray(response?.data?.data)) {
-        providersData = response.data.data;
-      }
+      if (Array.isArray(response)) providersData = response;
+      else if (response?.success && Array.isArray(response?.data)) providersData = response.data;
+      else if (Array.isArray(response?.data)) providersData = response.data;
+      else if (Array.isArray(response?.data?.data)) providersData = response.data.data;
       
       if (providersData.length > 0) {
         setShippingProviders(providersData);
-        // Auto-select first provider if no provider selected
         if (!selectedShippingProvider && providersData.length > 0) {
-          const firstProvider = providersData[0];
-          setSelectedShippingProvider(firstProvider.id || 'manual');
+          setSelectedShippingProvider(providersData[0].id || 'manual');
         }
       } else {
-        // Always show manual option even if no providers are configured
         setShippingProviders([]);
         setSelectedShippingProvider('manual');
       }
     } catch (error) {
-      console.error('Failed to fetch shipping providers:', error);
-      // Default to manual if fetch fails
       setShippingProviders([]);
       setSelectedShippingProvider('manual');
     }
@@ -222,23 +186,21 @@ const OrderDetail: React.FC = () => {
     try {
       if (order.paymentGateway === 'razorpay') {
         if (!razorpayPaymentId) {
-          alert('Please enter Razorpay Payment ID (Transaction ID)');
-          setVerifyingPayment(false);
-          return;
+          toast({ variant: "destructive", title: "Missing ID", description: 'Please enter Razorpay Payment ID' });
+          setVerifyingPayment(false); return;
         }
         await paymentsAPI.verifyRazorpay(id!, razorpayPaymentId);
-        alert('Razorpay payment verified successfully! Order is now confirmed.');
+        toast({ title: "Verified", description: 'Razorpay payment verified successfully!' });
       } else if (order.paymentGateway === 'upi') {
         if (!upiPaymentId) {
-          alert('Please enter UPI Payment ID (Transaction ID)');
-          setVerifyingPayment(false);
-          return;
+          toast({ variant: "destructive", title: "Missing ID", description: 'Please enter UPI Payment ID' });
+          setVerifyingPayment(false); return;
         }
         await paymentsAPI.verifyUPI(id!, upiPaymentId, paymentVerificationNotes || undefined);
-        alert('UPI payment verified successfully! Order is now confirmed.');
+        toast({ title: "Verified", description: 'UPI payment verified successfully!' });
       } else if (order.paymentGateway === 'manual') {
         await paymentsAPI.verifyManual(id!, paymentVerificationNotes || undefined);
-        alert('Manual payment verified successfully! Order is now confirmed.');
+        toast({ title: "Verified", description: 'Manual payment verified successfully!' });
       }
       setShowPaymentVerifyModal(false);
       setRazorpayPaymentId('');
@@ -246,8 +208,7 @@ const OrderDetail: React.FC = () => {
       setPaymentVerificationNotes('');
       fetchOrder();
     } catch (error: any) {
-      console.error('Failed to verify payment:', error);
-      alert(error.response?.data?.message || 'Failed to verify payment. Please try again.');
+      toast({ variant: "destructive", title: "Verification Failed", description: error.response?.data?.message || 'Failed to verify payment.' });
     } finally {
       setVerifyingPayment(false);
     }
@@ -259,11 +220,10 @@ const OrderDetail: React.FC = () => {
     setConfirmingOrder(true);
     try {
       await ordersAPI.confirmOrder(id!);
-      alert('Order confirmed successfully!');
+      toast({ title: "Confirmed", description: 'Order confirmed successfully!' });
       fetchOrder();
     } catch (error: any) {
-      console.error('Failed to confirm order:', error);
-      alert(error.response?.data?.message || 'Failed to confirm order. Please try again.');
+      toast({ variant: "destructive", title: "Error", description: error.response?.data?.message || 'Failed to confirm order.' });
     } finally {
       setConfirmingOrder(false);
     }
@@ -271,29 +231,27 @@ const OrderDetail: React.FC = () => {
 
   const handleSendEmail = async (type: 'confirmation' | 'update' | 'invoice', subject?: string, content?: string) => {
     if (!order.shippingAddress?.email) {
-      alert('Customer email address is not available');
+      toast({ variant: "destructive", title: "No Email", description: 'Customer email address is not available' });
       return;
     }
 
     if (type === 'update' && (!subject || !content)) {
-      setShowUpdateEmailModal(true);
-      return;
+      setShowUpdateEmailModal(true); return;
     }
 
     setSendingEmail(type);
     try {
-      // For update emails, send subject and content in the request body
       if (type === 'update' && subject && content) {
         await ordersAPI.sendEmail(id!, type, { subject, content });
       } else {
         await ordersAPI.sendEmail(id!, type);
       }
-      alert(`Email sent successfully to ${order.shippingAddress.email}`);
+      toast({ title: "Email Sent", description: `Sent successfully to ${order.shippingAddress.email}` });
       setShowUpdateEmailModal(false);
       setUpdateEmailSubject('');
       setUpdateEmailContent('');
     } catch (error: any) {
-      alert(error.response?.data?.message || `Failed to send ${type} email`);
+      toast({ variant: "destructive", title: "Error", description: error.response?.data?.message || `Failed to send ${type} email` });
     } finally {
       setSendingEmail(null);
     }
@@ -301,116 +259,74 @@ const OrderDetail: React.FC = () => {
 
   const handleSendUpdateEmail = async () => {
     if (!updateEmailSubject.trim() || !updateEmailContent.trim()) {
-      alert('Please enter both subject and content');
+      toast({ variant: "destructive", title: "Incomplete", description: 'Please enter both subject and content' });
       return;
     }
     await handleSendEmail('update', updateEmailSubject, updateEmailContent);
   };
 
-  const handleCreateShipment = async (modalData?: {
-    selectedCourierId?: number | null;
-    selectedDelhiveryType?: 'express' | 'surface' | null;
-    weight?: number;
-    length?: number;
-    breadth?: number;
-    height?: number;
-    selectedItemIndices?: number[];
-  }) => {
-    // All shipments (including manual) require a warehouse
+  const handleCreateShipment = async (modalData?: any) => {
     if (!selectedWarehouseId) {
-      alert('Please select a warehouse');
-      return;
+      toast({ variant: "destructive", title: "Error", description: 'Please select a warehouse' }); return;
     }
 
-    // Check if selected warehouse has the provider enabled (for non-manual providers)
     if (selectedShippingProvider !== 'manual') {
       const selectedWarehouse = warehouses.find(w => w._id === selectedWarehouseId);
       if (selectedWarehouse) {
         let hasProviderEnabled = false;
-        if (selectedShippingProvider === 'shiprocket') {
-          hasProviderEnabled = selectedWarehouse.shippingProviders?.shiprocket?.enabled || false;
-        } else if (selectedShippingProvider === 'delhivery') {
-          hasProviderEnabled = selectedWarehouse.shippingProviders?.delhivery?.enabled || false;
-        }
+        if (selectedShippingProvider === 'shiprocket') hasProviderEnabled = selectedWarehouse.shippingProviders?.shiprocket?.enabled || false;
+        else if (selectedShippingProvider === 'delhivery') hasProviderEnabled = selectedWarehouse.shippingProviders?.delhivery?.enabled || false;
 
         if (!hasProviderEnabled) {
           const providerName = selectedShippingProvider === 'shiprocket' ? 'Shiprocket' : 'DELHIVERY';
-          const confirmProceed = confirm(
-            `Warning: ${providerName} is not enabled for the selected warehouse "${selectedWarehouse.name}".\n\n` +
-            `Do you want to proceed anyway? You may need to enable ${providerName} for this warehouse in the Warehouses settings.`
-          );
-          if (!confirmProceed) {
+          if (!confirm(`Warning: ${providerName} is not enabled for the selected warehouse "${selectedWarehouse.name}".\n\nProceed anyway?`)) {
             return;
           }
         }
       }
     }
 
-    // For manual shipments, validate tracking details
     if (selectedShippingProvider === 'manual') {
       if (!manualTrackingId || !manualCarrierName || !manualTrackingUrl) {
-        alert('Please enter all manual tracking details (Tracking ID, Carrier Name, and Tracking URL)');
-        return;
+        toast({ variant: "destructive", title: "Error", description: 'Please enter all manual tracking details' }); return;
       }
     }
 
     const providerName = selectedShippingProvider === 'shiprocket' ? 'Shiprocket' : 
                         selectedShippingProvider === 'delhivery' ? 'DELHIVERY' : 'Manual';
     
-    if (!confirm(`Create shipment with ${providerName}?\n\nNote: After creating the shipment, you can manage pickup and generate AWB from the Shipments page.`)) return;
+    if (!confirm(`Create shipment with ${providerName}?`)) return;
     
     setSendingToShiprocket(true);
     try {
-      // Prepare item indices - if provided, use them; otherwise, include all items
       let orderItemIndices: number[] = [];
-      if (modalData?.selectedItemIndices && modalData.selectedItemIndices.length > 0) {
-        orderItemIndices = modalData.selectedItemIndices;
-      } else if (order?.items && order.items.length > 0) {
-        // Default to all items if none specified
-        orderItemIndices = order.items.map((_: any, index: number) => index);
-      }
+      if (modalData?.selectedItemIndices && modalData.selectedItemIndices.length > 0) orderItemIndices = modalData.selectedItemIndices;
+      else if (order?.items && order.items.length > 0) orderItemIndices = order.items.map((_: any, index: number) => index);
 
-      // Prepare shipment data
       const shipmentData: any = {
         orderIds: [id!],
         warehouseId: selectedWarehouseId,
         shippingProvider: selectedShippingProvider,
-        // Package details
         weight: modalData?.weight || 0.5,
         length: modalData?.length || 10,
         breadth: modalData?.breadth || 10,
         height: modalData?.height || 5,
-        // Item selection (indices of items to include)
         orderItemIndices: orderItemIndices.length > 0 ? orderItemIndices : undefined,
       };
 
-      // For manual shipments, add tracking details
       if (selectedShippingProvider === 'manual') {
         shipmentData.manualTrackingId = manualTrackingId;
         shipmentData.manualCarrierName = manualCarrierName;
         shipmentData.manualTrackingUrl = manualTrackingUrl;
       } else {
-        // Add courier ID for Shiprocket
-        if (selectedShippingProvider === 'shiprocket' && modalData?.selectedCourierId) {
-          shipmentData.courierCompanyId = modalData.selectedCourierId;
-        }
-        
-        // Add service type for DELHIVERY
-        if (selectedShippingProvider === 'delhivery' && modalData?.selectedDelhiveryType) {
-          shipmentData.delhiveryServiceType = modalData.selectedDelhiveryType;
-        }
+        if (selectedShippingProvider === 'shiprocket' && modalData?.selectedCourierId) shipmentData.courierCompanyId = modalData.selectedCourierId;
+        if (selectedShippingProvider === 'delhivery' && modalData?.selectedDelhiveryType) shipmentData.delhiveryServiceType = modalData.selectedDelhiveryType;
       }
       
-      console.log('Creating shipment with data:', shipmentData);
       const response = await shipmentsAPI.create(shipmentData);
-      console.log('Shipment creation response:', response);
       
       if (response.success) {
-        const itemCount = orderItemIndices.length > 0 ? orderItemIndices.length : (order?.items?.length || 0);
-        const alertMsg = selectedShippingProvider === 'manual'
-          ? `Shipment created successfully! Shipment #${response.data?.shipmentNumber || response.data?._id}\n\nItems: ${itemCount} item(s)\nManual tracking details:\nTracking ID: ${manualTrackingId}\nCarrier: ${manualCarrierName}\n\nGo to Shipments page to manage the shipment.`
-          : `Shipment created successfully! Shipment #${response.data?.shipmentNumber || response.data?._id}\n\nItems: ${itemCount} item(s)\nWeight: ${modalData?.weight || 0.5} kg\n\nGo to Shipments page to schedule pickup and generate AWB.`;
-        alert(alertMsg);
+        toast({ title: "Shipment Created", description: `Shipment #${response.data?.shipmentNumber || response.data?._id} created successfully.` });
       } else {
         throw new Error(response.message || 'Failed to create shipment');
       }
@@ -422,16 +338,7 @@ const OrderDetail: React.FC = () => {
       setManualTrackingUrl('');
       fetchOrder();
     } catch (error: any) {
-      console.error('Failed to create shipment:', error);
-      console.error('Error details:', {
-        message: error.message,
-        status: error.response?.status,
-        statusText: error.response?.statusText,
-        data: error.response?.data,
-        request: error.config,
-      });
-      const errorMessage = error.response?.data?.message || error.response?.data?.error || error.message || 'Failed to create shipment. Please try again.';
-      alert(`Failed to create shipment:\n${errorMessage}\n\nCheck console for more details.`);
+      toast({ variant: "destructive", title: "Shipment Failed", description: error.response?.data?.message || 'Failed to create shipment.' });
     } finally {
       setSendingToShiprocket(false);
     }
@@ -445,285 +352,246 @@ const OrderDetail: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500"></div>
+      <div className="flex items-center justify-center p-24">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
       </div>
     );
   }
 
   if (!order) return null;
 
-  const statusOptions = [
-    'pending',
-    'confirmed',
-    'processing',
-    'shipped',
-    'delivered',
-    'cancelled',
-    'returned',
-  ];
-
-  // Parse discount reason to show breakdown
-  const discountBreakdown = order.discountReason
-    ? order.discountReason.split(',').map((d: string) => d.trim())
-    : [];
+  const statusOptions = ['pending','confirmed','processing','shipped','delivered','cancelled','returned'];
+  const discountBreakdown = order.discountReason ? order.discountReason.split(',').map((d: string) => d.trim()) : [];
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
+    <div className="max-w-7xl mx-auto space-y-6">
+      <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 mb-8">
         <div>
-          <button
-            onClick={() => navigate('/orders')}
-            className="text-gray-600 hover:text-gray-900 mb-2"
-          >
-            ← Back to Orders
-          </button>
-          <h1 className="text-3xl font-bold text-gray-900">Order {order.orderId}</h1>
+          <Button variant="ghost" className="mb-2 -ml-3 text-muted-foreground" onClick={() => navigate('/orders')}>
+            <FaArrowLeft className="mr-2 h-3.5 w-3.5" /> Back to Orders
+          </Button>
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">Order #{order.orderId}</h1>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Email Actions */}
-          {order.shippingAddress?.email && (
-            <div className="flex items-center gap-2 mr-2 border-r pr-2">
-              <button
-                onClick={() => handleSendEmail('confirmation')}
-                disabled={sendingEmail !== null}
-                className="flex items-center gap-2 px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-                title="Send Order Confirmation Email"
-              >
-                <FaEnvelope size={14} />
-                {sendingEmail === 'confirmation' ? 'Sending...' : 'Send Confirmation'}
-              </button>
-              <button
-                onClick={() => setShowUpdateEmailModal(true)}
-                disabled={sendingEmail !== null}
-                className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-                title="Send Order Update Email"
-              >
-                <FaEnvelope size={14} />
-                Send Update
-              </button>
-              <button
-                onClick={() => handleSendEmail('invoice')}
-                disabled={sendingEmail !== null}
-                className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-                title="Send Invoice Email"
-              >
-                <FaFileInvoice size={14} />
-                {sendingEmail === 'invoice' ? 'Sending...' : 'Send Invoice'}
-              </button>
-            </div>
-          )}
-          {order.orderStatus === 'pending' && order.paymentMethod === 'prepaid' && order.paymentStatus !== 'completed' && (
-            <button
-              onClick={() => setShowPaymentVerifyModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700"
-            >
-              <FaCreditCard size={16} />
-              Verify Payment
-            </button>
-          )}
-          {order.orderStatus === 'pending' && (
-            <button
-              onClick={handleConfirmOrder}
-              disabled={confirmingOrder || (order.paymentMethod === 'prepaid' && order.paymentStatus !== 'completed')}
-              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              title={order.paymentMethod === 'prepaid' && order.paymentStatus !== 'completed' ? 'Payment must be verified first' : 'Confirm Order'}
-            >
-              <FaCheckCircle size={16} />
-              {confirmingOrder ? 'Confirming...' : 'Confirm Order'}
-            </button>
-          )}
-          {order.orderStatus === 'confirmed' && !order.shippingProvider && (
-            <button
-              onClick={() => setShowShipmentModal(true)}
-              disabled={sendingToShiprocket}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <FaTruck size={16} />
-              {sendingToShiprocket ? 'Creating...' : 'Create Shipment'}
-            </button>
-          )}
-          <div className="flex items-center gap-2">
-            <input
+
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2 bg-muted/50 p-1 rounded-md border">
+            <Input
               type="text"
-              placeholder="Status notes (optional)"
+              placeholder="Status note..."
               value={statusNotes}
               onChange={(e) => setStatusNotes(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-md text-sm w-48"
+              className="h-9 w-40 sm:w-48 bg-background border-none shadow-none"
             />
-            <select
-              value={order.orderStatus}
-              onChange={(e) => handleStatusUpdate(e.target.value)}
-              disabled={updating}
-              className="px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-red-500"
-            >
-              {statusOptions.map((status) => (
-                <option key={status} value={status}>
-                  {status.charAt(0).toUpperCase() + status.slice(1)}
-                </option>
-              ))}
-            </select>
+            <Select value={order.orderStatus} onValueChange={handleStatusUpdate} disabled={updating}>
+              <SelectTrigger className="h-9 w-[130px] border-none bg-background shadow-none font-medium capitalize">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                {statusOptions.map(status => (
+                  <SelectItem key={status} value={status} className="capitalize">{status}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center isolate">
+            {order.shippingAddress?.email && (
+              <>
+                <Button variant="outline" size="sm" className="h-10 rounded-r-none border-r-0 text-green-700 hover:text-green-800"
+                  onClick={() => handleSendEmail('confirmation')} disabled={sendingEmail !== null}>
+                  <FaEnvelope className="mr-2 h-3.5 w-3.5" /> Confirmation
+                </Button>
+                <Button variant="outline" size="sm" className="h-10 rounded-none border-r-0 text-blue-700 hover:text-blue-800"
+                  onClick={() => setShowUpdateEmailModal(true)} disabled={sendingEmail !== null}>
+                  <FaEnvelope className="mr-2 h-3.5 w-3.5" /> Update
+                </Button>
+                <Button variant="outline" size="sm" className="h-10 rounded-l-none text-purple-700 hover:text-purple-800 mr-2"
+                  onClick={() => handleSendEmail('invoice')} disabled={sendingEmail !== null}>
+                  <FaFileInvoice className="mr-2 h-3.5 w-3.5" /> Invoice
+                </Button>
+              </>
+            )}
+
+            {order.orderStatus === 'pending' && order.paymentMethod === 'prepaid' && order.paymentStatus !== 'completed' && (
+              <Button variant="secondary" size="sm" className="h-10 bg-yellow-100 text-yellow-800 hover:bg-yellow-200 mr-2"
+                onClick={() => setShowPaymentVerifyModal(true)}>
+                <FaCreditCard className="mr-2 h-3.5 w-3.5" /> Verify Payment
+              </Button>
+            )}
+
+            {order.orderStatus === 'pending' && (
+              <Button variant="default" size="sm" className="h-10 bg-green-600 hover:bg-green-700 mr-2"
+                onClick={handleConfirmOrder} disabled={confirmingOrder || (order.paymentMethod === 'prepaid' && order.paymentStatus !== 'completed')}>
+                <FaCheckCircle className="mr-2 h-3.5 w-3.5" /> {confirmingOrder ? 'Confirming...' : 'Confirm Order'}
+              </Button>
+            )}
+
+            {order.orderStatus === 'confirmed' && !order.shippingProvider && (
+              <Button variant="default" size="sm" className="h-10 bg-blue-600 hover:bg-blue-700"
+                onClick={() => setShowShipmentModal(true)} disabled={sendingToShiprocket}>
+                <FaTruck className="mr-2 h-3.5 w-3.5" /> {sendingToShiprocket ? 'Creating...' : 'Create Shipment'}
+              </Button>
+            )}
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
-          {/* Order Items */}
           <OrderItems items={order.items || []} />
 
-          {/* Order Summary */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-bold mb-4">Order Summary</h2>
-            <OrderSummary
-              subtotal={order.subtotal || 0}
-              shipping={order.shipping || 0}
-              discount={order.discount || 0}
-              total={order.total || 0}
-              gst={order.gst}
-            />
-          </div>
+          <Card className="shadow-sm">
+            <CardHeader className="pb-3 border-b">
+              <CardTitle className="text-xl">Order Summary</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-6">
+              <OrderSummary
+                subtotal={order.subtotal || 0}
+                shipping={order.shipping || 0}
+                discount={order.discount || 0}
+                total={order.total || 0}
+                gst={order.gst}
+              />
+            </CardContent>
+          </Card>
 
-          {/* Discount Breakdown */}
-          <DiscountBreakdown
-            discounts={discountBreakdown}
-            couponCode={order.couponCode}
-          />
+          <Card className="shadow-sm">
+            <CardContent className="p-0">
+              <DiscountBreakdown discounts={discountBreakdown} couponCode={order.couponCode} />
+            </CardContent>
+          </Card>
 
-          {/* Shipping Address & Warehouse Information */}
-          <ShippingInformation
-            shippingAddress={order.shippingAddress}
-            warehouseId={order.warehouseId}
-            gst={order.gst}
-            onWhatsAppClick={handleWhatsAppClick}
-          />
+          <Card className="shadow-sm">
+            <CardContent className="p-0">
+              <ShippingInformation
+                shippingAddress={order.shippingAddress}
+                warehouseId={order.warehouseId}
+                gst={order.gst}
+                onWhatsAppClick={handleWhatsAppClick}
+              />
+            </CardContent>
+          </Card>
 
-          {/* Payment Information */}
-          <PaymentInformation
-            paymentMethod={order.paymentMethod}
-            paymentStatus={order.paymentStatus}
-            paymentGateway={order.paymentGateway}
-            razorpayOrderId={order.razorpayOrderId}
-            razorpayPaymentId={order.razorpayPaymentId}
-            razorpaySignature={order.razorpaySignature}
-            upiPaymentId={order.upiPaymentId}
-            upiPaymentLink={order.upiPaymentLink}
-            upiVerificationStatus={order.upiVerificationStatus}
-            upiPaymentScreenshot={order.upiPaymentScreenshot}
-            upiVerificationNotes={order.upiVerificationNotes}
-          />
+          <Card className="shadow-sm">
+            <CardContent className="p-0">
+              <PaymentInformation
+                paymentMethod={order.paymentMethod}
+                paymentStatus={order.paymentStatus}
+                paymentGateway={order.paymentGateway}
+                razorpayOrderId={order.razorpayOrderId}
+                razorpayPaymentId={order.razorpayPaymentId}
+                razorpaySignature={order.razorpaySignature}
+                upiPaymentId={order.upiPaymentId}
+                upiPaymentLink={order.upiPaymentLink}
+                upiVerificationStatus={order.upiVerificationStatus}
+                upiPaymentScreenshot={order.upiPaymentScreenshot}
+                upiVerificationNotes={order.upiVerificationNotes}
+              />
+            </CardContent>
+          </Card>
 
-          {/* Billing Address */}
           {order.billingAddress && (
-            <div className="bg-white rounded-lg shadow p-6">
-              <h2 className="text-xl font-bold mb-4">Billing Address</h2>
-              <div className="space-y-2 text-gray-700">
-                <p className="font-medium">{order.billingAddress?.fullName}</p>
-                <p>{order.billingAddress?.address}</p>
-                {order.billingAddress?.addressLine2 && (
-                  <p>{order.billingAddress.addressLine2}</p>
-                )}
-                <p>
-                  {order.billingAddress?.district}, {order.billingAddress?.state}{' '}
-                  {order.billingAddress?.pincode}
-                </p>
-                <p>Phone: {order.billingAddress?.mobileNumber}</p>
-                {order.billingAddress?.email && (
-                  <p>Email: {order.billingAddress.email}</p>
-                )}
-              </div>
-            </div>
+            <Card className="shadow-sm">
+              <CardHeader className="pb-3 border-b">
+                <CardTitle className="text-xl">Billing Address</CardTitle>
+              </CardHeader>
+              <CardContent className="pt-6">
+                <div className="space-y-2 text-muted-foreground text-sm">
+                  <p className="font-semibold text-foreground text-base mb-1">{order.billingAddress?.fullName}</p>
+                  <p>{order.billingAddress?.address}</p>
+                  {order.billingAddress?.addressLine2 && <p>{order.billingAddress.addressLine2}</p>}
+                  <p>{order.billingAddress?.district}, {order.billingAddress?.state} {order.billingAddress?.pincode}</p>
+                  <p className="pt-2 font-medium">Phone: {order.billingAddress?.mobileNumber}</p>
+                  {order.billingAddress?.email && <p className="font-medium">Email: {order.billingAddress.email}</p>}
+                </div>
+              </CardContent>
+            </Card>
           )}
         </div>
 
-        {/* Sidebar */}
         <div className="space-y-6">
-          {/* Order Information */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-bold mb-4">Order Information</h2>
-            <div className="space-y-3">
-              <div>
-                <p className="text-sm text-gray-500">Order Status</p>
-                <div className="mt-1">
+          <Card className="shadow-sm">
+            <CardHeader className="pb-3 border-b">
+              <CardTitle className="text-xl">Order Information</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-6">
+              <div className="space-y-4 text-sm">
+                <div>
+                  <p className="text-muted-foreground mb-1">Order Status</p>
                   <StatusBadge status={order.orderStatus} type="order" />
                 </div>
-              </div>
-              <div>
-                <p className="text-sm text-gray-500">Payment Method</p>
-                <p className="font-medium">{order.paymentMethod === 'cod' ? 'COD' : 'Prepaid'}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-500">Payment Status</p>
-                <div className="mt-1">
+                <div>
+                  <p className="text-muted-foreground mb-0.5">Payment Method</p>
+                  <p className="font-semibold text-foreground">{order.paymentMethod === 'cod' ? 'COD' : 'Prepaid'}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground mb-1">Payment Status</p>
                   <StatusBadge status={order.paymentStatus} type="payment" />
                 </div>
+                <div>
+                  <p className="text-muted-foreground mb-0.5">Order Date</p>
+                  <p className="font-medium text-foreground">
+                    {order.createdAt ? format(new Date(order.createdAt), 'MMM dd, yyyy HH:mm') : 'N/A'}
+                  </p>
+                </div>
+                {order.trackingUrl && (
+                  <div className="pt-2 border-t">
+                    <p className="text-muted-foreground mb-1">Tracking URL</p>
+                    <a href={order.trackingUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 hover:underline font-medium">
+                      Track Shipment
+                    </a>
+                  </div>
+                )}
+                {order.shippingProvider && (
+                  <div className="pt-2 border-t">
+                    <p className="text-muted-foreground mb-1">Shipping Provider</p>
+                    <p className="font-medium text-foreground capitalize">{order.shippingProvider}</p>
+                  </div>
+                )}
+                {order.shiprocketAWB && (
+                  <div className="pt-2 border-t">
+                    <p className="text-muted-foreground mb-1">Shiprocket AWB</p>
+                    <p className="font-mono text-foreground font-medium bg-muted px-2 py-1 rounded w-fit">{order.shiprocketAWB}</p>
+                  </div>
+                )}
+                {order.delhiveryWaybill && (
+                  <div className="pt-2 border-t">
+                    <p className="text-muted-foreground mb-1">DELHIVERY Waybill</p>
+                    <p className="font-mono text-foreground font-medium bg-muted px-2 py-1 rounded w-fit">{order.delhiveryWaybill}</p>
+                  </div>
+                )}
+                {order.warehouseId && (
+                  <div className="pt-2 border-t">
+                    <p className="text-muted-foreground mb-1">Assigned Warehouse</p>
+                    <p className="font-medium text-foreground">{(order.warehouseId as any)?.name || 'N/A'}</p>
+                  </div>
+                )}
               </div>
-              <div>
-                <p className="text-sm text-gray-500">Order Date</p>
-                <p className="font-medium">
-                  {order.createdAt ? format(new Date(order.createdAt), 'MMM dd, yyyy HH:mm') : 'N/A'}
-                </p>
-              </div>
-              {order.trackingUrl && (
-                <div>
-                  <p className="text-sm text-gray-500">Tracking</p>
-                  <a
-                    href={order.trackingUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-red-600 hover:underline"
-                  >
-                    Track Order
-                  </a>
-                </div>
-              )}
-              {order.shippingProvider && (
-                <div>
-                  <p className="text-sm text-gray-500">Shipping Provider</p>
-                  <p className="font-medium text-sm capitalize">{order.shippingProvider}</p>
-                </div>
-              )}
-              {order.shiprocketAWB && (
-                <div>
-                  <p className="text-sm text-gray-500">Shiprocket AWB</p>
-                  <p className="font-mono text-sm">{order.shiprocketAWB}</p>
-                </div>
-              )}
-              {order.delhiveryWaybill && (
-                <div>
-                  <p className="text-sm text-gray-500">DELHIVERY Waybill</p>
-                  <p className="font-mono text-sm">{order.delhiveryWaybill}</p>
-                </div>
-              )}
-              {order.warehouseId && (
-                <div>
-                  <p className="text-sm text-gray-500">Warehouse</p>
-                  <p className="font-medium text-sm">{(order.warehouseId as any)?.name || 'N/A'}</p>
-                </div>
-              )}
-            </div>
-          </div>
+            </CardContent>
+          </Card>
 
-          {/* Order Notes */}
-          <OrderNotes
-            notes={notesText}
-            editing={editingNotes}
-            onEdit={() => setEditingNotes(true)}
-            onSave={handleSaveNotes}
-            onCancel={() => {
-                      setEditingNotes(false);
-                      setNotesText(order.notes || '');
-                    }}
-            onChange={setNotesText}
-            saving={savingNotes}
-          />
+          <Card className="shadow-sm">
+            <CardContent className="p-0">
+              <OrderNotes
+                notes={notesText}
+                editing={editingNotes}
+                onEdit={() => setEditingNotes(true)}
+                onSave={handleSaveNotes}
+                onCancel={() => { setEditingNotes(false); setNotesText(order.notes || ''); }}
+                onChange={setNotesText}
+                saving={savingNotes}
+              />
+            </CardContent>
+          </Card>
 
-          {/* Status History */}
-          <OrderStatusHistory statusHistory={order.statusHistory} />
+          <Card className="shadow-sm">
+            <CardContent className="p-0">
+              <OrderStatusHistory statusHistory={order.statusHistory} />
+            </CardContent>
+          </Card>
         </div>
       </div>
 
-      {/* Shipment Creation Modal */}
       <ShipmentCreationModal
         isOpen={showShipmentModal}
         onClose={() => setShowShipmentModal(false)}
@@ -745,7 +613,6 @@ const OrderDetail: React.FC = () => {
         orderItems={order?.items || []}
       />
 
-      {/* Payment Verification Modal */}
       <PaymentVerificationModal
         isOpen={showPaymentVerifyModal}
         onClose={() => setShowPaymentVerifyModal(false)}
@@ -761,14 +628,9 @@ const OrderDetail: React.FC = () => {
         onPaymentVerificationNotesChange={setPaymentVerificationNotes}
       />
 
-      {/* Update Email Modal */}
       <UpdateEmailModal
         isOpen={showUpdateEmailModal}
-        onClose={() => {
-          setShowUpdateEmailModal(false);
-          setUpdateEmailSubject('');
-          setUpdateEmailContent('');
-        }}
+        onClose={() => { setShowUpdateEmailModal(false); setUpdateEmailSubject(''); setUpdateEmailContent(''); }}
         onSubmit={handleSendUpdateEmail}
         loading={sendingEmail === 'update'}
         subject={updateEmailSubject}

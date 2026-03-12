@@ -1,4 +1,14 @@
 import React from 'react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 interface ShipmentFiltersProps {
   statusFilter: string;
@@ -28,73 +38,80 @@ const ShipmentFilters: React.FC<ShipmentFiltersProps> = ({
   onEndDateChange,
 }) => {
   return (
-    <div className="bg-white p-4 rounded-lg shadow mb-6">
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-          <select
-            value={statusFilter}
-            onChange={(e) => onStatusChange(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-red-500"
-          >
-            <option value="">All Status</option>
-            <option value="pending">Pending</option>
-            <option value="pickup_scheduled">Pickup Scheduled</option>
-            <option value="picked_up">Picked Up</option>
-            <option value="in_transit">In Transit</option>
-            <option value="out_for_delivery">Out for Delivery</option>
-            <option value="delivered">Delivered</option>
-            <option value="cancelled">Cancelled</option>
-            <option value="returned">Returned</option>
-          </select>
+    <Card className="mb-6 border-none shadow-sm bg-white">
+      <CardContent className="p-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
+          <div className="space-y-1.5">
+            <Label>Status</Label>
+            <Select value={statusFilter} onValueChange={(value) => onStatusChange(value === 'all' ? '' : value)}>
+              <SelectTrigger>
+                <SelectValue placeholder="All Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="pickup_scheduled">Pickup Scheduled</SelectItem>
+                <SelectItem value="picked_up">Picked Up</SelectItem>
+                <SelectItem value="in_transit">In Transit</SelectItem>
+                <SelectItem value="out_for_delivery">Out for Delivery</SelectItem>
+                <SelectItem value="delivered">Delivered</SelectItem>
+                <SelectItem value="cancelled">Cancelled</SelectItem>
+                <SelectItem value="returned">Returned</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          
+          <div className="space-y-1.5">
+            <Label>Warehouse</Label>
+            <Select value={warehouseFilter} onValueChange={(value) => onWarehouseChange(value === 'all' ? '' : value)}>
+              <SelectTrigger>
+                <SelectValue placeholder="All Warehouses" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Warehouses</SelectItem>
+                {Array.isArray(warehouses) && warehouses.map(wh => (
+                  <SelectItem key={wh._id} value={wh._id}>{wh.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Shipping Provider</Label>
+            <Select value={providerFilter} onValueChange={(value) => onProviderChange(value === 'all' ? '' : value)}>
+              <SelectTrigger>
+                <SelectValue placeholder="All Providers" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Providers</SelectItem>
+                <SelectItem value="shiprocket">Shiprocket</SelectItem>
+                <SelectItem value="delhivery">DELHIVERY</SelectItem>
+                <SelectItem value="manual">Manual</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Start Date</Label>
+            <Input
+              type="date"
+              value={startDate}
+              onChange={(e) => onStartDateChange(e.target.value)}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>End Date</Label>
+            <Input
+              type="date"
+              value={endDate}
+              onChange={(e) => onEndDateChange(e.target.value)}
+              min={startDate || undefined}
+            />
+          </div>
         </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Warehouse</label>
-          <select
-            value={warehouseFilter}
-            onChange={(e) => onWarehouseChange(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-red-500"
-          >
-            <option value="">All Warehouses</option>
-            {Array.isArray(warehouses) && warehouses.map(wh => (
-              <option key={wh._id} value={wh._id}>{wh.name}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Shipping Provider</label>
-          <select
-            value={providerFilter}
-            onChange={(e) => onProviderChange(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-red-500"
-          >
-            <option value="">All Providers</option>
-            <option value="shiprocket">Shiprocket</option>
-            <option value="delhivery">DELHIVERY</option>
-            <option value="manual">Manual</option>
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
-          <input
-            type="date"
-            value={startDate}
-            onChange={(e) => onStartDateChange(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-red-500"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
-          <input
-            type="date"
-            value={endDate}
-            onChange={(e) => onEndDateChange(e.target.value)}
-            min={startDate || undefined}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-red-500"
-          />
-        </div>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 };
 

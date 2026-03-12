@@ -1,8 +1,26 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { productsAPI } from '../services/api';
-import { FaPlus, FaEdit, FaTrash, FaCog, FaCopy } from 'react-icons/fa';
+import { FaPlus, FaEdit, FaTrash, FaCog, FaCopy, FaEllipsisV } from 'react-icons/fa';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const Products: React.FC = () => {
   const [products, setProducts] = useState<any[]>([]);
@@ -15,55 +33,21 @@ const Products: React.FC = () => {
   }, []);
 
   const sanitizeProduct = (product: any): any => {
-    // Backend now sends all ObjectIds as strings via serializeObjectIds()
-    // This is just a safety check for edge cases
     const sanitized = { ...product };
-    
-    // Ensure _id is a string (backend handles this, but safety check)
-    if (sanitized._id && typeof sanitized._id !== 'string') {
-      sanitized._id = String(sanitized._id);
-    }
-    
-    // Ensure categories are properly formatted (backend handles this)
+    if (sanitized._id && typeof sanitized._id !== 'string') sanitized._id = String(sanitized._id);
     if (Array.isArray(sanitized.categories)) {
       sanitized.categories = sanitized.categories.map((cat: any) => {
         if (typeof cat === 'string') return cat;
-        if (cat && typeof cat === 'object' && cat._id) {
-          return {
-            ...cat,
-            _id: typeof cat._id === 'string' ? cat._id : String(cat._id)
-          };
-        }
+        if (cat && typeof cat === 'object' && cat._id) return { ...cat, _id: typeof cat._id === 'string' ? cat._id : String(cat._id) };
         return cat;
       });
     }
-    
-    // Sanitize images - ensure they're strings
     if (Array.isArray(sanitized.images)) {
-      sanitized.images = sanitized.images
-        .map((img: any) => {
-          if (typeof img === 'string') {
-            return img;
-          }
-          // Skip buffer objects or non-string images
-          return null;
-        })
-        .filter((img: any) => img !== null);
+      sanitized.images = sanitized.images.map((img: any) => typeof img === 'string' ? img : null).filter(Boolean);
     }
-    
-    // Ensure all numeric fields are numbers
-    if (sanitized.price !== undefined) {
-      sanitized.price = typeof sanitized.price === 'number' ? sanitized.price : Number(sanitized.price) || 0;
-    }
-    if (sanitized.originalPrice !== undefined) {
-      sanitized.originalPrice = typeof sanitized.originalPrice === 'number' ? sanitized.originalPrice : Number(sanitized.originalPrice) || 0;
-    }
-    
-    // Ensure name is a string
-    if (sanitized.name !== undefined) {
-      sanitized.name = String(sanitized.name || '');
-    }
-    
+    if (sanitized.price !== undefined) sanitized.price = Number(sanitized.price) || 0;
+    if (sanitized.originalPrice !== undefined) sanitized.originalPrice = Number(sanitized.originalPrice) || 0;
+    if (sanitized.name !== undefined) sanitized.name = String(sanitized.name || '');
     return sanitized;
   };
 
@@ -71,17 +55,7 @@ const Products: React.FC = () => {
     try {
       setLoading(true);
       const response = await productsAPI.getAll();
-      // Backend returns: { success: true, data: products[], count: number }
-      // API interceptor normalizes to: products[] or { data: products[] }
-      let products: any[] = [];
-      if (Array.isArray(response)) {
-        products = response;
-      } else if (response?.data && Array.isArray(response.data)) {
-        products = response.data;
-      } else if (response?.data?.data && Array.isArray(response.data.data)) {
-        products = response.data.data;
-      }
-      // Sanitize all products to remove any buffer objects or non-serializable data
+      let products: any[] = Array.isArray(response) ? response : (response?.data?.data || response?.data || []);
       setProducts(products.map(sanitizeProduct));
     } catch (error) {
       console.error('Failed to fetch products:', error);
@@ -95,18 +69,13 @@ const Products: React.FC = () => {
     setDuplicatingId(id);
     try {
       const response = await productsAPI.duplicate(id);
-      const prefilledData = response?.data;
-      
-      if (prefilledData) {
-        // Navigate to add page with prefilled data
-        navigate('/products/new', {
-          state: { prefilledData, duplicatedFrom: id },
-        });
+      if (response?.data) {
+        navigate('/products/new', { state: { prefilledData: response.data, duplicatedFrom: id } });
       } else {
         alert('Failed to load product data for duplication.');
       }
     } catch (error) {
-      console.error('Failed to duplicate product:', error);
+      console.error('Failed to duplicate:', error);
       alert('Failed to duplicate product. Please try again.');
     } finally {
       setDuplicatingId(null);
@@ -115,7 +84,6 @@ const Products: React.FC = () => {
 
   const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this product?')) return;
-
     try {
       await productsAPI.delete(id);
       fetchProducts();
@@ -133,188 +101,132 @@ const Products: React.FC = () => {
   }
 
   return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Products</h1>
-        <Link
-          to="/products/new"
-          className="flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-        >
-          <FaPlus className="mr-2" />
-          Add Product
-        </Link>
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h1 className="text-3xl font-bold tracking-tight">Products</h1>
+        <Button asChild className="bg-primary hover:bg-primary/90 text-primary-foreground">
+          <Link to="/products/new">
+            <FaPlus className="mr-2" /> Add Product
+          </Link>
+        </Button>
       </div>
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Product
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Price
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Categories
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Status
-              </th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
+      <div className="rounded-md border bg-card shadow-sm">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Product</TableHead>
+              <TableHead>Price</TableHead>
+              <TableHead>Categories</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {products.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="px-6 py-4 text-center text-gray-500">
-                  No products found
-                </td>
-              </tr>
+              <TableRow>
+                <TableCell colSpan={5} className="h-24 text-center">
+                  No products found.
+                </TableCell>
+              </TableRow>
             ) : (
-              products.map((product, index) => (
-                <tr key={String(product._id || index)} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      {product.images && Array.isArray(product.images) && product.images.length > 0 && typeof product.images[0] === 'string' && (
-                        <img
-                          src={product.images[0]}
-                          alt={String(product.name || 'Product')}
-                          className="h-12 w-12 rounded object-cover mr-4"
-                          onError={(e) => {
-                            // Hide image if it fails to load
-                            (e.target as HTMLImageElement).style.display = 'none';
-                          }}
-                        />
+              products.map((product) => (
+                <TableRow key={product._id}>
+                  <TableCell>
+                    <div className="flex items-center gap-4">
+                      {product.images?.[0] ? (
+                        <div className="h-12 w-12 rounded-md overflow-hidden bg-muted flex-shrink-0">
+                          <img
+                            src={product.images[0]}
+                            alt={product.name}
+                            className="h-full w-full object-cover"
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          />
+                        </div>
+                      ) : (
+                        <div className="h-12 w-12 rounded-md bg-muted flex items-center justify-center text-muted-foreground text-xs">No img</div>
                       )}
-                      <div>
-                        <div className="text-sm font-medium text-gray-900">{product.name || 'Unnamed Product'}</div>
-                        <div className="text-sm text-gray-500">ID: {String(product._id || '')}</div>
+                      <div className="flex flex-col">
+                        <span className="font-medium text-foreground">{product.name || 'Unnamed Product'}</span>
+                        <span className="text-xs text-muted-foreground tracking-wider">ID: {product._id}</span>
                       </div>
                     </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">
-                      ₹{typeof product.price === 'number' ? product.price.toLocaleString('en-IN') : '0'}
-                    </div>
-                    {product.originalPrice && typeof product.originalPrice === 'number' && (
-                      <div className="text-sm text-gray-500 line-through">
+                  </TableCell>
+                  <TableCell>
+                    <div className="font-medium">₹{product.price.toLocaleString('en-IN')}</div>
+                    {product.originalPrice > 0 && (
+                      <div className="text-xs text-muted-foreground line-through">
                         ₹{product.originalPrice.toLocaleString('en-IN')}
                       </div>
                     )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    {product.categories && Array.isArray(product.categories) && product.categories.length > 0 ? (
-                      <div className="flex flex-wrap gap-1">
-                        {product.categories.map((cat: any, index: number) => {
-                          // Safely extract category data, handling various formats
-                          let id: string;
-                          let name: string;
-                          
-                          if (typeof cat === 'string') {
-                            id = cat;
-                            name = cat;
-                          } else if (cat && typeof cat === 'object') {
-                            // Handle ObjectId or populated category
-                            id = cat._id ? String(cat._id) : cat.slug || cat.name || `cat-${index}`;
-                            name = cat.name || cat.slug || 'Category';
-                            // Ensure name is a string, not an object
-                            name = String(name);
-                          } else {
-                            id = `cat-${index}`;
-                            name = 'Category';
-                          }
-                          
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1">
+                      {product.categories?.length ? (
+                        product.categories.map((cat: any, i: number) => {
+                          const name = cat?.name || cat?.slug || (typeof cat === 'string' ? cat : 'Category');
                           return (
-                            <span
-                              key={`${String(product._id || '')}-${id}-${index}`}
-                              className="px-2 py-0.5 text-xs bg-gray-100 text-gray-700 rounded"
-                            >
+                            <Badge variant="secondary" key={`${product._id}-cat-${i}`} className="text-xs font-normal">
                               {name}
-                            </span>
+                            </Badge>
                           );
-                        })}
-                      </div>
-                    ) : (
-                      <span className="text-xs text-gray-400">Unassigned</span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span
-                      className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        product.isActive
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-red-100 text-red-800'
-                      }`}
-                    >
-                      {product.isActive ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <div className="flex justify-end space-x-2">
-                      <Link
-                        to={`/products/${product._id || ''}/edit`}
-                        className="text-blue-600 hover:text-blue-900"
-                        title="Edit Product"
-                      >
-                        <FaEdit />
-                      </Link>
-                      <Link
-                        to={`/products/${product._id || ''}/sections`}
-                        className="text-purple-600 hover:text-purple-900"
-                        title="Manage Sections"
-                      >
-                        <FaCog />
-                      </Link>
-                      <button
-                        onClick={() => handleDuplicate(product._id || '')}
-                        className="text-green-600 hover:text-green-900 disabled:opacity-50"
-                        title="Duplicate Product"
-                        disabled={duplicatingId === product._id}
-                      >
-                        {duplicatingId === product._id ? (
-                          <svg
-                            className="animate-spin h-4 w-4"
-                            viewBox="0 0 24 24"
-                          >
-                            <circle
-                              className="opacity-25"
-                              cx="12"
-                              cy="12"
-                              r="10"
-                              stroke="currentColor"
-                              strokeWidth="4"
-                            ></circle>
-                            <path
-                              className="opacity-75"
-                              fill="currentColor"
-                              d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-                            ></path>
-                          </svg>
-                        ) : (
-                          <FaCopy />
-                        )}
-                      </button>
-                      <button
-                        onClick={() => handleDelete(product._id || '')}
-                        className="text-red-600 hover:text-red-900"
-                        title="Delete Product"
-                      >
-                        <FaTrash />
-                      </button>
+                        })
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Unassigned</span>
+                      )}
                     </div>
-                  </td>
-                </tr>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={product.isActive ? "default" : "destructive"} className={product.isActive ? "bg-green-500/15 text-green-700 hover:bg-green-500/25 border-green-200" : ""}>
+                      {product.isActive ? 'Active' : 'Inactive'}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" className="h-8 w-8 p-0">
+                          <span className="sr-only">Open menu</span>
+                          <FaEllipsisV className="h-4 w-4 text-muted-foreground" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                        <DropdownMenuItem asChild>
+                          <Link to={`/products/${product._id}/edit`} className="cursor-pointer">
+                            <FaEdit className="mr-2 h-4 w-4" /> Edit
+                          </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem asChild>
+                          <Link to={`/products/${product._id}/sections`} className="cursor-pointer">
+                            <FaCog className="mr-2 h-4 w-4" /> Manage Sections
+                          </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem 
+                          className="cursor-pointer" 
+                          onClick={() => handleDuplicate(product._id)}
+                          disabled={duplicatingId === product._id}
+                        >
+                          <FaCopy className="mr-2 h-4 w-4" /> 
+                          {duplicatingId === product._id ? 'Duplicating...' : 'Duplicate'}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem 
+                          className="cursor-pointer text-destructive focus:text-destructive" 
+                          onClick={() => handleDelete(product._id)}
+                        >
+                          <FaTrash className="mr-2 h-4 w-4" /> Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
               ))
             )}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
     </div>
   );
 };
 
 export default Products;
-

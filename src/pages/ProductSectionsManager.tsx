@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { productsAPI, uploadAPI } from '../services/api';
 import { FaArrowLeft, FaCheck, FaTimes, FaEdit, FaPlus, FaTrash, FaUpload, FaMagic, FaImage } from 'react-icons/fa';
 import ImageInputWithActions from '../components/common/ImageInputWithActions';
+import IconPicker from '../components/IconPicker';
 
 interface ProductPageSection {
   sectionId: string;
@@ -608,16 +609,18 @@ const FeaturesEditor: React.FC<{ data: any; onChange: (data: any) => void }> = (
             </button>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Icon Type</label>
-            <select
-              value={item.iconType || 'check'}
-              onChange={(e) => updateItem(index, 'iconType', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-            >
-              <option value="check">Check (Green)</option>
-              <option value="exchange">Exchange (Blue)</option>
-              <option value="shipping">Shipping (Purple)</option>
-            </select>
+            <IconPicker
+              label="Icon"
+              value={item.iconName || ''}
+              onChange={(name) => updateItem(index, 'iconName', name)}
+            />
+            {!item.iconName && (
+              <p className="text-xs text-gray-500 mt-1">Or use legacy: <select value={item.iconType || 'check'} onChange={(e) => updateItem(index, 'iconType', e.target.value)} className="text-xs border rounded px-1">
+                <option value="check">check</option>
+                <option value="exchange">exchange</option>
+                <option value="shipping">shipping</option>
+              </select></p>
+            )}
           </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
@@ -719,16 +722,11 @@ const WhySpeedsterEditor: React.FC<{ data: any; onChange: (data: any) => void; p
               </button>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Icon Type</label>
-              <select
-                value={item.iconType || 'shield'}
-                onChange={(e) => updateItem(index, 'iconType', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-              >
-                <option value="shield">Shield</option>
-                <option value="star">Star</option>
-                <option value="bolt">Bolt</option>
-              </select>
+              <IconPicker
+                label="Icon"
+                value={item.iconName || ''}
+                onChange={(name) => updateItem(index, 'iconName', name)}
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
@@ -819,19 +817,11 @@ const WhyUsEditor: React.FC<{ data: any; onChange: (data: any) => void }> = ({ d
               </button>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Icon Type</label>
-              <select
-                value={benefit.iconType || 'check'}
-                onChange={(e) => updateBenefit(index, 'iconType', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-              >
-                <option value="check">Check</option>
-                <option value="clock">Clock</option>
-                <option value="return">Return</option>
-                <option value="shield">Shield</option>
-                <option value="star">Star</option>
-                <option value="tag">Tag</option>
-              </select>
+              <IconPicker
+                label="Icon"
+                value={benefit.iconName || ''}
+                onChange={(name) => updateBenefit(index, 'iconName', name)}
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>

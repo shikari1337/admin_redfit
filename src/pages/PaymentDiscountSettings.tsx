@@ -1,7 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaArrowLeft, FaSave, FaCreditCard, FaPlus, FaTrash, FaPercent } from 'react-icons/fa';
+import { ArrowLeft, Save, CreditCard, Plus, Trash2, Percent, Loader2 } from 'lucide-react';
 import api from '../services/api';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 
 interface QuantityDiscount {
   minQuantity: number;
@@ -26,8 +30,6 @@ const PaymentDiscountSettings: React.FC = () => {
     try {
       setLoading(true);
       const response = await api.get('/settings/admin');
-      // Backend returns: { success: true, data: settings }
-      // API interceptor normalizes to: settings or { data: settings }
       const settings = response.data?.success && response.data?.data 
         ? response.data.data 
         : response.data?.data 
@@ -47,7 +49,6 @@ const PaymentDiscountSettings: React.FC = () => {
       }
     } catch (error: any) {
       console.error('Failed to fetch settings:', error);
-      // Use default value if fetch fails
       setFormData({
         razorpayDiscountPercent: 2,
         quantityDiscounts: [
@@ -82,82 +83,88 @@ const PaymentDiscountSettings: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500"></div>
+      <div className="flex items-center justify-center p-12">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
   }
 
   return (
-    <div className="max-w-4xl mx-auto">
-      <div className="mb-6">
-        <button
+    <div className="max-w-4xl mx-auto space-y-6">
+      <div>
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => navigate('/settings')}
-          className="flex items-center text-gray-600 hover:text-gray-900 mb-4"
+          className="text-muted-foreground mb-4"
         >
-          <FaArrowLeft className="mr-2" />
+          <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Settings
-        </button>
-        <h1 className="text-3xl font-bold text-gray-900">Payment Gateway Discount</h1>
-        <p className="text-sm text-gray-600 mt-2">Configure discount percentage for prepaid orders</p>
+        </Button>
+        <h1 className="text-3xl font-bold tracking-tight text-foreground">Payment Gateway Discount</h1>
+        <p className="text-sm text-muted-foreground mt-2">Configure discount percentage for prepaid orders</p>
       </div>
 
-      <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <div className="space-y-6">
-          <div className="flex items-center gap-4 mb-6">
+      <form onSubmit={handleSubmit} className="space-y-6 pb-12">
+        <Card>
+          <CardHeader className="flex flex-row items-center gap-4">
             <div className="flex-shrink-0 w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center">
-              <FaCreditCard className="w-6 h-6 text-red-600" />
+              <CreditCard className="w-6 h-6 text-red-600" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">Razorpay Discount</h2>
-              <p className="text-sm text-gray-600">Percentage discount applied to prepaid orders</p>
+              <CardTitle>Razorpay Discount</CardTitle>
+              <CardDescription>Percentage discount applied to prepaid orders</CardDescription>
             </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Discount Percentage <span className="text-red-500">*</span>
-            </label>
-            <div className="flex items-center gap-3">
-              <input
-                type="number"
-                required
-                min="0"
-                max="100"
-                step="0.1"
-                value={formData.razorpayDiscountPercent}
-                onChange={(e) => handleChange('razorpayDiscountPercent', e.target.value)}
-                placeholder="2"
-                className="w-32 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-              />
-              <span className="text-gray-600 font-medium">%</span>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">
+                Discount Percentage <span className="text-destructive">*</span>
+              </label>
+              <div className="flex items-center gap-3">
+                <Input
+                  type="number"
+                  required
+                  min="0"
+                  max="100"
+                  step="0.1"
+                  value={formData.razorpayDiscountPercent}
+                  onChange={(e) => handleChange('razorpayDiscountPercent', e.target.value)}
+                  placeholder="2"
+                  className="w-32"
+                />
+                <span className="text-foreground font-medium">%</span>
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                This discount will be applied to prepaid orders (Razorpay payments). 
+                The discount is calculated on the subtotal after quantity discounts.
+              </p>
             </div>
-            <p className="text-xs text-gray-500 mt-1">
-              This discount will be applied to prepaid orders (Razorpay payments). 
-              The discount is calculated on the subtotal after quantity discounts.
-            </p>
-          </div>
 
-          <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
-            <p className="text-sm text-blue-800">
-              <strong>Note:</strong> This setting controls the discount percentage shown in the checkout page. 
-              Make sure the backend also uses the same percentage for consistency.
-            </p>
-          </div>
-        </div>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <p className="text-sm text-blue-800">
+                <strong>Note:</strong> This setting controls the discount percentage shown in the checkout page. 
+                Make sure the backend also uses the same percentage for consistency.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Quantity Discounts Section */}
-        <div className="mt-8 pt-8 border-t border-gray-200">
-          <div className="flex items-center gap-4 mb-6">
-            <div className="flex-shrink-0 w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-              <FaPercent className="w-6 h-6 text-green-600" />
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-4 border-t pt-6 mt-6">
+            <div className="flex items-center gap-4">
+              <div className="flex-shrink-0 w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                <Percent className="w-6 h-6 text-green-600" />
+              </div>
+              <div>
+                <CardTitle>Quantity Discounts</CardTitle>
+                <CardDescription>Configure automatic discounts based on total quantity</CardDescription>
+              </div>
             </div>
-            <div className="flex-1">
-              <h2 className="text-lg font-semibold text-gray-900">Quantity Discounts</h2>
-              <p className="text-sm text-gray-600">Configure automatic discounts based on total quantity</p>
-            </div>
-            <button
+            <Button
               type="button"
+              variant="outline"
               onClick={() => {
                 setFormData({
                   ...formData,
@@ -167,119 +174,118 @@ const PaymentDiscountSettings: React.FC = () => {
                   ],
                 });
               }}
-              className="flex items-center gap-2 px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+              className="text-green-600 border-green-200 hover:bg-green-50"
             >
-              <FaPlus size={12} />
+              <Plus className="w-4 h-4 mr-2" />
               Add Tier
-            </button>
-          </div>
-
-          {formData.quantityDiscounts.length === 0 ? (
-            <p className="text-sm text-gray-500 mb-4">No quantity discounts configured. Click "Add Tier" to add one.</p>
-          ) : (
-            <div className="space-y-4">
-              {formData.quantityDiscounts.map((discount, index) => (
-                <div key={index} className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                  <div className="flex-1 grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Minimum Quantity
-                      </label>
-                      <input
-                        type="number"
-                        min="1"
-                        value={discount.minQuantity}
-                        onChange={(e) => {
-                          const newDiscounts = [...formData.quantityDiscounts];
-                          newDiscounts[index].minQuantity = parseInt(e.target.value) || 1;
-                          setFormData({ ...formData, quantityDiscounts: newDiscounts });
-                        }}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Discount Percentage
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <input
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {formData.quantityDiscounts.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">No quantity discounts configured. Click "Add Tier" to add one.</p>
+            ) : (
+              <div className="space-y-4">
+                {formData.quantityDiscounts.map((discount, index) => (
+                  <div key={index} className="flex items-center gap-4 p-4 bg-muted/50 rounded-lg border">
+                    <div className="flex-1 grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-foreground">
+                          Minimum Quantity
+                        </label>
+                        <Input
                           type="number"
-                          min="0"
-                          max="100"
-                          step="0.1"
-                          value={discount.discountPercent}
+                          min="1"
+                          value={discount.minQuantity}
                           onChange={(e) => {
                             const newDiscounts = [...formData.quantityDiscounts];
-                            newDiscounts[index].discountPercent = parseFloat(e.target.value) || 0;
+                            newDiscounts[index].minQuantity = parseInt(e.target.value) || 1;
                             setFormData({ ...formData, quantityDiscounts: newDiscounts });
                           }}
-                          className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
                         />
-                        <span className="text-gray-600 font-medium">%</span>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-foreground">
+                          Discount Percentage
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type="number"
+                            min="0"
+                            max="100"
+                            step="0.1"
+                            value={discount.discountPercent}
+                            onChange={(e) => {
+                              const newDiscounts = [...formData.quantityDiscounts];
+                              newDiscounts[index].discountPercent = parseFloat(e.target.value) || 0;
+                              setFormData({ ...formData, quantityDiscounts: newDiscounts });
+                            }}
+                          />
+                          <span className="text-foreground font-medium">%</span>
+                        </div>
                       </div>
                     </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        const newDiscounts = formData.quantityDiscounts.filter((_, i) => i !== index);
+                        setFormData({ ...formData, quantityDiscounts: newDiscounts });
+                      }}
+                      className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const newDiscounts = formData.quantityDiscounts.filter((_, i) => i !== index);
-                      setFormData({ ...formData, quantityDiscounts: newDiscounts });
-                    }}
-                    className="text-red-600 hover:text-red-800 p-2"
-                  >
-                    <FaTrash size={16} />
-                  </button>
-                </div>
-              ))}
+                ))}
+              </div>
+            )}
+
+            <div className="pt-4 border-t space-y-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox
+                  checked={formData.excludeBundledProductsFromQuantityDiscount}
+                  onCheckedChange={(checked) => setFormData(prev => ({ ...prev, excludeBundledProductsFromQuantityDiscount: checked as boolean }))}
+                />
+                <span className="text-sm font-medium">Exclude bundled products from quantity discounts</span>
+              </label>
+              <p className="text-[10px] text-muted-foreground pl-6">
+                When enabled, products purchased with quantity-based bundles will not count toward quantity discount thresholds. 
+                This prevents double discounting since bundled products are already discounted.
+              </p>
             </div>
-          )}
 
-          <div className="mt-4 space-y-3">
-            <label className="inline-flex items-center text-sm text-gray-700">
-              <input
-                type="checkbox"
-                checked={formData.excludeBundledProductsFromQuantityDiscount}
-                onChange={(e) => setFormData(prev => ({ ...prev, excludeBundledProductsFromQuantityDiscount: e.target.checked }))}
-                className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300 rounded mr-2"
-              />
-              <span className="font-medium">Exclude bundled products from quantity discounts</span>
-            </label>
-            <p className="text-xs text-gray-500 ml-6">
-              When enabled, products purchased with quantity-based bundles will not count toward quantity discount thresholds. 
-              This prevents double discounting since bundled products are already discounted.
-            </p>
-          </div>
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <p className="text-sm text-yellow-800">
+                <strong>Note:</strong> Discounts are applied based on total quantity in cart. 
+                Higher quantity thresholds should have higher discount percentages. 
+                The system will apply the highest applicable discount.
+                {formData.excludeBundledProductsFromQuantityDiscount && (
+                  <span className="block mt-1">
+                    <strong>Bundled products excluded:</strong> Only non-bundled items will count toward quantity discount thresholds.
+                  </span>
+                )}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
 
-          <div className="mt-4 bg-yellow-50 border border-yellow-200 rounded-md p-4">
-            <p className="text-sm text-yellow-800">
-              <strong>Note:</strong> Discounts are applied based on total quantity in cart. 
-              Higher quantity thresholds should have higher discount percentages. 
-              The system will apply the highest applicable discount.
-              {formData.excludeBundledProductsFromQuantityDiscount && (
-                <span className="block mt-1">
-                  <strong>Bundled products excluded:</strong> Only non-bundled items will count toward quantity discount thresholds.
-                </span>
-              )}
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-6 flex justify-end gap-3">
-          <button
+        <div className="flex justify-end gap-3 pt-4">
+          <Button
             type="button"
+            variant="outline"
             onClick={() => navigate('/settings')}
-            className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             type="submit"
             disabled={saving}
-            className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-400 font-medium flex items-center gap-2"
+            className="bg-blue-600 hover:bg-blue-700"
           >
-            <FaSave className="w-4 h-4" />
+            {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
             {saving ? 'Saving...' : 'Save Changes'}
-          </button>
+          </Button>
         </div>
       </form>
     </div>
@@ -287,4 +293,3 @@ const PaymentDiscountSettings: React.FC = () => {
 };
 
 export default PaymentDiscountSettings;
-

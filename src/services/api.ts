@@ -4,6 +4,7 @@ import axios from 'axios';
 // All requests go to api.redfit.in for consistent tenant identification
 // The backend identifies tenant from the Host header or domain
 const API_VERSION = import.meta.env.VITE_API_VERSION || 'v1';
+const API_KEY = import.meta.env.VITE_API_KEY;
 
 // Get API base URL from environment or use production default
 let rawBaseUrl = import.meta.env.VITE_API_SERVER_URL;
@@ -24,18 +25,9 @@ if (!rawBaseUrl || rawBaseUrl.trim() === '') {
 const API_BASE_URL = rawBaseUrl;
 const API_URL = `${API_BASE_URL}/api/${API_VERSION}`;
 
-const api = axios.create({
-  baseURL: API_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-  // Add timeout to prevent hanging requests
-  timeout: 30000, // 30 seconds
-});
-
-// Log API configuration
 console.log('🔧 Admin API Configuration:', {
   VITE_API_SERVER_URL: import.meta.env.VITE_API_SERVER_URL,
+  VITE_API_KEY: API_KEY ? 'Present (Hidden)' : 'Missing',
   VITE_API_VERSION: import.meta.env.VITE_API_VERSION,
   PROD: import.meta.env.PROD,
   MODE: import.meta.env.MODE,
@@ -48,6 +40,16 @@ console.log('🔧 Admin API Configuration:', {
   NOTE: 'All requests go to api.redfit.in for consistent tenant identification'
 });
 
+export const api = axios.create({
+  baseURL: API_URL,
+  headers: {
+    'Content-Type': 'application/json',
+    ...(API_KEY && { 'x-api-key': API_KEY }), // Add API Key if present
+  },
+  // Add timeout to prevent hanging requests
+  timeout: 30000, // 30 seconds
+});
+
 /**
  * Normalize API response to ensure consistent format
  * Backend returns: { success: true, data: ... }
@@ -57,17 +59,17 @@ const normalizeResponse = (response: any): any => {
   if (!response || typeof response !== 'object') {
     return response;
   }
-  
+
   // If response has success and data fields, extract data
   if (response.success !== undefined && response.data !== undefined) {
     return response.data;
   }
-  
+
   // If response.data exists and has success/data structure, extract nested data
   if (response.data && typeof response.data === 'object' && response.data.success !== undefined && response.data.data !== undefined) {
     return response.data.data;
   }
-  
+
   // Return as-is if no standard structure found
   return response;
 };
@@ -106,7 +108,7 @@ api.interceptors.response.use(
     // Network errors (no response from server)
     if (!error.response) {
       const fullURL = error.config?.baseURL + error.config?.url;
-      
+
       console.error('❌ Network Error (No Response):', {
         message: error.message,
         code: error.code,
@@ -116,7 +118,7 @@ api.interceptors.response.use(
         timeout: error.config?.timeout,
         method: error.config?.method?.toUpperCase()
       });
-      
+
       // Provide specific error messages
       if (error.code === 'ERR_NETWORK' || error.code === 'ECONNREFUSED' || error.message?.includes('Connection refused')) {
         console.error('❌ CONNECTION REFUSED - Server is not reachable');
@@ -127,7 +129,7 @@ api.interceptors.response.use(
         console.error('   4. Wrong URL in configuration');
         console.error('   Check backend server at:', error.config?.baseURL);
         console.error('   Try: http://localhost:3000/health');
-        
+
         // Show user-friendly error
         alert(`Cannot connect to backend server.\n\nURL: ${fullURL}\n\nPlease check:\n1. Backend server is running\n2. Correct URL in .env file\n3. Firewall settings`);
       } else if (error.code === 'ETIMEDOUT') {
@@ -150,22 +152,22 @@ api.interceptors.response.use(
         message: error.message,
         authorizationHeader: error.config?.headers?.Authorization ? 'Present' : 'Missing'
       });
-      
+
       // Log full error data for 401 errors to help debug
       if (error.response?.status === 401) {
         console.error('❌ 401 Full Error Details:', JSON.stringify(errorData, null, 2));
       }
     }
-    
+
     if (error.response?.status === 401) {
       console.log('🔒 Unauthorized response received');
-      
+
       // Check if this is a session-related error
       const errorData = error.response?.data;
       const errorCode = errorData?.code;
       const errorMessage = errorData?.message || '';
       const requiresLogin = errorData?.requiresLogin !== false; // Default to true if not specified
-      
+
       console.log('🔒 401 Error details:', {
         code: errorCode,
         message: errorMessage,
@@ -173,7 +175,7 @@ api.interceptors.response.use(
         url: error.config?.url,
         data: errorData
       });
-      
+
       // Session-specific error codes from backend that definitely require re-login
       const sessionErrorCodes = [
         'SESSION_EXPIRED',
@@ -184,18 +186,18 @@ api.interceptors.response.use(
         'AUTH_ERROR',
         'AUTH_REQUIRED'
       ];
-      
+
       // Only clear token and redirect if:
       // 1. Error code indicates session/token issue
       // 2. Error message explicitly mentions session/token/login
       // 3. Backend explicitly says requiresLogin: true
-      const isSessionError = sessionErrorCodes.includes(errorCode) || 
-                            errorMessage.toLowerCase().includes('session') ||
-                            errorMessage.toLowerCase().includes('token') ||
-                            errorMessage.toLowerCase().includes('login') ||
-                            errorMessage.toLowerCase().includes('authentication') ||
-                            (requiresLogin && errorCode);
-      
+      const isSessionError = sessionErrorCodes.includes(errorCode) ||
+        errorMessage.toLowerCase().includes('session') ||
+        errorMessage.toLowerCase().includes('token') ||
+        errorMessage.toLowerCase().includes('login') ||
+        errorMessage.toLowerCase().includes('authentication') ||
+        (requiresLogin && errorCode);
+
       if (isSessionError) {
         console.log('🔒 Session/token error detected, clearing token and redirecting to login');
         localStorage.removeItem('admin_token');
@@ -229,7 +231,7 @@ export const authAPI = {
       endpoint: '/auth/login',
       data: { email, password: '***' }
     });
-    
+
     try {
       const response = await api.post('/auth/login', { email, password });
       console.log('📥 API Response:', {
@@ -299,6 +301,72 @@ export const authAPI = {
   me: async () => {
     const response = await api.get('/auth/me');
     return response.data;
+  },
+};
+
+// Leads API (CRM module - requires leads_manager permission)
+export const leadsAPI = {
+  getAll: async (params?: { page?: number; limit?: number; status?: string }) => {
+    const response = await api.get('/leads', { params });
+    const data = response.data;
+    if (Array.isArray(data)) return data;
+    if (data?.data) return data.data;
+    return [];
+  },
+  getById: async (id: string) => {
+    const response = await api.get(`/leads/${id}`);
+    return response.data?.data ?? response.data;
+  },
+  update: async (id: string, updates: Record<string, unknown>) => {
+    const response = await api.put(`/leads/${id}`, updates);
+    return response.data?.data ?? response.data;
+  },
+};
+
+// Staff API (Admin only - manage staff permissions)
+export const staffAPI = {
+  list: async () => {
+    const response = await api.get('/staff');
+    return response.data?.data ?? response.data ?? [];
+  },
+  update: async (id: string, data: { permissions?: string[]; isActive?: boolean; name?: string }) => {
+    const response = await api.put(`/staff/${id}`, data);
+    return response.data?.data ?? response.data;
+  },
+  create: async (data: { email: string; password: string; name: string; permissions?: string[] }) => {
+    const response = await api.post('/staff', data);
+    return response.data?.data ?? response.data;
+  },
+  delete: async (id: string) => {
+    await api.delete(`/staff/${id}`);
+  },
+};
+
+// AI API (Page Editor module - requires page_editor permission)
+export const aiAPI = {
+  generateImage: async (prompt: string, context?: Record<string, unknown>) => {
+    const response = await api.post('/ai/generate-image', { prompt, context });
+    const data = response.data;
+    if (data?.success && data.url) return data.url;
+    return data?.url;
+  },
+};
+
+// Content API (Page Editor module - requires page_editor permission)
+export const contentAPI = {
+  list: async () => {
+    const response = await api.get('/content');
+    const data = response.data;
+    if (Array.isArray(data)) return data;
+    return data?.data ?? [];
+  },
+  getBySlug: async (slug: string) => {
+    const response = await api.get(`/content/${slug}`);
+    return response.data?.data ?? response.data;
+  },
+  save: async (slug: string, payload: { title?: string; sections?: any[]; isActive?: boolean }) => {
+    const response = await api.put(`/content/${slug}`, payload);
+    return response.data?.data ?? response.data;
   },
 };
 
@@ -460,9 +528,10 @@ export const sizeChartsAPI = {
       safeError(error);
     }
   },
-  getById: async (id: string) => {
+  getById: async (id: string | any) => {
     try {
-      const response = await api.get(`/size-charts/${id}`);
+      const normalizedId = typeof id === 'string' ? id.trim() : (id?.toString?.() || String(id));
+      const response = await api.get(`/size-charts/${normalizedId}`);
       return response.data;
     } catch (error: any) {
       safeError(error);
@@ -476,17 +545,19 @@ export const sizeChartsAPI = {
       safeError(error);
     }
   },
-  update: async (id: string, data: any) => {
+  update: async (id: string | any, data: any) => {
     try {
-      const response = await api.put(`/size-charts/${id}`, data);
+      const normalizedId = typeof id === 'string' ? id.trim() : (id?.toString?.() || String(id));
+      const response = await api.put(`/size-charts/${normalizedId}`, data);
       return response.data;
     } catch (error: any) {
       safeError(error);
     }
   },
-  delete: async (id: string) => {
+  delete: async (id: string | any) => {
     try {
-      const response = await api.delete(`/size-charts/${id}`);
+      const normalizedId = typeof id === 'string' ? id.trim() : (id?.toString?.() || String(id));
+      const response = await api.delete(`/size-charts/${normalizedId}`);
       return response.data;
     } catch (error: any) {
       safeError(error);
@@ -613,7 +684,7 @@ export const attributeValuesAPI = {
       if (!params?.attributeId) {
         throw new Error('attributeId is required');
       }
-      
+
       // Normalize attributeId to string (handles MongoDB ObjectId buffers/objects)
       let normalizedAttributeId: string;
       if (typeof params.attributeId === 'string') {
@@ -632,18 +703,18 @@ export const attributeValuesAPI = {
       } else {
         normalizedAttributeId = String(params.attributeId);
       }
-      
+
       if (!normalizedAttributeId) {
         throw new Error('Invalid attributeId');
       }
-      
+
       // Get attribute to find its slug
       const attrResponse = await attributesAPI.getById(normalizedAttributeId);
       const attribute = attrResponse?.data || attrResponse;
       if (!attribute || !attribute.slug) {
         throw new Error('Attribute not found or missing slug');
       }
-      
+
       // Use the slug-based endpoint
       return await attributeValuesAPI.getByAttributeSlug(attribute.slug, { isActive: params.isActive });
     } catch (error: any) {
@@ -680,7 +751,7 @@ export const attributeValuesAPI = {
       } else {
         normalizedId = String(attributeId);
       }
-      
+
       // Backend route: POST /api/v1/attributes/:id/values
       const response = await api.post(`/attributes/${normalizedId}/values`, data);
       // Response format: { success: true, message: "...", data: {...} }
@@ -707,7 +778,7 @@ export const attributeValuesAPI = {
       // Normalize IDs to strings (handles MongoDB ObjectId buffers/objects)
       let normalizedAttributeId: string;
       let normalizedValueId: string;
-      
+
       // Normalize attributeId
       if (typeof attributeId === 'string') {
         normalizedAttributeId = attributeId.trim();
@@ -724,7 +795,7 @@ export const attributeValuesAPI = {
       } else {
         normalizedAttributeId = String(attributeId);
       }
-      
+
       // Normalize valueId
       if (typeof valueId === 'string') {
         normalizedValueId = valueId.trim();
@@ -741,7 +812,7 @@ export const attributeValuesAPI = {
       } else {
         normalizedValueId = String(valueId);
       }
-      
+
       // Backend route: PUT /api/v1/attributes/:id/values/:valueId
       const response = await api.put(`/attributes/${normalizedAttributeId}/values/${normalizedValueId}`, data);
       // Response format: { success: true, message: "...", data: {...} }
@@ -759,7 +830,7 @@ export const attributeValuesAPI = {
       // Normalize IDs to strings (handles MongoDB ObjectId buffers/objects)
       let normalizedAttributeId: string;
       let normalizedValueId: string;
-      
+
       // Normalize attributeId
       if (typeof attributeId === 'string') {
         normalizedAttributeId = attributeId.trim();
@@ -776,7 +847,7 @@ export const attributeValuesAPI = {
       } else {
         normalizedAttributeId = String(attributeId);
       }
-      
+
       // Normalize valueId
       if (typeof valueId === 'string') {
         normalizedValueId = valueId.trim();
@@ -793,7 +864,7 @@ export const attributeValuesAPI = {
       } else {
         normalizedValueId = String(valueId);
       }
-      
+
       // Backend route: DELETE /api/v1/attributes/:id/values/:valueId
       const response = await api.delete(`/attributes/${normalizedAttributeId}/values/${normalizedValueId}`);
       // Response format: { success: true, message: "...", data: {...} }
@@ -816,15 +887,15 @@ export const ordersAPI = {
     status?: string;
     limit?: number;
     page?: number;
+    startDate?: string;
+    endDate?: string;
+    search?: string;
   }) => {
     const response = await api.get('/orders', { params });
-    // Backend returns: { success: true, data: orders[], pagination: {...} }
-    // Return the full response so frontend can access both data and pagination
     return response.data;
   },
   getById: async (id: string) => {
     const response = await api.get(`/orders/${id}`);
-    // Response is already normalized by interceptor
     return response.data;
   },
   confirmOrder: async (id: string) => {
@@ -846,6 +917,18 @@ export const ordersAPI = {
     const response = await api.post(`/orders/${id}/send-email`, payload);
     return response.data;
   },
+  getTimeline: async (id: string) => {
+    const response = await api.get(`/orders/${id}/timeline`);
+    return response.data;
+  },
+  cancelOrder: async (id: string, reason?: string) => {
+    const response = await api.post(`/orders/${id}/cancel`, { reason });
+    return response.data;
+  },
+  exportOrders: async (params?: { status?: string; startDate?: string; endDate?: string }) => {
+    const response = await api.get('/orders/export', { params, responseType: 'blob' });
+    return response.data;
+  },
 };
 
 // Payments API
@@ -864,8 +947,19 @@ export const paymentsAPI = {
   },
 };
 
-// Upload API
+// Upload API (tenant-specific, images optimized server-side)
 export const uploadAPI = {
+  listFiles: async () => {
+    const response = await api.get('/upload/files');
+    return Array.isArray(response.data) ? response.data : response.data?.data ?? [];
+  },
+  deleteFile: async (key: string) => {
+    await api.delete('/upload/files', { data: { key } });
+  },
+  optimizeAll: async () => {
+    const response = await api.post('/upload/optimize-all');
+    return response.data;
+  },
   uploadSingle: async (file: File, folder?: string) => {
     const formData = new FormData();
     formData.append('image', file);
@@ -1040,37 +1134,50 @@ export const shippingAPI = {
     const response = await api.get('/shipping/warehouses');
     return response.data;
   },
-  getCourierRates: async (orderId: string, warehouseId?: string) => {
+  getCourierRates: async (
+    orderId: string,
+    warehouseId?: string,
+    options?: { weight?: number; length?: number; breadth?: number; height?: number }
+  ) => {
     const params = new URLSearchParams({ orderId });
     if (warehouseId) {
-      // Ensure warehouseId is a string, not an object
-      const warehouseIdStr = typeof warehouseId === 'object' 
+      const warehouseIdStr = typeof warehouseId === 'object'
         ? (warehouseId as any)?._id || String(warehouseId)
         : String(warehouseId);
       if (warehouseIdStr && warehouseIdStr !== 'undefined' && warehouseIdStr !== '[object Object]') {
         params.append('warehouseId', warehouseIdStr);
       }
     }
+    if (options?.weight && options.weight > 0) params.append('weight', String(options.weight));
+    if (options?.length && options.length > 0) params.append('length', String(options.length));
+    if (options?.breadth && options.breadth > 0) params.append('breadth', String(options.breadth));
+    if (options?.height && options.height > 0) params.append('height', String(options.height));
     const response = await api.get(`/shipping/courier-rates?${params.toString()}`);
     return response.data;
   },
-    getDelhiveryRates: async (orderId: string, warehouseId?: string, serviceType?: 'express' | 'surface') => {
-      const params = new URLSearchParams({ orderId });
-      if (warehouseId) {
-        // Ensure warehouseId is a string, not an object
-        const warehouseIdStr = typeof warehouseId === 'object' 
-          ? (warehouseId as any)?._id || String(warehouseId)
-          : String(warehouseId);
-        if (warehouseIdStr && warehouseIdStr !== 'undefined' && warehouseIdStr !== '[object Object]') {
-          params.append('warehouseId', warehouseIdStr);
-        }
+  getDelhiveryRates: async (
+    orderId: string,
+    warehouseId?: string,
+    serviceType?: 'express' | 'surface',
+    options?: { weight?: number; length?: number; breadth?: number; height?: number }
+  ) => {
+    const params = new URLSearchParams({ orderId });
+    if (warehouseId) {
+      const warehouseIdStr = typeof warehouseId === 'object'
+        ? (warehouseId as any)?._id || String(warehouseId)
+        : String(warehouseId);
+      if (warehouseIdStr && warehouseIdStr !== 'undefined' && warehouseIdStr !== '[object Object]') {
+        params.append('warehouseId', warehouseIdStr);
       }
-      if (serviceType) {
-        params.append('serviceType', serviceType);
-      }
-      const response = await api.get(`/shipping/delhivery-rates?${params.toString()}`);
-      return response.data;
-    },
+    }
+    if (serviceType) params.append('serviceType', serviceType);
+    if (options?.weight && options.weight > 0) params.append('weight', String(options.weight));
+    if (options?.length && options.length > 0) params.append('length', String(options.length));
+    if (options?.breadth && options.breadth > 0) params.append('breadth', String(options.breadth));
+    if (options?.height && options.height > 0) params.append('height', String(options.height));
+    const response = await api.get(`/shipping/delhivery-rates?${params.toString()}`);
+    return response.data;
+  },
 };
 
 // Shipments API
@@ -1150,12 +1257,9 @@ export const shipmentsAPI = {
   },
   downloadPickupReceipt: async (id: string) => {
     const response = await api.get(`/shipments/${id}/download-pickup-receipt`, {
-      responseType: 'blob', // For PDF download
-      headers: {
-        'Accept': 'application/pdf',
-      },
+      responseType: 'blob',
+      headers: { 'Accept': 'application/pdf' },
     });
-    // Create download link
     const url = window.URL.createObjectURL(response.data);
     const link = document.createElement('a');
     link.href = url;
@@ -1169,12 +1273,34 @@ export const shipmentsAPI = {
     link.remove();
     window.URL.revokeObjectURL(url);
   },
+  downloadManifest: async (id: string) => {
+    const response = await api.get(`/shipments/${id}/download-manifest`, {
+      responseType: 'blob',
+      headers: { 'Accept': 'application/pdf' },
+    });
+    const url = window.URL.createObjectURL(response.data);
+    const link = document.createElement('a');
+    link.href = url;
+    const contentDisposition = response.headers['content-disposition'];
+    const filename = contentDisposition
+      ? contentDisposition.split('filename=')[1]?.replace(/"/g, '') || `manifest-${id}.pdf`
+      : `manifest-${id}.pdf`;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  },
+  syncStatusAll: async () => {
+    const response = await api.post('/shipments/fetch-status-updates');
+    return response.data;
+  },
 };
 
 // Warehouses API
 export const warehousesAPI = {
   getAll: async () => {
-    const response = await api.get('/warehouses/stores/link');
+    const response = await api.get('/warehouses');
     return response.data;
   },
   getById: async (id: string) => {
@@ -1601,6 +1727,425 @@ export const tagsAPI = {
       return responseData.data;
     }
     return responseData?.data || responseData;
+  },
+};
+
+// ─── MODULES API ────────────────────────────────────────────────────────────
+export const modulesAPI = {
+  list: async () => {
+    const response = await api.get('/modules');
+    return response.data;
+  },
+  getRegistry: async () => {
+    const response = await api.get('/modules/registry');
+    return response.data;
+  },
+  toggle: async (key: string, enabled: boolean) => {
+    const response = await api.put(`/modules/${key}`, { enabled });
+    return response.data;
+  },
+  updateConfig: async (key: string, enabled: boolean, config: any) => {
+    const response = await api.put(`/modules/${key}`, { enabled, config });
+    return response.data;
+  },
+  bulkUpdate: async (modules: Array<{ key: string; enabled: boolean }>) => {
+    const response = await api.post('/modules/bulk', { modules });
+    return response.data;
+  },
+  initialize: async () => {
+    const response = await api.post('/modules/initialize');
+    return response.data;
+  },
+};
+
+// ─── BILLING API ─────────────────────────────────────────────────────────────
+export const billingAPI = {
+  getInvoices: async (params?: { page?: number; limit?: number; status?: string }) => {
+    const response = await api.get('/billing/invoices', { params });
+    return response.data;
+  },
+  getInvoiceById: async (id: string) => {
+    const response = await api.get(`/billing/invoices/${id}`);
+    return response.data;
+  },
+  getUsage: async (params?: { period?: 'current' | 'last' }) => {
+    const response = await api.get('/billing/usage', { params });
+    return response.data;
+  },
+  initiatePayment: async (invoiceId: string) => {
+    const response = await api.post(`/billing/pay/${invoiceId}/initiate`);
+    return response.data;
+  },
+  verifyPayment: async (invoiceId: string, data: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }) => {
+    const response = await api.post(`/billing/pay/${invoiceId}/verify`, data);
+    return response.data;
+  },
+};
+
+// ─── B2B API ──────────────────────────────────────────────────────────────────
+export const b2bAPI = {
+  getAccounts: async (params?: { page?: number; limit?: number; search?: string; isActive?: boolean }) => {
+    const response = await api.get('/b2b/accounts', { params });
+    return response.data;
+  },
+  getAccountById: async (id: string) => {
+    const response = await api.get(`/b2b/accounts/${id}`);
+    return response.data;
+  },
+  createAccount: async (data: any) => {
+    const response = await api.post('/b2b/accounts', data);
+    return response.data;
+  },
+  updateAccount: async (id: string, data: any) => {
+    const response = await api.put(`/b2b/accounts/${id}`, data);
+    return response.data;
+  },
+  deleteAccount: async (id: string) => {
+    const response = await api.delete(`/b2b/accounts/${id}`);
+    return response.data;
+  },
+  getQuotes: async (params?: { page?: number; limit?: number; status?: string; accountId?: string }) => {
+    const response = await api.get('/b2b/quotes', { params });
+    return response.data;
+  },
+  getQuoteById: async (id: string) => {
+    const response = await api.get(`/b2b/quotes/${id}`);
+    return response.data;
+  },
+  createQuote: async (data: any) => {
+    const response = await api.post('/b2b/quotes', data);
+    return response.data;
+  },
+  updateQuote: async (id: string, data: any) => {
+    const response = await api.put(`/b2b/quotes/${id}`, data);
+    return response.data;
+  },
+  convertQuoteToOrder: async (id: string) => {
+    const response = await api.post(`/b2b/quotes/${id}/convert-order`);
+    return response.data;
+  },
+  // Price Lists
+  getPriceLists: async () => {
+    const response = await api.get('/b2b/price-lists');
+    return response.data;
+  },
+  createPriceList: async (data: any) => {
+    const response = await api.post('/b2b/price-lists', data);
+    return response.data;
+  },
+  updatePriceList: async (id: string, data: any) => {
+    const response = await api.put(`/b2b/price-lists/${id}`, data);
+    return response.data;
+  },
+  deletePriceList: async (id: string) => {
+    const response = await api.delete(`/b2b/price-lists/${id}`);
+    return response.data;
+  },
+  // Price Rules
+  getPriceRules: async (priceListId: string) => {
+    const response = await api.get(`/b2b/price-lists/${priceListId}/rules`);
+    return response.data;
+  },
+  createPriceRule: async (priceListId: string, data: any) => {
+    const response = await api.post(`/b2b/price-lists/${priceListId}/rules`, data);
+    return response.data;
+  },
+  updatePriceRule: async (priceListId: string, ruleId: string, data: any) => {
+    const response = await api.put(`/b2b/price-lists/${priceListId}/rules/${ruleId}`, data);
+    return response.data;
+  },
+  deletePriceRule: async (priceListId: string, ruleId: string) => {
+    const response = await api.delete(`/b2b/price-lists/${priceListId}/rules/${ruleId}`);
+    return response.data;
+  },
+  // MOQ Rules
+  getMOQRules: async (priceListId: string) => {
+    const response = await api.get(`/b2b/price-lists/${priceListId}/moq`);
+    return response.data;
+  },
+  createMOQRule: async (priceListId: string, data: any) => {
+    const response = await api.post(`/b2b/price-lists/${priceListId}/moq`, data);
+    return response.data;
+  },
+};
+
+// ─── MARKETING API ────────────────────────────────────────────────────────────
+export const marketingAPI = {
+  getCampaigns: async (params?: { page?: number; limit?: number; status?: string; channel?: string }) => {
+    const response = await api.get('/marketing/campaigns', { params });
+    return response.data;
+  },
+  getCampaignById: async (id: string) => {
+    const response = await api.get(`/marketing/campaigns/${id}`);
+    return response.data;
+  },
+  createCampaign: async (data: any) => {
+    const response = await api.post('/marketing/campaigns', data);
+    return response.data;
+  },
+  updateCampaign: async (id: string, data: any) => {
+    const response = await api.put(`/marketing/campaigns/${id}`, data);
+    return response.data;
+  },
+  deleteCampaign: async (id: string) => {
+    const response = await api.delete(`/marketing/campaigns/${id}`);
+    return response.data;
+  },
+  sendCampaign: async (id: string) => {
+    const response = await api.post(`/marketing/campaigns/${id}/send`);
+    return response.data;
+  },
+  getAbandonedCarts: async (params?: { page?: number; limit?: number; status?: string }) => {
+    const response = await api.get('/marketing/abandoned-carts', { params });
+    return response.data;
+  },
+  recoverAbandonedCart: async (id: string, channel: 'whatsapp' | 'sms' | 'email') => {
+    const response = await api.post(`/marketing/abandoned-carts/recover/${id}`, { channel });
+    return response.data;
+  },
+};
+
+// ─── CRM API ──────────────────────────────────────────────────────────────────
+export const crmAPI = {
+  getContacts: async (params?: { page?: number; limit?: number; search?: string; tag?: string }) => {
+    const response = await api.get('/crm/contacts', { params });
+    return response.data;
+  },
+  getContactById: async (id: string) => {
+    const response = await api.get(`/crm/contacts/${id}`);
+    return response.data;
+  },
+  createContact: async (data: any) => {
+    const response = await api.post('/crm/contacts', data);
+    return response.data;
+  },
+  updateContact: async (id: string, data: any) => {
+    const response = await api.put(`/crm/contacts/${id}`, data);
+    return response.data;
+  },
+  deleteContact: async (id: string) => {
+    const response = await api.delete(`/crm/contacts/${id}`);
+    return response.data;
+  },
+  getInteractions: async (contactId: string) => {
+    const response = await api.get(`/crm/contacts/${contactId}/interactions`);
+    return response.data;
+  },
+  addInteraction: async (contactId: string, data: any) => {
+    const response = await api.post(`/crm/contacts/${contactId}/interactions`, data);
+    return response.data;
+  },
+};
+
+// ─── PACKAGE BOXES API ────────────────────────────────────────────────────────
+export const packageBoxesAPI = {
+  getAll: async () => {
+    const response = await api.get('/packages');
+    return response.data;
+  },
+  create: async (data: { name: string; length: number; breadth: number; height: number; weight?: number; description?: string }) => {
+    const response = await api.post('/packages', data);
+    return response.data;
+  },
+  update: async (id: string, data: any) => {
+    const response = await api.put(`/packages/${id}`, data);
+    return response.data;
+  },
+  delete: async (id: string) => {
+    const response = await api.delete(`/packages/${id}`);
+    return response.data;
+  },
+};
+
+// ─── INVENTORY API ────────────────────────────────────────────────────────────
+export const inventoryAPI = {
+  list: async (params?: { page?: number; limit?: number; search?: string; lowStock?: boolean; outOfStock?: boolean }) => {
+    const response = await api.get('/inventory', { params });
+    return response.data;
+  },
+  getById: async (id: string) => {
+    const response = await api.get(`/inventory/${id}`);
+    return response.data;
+  },
+  updateStock: async (id: string, data: { stock?: number; variationIndex?: number; variationStock?: number; reason?: string }) => {
+    const response = await api.put(`/inventory/${id}`, data);
+    return response.data;
+  },
+  bulkUpdate: async (updates: Array<{ productId: string; stock: number }>) => {
+    const response = await api.post('/inventory/bulk-update', { updates });
+    return response.data;
+  },
+  getLowStock: async (threshold?: number) => {
+    const response = await api.get('/inventory/low-stock', { params: { threshold } });
+    return response.data;
+  },
+  getHistory: async (productId: string) => {
+    const response = await api.get(`/inventory/${productId}/history`);
+    return response.data;
+  },
+};
+
+// ─── TAX RULES API ────────────────────────────────────────────────────────────
+export const taxRulesAPI = {
+  getAll: async () => {
+    const response = await api.get('/tax');
+    return response.data;
+  },
+  create: async (data: any) => {
+    const response = await api.post('/tax', data);
+    return response.data;
+  },
+  update: async (id: string, data: any) => {
+    const response = await api.put(`/tax/${id}`, data);
+    return response.data;
+  },
+  delete: async (id: string) => {
+    const response = await api.delete(`/tax/${id}`);
+    return response.data;
+  },
+};
+
+// ─── PAYMENT RULES API ───────────────────────────────────────────────────────
+export const paymentRulesAPI = {
+  getAll: async () => {
+    const response = await api.get('/payment/rules');
+    return response.data;
+  },
+  create: async (data: any) => {
+    const response = await api.post('/payment/rules', data);
+    return response.data;
+  },
+  update: async (id: string, data: any) => {
+    const response = await api.put(`/payment/rules/${id}`, data);
+    return response.data;
+  },
+  delete: async (id: string) => {
+    const response = await api.delete(`/payment/rules/${id}`);
+    return response.data;
+  },
+};
+
+// ─── SHIPPING ZONES API ──────────────────────────────────────────────────────
+export const shippingZonesAPI = {
+  getAll: async () => {
+    const response = await api.get('/shipping/zones');
+    return response.data;
+  },
+  create: async (data: any) => {
+    const response = await api.post('/shipping/zones', data);
+    return response.data;
+  },
+  update: async (id: string, data: any) => {
+    const response = await api.put(`/shipping/zones/${id}`, data);
+    return response.data;
+  },
+  delete: async (id: string) => {
+    const response = await api.delete(`/shipping/zones/${id}`);
+    return response.data;
+  },
+};
+
+// ─── PINCODE ZONES API ───────────────────────────────────────────────────────
+export const pincodeZonesAPI = {
+  getAll: async (params?: { page?: number; limit?: number; search?: string }) => {
+    const response = await api.get('/shipping/pincode-zones', { params });
+    return response.data;
+  },
+  create: async (data: any) => {
+    const response = await api.post('/shipping/pincode-zones', data);
+    return response.data;
+  },
+  update: async (id: string, data: any) => {
+    const response = await api.put(`/shipping/pincode-zones/${id}`, data);
+    return response.data;
+  },
+  delete: async (id: string) => {
+    const response = await api.delete(`/shipping/pincode-zones/${id}`);
+    return response.data;
+  },
+  bulkImport: async (zones: any[]) => {
+    const response = await api.post('/shipping/pincode-zones/bulk', { zones });
+    return response.data;
+  },
+};
+
+// ─── VARIANT GROUPS API ──────────────────────────────────────────────────────
+export const variantGroupsAPI = {
+  getAll: async () => {
+    const response = await api.get('/variant-groups');
+    return response.data;
+  },
+  getById: async (id: string) => {
+    const response = await api.get(`/variant-groups/${id}`);
+    return response.data;
+  },
+  create: async (data: any) => {
+    const response = await api.post('/variant-groups', data);
+    return response.data;
+  },
+  update: async (id: string, data: any) => {
+    const response = await api.put(`/variant-groups/${id}`, data);
+    return response.data;
+  },
+  delete: async (id: string) => {
+    const response = await api.delete(`/variant-groups/${id}`);
+    return response.data;
+  },
+};
+
+// ─── SEO API ─────────────────────────────────────────────────────────────────
+export const seoAPI = {
+  get: async () => {
+    const response = await api.get('/seo');
+    return response.data;
+  },
+  update: async (data: any) => {
+    const response = await api.put('/seo', data);
+    return response.data;
+  },
+  getRedirects: async () => {
+    const response = await api.get('/seo/redirects');
+    return response.data;
+  },
+  createRedirect: async (data: { from: string; to: string; type?: 301 | 302 }) => {
+    const response = await api.post('/seo/redirects', data);
+    return response.data;
+  },
+  deleteRedirect: async (id: string) => {
+    const response = await api.delete(`/seo/redirects/${id}`);
+    return response.data;
+  },
+  generateSitemap: async () => {
+    const response = await api.post('/seo/sitemap/generate');
+    return response.data;
+  },
+};
+
+// ─── PLUGINS API ─────────────────────────────────────────────────────────────
+export const pluginsAPI = {
+  getAll: async () => {
+    const response = await api.get('/plugins');
+    return response.data;
+  },
+  getById: async (id: string) => {
+    const response = await api.get(`/plugins/${id}`);
+    return response.data;
+  },
+  install: async (data: { name: string; source?: string }) => {
+    const response = await api.post('/plugins', data);
+    return response.data;
+  },
+  toggle: async (id: string, enabled: boolean) => {
+    const response = await api.put(`/plugins/${id}/toggle`, { enabled });
+    return response.data;
+  },
+  configure: async (id: string, config: Record<string, any>) => {
+    const response = await api.put(`/plugins/${id}/config`, { config });
+    return response.data;
+  },
+  uninstall: async (id: string) => {
+    const response = await api.delete(`/plugins/${id}`);
+    return response.data;
   },
 };
 

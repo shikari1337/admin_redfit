@@ -2,6 +2,13 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FaArrowLeft, FaSave, FaUndo } from 'react-icons/fa';
 import { smsTemplatesAPI, smsConfigAPI } from '../services/api';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Badge } from '@/components/ui/badge';
+import { Loader2 } from 'lucide-react';
 
 type TemplateEvent =
   | 'order_confirmation'
@@ -105,8 +112,6 @@ const SmsTemplates: React.FC = () => {
           smsConfigAPI.get(),
         ]);
 
-        // Backend returns: { success: true, data: templates[] }
-        // API interceptor normalizes to: templates[] or { data: templates[] }
         let templates: any[] = [];
         if (Array.isArray(templatesData)) {
           templates = templatesData;
@@ -132,16 +137,14 @@ const SmsTemplates: React.FC = () => {
         setTemplates(mapped);
         setOriginalTemplates(originals);
 
-        // Backend returns: { success: true, data: config }
-        // API interceptor normalizes to: config or { data: config }
-        const config = configData?.data || configData;
+        const configResponse = configData?.data || configData;
         const updatedConfig: SmsConfigForm = {
-          baseUrl: config?.baseUrl || '',
-          route: config?.route || 'Transactional',
-          senderId: config?.senderId || '',
-          isEnabled: Boolean(config?.isEnabled),
+          baseUrl: configResponse?.baseUrl || '',
+          route: configResponse?.route || 'Transactional',
+          senderId: configResponse?.senderId || '',
+          isEnabled: Boolean(configResponse?.isEnabled),
           apiKey: '',
-          apiKeySet: Boolean(config?.apiKeySet),
+          apiKeySet: Boolean(configResponse?.apiKeySet),
         };
         setConfig(updatedConfig);
         setOriginalConfig({ ...updatedConfig });
@@ -216,7 +219,6 @@ const SmsTemplates: React.FC = () => {
         ...prev,
         [template.event]: { ...template },
       }));
-      alert(`${EVENT_META[template.event].title} template saved successfully.`);
     } catch (err: any) {
       console.error('Failed to save template', err);
       setError(err.message || 'Failed to save template. Please try again.');
@@ -279,7 +281,6 @@ const SmsTemplates: React.FC = () => {
       };
       setConfig(nextConfig);
       setOriginalConfig({ ...nextConfig });
-      alert('SMS provider configuration saved successfully.');
     } catch (err: any) {
       console.error('Failed to save SMS provider configuration', err);
       setError(err.message || 'Failed to save SMS provider configuration. Please try again.');
@@ -298,133 +299,138 @@ const SmsTemplates: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500"></div>
+      <div className="flex items-center justify-center p-12">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
   }
 
   return (
-    <div className="max-w-5xl mx-auto">
-      <div className="mb-6">
-        <button
+    <div className="max-w-5xl mx-auto space-y-6 pb-12">
+      <div>
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => navigate('/settings')}
-          className="flex items-center text-gray-600 hover:text-gray-900 mb-4"
+          className="text-muted-foreground mb-4"
         >
-          <FaArrowLeft className="mr-2" />
+          <FaArrowLeft className="mr-2 h-4 w-4" />
           Back to Settings
-        </button>
-        <h1 className="text-3xl font-bold text-gray-900">SMS Templates</h1>
-        <p className="text-sm text-gray-600 mt-2">
+        </Button>
+        <h1 className="text-3xl font-bold tracking-tight text-foreground">SMS Templates</h1>
+        <p className="text-sm text-muted-foreground mt-2">
           Manage SMS alerts for orders, OTP verification, password resets, and cart recovery. Configure
           your SMSAlert provider credentials and customize message templates.
         </p>
       </div>
 
       {error && (
-        <div className="mb-6 rounded-md border border-red-200 bg-red-50 p-4 text-red-700">
-          {error}
+        <div className="bg-red-50 text-red-700 p-4 border border-red-200 rounded-lg text-sm font-medium flex justify-between items-center">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="text-red-500 hover:text-red-800 text-lg font-bold leading-none">&times;</button>
         </div>
       )}
 
-      <div className="mb-8 bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-5">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <Card>
+        <CardHeader className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <h2 className="text-xl font-semibold text-gray-900">SMSAlert Provider Settings</h2>
-            <p className="text-sm text-gray-600 mt-1">
-              Enter the API credentials provided by SMSAlert. API key is stored encrypted and never
+            <CardTitle>SMS Provider Settings</CardTitle>
+            <CardDescription>
+              Enter the API credentials provided by SMS provider. API key is stored encrypted and never
               displayed after saving.
-            </p>
+            </CardDescription>
           </div>
-          <label className="flex items-center gap-2 text-sm text-gray-700">
-            <input
-              type="checkbox"
+          <label className="flex items-center gap-2 cursor-pointer">
+            <Checkbox
               checked={config.isEnabled}
-              onChange={(e) => handleConfigChange('isEnabled', e.target.checked)}
-              className="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
+              onCheckedChange={(checked) => handleConfigChange('isEnabled', checked as boolean)}
             />
-            Enable SMS sending
+            <span className="text-sm font-medium leading-none">Enable SMS sending</span>
           </label>
-        </div>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                API Base URL
+              </label>
+              <Input
+                type="url"
+                value={config.baseUrl}
+                onChange={(e) => handleConfigChange('baseUrl', e.target.value)}
+                placeholder="https://www.smsalert.co.in/api"
+              />
+              <p className="text-[10px] text-muted-foreground">Default is https://www.smsalert.co.in/api</p>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                Route
+              </label>
+              <Input
+                type="text"
+                value={config.route}
+                onChange={(e) => handleConfigChange('route', e.target.value)}
+                placeholder="Transactional"
+              />
+              <p className="text-[10px] text-muted-foreground">Usually "Transactional" for OTPs and alerts.</p>
+            </div>
+          </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">API Base URL</label>
-            <input
-              type="url"
-              value={config.baseUrl}
-              onChange={(e) => handleConfigChange('baseUrl', e.target.value)}
-              placeholder="https://www.smsalert.co.in/api"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-            />
-            <p className="text-xs text-gray-500 mt-1">Default is https://www.smsalert.co.in/api</p>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                Sender ID
+              </label>
+              <Input
+                type="text"
+                value={config.senderId}
+                onChange={(e) => handleConfigChange('senderId', e.target.value.toUpperCase())}
+                placeholder="RDFTIN"
+                maxLength={6}
+                className="uppercase"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                6-character sender ID approved by provider. {config.apiKeySet ? 'Stored securely.' : ''}
+              </p>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                API Key {config.apiKeySet ? '(leave blank to keep existing)' : ''}
+              </label>
+              <Input
+                type="password"
+                value={config.apiKey}
+                onChange={(e) => handleConfigChange('apiKey', e.target.value)}
+                placeholder={config.apiKeySet ? '••••••••••' : 'Enter API key'}
+              />
+              <p className="text-[10px] text-muted-foreground">
+                The key is encrypted before storing. Enter a new key to replace the current one.
+              </p>
+            </div>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Route</label>
-            <input
-              type="text"
-              value={config.route}
-              onChange={(e) => handleConfigChange('route', e.target.value)}
-              placeholder="Transactional"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-            />
-            <p className="text-xs text-gray-500 mt-1">Usually "Transactional" for OTPs and alerts.</p>
-          </div>
-        </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Sender ID</label>
-            <input
-              type="text"
-              value={config.senderId}
-              onChange={(e) => handleConfigChange('senderId', e.target.value.toUpperCase())}
-              placeholder="RDFTIN"
-              maxLength={6}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 uppercase"
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              6-character sender ID approved by SMSAlert. {config.apiKeySet ? 'Stored securely.' : ''}
-            </p>
+          <div className="flex justify-end gap-3 pt-4">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleConfigReset}
+              disabled={!configHasChanges}
+            >
+              <FaUndo className="mr-2 h-4 w-4" />
+              Reset
+            </Button>
+            <Button
+              type="button"
+              onClick={handleConfigSave}
+              disabled={!configHasChanges || configSaving}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              {configSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FaSave className="mr-2 h-4 w-4" />}
+              {configSaving ? 'Saving...' : 'Save Provider Settings'}
+            </Button>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              API Key {config.apiKeySet ? '(leave blank to keep existing)' : ''}
-            </label>
-            <input
-              type="password"
-              value={config.apiKey}
-              onChange={(e) => handleConfigChange('apiKey', e.target.value)}
-              placeholder={config.apiKeySet ? '••••••••••' : 'Enter SMSAlert API key'}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              The key is encrypted before storing. Enter a new key to replace the current one.
-            </p>
-          </div>
-        </div>
-
-        <div className="flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={handleConfigReset}
-            disabled={!configHasChanges}
-            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-          >
-            <FaUndo className="w-4 h-4" />
-            Reset
-          </button>
-          <button
-            type="button"
-            onClick={handleConfigSave}
-            disabled={!configHasChanges || configSaving}
-            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-400"
-          >
-            <FaSave className="w-4 h-4" />
-            {configSaving ? 'Saving...' : 'Save Provider Settings'}
-          </button>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
       <div className="space-y-6">
         {(Object.keys(EVENT_META) as TemplateEvent[]).map((event) => {
@@ -438,121 +444,116 @@ const SmsTemplates: React.FC = () => {
             JSON.stringify(template) !== JSON.stringify(originalTemplates[event]);
 
           return (
-            <div
-              key={event}
-              className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-5"
-            >
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <Card key={event}>
+              <CardHeader className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                 <div>
-                  <h2 className="text-xl font-semibold text-gray-900">{meta.title}</h2>
-                  <p className="text-sm text-gray-600 mt-1">{meta.description}</p>
+                  <CardTitle>{meta.title}</CardTitle>
+                  <CardDescription>{meta.description}</CardDescription>
                 </div>
-                <label className="flex items-center gap-2 text-sm text-gray-700">
-                  <input
-                    type="checkbox"
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <Checkbox
                     checked={template.isEnabled}
-                    onChange={(e) => handleInputChange(event, 'isEnabled', e.target.checked)}
-                    className="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
+                    onCheckedChange={(checked) => handleInputChange(event, 'isEnabled', checked as boolean)}
                   />
-                  Enable template
+                  <span className="text-sm font-medium leading-none">Enable template</span>
                 </label>
-              </div>
-
-              <div className="bg-gray-50 border border-gray-200 rounded-md p-4">
-                <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">
-                  Available variables
-                </p>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {meta.variables.map((variable) => (
-                    <div key={variable.key} className="text-sm text-gray-700">
-                      <span className="font-mono bg-white px-2 py-1 rounded border border-gray-200 mr-2">
-                        {variable.key}
-                      </span>
-                      {variable.description}
-                    </div>
-                  ))}
+              </CardHeader>
+              
+              <CardContent className="space-y-6">
+                <div className="bg-muted bg-opacity-50 border rounded-md p-4 space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Available variables
+                  </p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {meta.variables.map((variable) => (
+                      <div key={variable.key} className="text-sm text-foreground flex items-center gap-2">
+                        <Badge variant="outline" className="font-mono bg-background">
+                          {variable.key}
+                        </Badge>
+                        <span className="text-muted-foreground">{variable.description}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Template ID (optional)
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                      Template ID (optional)
+                    </label>
+                    <Input
+                      type="text"
+                      value={template.templateId || ''}
+                      onChange={(e) => handleInputChange(event, 'templateId', e.target.value)}
+                      placeholder="Provider template ID"
+                    />
+                    <p className="text-[10px] text-muted-foreground">
+                      Configure this if your account requires a pre-approved template ID.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                      Variables Hint (optional)
+                    </label>
+                    <Input
+                      type="text"
+                      value={template.variablesHint.join(', ')}
+                      onChange={(e) =>
+                        handleInputChange(
+                          event,
+                          'variablesHint',
+                          e.target.value
+                            .split(',')
+                            .map((token) => token.trim())
+                            .filter(Boolean)
+                        )
+                      }
+                      placeholder="customerName, orderId, trackingLink"
+                    />
+                    <p className="text-[10px] text-muted-foreground">
+                      Optional comma-separated list for reference only.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                    SMS Content
                   </label>
-                  <input
-                    type="text"
-                    value={template.templateId || ''}
-                    onChange={(e) => handleInputChange(event, 'templateId', e.target.value)}
-                    placeholder="SMS Alert template ID"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                  <Textarea
+                    value={template.content}
+                    onChange={(e) => handleInputChange(event, 'content', e.target.value)}
+                    rows={4}
+                    className="font-mono"
                   />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Configure this if your SMSAlert account requires a pre-approved template ID.
+                  <p className="text-[10px] text-muted-foreground">
+                    Keep messages within 160 characters when possible. Use the variables exactly as
+                    listed (including curly braces).
                   </p>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Variables Hint (optional)
-                  </label>
-                  <input
-                    type="text"
-                    value={template.variablesHint.join(', ')}
-                    onChange={(e) =>
-                      handleInputChange(
-                        event,
-                        'variablesHint',
-                        e.target.value
-                          .split(',')
-                          .map((token) => token.trim())
-                          .filter(Boolean)
-                      )
-                    }
-                    placeholder="customerName, orderId, trackingLink"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Optional comma-separated list for reference only.
-                  </p>
+
+                <div className="flex justify-end gap-3 pt-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => handleReset(event)}
+                    disabled={!hasChanges}
+                  >
+                    <FaUndo className="mr-2 h-4 w-4" />
+                    Reset
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={() => handleSave(template)}
+                    disabled={savingEvent === event}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    {savingEvent === event ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FaSave className="mr-2 h-4 w-4" />}
+                    {savingEvent === event ? 'Saving...' : 'Save Template'}
+                  </Button>
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  SMS Content
-                </label>
-                <textarea
-                  value={template.content}
-                  onChange={(e) => handleInputChange(event, 'content', e.target.value)}
-                  rows={4}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 font-mono"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Keep messages within 160 characters when possible. Use the variables exactly as
-                  listed (including curly braces).
-                </p>
-              </div>
-
-              <div className="flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => handleReset(event)}
-                  disabled={!hasChanges}
-                  className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                >
-                  <FaUndo className="w-4 h-4" />
-                  Reset
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSave(template)}
-                  disabled={savingEvent === event}
-                  className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-400"
-                >
-                  <FaSave className="w-4 h-4" />
-                  {savingEvent === event ? 'Saving...' : 'Save Template'}
-                </button>
-              </div>
-            </div>
+              </CardContent>
+            </Card>
           );
         })}
       </div>
