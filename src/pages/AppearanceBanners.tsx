@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { FaPlus, FaTrash, FaEdit, FaChevronUp, FaChevronDown, FaImage, FaTimes, FaArrowUp, FaArrowDown } from 'react-icons/fa';
 import { bannersAPI, uploadAPI } from '../services/api';
 
@@ -97,7 +97,7 @@ function ItemEditor({
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const result = await uploadAPI.uploadFile(formData);
+      const result = await uploadAPI.uploadSingle(file, 'banners');
       const url = result?.url || result?.data?.url || result?.fileUrl || '';
       onChange({ ...item, [field]: url });
     } catch (e) {
@@ -620,13 +620,6 @@ export default function AppearanceBanners() {
   const filtered = filterLocation === 'all'
     ? banners
     : banners.filter((b) => b.displayLocation === filterLocation);
-
-  // Group by location for display
-  const grouped = ALL_LOCATIONS.reduce((acc, loc) => {
-    const items = filtered.filter((b) => b.displayLocation === loc);
-    if (items.length > 0 || filterLocation === loc) acc[loc] = items;
-    return acc;
-  }, {} as Record<string, Banner[]>);
 
   const showGrouped = filterLocation === 'all';
 

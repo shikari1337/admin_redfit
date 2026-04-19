@@ -312,7 +312,7 @@ const ProductForm: React.FC = () => {
             rate: tax.rate,
           };
         })
-        .filter((tax): tax is { _id: string; name: string; rate?: number } => tax !== null && tax._id !== '');
+        .filter(tax => tax !== null && tax._id !== '') as Array<{ _id: string; name: string; rate?: number }>;
       setAvailableTaxRules(taxList);
     } catch (err) {
       console.error('Failed to load lookups', err);
@@ -945,6 +945,7 @@ const ProductForm: React.FC = () => {
         videos: product.videos || [],
         stock: stockValue,
         categories: productCategories,
+        featuredCategory: product.featuredCategory ? String(product.featuredCategory) : '',
         tags: productTags,
         sizeChart:
           initialMode === 'custom'

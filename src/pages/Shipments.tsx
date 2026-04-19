@@ -4,9 +4,8 @@
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { Link } from 'react-router-dom';
 import { shipmentsAPI, warehousesAPI } from '../services/api';
-import { FaPlus, FaSync, FaSpinner } from 'react-icons/fa';
+import { FaSync, FaSpinner } from 'react-icons/fa';
 import { ShipmentTabs, ShipmentFilters, ShipmentTable, PendingOrdersTable, PickupModal, BulkActionsBar } from '../components/shipments';
 import type { TabType, StatusCounts } from '../components/shipments';
 import ShipmentCreationModal from '../components/order/ShipmentCreationModal';

@@ -429,7 +429,7 @@ function LinkRow({
 const MegaMenuEditor: React.FC<MegaMenuEditorProps> = ({
   megaMenu,
   onChange,
-  menuItemIndex,
+  menuItemIndex: _menuItemIndex,
   availableCategories = [],
   availablePages = [],
   availableBrands = [],

@@ -22,7 +22,7 @@ import {
   CheckCircle,
   AlertCircle,
 } from 'lucide-react';
-import { getTenantApiKey, setTenantApiKey, TENANT_API_KEY_STORAGE_KEY } from '@/services/api';
+import { getTenantApiKey, setTenantApiKey } from '@/services/api';
 
 const settingsSections = [
   {

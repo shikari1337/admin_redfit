@@ -50,8 +50,6 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
     stock: '',
     isActive: true,
   });
-  const [bulkEditColumn, setBulkEditColumn] = useState<'price' | 'originalPrice' | 'stock' | 'status' | null>(null);
-  const [bulkEditColumnValue, setBulkEditColumnValue] = useState<string>('');
   const [editingVariationId, setEditingVariationId] = useState<string | null>(null);
   const [uploadingImages, setUploadingImages] = useState<Record<string, boolean>>({});
   const editRowRef = useRef<HTMLTableRowElement>(null);
@@ -351,40 +349,6 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
     setSelectedVariationIds(new Set());
     setBulkEditMode(false);
     setBulkEditValues({ price: '', originalPrice: '', stock: '', isActive: true });
-  };
-
-  // Handle column-specific bulk edit
-  const handleColumnBulkEdit = (column: 'price' | 'originalPrice' | 'stock' | 'status') => {
-    if (selectedVariationIds.size === 0) {
-      alert('Please select at least one variation to update');
-      return;
-    }
-    setBulkEditColumn(column);
-    setBulkEditColumnValue('');
-  };
-
-  const applyColumnBulkEdit = () => {
-    if (!bulkEditColumn || bulkEditColumnValue === '') return;
-
-    const updatedVariations = variations.map(v => {
-      if (selectedVariationIds.has(v.id)) {
-        const updated = { ...v };
-        if (bulkEditColumn === 'price') {
-          updated.price = parseFloat(bulkEditColumnValue) || undefined;
-        } else if (bulkEditColumn === 'originalPrice') {
-          updated.originalPrice = parseFloat(bulkEditColumnValue) || undefined;
-        } else if (bulkEditColumn === 'stock') {
-          updated.stock = Math.max(0, parseInt(bulkEditColumnValue) || 0);
-        } else if (bulkEditColumn === 'status') {
-          updated.isActive = bulkEditColumnValue === 'active';
-        }
-        return updated;
-      }
-      return v;
-    });
-    onVariationsChange(updatedVariations);
-    setBulkEditColumn(null);
-    setBulkEditColumnValue('');
   };
 
   const toggleSelectAll = () => {
