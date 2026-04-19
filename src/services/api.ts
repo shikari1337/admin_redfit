@@ -112,9 +112,11 @@ api.interceptors.request.use((config) => {
     config.headers.Authorization = `Bearer ${token}`;
   }
 
-  // Store/tenant validation: send API key when available (env or Settings)
+  // Store/tenant validation: send API key when available (env or Settings).
+  // Skip if the request explicitly set x-api-key (even to empty string) — this
+  // lets admin-login and similar central-DB calls opt out of tenant resolution.
   const tenantApiKey = getTenantApiKey();
-  if (tenantApiKey) {
+  if (tenantApiKey && config.headers['x-api-key'] === undefined) {
     config.headers['x-api-key'] = tenantApiKey;
   }
 
