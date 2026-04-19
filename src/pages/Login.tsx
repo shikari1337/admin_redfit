@@ -233,6 +233,9 @@ const Login: React.FC = () => {
 
   useEffect(() => {
     if (isAuthenticated) navigate('/dashboard', { replace: true });
+    // Clear any stale store API key so login always starts with central auth.
+    // The correct store key is set after the user picks their store.
+    else setTenantApiKey(null);
   }, [isAuthenticated, navigate]);
 
   // Called by StepCredentials when auth succeeds
