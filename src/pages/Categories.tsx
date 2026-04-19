@@ -21,6 +21,7 @@ interface Category {
   icon?: string;
   displayOrder?: number;
   isActive?: boolean;
+  isPublic?: boolean;
   parent?: string | null;
   createdAt?: string;
   updatedAt?: string;
@@ -35,6 +36,7 @@ const emptyForm = {
   displayOrder: '',
   parent: 'none',
   isActive: true,
+  isPublic: true,
 };
 
 const Categories: React.FC = () => {
@@ -98,6 +100,7 @@ const Categories: React.FC = () => {
           : '',
       parent: category.parent ? String(category.parent) : 'none',
       isActive: category.isActive !== false,
+      isPublic: category.isPublic !== false,
     });
     setError(null);
     setImageError(null);
@@ -132,6 +135,7 @@ const Categories: React.FC = () => {
       icon: formState.icon?.trim() || undefined,
       displayOrder: formState.displayOrder ? Number(formState.displayOrder) : undefined,
       isActive: formState.isActive,
+      isPublic: formState.isPublic,
       parent: formState.parent && formState.parent !== 'none' ? formState.parent : null,
     };
 
@@ -225,6 +229,9 @@ const Categories: React.FC = () => {
                         <span className="font-semibold text-foreground truncate">{category.name}</span>
                         {!category.isActive && (
                           <Badge variant="secondary" className="text-xs">Inactive</Badge>
+                        )}
+                        {category.isPublic === false && (
+                          <Badge variant="outline" className="text-xs text-orange-600 border-orange-300">Hidden</Badge>
                         )}
                         {category.parent && (
                           <Badge variant="outline" className="text-xs">
@@ -383,6 +390,18 @@ const Categories: React.FC = () => {
                   onCheckedChange={(checked) => setFormState({ ...formState, isActive: checked })}
                 />
                 <Label htmlFor="isActive" className="cursor-pointer">Category is active</Label>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="isPublic"
+                  checked={formState.isPublic}
+                  onCheckedChange={(checked) => setFormState({ ...formState, isPublic: checked })}
+                />
+                <div>
+                  <Label htmlFor="isPublic" className="cursor-pointer">Show in storefront</Label>
+                  <p className="text-xs text-muted-foreground">Visible in navigation menus and category listings</p>
+                </div>
               </div>
 
               <div className="pt-4 border-t flex gap-3">

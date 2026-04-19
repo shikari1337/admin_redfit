@@ -357,6 +357,21 @@ export const authAPI = {
       throw error;
     }
   },
+  /**
+   * Central-platform login — no x-api-key sent.
+   * Returns { user, token, stores[] } from the main DB.
+   * Use when the admin panel is shared across all stores.
+   */
+  adminLogin: async (email: string, password: string) => {
+    // Make a raw axios call WITHOUT the x-api-key interceptor influencing tenant resolution.
+    // We explicitly omit the header so the backend uses the main/platform DB.
+    const response = await api.post(
+      '/auth/admin-login',
+      { email, password },
+      { headers: { 'x-api-key': '' } },   // empty string overrides the interceptor default
+    );
+    return response.data;
+  },
   logout: async () => {
     try {
       const response = await api.post('/auth/logout');
