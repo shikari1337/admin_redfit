@@ -1,74 +1,39 @@
-import React, { useEffect, useState } from 'react';
-import { authAPI } from '../services/api';
+/**
+ * ProtectedModuleRoute — permission gate using cached AuthContext.
+ *
+ * Unlike the old version that made an API call on every render,
+ * this reads from the AuthContext (populated once at login/mount).
+ * Result: instant permission checks, no loading flicker, no N API calls.
+ */
+import React from 'react';
+import { Link } from 'react-router-dom';
+import { ShieldX } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
-interface ProtectedModuleRouteProps {
+interface Props {
   children: React.ReactNode;
   module: string;
 }
 
-export const ProtectedModuleRoute: React.FC<ProtectedModuleRouteProps> = ({ children, module }) => {
-  const [hasAccess, setHasAccess] = useState<boolean | null>(null);
+export const ProtectedModuleRoute: React.FC<Props> = ({ children, module }) => {
+  const { isLoaded, canAccess } = useAuth();
 
-  useEffect(() => {
-    const check = async () => {
-      try {
-        // First check user permissions for staff access to this module
-        const user = await authAPI.me();
-        const data = user?.data ?? user;
-        const role = data?.role;
-        const permissions: string[] = data?.permissions || [];
+  // While auth state is loading show nothing (parent ProtectedRoute shows spinner)
+  if (!isLoaded) return null;
 
-        let userGranted = false;
-        if (role === 'admin') {
-          userGranted = true;
-        } else {
-          userGranted = permissions.includes(module);
-        }
-
-        if (!userGranted) {
-          setHasAccess(false);
-          return;
-        }
-
-        // Second, check global store modules if it's a known store module
-        try {
-          const { modulesAPI } = await import('../services/api');
-          const mods = await modulesAPI.list();
-          const modsList = Array.isArray(mods) ? mods : mods?.modules ?? mods?.data ?? [];
-          const modDef = modsList.find((m: any) => m.key === module);
-          
-          if (modDef && modDef.enabled === false) {
-            setHasAccess(false);
-            return;
-          }
-        } catch (e) {
-          console.warn('Could not verify store module status', e);
-        }
-
-        setHasAccess(true);
-      } catch {
-        setHasAccess(false);
-      }
-    };
-    check();
-  }, [module]);
-
-  if (hasAccess === null) {
+  if (!canAccess(module)) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600" />
-      </div>
-    );
-  }
-
-  if (!hasAccess) {
-    return (
-      <div className="flex flex-col items-center justify-center h-96 text-gray-500">
-        <p className="text-lg font-medium mb-2">Access Denied</p>
-        <p className="text-sm">You do not have permission to access this module.</p>
-        <a href="/dashboard" className="mt-4 text-red-600 hover:text-red-700 font-medium">
-          Return to Dashboard
-        </a>
+      <div className="flex flex-col items-center justify-center h-96 text-center px-4">
+        <div className="w-16 h-16 rounded-full bg-red-50 flex items-center justify-center mb-4">
+          <ShieldX className="h-8 w-8 text-red-500" />
+        </div>
+        <h2 className="text-lg font-semibold text-gray-900 mb-1">Access Denied</h2>
+        <p className="text-sm text-muted-foreground mb-4 max-w-sm">
+          You don't have permission to access this module. Contact your store administrator to request access.
+        </p>
+        <Link to="/dashboard" className="text-sm text-primary hover:underline font-medium">
+          ← Return to Dashboard
+        </Link>
       </div>
     );
   }

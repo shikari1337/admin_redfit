@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
-import { Calendar, Download, FileText } from 'lucide-react';
+import { Calendar, ClipboardList, Download, FileText, RotateCcw, Phone } from 'lucide-react';
 import {
   Table,
   TableBody,
@@ -43,14 +43,17 @@ interface Shipment {
 
 interface ShipmentTableProps {
   shipments: Shipment[];
-  activeTab: 'all' | 'ready_to_pickup' | 'pickup_scheduled' | 'in_transit' | 'delivered';
+  activeTab: string;
   selectedShipments: string[];
   onSelectShipment: (id: string, checked: boolean) => void;
   onSelectAll: (checked: boolean) => void;
   onSchedulePickup: (shipment: Shipment) => void;
   onUpdateStatus: (shipmentId: string, status: string) => void;
   onDownloadLabel?: (shipmentId: string) => void;
+  onDownloadManifest?: (shipmentId: string) => void;
   onDownloadPickupReceipt?: (shipmentId: string) => void;
+  onNdrReattempt?: (shipmentId: string) => void;
+  onNdrUpdatePhone?: (shipmentId: string, phone: string) => void;
 }
 
 const ShipmentTable: React.FC<ShipmentTableProps> = ({
@@ -62,7 +65,10 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
   onSchedulePickup,
   onUpdateStatus,
   onDownloadLabel,
+  onDownloadManifest,
   onDownloadPickupReceipt,
+  onNdrReattempt,
+  onNdrUpdatePhone,
 }) => {
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -74,6 +80,10 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
       case 'delivered': return 'success';
       case 'cancelled': return 'destructive';
       case 'returned': return 'outline';
+      case 'ndr_failed_delivery': return 'destructive';
+      case 'rto_in_transit': return 'warning';
+      case 'rto_delivered': return 'outline';
+      case 'rto_failed': return 'destructive';
       default: return 'outline';
     }
   };
@@ -88,12 +98,28 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
       delivered: 'Delivered',
       cancelled: 'Cancelled',
       returned: 'Returned',
+      ndr_failed_delivery: 'Failed Delivery',
+      rto_in_transit: 'RTO In Transit',
+      rto_delivered: 'RTO Delivered',
+      rto_failed: 'RTO Failed',
     };
     return labels[status] || status;
   };
 
+  const safeFormatDate = (date: any, fmt: string) => {
+    try {
+      const d = new Date(date);
+      if (isNaN(d.getTime())) return 'N/A';
+      return format(d, fmt);
+    } catch {
+      return 'N/A';
+    }
+  };
+
+  // Allow selection on non-terminal tabs for bulk actions
+  const showCheckboxes = ['ready_to_pick', 'pickup_scheduled', 'in_transit'].includes(activeTab);
   const selectableShipments = shipments.filter(
-    s => s.status === 'pending' && s.shippingProvider !== 'manual'
+    s => !['delivered', 'cancelled', 'rto_delivered', 'rto_failed'].includes(s.status) && s.shippingProvider !== 'manual'
   );
 
   return (
@@ -103,7 +129,7 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
           <TableRow>
             <TableHead className="w-[150px]">
               <div className="flex items-center gap-2">
-                {activeTab === 'ready_to_pickup' && selectableShipments.length > 0 && (
+                {showCheckboxes && selectableShipments.length > 0 && (
                   <Checkbox
                     checked={selectedShipments.length === selectableShipments.length && selectableShipments.length > 0}
                     onCheckedChange={(checked: boolean | "indeterminate") => onSelectAll(checked as boolean)}
@@ -134,7 +160,7 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
               <TableRow key={shipment._id}>
                 <TableCell className="font-medium">
                   <div className="flex items-center gap-2">
-                    {activeTab === 'ready_to_pickup' && shipment.status === 'pending' && shipment.shippingProvider !== 'manual' && (
+                    {showCheckboxes && shipment.shippingProvider !== 'manual' && !['delivered', 'cancelled', 'rto_delivered', 'rto_failed'].includes(shipment.status) && (
                       <Checkbox
                         checked={selectedShipments.includes(shipment._id)}
                         onCheckedChange={(checked: boolean | "indeterminate") => onSelectShipment(shipment._id, checked as boolean)}
@@ -176,7 +202,7 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
                 <TableCell>
                   {shipment.pickup?.scheduledDate ? (
                     <div className="text-sm">
-                      {format(new Date(shipment.pickup.scheduledDate), 'MMM dd, yyyy')}
+                      {safeFormatDate(shipment.pickup.scheduledDate, 'MMM dd, yyyy')}
                       {shipment.pickup.pickupTimeSlot && (
                         <div className="text-xs text-muted-foreground mt-0.5">{shipment.pickup.pickupTimeSlot}</div>
                       )}
@@ -209,7 +235,7 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
                   )}
                 </TableCell>
                 <TableCell className="text-sm text-muted-foreground">
-                  {format(new Date(shipment.createdAt), 'MMM dd, yyyy HH:mm')}
+                  {safeFormatDate(shipment.createdAt, 'MMM dd, yyyy HH:mm')}
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex items-center justify-end gap-2 flex-wrap">
@@ -236,6 +262,18 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
                         <FileText className="h-4 w-4" />
                       </Button>
                     )}
+                    {/* Download Manifest Button */}
+                    {(shipment.providerData?.shiprocketAWB || shipment.providerData?.delhiveryWaybill) && onDownloadManifest && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => onDownloadManifest(shipment._id)}
+                        className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                        title="Download Manifest (PDF)"
+                      >
+                        <ClipboardList className="h-4 w-4" />
+                      </Button>
+                    )}
                     {/* Download Pickup Receipt Button */}
                     {shipment.pickup?.pickupId && onDownloadPickupReceipt && (
                       <Button
@@ -246,6 +284,32 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
                         title="Download Pickup Receipt (PDF)"
                       >
                         <Download className="h-4 w-4" />
+                      </Button>
+                    )}
+                    {/* NDR Actions for Failed Delivery */}
+                    {shipment.status === 'ndr_failed_delivery' && onNdrReattempt && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => onNdrReattempt(shipment._id)}
+                        className="text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                        title="Re-attempt Delivery"
+                      >
+                        <RotateCcw className="h-4 w-4" />
+                      </Button>
+                    )}
+                    {shipment.status === 'ndr_failed_delivery' && onNdrUpdatePhone && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          const phone = prompt('Enter updated phone number for delivery:');
+                          if (phone) onNdrUpdatePhone(shipment._id, phone);
+                        }}
+                        className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
+                        title="Update Delivery Phone Number"
+                      >
+                        <Phone className="h-4 w-4" />
                       </Button>
                     )}
                     {shipment.status !== 'delivered' && shipment.status !== 'cancelled' && (

@@ -3,6 +3,7 @@ export interface CategoryOption {
   name: string;
   slug: string;
   isActive?: boolean;
+  parent?: string | null;
 }
 
 export interface SizeChartEntry {
@@ -60,8 +61,15 @@ export interface ProductVariation {
   originalPrice?: number;
   stock: number;
   sku: string;
+  name?: string;        // Variation display name, e.g. "Abies canadensis CH"
+  slug?: string;        // URL-safe variation slug
+  categories?: string[]; // Category IDs for variation-specific filtering
   images?: string[];
   shortDescription?: string;
+  description?: string;
+  dosage?: string;
+  importantInfo?: string;
+  faqs?: Array<{ question: string; answer: string }>;
   isActive?: boolean;
 }
 

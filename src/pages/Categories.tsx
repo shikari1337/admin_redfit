@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { FaPlus, FaSave, FaUndo, FaTrash } from 'react-icons/fa';
 import { categoriesAPI } from '../services/api';
 import ImageInputWithActions from '../components/common/ImageInputWithActions';
+import IconPicker, { getIconComponent } from '../components/IconPicker';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +18,7 @@ interface Category {
   slug: string;
   description?: string;
   imageUrl?: string;
+  icon?: string;
   displayOrder?: number;
   isActive?: boolean;
   parent?: string | null;
@@ -29,6 +31,7 @@ const emptyForm = {
   slug: '',
   description: '',
   imageUrl: '',
+  icon: '',
   displayOrder: '',
   parent: 'none',
   isActive: true,
@@ -88,6 +91,7 @@ const Categories: React.FC = () => {
       slug: category.slug || '',
       description: category.description || '',
       imageUrl: category.imageUrl || '',
+      icon: category.icon || '',
       displayOrder:
         category.displayOrder !== undefined && category.displayOrder !== null
           ? String(category.displayOrder)
@@ -125,6 +129,7 @@ const Categories: React.FC = () => {
       name: formState.name.trim(),
       description: formState.description?.trim() || undefined,
       imageUrl: formState.imageUrl?.trim() || undefined,
+      icon: formState.icon?.trim() || undefined,
       displayOrder: formState.displayOrder ? Number(formState.displayOrder) : undefined,
       isActive: formState.isActive,
       parent: formState.parent && formState.parent !== 'none' ? formState.parent : null,
@@ -317,6 +322,25 @@ const Categories: React.FC = () => {
                   label=""
                   placeholder="Image URL (https://...)"
                 />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Icon (optional)</Label>
+                <div className="flex items-center gap-2">
+                  {formState.icon && (
+                    <>
+                      {(() => { const IC = getIconComponent(formState.icon); return IC ? <IC size={18} className="text-gray-600 flex-shrink-0" /> : null; })()}
+                      <code className="text-xs text-muted-foreground truncate max-w-[140px]">{formState.icon}</code>
+                    </>
+                  )}
+                  <IconPicker
+                    value={formState.icon || ''}
+                    onChange={(id: string) => setFormState({ ...formState, icon: id })}
+                  />
+                  {formState.icon && (
+                    <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs text-destructive" onClick={() => setFormState({ ...formState, icon: '' })}>Remove</Button>
+                  )}
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">

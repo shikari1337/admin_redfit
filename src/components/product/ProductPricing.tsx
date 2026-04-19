@@ -144,24 +144,32 @@ const ProductPricing: React.FC<ProductPricingProps> = ({
 
         <div className="pt-4 border-t">
           <div className="space-y-2">
-            <Label htmlFor="taxRule">Tax Rule</Label>
-            <Select 
-              value={taxRuleId} 
+            <Label htmlFor="taxRule">Tax / GST Rule</Label>
+            <Select
+              value={taxRuleId || 'none'}
               onValueChange={(val) => onTaxRuleIdChange && onTaxRuleIdChange(val === 'none' ? '' : val)}
             >
               <SelectTrigger id="taxRule">
-                <SelectValue placeholder="Select a tax rule (optional)" />
+                <SelectValue placeholder="Default / None" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">Default / None</SelectItem>
+                {taxRules.length === 0 && (
+                  <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                    No tax rules configured. Add rules in Settings → GST.
+                  </div>
+                )}
                 {taxRules.map((rule) => (
                   <SelectItem key={rule._id} value={rule._id}>
-                    {rule.name} {rule.rate !== undefined ? `(${rule.rate}%)` : ''}
+                    {rule.name}{rule.rate !== undefined ? ` — ${rule.rate}%` : ''}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">Used for calculating GST during checkout.</p>
+            <p className="text-xs text-muted-foreground">
+              Applied when calculating GST at checkout.
+              {taxRules.length === 0 && ' Configure rules in Settings → GST Settings.'}
+            </p>
           </div>
         </div>
 

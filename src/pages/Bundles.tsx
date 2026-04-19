@@ -567,7 +567,7 @@ const Bundles: React.FC = () => {
                             return (
                               <Link
                                 key={`${bundle._id}-item-${idx}`}
-                                to={`/products/${product?._id ? String(product._id) : ''}/edit`}
+                                to={`/products/${product?.slug || (product?._id ? String(product._id) : '')}/edit`}
                                 className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-full hover:bg-gray-200 transition"
                                 onClick={(e) => {
                                   if (!product || !product._id) {

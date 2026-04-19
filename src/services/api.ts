@@ -2,9 +2,30 @@ import axios from 'axios';
 
 // API Configuration
 // All requests go to api.redfit.in for consistent tenant identification
-// The backend identifies tenant from the Host header or domain
+// The backend identifies tenant from the Host header or x-api-key (store API key)
 const API_VERSION = import.meta.env.VITE_API_VERSION || 'v1';
 const API_KEY = import.meta.env.VITE_API_KEY;
+
+/** localStorage key for runtime-configured store API key (tenant validation) */
+export const TENANT_API_KEY_STORAGE_KEY = 'admin_tenant_api_key';
+
+/** Get the API key to use for tenant/store validation: runtime (localStorage) first, then env */
+export function getTenantApiKey(): string | undefined {
+  try {
+    const fromStorage = localStorage.getItem(TENANT_API_KEY_STORAGE_KEY);
+    if (fromStorage && fromStorage.trim()) return fromStorage.trim();
+  } catch (_) {}
+  return API_KEY;
+}
+
+/** Set the store API key for tenant validation (e.g. from Settings). Persists in localStorage. */
+export function setTenantApiKey(apiKey: string | null): void {
+  if (apiKey === null || apiKey === '') {
+    localStorage.removeItem(TENANT_API_KEY_STORAGE_KEY);
+  } else {
+    localStorage.setItem(TENANT_API_KEY_STORAGE_KEY, apiKey.trim());
+  }
+}
 
 // Get API base URL from environment or use production default
 let rawBaseUrl = import.meta.env.VITE_API_SERVER_URL;
@@ -44,7 +65,6 @@ export const api = axios.create({
   baseURL: API_URL,
   headers: {
     'Content-Type': 'application/json',
-    ...(API_KEY && { 'x-api-key': API_KEY }), // Add API Key if present
   },
   // Add timeout to prevent hanging requests
   timeout: 30000, // 30 seconds
@@ -62,7 +82,18 @@ const normalizeResponse = (response: any): any => {
 
   // If response has success and data fields, extract data
   if (response.success !== undefined && response.data !== undefined) {
-    return response.data;
+    const extracted = response.data;
+    // Preserve pagination metadata (total, count) as non-enumerable properties
+    // so Array.isArray() stays true and existing callers are unaffected.
+    if (Array.isArray(extracted)) {
+      if (response.total !== undefined) {
+        Object.defineProperty(extracted, 'total', { value: response.total, writable: true, enumerable: false, configurable: true });
+      }
+      if (response.count !== undefined) {
+        Object.defineProperty(extracted, 'count', { value: response.count, writable: true, enumerable: false, configurable: true });
+      }
+    }
+    return extracted;
   }
 
   // If response.data exists and has success/data structure, extract nested data
@@ -74,18 +105,48 @@ const normalizeResponse = (response: any): any => {
   return response;
 };
 
-// Add auth token to requests
+// Add auth token, tenant API key, and security headers to every request
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('admin_token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+
+  // Store/tenant validation: send API key when available (env or Settings)
+  const tenantApiKey = getTenantApiKey();
+  if (tenantApiKey) {
+    config.headers['x-api-key'] = tenantApiKey;
+  }
+
+  // Security: per-request nonce (prevents trivial replay detection)
+  try {
+    const nonce = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
+    config.headers['x-request-id'] = nonce;
+  } catch { /* non-critical */ }
+
+  // Security: validate stored storeApiKey hasn't drifted from session
+  // (If someone manually edited localStorage to another store's key, force logout)
+  try {
+    const sessionRaw = sessionStorage.getItem('admin_session_v2');
+    if (sessionRaw && token) {
+      const session = JSON.parse(sessionRaw);
+      const lsKey = localStorage.getItem('admin_tenant_api_key');
+      if (lsKey && session.storeApiKey && lsKey !== session.storeApiKey) {
+        // Store key tampering detected — abort and force re-login
+        console.warn('⚠️ Store API key mismatch detected — possible cross-store access attempt. Forcing logout.');
+        localStorage.removeItem('admin_token');
+        sessionStorage.removeItem('admin_session_v2');
+        window.location.href = '/login';
+        return Promise.reject(new Error('Store mismatch: re-authentication required'));
+      }
+    }
+  } catch { /* non-critical */ }
+
   console.log('📤 Request:', {
     method: config.method?.toUpperCase(),
     url: config.url,
-    baseURL: config.baseURL,
-    headers: config.headers,
-    hasToken: !!token
+    hasToken: !!token,
+    storeKey: tenantApiKey ? 'present' : 'missing',
   });
   return config;
 });
@@ -93,14 +154,39 @@ api.interceptors.request.use((config) => {
 // Handle auth errors and normalize responses
 api.interceptors.response.use(
   (response) => {
+    // Skip normalization for blob/arraybuffer responses (PDF downloads etc.)
+    const responseType = response.config?.responseType;
+    if (responseType === 'blob' || responseType === 'arraybuffer') {
+      console.log('📥 Response (binary):', {
+        status: response.status,
+        url: response.config.url,
+        type: responseType,
+        size: response.data?.size || response.data?.byteLength || 'unknown',
+      });
+      return response;
+    }
+
     // Normalize response data to ensure consistent format
     if (response.data) {
+      // Debug: log raw data before normalization for shipments endpoint
+      const url = response.config?.url || '';
+      if (url.includes('/shipments') && !url.includes('pending-orders')) {
+        console.log('📥 [SHIPMENTS DEBUG] Raw response.data BEFORE normalization:', JSON.stringify(response.data).substring(0, 2000));
+      }
       response.data = normalizeResponse(response.data);
+      if (url.includes('/shipments') && !url.includes('pending-orders')) {
+        console.log('📥 [SHIPMENTS DEBUG] response.data AFTER normalization:', JSON.stringify(response.data).substring(0, 2000));
+        // Log first shipment details if present
+        const shipments = response.data?.shipments || response.data;
+        if (Array.isArray(shipments) && shipments.length > 0) {
+          console.log('📥 [SHIPMENTS DEBUG] First shipment object keys:', Object.keys(shipments[0]));
+          console.log('📥 [SHIPMENTS DEBUG] First shipment:', JSON.stringify(shipments[0]).substring(0, 1000));
+        }
+      }
     }
     console.log('📥 Response:', {
       status: response.status,
       url: response.config.url,
-      data: response.data
     });
     return response;
   },
@@ -199,8 +285,9 @@ api.interceptors.response.use(
         (requiresLogin && errorCode);
 
       if (isSessionError) {
-        console.log('🔒 Session/token error detected, clearing token and redirecting to login');
+        console.log('🔒 Session/token error detected, clearing session and redirecting to login');
         localStorage.removeItem('admin_token');
+        sessionStorage.removeItem('admin_session_v2'); // clear new secure session
         // Use setTimeout to avoid navigation during render
         setTimeout(() => {
           window.location.href = '/login';
@@ -372,16 +459,23 @@ export const contentAPI = {
 
 // Products API
 export const productsAPI = {
-  getAll: async (params?: { active?: boolean; search?: string; category?: string; attributes?: string | object }) => {
+  getAll: async (params?: { active?: boolean; search?: string; category?: string; categorySlug?: string; attributes?: string | object; page?: number; limit?: number }) => {
     // Handle attributes parameter - if it's an object, stringify it
     const queryParams: any = { ...params };
     if (queryParams.attributes && typeof queryParams.attributes === 'object') {
       queryParams.attributes = JSON.stringify(queryParams.attributes);
     }
+    // Backend uses skip-based pagination (not page-based).
+    // Convert page → skip so that navigating pages actually works.
+    if (queryParams.page !== undefined) {
+      const pageNum = parseInt(queryParams.page, 10) || 1;
+      const limitNum = parseInt(queryParams.limit, 10) || 20;
+      queryParams.skip = (pageNum - 1) * limitNum;
+      delete queryParams.page;
+    }
     const response = await api.get('/products', { params: queryParams });
     // Backend returns: { success: true, data: products[], count: number }
-    // Interceptor normalizes to: products[] or { data: products[] }
-    // Return as-is so frontend can handle both formats
+    // count = number of items on this page (not total). Return as-is.
     return response.data;
   },
   getById: async (id: string) => {
@@ -460,6 +554,44 @@ export const productsAPI = {
     });
     return response.data;
   },
+  getAllSkus: async (): Promise<Array<{ _id: string; sku: string }>> => {
+    const response = await api.get('/products/skus');
+    const data = response.data;
+    const list = data?.data || data || [];
+    return (Array.isArray(list) ? list : []).map((p: any) => ({ _id: String(p._id), sku: String(p.sku || '') }));
+  },
+  exportAll: async (): Promise<void> => {
+    // Use native fetch + ReadableStream so the browser pipes the response
+    // directly to disk without ever holding the full CSV in JS heap.
+    const token = localStorage.getItem('admin_token');
+    const tenantApiKey = getTenantApiKey();
+    const url = `${API_URL}/products/export`;
+
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    if (tenantApiKey) headers['x-api-key'] = tenantApiKey;
+
+    const resp = await fetch(url, { headers });
+    if (!resp.ok) throw new Error(`Export failed: ${resp.status} ${resp.statusText}`);
+
+    // Stream the response body into a Blob without reading it all at once in JS
+    const reader = resp.body!.getReader();
+    const chunks: ArrayBuffer[] = [];
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) chunks.push(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength) as ArrayBuffer);
+    }
+
+    const blob = new Blob(chunks, { type: 'text/csv;charset=utf-8;' });
+    const date = new Date().toISOString().split('T')[0];
+    const objUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = objUrl;
+    a.download = `products-all-${date}.csv`;
+    a.click();
+    URL.revokeObjectURL(objUrl);
+  },
 };
 
 // Categories API
@@ -511,6 +643,58 @@ export const categoriesAPI = {
   delete: async (id: string) => {
     try {
       const response = await api.delete(`/categories/${id}`);
+      return response.data;
+    } catch (error: any) {
+      safeError(error);
+    }
+  },
+};
+
+// Brands API
+export const brandsAPI = {
+  list: async (params?: { active?: boolean; featured?: boolean }) => {
+    try {
+      const response = await api.get('/brands', { params });
+      return response.data;
+    } catch (error: any) {
+      safeError(error);
+    }
+  },
+  getBySlug: async (slug: string) => {
+    try {
+      const response = await api.get(`/brands/slug/${slug}`);
+      return response.data;
+    } catch (error: any) {
+      safeError(error);
+    }
+  },
+  getById: async (id: string) => {
+    try {
+      const response = await api.get(`/brands/${id}`);
+      return response.data;
+    } catch (error: any) {
+      safeError(error);
+    }
+  },
+  create: async (data: any) => {
+    try {
+      const response = await api.post('/brands', data);
+      return response.data;
+    } catch (error: any) {
+      safeError(error);
+    }
+  },
+  update: async (id: string, data: any) => {
+    try {
+      const response = await api.put(`/brands/${id}`, data);
+      return response.data;
+    } catch (error: any) {
+      safeError(error);
+    }
+  },
+  delete: async (id: string) => {
+    try {
+      const response = await api.delete(`/brands/${id}`);
       return response.data;
     } catch (error: any) {
       safeError(error);
@@ -906,6 +1090,10 @@ export const ordersAPI = {
     const response = await api.put(`/orders/${id}/status`, { status, notes });
     return response.data;
   },
+  markOrderCompleted: async (id: string) => {
+    const response = await api.post(`/orders/${id}/complete`);
+    return response.data;
+  },
   updateNotes: async (id: string, notes: string) => {
     const response = await api.put(`/orders/${id}/notes`, { notes });
     return response.data;
@@ -1038,6 +1226,33 @@ export const pagesAPI = {
   },
 };
 
+export const menusAPI = {
+  list: async (params?: { active?: boolean; location?: string }) => {
+    const response = await api.get('/menus', { params });
+    return response.data?.data || response.data || [];
+  },
+  getByLocation: async (location: string) => {
+    try {
+      const response = await api.get(`/menus/location/${location}`);
+      return response.data?.data || response.data || null;
+    } catch {
+      return null;
+    }
+  },
+  create: async (data: any) => {
+    const response = await api.post('/menus', data);
+    return response.data?.data || response.data;
+  },
+  update: async (id: string, data: any) => {
+    const response = await api.put(`/menus/${id}`, data);
+    return response.data?.data || response.data;
+  },
+  delete: async (id: string) => {
+    const response = await api.delete(`/menus/${id}`);
+    return response.data;
+  },
+};
+
 // Reviews API
 export const reviewsAPI = {
   getAll: async (params?: { productId?: string; approved?: boolean; page?: number; limit?: number }) => {
@@ -1115,7 +1330,7 @@ export const shippingAPI = {
     return response.data;
   },
   checkServiceability: async (pincode: string, weight?: number, cod?: boolean) => {
-    const response = await api.post('/shipping/check-serviceability', {
+    const response = await api.post('/shipping/shiprocket/check-serviceability', {
       pincode,
       weight,
       cod,
@@ -1152,7 +1367,7 @@ export const shippingAPI = {
     if (options?.length && options.length > 0) params.append('length', String(options.length));
     if (options?.breadth && options.breadth > 0) params.append('breadth', String(options.breadth));
     if (options?.height && options.height > 0) params.append('height', String(options.height));
-    const response = await api.get(`/shipping/courier-rates?${params.toString()}`);
+    const response = await api.get(`/shipping/shiprocket/rates?${params.toString()}`);
     return response.data;
   },
   getDelhiveryRates: async (
@@ -1175,7 +1390,7 @@ export const shippingAPI = {
     if (options?.length && options.length > 0) params.append('length', String(options.length));
     if (options?.breadth && options.breadth > 0) params.append('breadth', String(options.breadth));
     if (options?.height && options.height > 0) params.append('height', String(options.height));
-    const response = await api.get(`/shipping/delhivery-rates?${params.toString()}`);
+    const response = await api.get(`/shipping/delhivery/rates?${params.toString()}`);
     return response.data;
   },
 };
@@ -1184,6 +1399,7 @@ export const shippingAPI = {
 export const shipmentsAPI = {
   getAll: async (params?: {
     status?: string;
+    tab?: string;
     warehouseId?: string;
     shippingProvider?: 'shiprocket' | 'delhivery' | 'manual';
     startDate?: string;
@@ -1192,6 +1408,10 @@ export const shipmentsAPI = {
     limit?: number;
   }) => {
     const response = await api.get('/shipments', { params });
+    return response.data;
+  },
+  getPendingOrders: async (params?: { page?: number; limit?: number }) => {
+    const response = await api.get('/shipments/pending-orders', { params });
     return response.data;
   },
   getById: async (id: string) => {
@@ -1203,6 +1423,12 @@ export const shipmentsAPI = {
     warehouseId: string;
     shippingProvider: 'shiprocket' | 'delhivery' | 'manual';
     notes?: string;
+    weight?: number;
+    length?: number;
+    breadth?: number;
+    height?: number;
+    courierCompanyId?: number;
+    delhiveryServiceType?: 'express' | 'surface';
     manualTrackingId?: string;
     manualCarrierName?: string;
     manualTrackingUrl?: string;
@@ -1234,62 +1460,85 @@ export const shipmentsAPI = {
     const response = await api.post('/shipments/fetch-status-updates');
     return response.data;
   },
+  ndrReattempt: async (id: string) => {
+    const response = await api.post(`/shipments/${id}/ndr-reattempt`);
+    return response.data;
+  },
+  ndrUpdatePhone: async (id: string, phone: string) => {
+    const response = await api.post(`/shipments/${id}/ndr-update-phone`, { phone });
+    return response.data;
+  },
   downloadLabel: async (id: string) => {
-    const response = await api.get(`/shipments/${id}/download-label`, {
-      responseType: 'blob', // For PDF download
-      headers: {
-        'Accept': 'application/pdf',
-      },
-    });
-    // Create download link
-    const url = window.URL.createObjectURL(response.data);
-    const link = document.createElement('a');
-    link.href = url;
-    const contentDisposition = response.headers['content-disposition'];
-    const filename = contentDisposition
-      ? contentDisposition.split('filename=')[1]?.replace(/"/g, '') || `label-${id}.pdf`
-      : `label-${id}.pdf`;
-    link.setAttribute('download', filename);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url);
+    try {
+      const response = await api.get(`/shipments/${id}/download-label`, {
+        responseType: 'blob',
+        headers: { 'Accept': 'application/pdf' },
+      });
+      const blob = response.data instanceof Blob ? response.data : new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const contentDisposition = response.headers['content-disposition'];
+      const filename = contentDisposition
+        ? contentDisposition.split('filename=')[1]?.replace(/"/g, '') || `label-${id}.pdf`
+        : `label-${id}.pdf`;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error: any) {
+      console.error('Download label error:', error);
+      throw error;
+    }
   },
   downloadPickupReceipt: async (id: string) => {
-    const response = await api.get(`/shipments/${id}/download-pickup-receipt`, {
-      responseType: 'blob',
-      headers: { 'Accept': 'application/pdf' },
-    });
-    const url = window.URL.createObjectURL(response.data);
-    const link = document.createElement('a');
-    link.href = url;
-    const contentDisposition = response.headers['content-disposition'];
-    const filename = contentDisposition
-      ? contentDisposition.split('filename=')[1]?.replace(/"/g, '') || `pickup-receipt-${id}.pdf`
-      : `pickup-receipt-${id}.pdf`;
-    link.setAttribute('download', filename);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url);
+    try {
+      const response = await api.get(`/shipments/${id}/download-pickup-receipt`, {
+        responseType: 'blob',
+        headers: { 'Accept': 'application/pdf' },
+      });
+      const blob = response.data instanceof Blob ? response.data : new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const contentDisposition = response.headers['content-disposition'];
+      const filename = contentDisposition
+        ? contentDisposition.split('filename=')[1]?.replace(/"/g, '') || `pickup-receipt-${id}.pdf`
+        : `pickup-receipt-${id}.pdf`;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error: any) {
+      console.error('Download pickup receipt error:', error);
+      throw error;
+    }
   },
   downloadManifest: async (id: string) => {
-    const response = await api.get(`/shipments/${id}/download-manifest`, {
-      responseType: 'blob',
-      headers: { 'Accept': 'application/pdf' },
-    });
-    const url = window.URL.createObjectURL(response.data);
-    const link = document.createElement('a');
-    link.href = url;
-    const contentDisposition = response.headers['content-disposition'];
-    const filename = contentDisposition
-      ? contentDisposition.split('filename=')[1]?.replace(/"/g, '') || `manifest-${id}.pdf`
-      : `manifest-${id}.pdf`;
-    link.setAttribute('download', filename);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url);
+    try {
+      const response = await api.get(`/shipments/${id}/download-manifest`, {
+        responseType: 'blob',
+        headers: { 'Accept': 'application/pdf' },
+      });
+      const blob = response.data instanceof Blob ? response.data : new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const contentDisposition = response.headers['content-disposition'];
+      const filename = contentDisposition
+        ? contentDisposition.split('filename=')[1]?.replace(/"/g, '') || `manifest-${id}.pdf`
+        : `manifest-${id}.pdf`;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error: any) {
+      console.error('Download manifest error:', error);
+      throw error;
+    }
   },
   syncStatusAll: async () => {
     const response = await api.post('/shipments/fetch-status-updates');
@@ -1552,6 +1801,39 @@ export const faqsAPI = {
   },
   delete: async (id: string) => {
     const response = await api.delete(`/faqs/${id}`);
+    return response.data;
+  },
+};
+
+export const faqGroupsAPI = {
+  getAll: async (params?: { active?: boolean }) => {
+    const response = await api.get('/faq-groups', { params });
+    return response.data;
+  },
+  getById: async (id: string) => {
+    const response = await api.get(`/faq-groups/${id}`);
+    return response.data;
+  },
+  create: async (data: {
+    name: string;
+    description?: string;
+    items?: { question: string; answer: string; order?: number }[];
+    isActive?: boolean;
+  }) => {
+    const response = await api.post('/faq-groups', data);
+    return response.data;
+  },
+  update: async (id: string, data: {
+    name?: string;
+    description?: string;
+    items?: { question: string; answer: string; order?: number }[];
+    isActive?: boolean;
+  }) => {
+    const response = await api.put(`/faq-groups/${id}`, data);
+    return response.data;
+  },
+  delete: async (id: string) => {
+    const response = await api.delete(`/faq-groups/${id}`);
     return response.data;
   },
 };
@@ -1988,8 +2270,25 @@ export const inventoryAPI = {
 // ─── TAX RULES API ────────────────────────────────────────────────────────────
 export const taxRulesAPI = {
   getAll: async () => {
-    const response = await api.get('/tax');
-    return response.data;
+    // Backend list is GET /tax (not /tax/rules). Fallback to /settings/gst taxBrackets.
+    try {
+      const response = await api.get('/tax');
+      const data = response.data?.data ?? response.data;
+      if (Array.isArray(data) && data.length > 0) return data;
+    } catch {}
+    try {
+      const response = await api.get('/settings/gst');
+      const gst = response.data?.data || response.data;
+      const brackets = gst?.taxBrackets || [];
+      // GST brackets have no _id; use rate as id so product can store "18" etc. Backend accepts rate-as-id.
+      return brackets.map((b: any) => ({
+        _id: String(b._id || b.id || b.rate),
+        name: b.name || `GST ${b.rate}%`,
+        rate: b.rate,
+      }));
+    } catch {
+      return [];
+    }
   },
   create: async (data: any) => {
     const response = await api.post('/tax', data);
@@ -2145,6 +2444,36 @@ export const pluginsAPI = {
   },
   uninstall: async (id: string) => {
     const response = await api.delete(`/plugins/${id}`);
+    return response.data;
+  },
+};
+
+export const packagesAPI = {
+  getAll: async () => {
+    const response = await api.get('/packages');
+    return response.data;
+  },
+};
+
+export const bannersAPI = {
+  getAll: async (params?: { active?: boolean; location?: string }) => {
+    const response = await api.get('/banners', { params });
+    return response.data?.data || response.data || [];
+  },
+  getById: async (id: string) => {
+    const response = await api.get(`/banners/${id}`);
+    return response.data?.data || response.data;
+  },
+  create: async (data: any) => {
+    const response = await api.post('/banners', data);
+    return response.data?.data || response.data;
+  },
+  update: async (id: string, data: any) => {
+    const response = await api.put(`/banners/${id}`, data);
+    return response.data?.data || response.data;
+  },
+  delete: async (id: string) => {
+    const response = await api.delete(`/banners/${id}`);
     return response.data;
   },
 };

@@ -54,7 +54,11 @@ const ShipmentFilters: React.FC<ShipmentFiltersProps> = ({
                 <SelectItem value="picked_up">Picked Up</SelectItem>
                 <SelectItem value="in_transit">In Transit</SelectItem>
                 <SelectItem value="out_for_delivery">Out for Delivery</SelectItem>
+                <SelectItem value="ndr_failed_delivery">Failed Delivery (NDR)</SelectItem>
                 <SelectItem value="delivered">Delivered</SelectItem>
+                <SelectItem value="rto_in_transit">RTO In Transit</SelectItem>
+                <SelectItem value="rto_delivered">RTO Delivered</SelectItem>
+                <SelectItem value="rto_failed">RTO Failed</SelectItem>
                 <SelectItem value="cancelled">Cancelled</SelectItem>
                 <SelectItem value="returned">Returned</SelectItem>
               </SelectContent>

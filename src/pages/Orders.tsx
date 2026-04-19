@@ -9,12 +9,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast"; // Assuming useToast is available, fallback to alert if not
+import { FaCheckCircle } from 'react-icons/fa';
 
 const Orders: React.FC = () => {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
   const [sendingToShiprocket, setSendingToShiprocket] = useState<string | null>(null);
+  const [confirmingOrder, setConfirmingOrder] = useState<string | null>(null);
   
   // Try to use toast, fallback to window.alert if not available
   let toast: any;
@@ -82,6 +84,21 @@ const Orders: React.FC = () => {
       });
     } finally {
       setSendingToShiprocket(null);
+    }
+  };
+
+  const handleConfirmOrder = async (orderId: string) => {
+    if (!confirm('Confirm this order? After confirmation, you can create a shipment.')) return;
+    
+    setConfirmingOrder(orderId);
+    try {
+      await ordersAPI.confirmOrder(orderId);
+      toast({ title: "Confirmed", description: 'Order confirmed successfully!' });
+      fetchOrders();
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Error", description: error.response?.data?.message || 'Failed to confirm order.' });
+    } finally {
+      setConfirmingOrder(null);
     }
   };
 
@@ -203,6 +220,22 @@ const Orders: React.FC = () => {
                       </TableCell>
                       <TableCell className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-2 isolate">
+                          {order.orderStatus === 'pending' && (
+                            <Button
+                              variant="default"
+                              size="sm"
+                              title="Confirm Order"
+                              className="h-8 w-8 p-0 bg-green-600 hover:bg-green-700 rounded-full flex-shrink-0"
+                              onClick={() => handleConfirmOrder(order._id)}
+                              disabled={confirmingOrder === order._id || (order.paymentMethod === 'prepaid' && order.paymentStatus !== 'completed')}
+                            >
+                              {confirmingOrder === order._id ? (
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                              ) : (
+                                <FaCheckCircle size={14} />
+                              )}
+                            </Button>
+                          )}
                           {(order.orderStatus === 'confirmed' || order.orderStatus === 'processing') && (
                             <Button
                               variant="default"

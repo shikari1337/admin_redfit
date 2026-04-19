@@ -21,6 +21,7 @@ import {
   PaymentVerificationModal,
   UpdateEmailModal,
 } from '../components/order';
+import { PickupModal } from '../components/shipments';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -61,6 +62,13 @@ const OrderDetail: React.FC = () => {
   const [showUpdateEmailModal, setShowUpdateEmailModal] = useState(false);
   const [updateEmailSubject, setUpdateEmailSubject] = useState('');
   const [updateEmailContent, setUpdateEmailContent] = useState('');
+
+  // Shipment actions state
+  const [showPickupModal, setShowPickupModal] = useState(false);
+  const [pickupDate, setPickupDate] = useState('');
+  const [pickupTimeSlot, setPickupTimeSlot] = useState('');
+  const [pickupNotes, setPickupNotes] = useState('');
+  const [schedulingPickup, setSchedulingPickup] = useState(false);
 
   let toast: any;
   try {
@@ -229,6 +237,21 @@ const OrderDetail: React.FC = () => {
     }
   };
 
+  const handleMarkCompleted = async () => {
+    if (!confirm('Mark this order as completed? This action cannot be undone.')) return;
+    
+    setUpdating(true);
+    try {
+      await ordersAPI.markOrderCompleted(id!);
+      toast({ title: "Completed", description: 'Order marked as completed successfully!' });
+      fetchOrder();
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Error", description: error.response?.data?.message || 'Failed to finish order.' });
+    } finally {
+      setUpdating(false);
+    }
+  };
+
   const handleSendEmail = async (type: 'confirmation' | 'update' | 'invoice', subject?: string, content?: string) => {
     if (!order.shippingAddress?.email) {
       toast({ variant: "destructive", title: "No Email", description: 'Customer email address is not available' });
@@ -286,6 +309,12 @@ const OrderDetail: React.FC = () => {
       }
     }
 
+    if (order?.shippingProvider) {
+      if (!confirm(`Warning: This order was previously shipped via ${order.shippingProvider.toUpperCase()}. Are you sure you want to reship it and create a NEW shipment record?`)) {
+        return;
+      }
+    }
+
     if (selectedShippingProvider === 'manual') {
       if (!manualTrackingId || !manualCarrierName || !manualTrackingUrl) {
         toast({ variant: "destructive", title: "Error", description: 'Please enter all manual tracking details' }); return;
@@ -299,19 +328,29 @@ const OrderDetail: React.FC = () => {
     
     setSendingToShiprocket(true);
     try {
-      let orderItemIndices: number[] = [];
-      if (modalData?.selectedItemIndices && modalData.selectedItemIndices.length > 0) orderItemIndices = modalData.selectedItemIndices;
-      else if (order?.items && order.items.length > 0) orderItemIndices = order.items.map((_: any, index: number) => index);
+      let orderItemSkus: string[] = [];
+      if (modalData?.selectedItemIndices && modalData.selectedItemIndices.length > 0) {
+        orderItemSkus = modalData.selectedItemIndices.map((idx: number) => order.items[idx]?.sku).filter(Boolean);
+      } else if (order?.items && order.items.length > 0) {
+        orderItemSkus = order.items.map((item: any) => item.sku).filter(Boolean);
+      }
+
+      // Map warehouseId to name or code for readable backend processing
+      let readableWarehouseId = selectedWarehouseId;
+      const selectedW = warehouses.find(w => w._id === selectedWarehouseId);
+      if (selectedW) {
+        readableWarehouseId = selectedW.code || selectedW.name || selectedWarehouseId;
+      }
 
       const shipmentData: any = {
-        orderIds: [id!],
-        warehouseId: selectedWarehouseId,
+        orderIds: [order.orderId || id!], // Pass human-readable string IDs
+        warehouseId: readableWarehouseId, // Pass human-readable string IDs
         shippingProvider: selectedShippingProvider,
         weight: modalData?.weight || 0.5,
         length: modalData?.length || 10,
         breadth: modalData?.breadth || 10,
         height: modalData?.height || 5,
-        orderItemIndices: orderItemIndices.length > 0 ? orderItemIndices : undefined,
+        orderItemIndices: orderItemSkus.length > 0 ? orderItemSkus : undefined, // We repurposed orderItemIndices to carry SKUs dynamically for readable logging
       };
 
       if (selectedShippingProvider === 'manual') {
@@ -344,6 +383,52 @@ const OrderDetail: React.FC = () => {
     }
   };
 
+  const handleSubmitPickup = async () => {
+    if (!pickupDate) {
+      toast({ variant: "destructive", title: "Missing Date", description: 'Please select a pickup date' });
+      return;
+    }
+    setSchedulingPickup(true);
+    try {
+      const shipmentId = typeof order.shipmentId === 'object' ? order.shipmentId._id : order.shipmentId;
+      await shipmentsAPI.schedulePickup(shipmentId, {
+        scheduledDate: pickupDate,
+        pickupTimeSlot: pickupTimeSlot || undefined,
+        notes: pickupNotes || undefined,
+      });
+      toast({ title: "Scheduled", description: 'Pickup scheduled successfully! AWB generated.' });
+      setShowPickupModal(false);
+      setPickupDate('');
+      setPickupTimeSlot('');
+      setPickupNotes('');
+      fetchOrder();
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Error", description: error.response?.data?.message || 'Failed to schedule pickup' });
+    } finally {
+      setSchedulingPickup(false);
+    }
+  };
+
+  const handleDownloadLabel = async () => {
+    const shipmentId = typeof order.shipmentId === 'object' ? order.shipmentId._id : order.shipmentId;
+    if (!shipmentId) return;
+    try {
+      await shipmentsAPI.downloadLabel(shipmentId);
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Error", description: error.response?.data?.message || 'Failed to download label' });
+    }
+  };
+
+  const handleDownloadManifest = async () => {
+    const shipmentId = typeof order.shipmentId === 'object' ? order.shipmentId._id : order.shipmentId;
+    if (!shipmentId) return;
+    try {
+      await shipmentsAPI.downloadManifest(shipmentId);
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Error", description: error.response?.data?.message || 'Failed to download manifest' });
+    }
+  };
+
   const handleWhatsAppClick = (phoneNumber: string) => {
     const cleanPhone = phoneNumber.replace(/\D/g, '');
     const whatsappUrl = `https://wa.me/${cleanPhone}`;
@@ -360,7 +445,7 @@ const OrderDetail: React.FC = () => {
 
   if (!order) return null;
 
-  const statusOptions = ['pending','confirmed','processing','shipped','delivered','cancelled','returned'];
+  const statusOptions = ['pending','confirmed','processing','shipped','delivered','cancelled','returned','completed'];
   const discountBreakdown = order.discountReason ? order.discountReason.split(',').map((d: string) => d.trim()) : [];
 
   return (
@@ -426,10 +511,17 @@ const OrderDetail: React.FC = () => {
               </Button>
             )}
 
-            {order.orderStatus === 'confirmed' && !order.shippingProvider && (
+            {['confirmed', 'processing', 'shipped'].includes(order.orderStatus) && (
               <Button variant="default" size="sm" className="h-10 bg-blue-600 hover:bg-blue-700"
                 onClick={() => setShowShipmentModal(true)} disabled={sendingToShiprocket}>
-                <FaTruck className="mr-2 h-3.5 w-3.5" /> {sendingToShiprocket ? 'Creating...' : 'Create Shipment'}
+                <FaTruck className="mr-2 h-3.5 w-3.5" /> {sendingToShiprocket ? 'Creating...' : order.shippingProvider ? 'Reship Order' : 'Create Shipment'}
+              </Button>
+            )}
+
+            {order.orderStatus === 'delivered' && (
+              <Button variant="default" size="sm" className="h-10 bg-indigo-600 hover:bg-indigo-700 ml-2"
+                onClick={handleMarkCompleted} disabled={updating}>
+                <FaCheckCircle className="mr-2 h-3.5 w-3.5" /> {updating ? 'Updating...' : 'Mark as Completed'}
               </Button>
             )}
           </div>
@@ -560,6 +652,27 @@ const OrderDetail: React.FC = () => {
                     <p className="font-mono text-foreground font-medium bg-muted px-2 py-1 rounded w-fit">{order.delhiveryWaybill}</p>
                   </div>
                 )}
+                
+                {/* Shipment Actions */}
+                {order.shipmentId && (order.shippingProvider === 'shiprocket' || order.shippingProvider === 'delhivery') && (
+                  <div className="pt-4 mt-2 border-t flex flex-wrap gap-2">
+                    {order.orderStatus === 'shipped' && order.shippingProvider === 'shiprocket' && !order.shiprocketPickupScheduledDate && (
+                      <Button variant="outline" size="sm" className="h-9" onClick={() => setShowPickupModal(true)}>
+                        Schedule Pickup
+                      </Button>
+                    )}
+                    {(order.shiprocketAWB || order.delhiveryWaybill) && (
+                      <Button variant="outline" size="sm" className="h-9" onClick={handleDownloadLabel}>
+                        Download Label
+                      </Button>
+                    )}
+                    {((order.shippingProvider === 'shiprocket' && order.shiprocketAWB) || (order.shippingProvider === 'delhivery' && order.delhiveryWaybill)) && (
+                      <Button variant="outline" size="sm" className="h-9" onClick={handleDownloadManifest}>
+                        Download Manifest
+                      </Button>
+                    )}
+                  </div>
+                )}
                 {order.warehouseId && (
                   <div className="pt-2 border-t">
                     <p className="text-muted-foreground mb-1">Assigned Warehouse</p>
@@ -637,6 +750,25 @@ const OrderDetail: React.FC = () => {
         content={updateEmailContent}
         onSubjectChange={setUpdateEmailSubject}
         onContentChange={setUpdateEmailContent}
+      />
+
+      <PickupModal
+        isOpen={showPickupModal}
+        isBulk={false}
+        onClose={() => {
+          setShowPickupModal(false);
+          setPickupDate('');
+          setPickupTimeSlot('');
+          setPickupNotes('');
+        }}
+        onSubmit={handleSubmitPickup}
+        pickupDate={pickupDate}
+        pickupTimeSlot={pickupTimeSlot}
+        pickupNotes={pickupNotes}
+        onDateChange={setPickupDate}
+        onTimeSlotChange={setPickupTimeSlot}
+        onNotesChange={setPickupNotes}
+        isSubmitting={schedulingPickup}
       />
     </div>
   );

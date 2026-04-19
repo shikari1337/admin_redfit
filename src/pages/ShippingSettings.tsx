@@ -12,6 +12,12 @@ const ShippingSettings: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState({
+    shippingConfig: {
+      freeShippingThreshold: 500,
+      shippingFee: 49,
+      codFee: 0,
+      codEnabled: true,
+    },
     shiprocket: {
       useEnvVars: false,
       email: '',
@@ -45,6 +51,17 @@ const ShippingSettings: React.FC = () => {
         : response.data;
       
       if (settings) {
+        if (settings.shippingConfig) {
+          setFormData(prev => ({
+            ...prev,
+            shippingConfig: {
+              freeShippingThreshold: settings.shippingConfig.freeShippingThreshold ?? 500,
+              shippingFee: settings.shippingConfig.shippingFee ?? 49,
+              codFee: settings.shippingConfig.codFee ?? 0,
+              codEnabled: settings.shippingConfig.codEnabled !== false,
+            },
+          }));
+        }
         if (settings.shiprocket) {
           setFormData(prev => ({
             ...prev,
@@ -82,6 +99,12 @@ const ShippingSettings: React.FC = () => {
     setSaving(true);
     try {
       const submitData: any = {
+        shippingConfig: {
+          freeShippingThreshold: Number(formData.shippingConfig.freeShippingThreshold) || 500,
+          shippingFee: Number(formData.shippingConfig.shippingFee) || 0,
+          codFee: Number(formData.shippingConfig.codFee) || 0,
+          codEnabled: formData.shippingConfig.codEnabled,
+        },
         shiprocket: {
           ...formData.shiprocket,
           password: formData.shiprocket.password && !formData.shiprocket.password.startsWith('••••') ? formData.shiprocket.password : undefined,
@@ -149,6 +172,68 @@ const ShippingSettings: React.FC = () => {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6 pb-12">
+        {/* Shipping Fees & COD */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-4">
+              <div className="flex-shrink-0 w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                <Truck className="w-6 h-6 text-blue-600" />
+              </div>
+              <div>
+                <CardTitle>Shipping Fees & COD</CardTitle>
+                <CardDescription>Set flat shipping fee, free shipping threshold, and cash-on-delivery charge</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Free Shipping Threshold (₹)</label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={formData.shippingConfig.freeShippingThreshold}
+                  onChange={(e) => handleChange('shippingConfig', 'freeShippingThreshold', e.target.value)}
+                  placeholder="500"
+                />
+                <p className="text-[11px] text-muted-foreground">Orders above this amount get free shipping</p>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Flat Shipping Fee (₹)</label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={formData.shippingConfig.shippingFee}
+                  onChange={(e) => handleChange('shippingConfig', 'shippingFee', e.target.value)}
+                  placeholder="49"
+                />
+                <p className="text-[11px] text-muted-foreground">Charged when order is below the threshold</p>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">COD Fee (₹) — extra charge</label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={formData.shippingConfig.codFee}
+                  onChange={(e) => handleChange('shippingConfig', 'codFee', e.target.value)}
+                  placeholder="0"
+                />
+                <p className="text-[11px] text-muted-foreground">Additional fee added for Cash on Delivery orders (0 = no extra charge)</p>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">COD Available</label>
+                <div className="flex items-center gap-3 pt-2">
+                  <Checkbox
+                    checked={formData.shippingConfig.codEnabled}
+                    onCheckedChange={(checked) => handleChange('shippingConfig', 'codEnabled', checked as boolean)}
+                  />
+                  <span className="text-sm">Enable Cash on Delivery for customers</span>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Shiprocket Settings */}
         <Card>
           <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">

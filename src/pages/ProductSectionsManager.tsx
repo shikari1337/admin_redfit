@@ -27,6 +27,137 @@ const availableSections: Omit<ProductPageSection, 'order' | 'customData'>[] = [
   { sectionId: 'whyUs', name: 'Why Us', description: 'Benefits and advantages', enabled: true },
 ];
 
+// ─── Custom Section Modal ─────────────────────────────────────────────────────
+
+interface CustomField { key: string; value: string; }
+
+const CustomSectionModal: React.FC<{
+  onClose: () => void;
+  onAdd: (section: ProductPageSection) => void;
+}> = ({ onClose, onAdd }) => {
+  const [name, setName]         = useState('');
+  const [sectionId, setSectionId] = useState('');
+  const [fields, setFields]     = useState<CustomField[]>([{ key: '', value: '' }]);
+  const [error, setError]       = useState('');
+
+  // Auto-generate a sectionId slug from the name
+  function handleNameChange(v: string) {
+    setName(v);
+    setSectionId(v.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''));
+  }
+
+  function setField(idx: number, part: 'key' | 'value', v: string) {
+    setFields(prev => prev.map((f, i) => i === idx ? { ...f, [part]: v } : f));
+  }
+
+  function addField() { setFields(prev => [...prev, { key: '', value: '' }]); }
+
+  function removeField(idx: number) { setFields(prev => prev.filter((_, i) => i !== idx)); }
+
+  function handleAdd() {
+    if (!name.trim())      { setError('Section name is required'); return; }
+    if (!sectionId.trim()) { setError('Section ID is required'); return; }
+    const customData: Record<string, any> = {};
+    for (const f of fields) {
+      if (!f.key.trim()) continue;
+      // Try to parse JSON values (arrays, objects, numbers, booleans)
+      let val: any = f.value;
+      if (val.startsWith('[') || val.startsWith('{')) {
+        try { val = JSON.parse(val); } catch { /* keep as string */ }
+      } else if (val === 'true') { val = true; }
+      else if (val === 'false')  { val = false; }
+      else if (val !== '' && !isNaN(Number(val))) { val = Number(val); }
+      customData[f.key.trim()] = val;
+    }
+    onAdd({
+      sectionId: sectionId.trim(),
+      name: name.trim(),
+      description: 'Custom section',
+      enabled: true,
+      order: 999,
+      customData,
+    });
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between p-5 border-b border-gray-200">
+          <h2 className="text-lg font-bold text-gray-900">Create Custom Section</h2>
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600"><FaTimes /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {error && <p className="text-sm text-red-600 bg-red-50 rounded px-3 py-2">{error}</p>}
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Section Name</label>
+            <input
+              type="text" value={name} onChange={e => handleNameChange(e.target.value)}
+              placeholder="e.g. Dosage Instructions"
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Section ID <span className="text-xs text-gray-400">(used as column prefix in CSV export)</span>
+            </label>
+            <input
+              type="text" value={sectionId} onChange={e => setSectionId(e.target.value)}
+              placeholder="dosage_instructions"
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            {sectionId && (
+              <p className="text-xs text-gray-400 mt-1">
+                Exported as: <code className="bg-gray-100 px-1 rounded">section_{sectionId}_key</code>
+              </p>
+            )}
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm font-medium text-gray-700">Fields (key → value)</label>
+              <button type="button" onClick={addField} className="text-xs text-blue-600 hover:underline flex items-center gap-1">
+                <FaPlus size={10} /> Add field
+              </button>
+            </div>
+            <div className="space-y-2">
+              {fields.map((f, i) => (
+                <div key={i} className="flex gap-2 items-center">
+                  <input
+                    type="text" value={f.key} onChange={e => setField(i, 'key', e.target.value)}
+                    placeholder="key (e.g. text)"
+                    className="w-1/3 border border-gray-300 rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-blue-400"
+                  />
+                  <input
+                    type="text" value={f.value} onChange={e => setField(i, 'value', e.target.value)}
+                    placeholder="value (text, number, or JSON array/object)"
+                    className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-blue-400"
+                  />
+                  <button type="button" onClick={() => removeField(i)} className="text-red-400 hover:text-red-600 flex-shrink-0">
+                    <FaTrash size={11} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-gray-400 mt-2">
+              Tip: use JSON for arrays/objects — e.g. <code className="bg-gray-100 px-1 rounded">[{"{\"q\":\"...\",\"a\":\"...\"}"}]</code>
+            </p>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 p-5 border-t border-gray-200">
+          <button type="button" onClick={onClose} className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 text-sm">Cancel</button>
+          <button type="button" onClick={handleAdd} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">Add Section</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── ProductSectionsManager ───────────────────────────────────────────────────
+
 const ProductSectionsManager: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -34,6 +165,7 @@ const ProductSectionsManager: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [editingSection, setEditingSection] = useState<string | null>(null);
+  const [showCustomModal, setShowCustomModal] = useState(false);
 
   useEffect(() => {
     if (id) {
@@ -44,18 +176,19 @@ const ProductSectionsManager: React.FC = () => {
   const fetchProduct = async () => {
     try {
       setLoading(true);
-      const response = await productsAPI.getById(id!);
-      
-      // CRITICAL FIX: Handle response structure correctly
-      // Backend returns: { success: true, data: product }
-      // productsAPI.getById returns: response.data (axios response body)
-      // So response = { success: true, data: product }
-      // We need response.data to get the actual product object
-      let product = (response && response.success && response.data) 
-        ? response.data 
-        : (response && response.data) 
-        ? response.data 
-        : response;
+      const isSlug = id && !/^[0-9a-fA-F]{24}$/.test(id);
+      let rawProduct: any;
+      if (isSlug) {
+        rawProduct = await productsAPI.getBySlug(id!);
+      } else {
+        const response = await productsAPI.getById(id!);
+        rawProduct = (response && response.success && response.data)
+          ? response.data
+          : (response && response.data)
+          ? response.data
+          : response;
+      }
+      const product = rawProduct;
       
       if (!product || typeof product !== 'object') {
         throw new Error('Invalid product data received');
@@ -101,6 +234,23 @@ const ProductSectionsManager: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleAddCustomSection = (section: ProductPageSection) => {
+    // Prevent duplicate sectionId
+    if (sections.some(s => s.sectionId === section.sectionId)) {
+      alert(`A section with ID "${section.sectionId}" already exists.`);
+      return;
+    }
+    setSections(prev => [...prev, { ...section, order: prev.length }]);
+  };
+
+  const handleDeleteSection = (sectionId: string) => {
+    // Only allow deleting custom (non-built-in) sections
+    const isBuiltIn = availableSections.some(s => s.sectionId === sectionId);
+    if (isBuiltIn) return;
+    if (!confirm('Remove this custom section?')) return;
+    setSections(prev => prev.filter(s => s.sectionId !== sectionId));
   };
 
   const handleToggleSection = (sectionId: string) => {
@@ -174,15 +324,26 @@ const ProductSectionsManager: React.FC = () => {
       </div>
 
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-        <p className="text-sm text-gray-600 mb-4">
-          Enable/disable and reorder sections on the product page. Drag and drop to change order.
-        </p>
+        <div className="flex items-center justify-between mb-4">
+          <p className="text-sm text-gray-600">
+            Enable/disable and reorder sections on the product page.
+          </p>
+          <button
+            type="button"
+            onClick={() => setShowCustomModal(true)}
+            className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 font-medium"
+          >
+            <FaPlus size={11} /> Custom Section
+          </button>
+        </div>
 
         <div className="space-y-3">
-          {sections.map((section, index) => (
+          {sections.map((section, index) => {
+            const isCustom = !availableSections.some(s => s.sectionId === section.sectionId);
+            return (
             <div
               key={section.sectionId}
-              className="flex items-center gap-4 p-4 border border-gray-200 rounded-lg bg-white"
+              className={`flex items-center gap-4 p-4 border rounded-lg bg-white ${isCustom ? 'border-indigo-200 bg-indigo-50/30' : 'border-gray-200'}`}
             >
               <div className="flex flex-col gap-1">
                 <button
@@ -202,10 +363,15 @@ const ProductSectionsManager: React.FC = () => {
                   ↓
                 </button>
               </div>
-              <div className="flex-1">
-                <h3 className="font-semibold text-gray-900">{section.name}</h3>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <h3 className="font-semibold text-gray-900">{section.name}</h3>
+                  {isCustom && (
+                    <span className="text-[10px] font-medium px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded">Custom</span>
+                  )}
+                </div>
                 <p className="text-sm text-gray-500">{section.description}</p>
-                <span className="text-xs text-gray-400">Order: {section.order}</span>
+                <span className="text-xs text-gray-400 font-mono">id: {section.sectionId} · export: section_{section.sectionId}_*</span>
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -225,19 +391,22 @@ const ProductSectionsManager: React.FC = () => {
                       : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                   }`}
                 >
-                  {section.enabled ? (
-                    <>
-                      <FaCheck /> Enabled
-                    </>
-                  ) : (
-                    <>
-                      <FaTimes /> Disabled
-                    </>
-                  )}
+                  {section.enabled ? <><FaCheck /> Enabled</> : <><FaTimes /> Disabled</>}
                 </button>
+                {isCustom && (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteSection(section.sectionId)}
+                    className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-md"
+                    title="Remove custom section"
+                  >
+                    <FaTrash size={13} />
+                  </button>
+                )}
               </div>
             </div>
-          ))}
+          );
+          })}
         </div>
       </div>
 
@@ -258,6 +427,14 @@ const ProductSectionsManager: React.FC = () => {
           {saving ? 'Saving...' : 'Save Sections'}
         </button>
       </div>
+
+      {/* Custom Section Creator Modal */}
+      {showCustomModal && (
+        <CustomSectionModal
+          onClose={() => setShowCustomModal(false)}
+          onAdd={handleAddCustomSection}
+        />
+      )}
 
       {/* Section Content Editor Modal */}
       {editingSection && (
@@ -362,7 +539,8 @@ const SectionContentEditor: React.FC<SectionContentEditorProps> = ({ section, on
       case 'videos':
         return <VideosEditor data={formData} onChange={setFormData} />;
       default:
-        return <div className="text-gray-600">Content editing not available for this section.</div>;
+        // Generic key-value editor for custom sections
+        return <CustomSectionDataEditor data={formData} onChange={setFormData} />;
     }
   };
 
@@ -573,7 +751,85 @@ const getDefaultContent = (sectionId: string): any => {
   }
 };
 
-// Individual Section Editors
+// ─── Generic editor for custom sections ──────────────────────────────────────
+
+const CustomSectionDataEditor: React.FC<{ data: any; onChange: (data: any) => void }> = ({ data, onChange }) => {
+  // Represent each top-level key as an editable row; arrays/objects as JSON strings
+  const entries: Array<{ key: string; raw: string }> = Object.entries(data || {}).map(([k, v]) => ({
+    key: k,
+    raw: typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v),
+  }));
+
+  function setRow(idx: number, part: 'key' | 'raw', val: string) {
+    const next = [...entries];
+    next[idx] = { ...next[idx], [part]: val };
+    rebuildData(next);
+  }
+
+  function addRow() {
+    rebuildData([...entries, { key: '', raw: '' }]);
+  }
+
+  function removeRow(idx: number) {
+    rebuildData(entries.filter((_, i) => i !== idx));
+  }
+
+  function rebuildData(rows: Array<{ key: string; raw: string }>) {
+    const obj: Record<string, any> = {};
+    for (const { key, raw } of rows) {
+      if (!key.trim()) continue;
+      let val: any = raw;
+      if (raw.startsWith('[') || raw.startsWith('{')) {
+        try { val = JSON.parse(raw); } catch { /* keep string */ }
+      } else if (raw === 'true')  { val = true; }
+      else if (raw === 'false')   { val = false; }
+      else if (raw !== '' && !isNaN(Number(raw))) { val = Number(raw); }
+      obj[key.trim()] = val;
+    }
+    onChange(obj);
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-gray-500">
+        Edit fields below. Values are exported as <code className="bg-gray-100 px-1 rounded">section_[id]_[key]</code> columns.
+        Use JSON arrays/objects for complex values.
+      </p>
+      <div className="space-y-2">
+        {entries.map((row, i) => (
+          <div key={i} className="flex gap-2 items-start">
+            <input
+              type="text" value={row.key}
+              onChange={e => setRow(i, 'key', e.target.value)}
+              placeholder="key"
+              className="w-1/4 border border-gray-300 rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-blue-400"
+            />
+            <textarea
+              value={row.raw}
+              onChange={e => setRow(i, 'raw', e.target.value)}
+              placeholder="value (text, number, true/false, or JSON)"
+              rows={row.raw.includes('\n') ? 3 : 1}
+              className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-xs resize-y focus:outline-none focus:border-blue-400"
+            />
+            <button type="button" onClick={() => removeRow(i)} className="mt-1 text-red-400 hover:text-red-600 flex-shrink-0">
+              <FaTrash size={11} />
+            </button>
+          </div>
+        ))}
+      </div>
+      <button
+        type="button"
+        onClick={addRow}
+        className="flex items-center gap-1.5 text-xs text-blue-600 hover:underline font-medium"
+      >
+        <FaPlus size={10} /> Add field
+      </button>
+    </div>
+  );
+};
+
+// ─── Individual Section Editors ───────────────────────────────────────────────
+
 const FeaturesEditor: React.FC<{ data: any; onChange: (data: any) => void }> = ({ data, onChange }) => {
   const updateItem = (index: number, field: string, value: string) => {
     const items = [...(data.items || [])];

@@ -91,7 +91,7 @@ export function AppSidebar({ userPerms, onLogout, menuGroups }: AppSidebarProps)
                     const isActive = location.pathname === item.url || (item.url !== '/dashboard' && location.pathname.startsWith(item.url));
                     
                     if (item.items && item.items.length > 0) {
-                      const isChildActive = item.items.some((subItem) => location.pathname.startsWith(subItem.url));
+                      const isChildActive = location.pathname === item.url || location.pathname.startsWith(item.url + '/');
                       return (
                         <Collapsible key={item.title} asChild defaultOpen={isChildActive} className="group/collapsible">
                           <SidebarMenuItem>
@@ -105,7 +105,7 @@ export function AppSidebar({ userPerms, onLogout, menuGroups }: AppSidebarProps)
                             <CollapsibleContent>
                               <SidebarMenuSub>
                                 {item.items.map((subItem) => {
-                                  const subIsActive = location.pathname.startsWith(subItem.url);
+                                  const subIsActive = location.pathname === subItem.url;
                                   return (
                                     <SidebarMenuSubItem key={subItem.title}>
                                       <SidebarMenuSubButton asChild isActive={subIsActive}>

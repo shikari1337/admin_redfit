@@ -6,6 +6,7 @@ import Products from './pages/Products';
 import Bundles from './pages/Bundles';
 import AbandonedCarts from './pages/AbandonedCarts';
 import Categories from './pages/Categories';
+import Brands from './pages/Brands';
 import Attributes from './pages/Attributes';
 import SizeCharts from './pages/SizeCharts';
 import Tags from './pages/Tags';
@@ -39,6 +40,7 @@ import Pages from './pages/Pages';
 import PageForm from './pages/PageForm';
 import AppearanceMenus from './pages/AppearanceMenus';
 import AppearanceStyle from './pages/AppearanceStyle';
+import AppearanceBanners from './pages/AppearanceBanners';
 import Leads from './pages/Leads';
 import ContentManager from './pages/ContentManager';
 import PageEditor from './pages/PageEditor';
@@ -58,6 +60,7 @@ import B2B from './pages/B2B';
 import Marketing from './pages/Marketing';
 import Billing from './pages/Billing';
 import Inventory from './pages/Inventory';
+import VariationEditPage from './pages/VariationEditPage';
 
 function App() {
   console.log('📱 Admin Panel: App component rendering...');
@@ -86,10 +89,12 @@ function App() {
           <Route path="products/new" element={<ProductForm />} />
           <Route path="products/:id/edit" element={<ProductForm />} />
           <Route path="products/:id/sections" element={<ProductSectionsManager />} />
+          <Route path="products/:productSlug/variations/:variationIndex/edit" element={<VariationEditPage />} />
           <Route path="products/bundles" element={<Bundles />} />
           <Route path="products/bundles/new" element={<BundleForm />} />
           <Route path="products/bundles/:id/edit" element={<BundleForm />} />
           <Route path="products/categories" element={<Categories />} />
+          <Route path="products/brands" element={<Brands />} />
           <Route path="products/attributes" element={<Attributes />} />
           <Route path="products/tags" element={<Tags />} />
           <Route path="products/size-charts" element={<SizeCharts />} />
@@ -113,6 +118,7 @@ function App() {
           <Route path="coupons/:id/edit" element={<ProtectedModuleRoute module="coupons"><CouponForm /></ProtectedModuleRoute>} />
           <Route path="appearance" element={<Navigate to="/appearance/pages" replace />} />
           <Route path="appearance/menus" element={<AppearanceMenus />} />
+          <Route path="appearance/banners" element={<AppearanceBanners />} />
           <Route path="appearance/pages" element={<Pages />} />
           <Route path="appearance/style" element={<AppearanceStyle />} />
           <Route path="pages" element={<Navigate to="/appearance/pages" replace />} />

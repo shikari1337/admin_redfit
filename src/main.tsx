@@ -2,6 +2,8 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import ErrorBoundary from './components/ErrorBoundary';
+import { AuthProvider } from './contexts/AuthContext';
+import { StoreProvider } from './contexts/StoreContext';
 import './index.css';
 
 const rootElement = document.getElementById('root');
@@ -18,7 +20,11 @@ try {
   ReactDOM.createRoot(rootElement).render(
     <React.StrictMode>
       <ErrorBoundary>
-        <App />
+        <AuthProvider>
+          <StoreProvider>
+            <App />
+          </StoreProvider>
+        </AuthProvider>
       </ErrorBoundary>
     </React.StrictMode>
   );

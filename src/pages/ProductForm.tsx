@@ -35,14 +35,10 @@ const ProductForm: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Clean and validate the ID
+  // Clean the param — may be a MongoDB ObjectId (24 hex) or a product slug
   const id = rawId ? String(rawId).trim() : undefined;
   const isEdit = !!id;
-
-  // Validate ID format if in edit mode
-  if (isEdit && id && !/^[0-9a-fA-F]{24}$/.test(id)) {
-    console.error('Invalid product ID format from URL:', id);
-  }
+  const isSlugParam = !!id && !/^[0-9a-fA-F]{24}$/.test(id);
   // Get prefilled data from navigation state (for duplication)
   const prefilledData = location.state?.prefilledData;
 
@@ -60,6 +56,7 @@ const ProductForm: React.FC = () => {
     videos: [] as string[],
     stock: undefined as number | undefined, // Stock for products without variants (simple number)
     categories: [] as string[],
+    featuredCategory: '' as string,
     tags: [] as Array<string | { _id: string; name: string }>, // Tags can be IDs (strings) or names (strings) or objects
     sizeChart: [] as SizeChartEntry[],
     washCareInstructions: [] as Array<{ text: string; iconUrl?: string; iconName?: string }>,
@@ -136,6 +133,9 @@ const ProductForm: React.FC = () => {
     if (Array.isArray(response)) return response;
     if (Array.isArray(response.data)) return response.data;
     if (Array.isArray(response?.data?.data)) return response.data.data;
+    if (Array.isArray(response.rules)) return response.rules;
+    if (Array.isArray(response.taxBrackets)) return response.taxBrackets;
+    if (Array.isArray(response.items)) return response.items;
     if (Array.isArray(response?.data?.data?.data)) return response.data.data.data;
     if (Array.isArray(response?.data?.results)) return response.data.results;
     if (Array.isArray(response?.data?.items)) return response.data.items;
@@ -301,11 +301,18 @@ const ProductForm: React.FC = () => {
       }).filter((tag: any): tag is { _id: string; name: string; slug?: string; isActive?: boolean } => tag !== null);
       setAvailableTags(tagList);
 
-      const taxList = rawTaxList.map((tax: any) => ({
-        _id: normalizeCategoryId(tax._id || tax.id) || '',
-        name: tax.name || 'Unnamed Tax Rule',
-        rate: tax.rate,
-      })).filter((tax) => tax._id !== '');
+      const taxList = rawTaxList
+        .map((tax: any) => {
+          const rawId = tax._id || tax.id || (tax.rate != null ? String(tax.rate) : null);
+          const normalizedId = rawId ? (normalizeCategoryId(rawId) || String(rawId).trim()) : '';
+          if (!normalizedId) return null;
+          return {
+            _id: normalizedId,
+            name: tax.name || `GST ${tax.rate}%`,
+            rate: tax.rate,
+          };
+        })
+        .filter((tax): tax is { _id: string; name: string; rate?: number } => tax !== null && tax._id !== '');
       setAvailableTaxRules(taxList);
     } catch (err) {
       console.error('Failed to load lookups', err);
@@ -395,20 +402,22 @@ const ProductForm: React.FC = () => {
 
       // Extract SKU - check multiple possible locations
       const dataSku = data.sku || data.baseSku || '';
+      const taxId = data.taxRuleId != null ? String(data.taxRuleId).trim() : '';
 
       setFormData({
         name: data.name || '',
         sku: dataSku,
         hsnCode: data.hsnCode || '',
-        taxRuleId: data.taxRuleId || '',
-        price: data.price?.toString() || '',
-        originalPrice: data.originalPrice?.toString() || '',
+        taxRuleId: taxId,
+        price: data.price != null ? String(data.price) : '',
+        originalPrice: data.originalPrice != null ? String(data.originalPrice) : '',
         description: data.description || '',
         richDescription: data.richDescription || '',
         descriptionImage: data.descriptionImage || '',
         images: data.images || [],
         videos: data.videos || [],
         categories: productCategories,
+        featuredCategory: data.featuredCategory ? String(data.featuredCategory) : '',
         tags: (data.tags || []).map((tag: any) => {
           // Tags can be ObjectIds, tag objects, or tag names (strings)
           if (typeof tag === 'string') {
@@ -441,7 +450,9 @@ const ProductForm: React.FC = () => {
         showFeatures: data.showFeatures !== false,
         isActive: data.isActive !== false,
         productType: data.productType || (data.variations && data.variations.length > 0) || (data.attributeIds && data.attributeIds.length > 0) ? 'variation' : 'single',
-        attributeIds: data.attributeIds || [],
+        attributeIds: data.attributeIds?.length
+          ? data.attributeIds
+          : (data.attributes || []).map((a: any) => a._id).filter(Boolean),
         selectedAttributeValues: {}, // Will be populated from variations if needed
         variations: (data.variations || []).map((v: any, idx: number) => {
           // SIMPLIFIED: Normalize slugs (not IDs) - WordPress style
@@ -525,6 +536,13 @@ const ProductForm: React.FC = () => {
     if (!product || typeof product !== 'object') return product;
 
     const sanitized = { ...product };
+    // Preserve taxRuleId and hsnCode (can be string or from API)
+    if (product.taxRuleId !== undefined && product.taxRuleId !== null) {
+      sanitized.taxRuleId = typeof product.taxRuleId === 'string' ? product.taxRuleId : String(product.taxRuleId);
+    }
+    if (product.hsnCode !== undefined && product.hsnCode !== null) {
+      sanitized.hsnCode = String(product.hsnCode);
+    }
 
     // Ensure _id is a string
     if (sanitized._id) {
@@ -722,27 +740,24 @@ const ProductForm: React.FC = () => {
         console.log('📥 Fetching product with ID:', id);
       }
 
-      // Extract clean MongoDB ObjectId
-      // Backend API requires exactly 24 hex characters (MongoDB ObjectId format)
-      const cleanId = extractObjectId(id);
-
-      // Backend validates with Types.ObjectId.isValid() - must be exactly 24 hex chars
-      if (!cleanId) {
-        console.error('❌ Invalid MongoDB ObjectId format:', {
-          originalId: id,
-          idType: typeof id,
-          idLength: id?.length,
-          expectedFormat: '24 hexadecimal characters (0-9a-fA-F)'
-        });
-        alert(`Invalid product ID format.\n\nExpected: MongoDB ObjectId (24 hex characters)\nReceived: "${id}"\n\nPlease go back to the products list and try again.`);
-        navigate('/products');
-        return;
+      let response: any;
+      if (isSlugParam) {
+        // Fetch by slug (new slug-based URL pattern)
+        if (import.meta.env.DEV) console.log('📥 Fetching product by slug:', id);
+        response = await productsAPI.getBySlug(id);
+        // getBySlug already unwraps to product data
+        response = { success: true, data: response };
+      } else {
+        // Extract clean MongoDB ObjectId (legacy ID-based URL)
+        const cleanId = extractObjectId(id);
+        if (!cleanId) {
+          alert(`Invalid product ID format.\n\nReceived: "${id}"\n\nPlease go back to the products list and try again.`);
+          navigate('/products');
+          return;
+        }
+        if (import.meta.env.DEV) console.log('✅ Using ID:', cleanId);
+        response = await productsAPI.getById(cleanId);
       }
-
-      if (import.meta.env.DEV) {
-        console.log('✅ Using ID:', cleanId);
-      }
-      const response = await productsAPI.getById(cleanId);
       // Backend returns: { success: true, data: product }
       // productsAPI.getById returns: response.data (axios response body)
       // So response = { success: true, data: product }
@@ -912,13 +927,17 @@ const ProductForm: React.FC = () => {
       const stockValue: number | undefined =
         typeof product.stock === 'number' ? product.stock : undefined;
 
+      const productTaxId = (product.taxRuleId !== undefined && product.taxRuleId !== null)
+        ? String(product.taxRuleId).trim()
+        : '';
+
       setFormData({
         name: product.name || '',
         sku: productSku,
         hsnCode: product.hsnCode || '',
-        taxRuleId: product.taxRuleId || '',
-        price: product.price?.toString() || '',
-        originalPrice: product.originalPrice?.toString() || '',
+        taxRuleId: productTaxId,
+        price: product.price != null ? String(product.price) : '',
+        originalPrice: product.originalPrice != null ? String(product.originalPrice) : '',
         description: product.description || '',
         richDescription: product.richDescription || '',
         descriptionImage: product.descriptionImage || '',
@@ -940,7 +959,10 @@ const ProductForm: React.FC = () => {
         showFeatures: product.showFeatures !== false,
         isActive: product.isActive !== false,
         productType: (product.productType || ((product.variations && product.variations.length > 0) || (product.attributeIds && product.attributeIds.length > 0) ? 'variation' : 'single')) as 'single' | 'variation',
-        attributeIds: product.attributeIds || [],
+        // Derive attributeIds from product.attributes if not explicitly set (handles imported products)
+        attributeIds: product.attributeIds?.length
+          ? product.attributeIds
+          : (product.attributes || []).map((a: any) => a._id).filter(Boolean),
         selectedAttributeValues: {}, // Will be populated from variations if needed
         variations: (product.variations || []).map((v: any, idx: number) => {
           // CRITICAL FIX: Variations use SLUGS not IDs (WordPress/WooCommerce style)
@@ -1627,7 +1649,7 @@ const ProductForm: React.FC = () => {
       const data: Record<string, any> = {
         ...rest,
         hsnCode: currentFormData.hsnCode || undefined,
-        taxRuleId: currentFormData.taxRuleId || undefined,
+        taxRuleId: currentFormData.taxRuleId && currentFormData.taxRuleId.trim() ? currentFormData.taxRuleId : null,
         price: parseFloat(currentFormData.price),
         originalPrice: parseFloat(currentFormData.originalPrice),
         stock: stockData,
@@ -1716,6 +1738,9 @@ const ProductForm: React.FC = () => {
       }
 
       data.slug = normalizedSlug;
+
+      // Featured category
+      data.featuredCategory = currentFormData.featuredCategory || null;
 
       // Include base SKU if provided (backend will generate if empty)
       if (currentFormData.sku && currentFormData.sku.trim()) {
@@ -2091,7 +2116,15 @@ const ProductForm: React.FC = () => {
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <ProductCategories
                 categories={formData.categories}
+                featuredCategory={formData.featuredCategory}
                 availableCategories={availableCategories}
+                onFeaturedCategoryChange={(catId) => {
+                  setFormData((prev) => {
+                    const updated = { ...prev, featuredCategory: catId || '' };
+                    formDataRef.current = updated;
+                    return updated;
+                  });
+                }}
                 onCategoriesChange={(categories) => {
                   // Root cause fix: Use functional update to ensure we get latest state
                   console.log('🔔 onCategoriesChange CALLED with:', {
@@ -2249,6 +2282,7 @@ const ProductForm: React.FC = () => {
                 onAttributeValuesChange={(values) => setFormData({ ...formData, selectedAttributeValues: values })}
                 variations={formData.variations}
                 onVariationsChange={(variations) => setFormData({ ...formData, variations })}
+                productSlug={isEdit ? (isSlugParam ? id : slug) : undefined}
                 baseSku={formData.sku || slug.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10) || 'PROD'}
                 basePrice={parseFloat(formData.price) || 0}
                 baseOriginalPrice={parseFloat(formData.originalPrice) || 0}

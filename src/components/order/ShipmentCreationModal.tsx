@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { FaTruck, FaRupeeSign, FaSpinner, FaPlane, FaBox, FaMoneyBillWave, FaClock, FaSync } from 'react-icons/fa';
 import Modal from './Modal';
-import { shippingAPI } from '../../services/api';
+import { shippingAPI, packagesAPI } from '../../services/api';
 
 interface Warehouse {
   _id: string;
@@ -63,6 +63,7 @@ interface ShipmentCreationModalProps {
     breadth?: number;
     height?: number;
     selectedItemIndices?: number[];
+    packageBoxId?: string;
   }) => void;
   loading: boolean;
   selectedShippingProvider: 'shiprocket' | 'delhivery' | 'manual';
@@ -115,6 +116,8 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
   const [length, setLength] = useState<string>('');
   const [breadth, setBreadth] = useState<string>('');
   const [height, setHeight] = useState<string>('');
+  const [packageBoxes, setPackageBoxes] = useState<any[]>([]);
+  const [selectedPackageBoxId, setSelectedPackageBoxId] = useState<string>('');
   
   // Selected items for this shipment
   const [selectedItemIndices, setSelectedItemIndices] = useState<number[]>([]);
@@ -125,6 +128,19 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
       setHasDelhivery(shippingProviders.some(p => p.id === 'delhivery'));
     }
   }, [shippingProviders]);
+
+  useEffect(() => {
+    if (isOpen) {
+      packagesAPI.getAll().then(res => {
+        let boxesData: any[] = [];
+        if (res?.success && Array.isArray(res?.data)) boxesData = res.data;
+        else if (Array.isArray(res)) boxesData = res;
+        else if (Array.isArray(res?.data)) boxesData = res.data;
+        else if (Array.isArray(res?.data?.data)) boxesData = res.data.data;
+        setPackageBoxes(boxesData);
+      }).catch(err => console.error('Failed to load package boxes', err));
+    }
+  }, [isOpen]);
 
   // Reset rates when warehouse/order changes - but DON'T fetch automatically
   useEffect(() => {
@@ -364,10 +380,8 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
   useEffect(() => {
     if (isOpen && orderItems.length > 0) {
       setSelectedItemIndices(orderItems.map((_, index) => index));
-      // Calculate default weight based on selected items (0.5kg per item)
-      const defaultWeight = orderItems.reduce((sum, item) => sum + (item.quantity * 0.5), 0);
-      setWeight(defaultWeight.toFixed(2));
-      // Default dimensions
+      setWeight(''); // Requires manual entry per user request
+      // Default dimensions for UI guidance (still needs weight)
       if (!length) setLength('20');
       if (!breadth) setBreadth('15');
       if (!height) setHeight('10');
@@ -387,6 +401,7 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
     setBreadth('');
     setHeight('');
     setSelectedItemIndices([]);
+    setSelectedPackageBoxId('');
     onClose();
   };
   
@@ -394,14 +409,12 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
     setSelectedItemIndices(prev => {
       if (prev.includes(index)) {
         const newSelection = prev.filter(i => i !== index);
-        // Recalculate weight based on selected items
-        const newWeight = newSelection.reduce((sum, i) => sum + (orderItems[i].quantity * 0.5), 0);
-        setWeight(newWeight > 0 ? newWeight.toFixed(2) : '');
+        // Weight must be entered manually, but we can reset the hint
+        setWeight('');
         return newSelection;
       } else {
         const newSelection = [...prev, index];
-        const newWeight = newSelection.reduce((sum, i) => sum + (orderItems[i].quantity * 0.5), 0);
-        setWeight(newWeight.toFixed(2));
+        setWeight('');
         return newSelection;
       }
     });
@@ -462,6 +475,7 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
             breadth: parseFloat(breadth),
             height: parseFloat(height),
             selectedItemIndices: selectedItemIndices.length > 0 ? selectedItemIndices : undefined,
+            packageBoxId: selectedPackageBoxId || undefined,
           });
         }}
         disabled={isSubmitDisabled}
@@ -666,6 +680,38 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
                   <FaBox className="text-blue-600" size={16} />
                   Package Details *
                 </label>
+                
+                {packageBoxes.length > 0 && (
+                  <div className="mb-5">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Package Box (Optional)
+                    </label>
+                    <select
+                      value={selectedPackageBoxId}
+                      onChange={(e) => {
+                        const boxId = e.target.value;
+                        setSelectedPackageBoxId(boxId);
+                        if (boxId) {
+                          const box = packageBoxes.find(b => b._id === boxId);
+                          if (box) {
+                            setLength(box.lengthCm?.toString() || '');
+                            setBreadth(box.widthCm?.toString() || '');
+                            setHeight(box.heightCm?.toString() || '');
+                          }
+                        }
+                      }}
+                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm font-medium bg-white hover:border-gray-400 transition-colors"
+                    >
+                      <option value="">-- Custom Dimensions --</option>
+                      {packageBoxes.map(box => (
+                        <option key={box._id} value={box._id}>
+                          {box.name} ({box.lengthCm}x{box.widthCm}x{box.heightCm} cm)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                
                 <div className="grid grid-cols-2 gap-5">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">

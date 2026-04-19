@@ -41,6 +41,7 @@ interface FormData {
     websiteUrl: string;
     siteName: string;
     siteDescription: string;
+    returnPeriodDays: number;
   };
   logo: {
     logoUrl: string;
@@ -68,6 +69,13 @@ interface FormData {
     username: string;
     isEnabled: boolean;
   };
+  announcementBar: {
+    text: string;
+    bgColor: string;
+    textColor: string;
+    link: string;
+    isEnabled: boolean;
+  };
 }
 
 const GeneralSettings: React.FC = () => {
@@ -78,7 +86,7 @@ const GeneralSettings: React.FC = () => {
   const [availablePages, setAvailablePages] = useState<Array<{ _id: string; title: string; slug: string }>>([]);
   const [loadingLookups, setLoadingLookups] = useState(false);
   const [formData, setFormData] = useState<FormData>({
-    general: { websiteUrl: '', siteName: '', siteDescription: '' },
+    general: { websiteUrl: '', siteName: '', siteDescription: '', returnPeriodDays: 0 },
     logo: { logoUrl: '', faviconUrl: '', adminLogoUrl: '' },
     colors: {
       primaryColor: '#EF4444',
@@ -91,6 +99,7 @@ const GeneralSettings: React.FC = () => {
     fonts: { fontFamily: 'Inter', headingFontFamily: '', bodyFontFamily: '', fontSize: {} },
     menu: { items: [] },
     instagram: { username: '', isEnabled: false },
+    announcementBar: { text: 'Free Shipping on orders above ₹500', bgColor: '#f9fafb', textColor: '#111827', link: '', isEnabled: true },
   });
 
   useEffect(() => {
@@ -163,6 +172,7 @@ const GeneralSettings: React.FC = () => {
             websiteUrl: settings.general?.websiteUrl || '',
             siteName: settings.general?.siteName || '',
             siteDescription: settings.general?.siteDescription || '',
+            returnPeriodDays: settings.general?.returnPeriodDays || 0,
           },
           logo: {
             logoUrl: settings.logo?.logoUrl || '',
@@ -190,6 +200,13 @@ const GeneralSettings: React.FC = () => {
             username: settings.instagram?.username || '',
             isEnabled: settings.instagram?.isEnabled || false,
           },
+          announcementBar: {
+            text: settings.announcementBar?.text || 'Free Shipping on orders above ₹500',
+            bgColor: settings.announcementBar?.bgColor || '#f9fafb',
+            textColor: settings.announcementBar?.textColor || '#111827',
+            link: settings.announcementBar?.link || '',
+            isEnabled: settings.announcementBar?.isEnabled !== false,
+          },
         });
     } catch (error: any) {
       console.error('Failed to fetch settings:', error);
@@ -210,6 +227,7 @@ const GeneralSettings: React.FC = () => {
         fonts: formData.fonts,
         menu: formData.menu,
         instagram: formData.instagram,
+        announcementBar: formData.announcementBar,
       };
       
       const response = await api.put('/settings', settingsToSave);
@@ -379,6 +397,20 @@ const GeneralSettings: React.FC = () => {
                   placeholder="Premium apparel and fashion store"
                   rows={3}
                 />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                  Return Period (Days)
+                </label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={formData.general.returnPeriodDays}
+                  onChange={(e) => handleChange('general', 'returnPeriodDays', parseInt(e.target.value) || 0)}
+                  placeholder="0"
+                />
+                <p className="text-[10px] text-muted-foreground">Number of days a customer can return a product after delivery. 0 means no returns.</p>
               </div>
             </div>
           </CardContent>
@@ -821,6 +853,103 @@ const GeneralSettings: React.FC = () => {
                   Enter Instagram username without @ (e.g., thestreetwear_clothings)
                 </p>
               </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Announcement Bar */}
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center gap-4 mb-6">
+              <div className="flex-shrink-0 w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center">
+                <Globe className="w-6 h-6 text-amber-600" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">Announcement Bar</h2>
+                <p className="text-sm text-muted-foreground">Banner shown at the top of every page (desktop)</p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox
+                  checked={formData.announcementBar.isEnabled}
+                  onCheckedChange={(checked) => handleChange('announcementBar', 'isEnabled', checked as boolean)}
+                />
+                <span className="text-sm font-medium leading-none">Show announcement bar</span>
+              </label>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium leading-none">Announcement Text</label>
+                <Input
+                  type="text"
+                  value={formData.announcementBar.text}
+                  onChange={(e) => handleChange('announcementBar', 'text', e.target.value)}
+                  placeholder="Free Shipping on orders above ₹500"
+                  disabled={!formData.announcementBar.isEnabled}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium leading-none">Background Color</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={formData.announcementBar.bgColor}
+                      onChange={(e) => handleChange('announcementBar', 'bgColor', e.target.value)}
+                      className="w-10 h-10 rounded cursor-pointer border border-gray-300"
+                      disabled={!formData.announcementBar.isEnabled}
+                    />
+                    <Input
+                      type="text"
+                      value={formData.announcementBar.bgColor}
+                      onChange={(e) => handleChange('announcementBar', 'bgColor', e.target.value)}
+                      placeholder="#f9fafb"
+                      className="flex-1"
+                      disabled={!formData.announcementBar.isEnabled}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium leading-none">Text Color</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={formData.announcementBar.textColor}
+                      onChange={(e) => handleChange('announcementBar', 'textColor', e.target.value)}
+                      className="w-10 h-10 rounded cursor-pointer border border-gray-300"
+                      disabled={!formData.announcementBar.isEnabled}
+                    />
+                    <Input
+                      type="text"
+                      value={formData.announcementBar.textColor}
+                      onChange={(e) => handleChange('announcementBar', 'textColor', e.target.value)}
+                      placeholder="#111827"
+                      className="flex-1"
+                      disabled={!formData.announcementBar.isEnabled}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium leading-none">Link URL (optional)</label>
+                <Input
+                  type="text"
+                  value={formData.announcementBar.link}
+                  onChange={(e) => handleChange('announcementBar', 'link', e.target.value)}
+                  placeholder="/products or https://..."
+                  disabled={!formData.announcementBar.isEnabled}
+                />
+                <p className="text-[10px] text-muted-foreground">Leave blank for non-clickable bar</p>
+              </div>
+
+              {formData.announcementBar.isEnabled && formData.announcementBar.text && (
+                <div className="mt-2 rounded-md px-4 py-2 text-sm font-semibold" style={{ backgroundColor: formData.announcementBar.bgColor, color: formData.announcementBar.textColor }}>
+                  Preview: {formData.announcementBar.text}
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
