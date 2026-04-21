@@ -120,11 +120,6 @@ api.interceptors.request.use((config) => {
     config.headers['x-api-key'] = tenantApiKey;
   }
 
-  // Security: per-request nonce (prevents trivial replay detection)
-  try {
-    const nonce = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
-    config.headers['x-request-id'] = nonce;
-  } catch { /* non-critical */ }
 
   // Security: validate stored storeApiKey hasn't drifted from session
   // (If someone manually edited localStorage to another store's key, force logout)
