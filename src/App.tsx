@@ -61,6 +61,13 @@ import Marketing from './pages/Marketing';
 import Billing from './pages/Billing';
 import Inventory from './pages/Inventory';
 import VariationEditPage from './pages/VariationEditPage';
+import Blogs from './pages/Blogs';
+import BlogForm from './pages/BlogForm';
+import Returns from './pages/Returns';
+import TaxRules from './pages/TaxRules';
+import ReturnPolicies from './pages/ReturnPolicies';
+import Manufacturers from './pages/Manufacturers';
+import VariantLinkGroups from './pages/VariantLinkGroups';
 
 function App() {
   console.log('📱 Admin Panel: App component rendering...');
@@ -165,6 +172,14 @@ function App() {
           <Route path="inventory" element={<Inventory />} />
           <Route path="b2b" element={<ProtectedModuleRoute module="b2b"><B2B /></ProtectedModuleRoute>} />
           <Route path="marketing" element={<Marketing />} />
+          <Route path="blogs" element={<Blogs />} />
+          <Route path="blogs/new" element={<BlogForm />} />
+          <Route path="blogs/:id/edit" element={<BlogForm />} />
+          <Route path="returns" element={<Returns />} />
+          <Route path="settings/tax-rules" element={<TaxRules />} />
+          <Route path="settings/return-policies" element={<ReturnPolicies />} />
+          <Route path="settings/manufacturers" element={<Manufacturers />} />
+          <Route path="products/variant-link-groups" element={<VariantLinkGroups />} />
         </Route>
       </Routes>
     </BrowserRouter>

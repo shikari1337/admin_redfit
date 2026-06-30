@@ -9,6 +9,7 @@ import {
   Home, ShoppingCart, Truck, Warehouse, Users, Factory,
   Megaphone, Ticket, Star, HelpCircle, Palette, FileText, Settings,
   UserCheck, Images, Package2, LineChart, Building2, ShieldCheck,
+  BookOpen, RotateCcw, Receipt, RefreshCw, Building,
 } from 'lucide-react';
 
 const Layout: React.FC = () => {
@@ -54,15 +55,16 @@ const Layout: React.FC = () => {
       items: [
         ...(canAccess('products') ? [{
           title: 'Products', url: '/products', icon: Package2, items: [
-            { title: 'All Products',   url: '/products' },
-            { title: 'Create Product', url: '/products/new' },
-            { title: 'Bundles',        url: '/products/bundles' },
-            { title: 'Categories',     url: '/products/categories' },
-            { title: 'Brands',         url: '/products/brands' },
-            { title: 'Attributes',     url: '/products/attributes' },
-            { title: 'Tags',           url: '/products/tags' },
-            { title: 'Size Charts',    url: '/products/size-charts' },
-            { title: 'Specifications', url: '/products/specifications' },
+            { title: 'All Products',        url: '/products' },
+            { title: 'Create Product',      url: '/products/new' },
+            { title: 'Bundles',             url: '/products/bundles' },
+            { title: 'Categories',          url: '/products/categories' },
+            { title: 'Brands',              url: '/products/brands' },
+            { title: 'Attributes',          url: '/products/attributes' },
+            { title: 'Tags',                url: '/products/tags' },
+            { title: 'Size Charts',         url: '/products/size-charts' },
+            { title: 'Specifications',      url: '/products/specifications' },
+            { title: 'Variant Link Groups', url: '/products/variant-link-groups' },
           ],
         }] : []),
         ...(canAccess('inventory')  ? [{ title: 'Inventory',  url: '/inventory',  icon: Warehouse }] : []),
@@ -74,6 +76,7 @@ const Layout: React.FC = () => {
       title: 'Orders',
       items: [
         ...(canAccess('orders')     ? [{ title: 'Orders',     url: '/orders',     icon: ShoppingCart }] : []),
+        ...(canAccess('orders')     ? [{ title: 'Returns',    url: '/returns',    icon: RotateCcw }] : []),
         ...(canAccess('shipments')  ? [{ title: 'Shipments',  url: '/shipments',  icon: Truck }] : []),
         ...(canAccess('warehouses') ? [{ title: 'Warehouses', url: '/warehouses', icon: Warehouse }] : []),
       ],
@@ -110,8 +113,9 @@ const Layout: React.FC = () => {
             { title: 'Style',   url: '/appearance/style' },
           ],
         }] : []),
-        ...(canAccess('faqs')    ? [{ title: 'FAQs',    url: '/faqs',    icon: HelpCircle }] : []),
-        ...(canAccess('reviews') ? [{ title: 'Reviews', url: '/reviews', icon: Star }] : []),
+        ...(canAccess('faqs')    ? [{ title: 'FAQs',        url: '/faqs',    icon: HelpCircle }] : []),
+        ...(canAccess('reviews') ? [{ title: 'Reviews',     url: '/reviews', icon: Star }] : []),
+        { title: 'Blog Posts',   url: '/blogs',   icon: BookOpen },
       ],
     },
     {
@@ -135,6 +139,9 @@ const Layout: React.FC = () => {
             { title: 'Shipping',         url: '/settings/shipping' },
             { title: 'Modules',          url: '/settings/modules' },
             { title: 'Billing',          url: '/settings/billing' },
+            { title: 'Tax Rules',        url: '/settings/tax-rules' },
+            { title: 'Return Policies',  url: '/settings/return-policies' },
+            { title: 'Manufacturers',    url: '/settings/manufacturers' },
           ],
         }] : []),
         // Staff & Access — admin only (role check, not permission check)
