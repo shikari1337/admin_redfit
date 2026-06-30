@@ -9,7 +9,7 @@ import {
   Home, ShoppingCart, Truck, Warehouse, Users, Factory,
   Megaphone, Ticket, Star, HelpCircle, Palette, FileText, Settings,
   UserCheck, Images, Package2, LineChart, Building2, ShieldCheck,
-  BookOpen, RotateCcw, Receipt, RefreshCw, Building,
+  BookOpen, RotateCcw,
 } from 'lucide-react';
 
 const Layout: React.FC = () => {
