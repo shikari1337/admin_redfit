@@ -58,23 +58,44 @@ const StepCredentials: React.FC<StepCredentialsProps> = ({ onSuccess }) => {
         return;
       }
 
-      // Central login — no API key, main DB
-      const res = await authAPI.adminLogin(email, password);
-      const data = res?.data ?? res;
-      const token = data?.token;
-      if (!token) { setError('Invalid credentials.'); return; }
-
-      const stores: StoreOption[] = data?.stores ?? [];
-      if (stores.length === 0) {
-        setError('Your account has no stores assigned. Contact your administrator.');
-        return;
+      // No API key in env — try per-store login via domain/DEFAULT_STORE_SLUG first.
+      // This lets store admins log in from their store's domain without needing an API key.
+      let perStoreDone = false;
+      try {
+        const res = await authAPI.login(email, password);
+        const token = res?.token || res?.data?.token;
+        if (token) {
+          // Use the env API key for session continuity (keeps x-api-key on future requests)
+          const sessionKey = getTenantApiKey() || '';
+          onSuccess(token, [], sessionKey);
+          perStoreDone = true;
+        }
+      } catch (perStoreErr: any) {
+        const status = perStoreErr?.response?.status;
+        // Network errors or server errors are fatal — rethrow them
+        if (!status || status >= 500) throw perStoreErr;
+        // 401/403/404 means this user isn't in the tenant DB or no tenant found —
+        // fall through to central admin login
       }
 
-      // If only one store — skip the picker, auto-select
-      if (stores.length === 1) {
-        onSuccess(token, stores, stores[0].apiKey);
-      } else {
-        onSuccess(token, stores);
+      if (!perStoreDone) {
+        // Central admin login fallback (for super-admins managing multiple stores)
+        const res = await authAPI.adminLogin(email, password);
+        const data = res?.data ?? res;
+        const token = data?.token;
+        if (!token) { setError('Invalid credentials.'); return; }
+
+        const stores: StoreOption[] = data?.stores ?? [];
+        if (stores.length === 0) {
+          setError('No stores assigned. Use your store API key to log in directly.');
+          return;
+        }
+
+        if (stores.length === 1) {
+          onSuccess(token, stores, stores[0].apiKey);
+        } else {
+          onSuccess(token, stores);
+        }
       }
     } catch (err: any) {
       const status = err?.response?.status;

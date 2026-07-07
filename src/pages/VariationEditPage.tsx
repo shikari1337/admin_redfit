@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FaArrowLeft, FaSave, FaPlus, FaTrash } from 'react-icons/fa';
-import { productsAPI, uploadAPI } from '../services/api';
+import { productsAPI, uploadAPI, taxRulesAPI } from '../services/api';
 import type { ProductVariation } from '../types/productForm';
 
 const VariationEditPage: React.FC = () => {
@@ -10,14 +10,16 @@ const VariationEditPage: React.FC = () => {
 
   const [product, setProduct] = useState<any>(null);
   const [variation, setVariation] = useState<ProductVariation | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [loading, setLoading]   = useState(true);
+  const [saving, setSaving]     = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [taxRules, setTaxRules] = useState<Array<{ _id: string; id?: string; name: string; rate?: number }>>([]);
 
   const idx = variationIndex !== undefined ? parseInt(variationIndex, 10) : -1;
 
   useEffect(() => {
     if (productSlug) loadProduct();
+    taxRulesAPI.getAll().then(setTaxRules).catch(() => {});
   }, [productSlug]);
 
   const loadProduct = async () => {
@@ -179,7 +181,7 @@ const VariationEditPage: React.FC = () => {
 
       {/* Pricing & Stock */}
       <div className="bg-white rounded-lg border border-gray-200 p-5 space-y-4">
-        <h2 className="text-sm font-semibold text-gray-900">Pricing & Stock</h2>
+        <h2 className="text-sm font-semibold text-gray-900">Pricing &amp; Stock</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">Price (₹)</label>
@@ -227,6 +229,43 @@ const VariationEditPage: React.FC = () => {
               </button>
               <span className="text-sm text-gray-700">{v.isActive !== false ? 'Active' : 'Draft'}</span>
             </label>
+          </div>
+        </div>
+
+        {/* HSN + Tax Rule */}
+        <div className="grid grid-cols-2 gap-4 pt-2 border-t">
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">HSN Code</label>
+            <input
+              type="text"
+              value={v.hsnCode || v.hsn_code || ''}
+              onChange={e => handleChange('hsnCode', e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="e.g. 3004"
+            />
+            <p className="text-xs text-gray-400 mt-1">For GST compliance. Overrides product-level HSN.</p>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Tax Rule</label>
+            <select
+              value={v.taxRuleId || v.tax_rule_id || ''}
+              onChange={e => handleChange('taxRuleId', e.target.value || null)}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            >
+              <option value="">Inherit from product</option>
+              {taxRules.map(rule => {
+                const key = rule._id || rule.id || '';
+                return (
+                  <option key={key} value={key}>
+                    {rule.name}{rule.rate !== undefined ? ` — ${rule.rate}%` : ''}
+                  </option>
+                );
+              })}
+              {taxRules.length === 0 && (
+                <option disabled>No rules yet — add in Settings → Tax Rules</option>
+              )}
+            </select>
+            <p className="text-xs text-gray-400 mt-1">GST vs IGST auto-determined from delivery address.</p>
           </div>
         </div>
       </div>

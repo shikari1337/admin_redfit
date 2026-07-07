@@ -1,8 +1,12 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { productsAPI, uploadAPI, categoriesAPI, sizeChartsAPI, specificationsAPI, tagsAPI, taxRulesAPI } from '../services/api';
+import {
+  productsAPI, uploadAPI, categoriesAPI, sizeChartsAPI, specificationsAPI,
+  tagsAPI, taxRulesAPI, brandsAPI, manufacturersAPI, returnPoliciesAPI, productConfigAPI,
+} from '../services/api';
+import ProductComplianceSections, { ProductConfig, SpecSectionValue } from '../components/product/ProductComplianceSections';
 import api from '../services/api';
-import { FaArrowLeft } from 'react-icons/fa';
+import { FaArrowLeft, FaDownload } from 'react-icons/fa';
 import {
   ProductBasicInfo,
   ProductPricing,
@@ -10,13 +14,19 @@ import {
   ProductTags,
   ProductSEO,
   ProductSizeChart,
-  ProductVideos,
   ProductWashCare,
-  ProductCustomerImages,
   ProductDisplayOptions,
+  ProductMediaPanel,
+  ProductContentSections,
+  ProductB2BPricing,
+  ProductOffers,
+  ProductRelated,
 } from '../components/product';
 import ProductAttributeVariations from '../components/product/ProductAttributeVariations';
 import ProductAttributes from '../components/product/ProductAttributes';
+import type { ContentBlock } from '../components/product/ProductContentSections';
+import type { B2BPricingTier } from '../components/product/ProductB2BPricing';
+import type { ProductOffer } from '../components/product/ProductOffers';
 import {
   CategoryOption,
   SizeChartEntry,
@@ -29,1826 +39,731 @@ import {
   emptySizeChartEntry,
 } from '../types/productForm';
 import { slugifyValue } from '../utils/slugify';
+import { useAuth } from '../contexts/AuthContext';
+
+// ─── helpers ──────────────────────────────────────────────────────────────────
+
+// Applied to each of the 3 form columns (lg+ only, where they sit side by side).
+// Sticky + its own scroll container so hovering one column and scrolling only
+// moves that column — the other two stay put. overscroll-contain keeps the wheel
+// from "escaping" to the page once a column hits its own top/bottom.
+const SCROLL_COL_CLS = 'lg:sticky lg:top-16 lg:max-h-[calc(100vh-5rem)] lg:overflow-y-auto lg:overscroll-contain lg:scroll-smooth lg:pr-2 nice-scrollbar';
+
+const isValidId = (s: string): boolean => {
+  if (s.length === 24 && /^[0-9a-fA-F]{24}$/.test(s)) return true;
+  if (s.length === 36 && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/i.test(s)) return true;
+  if (s.length === 32 && /^[0-9a-fA-F]{32}$/.test(s)) return true;
+  return false;
+};
+
+const normalizeCategoryId = (id: any): string | null => {
+  if (!id) return null;
+  if (typeof id === 'string') { const t = id.trim(); if (isValidId(t)) return t; }
+  if (id && typeof id === 'object') {
+    if (id._id) return normalizeCategoryId(id._id);
+    if (id.id) return normalizeCategoryId(id.id);
+    if (id.buffer) {
+      try {
+        const keys = Object.keys(id.buffer).map(Number).sort((a, b) => a - b);
+        const arr = keys.map(k => Number(id.buffer[k]));
+        if (arr.length === 12) { const hex = arr.map(b => b.toString(16).padStart(2, '0')).join(''); if (isValidId(hex)) return hex; }
+      } catch { return null; }
+    }
+  }
+  const str = String(id).trim();
+  return isValidId(str) ? str : null;
+};
+
+const extractObjectId = (v: string | undefined): string | null => {
+  if (!v) return null;
+  const s = String(v).trim();
+  if (/^[0-9a-fA-F]{24}$/.test(s)) return s;
+  const m = s.match(/^([0-9a-fA-F]{24})/);
+  return m ? m[1] : null;
+};
+
+// Convert an ISO timestamp / Date to the `YYYY-MM-DDTHH:mm` format an
+// <input type="datetime-local"> requires (local time). Returns '' when empty/invalid.
+const toDatetimeLocal = (v: any): string => {
+  if (!v) return '';
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return typeof v === 'string' ? v.slice(0, 16) : '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+const extractList = (res: any): any[] => {
+  if (!res) return [];
+  if (Array.isArray(res)) return res;
+  if (Array.isArray(res.data)) return res.data;
+  if (Array.isArray(res?.data?.data)) return res.data.data;
+  return res.data?.data || res.data || [];
+};
+
+// ─── Quick-create modals ──────────────────────────────────────────────────────
+
+const QuickCreateCategoryModal: React.FC<{
+  onClose: () => void;
+  onCreated: (cat: { _id: string; name: string; slug: string }) => void;
+  availableParents: CategoryOption[];
+}> = ({ onClose, onCreated, availableParents }) => {
+  const [name, setName] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleCreate = async () => {
+    if (!name.trim()) { setError('Name is required'); return; }
+    setSaving(true);
+    try {
+      const slug = slugifyValue(name);
+      const res = await categoriesAPI.create({ name: name.trim(), slug });
+      const cat = res?.data || res;
+      onCreated({ _id: cat._id || cat.id, name: cat.name, slug: cat.slug });
+      onClose();
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'Failed to create category');
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm">
+        <h3 className="text-base font-semibold text-gray-900 mb-4">Create New Category</h3>
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs font-medium text-gray-700 block mb-1">Name <span className="text-red-500">*</span></label>
+            <input className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+              value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Homeopathy" autoFocus
+              onKeyDown={e => e.key === 'Enter' && handleCreate()} />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-700 block mb-1">Parent (optional)</label>
+            <select className="w-full px-3 py-2 border border-gray-300 rounded text-sm">
+              <option value="">None (top-level)</option>
+              {availableParents.map(c => <option key={c._id} value={c._id}>{c.name}</option>)}
+            </select>
+          </div>
+          {error && <p className="text-xs text-red-500">{error}</p>}
+        </div>
+        <div className="flex gap-2 mt-4">
+          <button type="button" onClick={handleCreate} disabled={saving}
+            className="flex-1 px-4 py-2 bg-red-600 text-white rounded text-sm font-medium hover:bg-red-700 disabled:opacity-50">
+            {saving ? 'Creating…' : 'Create Category'}
+          </button>
+          <button type="button" onClick={onClose}
+            className="px-4 py-2 border border-gray-300 rounded text-sm hover:bg-gray-50">Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const QuickCreateTagModal: React.FC<{
+  onClose: () => void;
+  onCreated: (tag: { _id: string; name: string; slug: string }) => void;
+}> = ({ onClose, onCreated }) => {
+  const [name, setName] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleCreate = async () => {
+    if (!name.trim()) { setError('Name is required'); return; }
+    setSaving(true);
+    try {
+      const slug = slugifyValue(name);
+      const res = await tagsAPI.create({ name: name.trim(), slug });
+      const tag = res?.data || res;
+      onCreated({ _id: tag._id || tag.id, name: tag.name, slug: tag.slug });
+      onClose();
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'Failed to create tag');
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-xs">
+        <h3 className="text-base font-semibold text-gray-900 mb-4">Create New Tag</h3>
+        <div>
+          <label className="text-xs font-medium text-gray-700 block mb-1">Tag Name <span className="text-red-500">*</span></label>
+          <input className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+            value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Bestseller" autoFocus
+            onKeyDown={e => e.key === 'Enter' && handleCreate()} />
+        </div>
+        {error && <p className="text-xs text-red-500 mt-2">{error}</p>}
+        <div className="flex gap-2 mt-4">
+          <button type="button" onClick={handleCreate} disabled={saving}
+            className="flex-1 px-4 py-2 bg-red-600 text-white rounded text-sm font-medium hover:bg-red-700 disabled:opacity-50">
+            {saving ? 'Creating…' : 'Create Tag'}
+          </button>
+          <button type="button" onClick={onClose}
+            className="px-4 py-2 border border-gray-300 rounded text-sm hover:bg-gray-50">Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Main component ────────────────────────────────────────────────────────────
 
 const ProductForm: React.FC = () => {
   const { id: rawId } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Clean the param — may be a MongoDB ObjectId (24 hex) or a product slug
+  const { canAccess } = useAuth();
   const id = rawId ? String(rawId).trim() : undefined;
   const isEdit = !!id;
-  const isSlugParam = !!id && !/^[0-9a-fA-F]{24}$/.test(id);
-  // Get prefilled data from navigation state (for duplication)
+  const isSlugParam = !!id && !/^[0-9a-fA-F]{24}$/.test(id) && !/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/i.test(id);
   const prefilledData = location.state?.prefilledData;
 
+  // ── form state ──────────────────────────────────────────────────────────────
   const [formData, setFormData] = useState({
-    name: '',
-    sku: '', // Base SKU for the product
-    hsnCode: '', // HSN code for GST compliance
-    taxRuleId: '', // Optional tax rule association
-    price: '',
-    originalPrice: '',
-    description: '',
-    richDescription: '',
-    descriptionImage: '',
-    images: [] as string[],
-    videos: [] as string[],
-    stock: undefined as number | undefined, // Stock for products without variants (simple number)
-    categories: [] as string[],
-    featuredCategory: '' as string,
-    tags: [] as Array<string | { _id: string; name: string }>, // Tags can be IDs (strings) or names (strings) or objects
+    name: '', title: '', sku: '', hsnCode: '', taxRuleId: '',
+    price: '', originalPrice: '', salePrice: '', saleStartsAt: '', saleEndsAt: '',
+    description: '', richDescription: '', descriptionImage: '',
+    images: [] as string[], videos: [] as string[],
+    stock: undefined as number | undefined,
+    brandId: '', manufacturerId: '', returnPolicyId: '',
+    categories: [] as string[], featuredCategory: '',
+    tags: [] as Array<string | { _id: string; name: string }>,
+    weight: '0.5', length: '10', breadth: '10', height: '5',
+    countryOfOrigin: '', modelNumber: '', licenseNumber: '',
+    expiryMonths: undefined as number | undefined,
+    isActive: true, isFeatured: false, isDigital: false, requiresPrescription: false,
+    disableVariants: false, showOutOfStockVariants: true, showFeatures: true,
+    productType: 'single' as 'single' | 'variation',
+    attributeIds: [] as string[],
+    selectedAttributeValues: {} as Record<string, string[]>,
+    variations: [] as ProductVariation[],
+    specificationId: undefined as string | undefined,
+    specifications: undefined as Array<{ heading: string; items: Array<{ key: string; value: string }> }> | undefined,
     sizeChart: [] as SizeChartEntry[],
     washCareInstructions: [] as Array<{ text: string; iconUrl?: string; iconName?: string }>,
     customerOrderImages: [] as string[],
-    disableVariants: false,
-    showOutOfStockVariants: true,
-    showFeatures: true,
-    isActive: true,
-    // Product type: 'single' for products without variations, 'variation' for products with attribute-based variations
-    productType: 'single' as 'single' | 'variation',
-    // Attribute-based variations
-    attributeIds: [] as string[],
-    selectedAttributeValues: {} as Record<string, string[]>, // { attributeId: [valueId1, valueId2] }
-    variations: [] as ProductVariation[],
-    weight: '0.5',
-    length: '10',
-    breadth: '10',
-    height: '5',
-    // Specifications
-    specificationId: undefined as string | undefined, // Linked specification template ID
-    specifications: undefined as Array<{
-      heading: string;
-      items: Array<{ key: string; value: string }>;
-    }> | undefined, // Inline specifications (overrides specificationId)
+    aplusContent: [] as ContentBlock[],
+    offers: [] as ProductOffer[],
+    crossSellIds: [] as string[], upsellIds: [] as string[], fbtIds: [] as string[],
+    b2bPricing: [] as B2BPricingTier[],
   });
 
-  // Root cause fix: Use ref to always get latest formData (avoids stale closure issues)
   const formDataRef = useRef(formData);
-  useEffect(() => {
-    console.log('🔄 formDataRef updated via useEffect:', {
-      categories: formData.categories,
-      categoriesCount: formData.categories?.length || 0,
-      categoriesType: typeof formData.categories,
-      isArray: Array.isArray(formData.categories),
-    });
-    formDataRef.current = formData;
-  }, [formData]);
+  useEffect(() => { formDataRef.current = formData; }, [formData]);
+
   const [slug, setSlug] = useState('');
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
   const [seoData, setSeoData] = useState<SeoFormState>({
-    title: '',
-    description: '',
-    keywords: '',
-    canonicalUrl: '',
-    metaRobots: '',
-    ogTitle: '',
-    ogDescription: '',
-    ogImage: '',
+    title: '', description: '', keywords: '', canonicalUrl: '', metaRobots: '', ogTitle: '', ogDescription: '', ogImage: '',
   });
   const [showAdvancedSeo, setShowAdvancedSeo] = useState(false);
 
+  // Lookups
   const [availableCategories, setAvailableCategories] = useState<CategoryOption[]>([]);
   const [availableSizeCharts, setAvailableSizeCharts] = useState<SizeChartOption[]>([]);
   const [availableSpecifications, setAvailableSpecifications] = useState<Array<{ _id: string; name: string; slug?: string }>>([]);
   const [availableTags, setAvailableTags] = useState<Array<{ _id: string; name: string; slug?: string; isActive?: boolean }>>([]);
   const [availableTaxRules, setAvailableTaxRules] = useState<Array<{ _id: string; name: string; rate?: number }>>([]);
+  const [availableBrands, setAvailableBrands] = useState<Array<{ _id: string; name: string }>>([]);
+  const [availableManufacturers, setAvailableManufacturers] = useState<Array<{ _id: string; name: string }>>([]);
+  const [availableReturnPolicies, setAvailableReturnPolicies] = useState<Array<{ _id: string; name: string }>>([]);
+  const [productConfig, setProductConfig] = useState<ProductConfig | null>(null);
   const [lookupsLoading, setLookupsLoading] = useState(false);
+
   const [sizeChartMode, setSizeChartMode] = useState<'none' | 'reference' | 'custom'>('none');
   const [selectedSizeChartId, setSelectedSizeChartId] = useState<string>('');
   const [websiteUrl, setWebsiteUrl] = useState<string>('');
 
-  // Unused - using handleMultipleImageUpload instead
-  // const [newImage, setNewImage] = useState<File | null>(null);
-  const [newVideos, setNewVideos] = useState<File[]>([]);
-  const [uploading, setUploading] = useState(false);
+  const [uploading, setUploading] = useState(false);          // product gallery
+  const [uploadingBanner, setUploadingBanner] = useState(false);
+  const [uploadingCustomer, setUploadingCustomer] = useState(false);
   const [uploadingVideo, setUploadingVideo] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  const [showCreateCategory, setShowCreateCategory] = useState(false);
+  const [showCreateTag, setShowCreateTag] = useState(false);
 
-  const extractListData = (response: any) => {
-    if (!response) return [];
-    if (Array.isArray(response)) return response;
-    if (Array.isArray(response.data)) return response.data;
-    if (Array.isArray(response?.data?.data)) return response.data.data;
-    if (Array.isArray(response.rules)) return response.rules;
-    if (Array.isArray(response.taxBrackets)) return response.taxBrackets;
-    if (Array.isArray(response.items)) return response.items;
-    if (Array.isArray(response?.data?.data?.data)) return response.data.data.data;
-    if (Array.isArray(response?.data?.results)) return response.data.results;
-    if (Array.isArray(response?.data?.items)) return response.data.items;
-    return response.data?.data || response.data || [];
-  };
-
-  /**
-   * CRITICAL FIX: Normalize category ID from any format (string, ObjectId, buffer) to string
-   * This ensures NO buffer objects are ever used in the frontend
-   */
-  const normalizeCategoryId = (id: any): string | null => {
-    if (!id) return null;
-
-    // Already a string ID
-    if (typeof id === 'string' && id.length === 24 && /^[0-9a-fA-F]{24}$/.test(id)) {
-      return id;
-    }
-
-    // Object with _id property (populated category)
-    if (id && typeof id === 'object' && id._id) {
-      return normalizeCategoryId(id._id);
-    }
-
-    // Buffer object (the problematic case)
-    if (id && typeof id === 'object' && id.buffer) {
-      try {
-        let bufferArray: number[];
-        if (Array.isArray(id.buffer)) {
-          bufferArray = id.buffer;
-        } else if (typeof id.buffer === 'object') {
-          // Handle object with numeric keys like { "0": 105, "1": 36, ... }
-          const keys = Object.keys(id.buffer).map(k => Number(k)).sort((a, b) => a - b);
-          bufferArray = keys.map(k => Number(id.buffer[k]));
-        } else {
-          return null;
-        }
-        if (bufferArray.length === 12) {
-          // Convert buffer to hex string (MongoDB ObjectId format)
-          const hex = bufferArray.map(b => b.toString(16).padStart(2, '0')).join('');
-          if (hex.length === 24 && /^[0-9a-fA-F]{24}$/.test(hex)) {
-            return hex;
-          }
-        }
-      } catch (error) {
-        console.error('Failed to convert buffer to ObjectId:', error);
-        return null;
-      }
-    }
-
-    // Try to convert to string as last resort
-    const str = String(id).trim();
-    if (str.length === 24 && /^[0-9a-fA-F]{24}$/.test(str)) {
-      return str;
-    }
-
-    return null;
-  };
+  // ── lookups ────────────────────────────────────────────────────────────────
 
   const loadLookups = async () => {
     setLookupsLoading(true);
     try {
-      const [catResponse, chartResponse, specResponse, tagsResponse, taxResponse] = await Promise.all([
+      // allSettled — one failing endpoint must NOT blank every dropdown.
+      const settled = await Promise.allSettled([
         categoriesAPI.list(),
         sizeChartsAPI.list(),
-        specificationsAPI.getAll({ active: true }), // Show all active specifications (shared and product-specific)
+        specificationsAPI.getAll({ active: true }),
         tagsAPI.getAll({ active: true }),
         taxRulesAPI.getAll(),
+        brandsAPI.list({ active: true }),
+        manufacturersAPI.getAll({ active: true }),
+        returnPoliciesAPI.getAll({ active: true }),
       ]);
-      const rawCategoryList: any[] = extractListData(catResponse);
-      const rawChartList: any[] = extractListData(chartResponse);
-      const rawTaxList: any[] = extractListData(taxResponse);
+      const val = (i: number) => (settled[i].status === 'fulfilled' ? (settled[i] as PromiseFulfilledResult<any>).value : undefined);
+      settled.forEach((s, i) => { if (s.status === 'rejected') console.error(`Lookup ${i} failed`, s.reason); });
+      const [catRes, chartRes, specRes, tagsRes, taxRes, brandsRes, mfgRes, rpRes] =
+        [val(0), val(1), val(2), val(3), val(4), val(5), val(6), val(7)];
 
-      // Debug specifications response
-      if (import.meta.env.DEV) {
-        console.log('🔍 Specifications API Response:', {
-          rawResponse: specResponse,
-          isArray: Array.isArray(specResponse),
-          hasData: specResponse?.data,
-          hasSuccess: specResponse?.success,
-        });
-      }
+      const normList = (raw: any[], extra?: (item: any) => any): any[] =>
+        extractList(raw).map((c: any) => {
+          const nid = normalizeCategoryId(c._id || c.id);
+          if (!nid) return null;
+          return extra ? extra({ ...c, _id: nid }) : { ...c, _id: nid };
+        }).filter(Boolean);
 
-      // Handle specifications response - it might already be an array or wrapped
-      let rawSpecList: any[] = [];
-      if (Array.isArray(specResponse)) {
-        rawSpecList = specResponse;
-      } else if (specResponse?.data && Array.isArray(specResponse.data)) {
-        rawSpecList = specResponse.data;
-      } else {
-        rawSpecList = extractListData(specResponse);
-      }
+      setAvailableCategories(normList(catRes) as CategoryOption[]);
 
-      if (import.meta.env.DEV) {
-        console.log('✅ Extracted Specifications:', {
-          count: rawSpecList.length,
-          specs: rawSpecList.map(s => ({ id: s._id, name: s.name, productId: s.productId })),
-        });
-      }
+      const charts = normList(chartRes) as SizeChartOption[];
+      setAvailableSizeCharts(charts.filter((c, i, a) => a.findIndex(x => x._id === c._id) === i));
 
-      const rawTagList: any[] = extractListData(tagsResponse);
+      setAvailableSpecifications(normList(specRes) as { _id: string; name: string; slug?: string }[]);
 
-      // CRITICAL FIX: Normalize all category IDs to strings (handle buffers)
-      const categoryList: CategoryOption[] = rawCategoryList.map((cat: any) => {
-        const normalizedId = normalizeCategoryId(cat._id || cat.id);
-        if (!normalizedId) {
-          console.warn('⚠️ Invalid category ID, skipping:', cat);
-          return null;
-        }
-        return {
-          ...cat,
-          _id: normalizedId, // Always use normalized string ID
-        };
-      }).filter((cat): cat is CategoryOption => cat !== null);
+      setAvailableTags(normList(tagsRes) as { _id: string; name: string; slug?: string; isActive?: boolean }[]);
 
-      // CRITICAL FIX: Normalize all size chart IDs to strings (handle buffers)
-      const normalizedChartList: SizeChartOption[] = rawChartList.map((chart: any) => {
-        const normalizedId = normalizeCategoryId(chart._id || chart.id);
-        if (!normalizedId) {
-          console.warn('⚠️ Invalid size chart ID, skipping:', chart);
-          return null;
-        }
-        return {
-          ...chart,
-          _id: normalizedId, // Always use normalized string ID
-        };
-      }).filter((chart): chart is SizeChartOption => chart !== null);
-
-      // Remove duplicate size charts by _id (keep first occurrence)
-      const uniqueCharts = normalizedChartList.filter((chart, index, self) =>
-        index === self.findIndex((c) => c._id === chart._id)
-      );
-
-      console.log('📊 Loaded size charts:', { count: uniqueCharts.length, charts: uniqueCharts.map(c => ({ id: c._id, name: c.name })) });
-
-      setAvailableCategories(categoryList);
-      setAvailableSizeCharts(uniqueCharts);
-
-      // Normalize specification IDs
-      const specList = rawSpecList.map((spec: any) => {
-        const normalizedId = normalizeCategoryId(spec._id || spec.id);
-        if (!normalizedId) {
-          console.warn('⚠️ Invalid specification ID, skipping:', spec);
-          return null;
-        }
-        return {
-          ...spec,
-          _id: normalizedId,
-        };
-      }).filter((spec: any): spec is { _id: string; name: string; slug?: string } => spec !== null);
-      setAvailableSpecifications(specList);
-
-      // Normalize tag IDs
-      const tagList = rawTagList.map((tag: any) => {
-        const normalizedId = normalizeCategoryId(tag._id || tag.id);
-        if (!normalizedId) {
-          console.warn('⚠️ Invalid tag ID, skipping:', tag);
-          return null;
-        }
-        return {
-          ...tag,
-          _id: normalizedId,
-        };
-      }).filter((tag: any): tag is { _id: string; name: string; slug?: string; isActive?: boolean } => tag !== null);
-      setAvailableTags(tagList);
-
-      const taxList = rawTaxList
-        .map((tax: any) => {
-          const rawId = tax._id || tax.id || (tax.rate != null ? String(tax.rate) : null);
-          const normalizedId = rawId ? (normalizeCategoryId(rawId) || String(rawId).trim()) : '';
-          if (!normalizedId) return null;
-          return {
-            _id: normalizedId,
-            name: tax.name || `GST ${tax.rate}%`,
-            rate: tax.rate,
-          };
-        })
-        .filter(tax => tax !== null && tax._id !== '') as Array<{ _id: string; name: string; rate?: number }>;
+      const taxList = (Array.isArray(taxRes) ? taxRes : []).map((t: any) => {
+        const rawId = t._id || t.id || String(t.rate ?? '');
+        const nid = normalizeCategoryId(rawId) || String(rawId).trim();
+        return nid ? { _id: nid, name: t.name || `GST ${t.rate}%`, rate: t.rate } : null;
+      }).filter(Boolean) as { _id: string; name: string; rate?: number }[];
       setAvailableTaxRules(taxList);
-    } catch (err) {
-      console.error('Failed to load lookups', err);
+
+      setAvailableBrands(normList(brandsRes, b => ({ _id: b._id, name: b.name })));
+      setAvailableManufacturers(normList(mfgRes, m => ({ _id: m._id, name: m.name })));
+      setAvailableReturnPolicies(normList(rpRes, r => ({ _id: r._id, name: r.name })));
+    } catch (e) {
+      console.error('Lookups failed', e);
     } finally {
       setLookupsLoading(false);
     }
   };
 
-  useEffect(() => {
-    loadLookups();
-    fetchWebsiteUrl();
-  }, []);
+  useEffect(() => { loadLookups(); fetchWebsiteUrl(); }, []);
+  useEffect(() => { productConfigAPI.get().then(cfg => { if (cfg) setProductConfig(cfg); }); }, []);
 
   const fetchWebsiteUrl = async () => {
     try {
-      const response = await api.get('/settings/admin');
-      if (response.data.success && response.data.data) {
-        const websiteUrlValue = response.data.data.general?.websiteUrl || '';
-        setWebsiteUrl(websiteUrlValue);
-      }
-    } catch (error) {
-      console.error('Failed to fetch website URL:', error);
-      // Silently fail - website URL is optional
-    }
+      const res = await api.get('/settings/admin');
+      if (res.data?.success) setWebsiteUrl(res.data.data?.general?.websiteUrl || '');
+    } catch { /* silent */ }
   };
 
   useEffect(() => {
-    if (isEdit && id) {
-      fetchProduct();
-    } else if (prefilledData) {
-      // Load prefilled data when duplicating
-      loadPrefilledData(prefilledData);
-    }
-  }, [id, prefilledData, isEdit]);
-
-  const loadPrefilledData = (data: any) => {
-    try {
-      // Extract category IDs from various formats - ALWAYS return string IDs
-      const productCategories =
-        (data.categories || []).map((cat: any) => {
-          // Already a string ID
-          if (typeof cat === 'string' && cat.length === 24) {
-            return cat.trim();
-          }
-          // Object with _id property
-          if (cat?._id) {
-            // _id might be a string or ObjectId
-            const idStr = typeof cat._id === 'string' ? cat._id : String(cat._id);
-            if (idStr && idStr !== '[object Object]' && idStr.length === 24) {
-              return idStr.trim();
-            }
-          }
-          // Try to convert to string (for ObjectId instances)
-          const str = String(cat);
-          if (str && str !== '[object Object]' && str.length === 24) {
-            return str.trim();
-          }
-          return null;
-        }).filter((id: any): id is string => id !== null && typeof id === 'string' && id.length === 24) || [];
-
-      // CRITICAL FIX: Normalize sizeChart ID to string (handle buffer objects)
-      let inferredSizeChartId: string | null = null;
-      if (data.sizeChartId) {
-        inferredSizeChartId = normalizeCategoryId(data.sizeChartId);
-      } else if (data.sizeChart) {
-        inferredSizeChartId = normalizeCategoryId(
-          typeof data.sizeChart === 'string'
-            ? data.sizeChart
-            : data.sizeChart?._id
-        );
-      }
-
-      const sizeChartEntries: SizeChartEntry[] =
-        data.sizeChartEntries ||
-        (Array.isArray(data.sizeChart) ? data.sizeChart : []) ||
-        [];
-
-      const initialMode = inferredSizeChartId
-        ? 'reference'
-        : sizeChartEntries.length > 0
-          ? 'custom'
-          : 'none';
-
-      // Stock is always a number (for products without variants)
-      const stockValue: number | undefined =
-        typeof data.stock === 'number' ? data.stock : undefined;
-
-      // Extract SKU - check multiple possible locations
-      const dataSku = data.sku || data.baseSku || '';
-      const taxId = data.taxRuleId != null ? String(data.taxRuleId).trim() : '';
-
-      setFormData({
-        name: data.name || '',
-        sku: dataSku,
-        hsnCode: data.hsnCode || '',
-        taxRuleId: taxId,
-        price: data.price != null ? String(data.price) : '',
-        originalPrice: data.originalPrice != null ? String(data.originalPrice) : '',
-        description: data.description || '',
-        richDescription: data.richDescription || '',
-        descriptionImage: data.descriptionImage || '',
-        images: data.images || [],
-        videos: data.videos || [],
-        categories: productCategories,
-        featuredCategory: data.featuredCategory ? String(data.featuredCategory) : '',
-        tags: (data.tags || []).map((tag: any) => {
-          // Tags can be ObjectIds, tag objects, or tag names (strings)
-          if (typeof tag === 'string') {
-            // Check if it's a valid ObjectId (24 chars hex)
-            if (tag.length === 24 && /^[0-9a-fA-F]{24}$/.test(tag)) {
-              return tag; // Return as ID string
-            }
-            // Otherwise it's a tag name string
-            return tag;
-          }
-          // Object with _id property
-          if (tag?._id) {
-            const normalizedId = normalizeCategoryId(tag._id);
-            return normalizedId || tag.name || tag;
-          }
-          // Try to normalize as ID
-          const normalizedId = normalizeCategoryId(tag);
-          return normalizedId || tag;
-        }).filter((tag: any) => tag !== null && tag !== undefined),
-        sizeChart:
-          initialMode === 'custom'
-            ? sizeChartEntries
-            : sizeChartEntries.length > 0
-              ? sizeChartEntries
-              : [],
-        washCareInstructions: data.washCareInstructions || [],
-        customerOrderImages: data.customerOrderImages || [],
-        disableVariants: data.disableVariants || false,
-        showOutOfStockVariants: data.showOutOfStockVariants !== false,
-        showFeatures: data.showFeatures !== false,
-        isActive: data.isActive !== false,
-        productType: data.productType || (data.variations && data.variations.length > 0) || (data.attributeIds && data.attributeIds.length > 0) ? 'variation' : 'single',
-        attributeIds: data.attributeIds?.length
-          ? data.attributeIds
-          : (data.attributes || []).map((a: any) => a._id).filter(Boolean),
-        selectedAttributeValues: {}, // Will be populated from variations if needed
-        variations: (data.variations || []).map((v: any, idx: number) => {
-          // SIMPLIFIED: Normalize slugs (not IDs) - WordPress style
-          // Handle both string slugs and nested objects with slug/name
-          const normalizedAttrs: Record<string, string> = {};
-          if (v.attributes && typeof v.attributes === 'object') {
-            for (const [attrSlug, valueData] of Object.entries(v.attributes)) {
-              // Extract value slug - handle both string slugs and nested objects
-              let normalizedValueSlug: string | null = null;
-              if (typeof valueData === 'string') {
-                // Direct slug string: "l"
-                normalizedValueSlug = valueData.toLowerCase().trim();
-              } else if (valueData && typeof valueData === 'object' && valueData !== null) {
-                // Nested object with slug/name: {slug: "l", name: "L"}
-                const valueObj = valueData as { slug?: string; name?: string };
-                if (valueObj.slug && typeof valueObj.slug === 'string') {
-                  normalizedValueSlug = valueObj.slug.toLowerCase().trim();
-                } else if (valueObj.name && typeof valueObj.name === 'string') {
-                  // Fallback to name if slug not available
-                  normalizedValueSlug = valueObj.name.toLowerCase().trim();
-                }
-              }
-
-              if (normalizedValueSlug) {
-                normalizedAttrs[attrSlug.toLowerCase().trim()] = normalizedValueSlug;
-              }
-            }
-          }
-          return {
-            ...v,
-            id: v.id || `var-${Date.now()}-${idx}`, // Add temporary ID for frontend
-            attributes: normalizedAttrs, // Use normalized slugs
-          };
-        }),
-        stock: stockValue,
-        weight: data.weight != null ? String(data.weight) : '0.5',
-        length: data.length != null ? String(data.length) : '10',
-        breadth: data.breadth != null ? String(data.breadth) : '10',
-        height: data.height != null ? String(data.height) : '5',
-        specificationId: data.specificationId ? normalizeCategoryId(data.specificationId) || undefined : undefined,
-        specifications: data.specifications || undefined,
-      });
-
-      if (data.slug) {
-        setSlug(data.slug);
-        setSlugManuallyEdited(true);
-      }
-
-      if (data.seo) {
-        setSeoData({
-          title: data.seo.title || '',
-          description: data.seo.description || '',
-          keywords: Array.isArray(data.seo.keywords) ? data.seo.keywords.join(', ') : (data.seo.keywords || ''),
-          canonicalUrl: data.seo.canonicalUrl || '',
-          metaRobots: data.seo.metaRobots || '',
-          ogTitle: data.seo.ogTitle || '',
-          ogDescription: data.seo.ogDescription || '',
-          ogImage: data.seo.ogImage || '',
-        });
-      }
-
-      if (initialMode === 'reference' && inferredSizeChartId) {
-        setSizeChartMode('reference');
-        setSelectedSizeChartId(inferredSizeChartId);
-      } else if (initialMode === 'custom') {
-        setSizeChartMode('custom');
-      }
-    } catch (error) {
-      console.error('Failed to load prefilled data:', error);
-    }
-  };
+    if (isEdit && id) fetchProduct();
+    else if (prefilledData) loadPrefilledData(prefilledData);
+  }, [id, isEdit]); // eslint-disable-line
 
   useEffect(() => {
-    if (!slugManuallyEdited) {
-      const autoSlug = slugifyValue(formData.name);
-      setSlug((prev) => (prev === autoSlug ? prev : autoSlug));
-    }
+    if (!slugManuallyEdited) setSlug(slugifyValue(formData.name));
   }, [formData.name, slugManuallyEdited]);
 
-  const sanitizeProductData = (product: any): any => {
-    if (!product || typeof product !== 'object') return product;
+  // ── data mapping ──────────────────────────────────────────────────────────
 
-    const sanitized = { ...product };
-    // Preserve taxRuleId and hsnCode (can be string or from API)
-    if (product.taxRuleId !== undefined && product.taxRuleId !== null) {
-      sanitized.taxRuleId = typeof product.taxRuleId === 'string' ? product.taxRuleId : String(product.taxRuleId);
-    }
-    if (product.hsnCode !== undefined && product.hsnCode !== null) {
-      sanitized.hsnCode = String(product.hsnCode);
-    }
-
-    // Ensure _id is a string
-    if (sanitized._id) {
-      sanitized._id = String(sanitized._id);
-    }
-
-    // Sanitize categories - convert all to string IDs
-    if (Array.isArray(sanitized.categories)) {
-      sanitized.categories = sanitized.categories.map((cat: any) => {
-        // Already a string ID
-        if (typeof cat === 'string') {
-          return cat.trim();
-        }
-        // ObjectId instance or object with _id
-        if (cat && typeof cat === 'object') {
-          // Extract _id if available
-          if (cat._id) {
-            // _id might be string, ObjectId, or object with buffer
-            if (typeof cat._id === 'string') {
-              return cat._id.trim();
-            }
-            // Try to convert _id to string
-            const idStr = String(cat._id);
-            if (idStr && idStr !== '[object Object]' && idStr.length === 24) {
-              return idStr;
-            }
-          }
-          // If no _id, try to convert the whole object
-          const idStr = String(cat);
-          if (idStr && idStr !== '[object Object]' && idStr.length === 24) {
-            return idStr;
-          }
-        }
-        return null;
-      }).filter((cat: any): cat is string => cat !== null && typeof cat === 'string' && cat.length === 24);
-    }
-
-    // Sanitize sizeChart if it's an object
-    if (sanitized.sizeChart && typeof sanitized.sizeChart === 'object') {
-      if (sanitized.sizeChart.buffer || sanitized.sizeChart.constructor?.name === 'Buffer') {
-        sanitized.sizeChart = null;
-      } else if (sanitized.sizeChart._id) {
-        sanitized.sizeChart = String(sanitized.sizeChart._id);
+  const normalizeVariations = (raw: any[]) => raw.map((v: any, idx: number) => {
+    const normalizedAttrs: Record<string, string> = {};
+    const entries: [string, any][] = v.attributes instanceof Map
+      ? Array.from((v.attributes as Map<string, any>).entries())
+      : Object.entries(v.attributes || {});
+    for (const [attrSlug, valueData] of entries) {
+      const nAttr = String(attrSlug).toLowerCase().trim();
+      let nVal = '';
+      if (typeof valueData === 'string') nVal = valueData.toLowerCase().trim();
+      else if (valueData && typeof valueData === 'object') {
+        const obj = valueData as any;
+        nVal = String(obj.slug || obj.name || obj.value || '').toLowerCase().trim();
       }
+      if (nAttr && nVal && nVal !== '[object object]') normalizedAttrs[nAttr] = nVal;
     }
+    const brandId = v.brandId || v.primary_brand_id || v.primaryBrandId || undefined;
+    return {
+      ...v,
+      id: v.id || `var-${Date.now()}-${idx}`,
+      attributes: normalizedAttrs,
+      brandId,
+      brandName: v.brandName || v.brand_name || undefined,
+    };
+  });
 
-    // Sanitize images - ensure they're strings
-    if (Array.isArray(sanitized.images)) {
-      sanitized.images = sanitized.images
-        .map((img: any) => {
-          if (typeof img === 'string') return img;
-          if (img && typeof img === 'object' && (img.buffer || img.constructor?.name === 'Buffer')) {
-            return null;
-          }
-          return null;
-        })
-        .filter((img: any) => img !== null);
-    }
+  const mapProductToForm = (p: any) => {
+    const cats = (Array.isArray(p.categories) ? p.categories : [])
+      .map((c: any) => normalizeCategoryId(c)).filter((x: any): x is string => x !== null);
 
-    // Sanitize attributeIds
-    if (Array.isArray(sanitized.attributeIds)) {
-      sanitized.attributeIds = sanitized.attributeIds
-        .map((id: any) => {
-          if (typeof id === 'string') return id.trim();
-          if (id && typeof id === 'object' && id._id) {
-            const idStr = String(id._id);
-            if (idStr && idStr !== '[object Object]' && idStr.length === 24) {
-              return idStr;
-            }
-          }
-          return null;
-        })
-        .filter((id: any): id is string => id !== null && typeof id === 'string' && id.length === 24);
-    }
+    const scId = p.sizeChartId ? normalizeCategoryId(p.sizeChartId) :
+      (p.sizeChart && typeof p.sizeChart === 'string') ? normalizeCategoryId(p.sizeChart) :
+      (p.sizeChart && typeof p.sizeChart === 'object' && !Array.isArray(p.sizeChart) && p.sizeChart._id) ? normalizeCategoryId(p.sizeChart._id) : null;
+    const scEntries: SizeChartEntry[] = p.sizeChartEntries || (Array.isArray(p.sizeChart) ? p.sizeChart : []);
+    const scMode: 'none' | 'reference' | 'custom' = scId ? 'reference' : scEntries.length > 0 ? 'custom' : 'none';
 
-    // Sanitize variations
-    if (Array.isArray(sanitized.variations)) {
-      sanitized.variations = sanitized.variations.map((variation: any, idx: number) => {
-        if (!variation || typeof variation !== 'object') return variation;
-        const cleanVariation: any = {
-          ...variation,
-          id: variation.id || `var-${Date.now()}-${idx}`, // Add temporary ID for frontend
-        };
-        // Sanitize variation images
-        if (Array.isArray(cleanVariation.images)) {
-          cleanVariation.images = cleanVariation.images
-            .map((img: any) => typeof img === 'string' ? img : null)
-            .filter((img: any) => img !== null);
-        }
-        // Ensure attributes is an object and normalize all attribute value slugs
-        // CRITICAL: Variations use SLUGS not IDs (WordPress/WooCommerce style)
-        if (!cleanVariation.attributes || typeof cleanVariation.attributes !== 'object') {
-          cleanVariation.attributes = {};
-        } else {
-          // Normalize slugs (not IDs) - lowercase and trim
-          // Normalize slugs (not IDs) - lowercase and trim
-          const normalizedAttrs: Record<string, string> = {};
-          for (const [attrSlug, valueData] of Object.entries(cleanVariation.attributes)) {
-            const normalizedAttrSlug = String(attrSlug).toLowerCase().trim();
+    const normTags = (raw: any[]): string[] => raw.map((t: any) => {
+      if (typeof t === 'string') return t;
+      return normalizeCategoryId(t._id || t) || null;
+    }).filter((x): x is string => x !== null);
 
-            let normalizedValueSlug: string | null = null;
-            if (typeof valueData === 'string') {
-              normalizedValueSlug = valueData.toLowerCase().trim();
-            } else if (valueData && typeof valueData === 'object') {
-              // Handle populated object
-              const valObj = valueData as any;
-              if (valObj.slug) normalizedValueSlug = String(valObj.slug).toLowerCase().trim();
-              else if (valObj.name) normalizedValueSlug = String(valObj.name).toLowerCase().trim();
-              else if (valObj.value) normalizedValueSlug = String(valObj.value).toLowerCase().trim();
-            }
-
-            if (normalizedAttrSlug && normalizedValueSlug && normalizedValueSlug !== '[object object]') {
-              normalizedAttrs[normalizedAttrSlug] = normalizedValueSlug;
-            }
-          }
-          cleanVariation.attributes = normalizedAttrs;
-        }
-        // Ensure numeric fields
-        if (cleanVariation.stock !== undefined) {
-          cleanVariation.stock = typeof cleanVariation.stock === 'number' ? cleanVariation.stock : Number(cleanVariation.stock) || 0;
-        }
-        if (cleanVariation.price !== undefined) {
-          cleanVariation.price = typeof cleanVariation.price === 'number' ? cleanVariation.price : Number(cleanVariation.price) || undefined;
-        }
-        if (cleanVariation.originalPrice !== undefined) {
-          cleanVariation.originalPrice = typeof cleanVariation.originalPrice === 'number' ? cleanVariation.originalPrice : Number(cleanVariation.originalPrice) || undefined;
-        }
-        return cleanVariation;
-      });
-    }
-
-    // Ensure numeric fields are numbers
-    if (sanitized.price !== undefined) {
-      sanitized.price = typeof sanitized.price === 'number' ? sanitized.price : Number(sanitized.price) || 0;
-    }
-    if (sanitized.originalPrice !== undefined) {
-      sanitized.originalPrice = typeof sanitized.originalPrice === 'number' ? sanitized.originalPrice : Number(sanitized.originalPrice) || 0;
-    }
-    if (sanitized.stock !== undefined && sanitized.stock !== null) {
-      sanitized.stock = typeof sanitized.stock === 'number' ? sanitized.stock : Number(sanitized.stock) || undefined;
-    }
-
-    // Ensure string fields are strings
-    if (sanitized.name !== undefined) sanitized.name = String(sanitized.name || '');
-    if (sanitized.sku !== undefined) sanitized.sku = String(sanitized.sku || '');
-    if (sanitized.slug !== undefined) sanitized.slug = String(sanitized.slug || '');
-    if (sanitized.description !== undefined) sanitized.description = String(sanitized.description || '');
-    if (sanitized.richDescription !== undefined) sanitized.richDescription = String(sanitized.richDescription || '');
-    if (sanitized.descriptionImage !== undefined) sanitized.descriptionImage = String(sanitized.descriptionImage || '');
-
-    return sanitized;
+    return {
+      data: {
+        name: p.name || '',
+        title: p.title || '',
+        sku: p.sku || p.baseSku || '',
+        hsnCode: p.hsnCode || p.hsn_code || '',
+        taxRuleId: p.taxRuleId != null ? String(p.taxRuleId).trim() : '',
+        price: p.price != null ? String(p.price) : p.sellingPrice != null ? String(p.sellingPrice) : p.selling_price != null ? String(p.selling_price) : '',
+        originalPrice: p.originalPrice != null ? String(p.originalPrice) : p.mrp != null ? String(p.mrp) : '',
+        salePrice: p.salePrice != null ? String(p.salePrice) : p.sale_price != null ? String(p.sale_price) : '',
+        saleStartsAt: toDatetimeLocal(p.saleStartsAt || p.sale_starts_at || ''),
+        saleEndsAt: toDatetimeLocal(p.saleEndsAt || p.sale_ends_at || ''),
+        description: p.description || p.short_desc || '',
+        richDescription: p.richDescription || p.long_desc || p.rich_desc || '',
+        descriptionImage: p.descriptionImage || p.description_image || '',
+        images: p.images || [],
+        videos: p.videos || [],
+        stock: typeof p.stock === 'number' ? p.stock : undefined,
+        brandId: p.brandId || p.brand_id || p.brand?._id || p.brand?.id || '',
+        manufacturerId: p.manufacturerId || p.manufacturer_id || p.manufacturer?._id || p.manufacturer?.id || '',
+        returnPolicyId: p.returnPolicyId || p.return_policy_id || p.returnPolicy?._id || '',
+        categories: cats,
+        featuredCategory: p.featuredCategory ? String(p.featuredCategory) : p.featured_category_id || '',
+        tags: normTags(p.tags || []),
+        weight: p.weight != null ? String(p.weight) : '0.5',
+        length: p.length != null ? String(p.length) : '10',
+        breadth: p.breadth != null ? String(p.breadth) : '10',
+        height: p.height != null ? String(p.height) : '5',
+        countryOfOrigin: p.countryOfOrigin || p.country_of_origin || '',
+        modelNumber: p.modelNumber || p.model_number || '',
+        licenseNumber: p.licenseNumber || p.license_number || '',
+        expiryMonths: p.expiryMonths || p.expiry_months || undefined,
+        isActive: p.isActive !== false && p.is_active !== false,
+        isFeatured: !!(p.isFeatured || p.is_featured),
+        isDigital: !!(p.isDigital || p.is_digital),
+        requiresPrescription: !!(p.requiresPrescription || p.requires_prescription),
+        disableVariants: !!(p.disableVariants || p.disable_variants),
+        showOutOfStockVariants: p.showOutOfStockVariants !== false && p.show_oos_variants !== false,
+        showFeatures: p.showFeatures !== false,
+        productType: (p.productType || p.product_type || ((p.variations?.length || p.attributeIds?.length) ? 'variation' : 'single')) as 'single' | 'variation',
+        attributeIds: p.attributeIds?.length ? p.attributeIds : (p.attributes || []).map((a: any) => a._id).filter(Boolean),
+        selectedAttributeValues: {},
+        variations: normalizeVariations(p.variations || []),
+        specificationId: p.specificationId ? normalizeCategoryId(p.specificationId) || undefined : undefined,
+        specifications: p.specifications || undefined,
+        sizeChart: scEntries,
+        washCareInstructions: p.washCareInstructions || p.wash_care_instructions || [],
+        customerOrderImages: p.customerOrderImages || p.customer_order_images || [],
+        aplusContent: p.aplusContent || p.aplus_content || p.pageSections || p.page_sections || [],
+        offers: p.offers || [],
+        crossSellIds: (p.crossSellIds || p.cross_sell_ids || []).filter(Boolean),
+        upsellIds: (p.upsellIds || p.upsell_ids || []).filter(Boolean),
+        fbtIds: (p.fbtIds || p.fbt_ids || []).filter(Boolean),
+        b2bPricing: p.b2bPricing || p.b2b_pricing || [],
+      },
+      scMode, scId,
+      seo: {
+        title: p.seo?.title || '',
+        description: p.seo?.description || '',
+        keywords: Array.isArray(p.seo?.keywords) ? p.seo.keywords.join(', ') : (p.seo?.keywords || ''),
+        canonicalUrl: p.seo?.canonicalUrl || '',
+        metaRobots: p.seo?.metaRobots || '',
+        ogTitle: p.seo?.ogTitle || '',
+        ogDescription: p.seo?.ogDescription || '',
+        ogImage: p.seo?.ogImage || '',
+      },
+    };
   };
 
-  // Helper function to extract clean MongoDB ObjectId
-  // Backend API only accepts MongoDB ObjectId (24 hex characters), not SKU
-  const extractObjectId = (idValue: string | undefined): string | null => {
-    if (!idValue) return null;
-    const idStr = String(idValue).trim();
-
-    // MongoDB ObjectId must be exactly 24 hexadecimal characters
-    // Backend validates with Types.ObjectId.isValid() which requires exactly 24 hex chars
-    if (/^[0-9a-fA-F]{24}$/.test(idStr)) {
-      if (import.meta.env.DEV) {
-        console.log('✅ Valid MongoDB ObjectId:', idStr);
-      }
-      return idStr;
-    }
-
-    // Try to extract 24 hex characters from the string
-    const match = idStr.match(/^([0-9a-fA-F]{24})/);
-    if (match) {
-      const extracted = match[1];
-      if (import.meta.env.DEV) {
-        console.log('✅ Extracted ObjectId:', extracted);
-      }
-      return extracted;
-    }
-
-    if (import.meta.env.DEV) {
-      console.warn('⚠️ Invalid ObjectId format:', { idValue, idStr, length: idStr.length });
-    }
-    return null;
+  const loadPrefilledData = (p: any) => {
+    const { data, scMode, scId, seo } = mapProductToForm(p);
+    setFormData(data);
+    if (p.slug) { setSlug(p.slug); setSlugManuallyEdited(true); }
+    setSeoData(seo);
+    setSizeChartMode(scMode);
+    setSelectedSizeChartId(scId || '');
   };
 
   const fetchProduct = async () => {
     setLoading(true);
     try {
-      // Validate and clean the product ID
-      if (!id) {
-        console.error('❌ No product ID provided');
-        throw new Error('Product ID is required');
-      }
-
-      if (import.meta.env.DEV) {
-        console.log('📥 Fetching product with ID:', id);
-      }
-
+      if (!id) throw new Error('No product ID');
       let response: any;
       if (isSlugParam) {
-        // Fetch by slug (new slug-based URL pattern)
-        if (import.meta.env.DEV) console.log('📥 Fetching product by slug:', id);
-        response = await productsAPI.getBySlug(id);
-        // getBySlug already unwraps to product data
-        response = { success: true, data: response };
+        const raw = await productsAPI.getBySlug(id);
+        response = { success: true, data: raw };
       } else {
-        // Extract clean MongoDB ObjectId (legacy ID-based URL)
-        const cleanId = extractObjectId(id);
-        if (!cleanId) {
-          alert(`Invalid product ID format.\n\nReceived: "${id}"\n\nPlease go back to the products list and try again.`);
-          navigate('/products');
-          return;
-        }
-        if (import.meta.env.DEV) console.log('✅ Using ID:', cleanId);
+        const cleanId = extractObjectId(id) || id!;
         response = await productsAPI.getById(cleanId);
       }
-      // Backend returns: { success: true, data: product }
-      // productsAPI.getById returns: response.data (axios response body)
-      // So response = { success: true, data: product }
-      // We need response.data to get the actual product object
-      let product = (response && response.success && response.data)
-        ? response.data
-        : (response && response.data)
-          ? response.data
-          : response;
+      let product = response?.success && response?.data ? response.data : response?.data || response;
+      if (!product) throw new Error('Product not found');
 
-      // Sanitize product data to remove buffer objects
-      product = sanitizeProductData(product);
-
-      if (!product) {
-        throw new Error('Product data is null or undefined');
-      }
-
-      // Extract SKU from product - check multiple possible locations
-      let productSku = '';
-      if (product) {
-        // Try different possible field names
-        productSku = (product.sku && typeof product.sku === 'string' && product.sku.trim())
-          ? product.sku.trim()
-          : (product.baseSku && typeof product.baseSku === 'string' && product.baseSku.trim())
-            ? product.baseSku.trim()
-            : '';
-      }
-
-      // Debug: Log SKU extraction (only in development)
-      if (import.meta.env.DEV) {
-        console.log('🔍 Product SKU Debug:', {
-          responseSuccess: response?.success,
-          hasResponseData: !!response?.data,
-          extractedProduct: product ? 'exists' : 'null',
-          productSkuField: product?.sku,
-          productBaseSku: product?.baseSku,
-          extractedSku: productSku,
-          hasSku: !!productSku,
-          skuType: typeof product?.sku,
-          allProductKeys: product ? Object.keys(product) : []
-        });
-
-        if (!productSku && product) {
-          console.warn('⚠️ SKU not found in product. Available fields:', Object.keys(product));
-        }
-      }
-
-      // Extract category IDs from various formats - ALWAYS return string IDs
-      // Root cause fix: Handle all possible category formats from backend (populated objects, string IDs, etc.)
-      const rawCategories = product.categories || [];
-
-      if (import.meta.env.DEV) {
-        console.log('🔍 Categories Debug (fetchProduct):', {
-          rawCategories,
-          rawCategoriesType: typeof rawCategories,
-          isArray: Array.isArray(rawCategories),
-          length: Array.isArray(rawCategories) ? rawCategories.length : 0,
-          firstCategory: rawCategories[0],
-          firstCategoryType: typeof rawCategories[0],
-          firstCategoryKeys: rawCategories[0] ? Object.keys(rawCategories[0]) : [],
-        });
-      }
-
-      const productCategories =
-        (Array.isArray(rawCategories) ? rawCategories : []).map((cat: any) => {
-          // Skip null/undefined
-          if (!cat) return null;
-
-          // Already a string ID (most common case after serialization)
-          if (typeof cat === 'string') {
-            const trimmed = cat.trim();
-            if (trimmed.length === 24 && /^[0-9a-fA-F]{24}$/.test(trimmed)) {
-              return trimmed;
-            }
-            return null;
-          }
-
-          // Object with _id property (populated category from backend)
-          if (cat && typeof cat === 'object') {
-            // Check _id property (most common for populated objects)
-            if (cat._id) {
-              const idStr = typeof cat._id === 'string' ? cat._id.trim() : String(cat._id).trim();
-              if (idStr && idStr !== '[object Object]' && idStr.length === 24 && /^[0-9a-fA-F]{24}$/.test(idStr)) {
-                return idStr;
-              }
-            }
-
-            // Check if the object itself is an ObjectId-like structure
-            // Sometimes _id might be nested or the object might be the ID itself
-            const keys = Object.keys(cat);
-            if (keys.length === 1 && keys[0] === '_id') {
-              const idStr = typeof cat._id === 'string' ? cat._id.trim() : String(cat._id).trim();
-              if (idStr && idStr.length === 24 && /^[0-9a-fA-F]{24}$/.test(idStr)) {
-                return idStr;
-              }
-            }
-          }
-
-          // Try to convert to string as last resort (for ObjectId instances)
-          const str = String(cat).trim();
-          if (str && str !== '[object Object]' && str.length === 24 && /^[0-9a-fA-F]{24}$/.test(str)) {
-            return str;
-          }
-
-          return null;
-        }).filter((id: any): id is string => id !== null && typeof id === 'string' && id.length === 24) || [];
-
-      // Extract tags - can be ObjectIds, tag objects, or tag names
-      const productTags = (product.tags || []).map((tag: any) => {
-        // Tags can be ObjectIds, tag objects, or tag names (strings)
-        if (typeof tag === 'string') {
-          // Check if it's a valid ObjectId (24 chars hex)
-          if (tag.length === 24 && /^[0-9a-fA-F]{24}$/.test(tag)) {
-            return tag; // Return as ID string
-          }
-          // Otherwise it's a tag name string
-          return tag;
-        }
-        // Object with _id property (populated tag)
-        if (tag?._id) {
-          const normalizedId = normalizeCategoryId(tag._id);
-          if (normalizedId) {
-            return normalizedId; // Return as ID string
-          }
-          // Fallback to name if ID normalization fails
-          return tag.name || tag;
-        }
-        // Try to normalize as ID
-        const normalizedId = normalizeCategoryId(tag);
-        return normalizedId || tag;
-      }).filter((tag: any) => tag !== null && tag !== undefined);
-
-      if (import.meta.env.DEV) {
-        console.log('✅ Extracted Categories:', {
-          extracted: productCategories,
-          count: productCategories.length,
-          sample: productCategories[0],
-        });
-        console.log('✅ Extracted Tags:', {
-          extracted: productTags,
-          count: productTags.length,
-          sample: productTags[0],
-        });
-      }
-      // CRITICAL FIX: Normalize sizeChart ID to string (handle buffer objects)
-      let inferredSizeChartId: string | null = null;
-      if (product.sizeChartId) {
-        inferredSizeChartId = normalizeCategoryId(product.sizeChartId);
-      } else if (product.sizeChart) {
-        inferredSizeChartId = normalizeCategoryId(
-          typeof product.sizeChart === 'string'
-            ? product.sizeChart
-            : product.sizeChart?._id
-        );
-      }
-      const sizeChartEntries: SizeChartEntry[] =
-        product.sizeChartEntries ||
-        (Array.isArray(product.sizeChart) ? product.sizeChart : []) ||
-        [];
-      const initialMode = inferredSizeChartId
-        ? 'reference'
-        : sizeChartEntries.length > 0
-          ? 'custom'
-          : 'none';
-
-      // Stock is always a number (for products without variants)
-      const stockValue: number | undefined =
-        typeof product.stock === 'number' ? product.stock : undefined;
-
-      const productTaxId = (product.taxRuleId !== undefined && product.taxRuleId !== null)
-        ? String(product.taxRuleId).trim()
-        : '';
-
-      setFormData({
-        name: product.name || '',
-        sku: productSku,
-        hsnCode: product.hsnCode || '',
-        taxRuleId: productTaxId,
-        price: product.price != null ? String(product.price) : '',
-        originalPrice: product.originalPrice != null ? String(product.originalPrice) : '',
-        description: product.description || '',
-        richDescription: product.richDescription || '',
-        descriptionImage: product.descriptionImage || '',
-        images: product.images || [],
-        videos: product.videos || [],
-        stock: stockValue,
-        categories: productCategories,
-        featuredCategory: product.featuredCategory ? String(product.featuredCategory) : '',
-        tags: productTags,
-        sizeChart:
-          initialMode === 'custom'
-            ? sizeChartEntries
-            : sizeChartEntries.length > 0
-              ? sizeChartEntries
-              : [],
-        washCareInstructions: product.washCareInstructions || [],
-        customerOrderImages: product.customerOrderImages || [],
-        disableVariants: product.disableVariants || false,
-        showOutOfStockVariants: product.showOutOfStockVariants !== false,
-        showFeatures: product.showFeatures !== false,
-        isActive: product.isActive !== false,
-        productType: (product.productType || ((product.variations && product.variations.length > 0) || (product.attributeIds && product.attributeIds.length > 0) ? 'variation' : 'single')) as 'single' | 'variation',
-        // Derive attributeIds from product.attributes if not explicitly set (handles imported products)
-        attributeIds: product.attributeIds?.length
-          ? product.attributeIds
-          : (product.attributes || []).map((a: any) => a._id).filter(Boolean),
-        selectedAttributeValues: {}, // Will be populated from variations if needed
-        variations: (product.variations || []).map((v: any, idx: number) => {
-          // CRITICAL FIX: Variations use SLUGS not IDs (WordPress/WooCommerce style)
-          // Format: {"size": "l"} where "size" is attribute slug and "l" is value slug
-          const normalizedAttrs: Record<string, string> = {};
-          if (v.attributes && typeof v.attributes === 'object') {
-            // Handle Map objects (MongoDB returns Maps for variation attributes)
-            if (v.attributes instanceof Map) {
-              for (const [attrSlug, valueData] of v.attributes.entries()) {
-                // Normalize attribute slug
-                const normalizedAttrSlug = String(attrSlug).toLowerCase().trim();
-
-                // Extract value slug - handle both string slugs and nested objects with slug/name
-                let normalizedValueSlug: string | null = null;
-                if (typeof valueData === 'string') {
-                  // Direct slug string: "l"
-                  normalizedValueSlug = valueData.toLowerCase().trim();
-                } else if (valueData && typeof valueData === 'object' && valueData !== null) {
-                  // Nested object with slug/name: {slug: "l", name: "L"}
-                  const valueObj = valueData as { slug?: string; name?: string };
-                  if (valueObj.slug && typeof valueObj.slug === 'string') {
-                    normalizedValueSlug = valueObj.slug.toLowerCase().trim();
-                  } else if (valueObj.name && typeof valueObj.name === 'string') {
-                    // Fallback to name if slug not available (shouldn't happen, but handle gracefully)
-                    normalizedValueSlug = valueObj.name.toLowerCase().trim();
-                  }
-                }
-
-                if (normalizedAttrSlug && normalizedValueSlug) {
-                  normalizedAttrs[normalizedAttrSlug] = normalizedValueSlug;
-                }
-              }
-            } else {
-              // Handle plain objects
-              for (const [attrSlug, valueData] of Object.entries(v.attributes)) {
-                // Normalize attribute slug
-                const normalizedAttrSlug = String(attrSlug).toLowerCase().trim();
-
-                // Extract value slug - handle both string slugs and nested objects with slug/name
-                let normalizedValueSlug: string | null = null;
-                if (typeof valueData === 'string') {
-                  // Direct slug string: "l"
-                  normalizedValueSlug = valueData.toLowerCase().trim();
-                } else if (valueData && typeof valueData === 'object' && valueData !== null) {
-                  // Nested object with slug/name: {slug: "l", name: "L"}
-                  const valueObj = valueData as { slug?: string; name?: string };
-                  if (valueObj.slug && typeof valueObj.slug === 'string') {
-                    normalizedValueSlug = valueObj.slug.toLowerCase().trim();
-                  } else if (valueObj.name && typeof valueObj.name === 'string') {
-                    // Fallback to name if slug not available (shouldn't happen, but handle gracefully)
-                    normalizedValueSlug = valueObj.name.toLowerCase().trim();
-                  }
-                }
-
-                if (normalizedAttrSlug && normalizedValueSlug) {
-                  normalizedAttrs[normalizedAttrSlug] = normalizedValueSlug;
-                }
-              }
-            }
-          }
-
-          // Preserve attributeDetails if backend populated it (for display purposes)
-          const variationData: any = {
-            ...v,
-            id: v.id || `var-${Date.now()}-${idx}`, // Add temporary ID for frontend
-            attributes: normalizedAttrs, // Use normalized slugs
-          };
-
-          // Preserve attributeDetails from backend if available (helps with display)
-          if (v.attributeDetails && typeof v.attributeDetails === 'object') {
-            variationData.attributeDetails = v.attributeDetails;
-          }
-
-          return variationData;
-        }),
-        weight: product.weight != null ? String(product.weight) : '0.5',
-        length: product.length != null ? String(product.length) : '10',
-        breadth: product.breadth != null ? String(product.breadth) : '10',
-        height: product.height != null ? String(product.height) : '5',
-        specificationId: product.specificationId ? normalizeCategoryId(product.specificationId) || undefined : undefined,
-        specifications: product.specifications || undefined,
-      });
-      setSizeChartMode(initialMode);
-      setSelectedSizeChartId(inferredSizeChartId || '');
-      if (
-        inferredSizeChartId &&
-        !availableSizeCharts.find(chart => chart._id === inferredSizeChartId)
-      ) {
-        if (product.sizeChartDetails) {
-          setAvailableSizeCharts(prev => [
-            ...prev,
-            {
-              _id: inferredSizeChartId,
-              name: product.sizeChartDetails.name || 'Linked Size Chart',
-              entries: product.sizeChartDetails.entries || sizeChartEntries,
-            },
-          ]);
-        }
-      }
-
-      const normalizedSlug = product.slug ? String(product.slug) : slugifyValue(product.name || '');
-      setSlug(normalizedSlug);
+      const { data, scMode, scId, seo } = mapProductToForm(product);
+      setFormData(data);
+      setSlug(product.slug ? String(product.slug) : slugifyValue(product.name || ''));
       setSlugManuallyEdited(true);
-
-      const productSeo = product.seo || {};
-      const keywordString = Array.isArray(productSeo.keywords)
-        ? productSeo.keywords.join(', ')
-        : typeof productSeo.keywords === 'string'
-          ? productSeo.keywords
-          : '';
-
-      setSeoData({
-        title: productSeo.title || '',
-        description: productSeo.description || '',
-        keywords: keywordString,
-        canonicalUrl: productSeo.canonicalUrl || '',
-        metaRobots: productSeo.metaRobots || '',
-        ogTitle: productSeo.ogTitle || '',
-        ogDescription: productSeo.ogDescription || '',
-        ogImage: productSeo.ogImage || '',
-      });
-
-      if (
-        productSeo.canonicalUrl ||
-        productSeo.metaRobots ||
-        productSeo.ogTitle ||
-        productSeo.ogDescription ||
-        productSeo.ogImage ||
-        (Array.isArray(productSeo.keywords) && productSeo.keywords.length > 0)
-      ) {
-        setShowAdvancedSeo(true);
-      }
+      setSeoData(seo);
+      setSizeChartMode(scMode);
+      setSelectedSizeChartId(scId || '');
+      if (seo.canonicalUrl || seo.metaRobots || seo.ogTitle || seo.ogDescription || seo.ogImage) setShowAdvancedSeo(true);
     } catch (error: any) {
-      console.error('Failed to load product:', error);
-
-      // Check if it's an ID format error from backend
-      const backendError = error?.response?.data;
-      const errorCode = backendError?.code;
-      const errorMessage = backendError?.message || error?.message || 'Failed to load product';
-
-      if (errorCode === 'INVALID_PRODUCT_ID' || errorMessage.includes('Invalid product ID format')) {
-        alert(`Invalid product ID format.\n\nPlease go back to the products list and try again.\n\nID used: ${id}`);
-      } else {
-        alert(errorMessage);
-      }
-
+      alert(error?.response?.data?.message || error?.message || 'Failed to load product');
       navigate('/products');
     } finally {
       setLoading(false);
     }
   };
 
-  const validateForm = (): boolean => {
-    const newErrors: Record<string, string> = {};
+  // ── uploads ────────────────────────────────────────────────────────────────
 
-    if (!formData.name.trim()) {
-      newErrors.name = 'Product name is required';
-    }
-
-    if (!formData.price || parseFloat(formData.price) <= 0) {
-      newErrors.price = 'Valid price is required';
-    }
-
-    if (!formData.originalPrice || parseFloat(formData.originalPrice) <= 0) {
-      newErrors.originalPrice = 'Valid original price is required';
-    }
-
-    if (parseFloat(formData.originalPrice) < parseFloat(formData.price)) {
-      newErrors.originalPrice = 'Original price must be greater than or equal to price';
-    }
-
-    if (formData.images.length === 0) {
-      newErrors.images = 'At least one image is required';
-    }
-
-    // No longer require sizes - variants are optional and can be added via variation form
-    // Products can exist without variants (simple products with just stock)
-
-    if (formData.categories.length === 0) {
-      newErrors.categories = 'Select at least one category';
-    }
-
-    const weightNum = parseFloat(formData.weight);
-    if (!formData.weight || isNaN(weightNum) || weightNum <= 0) {
-      newErrors.weight = 'Weight (kg) is required and must be greater than 0';
-    }
-    const lengthNum = parseFloat(formData.length);
-    if (!formData.length || isNaN(lengthNum) || lengthNum <= 0) {
-      newErrors.length = 'Length (cm) is required and must be greater than 0';
-    }
-    const breadthNum = parseFloat(formData.breadth);
-    if (!formData.breadth || isNaN(breadthNum) || breadthNum <= 0) {
-      newErrors.breadth = 'Breadth (cm) is required and must be greater than 0';
-    }
-    const heightNum = parseFloat(formData.height);
-    if (!formData.height || isNaN(heightNum) || heightNum <= 0) {
-      newErrors.height = 'Height (cm) is required and must be greater than 0';
-    }
-
-    if (sizeChartMode === 'reference' && !selectedSizeChartId) {
-      newErrors.sizeChart = 'Select a size chart';
-    }
-
-    if (sizeChartMode === 'custom') {
-      const invalidEntry = formData.sizeChart.find((entry) => !entry.size.trim());
-      if (invalidEntry) {
-        newErrors.sizeChart = 'Each size chart entry must include a size value';
-      }
-    }
-
-    const normalizedSlug = slugifyValue(slug);
-    if (!normalizedSlug) {
-      newErrors.slug = 'Product slug is required';
-    } else if (normalizedSlug.length > SLUG_MAX_LENGTH) {
-      newErrors.slug = `Slug must be ${SLUG_MAX_LENGTH} characters or fewer`;
-    } else if (slug !== normalizedSlug) {
-      newErrors.slug = 'Slug contains invalid characters';
-    }
-
-    const trimmedMetaTitle = seoData.title.trim();
-    if (trimmedMetaTitle.length > META_TITLE_LIMIT) {
-      newErrors.metaTitle = `Meta title must be ${META_TITLE_LIMIT} characters or fewer`;
-    }
-
-    const trimmedMetaDescription = seoData.description.trim();
-    if (trimmedMetaDescription.length > META_DESCRIPTION_LIMIT) {
-      newErrors.metaDescription = `Meta description must be ${META_DESCRIPTION_LIMIT} characters or fewer`;
-    }
-
-    if (
-      seoData.canonicalUrl.trim() &&
-      !/^https?:\/\//i.test(seoData.canonicalUrl.trim())
-    ) {
-      newErrors.canonicalUrl = 'Canonical URL must start with http:// or https://';
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+  // The API response interceptor unwraps { success, data } → data, so uploadMultiple
+  // returns { files: [...] } (not { data: { files } }). Handle every shape defensively.
+  const extractUploadedUrls = (res: any): string[] => {
+    const files = res?.files || res?.data?.files || res?.urls || res?.data?.urls || [];
+    return (Array.isArray(files) ? files : []).map((f: any) => (typeof f === 'string' ? f : f?.url)).filter(Boolean);
   };
 
-
-  const selectedSizeChart = useMemo(
-    () => availableSizeCharts.find((chart) => chart._id === selectedSizeChartId),
-    [availableSizeCharts, selectedSizeChartId]
-  );
-
-  const ensureCustomEntriesInitialized = (sourceEntries?: SizeChartEntry[]) => {
-    setFormData((prev) => {
-      if (prev.sizeChart.length > 0) {
-        return prev;
-      }
-      const entries =
-        sourceEntries && sourceEntries.length > 0
-          ? sourceEntries.map((entry) => ({ ...entry }))
-          : [{ ...emptySizeChartEntry }];
-      return { ...prev, sizeChart: entries };
-    });
+  // Update state AND the ref synchronously — handleSubmit reads formDataRef.current,
+  // so uploaded media must land in the ref immediately (don't wait for the sync effect).
+  const applyFormData = (updater: (prev: any) => any) => {
+    setFormData(prev => { const next = updater(prev); formDataRef.current = next; return next; });
   };
-
-  const handleSizeChartModeChange = (mode: 'none' | 'reference' | 'custom') => {
-    setSizeChartMode(mode);
-    setErrors((prev) => ({ ...prev, sizeChart: '' }));
-
-    if (mode === 'none') {
-      setSelectedSizeChartId('');
-    } else if (mode === 'reference') {
-      if (!selectedSizeChartId && availableSizeCharts.length > 0) {
-        setSelectedSizeChartId(availableSizeCharts[0]._id);
-      }
-    } else if (mode === 'custom') {
-      if (formData.sizeChart.length === 0) {
-        const seedEntries = selectedSizeChart?.entries;
-        ensureCustomEntriesInitialized(seedEntries);
-      }
-    }
-  };
-
-  const handleSelectSizeChartId = (chartId: string) => {
-    // Normalize the chart ID to ensure it matches the normalized IDs in availableSizeCharts
-    const normalizedId = normalizeCategoryId(chartId);
-    if (!normalizedId) {
-      console.warn('⚠️ Invalid size chart ID selected:', chartId);
-      return;
-    }
-
-    console.log('📊 Selecting size chart:', {
-      originalId: chartId,
-      normalizedId,
-      availableCharts: availableSizeCharts.map(c => c._id),
-      found: availableSizeCharts.find(c => c._id === normalizedId)
-    });
-
-    setSelectedSizeChartId(normalizedId);
-    setErrors((prev) => ({ ...prev, sizeChart: '' }));
-    if (sizeChartMode === 'custom') {
-      const chart = availableSizeCharts.find((c) => c._id === normalizedId);
-      if (chart?.entries?.length) {
-        setFormData((prev) => ({
-          ...prev,
-          sizeChart: chart.entries ? chart.entries.map((entry) => ({ ...entry })) : prev.sizeChart,
-        }));
-      }
-    }
-  };
-
-
-  // Unused - replaced by handleMultipleImageUpload
-  // const handleImageUpload = async () => {
-  //   if (!newImage) return;
-
-  //   setUploading(true);
-  //   try {
-  //     const response = await uploadAPI.uploadSingle(newImage, 'products');
-  //     setFormData({
-  //       ...formData,
-  //       images: [...formData.images, response.data.url],
-  //     });
-  //     setNewImage(null);
-  //     if (fileInputRef.current) {
-  //       fileInputRef.current.value = '';
-  //     }
-  //     setErrors({ ...errors, images: '' });
-  //   } catch (error) {
-  //     alert('Failed to upload image');
-  //   } finally {
-  //     setUploading(false);
-  //   }
-  // };
 
   const handleMultipleImageUpload = async (files: FileList) => {
-    const imageFiles = Array.from(files).filter(file => file.type.startsWith('image/'));
-    if (imageFiles.length === 0) return;
-
+    const imgs = Array.from(files).filter(f => f.type.startsWith('image/'));
+    if (!imgs.length) return;
     setUploading(true);
     try {
-      const response = await uploadAPI.uploadMultiple(imageFiles, 'products');
-      // Backend returns { success: true, data: { files: [{ url, key }] } }
-      const uploadedUrls = response.data?.files?.map((f: any) => f.url) || response.data?.urls || [];
-      setFormData({
-        ...formData,
-        images: [...formData.images, ...uploadedUrls],
-      });
-      setErrors({ ...errors, images: '' });
-    } catch (error: any) {
-      console.error('Upload error:', error);
-      alert(error.response?.data?.message || 'Failed to upload images');
-    } finally {
-      setUploading(false);
-    }
+      const res = await uploadAPI.uploadMultiple(imgs, 'products/gallery');
+      const urls = extractUploadedUrls(res);
+      if (urls.length) applyFormData(prev => ({ ...prev, images: [...prev.images, ...urls] }));
+    } catch (e: any) { alert(e.response?.data?.message || 'Upload failed'); }
+    finally { setUploading(false); }
   };
 
   const handleDescriptionImageUpload = async (files: FileList) => {
     const file = files[0];
-    if (!file || !file.type.startsWith('image/')) return;
-
-    setUploading(true);
+    if (!file?.type.startsWith('image/')) return;
+    setUploadingBanner(true);
     try {
-      const response = await uploadAPI.uploadSingle(file, 'products');
-      const imageUrl = response.data?.url || response.data?.data?.url || response.url;
-      if (imageUrl) {
-        setFormData({ ...formData, descriptionImage: imageUrl });
-      } else {
-        throw new Error('No URL in upload response');
-      }
-    } catch (error: any) {
-      console.error('Description image upload error:', error);
-      alert(error.response?.data?.message || error.message || 'Failed to upload image');
-    } finally {
-      setUploading(false);
-    }
+      const res = await uploadAPI.uploadSingle(file, 'products/banners');
+      const url = res?.url || res?.data?.url || res?.data?.data?.url;
+      if (url) applyFormData(prev => ({ ...prev, descriptionImage: url }));
+    } catch (e: any) { alert(e.response?.data?.message || 'Upload failed'); }
+    finally { setUploadingBanner(false); }
   };
 
   const handleCustomerOrderImagesUpload = async (files: FileList) => {
-    const imageFiles = Array.from(files).filter(file => file.type.startsWith('image/'));
-    if (imageFiles.length === 0) {
-      alert('Please select image files');
-      return;
-    }
-
-    setUploading(true);
+    const imgs = Array.from(files).filter(f => f.type.startsWith('image/'));
+    if (!imgs.length) return;
+    setUploadingCustomer(true);
     try {
-      const response = await uploadAPI.uploadMultiple(imageFiles, 'products');
-      const uploadedUrls = response.data?.files?.map((f: any) => f.url) || response.data?.urls || [];
-      setFormData({
-        ...formData,
-        customerOrderImages: [...formData.customerOrderImages, ...uploadedUrls],
-      });
-    } catch (error: any) {
-      console.error('Upload error:', error);
-      alert(error.response?.data?.message || 'Failed to upload images');
-    } finally {
-      setUploading(false);
-    }
+      const res = await uploadAPI.uploadMultiple(imgs, 'products/customer-photos');
+      const urls = extractUploadedUrls(res);
+      if (urls.length) applyFormData(prev => ({ ...prev, customerOrderImages: [...prev.customerOrderImages, ...urls] }));
+    } catch (e: any) { alert(e.response?.data?.message || 'Upload failed'); }
+    finally { setUploadingCustomer(false); }
   };
 
-
-  // Legacy variant functions removed - using attribute-based variations now
-
-  const handleVideoUpload = async () => {
-    if (newVideos.length === 0) return;
-
+  const handleVideoFileUpload = async (files: FileList) => {
+    // Accept video files (mp4/mov/webm…) — the backend skips image optimization for these.
+    const vids = Array.from(files || []).filter(f => f.type.startsWith('video/'));
+    if (!vids.length) return;
     setUploadingVideo(true);
     try {
-      // Upload all videos at once
-      const response = await uploadAPI.uploadMultiple(newVideos, 'videos');
-      // Backend returns { success: true, data: { files: [{ url, key }] } }
-      // Check response structure - it might be response.data or response
-      let uploadedUrls: string[] = [];
-
-      if (response.data?.files && Array.isArray(response.data.files)) {
-        uploadedUrls = response.data.files.map((f: any) => f.url || f);
-      } else if (response.files && Array.isArray(response.files)) {
-        uploadedUrls = response.files.map((f: any) => f.url || f);
-      } else if (response.data?.urls && Array.isArray(response.data.urls)) {
-        uploadedUrls = response.data.urls;
-      } else if (Array.isArray(response.data)) {
-        uploadedUrls = response.data.map((f: any) => f.url || f);
-      }
-
-      if (uploadedUrls.length === 0) {
-        console.error('No URLs found in response:', response);
-        throw new Error('Failed to get uploaded video URLs from response');
-      }
-
-      setFormData({
-        ...formData,
-        videos: [...formData.videos, ...uploadedUrls],
-      });
-      setNewVideos([]);
-      setErrors({ ...errors, videos: '' });
-    } catch (error: any) {
-      console.error('Video upload error:', error);
-      alert(error.response?.data?.message || error.message || 'Failed to upload videos');
-    } finally {
-      setUploadingVideo(false);
-    }
+      const res = await uploadAPI.uploadMultiple(vids, 'products/videos');
+      const urls = extractUploadedUrls(res);
+      if (urls.length) applyFormData(prev => ({ ...prev, videos: [...prev.videos, ...urls] }));
+    } catch (e: any) { alert(e.response?.data?.message || 'Video upload failed'); }
+    finally { setUploadingVideo(false); }
   };
 
   const addVideoUrl = () => {
-    const url = prompt('Enter video URL (YouTube, Vimeo, or direct URL):');
-    if (url && url.trim()) {
-      setFormData({
-        ...formData,
-        videos: [...formData.videos, url.trim()],
-      });
+    const url = prompt('Enter video URL (YouTube, Vimeo, or direct):');
+    if (url?.trim()) setFormData(prev => ({ ...prev, videos: [...prev.videos, url.trim()] }));
+  };
+
+  // ── size chart ─────────────────────────────────────────────────────────────
+
+  const selectedSizeChart = useMemo(() =>
+    availableSizeCharts.find(c => c._id === selectedSizeChartId),
+    [availableSizeCharts, selectedSizeChartId]);
+
+  const handleSizeChartModeChange = (mode: 'none' | 'reference' | 'custom') => {
+    setSizeChartMode(mode);
+    setErrors(prev => ({ ...prev, sizeChart: '' }));
+    if (mode === 'none') setSelectedSizeChartId('');
+    else if (mode === 'reference' && !selectedSizeChartId && availableSizeCharts.length) setSelectedSizeChartId(availableSizeCharts[0]._id);
+    else if (mode === 'custom' && !formData.sizeChart.length) setFormData(p => ({ ...p, sizeChart: [{ ...emptySizeChartEntry }] }));
+  };
+
+  const handleSelectSizeChartId = (chartId: string) => {
+    const nid = normalizeCategoryId(chartId);
+    if (nid) { setSelectedSizeChartId(nid); setErrors(prev => ({ ...prev, sizeChart: '' })); }
+  };
+
+  // ── export ─────────────────────────────────────────────────────────────────
+
+  const handleExport = () => {
+    const data = { ...formDataRef.current, slug, seo: seoData, exportedAt: new Date().toISOString() };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `product-${slug || 'draft'}.json`;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+  };
+
+  // ── validation ─────────────────────────────────────────────────────────────
+
+  const validateForm = (): boolean => {
+    const e: Record<string, string> = {};
+    if (!formData.name.trim()) e.name = 'Product name is required';
+    if (!formData.price || parseFloat(formData.price) <= 0) e.price = 'Valid price is required';
+    if (!formData.originalPrice || parseFloat(formData.originalPrice) <= 0) e.originalPrice = 'Valid MRP is required';
+    if (parseFloat(formData.originalPrice) < parseFloat(formData.price)) e.originalPrice = 'MRP must be ≥ selling price';
+    // Sale price rules: needs a start date/time, must be below selling price, end after start.
+    if (formData.salePrice && parseFloat(formData.salePrice) > 0) {
+      if (parseFloat(formData.salePrice) >= parseFloat(formData.price)) e.salePrice = 'Sale price must be below the selling price';
+      if (!formData.saleStartsAt) e.saleStartsAt = 'Start date & time is required for a sale';
+      if (formData.saleEndsAt && formData.saleStartsAt && new Date(formData.saleEndsAt) <= new Date(formData.saleStartsAt)) {
+        e.saleEndsAt = 'Sale end must be after the start';
+      }
     }
+    if (!formData.categories.length) e.categories = 'Select at least one category';
+    if (!formData.weight || isNaN(parseFloat(formData.weight)) || parseFloat(formData.weight) <= 0) e.weight = 'Weight is required';
+    if (!formData.length || isNaN(parseFloat(formData.length)) || parseFloat(formData.length) <= 0) e.length = 'Length is required';
+    if (!formData.breadth || isNaN(parseFloat(formData.breadth)) || parseFloat(formData.breadth) <= 0) e.breadth = 'Breadth is required';
+    if (!formData.height || isNaN(parseFloat(formData.height)) || parseFloat(formData.height) <= 0) e.height = 'Height is required';
+    if (sizeChartMode === 'reference' && !selectedSizeChartId) e.sizeChart = 'Select a size chart';
+    if (sizeChartMode === 'custom' && formData.sizeChart.some(en => !en.size?.trim())) e.sizeChart = 'Each size entry needs a value';
+    const ns = slugifyValue(slug);
+    if (!ns) e.slug = 'Slug is required';
+    else if (ns.length > SLUG_MAX_LENGTH) e.slug = `Slug too long (max ${SLUG_MAX_LENGTH} chars)`;
+    else if (slug !== ns) e.slug = 'Slug has invalid characters';
+    if (seoData.title.trim().length > META_TITLE_LIMIT) e.metaTitle = `Meta title max ${META_TITLE_LIMIT} chars`;
+    if (seoData.description.trim().length > META_DESCRIPTION_LIMIT) e.metaDescription = `Meta description max ${META_DESCRIPTION_LIMIT} chars`;
+    setErrors(e);
+    if (Object.keys(e).length) window.scrollTo({ top: 0, behavior: 'smooth' });
+    return Object.keys(e).length === 0;
   };
 
-  const removeVideo = (index: number) => {
-    setFormData({
-      ...formData,
-      videos: formData.videos.filter((_, i) => i !== index),
-    });
-  };
-
-
+  // ── submit ─────────────────────────────────────────────────────────────────
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (!validateForm()) {
-      return;
-    }
-
+    if (!validateForm()) return;
     setSaving(true);
     try {
-      // Root cause fix: Always read from ref to get latest formData (avoids stale closure)
-      const currentFormData = formDataRef.current;
+      const fd = formDataRef.current;
 
-      // CRITICAL DEBUG: Log both ref and state to compare
-      console.log('🔍 handleSubmit - CRITICAL DEBUG:', {
-        refCategories: currentFormData.categories,
-        refCategoriesCount: currentFormData.categories?.length || 0,
-        refCategoriesType: typeof currentFormData.categories,
-        refIsArray: Array.isArray(currentFormData.categories),
-        stateCategories: formData.categories,
-        stateCategoriesCount: formData.categories?.length || 0,
-        stateIsArray: Array.isArray(formData.categories),
-        refEqualsState: JSON.stringify(currentFormData.categories) === JSON.stringify(formData.categories),
-      });
+      const cleanedAttributeIds = (fd.attributeIds || []).map(normalizeCategoryId).filter((x): x is string => x !== null);
+      let productType: 'single' | 'variation' = fd.productType || 'single';
 
-      const cleanedVideos = currentFormData.videos.filter((v) => v.trim());
-      const cleanedInstructions = currentFormData.washCareInstructions.filter((instr) => instr.text.trim() !== '');
-
-      // Process attributeIds FIRST (needed for variation processing)
-      // CRITICAL FIX: Always preserve attributeIds if productType is 'variation', even if variations are empty
-      // This ensures attributes don't disappear when saving
-      const cleanedAttributeIds = (currentFormData.attributeIds || [])
-        .filter((id): id is string => typeof id === 'string' && id.trim().length === 24 && /^[0-9a-fA-F]{24}$/.test(id.trim()))
-        .map(id => id.trim());
-
-      // Determine productType if not explicitly set (needed for variation processing)
-      let productType: 'single' | 'variation' = currentFormData.productType || 'single';
-
-      // Process attribute-based variations
-      // CRITICAL: Always process variations if they exist, even if empty array
-      let cleanedVariations: any[] | undefined = undefined;
-
-      if (import.meta.env.DEV) {
-        console.log('🔍 Variations Debug:', {
-          hasVariations: !!currentFormData.variations,
-          variationsLength: currentFormData.variations?.length || 0,
-          variations: currentFormData.variations,
-          productType,
-        });
-      }
-
-      if (Array.isArray(currentFormData.variations)) {
-        if (currentFormData.variations.length > 0) {
-          if (import.meta.env.DEV) {
-            console.log('🔍 Processing variations:', {
-              count: currentFormData.variations.length,
-              variations: currentFormData.variations,
-            });
-          }
-
-          cleanedVariations = currentFormData.variations
-            .filter((v) => {
-              const hasAttributes = v.attributes && Object.keys(v.attributes).length > 0;
-              const hasSku = v.sku && v.sku.trim();
-              if (!hasAttributes || !hasSku) {
-                if (import.meta.env.DEV) {
-                  console.warn('⚠️ Variation filtered out:', { hasAttributes, hasSku, variation: v });
-                }
-              }
-              return hasAttributes && hasSku;
-            })
-            .map((v) => {
-              // Note: We don't send 'id' (temporary frontend ID) or 'variationId' (backend auto-generates it)
-              // We build the payload explicitly to match API structure
-
-              // SIMPLIFIED: Normalize slugs (not IDs) - WordPress style
-              const normalizedAttributes: Record<string, string> = {};
-              for (const [attrSlug, valueSlug] of Object.entries(v.attributes)) {
-                const normalizedSlug = String(valueSlug).toLowerCase().trim();
-                if (normalizedSlug) {
-                  normalizedAttributes[attrSlug.toLowerCase().trim()] = normalizedSlug;
-                } else {
-                  if (import.meta.env.DEV) {
-                    console.warn(`⚠️ Invalid attribute value slug for ${attrSlug}:`, valueSlug);
-                  }
-                }
-              }
-
-              // Only include variation if it has valid normalized attributes
-              if (Object.keys(normalizedAttributes).length === 0) {
-                if (import.meta.env.DEV) {
-                  console.warn('⚠️ Variation skipped: no valid attribute slugs', v);
-                }
-                return null;
-              }
-
-              // Build variation payload matching API structure exactly
-              // API expects: { attributes: {size: "s"}, price, originalPrice, stock, sku, isActive }
-              // Note: variationId is auto-generated by backend, so we don't send it
-              const variationPayload: Record<string, any> = {
-                attributes: normalizedAttributes, // { attributeSlug: valueSlug }
-                sku: v.sku.trim().toUpperCase().slice(0, 48),
-                stock: Math.max(0, v.stock || 0),
-                isActive: v.isActive !== false,
-              };
-
-              // Only include price fields if they are defined and valid
-              if (v.price !== undefined && v.price !== null) {
-                variationPayload.price = Math.max(0, v.price);
-              }
-              if (v.originalPrice !== undefined && v.originalPrice !== null) {
-                variationPayload.originalPrice = Math.max(0, v.originalPrice);
-              }
-
-              // Only include images if they exist
-              if (v.images && Array.isArray(v.images) && v.images.length > 0) {
-                variationPayload.images = v.images;
-              }
-
-              // Only include shortDescription if it exists
-              if (v.shortDescription && v.shortDescription.trim()) {
-                variationPayload.shortDescription = v.shortDescription.trim();
-              }
-
-              return variationPayload;
-            })
-            .filter((v): v is any => v !== null); // Remove null entries
-
-          if (import.meta.env.DEV) {
-            console.log('✅ Cleaned variations:', {
-              original: currentFormData.variations.length,
-              cleaned: cleanedVariations.length,
-              variations: cleanedVariations,
-            });
-          }
-        } else {
-          // Empty array - handle based on productType
-          if (productType === 'variation') {
-            cleanedVariations = [];
-          } else {
-            cleanedVariations = undefined;
-          }
-        }
+      let cleanedVariations: any[] | undefined;
+      if (Array.isArray(fd.variations) && fd.variations.length > 0) {
+        cleanedVariations = fd.variations
+          .filter(v => ((v.attributes && Object.keys(v.attributes).length > 0) || v.brandId) && v.sku?.trim())
+          .map(v => {
+            const attrs: Record<string, string> = {};
+            for (const [k, val] of Object.entries(v.attributes || {})) {
+              const nk = k.toLowerCase().trim(); const nv = String(val).toLowerCase().trim();
+              if (nk && nv) attrs[nk] = nv;
+            }
+            if (!Object.keys(attrs).length && !v.brandId) return null;
+            const pld: Record<string, any> = {
+              attributes: attrs,
+              sku: v.sku.trim().toUpperCase().slice(0, 48),
+              stock: Math.max(0, v.stock || 0),
+              isActive: v.isActive !== false,
+            };
+            // Send the real UUID for existing variations so the backend UPDATES them
+            // instead of re-INSERTing (which violates the unique SKU constraint).
+            if (v.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v.id))) pld.id = v.id;
+            if (v.brandId) pld.brandId = v.brandId;   // → primary_brand_id via backend mapper
+            if (v.price != null) pld.price = Math.max(0, v.price);
+            if (v.originalPrice != null) pld.originalPrice = Math.max(0, v.originalPrice);
+            if (v.images?.length) pld.images = v.images;
+            if (v.shortDescription?.trim()) pld.shortDescription = v.shortDescription.trim();
+            return pld;
+          })
+          .filter((v): v is any => v !== null);
       } else if (productType === 'variation') {
-        // Variations is undefined but productType is variation - set to empty array
         cleanedVariations = [];
       }
 
-      // Update productType based on processed variations and attributes
-      if (cleanedVariations && cleanedVariations.length > 0) {
-        productType = 'variation';
-      } else if (cleanedAttributeIds.length > 0) {
-        productType = 'variation';
-      } else if (cleanedVariations === undefined && cleanedAttributeIds.length === 0) {
-        productType = 'single';
+      if (cleanedVariations?.length) productType = 'variation';
+      else if (cleanedAttributeIds.length) productType = 'variation';
+      else if (!cleanedVariations?.length && !cleanedAttributeIds.length) productType = 'single';
+
+      const ns = slugifyValue(slug); setSlug(ns);
+
+      const sanitizedCategories = (fd.categories || []).map(normalizeCategoryId).filter((x): x is string => x !== null);
+
+      let stockData: number | undefined;
+      if ((!cleanedVariations?.length) && fd.stock != null) {
+        const s = Math.max(0, Math.floor(fd.stock));
+        if (s > 0) stockData = s;
       }
 
-      const normalizedSlug = slugifyValue(slug);
-      setSlug(normalizedSlug);
+      const sizeChartPayload = sizeChartMode === 'reference'
+        ? (normalizeCategoryId(selectedSizeChartId) || null)
+        : sizeChartMode === 'custom'
+          ? fd.sizeChart.filter(en => en.size?.trim()).map(en => { const t: Record<string, string> = {}; Object.entries(en).forEach(([k, v]) => { if (v?.trim()) t[k] = v.trim(); }); return t; })
+          : null;
 
-      // CRITICAL FIX: Extract sizeChart entries separately (don't remove from data yet)
-      const sizeChartEntries = currentFormData.sizeChart || [];
-      const { categories: selectedCategories, ...rest } = currentFormData;
+      const kws = seoData.keywords.split(',').map(k => k.trim()).filter(Boolean).slice(0, 20);
+      const seoPld: Record<string, any> = {};
+      if (seoData.title.trim()) seoPld.title = seoData.title.trim().slice(0, META_TITLE_LIMIT);
+      if (seoData.description.trim()) seoPld.description = seoData.description.trim().slice(0, META_DESCRIPTION_LIMIT);
+      if (kws.length) seoPld.keywords = kws;
+      if (seoData.canonicalUrl.trim()) seoPld.canonicalUrl = seoData.canonicalUrl.trim();
+      if (seoData.metaRobots.trim()) seoPld.metaRobots = seoData.metaRobots.trim();
+      if (seoData.ogTitle.trim()) seoPld.ogTitle = seoData.ogTitle.trim();
+      if (seoData.ogDescription.trim()) seoPld.ogDescription = seoData.ogDescription.trim();
+      if (seoData.ogImage.trim()) seoPld.ogImage = seoData.ogImage.trim();
 
-      // Prepare stock data for products without variations (simple number)
-      let stockData: number | undefined = undefined;
-      if ((!cleanedVariations || cleanedVariations.length === 0) && currentFormData.stock !== undefined && currentFormData.stock !== null) {
-        stockData = Math.max(0, Math.floor(currentFormData.stock));
-        // Set to undefined if 0 or invalid
-        if (stockData === 0 || isNaN(stockData)) {
-          stockData = undefined;
-        }
-      }
+      // Sync country_of_origin from the compliance section → product column (for filtering/back-compat)
+      const complianceCountry = (fd.specifications || [])
+        .find((s: any) => s.key === 'compliance')?.items
+        ?.find((i: any) => i.key === 'country_of_origin')?.value;
 
-      // Root cause fix: Always use currentFormData.categories from ref (ensures latest state)
-      // This avoids stale closure issues where handleSubmit might have old formData
-      const categoriesFromFormData = currentFormData.categories || [];
-
-      // Ensure categories are always string IDs (never objects or buffers)
-      // Root cause fix: Log categories before sanitization to debug empty array issue
-      if (import.meta.env.DEV) {
-        console.log('🔍 Categories Debug (handleSubmit):', {
-          currentFormDataCategories: currentFormData.categories,
-          categoriesFromFormData,
-          categoriesFromFormDataType: typeof categoriesFromFormData,
-          isArray: Array.isArray(categoriesFromFormData),
-          length: Array.isArray(categoriesFromFormData) ? categoriesFromFormData.length : 0,
-          selectedCategories,
-          formDataStateCategories: formData.categories, // For comparison
-        });
-      }
-
-      const sanitizedCategories = (categoriesFromFormData || []).map((cat: any) => {
-        // Already a string ID
-        if (typeof cat === 'string') {
-          const trimmed = cat.trim();
-          if (trimmed.length === 24 && /^[0-9a-fA-F]{24}$/.test(trimmed)) {
-            return trimmed;
-          }
-          return null;
-        }
-        // Object with _id property
-        if (cat?._id) {
-          const idStr = typeof cat._id === 'string' ? cat._id.trim() : String(cat._id).trim();
-          if (idStr && idStr !== '[object Object]' && idStr.length === 24 && /^[0-9a-fA-F]{24}$/.test(idStr)) {
-            return idStr;
-          }
-          return null;
-        }
-        // Try to convert to string
-        const str = String(cat).trim();
-        if (str && str !== '[object Object]' && str.length === 24 && /^[0-9a-fA-F]{24}$/.test(str)) {
-          return str;
-        }
-        return null;
-      }).filter((id): id is string => id !== null && typeof id === 'string' && id.length === 24);
-
-      if (import.meta.env.DEV) {
-        console.log('✅ Sanitized Categories (handleSubmit):', {
-          sanitized: sanitizedCategories,
-          count: sanitizedCategories.length,
-          sample: sanitizedCategories[0],
-        });
-      }
-
-      // Root cause fix: Always include categories explicitly, even if empty
-      // This ensures categories are always sent to backend (empty array means clear categories)
-      const data: Record<string, any> = {
-        ...rest,
-        hsnCode: currentFormData.hsnCode || undefined,
-        taxRuleId: currentFormData.taxRuleId && currentFormData.taxRuleId.trim() ? currentFormData.taxRuleId : null,
-        price: parseFloat(currentFormData.price),
-        originalPrice: parseFloat(currentFormData.originalPrice),
+      const payload: Record<string, any> = {
+        name: fd.name, title: fd.title || undefined, slug: ns,
+        sku: fd.sku?.trim().toUpperCase() || undefined,
+        price: parseFloat(fd.price), originalPrice: parseFloat(fd.originalPrice),
+        salePrice: fd.salePrice ? parseFloat(fd.salePrice) : null,
+        saleStartsAt: fd.saleStartsAt || null, saleEndsAt: fd.saleEndsAt || null,
+        description: fd.description, richDescription: fd.richDescription,
+        descriptionImage: fd.descriptionImage || undefined,
+        images: fd.images, videos: fd.videos.filter(v => v.trim()),
+        brandId: fd.brandId || null, manufacturerId: fd.manufacturerId || null,
+        returnPolicyId: fd.returnPolicyId || null,
+        taxRuleId: fd.taxRuleId?.trim() || null, hsnCode: fd.hsnCode || undefined,
         stock: stockData,
-        videos: cleanedVideos,
-        washCareInstructions: cleanedInstructions,
-        customerOrderImages: currentFormData.customerOrderImages,
-        disableVariants: currentFormData.disableVariants,
-        showOutOfStockVariants: currentFormData.showOutOfStockVariants,
-        showFeatures: currentFormData.showFeatures,
-        productType: productType,
-        // CRITICAL FIX: Always preserve attributeIds if productType is 'variation'
-        // This ensures attributes don't disappear when saving
-        // Note: Backend will auto-derive attributeIds from variations if not provided (see PRODUCT_VARIATIONS_FIX.md)
-        attributeIds: productType === 'variation' && cleanedAttributeIds.length > 0 ? cleanedAttributeIds : (productType === 'variation' ? [] : undefined),
-        // CRITICAL FIX: Always send variations array (even if empty) for variation products
-        // This prevents backend from removing variations when productType is 'variation'
-        variations: productType === 'variation'
-          ? (cleanedVariations !== undefined ? cleanedVariations : [])
-          : (cleanedVariations !== undefined ? cleanedVariations : undefined),
-        categories: sanitizedCategories, // Always include categories (even if empty array)
-        // Tags - can be array of IDs (strings) or tag names (strings) - WordPress style
-        tags: currentFormData.tags && currentFormData.tags.length > 0
-          ? currentFormData.tags.map(tag => {
-            // If tag is an object with _id, use the _id
-            if (typeof tag === 'object' && tag._id) {
-              return tag._id;
-            }
-            // Otherwise return as-is (string ID or string name)
-            return tag;
-          })
-          : undefined,
-        weight: parseFloat(currentFormData.weight) || 0.5,
-        length: parseFloat(currentFormData.length) || 10,
-        breadth: parseFloat(currentFormData.breadth) || 10,
-        height: parseFloat(currentFormData.height) || 5,
-        ...(currentFormData.specificationId ? { specificationId: currentFormData.specificationId } : {}),
-        ...(currentFormData.specifications ? { specifications: currentFormData.specifications } : {}),
+        weight: parseFloat(fd.weight) || 0.5, length: parseFloat(fd.length) || 10,
+        breadth: parseFloat(fd.breadth) || 10, height: parseFloat(fd.height) || 5,
+        countryOfOrigin: complianceCountry || fd.countryOfOrigin || undefined,
+        modelNumber: fd.modelNumber || undefined,
+        licenseNumber: fd.licenseNumber || undefined,
+        expiryMonths: fd.expiryMonths || undefined,
+        isActive: fd.isActive, isFeatured: fd.isFeatured, isDigital: fd.isDigital,
+        requiresPrescription: fd.requiresPrescription,
+        disableVariants: fd.disableVariants, showOutOfStockVariants: fd.showOutOfStockVariants,
+        showFeatures: fd.showFeatures,
+        productType,
+        attributeIds: productType === 'variation' ? cleanedAttributeIds : undefined,
+        variations: productType === 'variation' ? (cleanedVariations ?? []) : undefined,
+        categories: sanitizedCategories, featuredCategory: fd.featuredCategory || null,
+        tags: fd.tags.map(t => (typeof t === 'object' && t._id ? t._id : t)).filter(Boolean),
+        ...(fd.specificationId ? { specificationId: fd.specificationId } : {}),
+        ...(fd.specifications ? { specifications: fd.specifications } : {}),
+        sizeChart: sizeChartPayload,
+        washCareInstructions: fd.washCareInstructions.filter(i => i.text.trim()),
+        customerOrderImages: fd.customerOrderImages,
+        aplusContent: fd.aplusContent, pageSections: fd.aplusContent,
+        offers: fd.offers,
+        crossSellIds: fd.crossSellIds, upsellIds: fd.upsellIds, fbtIds: fd.fbtIds,
+        b2bPricing: fd.b2bPricing,
+        seo: Object.keys(seoPld).length ? seoPld : null,
       };
 
-      // CRITICAL FIX: Explicitly ensure variations and attributeIds are in payload
-      // Double-check that these fields are included (defensive programming)
-      if (productType === 'variation') {
-        // Always include variations (even if empty array)
-        data.variations = cleanedVariations !== undefined ? cleanedVariations : [];
-        // Always include attributeIds (even if empty array)
-        data.attributeIds = cleanedAttributeIds.length > 0 ? cleanedAttributeIds : [];
-
-        if (import.meta.env.DEV) {
-          console.log('✅ Variation Product Payload:', {
-            productType: data.productType,
-            attributeIds: data.attributeIds,
-            attributeIdsCount: data.attributeIds.length,
-            variations: data.variations,
-            variationsCount: Array.isArray(data.variations) ? data.variations.length : 'not array',
-            variationsType: typeof data.variations,
-            cleanedVariations,
-            cleanedVariationsType: typeof cleanedVariations,
-          });
-        }
-      }
-
-      if (import.meta.env.DEV) {
-        console.log('📤 Final payload (before sizeChart):', {
-          hasVariations: 'variations' in data,
-          variationsCount: Array.isArray(data.variations) ? data.variations.length : 'not array',
-          hasAttributeIds: 'attributeIds' in data,
-          attributeIdsCount: Array.isArray(data.attributeIds) ? data.attributeIds.length : 'not array',
-          productType: data.productType,
-          hasSizeChart: 'sizeChart' in data,
-          sizeChartValue: data.sizeChart,
-        });
-      }
-
-      // Root cause fix: Explicitly ensure categories is in the payload
-      // Double-check that categories are included (defensive programming)
-      if (!('categories' in data)) {
-        data.categories = sanitizedCategories;
-      }
-
-      if (import.meta.env.DEV) {
-        console.log('📤 Final payload categories:', {
-          categoriesInData: data.categories,
-          categoriesCount: Array.isArray(data.categories) ? data.categories.length : 0,
-          fullPayloadKeys: Object.keys(data),
-        });
-      }
-
-      data.slug = normalizedSlug;
-
-      // Featured category
-      data.featuredCategory = currentFormData.featuredCategory || null;
-
-      // Include base SKU if provided (backend will generate if empty)
-      if (currentFormData.sku && currentFormData.sku.trim()) {
-        data.sku = currentFormData.sku.trim().toUpperCase();
-      }
-
-      const keywordsArray = seoData.keywords
-        .split(',')
-        .map((kw) => kw.trim())
-        .filter(Boolean)
-        .slice(0, 20);
-
-      const seoPayload: Record<string, any> = {};
-      if (seoData.title.trim()) {
-        seoPayload.title = seoData.title.trim().slice(0, META_TITLE_LIMIT);
-      }
-      if (seoData.description.trim()) {
-        seoPayload.description = seoData.description.trim().slice(0, META_DESCRIPTION_LIMIT);
-      }
-      if (keywordsArray.length > 0) {
-        seoPayload.keywords = keywordsArray;
-      }
-      if (seoData.canonicalUrl.trim()) {
-        seoPayload.canonicalUrl = seoData.canonicalUrl.trim();
-      }
-      if (seoData.metaRobots.trim()) {
-        seoPayload.metaRobots = seoData.metaRobots.trim();
-      }
-      if (seoData.ogTitle.trim()) {
-        seoPayload.ogTitle = seoData.ogTitle.trim();
-      }
-      if (seoData.ogDescription.trim()) {
-        seoPayload.ogDescription = seoData.ogDescription.trim();
-      }
-      if (seoData.ogImage.trim()) {
-        seoPayload.ogImage = seoData.ogImage.trim();
-      }
-
-      data.seo = Object.keys(seoPayload).length > 0 ? seoPayload : null;
-
-      // CRITICAL FIX: Always process and set sizeChart explicitly
-      // This ensures sizeChart is always included in the payload, even if null
-      if (sizeChartMode === 'reference') {
-        // Normalize selectedSizeChartId to ensure it's a valid string ObjectId
-        const normalizedSizeChartId = selectedSizeChartId
-          ? normalizeCategoryId(selectedSizeChartId)
-          : null;
-        data.sizeChart = normalizedSizeChartId || null;
-        if (import.meta.env.DEV) {
-          console.log('📊 SizeChart (reference):', {
-            selectedSizeChartId,
-            normalizedSizeChartId,
-            final: data.sizeChart,
-          });
-        }
-      } else if (sizeChartMode === 'custom') {
-        const customEntries = sizeChartEntries
-          .filter((entry) => entry.size && entry.size.trim())
-          .map((entry) => {
-            const trimmed: Record<string, string> = {};
-            Object.entries(entry).forEach(([key, value]) => {
-              if (value && typeof value === 'string' && value.trim() !== '') {
-                trimmed[key] = value.trim();
-              }
-            });
-            if (!trimmed.size) {
-              trimmed.size = entry.size.trim();
-            }
-            return trimmed;
-          });
-        data.sizeChart = customEntries.length > 0 ? customEntries : null;
-        if (import.meta.env.DEV) {
-          console.log('📊 SizeChart (custom):', {
-            entriesCount: sizeChartEntries.length,
-            customEntriesCount: customEntries.length,
-            final: data.sizeChart,
-          });
-        }
-      } else {
-        // sizeChartMode === 'none' - explicitly set to null
-        data.sizeChart = null;
-        if (import.meta.env.DEV) {
-          console.log('📊 SizeChart (none):', { final: data.sizeChart });
-        }
-      }
-
-      // CRITICAL FIX: Ensure sizeChart is never "[object Object]" - if it's an object, set to null
-      if (data.sizeChart && typeof data.sizeChart === 'object' && !Array.isArray(data.sizeChart)) {
-        // If it's an object (not an array), try to extract _id or set to null
-        const extractedId = normalizeCategoryId(data.sizeChart);
-        data.sizeChart = extractedId || null;
-        if (import.meta.env.DEV) {
-          console.warn('⚠️ SizeChart was object, extracted ID:', { extractedId, final: data.sizeChart });
-        }
-      }
-
-      // CRITICAL FIX: Always explicitly include sizeChart in payload (even if null)
-      // This ensures backend receives the sizeChart field for updates
-      if (!('sizeChart' in data)) {
-        data.sizeChart = null;
-      }
-
-      if (isEdit) {
-        await productsAPI.update(id!, data);
-      } else {
-        await productsAPI.create(data);
-      }
+      if (isEdit) await productsAPI.update(id!, payload);
+      else await productsAPI.create(payload);
 
       navigate('/products');
     } catch (error: any) {
@@ -1858,591 +773,467 @@ const ProductForm: React.FC = () => {
     }
   };
 
+  // ── loading ────────────────────────────────────────────────────────────────
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500" />
       </div>
     );
   }
 
+  // ── render ─────────────────────────────────────────────────────────────────
+
   return (
-    <div className="max-w-7xl mx-auto">
+    <div className="w-full">
+
+      {/* Modals */}
+      {showCreateCategory && (
+        <QuickCreateCategoryModal
+          availableParents={availableCategories}
+          onClose={() => setShowCreateCategory(false)}
+          onCreated={cat => {
+            const nid = normalizeCategoryId(cat._id);
+            if (nid) {
+              setAvailableCategories(prev => [...prev, { ...cat, _id: nid }]);
+              setFormData(prev => { const next = { ...prev, categories: [...prev.categories, nid] }; formDataRef.current = next; return next; });
+            }
+          }}
+        />
+      )}
+      {showCreateTag && (
+        <QuickCreateTagModal
+          onClose={() => setShowCreateTag(false)}
+          onCreated={tag => {
+            const nid = normalizeCategoryId(tag._id);
+            if (nid) {
+              setAvailableTags(prev => [...prev, { ...tag, _id: nid }]);
+              setFormData(prev => ({ ...prev, tags: [...prev.tags, nid] }));
+            }
+          }}
+        />
+      )}
+
       {/* Header */}
-      <div className="mb-6">
-        <button
-          onClick={() => navigate('/products')}
-          className="flex items-center text-gray-600 hover:text-gray-900 mb-4"
-        >
-          <FaArrowLeft className="mr-2" />
-          Back to Products
-        </button>
-        <h1 className="text-3xl font-bold text-gray-900">
-          {isEdit ? 'Edit Product' : 'New Product'}
-        </h1>
+      <div className="mb-5 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3 min-w-0">
+          <button type="button" onClick={() => navigate('/products')} className="text-gray-500 hover:text-gray-800 shrink-0">
+            <FaArrowLeft />
+          </button>
+          <h1 className="text-xl font-bold text-gray-900 truncate">
+            {isEdit ? 'Edit Product' : 'New Product'}
+          </h1>
+          {isEdit && slug && (
+            <span className="hidden sm:block px-2 py-0.5 bg-gray-100 text-gray-500 text-xs rounded-full font-mono truncate max-w-48">{slug}</span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {isEdit && (
+            <button type="button" onClick={handleExport}
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 rounded text-sm text-gray-600 hover:bg-gray-50 whitespace-nowrap">
+              <FaDownload className="text-xs" /> Export
+            </button>
+          )}
+          <button type="button" onClick={handleSubmit} disabled={saving}
+            className="px-5 py-2 bg-red-600 text-white rounded font-medium text-sm hover:bg-red-700 disabled:opacity-50 whitespace-nowrap">
+            {saving ? 'Saving…' : isEdit ? 'Update' : 'Create Product'}
+          </button>
+          <button type="button" onClick={() => navigate('/products')}
+            className="px-4 py-2 border border-gray-300 rounded text-sm text-gray-600 hover:bg-gray-50 whitespace-nowrap">
+            Cancel
+          </button>
+        </div>
       </div>
 
       <form onSubmit={handleSubmit}>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Main Content */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Basic Information */}
-            <ProductBasicInfo
-              name={formData.name}
-              sku={formData.sku}
-              description={formData.description}
-              richDescription={formData.richDescription}
-              descriptionImage={formData.descriptionImage}
+        <div className="grid grid-cols-12 gap-4 items-start">
+
+          {/* ══ LEFT: All Media ══════════════════════════════════════════════ */}
+          {/* Each column scrolls independently on its own hover: sticky + overflow-y-auto
+              keeps the other two columns visually still, overscroll-contain stops the
+              wheel from bleeding into the page scroll once a column hits its end. */}
+          <div className={`col-span-12 lg:col-span-4 xl:col-span-4 space-y-4 ${SCROLL_COL_CLS}`}>
+            <ProductMediaPanel
               images={formData.images}
-              onNameChange={(name) => {
-                setFormData({ ...formData, name });
-                setErrors({ ...errors, name: '' });
-              }}
-              onSkuChange={(sku) => {
-                const skuValue = sku.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 48);
-                setFormData({ ...formData, sku: skuValue });
-              }}
-              onDescriptionChange={(description) => setFormData({ ...formData, description })}
-              onRichDescriptionChange={(richDescription) => setFormData({ ...formData, richDescription })}
-              onDescriptionImageChange={(descriptionImage) => setFormData({ ...formData, descriptionImage })}
-              onImagesChange={(images) => setFormData({ ...formData, images })}
+              descriptionImage={formData.descriptionImage}
+              videos={formData.videos}
+              customerOrderImages={formData.customerOrderImages}
+              uploading={uploading}
+              uploadingBanner={uploadingBanner}
+              uploadingCustomer={uploadingCustomer}
+              uploadingVideo={uploadingVideo}
+              onImagesChange={imgs => setFormData(p => ({ ...p, images: imgs }))}
+              onDescriptionImageChange={img => setFormData(p => ({ ...p, descriptionImage: img }))}
+              onVideosChange={vids => setFormData(p => ({ ...p, videos: vids }))}
+              onCustomerOrderImagesChange={imgs => setFormData(p => ({ ...p, customerOrderImages: imgs }))}
               onImageUpload={handleMultipleImageUpload}
               onDescriptionImageUpload={handleDescriptionImageUpload}
-              uploading={uploading}
-              errors={errors}
+              onCustomerOrderImagesUpload={handleCustomerOrderImagesUpload}
+              onVideoFileUpload={handleVideoFileUpload}
+              onAddVideoUrl={addVideoUrl}
+              errors={{ images: errors.images }}
+            />
+          </div>
+
+          {/* ══ CENTER: Main Content ═════════════════════════════════════════ */}
+          <div className={`col-span-12 lg:col-span-5 xl:col-span-5 space-y-4 ${SCROLL_COL_CLS}`}>
+
+            {/* Basic Info */}
+            <ProductBasicInfo
+              name={formData.name} title={formData.title}
+              description={formData.description} richDescription={formData.richDescription}
+              onNameChange={v => { setFormData(p => ({ ...p, name: v })); setErrors(prev => ({ ...prev, name: '' })); }}
+              onTitleChange={v => setFormData(p => ({ ...p, title: v }))}
+              onDescriptionChange={v => setFormData(p => ({ ...p, description: v }))}
+              onRichDescriptionChange={v => setFormData(p => ({ ...p, richDescription: v }))}
+              errors={{ name: errors.name }}
             />
 
-            {/* Specifications */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Product Specifications</h2>
-              <p className="text-sm text-gray-500 mb-4">
-                Attach a shared specification template or create inline specifications for this product.
-                Inline specifications override linked templates.
-              </p>
+            {/* Compliance & Specifications (config-driven by store vertical) */}
+            <ProductComplianceSections
+              config={productConfig}
+              value={(formData.specifications as unknown as SpecSectionValue[]) || []}
+              onChange={secs => setFormData(p => ({ ...p, specifications: secs as any }))}
+              manufacturers={availableManufacturers}
+            />
 
-              <div className="space-y-4">
-                {/* Linked Specification Template */}
+            {/* Additional Specifications (free-form) */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-5">
+              <h2 className="text-base font-semibold text-gray-900 mb-3">Additional Specifications</h2>
+              <div className="space-y-3">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Linked Specification Template (Optional)
-                  </label>
-                  <select
-                    value={formData.specificationId || ''}
-                    onChange={(e) => {
-                      const specId = e.target.value || undefined;
-                      setFormData({ ...formData, specificationId: specId });
-                    }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">None - No linked specification</option>
-                    {availableSpecifications.map((spec) => (
-                      <option key={spec._id} value={spec._id}>
-                        {spec.name} {spec.slug ? `(${spec.slug})` : ''}
-                      </option>
-                    ))}
+                  <label className="text-xs font-medium text-gray-700 block mb-1">Linked Template</label>
+                  <select value={formData.specificationId || ''} onChange={e => setFormData(p => ({ ...p, specificationId: e.target.value || undefined }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-red-400">
+                    <option value="">None</option>
+                    {availableSpecifications.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}
                   </select>
-                  <p className="mt-1 text-xs text-gray-500">
-                    Select a shared specification template to link to this product
-                  </p>
                 </div>
-
-                {/* Inline Specifications */}
                 <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="block text-sm font-medium text-gray-700">
-                      Inline Specifications (Optional)
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const newSpecs = formData.specifications || [];
-                        setFormData({
-                          ...formData,
-                          specifications: [
-                            ...newSpecs,
-                            { heading: '', items: [{ key: '', value: '' }] }
-                          ]
-                        });
-                      }}
-                      className="text-sm text-blue-600 hover:text-blue-800"
-                    >
-                      + Add Section
-                    </button>
+                  <div className="flex justify-between mb-1">
+                    <label className="text-xs font-medium text-gray-700">Inline Specs</label>
+                    <button type="button" onClick={() => setFormData(p => ({ ...p, specifications: [...(p.specifications || []), { heading: '', items: [{ key: '', value: '' }] }] }))}
+                      className="text-xs text-blue-600 hover:text-blue-800">+ Add Section</button>
                   </div>
-                  <p className="text-xs text-gray-500 mb-3">
-                    Create product-specific specifications. These override linked templates.
-                  </p>
-
-                  {(formData.specifications || []).map((section, sectionIdx) => (
-                    <div key={sectionIdx} className="mb-4 p-4 border border-gray-200 rounded-lg bg-gray-50">
-                      <div className="flex items-center justify-between mb-3">
-                        <input
-                          type="text"
-                          value={section.heading}
-                          onChange={(e) => {
-                            const newSpecs = [...(formData.specifications || [])];
-                            newSpecs[sectionIdx] = { ...section, heading: e.target.value };
-                            setFormData({ ...formData, specifications: newSpecs });
-                          }}
-                          placeholder="Section Heading (e.g., General, Technical)"
-                          className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const newSpecs = [...(formData.specifications || [])];
-                            newSpecs.splice(sectionIdx, 1);
-                            setFormData({
-                              ...formData,
-                              specifications: newSpecs.length > 0 ? newSpecs : undefined
-                            });
-                          }}
-                          className="ml-2 px-3 py-2 text-sm text-red-600 hover:text-red-800"
-                        >
-                          Remove Section
-                        </button>
+                  {(formData.specifications || []).map((sec, si) => (
+                    <div key={si} className="mb-3 p-3 border border-gray-200 rounded-lg bg-gray-50">
+                      <div className="flex gap-2 mb-2">
+                        <input value={sec.heading} onChange={e => { const s = [...(formData.specifications || [])]; s[si] = { ...sec, heading: e.target.value }; setFormData(p => ({ ...p, specifications: s })); }}
+                          placeholder="Section heading" className="flex-1 px-2 py-1.5 border border-gray-300 rounded text-sm" />
+                        <button type="button" onClick={() => { const s = [...(formData.specifications || [])]; s.splice(si, 1); setFormData(p => ({ ...p, specifications: s.length ? s : undefined })); }}
+                          className="text-xs text-red-500">Remove</button>
                       </div>
-
-                      <div className="space-y-2">
-                        {section.items.map((item, itemIdx) => (
-                          <div key={itemIdx} className="flex gap-2">
-                            <input
-                              type="text"
-                              value={item.key}
-                              onChange={(e) => {
-                                const newSpecs = [...(formData.specifications || [])];
-                                const newItems = [...section.items];
-                                newItems[itemIdx] = { ...item, key: e.target.value };
-                                newSpecs[sectionIdx] = { ...section, items: newItems };
-                                setFormData({ ...formData, specifications: newSpecs });
-                              }}
-                              placeholder="Key (e.g., Material)"
-                              className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            />
-                            <input
-                              type="text"
-                              value={item.value}
-                              onChange={(e) => {
-                                const newSpecs = [...(formData.specifications || [])];
-                                const newItems = [...section.items];
-                                newItems[itemIdx] = { ...item, value: e.target.value };
-                                newSpecs[sectionIdx] = { ...section, items: newItems };
-                                setFormData({ ...formData, specifications: newSpecs });
-                              }}
-                              placeholder="Value (e.g., 100% Cotton)"
-                              className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const newSpecs = [...(formData.specifications || [])];
-                                const newItems = [...section.items];
-                                newItems.splice(itemIdx, 1);
-                                newSpecs[sectionIdx] = { ...section, items: newItems.length > 0 ? newItems : [{ key: '', value: '' }] };
-                                setFormData({ ...formData, specifications: newSpecs });
-                              }}
-                              className="px-3 py-2 text-sm text-red-600 hover:text-red-800"
-                              disabled={section.items.length === 1}
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        ))}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const newSpecs = [...(formData.specifications || [])];
-                            const newItems = [...section.items, { key: '', value: '' }];
-                            newSpecs[sectionIdx] = { ...section, items: newItems };
-                            setFormData({ ...formData, specifications: newSpecs });
-                          }}
-                          className="text-sm text-blue-600 hover:text-blue-800"
-                        >
-                          + Add Item
-                        </button>
-                      </div>
+                      {sec.items.map((item, ii) => (
+                        <div key={ii} className="flex gap-2 mb-1.5">
+                          <input value={item.key} onChange={e => { const s = [...(formData.specifications || [])]; const items = [...sec.items]; items[ii] = { ...item, key: e.target.value }; s[si] = { ...sec, items }; setFormData(p => ({ ...p, specifications: s })); }}
+                            placeholder="Key" className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm" />
+                          <input value={item.value} onChange={e => { const s = [...(formData.specifications || [])]; const items = [...sec.items]; items[ii] = { ...item, value: e.target.value }; s[si] = { ...sec, items }; setFormData(p => ({ ...p, specifications: s })); }}
+                            placeholder="Value" className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm" />
+                          <button type="button" onClick={() => { const s = [...(formData.specifications || [])]; const items = sec.items.filter((_, j) => j !== ii); s[si] = { ...sec, items: items.length ? items : [{ key: '', value: '' }] }; setFormData(p => ({ ...p, specifications: s })); }}
+                            disabled={sec.items.length === 1} className="text-xs text-red-400 disabled:opacity-30">✕</button>
+                        </div>
+                      ))}
+                      <button type="button" onClick={() => { const s = [...(formData.specifications || [])]; s[si] = { ...sec, items: [...sec.items, { key: '', value: '' }] }; setFormData(p => ({ ...p, specifications: s })); }}
+                        className="text-xs text-blue-600">+ Add Row</button>
                     </div>
                   ))}
-
-                  {(!formData.specifications || formData.specifications.length === 0) && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFormData({
-                          ...formData,
-                          specifications: [{ heading: '', items: [{ key: '', value: '' }] }]
-                        });
-                      }}
-                      className="w-full px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-blue-500 hover:text-blue-600"
-                    >
+                  {!formData.specifications?.length && (
+                    <button type="button" onClick={() => setFormData(p => ({ ...p, specifications: [{ heading: '', items: [{ key: '', value: '' }] }] }))}
+                      className="w-full py-2 border-2 border-dashed border-gray-200 rounded text-xs text-gray-400 hover:border-blue-300 hover:text-blue-500">
                       + Create Inline Specifications
                     </button>
                   )}
+                  {(formData.specificationId || formData.specifications) && (
+                    <button type="button" onClick={() => setFormData(p => ({ ...p, specificationId: undefined, specifications: undefined }))}
+                      className="mt-1 text-xs text-red-500 hover:text-red-700">Clear specifications</button>
+                  )}
                 </div>
-
-                {/* Clear Specifications */}
-                {(formData.specificationId || formData.specifications) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFormData({
-                        ...formData,
-                        specificationId: undefined,
-                        specifications: undefined,
-                      });
-                    }}
-                    className="text-sm text-red-600 hover:text-red-800"
-                  >
-                    Clear All Specifications
-                  </button>
-                )}
               </div>
             </div>
 
-            {/* Tags */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <ProductTags
-                tags={formData.tags}
-                availableTags={availableTags}
-                onTagsChange={(tags) => {
-                  setFormData({ ...formData, tags });
-                }}
-                onRefresh={loadLookups}
-                loading={lookupsLoading}
-                error={errors.tags}
-              />
+            {/* Product Type */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-5">
+              <h2 className="text-base font-semibold text-gray-900 mb-3">Product Type</h2>
+              <div className="flex gap-3">
+                {(['single', 'variation'] as const).map(type => (
+                  <label key={type} className="flex items-center p-3 border-2 rounded-lg cursor-pointer hover:bg-gray-50 flex-1 gap-3"
+                    style={{ borderColor: formData.productType === type ? '#EF4444' : '#E5E7EB' }}>
+                    <input type="radio" name="productType" value={type} checked={formData.productType === type}
+                      onChange={() => setFormData(p => ({ ...p, productType: type, ...(type === 'single' ? { variations: [], attributeIds: [], selectedAttributeValues: {} } : {}) }))}
+                      className="w-4 h-4 text-red-600" />
+                    <div>
+                      <p className="text-sm font-medium text-gray-800">{type === 'single' ? 'Simple Product' : 'Variable Product'}</p>
+                      <p className="text-xs text-gray-400">{type === 'single' ? 'Single price & stock' : 'Multiple variations (size, color…)'}</p>
+                    </div>
+                  </label>
+                ))}
+              </div>
             </div>
 
-            {/* Categories - moved to Basic Info section but can be separate */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            {formData.productType === 'single' && (
+              <ProductAttributes
+                selectedAttributeIds={formData.attributeIds}
+                selectedAttributeValues={formData.selectedAttributeValues || {}}
+                onAttributeIdsChange={ids => setFormData(p => ({ ...p, attributeIds: ids }))}
+                onAttributeValuesChange={values => setFormData(p => ({ ...p, selectedAttributeValues: values }))}
+                allowVariations={false}
+              />
+            )}
+
+            {formData.productType === 'variation' && (
+              <ProductAttributeVariations
+                selectedAttributeIds={formData.attributeIds}
+                selectedAttributeValues={formData.selectedAttributeValues || {}}
+                onAttributeIdsChange={ids => setFormData(p => ({ ...p, attributeIds: ids }))}
+                onAttributeValuesChange={values => setFormData(p => ({ ...p, selectedAttributeValues: values }))}
+                variations={formData.variations}
+                onVariationsChange={v => setFormData(p => ({ ...p, variations: v }))}
+                productSlug={isEdit ? (isSlugParam ? id : slug) : undefined}
+                baseSku={formData.sku || slug.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10) || 'PROD'}
+                basePrice={parseFloat(formData.price) || 0}
+                baseOriginalPrice={parseFloat(formData.originalPrice) || 0}
+                availableBrands={availableBrands}
+                onRegenerateAllSkus={() => {
+                  const base = formData.sku || slug.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10) || 'PROD';
+                  setFormData(p => ({ ...p, variations: p.variations.map((v, i) => ({ ...v, sku: `${base}-${Object.keys(v.attributes).join('-').toUpperCase().slice(0, 20)}-${i + 1}`.slice(0, 48) })) }));
+                }}
+                onVariationImageUpload={async (varId, files) => {
+                  const imgs = Array.from(files).filter(f => f.type.startsWith('image/'));
+                  if (!imgs.length) return;
+                  setUploading(true);
+                  try {
+                    const res = await uploadAPI.uploadMultiple(imgs, 'products/variations');
+                    const urls = extractUploadedUrls(res);
+                    if (urls.length) applyFormData(p => ({ ...p, variations: p.variations.map((v: any) => v.id === varId ? { ...v, images: [...(v.images || []), ...urls] } : v) }));
+                  } catch { alert('Image upload failed'); } finally { setUploading(false); }
+                }}
+                onRemoveVariationImage={(varId, imgIdx) => {
+                  setFormData(p => ({ ...p, variations: p.variations.map(v => v.id === varId ? { ...v, images: (v.images || []).filter((_, i) => i !== imgIdx) } : v) }));
+                }}
+                uploading={uploading}
+              />
+            )}
+
+            {/* A+ Content */}
+            <ProductContentSections
+              blocks={formData.aplusContent}
+              onChange={blocks => applyFormData(p => ({ ...p, aplusContent: blocks }))}
+              productId={id}
+            />
+
+            {/* Offers */}
+            <ProductOffers
+              offers={formData.offers}
+              onChange={offers => setFormData(p => ({ ...p, offers }))}
+            />
+
+            {/* Related */}
+            <ProductRelated
+              crossSellIds={formData.crossSellIds}
+              upsellIds={formData.upsellIds}
+              fbtIds={formData.fbtIds}
+              onCrossSellChange={ids => setFormData(p => ({ ...p, crossSellIds: ids }))}
+              onUpsellChange={ids => setFormData(p => ({ ...p, upsellIds: ids }))}
+              onFbtChange={ids => setFormData(p => ({ ...p, fbtIds: ids }))}
+              currentProductId={id}
+            />
+
+            {/* SEO */}
+            <ProductSEO
+              sku={formData.sku} slug={slug} seoData={seoData}
+              showAdvancedSeo={showAdvancedSeo} websiteUrl={websiteUrl}
+              productId={id} productName={formData.name} showSku={false}
+              onSkuChange={v => setFormData(p => ({ ...p, sku: v.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 48) }))}
+              onSlugChange={v => { setSlugManuallyEdited(true); setSlug(slugifyValue(v)); setErrors(prev => ({ ...prev, slug: '' })); }}
+              onSlugReset={() => { setSlug(slugifyValue(formData.name || '')); setSlugManuallyEdited(false); setErrors(prev => ({ ...prev, slug: '' })); }}
+              onSeoDataChange={setSeoData}
+              onShowAdvancedSeoToggle={() => setShowAdvancedSeo(v => !v)}
+              errors={errors}
+            />
+
+            <div className="bg-gray-50 rounded-lg border border-gray-200 p-4">
+              <p className="text-sm text-gray-500">
+                <span className="font-medium text-gray-700">Bundles</span> are managed under <span className="font-medium">Products → Bundles</span>.
+                Bundles linked to this product continue to work automatically.
+              </p>
+            </div>
+          </div>
+
+          {/* ══ RIGHT: Settings ══════════════════════════════════════════════ */}
+          <div className={`col-span-12 lg:col-span-3 space-y-4 ${SCROLL_COL_CLS}`}>
+
+            {/* Publish */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-semibold text-gray-800">Status</span>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" checked={formData.isActive} onChange={e => setFormData(p => ({ ...p, isActive: e.target.checked }))} className="sr-only peer" />
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:ring-2 peer-focus:ring-red-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500"></div>
+                </label>
+              </div>
+              <p className="text-xs text-gray-400 mb-3">{formData.isActive ? 'Active — visible on storefront' : 'Draft — hidden from customers'}</p>
+              <button type="submit" disabled={saving}
+                className="w-full py-2 bg-red-600 text-white rounded font-medium text-sm hover:bg-red-700 disabled:opacity-50">
+                {saving ? 'Saving…' : isEdit ? 'Update Product' : 'Create Product'}
+              </button>
+            </div>
+
+            {/* Pricing */}
+            <ProductPricing
+              price={formData.price} originalPrice={formData.originalPrice}
+              salePrice={formData.salePrice} saleStartsAt={formData.saleStartsAt} saleEndsAt={formData.saleEndsAt}
+              sku={formData.sku} hsnCode={formData.hsnCode} taxRuleId={formData.taxRuleId} taxRules={availableTaxRules}
+              stock={formData.stock} showStock={formData.productType === 'single'}
+              weight={formData.weight} length={formData.length} breadth={formData.breadth} height={formData.height}
+              onPriceChange={v => { setFormData(p => ({ ...p, price: v })); setErrors(prev => ({ ...prev, price: '' })); }}
+              onOriginalPriceChange={v => { setFormData(p => ({ ...p, originalPrice: v })); setErrors(prev => ({ ...prev, originalPrice: '' })); }}
+              onSalePriceChange={v => setFormData(p => ({ ...p, salePrice: v }))}
+              onSaleStartsAtChange={v => setFormData(p => ({ ...p, saleStartsAt: v }))}
+              onSaleEndsAtChange={v => setFormData(p => ({ ...p, saleEndsAt: v }))}
+              onSkuChange={v => setFormData(p => ({ ...p, sku: v.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 48) }))}
+              onHsnCodeChange={v => setFormData(p => ({ ...p, hsnCode: v }))}
+              onTaxRuleIdChange={v => setFormData(p => ({ ...p, taxRuleId: v }))}
+              onStockChange={v => setFormData(p => ({ ...p, stock: v }))}
+              onWeightChange={v => setFormData(p => ({ ...p, weight: v }))}
+              onLengthChange={v => setFormData(p => ({ ...p, length: v }))}
+              onBreadthChange={v => setFormData(p => ({ ...p, breadth: v }))}
+              onHeightChange={v => setFormData(p => ({ ...p, height: v }))}
+              errors={errors}
+            />
+
+            {/* Brand & Manufacturer */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 space-y-3">
+              <h3 className="text-sm font-semibold text-gray-900">Brand & Manufacturer</h3>
+              <div>
+                <label className="text-xs font-medium text-gray-600 block mb-1">Brand</label>
+                <select value={formData.brandId} onChange={e => setFormData(p => ({ ...p, brandId: e.target.value }))}
+                  className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-red-400">
+                  <option value="">None</option>
+                  {availableBrands.map(b => <option key={b._id} value={b._id}>{b.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600 block mb-1">Manufacturer</label>
+                <select value={formData.manufacturerId} onChange={e => setFormData(p => ({ ...p, manufacturerId: e.target.value }))}
+                  className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-red-400">
+                  <option value="">None</option>
+                  {availableManufacturers.map(m => <option key={m._id} value={m._id}>{m.name}</option>)}
+                </select>
+                {!availableManufacturers.length && <p className="text-xs text-gray-400 mt-0.5">Add in Settings → Manufacturers</p>}
+              </div>
+            </div>
+
+            {/* Categories */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold text-gray-900">Categories</h3>
+                <button type="button" onClick={() => setShowCreateCategory(true)}
+                  className="text-xs text-blue-600 hover:text-blue-800 font-medium">+ New</button>
+              </div>
               <ProductCategories
                 categories={formData.categories}
                 featuredCategory={formData.featuredCategory}
                 availableCategories={availableCategories}
-                onFeaturedCategoryChange={(catId) => {
-                  setFormData((prev) => {
-                    const updated = { ...prev, featuredCategory: catId || '' };
-                    formDataRef.current = updated;
-                    return updated;
-                  });
+                onCategoriesChange={categories => {
+                  setFormData(prev => { const next = { ...prev, categories }; formDataRef.current = next; return next; });
                 }}
-                onCategoriesChange={(categories) => {
-                  // Root cause fix: Use functional update to ensure we get latest state
-                  console.log('🔔 onCategoriesChange CALLED with:', {
-                    receivedCategories: categories,
-                    receivedCount: categories?.length || 0,
-                    receivedType: typeof categories,
-                    isArray: Array.isArray(categories),
-                    currentFormDataCategories: formData.categories,
-                    currentFormDataCount: formData.categories?.length || 0,
-                  });
-
-                  setFormData((prev) => {
-                    const newFormData = { ...prev, categories };
-
-                    console.log('🔄 Categories changed (setFormData callback):', {
-                      oldCategories: prev.categories,
-                      newCategories: categories,
-                      oldCount: prev.categories?.length || 0,
-                      newCount: categories?.length || 0,
-                      newFormDataCategories: newFormData.categories,
-                      newFormDataCount: newFormData.categories?.length || 0,
-                      categoriesArray: Array.isArray(categories),
-                      categoriesSample: categories[0],
-                    });
-
-                    // Root cause fix: Also update ref immediately (don't wait for useEffect)
-                    // This ensures handleSubmit always has the latest categories
-                    formDataRef.current = newFormData;
-                    console.log('✅ formDataRef.current updated immediately:', {
-                      refCategories: formDataRef.current.categories,
-                      refCount: formDataRef.current.categories?.length || 0,
-                    });
-
-                    return newFormData;
-                  });
-                }}
+                onFeaturedCategoryChange={catId => setFormData(p => ({ ...p, featuredCategory: catId || '' }))}
                 onRefresh={loadLookups}
                 loading={lookupsLoading}
                 error={errors.categories}
               />
             </div>
 
-            {/* SEO Settings */}
-            <ProductSEO
-              sku={formData.sku}
-              slug={slug}
-              seoData={seoData}
-              showAdvancedSeo={showAdvancedSeo}
-              websiteUrl={websiteUrl}
-              productId={id}
-              productName={formData.name}
-              showSku={false} // SKU is now shown in Pricing section
-              onSkuChange={(sku) => {
-                const skuValue = sku.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 48);
-                setFormData({ ...formData, sku: skuValue });
-              }}
-              onSlugChange={(slug) => {
-                setSlugManuallyEdited(true);
-                const sanitized = slugifyValue(slug);
-                setSlug(sanitized);
-                setErrors((prev) => ({ ...prev, slug: '' }));
-              }}
-              onSlugReset={() => {
-                const auto = slugifyValue(formData.name || '');
-                setSlug(auto);
-                setSlugManuallyEdited(false);
-                setErrors((prev) => ({ ...prev, slug: '' }));
-              }}
-              onSeoDataChange={setSeoData}
-              onShowAdvancedSeoToggle={() => setShowAdvancedSeo((prev) => !prev)}
-              errors={errors}
-            />
-
-            {/* Videos */}
-            <ProductVideos
-              videos={formData.videos}
-              newVideos={newVideos}
-              uploading={uploadingVideo}
-              onVideosChange={(videos) => setFormData({ ...formData, videos })}
-              onNewVideosChange={setNewVideos}
-              onVideoUpload={handleVideoUpload}
-              onAddVideoUrl={addVideoUrl}
-              onRemoveVideo={removeVideo}
-            />
-
-            {/* Product Type Selector */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Product Type</h2>
-              <p className="text-sm text-gray-500 mb-4">
-                Choose whether this is a single product or a product with variations (e.g., different sizes, colors).
-              </p>
-              <div className="flex gap-4">
-                <label className="flex items-center p-4 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors flex-1" style={{ borderColor: formData.productType === 'single' ? '#3B82F6' : '#E5E7EB' }}>
-                  <input
-                    type="radio"
-                    name="productType"
-                    value="single"
-                    checked={formData.productType === 'single'}
-                    onChange={(e) => {
-                      const newType = e.target.value as 'single' | 'variation';
-                      setFormData({
-                        ...formData,
-                        productType: newType,
-                        // Clear variations and attributes when switching to single
-                        ...(newType === 'single' ? { variations: [], attributeIds: [], selectedAttributeValues: {} } : {})
-                      });
-                    }}
-                    className="mr-3 w-4 h-4 text-blue-600 focus:ring-blue-500"
-                  />
-                  <div>
-                    <div className="font-medium text-gray-900">Single Product</div>
-                    <div className="text-sm text-gray-500">No variations - single price and stock</div>
-                  </div>
-                </label>
-                <label className="flex items-center p-4 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors flex-1" style={{ borderColor: formData.productType === 'variation' ? '#3B82F6' : '#E5E7EB' }}>
-                  <input
-                    type="radio"
-                    name="productType"
-                    value="variation"
-                    checked={formData.productType === 'variation'}
-                    onChange={(e) => {
-                      const newType = e.target.value as 'single' | 'variation';
-                      setFormData({
-                        ...formData,
-                        productType: newType
-                      });
-                    }}
-                    className="mr-3 w-4 h-4 text-blue-600 focus:ring-blue-500"
-                  />
-                  <div>
-                    <div className="font-medium text-gray-900">Product with Variations</div>
-                    <div className="text-sm text-gray-500">Multiple variations with different attributes (size, color, etc.)</div>
-                  </div>
-                </label>
+            {/* Tags */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold text-gray-900">Tags</h3>
+                <button type="button" onClick={() => setShowCreateTag(true)}
+                  className="text-xs text-blue-600 hover:text-blue-800 font-medium">+ New Tag</button>
               </div>
+              <ProductTags
+                tags={formData.tags}
+                availableTags={availableTags}
+                onTagsChange={tags => setFormData(p => ({ ...p, tags }))}
+                onRefresh={loadLookups}
+                loading={lookupsLoading}
+                error={errors.tags}
+              />
             </div>
 
-            {/* Attributes - WordPress style: can attach to single products too */}
-            {formData.productType === 'single' && (
-              <ProductAttributes
-                selectedAttributeIds={formData.attributeIds}
-                selectedAttributeValues={formData.selectedAttributeValues || {}}
-                onAttributeIdsChange={(ids) => setFormData({ ...formData, attributeIds: ids })}
-                onAttributeValuesChange={(values) => setFormData({ ...formData, selectedAttributeValues: values })}
-                allowVariations={false}
-              />
-            )}
-
-            {/* Attribute-based Variations - Only show if productType is 'variation' */}
-            {formData.productType === 'variation' && (
-              <ProductAttributeVariations
-                selectedAttributeIds={formData.attributeIds}
-                selectedAttributeValues={formData.selectedAttributeValues || {}}
-                onAttributeIdsChange={(ids) => setFormData({ ...formData, attributeIds: ids })}
-                onAttributeValuesChange={(values) => setFormData({ ...formData, selectedAttributeValues: values })}
-                variations={formData.variations}
-                onVariationsChange={(variations) => setFormData({ ...formData, variations })}
-                productSlug={isEdit ? (isSlugParam ? id : slug) : undefined}
-                baseSku={formData.sku || slug.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10) || 'PROD'}
-                basePrice={parseFloat(formData.price) || 0}
-                baseOriginalPrice={parseFloat(formData.originalPrice) || 0}
-                onRegenerateAllSkus={() => {
-                  // Regenerate SKUs for all variations
-                  const baseSku = formData.sku || slug.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10) || 'PROD';
-                  const newVariations = formData.variations.map((v, idx) => {
-                    // Generate SKU from attributes
-                    const attrSlugs = Object.keys(v.attributes).join('-').toUpperCase().slice(0, 20);
-                    const sku = `${baseSku}-${attrSlugs}-${idx + 1}`.toUpperCase().slice(0, 48);
-                    return { ...v, sku };
-                  });
-                  setFormData({ ...formData, variations: newVariations });
-                }}
-                onVariationImageUpload={async (variationId, files) => {
-                  const imageFiles = Array.from(files).filter(file => file.type.startsWith('image/'));
-                  if (imageFiles.length === 0) return;
-
-                  setUploading(true);
-                  try {
-                    const response = await uploadAPI.uploadMultiple(imageFiles, 'products');
-                    const uploadedUrls = response.data?.files?.map((f: any) => f.url) || response.data?.urls || [];
-                    const newVariations = formData.variations.map(v =>
-                      v.id === variationId
-                        ? { ...v, images: [...(v.images || []), ...uploadedUrls] }
-                        : v
-                    );
-                    setFormData({ ...formData, variations: newVariations });
-                  } catch (error) {
-                    alert('Failed to upload variation images');
-                  } finally {
-                    setUploading(false);
-                  }
-                }}
-                onRemoveVariationImage={(variationId, imageIndex) => {
-                  const newVariations = formData.variations.map(v =>
-                    v.id === variationId
-                      ? { ...v, images: (v.images || []).filter((_, i) => i !== imageIndex) }
-                      : v
-                  );
-                  setFormData({ ...formData, variations: newVariations });
-                }}
-                uploading={uploading}
-              />
-            )}
-
-            {/* Bundles moved notice */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-2">Bundles</h2>
-              <p className="text-sm text-gray-600">
-                Product bundles now live under <span className="font-medium">Products → Bundles</span>.
-                Manage combos there to curate two or three product offers with dedicated pricing and swatch
-                imagery. Existing bundles assigned to this product will continue to work automatically.
-              </p>
+            {/* Return Policy */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <h3 className="text-sm font-semibold text-gray-900 mb-2">Return Policy</h3>
+              <select value={formData.returnPolicyId} onChange={e => setFormData(p => ({ ...p, returnPolicyId: e.target.value }))}
+                className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-red-400">
+                <option value="">Default (store policy)</option>
+                {availableReturnPolicies.map(r => <option key={r._id} value={r._id}>{r.name}</option>)}
+              </select>
+              {!availableReturnPolicies.length && <p className="text-xs text-gray-400 mt-1">Add in Settings → Return Policies</p>}
             </div>
-          </div>
 
-          {/* Sidebar */}
-          <div className="space-y-6">
-            {/* Pricing */}
-            <ProductPricing
-              price={formData.price}
-              originalPrice={formData.originalPrice}
-              sku={formData.sku}
-              hsnCode={formData.hsnCode}
-              taxRuleId={formData.taxRuleId}
-              taxRules={availableTaxRules}
-              stock={formData.stock}
-              showStock={formData.productType === 'single'}
-              weight={formData.weight}
-              length={formData.length}
-              breadth={formData.breadth}
-              height={formData.height}
-              onPriceChange={(price) => {
-                setFormData({ ...formData, price });
-                setErrors({ ...errors, price: '' });
-              }}
-              onOriginalPriceChange={(price) => {
-                setFormData({ ...formData, originalPrice: price });
-                setErrors({ ...errors, originalPrice: '' });
-              }}
-              onSkuChange={(sku) => {
-                const skuValue = sku.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 48);
-                setFormData({ ...formData, sku: skuValue });
-              }}
-              onHsnCodeChange={(hsnCode) => setFormData({ ...formData, hsnCode })}
-              onTaxRuleIdChange={(taxRuleId) => setFormData({ ...formData, taxRuleId })}
-              onStockChange={(stock) => {
-                setFormData({ ...formData, stock });
-              }}
-              onWeightChange={(weight) => setFormData({ ...formData, weight })}
-              onLengthChange={(length) => setFormData({ ...formData, length })}
-              onBreadthChange={(breadth) => setFormData({ ...formData, breadth })}
-              onHeightChange={(height) => setFormData({ ...formData, height })}
-              errors={errors}
-            />
+            {/* Shelf Life (kept here; full compliance fields are in the config-driven section) */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <label className="text-xs font-medium text-gray-600 block mb-0.5">Shelf Life (months)</label>
+              <input type="number" min="1" value={formData.expiryMonths || ''}
+                onChange={e => setFormData(p => ({ ...p, expiryMonths: e.target.value ? parseInt(e.target.value) : undefined }))}
+                placeholder="24"
+                className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-red-400" />
+              <p className="text-xs text-gray-400 mt-1">Country of origin, manufacturer, packed/imported by etc. are in the Compliance section.</p>
+            </div>
 
-            {/* Size Chart */}
-            <ProductSizeChart
-              mode={sizeChartMode}
-              selectedSizeChartId={selectedSizeChartId}
-              sizeChart={formData.sizeChart}
-              availableSizeCharts={availableSizeCharts}
-              selectedSizeChart={selectedSizeChart}
-              onModeChange={handleSizeChartModeChange}
-              onSelectedSizeChartIdChange={handleSelectSizeChartId}
-              onSizeChartChange={(entries) => setFormData({ ...formData, sizeChart: entries })}
-              onRefresh={loadLookups}
-              loading={lookupsLoading}
-              error={errors.sizeChart}
-            />
-
-            {/* Wash Care Instructions */}
-            <ProductWashCare
-              instructions={formData.washCareInstructions}
-              onInstructionsChange={(instructions) => setFormData({ ...formData, washCareInstructions: instructions })}
-              productId={id}
-              productName={formData.name}
-            />
-
-            {/* Customer Order Images Gallery */}
-            <ProductCustomerImages
-              images={formData.customerOrderImages}
-              onImagesChange={(images) => setFormData({ ...formData, customerOrderImages: images })}
-              onUpload={handleCustomerOrderImagesUpload}
-              uploading={uploading}
-            />
-
-            {/* Display Options (includes Status) */}
+            {/* Display Options */}
             <ProductDisplayOptions
               disableVariants={formData.disableVariants}
               showOutOfStockVariants={formData.showOutOfStockVariants}
               showFeatures={formData.showFeatures}
               isActive={formData.isActive}
-              onDisableVariantsChange={(value) => setFormData({ ...formData, disableVariants: value })}
-              onShowOutOfStockVariantsChange={(value) => setFormData({ ...formData, showOutOfStockVariants: value })}
-              onShowFeaturesChange={(value) => setFormData({ ...formData, showFeatures: value })}
-              onIsActiveChange={(value) => setFormData({ ...formData, isActive: value })}
+              isFeatured={formData.isFeatured}
+              isDigital={formData.isDigital}
+              requiresPrescription={formData.requiresPrescription}
+              onDisableVariantsChange={v => setFormData(p => ({ ...p, disableVariants: v }))}
+              onShowOutOfStockVariantsChange={v => setFormData(p => ({ ...p, showOutOfStockVariants: v }))}
+              onShowFeaturesChange={v => setFormData(p => ({ ...p, showFeatures: v }))}
+              onIsActiveChange={v => setFormData(p => ({ ...p, isActive: v }))}
+              onIsFeaturedChange={v => setFormData(p => ({ ...p, isFeatured: v }))}
+              onIsDigitalChange={v => setFormData(p => ({ ...p, isDigital: v }))}
+              onRequiresPrescriptionChange={v => setFormData(p => ({ ...p, requiresPrescription: v }))}
             />
 
-            {/* Actions */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <div className="space-y-3">
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="w-full px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-400 font-medium"
-                >
-                  {saving ? 'Saving...' : isEdit ? 'Update Product' : 'Create Product'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigate('/products')}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
+            {/* B2B Pricing — hidden when the B2B module is disabled for this store */}
+            {canAccess('b2b') && (
+              <ProductB2BPricing
+                tiers={formData.b2bPricing}
+                onChange={tiers => setFormData(p => ({ ...p, b2bPricing: tiers }))}
+              />
+            )}
+
+            {/* Size Chart — hidden when the Size Charts module is disabled for this store */}
+            {canAccess('size_charts') && (
+              <ProductSizeChart
+                mode={sizeChartMode}
+                selectedSizeChartId={selectedSizeChartId}
+                sizeChart={formData.sizeChart}
+                availableSizeCharts={availableSizeCharts}
+                selectedSizeChart={selectedSizeChart}
+                onModeChange={handleSizeChartModeChange}
+                onSelectedSizeChartIdChange={handleSelectSizeChartId}
+                onSizeChartChange={entries => setFormData(p => ({ ...p, sizeChart: entries }))}
+                onRefresh={loadLookups}
+                loading={lookupsLoading}
+                error={errors.sizeChart}
+              />
+            )}
+
+            {/* Wash Care */}
+            <ProductWashCare
+              instructions={formData.washCareInstructions}
+              onInstructionsChange={instructions => setFormData(p => ({ ...p, washCareInstructions: instructions }))}
+              productId={id}
+              productName={formData.name}
+            />
+
           </div>
         </div>
       </form>

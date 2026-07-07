@@ -166,6 +166,8 @@ const ProductSectionsManager: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [editingSection, setEditingSection] = useState<string | null>(null);
   const [showCustomModal, setShowCustomModal] = useState(false);
+  // Store the resolved product ID for updates (may differ from URL param which can be a slug)
+  const [productId, setProductId] = useState<string>('');
 
   useEffect(() => {
     if (id) {
@@ -176,9 +178,13 @@ const ProductSectionsManager: React.FC = () => {
   const fetchProduct = async () => {
     try {
       setLoading(true);
-      const isSlug = id && !/^[0-9a-fA-F]{24}$/.test(id);
+      // MongoDB ObjectId (24 hex) or PostgreSQL UUID (36 chars) → fetch by ID; anything else is a slug
+      const isId = id && (
+        /^[0-9a-fA-F]{24}$/.test(id) ||
+        /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/i.test(id)
+      );
       let rawProduct: any;
-      if (isSlug) {
+      if (!isId) {
         rawProduct = await productsAPI.getBySlug(id!);
       } else {
         const response = await productsAPI.getById(id!);
@@ -189,16 +195,21 @@ const ProductSectionsManager: React.FC = () => {
           : response;
       }
       const product = rawProduct;
-      
+
       if (!product || typeof product !== 'object') {
         throw new Error('Invalid product data received');
       }
-      
+
+      // Store the resolved product ID (UUID or ObjectId) for use in handleSave
+      setProductId(product._id || product.id || id || '');
+
       // Initialize sections from product or use defaults
-      if (product.pageSections && product.pageSections.length > 0) {
+      // PG returns snake_case page_sections; MongoDB returned camelCase pageSections
+      const existingPageSections: any[] = product.page_sections || product.pageSections || [];
+      if (existingPageSections.length > 0) {
         // Merge with available sections to get full info
         const mergedSections = availableSections.map(availSection => {
-          const productSection = product.pageSections.find((ps: any) => ps.sectionId === availSection.sectionId);
+          const productSection = existingPageSections.find((ps: any) => ps.sectionId === availSection.sectionId);
           return {
             ...availSection,
             enabled: productSection?.enabled !== false,
@@ -207,7 +218,7 @@ const ProductSectionsManager: React.FC = () => {
           };
         });
         // Add any sections that exist in product but not in availableSections
-        product.pageSections.forEach((ps: any) => {
+        existingPageSections.forEach((ps: any) => {
           if (!mergedSections.find(s => s.sectionId === ps.sectionId)) {
             mergedSections.push({
               sectionId: ps.sectionId,
@@ -286,14 +297,15 @@ const ProductSectionsManager: React.FC = () => {
   const handleSave = async () => {
     try {
       setSaving(true);
-      const pageSections = sections.map(section => ({
+      const page_sections = sections.map(section => ({
         sectionId: section.sectionId,
         enabled: section.enabled,
         order: section.order,
         customData: section.customData,
       }));
 
-      await productsAPI.update(id!, { pageSections });
+      // Send as page_sections (snake_case) to match the PostgreSQL column name
+      await productsAPI.update(productId || id!, { page_sections });
       alert('Sections updated successfully!');
       navigate('/products');
     } catch (error: any) {

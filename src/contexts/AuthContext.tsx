@@ -159,7 +159,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [storeModules, setStoreModules] = useState<Record<string, boolean>>({});
   const initRan = useRef(false);
 
-  const fetchAndSetUser = useCallback(async (token: string, storeApiKey: string) => {
+  const fetchAndSetUser = useCallback(async (token: string, storeApiKey: string): Promise<boolean> => {
     try {
       const userData = await authAPI.me();
       const user: AdminUser = userData?.data ?? userData;
@@ -182,9 +182,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         for (const m of modsList) modMap[m.key] = m.enabled !== false;
         setStoreModules(modMap);
       } catch { /* modules not critical */ }
+      return true;
     } catch {
       clearSession();
       setState({ user: null, token: null, storeApiKey: null, isLoaded: true, isAuthenticated: false });
+      return false;
     }
   }, []);
 
@@ -206,7 +208,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = useCallback(async (token: string, storeApiKey: string) => {
     saveSession(token, storeApiKey);
     setTenantApiKey(storeApiKey);
-    await fetchAndSetUser(token, storeApiKey);
+    const ok = await fetchAndSetUser(token, storeApiKey);
+    if (!ok) throw new Error('Session setup failed — please try again.');
   }, [fetchAndSetUser]);
 
   const logout = useCallback(async (all = false) => {
@@ -227,9 +230,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const canAccess = useCallback((module: string): boolean => {
     if (!state.user) return false;
-    if (state.user.role === 'admin') return true;
-    // Check module globally enabled
+    // Module disabled → hidden for everyone (admin included); only when storeModules is loaded
     if (module in storeModules && !storeModules[module]) return false;
+    if (state.user.role === 'admin') return true;
     return state.user.permissions?.includes(module) ?? false;
   }, [state.user, storeModules]);
 

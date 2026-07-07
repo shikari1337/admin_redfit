@@ -110,8 +110,22 @@ const PageForm: React.FC = () => {
       if (!pageData || typeof pageData !== 'object') {
         throw new Error('Invalid page data received');
       }
-      
-      setFormData(pageData);
+
+      // Be resilient to shape: contentBlocks may arrive as `sections`, and
+      // camelCase fields may come through as snake_case from the API.
+      const blocks = Array.isArray(pageData.contentBlocks)
+        ? pageData.contentBlocks
+        : Array.isArray(pageData.sections)
+        ? pageData.sections
+        : [];
+      setFormData({
+        ...pageData,
+        contentBlocks: blocks,
+        pageType: pageData.pageType ?? pageData.type ?? 'custom',
+        template: pageData.template ?? pageData.template_id ?? 'default',
+        isActive: pageData.isActive ?? pageData.is_active ?? true,
+        isVisible: pageData.isVisible ?? pageData.is_active ?? true,
+      });
     } catch (error: any) {
       console.error('Failed to fetch page:', error);
       alert(error.response?.data?.message || 'Failed to load page');

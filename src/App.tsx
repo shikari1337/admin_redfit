@@ -68,6 +68,9 @@ import TaxRules from './pages/TaxRules';
 import ReturnPolicies from './pages/ReturnPolicies';
 import Manufacturers from './pages/Manufacturers';
 import VariantLinkGroups from './pages/VariantLinkGroups';
+import Vendors from './pages/Vendors';
+import VendorForm from './pages/VendorForm';
+import SetupWizard from './pages/SetupWizard';
 
 function App() {
   console.log('📱 Admin Panel: App component rendering...');
@@ -76,6 +79,15 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
+        {/* Setup wizard — full-screen, no sidebar, still protected */}
+        <Route
+          path="/setup"
+          element={
+            <ProtectedRoute>
+              <SetupWizard />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/"
           element={
@@ -97,14 +109,14 @@ function App() {
           <Route path="products/:id/edit" element={<ProductForm />} />
           <Route path="products/:id/sections" element={<ProductSectionsManager />} />
           <Route path="products/:productSlug/variations/:variationIndex/edit" element={<VariationEditPage />} />
-          <Route path="products/bundles" element={<Bundles />} />
-          <Route path="products/bundles/new" element={<BundleForm />} />
-          <Route path="products/bundles/:id/edit" element={<BundleForm />} />
+          <Route path="products/bundles" element={<ProtectedModuleRoute module="bundles"><Bundles /></ProtectedModuleRoute>} />
+          <Route path="products/bundles/new" element={<ProtectedModuleRoute module="bundles"><BundleForm /></ProtectedModuleRoute>} />
+          <Route path="products/bundles/:id/edit" element={<ProtectedModuleRoute module="bundles"><BundleForm /></ProtectedModuleRoute>} />
           <Route path="products/categories" element={<Categories />} />
           <Route path="products/brands" element={<Brands />} />
           <Route path="products/attributes" element={<Attributes />} />
           <Route path="products/tags" element={<Tags />} />
-          <Route path="products/size-charts" element={<SizeCharts />} />
+          <Route path="products/size-charts" element={<ProtectedModuleRoute module="size_charts"><SizeCharts /></ProtectedModuleRoute>} />
           <Route path="products/specifications" element={<Specifications />} />
           <Route path="products/specifications/new" element={<SpecificationForm />} />
           <Route path="products/specifications/:id/edit" element={<SpecificationForm />} />
@@ -114,7 +126,7 @@ function App() {
           <Route path="orders" element={<Orders />} />
           <Route path="orders/abandoned-carts" element={<AbandonedCarts />} />
           <Route path="orders/:id" element={<OrderDetail />} />
-          <Route path="shipments" element={<Shipments />} />
+          <Route path="shipments" element={<ProtectedModuleRoute module="shipping"><Shipments /></ProtectedModuleRoute>} />
           <Route path="users" element={<Users />} />
           <Route path="users/:id" element={<UserDetail />} />
           <Route path="logs" element={<Logs />} />
@@ -134,7 +146,7 @@ function App() {
           <Route
             path="leads"
             element={
-              <ProtectedModuleRoute module="leads_manager">
+              <ProtectedModuleRoute module="crm">
                 <Leads />
               </ProtectedModuleRoute>
             }
@@ -142,7 +154,7 @@ function App() {
           <Route
             path="content"
             element={
-              <ProtectedModuleRoute module="page_editor">
+              <ProtectedModuleRoute module="page_builder">
                 <ContentManager />
               </ProtectedModuleRoute>
             }
@@ -150,7 +162,7 @@ function App() {
           <Route
             path="content/:pageSlug/edit"
             element={
-              <ProtectedModuleRoute module="page_editor">
+              <ProtectedModuleRoute module="page_builder">
                 <PageEditor />
               </ProtectedModuleRoute>
             }
@@ -168,18 +180,21 @@ function App() {
           <Route path="settings/modules" element={<Modules />} />
           <Route path="settings/packages" element={<PackageBoxes />} />
           <Route path="settings/billing" element={<Billing />} />
-          <Route path="warehouses" element={<Warehouses />} />
-          <Route path="inventory" element={<Inventory />} />
+          <Route path="warehouses" element={<ProtectedModuleRoute module="inventory"><Warehouses /></ProtectedModuleRoute>} />
+          <Route path="inventory" element={<ProtectedModuleRoute module="inventory"><Inventory /></ProtectedModuleRoute>} />
           <Route path="b2b" element={<ProtectedModuleRoute module="b2b"><B2B /></ProtectedModuleRoute>} />
-          <Route path="marketing" element={<Marketing />} />
-          <Route path="blogs" element={<Blogs />} />
-          <Route path="blogs/new" element={<BlogForm />} />
-          <Route path="blogs/:id/edit" element={<BlogForm />} />
-          <Route path="returns" element={<Returns />} />
-          <Route path="settings/tax-rules" element={<TaxRules />} />
-          <Route path="settings/return-policies" element={<ReturnPolicies />} />
-          <Route path="settings/manufacturers" element={<Manufacturers />} />
+          <Route path="marketing" element={<ProtectedModuleRoute module="marketing"><Marketing /></ProtectedModuleRoute>} />
+          <Route path="blogs" element={<ProtectedModuleRoute module="blog"><Blogs /></ProtectedModuleRoute>} />
+          <Route path="blogs/new" element={<ProtectedModuleRoute module="blog"><BlogForm /></ProtectedModuleRoute>} />
+          <Route path="blogs/:id/edit" element={<ProtectedModuleRoute module="blog"><BlogForm /></ProtectedModuleRoute>} />
+          <Route path="returns" element={<ProtectedModuleRoute module="returns"><Returns /></ProtectedModuleRoute>} />
+          <Route path="settings/tax-rules" element={<ProtectedModuleRoute module="gst_tax"><TaxRules /></ProtectedModuleRoute>} />
+          <Route path="settings/return-policies" element={<ProtectedModuleRoute module="returns"><ReturnPolicies /></ProtectedModuleRoute>} />
+          <Route path="settings/manufacturers" element={<ProtectedModuleRoute module="manufacturers"><Manufacturers /></ProtectedModuleRoute>} />
           <Route path="products/variant-link-groups" element={<VariantLinkGroups />} />
+          <Route path="vendors" element={<Vendors />} />
+          <Route path="vendors/new" element={<VendorForm />} />
+          <Route path="vendors/:id/edit" element={<VendorForm />} />
         </Route>
       </Routes>
     </BrowserRouter>

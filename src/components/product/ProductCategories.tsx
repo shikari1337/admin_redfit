@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { CategoryOption } from '../../types/productForm';
+import { filterBySearch, MIN_SEARCH_LENGTH } from '../../utils/search';
 
 interface ProductCategoriesProps {
   categories: string[];
@@ -26,47 +27,34 @@ const ProductCategories: React.FC<ProductCategoriesProps> = ({
    * CRITICAL FIX: Normalize category ID to string (defensive programming)
    * Handles buffer objects, ObjectId instances, and string IDs
    */
+  // Accepts PostgreSQL UUIDs (36-char), legacy Mongo ObjectIds (24-hex), 32-hex,
+  // objects with _id/id, and Mongo buffer objects. Returns null only for empties.
   const normalizeCategoryId = (id: any): string | null => {
     if (!id) return null;
 
-    // Already a string ID
-    if (typeof id === 'string' && id.length === 24 && /^[0-9a-fA-F]{24}$/.test(id)) {
-      return id;
+    if (typeof id === 'string') {
+      const t = id.trim();
+      return t.length ? t : null;
     }
 
-    // Buffer object (the problematic case)
-    if (id && typeof id === 'object' && id.buffer) {
-      try {
-        let bufferArray: number[];
-        if (Array.isArray(id.buffer)) {
-          bufferArray = id.buffer;
-        } else if (typeof id.buffer === 'object') {
-          // Handle object with numeric keys like { "0": 105, "1": 36, ... }
-          const keys = Object.keys(id.buffer).map(k => Number(k)).sort((a, b) => a - b);
-          bufferArray = keys.map(k => Number(id.buffer[k]));
-        } else {
-          return null;
-        }
-        if (bufferArray.length === 12) {
-          // Convert buffer to hex string (MongoDB ObjectId format)
-          const hex = bufferArray.map(b => b.toString(16).padStart(2, '0')).join('');
-          if (hex.length === 24 && /^[0-9a-fA-F]{24}$/.test(hex)) {
-            return hex;
+    if (typeof id === 'object') {
+      if (id._id) return normalizeCategoryId(id._id);
+      if (id.id) return normalizeCategoryId(id.id);
+      // Mongo buffer object { "0": 105, ... }
+      if (id.buffer) {
+        try {
+          const keys = Object.keys(id.buffer).map(Number).sort((a, b) => a - b);
+          const arr = keys.map(k => Number(id.buffer[k]));
+          if (arr.length === 12) {
+            const hex = arr.map(b => b.toString(16).padStart(2, '0')).join('');
+            if (/^[0-9a-fA-F]{24}$/.test(hex)) return hex;
           }
-        }
-      } catch (error) {
-        console.error('Failed to convert buffer to ObjectId:', error);
-        return null;
+        } catch { return null; }
       }
     }
 
-    // Try to convert to string as last resort
     const str = String(id).trim();
-    if (str.length === 24 && /^[0-9a-fA-F]{24}$/.test(str)) {
-      return str;
-    }
-
-    return null;
+    return str && str !== '[object Object]' ? str : null;
   };
 
   const toggleCategory = (categoryId: any) => {
@@ -97,9 +85,15 @@ const ProductCategories: React.FC<ProductCategoriesProps> = ({
     onFeaturedCategoryChange(featuredCategory === categoryId ? null : categoryId);
   };
 
-  // Show only parent categories (no parent) at top, then sub-categories
-  const parentCats = availableCategories.filter((c) => !c.parent);
-  const childCats = availableCategories.filter((c) => c.parent);
+  const [search, setSearch] = useState('');
+
+  // Selected categories are always shown; results are capped at 10 with 3-letter search.
+  const selectedSet = new Set(categories.map((c) => normalizeCategoryId(c)).filter(Boolean) as string[]);
+  const selectedCats = availableCategories.filter((c) => selectedSet.has(normalizeCategoryId(c._id) || ''));
+  const results = filterBySearch(
+    availableCategories.filter((c) => !selectedSet.has(normalizeCategoryId(c._id) || '')),
+    search, ['name', 'slug'] as any, { limit: 10 }
+  );
 
   const renderCategory = (category: CategoryOption) => {
     const categoryId = normalizeCategoryId(category._id);
@@ -161,22 +155,32 @@ const ProductCategories: React.FC<ProductCategoriesProps> = ({
         </p>
       ) : (
         <div className="space-y-3">
-          {parentCats.length > 0 && (
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={`Search ${availableCategories.length} categories (min ${MIN_SEARCH_LENGTH} letters)…`}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-red-400"
+          />
+          {selectedCats.length > 0 && (
             <div>
-              <p className="text-xs text-gray-500 mb-1 font-medium uppercase tracking-wide">Parent Categories</p>
+              <p className="text-xs text-gray-500 mb-1 font-medium uppercase tracking-wide">Selected</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {parentCats.map(renderCategory)}
+                {selectedCats.map(renderCategory)}
               </div>
             </div>
           )}
-          {childCats.length > 0 && (
-            <div>
-              <p className="text-xs text-gray-500 mb-1 font-medium uppercase tracking-wide">Sub-Categories</p>
+          <div>
+            <p className="text-xs text-gray-500 mb-1 font-medium uppercase tracking-wide">
+              {search.trim().length >= MIN_SEARCH_LENGTH ? `Results (max 10)` : `Suggestions (top 10 — search for more)`}
+            </p>
+            {results.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {childCats.map(renderCategory)}
+                {results.map(renderCategory)}
               </div>
-            </div>
-          )}
+            ) : (
+              <p className="text-xs text-gray-400">No matches.</p>
+            )}
+          </div>
         </div>
       )}
       {featuredCategory && (

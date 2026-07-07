@@ -214,7 +214,7 @@ const Pages: React.FC = () => {
                       </TableCell>
                       <TableCell>
                         <div className="text-sm text-muted-foreground">
-                          {page.contentBlocks?.filter(b => b.enabled).length || 0} blocks
+                          {(Array.isArray(page.contentBlocks) ? page.contentBlocks : []).filter((b: any) => b?.enabled !== false).length} blocks
                         </div>
                       </TableCell>
                       <TableCell>

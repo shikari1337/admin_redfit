@@ -20,6 +20,8 @@ interface ProductAttributeVariationsProps {
   uploading: boolean;
   /** Product slug — enables "Full Edit" link to dedicated variation edit page */
   productSlug?: string;
+  /** Store brands — enables brand as a variation dimension (brand × attributes). */
+  availableBrands?: Array<{ _id: string; name: string }>;
 }
 
 const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
@@ -37,7 +39,14 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
   onRemoveVariationImage: _onRemoveVariationImage,
   uploading: _uploading,
   productSlug,
+  availableBrands = [],
 }) => {
+  // Brand as a variation dimension. Initialised from any brands already on the variations.
+  const [selectedBrandIds, setSelectedBrandIds] = useState<string[]>(
+    () => Array.from(new Set((variations || []).map(v => v.brandId).filter(Boolean))) as string[]
+  );
+  const toggleBrand = (id: string) =>
+    setSelectedBrandIds(prev => prev.includes(id) ? prev.filter(b => b !== id) : [...prev, id]);
   const [availableAttributes, setAvailableAttributes] = useState<AttributeOption[]>([]);
   const [attributeValuesMap, setAttributeValuesMap] = useState<Record<string, AttributeValueOption[]>>({});
   const [loadingAttributes, setLoadingAttributes] = useState(false);
@@ -53,6 +62,12 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
   const [editingVariationId, setEditingVariationId] = useState<string | null>(null);
   const [uploadingImages, setUploadingImages] = useState<Record<string, boolean>>({});
   const editRowRef = useRef<HTMLTableRowElement>(null);
+  // Inline attribute-value / attribute creation
+  const [newValueInput, setNewValueInput] = useState<Record<string, string>>({});
+  const [valueGlobal, setValueGlobal] = useState<Record<string, boolean>>({});
+  const [savingValueFor, setSavingValueFor] = useState<string | null>(null);
+  const [newAttrName, setNewAttrName] = useState('');
+  const [creatingAttr, setCreatingAttr] = useState(false);
 
   // Load available attributes
   useEffect(() => {
@@ -102,7 +117,7 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
   // Generate variations from selected attribute values
   const generateVariations = () => {
     const selectedAttrs = availableAttributes.filter(a => selectedAttributeIds.includes(a._id));
-    if (selectedAttrs.length === 0) {
+    if (selectedAttrs.length === 0 && selectedBrandIds.length === 0) {
       onVariationsChange([]);
       return;
     }
@@ -150,42 +165,49 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
 
     generateCombinations({}, 0);
 
-    // Create variations
+    // Brand axis: if brands are selected, each attribute combo is repeated per brand.
+    // Potency/size values are defined ONCE (shared), so they never duplicate across brands.
+    const brandAxis = selectedBrandIds.length > 0
+      ? selectedBrandIds.map(id => ({ id, name: availableBrands.find(b => b._id === id)?.name || '' }))
+      : [{ id: undefined as string | undefined, name: '' }];
+
+    // Dedup key includes brand so the same attributes under two brands are distinct.
     const existingVariationsMap = new Map(
-      variations.map(v => [JSON.stringify(v.attributes), v])
+      variations.map(v => [JSON.stringify({ ...v.attributes, __brand: v.brandId || '' }), v])
     );
 
-    const newVariations: ProductVariation[] = valueCombinations.map((attrs, index) => {
-      const key = JSON.stringify(attrs);
-      const existing = existingVariationsMap.get(key);
-      
-      if (existing) {
-        return existing;
+    const newVariations: ProductVariation[] = [];
+    let index = 0;
+    for (const brand of brandAxis) {
+      for (const attrs of valueCombinations) {
+        const key = JSON.stringify({ ...attrs, __brand: brand.id || '' });
+        const existing = existingVariationsMap.get(key);
+        if (existing) { newVariations.push(existing); index++; continue; }
+
+        const attrNames = selectedAttrs.map(attr => {
+          const valueSlug = attrs[attr.slug];
+          const allValues = attributeValuesMap[attr._id] || [];
+          const value = allValues.find(v => v.slug?.toLowerCase() === String(valueSlug).toLowerCase());
+          return value?.slug?.toUpperCase() || value?.name?.toUpperCase() || 'UNK';
+        }).join('-').slice(0, 20);
+
+        const brandCode = brand.name ? brand.name.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) + '-' : '';
+        const sku = `${baseSku}-${brandCode}${attrNames}`.toUpperCase().slice(0, 48);
+
+        newVariations.push({
+          id: `var-${Date.now()}-${index++}`,
+          attributes: attrs,
+          brandId: brand.id,
+          brandName: brand.name || undefined,
+          price: basePrice,
+          originalPrice: baseOriginalPrice,
+          stock: 0,
+          sku,
+          images: [],
+          isActive: true,
+        });
       }
-
-      // Generate SKU from attribute values
-      const attrNames = selectedAttrs.map(attr => {
-        const valueSlug = attrs[attr.slug];
-        const allValues = attributeValuesMap[attr._id] || [];
-        const value = allValues.find(v => 
-          v.slug?.toLowerCase() === String(valueSlug).toLowerCase()
-        );
-        return value?.slug?.toUpperCase() || value?.name?.toUpperCase() || 'UNK';
-      }).join('-').slice(0, 20);
-      
-      const sku = `${baseSku}-${attrNames}`.toUpperCase().slice(0, 48);
-
-      return {
-        id: `var-${Date.now()}-${index}`,
-        attributes: attrs,
-        price: basePrice,
-        originalPrice: baseOriginalPrice,
-        stock: 0,
-        sku,
-        images: [],
-        isActive: true,
-      };
-    });
+    }
 
     onVariationsChange(newVariations);
   };
@@ -198,17 +220,83 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAttributeIds]);
 
+  // Pre-expand already-selected attributes (edit mode) so their values are visible.
+  useEffect(() => {
+    if (selectedAttributeIds.length && availableAttributes.length) {
+      setExpandedAttributes(prev => new Set([...prev, ...selectedAttributeIds]));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availableAttributes.length]);
+
   const handleAttributeToggle = (attributeId: string) => {
-    const newIds = selectedAttributeIds.includes(attributeId)
-      ? selectedAttributeIds.filter(id => id !== attributeId)
-      : [...selectedAttributeIds, attributeId];
+    const selecting = !selectedAttributeIds.includes(attributeId);
+    const newIds = selecting
+      ? [...selectedAttributeIds, attributeId]
+      : selectedAttributeIds.filter(id => id !== attributeId);
     onAttributeIdsChange(newIds);
-    
-    // Clear values when attribute is deselected
-    if (!newIds.includes(attributeId)) {
+
+    // Auto-expand on select so existing values are visible immediately.
+    if (selecting) {
+      setExpandedAttributes(prev => new Set([...prev, attributeId]));
+    } else {
+      // Clear values when attribute is deselected
       const newValues = { ...selectedAttributeValues };
       delete newValues[attributeId];
       onAttributeValuesChange(newValues);
+    }
+  };
+
+  const slugifyVal = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+  // Add a value to an attribute. Default = LOCAL (this product only); tick "global"
+  // to also persist it to the shared attribute-value catalog.
+  const handleAddValue = async (attr: AttributeOption) => {
+    const raw = (newValueInput[attr._id] || '').trim();
+    if (!raw) return;
+    const isGlobal = !!valueGlobal[attr._id];
+    const slug = slugifyVal(raw);
+    setSavingValueFor(attr._id);
+    try {
+      let nv: AttributeValueOption;
+      if (isGlobal) {
+        const created: any = await attributeValuesAPI.create(attr._id, { name: raw, slug, value: raw });
+        nv = { _id: created?._id || created?.id, name: created?.name || raw, slug: created?.slug || slug, attributeId: attr._id, value: created?.value } as AttributeValueOption;
+      } else {
+        nv = { _id: `local:${attr._id}:${slug}`, name: raw, slug, attributeId: attr._id } as AttributeValueOption;
+      }
+      if (!nv._id) return;
+      setAttributeValuesMap(prev => ({ ...prev, [attr._id]: [...(prev[attr._id] || []), nv] }));
+      setNewValueInput(prev => ({ ...prev, [attr._id]: '' }));
+      onAttributeValuesChange({
+        ...selectedAttributeValues,
+        [attr._id]: [...(selectedAttributeValues[attr._id] || []), nv._id],
+      });
+    } catch (e) {
+      console.error('Failed to add attribute value', e);
+    } finally {
+      setSavingValueFor(null);
+    }
+  };
+
+  const handleAddAttribute = async () => {
+    const raw = newAttrName.trim();
+    if (!raw) return;
+    setCreatingAttr(true);
+    try {
+      const created: any = await attributesAPI.create({ name: raw, slug: slugifyVal(raw), type: 'select' });
+      const c = created?.data || created;
+      if (c && (c._id || c.id)) {
+        const na = { _id: c._id || c.id, name: c.name || raw, slug: c.slug || slugifyVal(raw), type: c.type || 'select' } as AttributeOption;
+        setAvailableAttributes(prev => [...prev, na]);
+        setAttributeValuesMap(prev => ({ ...prev, [na._id]: [] }));
+        setExpandedAttributes(prev => new Set([...prev, na._id]));
+        setNewAttrName('');
+        onAttributeIdsChange([...selectedAttributeIds, na._id]);
+      }
+    } catch (e) {
+      console.error('Failed to create attribute', e);
+    } finally {
+      setCreatingAttr(false);
     }
   };
 
@@ -382,10 +470,36 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
       </div>
 
       <div className="p-6 space-y-6">
+        {/* Brand dimension — a product (medicine) sold under multiple brands.
+            Potency/size below are shared across brands (defined once). */}
+        {availableBrands.length > 0 && (
+          <div>
+            <label className="block text-xs font-medium text-gray-700 uppercase tracking-wide mb-2">
+              Brands <span className="normal-case text-gray-400 font-normal">— generate variations per brand (optional)</span>
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {availableBrands.map(b => {
+                const on = selectedBrandIds.includes(b._id);
+                return (
+                  <button key={b._id} type="button" onClick={() => toggleBrand(b._id)}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-all ${on ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-gray-600 border-gray-300 hover:border-purple-400'}`}>
+                    {b.name}
+                  </button>
+                );
+              })}
+            </div>
+            {selectedBrandIds.length > 0 && (
+              <p className="text-xs text-gray-400 mt-1.5">
+                Each selected brand × potency × size becomes its own variation with independent price, stock, images &amp; content.
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Attribute Selection Section */}
         <div>
           <label className="block text-xs font-medium text-gray-700 uppercase tracking-wide mb-3">
-            Attributes
+            Attributes <span className="normal-case text-gray-400 font-normal">— potency, size (shared across brands)</span>
           </label>
           {loadingAttributes ? (
             <div className="text-sm text-gray-500">Loading attributes...</div>
@@ -417,7 +531,7 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
                           <span className="text-xs text-blue-600 font-medium">{selectedValues.length} selected</span>
                         )}
                       </label>
-                      {isSelected && values.length > 0 && (
+                      {isSelected && (
                         <button
                           type="button"
                           onClick={() => toggleExpand(attr._id)}
@@ -428,10 +542,10 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
                       )}
                     </div>
 
-                    {isSelected && isExpanded && values.length > 0 && (
+                    {isSelected && isExpanded && (
                       <div className="px-3 pb-3 border-t border-blue-100">
                         <div className="text-xs text-gray-500 mb-2 mt-2">
-                          {selectedValues.length} of {values.length} selected
+                          {values.length > 0 ? `${selectedValues.length} of ${values.length} selected` : 'No values yet — add one below'}
                         </div>
                         <div className="flex flex-wrap gap-1.5">
                           {values.map(value => {
@@ -461,17 +575,52 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
                             );
                           })}
                         </div>
+                        {/* Inline add value (local by default; tick Global to save to catalog) */}
+                        <div className="mt-3 flex items-center gap-2">
+                          <input
+                            value={newValueInput[attr._id] || ''}
+                            onChange={e => setNewValueInput(prev => ({ ...prev, [attr._id]: e.target.value }))}
+                            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddValue(attr); } }}
+                            placeholder={`New ${attr.name} value…`}
+                            className="flex-1 px-2.5 py-1.5 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                          />
+                          <label className="flex items-center gap-1 text-xs text-gray-500 whitespace-nowrap" title="Save to the shared attribute catalog (reusable across products). Unchecked = local to this product only.">
+                            <input type="checkbox" checked={!!valueGlobal[attr._id]}
+                              onChange={e => setValueGlobal(prev => ({ ...prev, [attr._id]: e.target.checked }))} />
+                            Global
+                          </label>
+                          <button type="button" onClick={() => handleAddValue(attr)}
+                            disabled={savingValueFor === attr._id || !(newValueInput[attr._id] || '').trim()}
+                            className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40">
+                            {savingValueFor === attr._id ? 'Adding…' : '+ Add'}
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
                 );
               })}
+              {/* Inline create new attribute */}
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  value={newAttrName}
+                  onChange={e => setNewAttrName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddAttribute(); } }}
+                  placeholder="New attribute (e.g. Brand, Potency, Size)…"
+                  className="flex-1 px-2.5 py-1.5 border border-dashed border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                />
+                <button type="button" onClick={handleAddAttribute}
+                  disabled={creatingAttr || !newAttrName.trim()}
+                  className="px-3 py-1.5 text-xs font-medium border border-blue-300 text-blue-600 rounded hover:bg-blue-50 disabled:opacity-40">
+                  {creatingAttr ? 'Creating…' : '+ New Attribute'}
+                </button>
+              </div>
             </div>
           )}
         </div>
 
         {/* Generate Button */}
-        {selectedAttributeIds.length > 0 && (
+        {(selectedAttributeIds.length > 0 || selectedBrandIds.length > 0) && (
           <div className="flex justify-end">
             <button
               type="button"
@@ -629,6 +778,11 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
                           </td>
                           <td className="px-3 py-2.5">
                             <div className="flex items-center gap-1.5 flex-wrap">
+                              {(variation.brandName || variation.brandId) && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-purple-100 text-purple-700 rounded-md font-semibold">
+                                  {variation.brandName || availableBrands.find(b => b._id === variation.brandId)?.name || 'Brand'}
+                                </span>
+                              )}
                               {Object.entries(variation.attributes).map(([attrSlug, valueSlug]) => {
                                 const attr = availableAttributes.find(a => a.slug === attrSlug);
                                 if (!attr) return null;
@@ -787,8 +941,9 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
                                     <input
                                       type="number"
                                       min="0"
-                                      value={variation.stock}
-                                      onChange={e => handleVariationChange(variation.id, 'stock', Math.max(0, parseInt(e.target.value) || 0))}
+                                      value={variation.stock ?? ''}
+                                      onChange={e => { const v = e.target.value; handleVariationChange(variation.id, 'stock', v === '' ? undefined : Math.max(0, parseInt(v) || 0)); }}
+                                      onBlur={e => { if (!e.target.value) handleVariationChange(variation.id, 'stock', 0); }}
                                       className="w-full px-3 py-2 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                                       placeholder="0"
                                     />

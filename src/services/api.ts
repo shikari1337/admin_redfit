@@ -71,6 +71,24 @@ export const api = axios.create({
 });
 
 /**
+ * Map PostgreSQL `id` → `_id` recursively so all admin pages that use `_id`
+ * (written for MongoDB) keep working against the PostgreSQL backend.
+ */
+const normalizeIds = (data: any): any => {
+  if (Array.isArray(data)) return data.map(normalizeIds);
+  if (data && typeof data === 'object' && !(data instanceof Date) && !(data instanceof Blob)) {
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(data)) {
+      out[k] = normalizeIds(v);
+    }
+    // PostgreSQL returns `id` (UUID); admin pages expect `_id` — add alias
+    if (out.id !== undefined && out._id === undefined) out._id = out.id;
+    return out;
+  }
+  return data;
+};
+
+/**
  * Normalize API response to ensure consistent format
  * Backend returns: { success: true, data: ... }
  * This function extracts the data field if present, otherwise returns the full response
@@ -82,7 +100,7 @@ const normalizeResponse = (response: any): any => {
 
   // If response has success and data fields, extract data
   if (response.success !== undefined && response.data !== undefined) {
-    const extracted = response.data;
+    const extracted = normalizeIds(response.data);
     // Preserve pagination metadata (total, count) as non-enumerable properties
     // so Array.isArray() stays true and existing callers are unaffected.
     if (Array.isArray(extracted)) {
@@ -98,11 +116,11 @@ const normalizeResponse = (response: any): any => {
 
   // If response.data exists and has success/data structure, extract nested data
   if (response.data && typeof response.data === 'object' && response.data.success !== undefined && response.data.data !== undefined) {
-    return response.data.data;
+    return normalizeIds(response.data.data);
   }
 
   // Return as-is if no standard structure found
-  return response;
+  return normalizeIds(response);
 };
 
 // Add auth token, tenant API key, and security headers to every request
@@ -267,19 +285,25 @@ api.interceptors.response.use(
         'TOKEN_EXPIRED',
         'TOKEN_INVALID',
         'AUTH_ERROR',
-        'AUTH_REQUIRED'
+        'AUTH_REQUIRED',
+        'NO_TOKEN',
+        'USER_NOT_FOUND',
+        'ACCOUNT_DISABLED',
       ];
 
-      // Only clear token and redirect if:
-      // 1. Error code indicates session/token issue
-      // 2. Error message explicitly mentions session/token/login
-      // 3. Backend explicitly says requiresLogin: true
-      const isSessionError = sessionErrorCodes.includes(errorCode) ||
-        errorMessage.toLowerCase().includes('session') ||
-        errorMessage.toLowerCase().includes('token') ||
-        errorMessage.toLowerCase().includes('login') ||
-        errorMessage.toLowerCase().includes('authentication') ||
-        (requiresLogin && errorCode);
+      // Auth endpoint paths — 401 from these always means the session is dead
+      const isAuthPath = (error.config?.url || '').includes('/auth/me') ||
+        (error.config?.url || '').includes('/auth/profile') ||
+        (error.config?.url || '').includes('/auth/login');
+
+      // Use explicit error CODE (not message text) to decide on logout.
+      // Message-text matching caused false positives: e.g. a DB error about
+      // "column session_id does not exist" contained the word "session" and
+      // triggered a spurious logout. Only fall back to text-match for auth paths.
+      const isSessionError =
+        sessionErrorCodes.includes(errorCode) ||
+        isAuthPath ||
+        (requiresLogin === true && sessionErrorCodes.includes(errorCode));
 
       if (isSessionError) {
         console.log('🔒 Session/token error detected, clearing session and redirecting to login');
@@ -570,7 +594,10 @@ export const productsAPI = {
     const response = await api.get('/products/skus');
     const data = response.data;
     const list = data?.data || data || [];
-    return (Array.isArray(list) ? list : []).map((p: any) => ({ _id: String(p._id), sku: String(p.sku || '') }));
+    return (Array.isArray(list) ? list : []).map((p: any) => ({
+      _id: String(p._id || p.id || ''),
+      sku: String(p.sku || ''),
+    })).filter(p => p._id && p.sku);
   },
   exportAll: async (): Promise<void> => {
     // Use native fetch + ReadableStream so the browser pipes the response
@@ -1072,6 +1099,57 @@ export const attributeValuesAPI = {
     } catch (error: any) {
       safeError(error);
     }
+  },
+};
+
+// Vendors API
+export const vendorsAPI = {
+  list: async (params?: { status?: string; is_active?: boolean; search?: string }) => {
+    try {
+      const response = await api.get('/vendors', { params });
+      const data = response.data;
+      if (data?.success && Array.isArray(data.data)) return data.data;
+      return Array.isArray(data) ? data : (data?.data || []);
+    } catch (error: any) { safeError(error); return []; }
+  },
+  getById: async (id: string) => {
+    try {
+      const response = await api.get(`/vendors/${id}`);
+      const data = response.data;
+      return data?.data || data;
+    } catch (error: any) { safeError(error); }
+  },
+  create: async (data: {
+    business_name: string; slug: string; gst_number?: string; pan_number?: string;
+    bank_details?: Record<string, any>; commission_pct?: number; logo_url?: string;
+    is_active?: boolean; customer_id?: string;
+  }) => {
+    try {
+      const response = await api.post('/vendors', data);
+      return response.data?.data || response.data;
+    } catch (error: any) { safeError(error); }
+  },
+  update: async (id: string, data: Partial<{
+    business_name: string; slug: string; gst_number: string; pan_number: string;
+    bank_details: Record<string, any>; commission_pct: number; logo_url: string;
+    is_active: boolean;
+  }>) => {
+    try {
+      const response = await api.put(`/vendors/${id}`, data);
+      return response.data?.data || response.data;
+    } catch (error: any) { safeError(error); }
+  },
+  updateStatus: async (id: string, status: 'pending' | 'approved' | 'suspended' | 'rejected') => {
+    try {
+      const response = await api.put(`/vendors/${id}/status`, { status });
+      return response.data?.data || response.data;
+    } catch (error: any) { safeError(error); }
+  },
+  delete: async (id: string) => {
+    try {
+      const response = await api.delete(`/vendors/${id}`);
+      return response.data;
+    } catch (error: any) { safeError(error); }
   },
 };
 
@@ -1665,8 +1743,6 @@ export const gstSettingsAPI = {
   update: async (data: {
     showPriceIncludingGst?: boolean;
     showGstOnCheckout?: boolean;
-    taxBrackets?: Array<{ name: string; rate: number; isActive: boolean }>;
-    stores?: Array<{ name: string; address: string; pincode: string; state: string; gstin?: string; isActive: boolean }>;
   }) => {
     const response = await api.put('/settings/gst', data);
     return response.data;
@@ -2282,21 +2358,15 @@ export const inventoryAPI = {
 // ─── TAX RULES API ────────────────────────────────────────────────────────────
 export const taxRulesAPI = {
   getAll: async () => {
-    // Backend list is GET /tax (not /tax/rules). Fallback to /settings/gst taxBrackets.
     try {
       const response = await api.get('/tax');
-      const data = response.data?.data ?? response.data;
-      if (Array.isArray(data) && data.length > 0) return data;
-    } catch {}
-    try {
-      const response = await api.get('/settings/gst');
-      const gst = response.data?.data || response.data;
-      const brackets = gst?.taxBrackets || [];
-      // GST brackets have no _id; use rate as id so product can store "18" etc. Backend accepts rate-as-id.
-      return brackets.map((b: any) => ({
-        _id: String(b._id || b.id || b.rate),
-        name: b.name || `GST ${b.rate}%`,
-        rate: b.rate,
+      const raw = response.data;
+      const list: any[] = Array.isArray(raw) ? raw : Array.isArray(raw?.data) ? raw.data : [];
+      // Normalise PG `id` (UUID) and Mongo `_id` to both fields so consumers work regardless
+      return list.map((r: any) => ({
+        ...r,
+        _id: r._id || r.id || '',
+        id:  r.id  || r._id || '',
       }));
     } catch {
       return [];
@@ -2313,6 +2383,89 @@ export const taxRulesAPI = {
   delete: async (id: string) => {
     const response = await api.delete(`/tax/${id}`);
     return response.data;
+  },
+};
+
+// ─── MANUFACTURERS API ───────────────────────────────────────────────────────
+export const manufacturersAPI = {
+  getAll: async (params?: { active?: boolean }) => {
+    try {
+      const response = await api.get('/manufacturers', { params });
+      const raw = response.data;
+      const list: any[] = Array.isArray(raw) ? raw : Array.isArray(raw?.data) ? raw.data : [];
+      return list.map((r: any) => ({ ...r, _id: r._id || r.id || '', id: r.id || r._id || '' }));
+    } catch { return []; }
+  },
+  create: async (data: any) => {
+    const response = await api.post('/manufacturers', data);
+    return response.data;
+  },
+  update: async (id: string, data: any) => {
+    const response = await api.put(`/manufacturers/${id}`, data);
+    return response.data;
+  },
+  delete: async (id: string) => {
+    const response = await api.delete(`/manufacturers/${id}`);
+    return response.data;
+  },
+};
+
+// ─── RETURN POLICIES API ─────────────────────────────────────────────────────
+export const returnPoliciesAPI = {
+  // Return policies CRUD is nested under the tax router: /api/v1/tax/return-policies
+  getAll: async (params?: { active?: boolean }) => {
+    try {
+      const response = await api.get('/tax/return-policies', { params });
+      const raw = response.data;
+      const list: any[] = Array.isArray(raw) ? raw : Array.isArray(raw?.data) ? raw.data : [];
+      return list.map((r: any) => ({ ...r, _id: r._id || r.id || '', id: r.id || r._id || '' }));
+    } catch { return []; }
+  },
+  create: async (data: any) => {
+    const response = await api.post('/tax/return-policies', data);
+    return response.data;
+  },
+  update: async (id: string, data: any) => {
+    const response = await api.put(`/tax/return-policies/${id}`, data);
+    return response.data;
+  },
+  delete: async (id: string) => {
+    const response = await api.delete(`/tax/return-policies/${id}`);
+    return response.data;
+  },
+};
+
+// ─── UNIFIED SEARCH API ──────────────────────────────────────────────────────
+// The ONE way to search entities server-side (product, category, attribute,
+// variation, brand, tag, blog_post, manufacturer…). Min 3 chars. Extend backend
+// db/queries/search.ts to add entity types.
+export interface SearchResult { id: string; label: string; sublabel?: string; type: string }
+export const searchAPI = {
+  MIN_LENGTH: 3,
+  query: async (type: string, q: string, limit = 10): Promise<SearchResult[]> => {
+    if (!q || q.trim().length < 3) return [];
+    try {
+      const response = await api.get('/search', { params: { type, q: q.trim(), limit } });
+      const data = response.data?.data;
+      return Array.isArray(data) ? data : [];
+    } catch { return []; }
+  },
+  queryMany: async (types: string[], q: string, limit = 10): Promise<Record<string, SearchResult[]>> => {
+    if (!q || q.trim().length < 3) return {};
+    try {
+      const response = await api.get('/search', { params: { type: types.join(','), q: q.trim(), limit } });
+      return response.data?.data || {};
+    } catch { return {}; }
+  },
+};
+
+// ─── PRODUCT CONFIG API (store-vertical compliance sections) ─────────────────
+export const productConfigAPI = {
+  get: async () => {
+    try {
+      const response = await api.get('/settings/product-config');
+      return response.data?.data || null;
+    } catch { return null; }
   },
 };
 

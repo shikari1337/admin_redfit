@@ -65,7 +65,7 @@ const VariantLinkGroups: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.get('/variant-link-groups');
+      const res = await api.get('/variant-groups');
       const data = res.data;
       if (Array.isArray(data)) setGroups(data);
       else if (Array.isArray(data?.data)) setGroups(data.data);
@@ -181,9 +181,9 @@ const VariantLinkGroups: React.FC = () => {
 
     try {
       if (editId) {
-        await api.put(`/variant-link-groups/${editId}`, payload);
+        await api.put(`/variant-groups/${editId}`, payload);
       } else {
-        await api.post('/variant-link-groups', payload);
+        await api.post('/variant-groups', payload);
       }
       setShowModal(false);
       fetchGroups();
@@ -197,7 +197,7 @@ const VariantLinkGroups: React.FC = () => {
   const handleDelete = async (group: VariantLinkGroup) => {
     if (!confirm(`Delete variant link group "${group.name}"?`)) return;
     try {
-      await api.delete(`/variant-link-groups/${group.id}`);
+      await api.delete(`/variant-groups/${group.id}`);
       fetchGroups();
     } catch (err: any) {
       alert(err?.response?.data?.message || 'Failed to delete group');

@@ -9,8 +9,9 @@ import {
   Home, ShoppingCart, Truck, Warehouse, Users, Factory,
   Megaphone, Ticket, Star, HelpCircle, Palette, FileText, Settings,
   UserCheck, Images, Package2, LineChart, Building2, ShieldCheck,
-  BookOpen, RotateCcw,
+  BookOpen, RotateCcw, Store,
 } from 'lucide-react';
+import { SetupBanner } from './SetupBanner';
 
 const Layout: React.FC = () => {
   const { user, canAccess, isAuthenticated, logout } = useAuth();
@@ -57,28 +58,29 @@ const Layout: React.FC = () => {
           title: 'Products', url: '/products', icon: Package2, items: [
             { title: 'All Products',        url: '/products' },
             { title: 'Create Product',      url: '/products/new' },
-            { title: 'Bundles',             url: '/products/bundles' },
+            ...(canAccess('bundles')     ? [{ title: 'Bundles',             url: '/products/bundles' }] : []),
             { title: 'Categories',          url: '/products/categories' },
             { title: 'Brands',              url: '/products/brands' },
             { title: 'Attributes',          url: '/products/attributes' },
             { title: 'Tags',                url: '/products/tags' },
-            { title: 'Size Charts',         url: '/products/size-charts' },
+            ...(canAccess('size_charts') ? [{ title: 'Size Charts',         url: '/products/size-charts' }] : []),
             { title: 'Specifications',      url: '/products/specifications' },
             { title: 'Variant Link Groups', url: '/products/variant-link-groups' },
           ],
         }] : []),
         ...(canAccess('inventory')  ? [{ title: 'Inventory',  url: '/inventory',  icon: Warehouse }] : []),
         ...(canAccess('b2b')        ? [{ title: 'B2B',        url: '/b2b',        icon: Factory }] : []),
+        ...(canAccess('vendors') ? [{ title: 'Vendors', url: '/vendors', icon: Store }] : []),
         ...(canAccess('gallery')    ? [{ title: 'Gallery',    url: '/gallery',    icon: Images }] : []),
       ],
     },
     {
       title: 'Orders',
       items: [
-        ...(canAccess('orders')     ? [{ title: 'Orders',     url: '/orders',     icon: ShoppingCart }] : []),
-        ...(canAccess('orders')     ? [{ title: 'Returns',    url: '/returns',    icon: RotateCcw }] : []),
-        ...(canAccess('shipments')  ? [{ title: 'Shipments',  url: '/shipments',  icon: Truck }] : []),
-        ...(canAccess('warehouses') ? [{ title: 'Warehouses', url: '/warehouses', icon: Warehouse }] : []),
+        ...(canAccess('orders')    ? [{ title: 'Orders',     url: '/orders',    icon: ShoppingCart }] : []),
+        ...(canAccess('returns')   ? [{ title: 'Returns',   url: '/returns',   icon: RotateCcw }] : []),
+        ...(canAccess('shipping')  ? [{ title: 'Shipments', url: '/shipments', icon: Truck }] : []),
+        ...(canAccess('inventory') ? [{ title: 'Warehouses',url: '/warehouses',icon: Warehouse }] : []),
       ],
     },
     {
@@ -97,8 +99,8 @@ const Layout: React.FC = () => {
       // ──────────────────────────────────────────────────────────────────────
       title: 'Store Customers',
       items: [
-        ...(canAccess('users')          ? [{ title: 'All Customers',  url: '/users',  icon: Users }] : []),
-        ...(canAccess('leads_manager')  ? [{ title: 'Leads (CRM)',    url: '/leads',  icon: UserCheck }] : []),
+        ...(canAccess('customers')  ? [{ title: 'All Customers',  url: '/users',  icon: Users }] : []),
+        ...(canAccess('crm')        ? [{ title: 'Leads (CRM)',    url: '/leads',  icon: UserCheck }] : []),
         ...(canAccess('b2b')            ? [{ title: 'B2B Customers',  url: '/b2b',    icon: Building2 }] : []),
       ],
     },
@@ -115,7 +117,7 @@ const Layout: React.FC = () => {
         }] : []),
         ...(canAccess('faqs')    ? [{ title: 'FAQs',        url: '/faqs',    icon: HelpCircle }] : []),
         ...(canAccess('reviews') ? [{ title: 'Reviews',     url: '/reviews', icon: Star }] : []),
-        { title: 'Blog Posts',   url: '/blogs',   icon: BookOpen },
+        ...(canAccess('blog')    ? [{ title: 'Blog Posts',   url: '/blogs',   icon: BookOpen }] : []),
       ],
     },
     {
@@ -129,19 +131,19 @@ const Layout: React.FC = () => {
       items: [
         ...(canAccess('settings') ? [{
           title: 'Settings', url: '/settings', icon: Settings, items: [
-            { title: 'General',          url: '/settings' },
-            { title: 'API Integrations', url: '/settings/api-integrations' },
-            { title: 'Contact',          url: '/settings/contact' },
+            { title: 'General',            url: '/settings' },
+            { title: 'API Integrations',   url: '/settings/api-integrations' },
+            { title: 'Contact',            url: '/settings/contact' },
             { title: 'Payment & Discount', url: '/settings/payment-discount' },
-            { title: 'Payment Gateways', url: '/settings/payment-gateways' },
-            { title: 'SMS Templates',    url: '/settings/sms-templates' },
-            { title: 'GST',              url: '/settings/gst' },
-            { title: 'Shipping',         url: '/settings/shipping' },
-            { title: 'Modules',          url: '/settings/modules' },
-            { title: 'Billing',          url: '/settings/billing' },
-            { title: 'Tax Rules',        url: '/settings/tax-rules' },
-            { title: 'Return Policies',  url: '/settings/return-policies' },
-            { title: 'Manufacturers',    url: '/settings/manufacturers' },
+            { title: 'Payment Gateways',   url: '/settings/payment-gateways' },
+            { title: 'SMS Templates',      url: '/settings/sms-templates' },
+            { title: 'GST Display',        url: '/settings/gst' },
+            { title: 'Tax Rules',          url: '/settings/tax-rules' },
+            { title: 'Shipping',           url: '/settings/shipping' },
+            { title: 'Modules',            url: '/settings/modules' },
+            { title: 'Billing',            url: '/settings/billing' },
+            ...(canAccess('returns')       ? [{ title: 'Return Policies',  url: '/settings/return-policies' }] : []),
+            ...(canAccess('manufacturers') ? [{ title: 'Manufacturers',    url: '/settings/manufacturers' }] : []),
           ],
         }] : []),
         // Staff & Access — admin only (role check, not permission check)
@@ -160,7 +162,7 @@ const Layout: React.FC = () => {
       <PageTransitionLoader />
       <AppSidebar userPerms={userPerms} onLogout={handleLogout} menuGroups={menuGroups} />
 
-      <main className="flex flex-1 flex-col min-h-screen bg-gray-50/50">
+      <main className="flex flex-1 flex-col min-h-screen bg-gray-100">
         <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center justify-between gap-2 border-b bg-background px-4 shadow-sm md:px-6">
           {/* Left: sidebar trigger + breadcrumb */}
           <div className="flex items-center gap-2 min-w-0">
@@ -182,6 +184,8 @@ const Layout: React.FC = () => {
             <StoreSwitcher />
           </div>
         </header>
+
+        <SetupBanner />
 
         <div className="flex-1 overflow-x-hidden p-4 md:p-6 lg:p-8">
           <Outlet />

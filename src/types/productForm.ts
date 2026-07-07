@@ -57,6 +57,8 @@ export interface AttributeValueOption {
 export interface ProductVariation {
   id: string; // Temporary ID for frontend
   attributes: Record<string, string>; // { attributeSlug: attributeValueId }
+  brandId?: string;      // primary brand for this variation (brand as a variation dimension)
+  brandName?: string;    // cached brand name for display
   price?: number;
   originalPrice?: number;
   stock: number;

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -56,6 +57,7 @@ const settingsSections = [
         description: 'Configure B2B pricing tiers, minimum order amounts, and approval flows',
         icon: Building2,
         path: '/b2b',
+        module: 'b2b',
       },
     ],
   },
@@ -90,6 +92,7 @@ const settingsSections = [
         description: 'Manage warehouse locations and default dispatch settings',
         icon: Building2,
         path: '/warehouses',
+        module: 'inventory',
       },
       {
         title: 'Package Boxes',
@@ -103,10 +106,17 @@ const settingsSections = [
     heading: 'Tax & Compliance',
     items: [
       {
-        title: 'GST Settings',
-        description: 'Configure GST tax brackets, GSTIN, and invoice settings',
+        title: 'GST Display Settings',
+        description: 'GSTIN, show price including GST, and GST breakdown visibility at checkout',
         icon: FileText,
         path: '/settings/gst',
+      },
+      {
+        title: 'Tax Rules',
+        description: 'GST/IGST rates, CGST+SGST breakdown, HSN codes, state targeting, and category-level overrides',
+        icon: Receipt,
+        path: '/settings/tax-rules',
+        module: 'gst_tax',
       },
     ],
   },
@@ -136,6 +146,7 @@ const settingsSections = [
         description: 'Configure SMSAlert templates for orders and cart recovery',
         icon: MessageSquare,
         path: '/settings/sms-templates',
+        module: 'sms',
       },
       {
         title: 'Contact Details',
@@ -162,6 +173,7 @@ const STOREFRONT_URL = import.meta.env.VITE_STOREFRONT_URL || 'http://localhost:
 
 const Settings: React.FC = () => {
   const navigate = useNavigate();
+  const { canAccess } = useAuth();
   const [tenantApiKeyInput, setTenantApiKeyInput] = useState('');
   const [tenantApiKeySet, setTenantApiKeySet] = useState(false);
   const [tenantApiKeySaved, setTenantApiKeySaved] = useState(false);
@@ -218,13 +230,16 @@ const Settings: React.FC = () => {
         <p className="text-sm text-muted-foreground mt-1">Manage your store configuration and integrations</p>
       </div>
 
-      {settingsSections.map((section) => (
+      {settingsSections.map((section) => {
+        const visibleItems = section.items.filter((item: any) => !item.module || canAccess(item.module));
+        if (!visibleItems.length) return null;
+        return (
         <div key={section.heading}>
           <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
             {section.heading}
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {section.items.map((item: any) => {
+            {visibleItems.map((item: any) => {
               const Icon = item.icon;
               if (item.inline && item.title.includes('Store API Key')) {
                 return (
@@ -297,7 +312,8 @@ const Settings: React.FC = () => {
             })}
           </div>
         </div>
-      ))}
+        );
+      })}
 
       {/* Cache Management */}
       <div>

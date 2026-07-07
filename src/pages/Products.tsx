@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { productsAPI, categoriesAPI, brandsAPI } from '../services/api';
-import { FaPlus, FaTrash, FaCog, FaCopy, FaEllipsisV } from 'react-icons/fa';
-import { Pencil, Download, Upload, Loader2, ChevronDown } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
+import { productsAPI, categoriesAPI, brandsAPI, attributesAPI, attributeValuesAPI } from '../services/api';
+import { FaPlus, FaTrash, FaCog, FaCopy } from 'react-icons/fa';
+import { Pencil, Download, Upload, Loader2, ChevronDown, Search, X } from 'lucide-react';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -473,6 +474,10 @@ const IMPORT_LABELS: Record<ImportType, string> = {
 };
 
 const Products: React.FC = () => {
+  const { user, canAccess } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const canManageProducts = isAdmin || canAccess('products');
+
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
@@ -481,6 +486,9 @@ const Products: React.FC = () => {
   const [importType, setImportType] = useState<ImportType>('products');
   const [importResult, setImportResult] = useState<{ created: number; updated: number; errors: string[] } | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkBrand, setBulkBrand] = useState('');
+  const [bulkAssigning, setBulkAssigning] = useState(false);
+  const [allBrands, setAllBrands] = useState<Array<{ _id: string; name: string }>>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
 
@@ -490,25 +498,43 @@ const Products: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState('');
   const [topCategories, setTopCategories] = useState<Array<{ _id: string; name: string; slug: string }>>([]);
 
+  // Search — debounced, 3-char minimum (matches the project's search convention elsewhere).
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const q = searchInput.trim();
+      setSearch(q.length >= 3 ? q : '');
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
   const toggleSelect = (id: string) => setSelectedIds((prev) => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
   const toggleSelectAll = () => setSelectedIds(products.every((p) => selectedIds.has(p._id)) ? new Set() : new Set(products.map((p) => p._id)));
   const allSelected = products.length > 0 && products.every((p) => selectedIds.has(p._id));
 
-  // Load top-level categories for filter
+  // Load top-level categories for filter + all brands for bulk assign
   useEffect(() => {
     categoriesAPI.list().then((res: any) => {
       let cats: any[] = Array.isArray(res) ? res : (res?.data || res?.data?.data || []);
       cats = cats.filter((c: any) => !c.parent);
-      setTopCategories(cats.map((c: any) => ({ _id: String(c._id || ''), name: c.name || '', slug: c.slug || '' })));
+      setTopCategories(cats.map((c: any) => ({ _id: String(c._id || c.id || ''), name: c.name || '', slug: c.slug || '' })));
+    }).catch(() => {});
+    brandsAPI.list().then((res: any) => {
+      const list: any[] = Array.isArray(res) ? res : (res?.data || []);
+      setAllBrands(list.map((b: any) => ({ _id: String(b._id || b.id || ''), name: b.name || '' })));
     }).catch(() => {});
   }, []);
 
   useEffect(() => {
-    fetchProducts(page, selectedCategory);
-  }, [page, selectedCategory]);
+    fetchProducts(page, selectedCategory, search);
+  }, [page, selectedCategory, search]);
 
   const sanitizeProduct = (product: any): any => {
     const sanitized = { ...product };
+    // PostgreSQL backend returns `id` (UUID); MongoDB returns `_id`. Normalize to `_id`.
+    if (!sanitized._id && sanitized.id) sanitized._id = String(sanitized.id);
     if (sanitized._id && typeof sanitized._id !== 'string') sanitized._id = String(sanitized._id);
     if (Array.isArray(sanitized.categories)) {
       sanitized.categories = sanitized.categories.map((cat: any) => {
@@ -520,17 +546,24 @@ const Products: React.FC = () => {
     if (Array.isArray(sanitized.images)) {
       sanitized.images = sanitized.images.map((img: any) => typeof img === 'string' ? img : null).filter(Boolean);
     }
-    if (sanitized.price !== undefined) sanitized.price = Number(sanitized.price) || 0;
-    if (sanitized.originalPrice !== undefined) sanitized.originalPrice = Number(sanitized.originalPrice) || 0;
+    // PostgreSQL list response uses final_price/selling_price/mrp/is_active/featured_category_id.
+    // Normalize to the legacy field names this page renders, falling back for safety.
+    const sellingPrice = sanitized.final_price ?? sanitized.selling_price ?? sanitized.price;
+    const mrp = sanitized.mrp ?? sanitized.originalPrice;
+    sanitized.price = Number(sellingPrice) || 0;
+    sanitized.originalPrice = Number(mrp) || 0;
+    sanitized.isActive = sanitized.is_active !== undefined ? sanitized.is_active !== false : sanitized.isActive !== false;
+    sanitized.featuredCategory = sanitized.featured_category_id ?? sanitized.featuredCategory ?? null;
     if (sanitized.name !== undefined) sanitized.name = String(sanitized.name || '');
     return sanitized;
   };
 
-  const fetchProducts = async (pageNum = 1, catSlug = '') => {
+  const fetchProducts = async (pageNum = 1, catSlug = '', searchQuery = '') => {
     try {
       setLoading(true);
       const params: any = { page: pageNum, limit: PAGE_SIZE };
       if (catSlug) params.categorySlug = catSlug;
+      if (searchQuery) params.search = searchQuery;
       const response = await productsAPI.getAll(params);
       let list: any[] = Array.isArray(response) ? response : (response?.data?.data || response?.data || []);
       setProducts(list.map(sanitizeProduct));
@@ -562,10 +595,11 @@ const Products: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
+    if (!id || id === 'undefined') { alert('Cannot delete: product ID is missing.'); return; }
     if (!confirm('Are you sure you want to delete this product?')) return;
     try {
       await productsAPI.delete(id);
-      fetchProducts(page, selectedCategory);
+      fetchProducts(page, selectedCategory, search);
     } catch (error) {
       alert('Failed to delete product');
     }
@@ -612,6 +646,89 @@ const Products: React.FC = () => {
     return new Map(skuList.filter(p => p.sku && p._id).map(p => [p.sku, p._id]));
   };
 
+  const toSlug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+  // Ensures all attribute names+values from import CSV exist in the DB.
+  // Returns a slug-keyed map: { [attrSlug]: { id, values: { [valueSlug]: valueId } } }
+  const ensureAttributesExist = async (
+    attrNameValuePairs: Array<{ name: string; value: string }>
+  ): Promise<Map<string, { id: string; slug: string; values: Map<string, string> }>> => {
+    const result = new Map<string, { id: string; slug: string; values: Map<string, string> }>();
+
+    // Group by attribute name
+    const byName = new Map<string, Set<string>>();
+    for (const { name, value } of attrNameValuePairs) {
+      if (!name.trim()) continue;
+      if (!byName.has(name)) byName.set(name, new Set());
+      if (value.trim()) byName.get(name)!.add(value.trim());
+    }
+    if (byName.size === 0) return result;
+
+    // Fetch existing attributes
+    const existingAttrs: any[] = await attributesAPI.list().catch(() => []);
+    const attrBySlug = new Map<string, any>(existingAttrs.map((a: any) => [a.slug, a]));
+    const attrByName = new Map<string, any>(existingAttrs.map((a: any) => [a.name.toLowerCase(), a]));
+
+    for (const [name, valueSet] of byName) {
+      const slug = toSlug(name);
+      let attr = attrBySlug.get(slug) || attrByName.get(name.toLowerCase());
+
+      if (!attr) {
+        // Create attribute
+        try {
+          attr = await attributesAPI.create({ name, slug, type: 'select', isActive: true });
+          attr = attr?.data || attr;
+        } catch { /* may already exist due to race */ attr = attrBySlug.get(slug); }
+      }
+      if (!attr?.id && !attr?._id) continue;
+      const attrId = String(attr.id || attr._id);
+      const attrSlug = attr.slug || slug;
+
+      const valuesMap = new Map<string, string>();
+      result.set(attrSlug, { id: attrId, slug: attrSlug, values: valuesMap });
+
+      // Fetch existing values for this attribute
+      const existingVals: any[] = await attributeValuesAPI.getByAttributeSlug(attrSlug).catch(() => []);
+      const valBySlug = new Map<string, any>(existingVals.map((v: any) => [v.slug, v]));
+      const valByName = new Map<string, any>(existingVals.map((v: any) => [v.name.toLowerCase(), v]));
+      for (const v of existingVals) {
+        valuesMap.set(v.slug, v.id || v._id);
+      }
+
+      for (const valueName of valueSet) {
+        const valueSlug = toSlug(valueName);
+        if (!valBySlug.has(valueSlug) && !valByName.has(valueName.toLowerCase())) {
+          try {
+            const newVal = await attributeValuesAPI.create(attrId, { name: valueName, slug: valueSlug, isActive: true });
+            const created = newVal?.data || newVal;
+            if (created?.id || created?._id) valuesMap.set(valueSlug, String(created.id || created._id));
+          } catch { /* ignore duplicate */ }
+        } else {
+          const existing = valBySlug.get(valueSlug) || valByName.get(valueName.toLowerCase());
+          if (existing) valuesMap.set(valueSlug, String(existing.id || existing._id));
+        }
+      }
+    }
+
+    return result;
+  };
+
+  const handleBulkAssignBrand = async () => {
+    if (!bulkBrand || selectedIds.size === 0) return;
+    setBulkAssigning(true);
+    try {
+      const ids = Array.from(selectedIds);
+      await Promise.all(ids.map((id) => productsAPI.update(id, { brand: bulkBrand })));
+      fetchProducts(page, selectedCategory, search);
+      setSelectedIds(new Set());
+      setBulkBrand('');
+    } catch {
+      alert('Failed to assign brand to some products.');
+    } finally {
+      setBulkAssigning(false);
+    }
+  };
+
   const handleImportProducts = async (rows: Record<string, string>[]) => {
     let categories: { _id: string; name: string; slug: string }[] = [];
     let brands: { _id: string; name: string; slug: string }[] = [];
@@ -620,14 +737,55 @@ const Products: React.FC = () => {
       brandsAPI.list().catch(() => []),
       buildSkuMap(),
     ]);
-    categories = (Array.isArray(catRes) ? catRes : (catRes?.data || [])).map((c: any) => ({ _id: String(c._id), name: c.name || '', slug: c.slug || '' }));
-    brands = (Array.isArray(brandRes) ? brandRes : (brandRes?.data || [])).map((b: any) => ({ _id: String(b._id), name: b.name || '', slug: b.slug || '' }));
+    categories = (Array.isArray(catRes) ? catRes : (catRes?.data || [])).map((c: any) => ({ _id: String(c._id || c.id || ''), name: c.name || '', slug: c.slug || '' }));
+    brands = (Array.isArray(brandRes) ? brandRes : (brandRes?.data || [])).map((b: any) => ({ _id: String(b._id || b.id || ''), name: b.name || '', slug: b.slug || '' }));
+
+    // Collect all attribute name/value pairs from variation rows
+    const attrPairs: Array<{ name: string; value: string }> = [];
+    for (const row of rows) {
+      if ((row.post_type || '').toLowerCase() !== 'variation') continue;
+      let ai = 1;
+      while (row[`attribute${ai}_name`] !== undefined) {
+        const n = row[`attribute${ai}_name`]?.trim() || '';
+        const v = row[`attribute${ai}_value`]?.trim() || '';
+        if (n) attrPairs.push({ name: n, value: v });
+        ai++;
+      }
+    }
+
+    // Auto-create missing attributes and values; get slug→id map
+    const attrMap = await ensureAttributesExist(attrPairs);
 
     const toUpsert = wooRowsToProducts(rows, { categories, brands });
+
+    // Remap variation attributes from display names to slugs
+    for (const rec of toUpsert) {
+      if (!rec.variations?.length) continue;
+      rec.variations = rec.variations.filter(Boolean).map((v: any) => {
+        if (!v.attributes || typeof v.attributes !== 'object') return v;
+        const remapped: Record<string, string> = {};
+        for (const [rawName, rawValue] of Object.entries(v.attributes)) {
+          const attrSlug = toSlug(rawName as string);
+          const valSlug = toSlug(rawValue as string);
+          // Use slug form so backend stores consistent keys
+          remapped[attrSlug] = valSlug;
+        }
+        return { ...v, attributes: remapped };
+      });
+      // Set attributeIds on the product from discovered attributes
+      if (attrMap.size > 0) {
+        const attrIds = Array.from(new Set(
+          rec.variations.flatMap((v: any) =>
+            Object.keys(v.attributes || {}).map((slug: string) => attrMap.get(slug)?.id).filter(Boolean)
+          )
+        ));
+        if (attrIds.length) rec.attributeIds = attrIds;
+      }
+    }
+
     let created = 0, updated = 0;
     const errors: string[] = [];
     for (const rec of toUpsert) {
-      if (rec.variations?.length) rec.variations = rec.variations.filter(Boolean);
       const existingId = rec.sku ? skuToMongoId.get(rec.sku) : undefined;
       try {
         if (existingId) { await productsAPI.update(existingId, rec); updated++; }
@@ -818,11 +976,13 @@ const Products: React.FC = () => {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <Button asChild className="bg-primary hover:bg-primary/90 text-primary-foreground">
-            <Link to="/products/new">
-              <FaPlus className="mr-2" /> Add Product
-            </Link>
-          </Button>
+          {canManageProducts && (
+            <Button asChild className="bg-primary hover:bg-primary/90 text-primary-foreground">
+              <Link to="/products/new">
+                <FaPlus className="mr-2" /> Add Product
+              </Link>
+            </Button>
+          )}
         </div>
       </div>
 
@@ -851,17 +1011,51 @@ const Products: React.FC = () => {
 
       {/* Selection bar */}
       {selectedIds.size > 0 && (
-        <div className="flex items-center gap-3 px-4 py-2 bg-primary/10 rounded-md border border-primary/20 text-sm">
+        <div className="flex flex-wrap items-center gap-3 px-4 py-2 bg-primary/10 rounded-md border border-primary/20 text-sm">
           <span className="font-medium text-primary">{selectedIds.size} selected</span>
           <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleExport('selected')} disabled={exporting}>
             <Download className="mr-1 h-3 w-3" /> Export selected
           </Button>
+          {/* Bulk assign brand */}
+          {allBrands.length > 0 && (
+            <div className="flex items-center gap-1">
+              <select
+                value={bulkBrand}
+                onChange={(e) => setBulkBrand(e.target.value)}
+                className="h-7 px-2 text-xs border border-input rounded bg-background"
+              >
+                <option value="">Assign brand…</option>
+                {allBrands.map((b) => <option key={b._id} value={b._id}>{b.name}</option>)}
+              </select>
+              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handleBulkAssignBrand} disabled={!bulkBrand || bulkAssigning}>
+                {bulkAssigning ? 'Assigning…' : 'Assign'}
+              </Button>
+            </div>
+          )}
           <button className="ml-auto text-xs text-muted-foreground hover:text-foreground" onClick={() => setSelectedIds(new Set())}>Clear</button>
         </div>
       )}
 
       {/* Filters */}
       <div className="flex items-center gap-3">
+        <div className="relative w-72 max-w-full">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <input
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Search products by name or SKU… (min 3 letters)"
+            className="w-full pl-8 pr-8 py-2 text-sm border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          {searchInput && (
+            <button
+              type="button"
+              onClick={() => setSearchInput('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
         <select
           value={selectedCategory}
           onChange={(e) => { setSelectedCategory(e.target.value); setPage(1); }}
@@ -895,7 +1089,7 @@ const Products: React.FC = () => {
             {products.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} className="h-24 text-center">
-                  No products found.
+                  {search ? `No products found for "${search}".` : 'No products found.'}
                 </TableCell>
               </TableRow>
             ) : (
@@ -920,8 +1114,8 @@ const Products: React.FC = () => {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <div className="font-medium">₹{product.price.toLocaleString('en-IN')}</div>
-                    {product.originalPrice > 0 && <div className="text-xs text-muted-foreground line-through">₹{product.originalPrice.toLocaleString('en-IN')}</div>}
+                    <div className="font-medium">₹{(product.price ?? 0).toLocaleString('en-IN')}</div>
+                    {(product.originalPrice ?? 0) > 0 && <div className="text-xs text-muted-foreground line-through">₹{product.originalPrice.toLocaleString('en-IN')}</div>}
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
@@ -960,33 +1154,36 @@ const Products: React.FC = () => {
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center justify-end gap-1">
-                      <Button variant="outline" size="sm" asChild>
-                        <Link to={`/products/${product.slug || product._id}/edit`}>
-                          <Pencil className="h-3.5 w-3.5 mr-1" /> Edit
+                      {canManageProducts && (
+                        <Button variant="outline" size="sm" className="h-8 w-8 p-0" asChild title="Edit product">
+                          <Link to={`/products/${product.slug || product._id}/edit`}>
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Link>
+                        </Button>
+                      )}
+                      <Button variant="outline" size="sm" className="h-8 w-8 p-0" asChild title="Manage sections">
+                        <Link to={`/products/${product.slug || product._id}/sections`}>
+                          <FaCog className="h-3.5 w-3.5" />
                         </Link>
                       </Button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                            <span className="sr-only">More actions</span>
-                            <FaEllipsisV className="h-3.5 w-3.5 text-muted-foreground" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem asChild>
-                            <Link to={`/products/${product.slug || product._id}/sections`} className="cursor-pointer">
-                              <FaCog className="mr-2 h-4 w-4" /> Manage Sections
-                            </Link>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem className="cursor-pointer" onClick={() => handleDuplicate(product._id)} disabled={duplicatingId === product._id}>
-                            <FaCopy className="mr-2 h-4 w-4" /> {duplicatingId === product._id ? 'Duplicating...' : 'Duplicate'}
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem className="cursor-pointer text-destructive focus:text-destructive" onClick={() => handleDelete(product._id)}>
-                            <FaTrash className="mr-2 h-4 w-4" /> Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                      {canManageProducts && (
+                        <Button
+                          variant="outline" size="sm" className="h-8 w-8 p-0" title="Duplicate product"
+                          onClick={() => handleDuplicate(product._id)} disabled={duplicatingId === product._id}
+                        >
+                          {duplicatingId === product._id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FaCopy className="h-3.5 w-3.5" />}
+                        </Button>
+                      )}
+                      {isAdmin && (
+                        <Button
+                          variant="outline" size="sm"
+                          className="h-8 w-8 p-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          title="Delete product"
+                          onClick={() => handleDelete(product._id)}
+                        >
+                          <FaTrash className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>

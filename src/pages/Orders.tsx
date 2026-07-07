@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import { ordersAPI, shippingAPI } from '../services/api';
 import { format } from 'date-fns';
 import { FaTruck, FaWhatsapp, FaEye } from 'react-icons/fa';
@@ -12,6 +13,7 @@ import { useToast } from "@/hooks/use-toast"; // Assuming useToast is available,
 import { FaCheckCircle } from 'react-icons/fa';
 
 const Orders: React.FC = () => {
+  const { canAccess } = useAuth();
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
@@ -236,7 +238,7 @@ const Orders: React.FC = () => {
                               )}
                             </Button>
                           )}
-                          {(order.orderStatus === 'confirmed' || order.orderStatus === 'processing') && (
+                          {canAccess('shipping') && (order.orderStatus === 'confirmed' || order.orderStatus === 'processing') && (
                             <Button
                               variant="default"
                               size="sm"

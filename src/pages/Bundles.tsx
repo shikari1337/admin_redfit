@@ -65,49 +65,26 @@ const Bundles: React.FC = () => {
    */
   const normalizeBundleId = (id: any): string | null => {
     if (!id) return null;
-    
-    // Already a string ID
-    if (typeof id === 'string' && id.length === 24 && /^[0-9a-fA-F]{24}$/.test(id)) {
-      return id;
+    if (typeof id === 'string') {
+      const t = id.trim();
+      if (t.length === 24 && /^[0-9a-fA-F]{24}$/.test(t)) return t;
+      if (t.length === 36 && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/i.test(t)) return t;
+      if (t.length === 32 && /^[0-9a-fA-F]{32}$/.test(t)) return t;
     }
-    
-    // Object with _id property
-    if (id && typeof id === 'object' && id._id) {
-      return normalizeBundleId(id._id);
-    }
-    
-    // Buffer object (the problematic case)
-    if (id && typeof id === 'object' && id.buffer) {
-      try {
-        let bufferArray: number[];
-        if (Array.isArray(id.buffer)) {
-          bufferArray = id.buffer;
-        } else if (typeof id.buffer === 'object') {
-          // Handle object with numeric keys like { "0": 105, "1": 36, ... }
+    if (id && typeof id === 'object') {
+      if (id._id) return normalizeBundleId(id._id);
+      if (id.id) return normalizeBundleId(id.id);
+      if (id.buffer) {
+        try {
           const keys = Object.keys(id.buffer).map(k => Number(k)).sort((a, b) => a - b);
-          bufferArray = keys.map(k => Number(id.buffer[k]));
-        } else {
-          return null;
-        }
-        if (bufferArray.length === 12) {
-          // Convert buffer to hex string (MongoDB ObjectId format)
-          const hex = bufferArray.map(b => b.toString(16).padStart(2, '0')).join('');
-          if (hex.length === 24 && /^[0-9a-fA-F]{24}$/.test(hex)) {
-            return hex;
-          }
-        }
-      } catch (error) {
-        console.error('Failed to convert buffer to ObjectId:', error);
-        return null;
+          const hex = keys.map(k => Number(id.buffer[k]).toString(16).padStart(2, '0')).join('');
+          if (hex.length === 24 && /^[0-9a-fA-F]{24}$/.test(hex)) return hex;
+        } catch { return null; }
       }
     }
-    
-    // Try to convert to string as last resort
     const str = String(id).trim();
-    if (str.length === 24 && /^[0-9a-fA-F]{24}$/.test(str)) {
-      return str;
-    }
-    
+    if (str.length === 24 && /^[0-9a-fA-F]{24}$/.test(str)) return str;
+    if (str.length === 36 && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/i.test(str)) return str;
     return null;
   };
 

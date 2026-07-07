@@ -65,7 +65,12 @@ const CouponForm: React.FC = () => {
         validFrom,
         validUntil: validUntil || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         applicableProducts: coupon.applicableProducts?.map((id: any) => id.toString()) || [],
-        clubbedWithOtherCoupons: coupon.clubbedWithOtherCoupons ?? false,
+        minPurchase: coupon.minPurchase ?? coupon.min_purchase ?? undefined,
+        maxDiscount: coupon.maxDiscount ?? coupon.max_discount ?? undefined,
+        usageLimit: coupon.usageLimit ?? coupon.usage_limit ?? undefined,
+        userLimit: coupon.userLimit ?? coupon.user_limit ?? undefined,
+        isActive: coupon.isActive ?? coupon.is_active ?? true,
+        clubbedWithOtherCoupons: coupon.clubbedWithOtherCoupons ?? coupon.clubbed_with_others ?? false,
       });
     } catch (err: any) {
       setError(err.message || 'Failed to fetch coupon');

@@ -31,50 +31,33 @@ const ProductTags: React.FC<ProductTagsProps> = ({
    * Normalize tag ID to string (defensive programming)
    * Handles buffer objects, ObjectId instances, and string IDs
    */
+  // Accepts PostgreSQL UUIDs (36-char), legacy Mongo ObjectIds (24-hex), objects
+  // with _id/id, and Mongo buffer objects. Returns null only for empties.
   const normalizeTagId = (id: any): string | null => {
     if (!id) return null;
-    
-    // Already a string ID
-    if (typeof id === 'string' && id.length === 24 && /^[0-9a-fA-F]{24}$/.test(id)) {
-      return id;
+
+    if (typeof id === 'string') {
+      const t = id.trim();
+      return t.length ? t : null;
     }
-    
-    // Buffer object
-    if (id && typeof id === 'object' && id.buffer) {
-      try {
-        let bufferArray: number[];
-        if (Array.isArray(id.buffer)) {
-          bufferArray = id.buffer;
-        } else if (typeof id.buffer === 'object') {
-          const keys = Object.keys(id.buffer).map(k => Number(k)).sort((a, b) => a - b);
-          bufferArray = keys.map(k => Number(id.buffer[k]));
-        } else {
-          return null;
-        }
-        if (bufferArray.length === 12) {
-          const hex = bufferArray.map(b => b.toString(16).padStart(2, '0')).join('');
-          if (hex.length === 24 && /^[0-9a-fA-F]{24}$/.test(hex)) {
-            return hex;
+
+    if (typeof id === 'object') {
+      if (id._id) return normalizeTagId(id._id);
+      if (id.id) return normalizeTagId(id.id);
+      if (id.buffer) {
+        try {
+          const keys = Object.keys(id.buffer).map(Number).sort((a, b) => a - b);
+          const arr = keys.map(k => Number(id.buffer[k]));
+          if (arr.length === 12) {
+            const hex = arr.map(b => b.toString(16).padStart(2, '0')).join('');
+            if (/^[0-9a-fA-F]{24}$/.test(hex)) return hex;
           }
-        }
-      } catch (error) {
-        console.error('Failed to convert buffer to ObjectId:', error);
-        return null;
+        } catch { return null; }
       }
     }
-    
-    // Object with _id property
-    if (id && typeof id === 'object' && id._id) {
-      return normalizeTagId(id._id);
-    }
-    
-    // Try to convert to string as last resort
+
     const str = String(id).trim();
-    if (str.length === 24 && /^[0-9a-fA-F]{24}$/.test(str)) {
-      return str;
-    }
-    
-    return null;
+    return str && str !== '[object Object]' ? str : null;
   };
 
   // Check if a tag is selected (by ID or name)

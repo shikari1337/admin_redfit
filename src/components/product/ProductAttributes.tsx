@@ -38,6 +38,8 @@ const ProductAttributes: React.FC<ProductAttributesProps> = ({
   const [attributeValuesMap, setAttributeValuesMap] = useState<Record<string, AttributeValue[]>>({});
   const [expandedAttributes, setExpandedAttributes] = useState<Set<string>>(new Set());
   const [loadingAttributes, setLoadingAttributes] = useState(true);
+  const [newValueInput, setNewValueInput] = useState<Record<string, string>>({});
+  const [savingValueFor, setSavingValueFor] = useState<string | null>(null);
 
   useEffect(() => {
     loadAttributes();
@@ -111,6 +113,40 @@ const ProductAttributes: React.FC<ProductAttributesProps> = ({
     });
   };
 
+  const slugify = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+  const handleAddValue = async (attr: Attribute) => {
+    const raw = (newValueInput[attr._id] || '').trim();
+    if (!raw) return;
+    setSavingValueFor(attr._id);
+    try {
+      const created: any = await attributeValuesAPI.create(attr._id, { name: raw, slug: slugify(raw), value: raw });
+      if (created) {
+        const nv: AttributeValue = {
+          _id: created._id || created.id,
+          name: created.name || raw,
+          slug: created.slug || slugify(raw),
+          attributeId: attr._id,
+          value: created.value,
+          imageUrl: created.imageUrl || created.image_url,
+        };
+        setAttributeValuesMap(prev => ({ ...prev, [attr._id]: [...(prev[attr._id] || []), nv] }));
+        setNewValueInput(prev => ({ ...prev, [attr._id]: '' }));
+        // auto-select the new value
+        if (onAttributeValuesChange && nv._id) {
+          onAttributeValuesChange({
+            ...selectedAttributeValues,
+            [attr._id]: [...(selectedAttributeValues[attr._id] || []), nv._id],
+          });
+        }
+      }
+    } catch (e) {
+      console.error('Failed to create attribute value', e);
+    } finally {
+      setSavingValueFor(null);
+    }
+  };
+
   const toggleExpand = (attributeId: string) => {
     const newSet = new Set(expandedAttributes);
     if (newSet.has(attributeId)) {
@@ -178,7 +214,7 @@ const ProductAttributes: React.FC<ProductAttributesProps> = ({
                       )}
                     </div>
                   </div>
-                  {isSelected && values.length > 0 && (
+                  {isSelected && (
                     <button
                       type="button"
                       onClick={() => toggleExpand(attr._id)}
@@ -190,10 +226,12 @@ const ProductAttributes: React.FC<ProductAttributesProps> = ({
                 </div>
                 
                 {/* Value Selection - Only show when attribute is selected */}
-                {isSelected && isExpanded && values.length > 0 && (
+                {isSelected && isExpanded && (
                   <div className="px-3 pb-3 pt-2 bg-gray-50 border-t border-gray-200">
                     <div className="text-xs font-medium text-gray-700 mb-2">
-                      Select Values ({selectedValues.length} of {values.length} selected):
+                      {values.length > 0
+                        ? `Select Values (${selectedValues.length} of ${values.length} selected):`
+                        : 'No values yet — add one below:'}
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {values.map(value => {
@@ -226,6 +264,24 @@ const ProductAttributes: React.FC<ProductAttributesProps> = ({
                           </button>
                         );
                       })}
+                    </div>
+                    {/* Inline add-value */}
+                    <div className="flex items-center gap-2 mt-3">
+                      <input
+                        value={newValueInput[attr._id] || ''}
+                        onChange={e => setNewValueInput(prev => ({ ...prev, [attr._id]: e.target.value }))}
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddValue(attr); } }}
+                        placeholder={`New ${attr.name} value…`}
+                        className="flex-1 px-2.5 py-1.5 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleAddValue(attr)}
+                        disabled={savingValueFor === attr._id || !(newValueInput[attr._id] || '').trim()}
+                        className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40"
+                      >
+                        {savingValueFor === attr._id ? 'Adding…' : '+ Add'}
+                      </button>
                     </div>
                   </div>
                 )}

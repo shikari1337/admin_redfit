@@ -54,7 +54,7 @@ const ReturnPolicies: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.get('/return-policies');
+      const res = await api.get('/tax/return-policies');
       const data = res.data;
       if (Array.isArray(data)) setPolicies(data);
       else if (Array.isArray(data?.data)) setPolicies(data.data);
@@ -117,9 +117,9 @@ const ReturnPolicies: React.FC = () => {
 
     try {
       if (editId) {
-        await api.put(`/return-policies/${editId}`, payload);
+        await api.put(`/tax/return-policies/${editId}`, payload);
       } else {
-        await api.post('/return-policies', payload);
+        await api.post('/tax/return-policies', payload);
       }
       setShowModal(false);
       fetchPolicies();
@@ -133,7 +133,7 @@ const ReturnPolicies: React.FC = () => {
   const handleDelete = async (policy: ReturnPolicy) => {
     if (!confirm(`Delete return policy "${policy.name}"?`)) return;
     try {
-      await api.delete(`/return-policies/${policy.id}`);
+      await api.delete(`/tax/return-policies/${policy.id}`);
       fetchPolicies();
     } catch (err: any) {
       alert(err?.response?.data?.message || 'Failed to delete policy');

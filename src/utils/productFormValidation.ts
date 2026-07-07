@@ -59,10 +59,7 @@ export const validateProductForm = (
     errors.originalPrice = 'Original price must be greater than or equal to price';
   }
 
-  // Images validation
-  if (formData.images.length === 0) {
-    errors.images = 'At least one image is required';
-  }
+  // Images are optional — products can be created without images
 
   // Variations validation (optional - products can be simple without variations)
   // No validation needed - products can exist without variations

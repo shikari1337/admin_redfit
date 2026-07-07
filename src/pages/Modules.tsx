@@ -18,14 +18,15 @@ interface RegistryModule {
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
-  commerce: 'Commerce',
-  marketing: 'Marketing',
-  crm: 'CRM & Leads',
-  content: 'Content & Pages',
-  analytics: 'Analytics',
-  b2b: 'B2B',
-  shipping: 'Shipping & Logistics',
-  settings: 'Settings & Configuration',
+  core:        'Core',
+  commerce:    'Commerce',
+  engagement:  'Engagement',
+  marketing:   'Marketing',
+  insights:    'Insights & Analytics',
+  ai:          'AI & Automation',
+  advanced:    'Advanced',
+  operations:  'Operations',
+  catalog:     'Catalog',
 };
 
 export default function Modules() {

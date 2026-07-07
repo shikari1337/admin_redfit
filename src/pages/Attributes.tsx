@@ -76,75 +76,32 @@ const Attributes: React.FC = () => {
   const [uploadingImage, setUploadingImage] = useState(false);
   const [uploadingAttributeImage, setUploadingAttributeImage] = useState(false);
 
-  // Normalize ID to string (handles MongoDB ObjectId objects)
-  // Must be defined before any functions that use it
-  // CRITICAL: This must return null for invalid IDs, not a fallback string
+  // Normalize ID to string — accepts MongoDB ObjectId (24 hex) and PostgreSQL UUID (36 chars)
   const normalizeId = (id: any): string | null => {
     if (!id) return null;
-    
-    // Already a valid string ID
     if (typeof id === 'string') {
-      const trimmed = id.trim();
-      if (trimmed.length === 24 && /^[0-9a-fA-F]{24}$/.test(trimmed)) {
-        return trimmed;
-      }
-      return null; // Invalid string format
+      const t = id.trim();
+      if (t.length === 24 && /^[0-9a-fA-F]{24}$/.test(t)) return t;
+      if (t.length === 36 && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/i.test(t)) return t;
+      if (t.length === 32 && /^[0-9a-fA-F]{32}$/.test(t)) return t;
+      return null;
     }
-    
-    // Object with _id property - recurse
-    if (typeof id === 'object' && id._id) {
-      return normalizeId(id._id);
-    }
-    
-    // Object with toString method
-    if (typeof id === 'object' && id.toString && typeof id.toString === 'function') {
-      try {
-        const str = id.toString();
-        if (str && str !== '[object Object]' && typeof str === 'string') {
-          const trimmed = str.trim();
-          if (trimmed.length === 24 && /^[0-9a-fA-F]{24}$/.test(trimmed)) {
-            return trimmed;
-          }
-        }
-      } catch (e) {
-        // Ignore toString errors
-      }
-    }
-    
-    // Buffer object handling
-    if (typeof id === 'object' && id.buffer) {
-      try {
-        let bufferArray: number[];
-        if (Array.isArray(id.buffer)) {
-          bufferArray = id.buffer;
-        } else if (typeof id.buffer === 'object') {
+    if (typeof id === 'object') {
+      if (id._id) return normalizeId(id._id);
+      if (id.id) return normalizeId(id.id);
+      // Buffer (serialized MongoDB ObjectId)
+      if (id.buffer) {
+        try {
           const keys = Object.keys(id.buffer).map(k => Number(k)).sort((a, b) => a - b);
-          bufferArray = keys.map(k => Number(id.buffer[k]));
-        } else {
-          return null;
-        }
-        if (bufferArray.length === 12) {
-          const hex = bufferArray.map(b => b.toString(16).padStart(2, '0')).join('');
-          if (hex.length === 24 && /^[0-9a-fA-F]{24}$/.test(hex)) {
-            return hex;
-          }
-        }
-      } catch (error) {
-        // Ignore buffer conversion errors
+          const hex = keys.map(k => Number(id.buffer[k]).toString(16).padStart(2, '0')).join('');
+          if (hex.length === 24 && /^[0-9a-fA-F]{24}$/.test(hex)) return hex;
+        } catch { return null; }
       }
     }
-    
-    // Last resort: try to convert to string
-    try {
-      const str = String(id).trim();
-      if (str.length === 24 && /^[0-9a-fA-F]{24}$/.test(str)) {
-        return str;
-      }
-    } catch (e) {
-      // Ignore conversion errors
-    }
-    
-    return null; // Invalid ID
+    const s = String(id).trim();
+    if (s.length === 24 && /^[0-9a-fA-F]{24}$/.test(s)) return s;
+    if (s.length === 36 && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/i.test(s)) return s;
+    return null;
   };
 
   // Track if form has unsaved changes

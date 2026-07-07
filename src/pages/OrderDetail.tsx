@@ -5,6 +5,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import { ordersAPI, shippingAPI, paymentsAPI, shipmentsAPI } from '../services/api';
 import { format } from 'date-fns';
 import { FaCheckCircle, FaEnvelope, FaFileInvoice, FaCreditCard, FaTruck, FaArrowLeft } from 'react-icons/fa';
@@ -36,6 +37,7 @@ const OrderDetail: React.FC = () => {
     navigate('/orders');
     return null;
   }
+  const { canAccess } = useAuth();
   const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
@@ -511,7 +513,7 @@ const OrderDetail: React.FC = () => {
               </Button>
             )}
 
-            {['confirmed', 'processing', 'shipped'].includes(order.orderStatus) && (
+            {canAccess('shipping') && ['confirmed', 'processing', 'shipped'].includes(order.orderStatus) && (
               <Button variant="default" size="sm" className="h-10 bg-blue-600 hover:bg-blue-700"
                 onClick={() => setShowShipmentModal(true)} disabled={sendingToShiprocket}>
                 <FaTruck className="mr-2 h-3.5 w-3.5" /> {sendingToShiprocket ? 'Creating...' : order.shippingProvider ? 'Reship Order' : 'Create Shipment'}
@@ -705,26 +707,28 @@ const OrderDetail: React.FC = () => {
         </div>
       </div>
 
-      <ShipmentCreationModal
-        isOpen={showShipmentModal}
-        onClose={() => setShowShipmentModal(false)}
-        onSubmit={handleCreateShipment}
-        loading={sendingToShiprocket}
-        selectedShippingProvider={selectedShippingProvider}
-        onShippingProviderChange={setSelectedShippingProvider}
-        selectedWarehouseId={selectedWarehouseId}
-        onWarehouseChange={setSelectedWarehouseId}
-        warehouses={warehouses}
-        shippingProviders={shippingProviders}
-        manualTrackingId={manualTrackingId}
-        manualCarrierName={manualCarrierName}
-        manualTrackingUrl={manualTrackingUrl}
-        onManualTrackingIdChange={setManualTrackingId}
-        onManualCarrierNameChange={setManualCarrierName}
-        onManualTrackingUrlChange={setManualTrackingUrl}
-        orderId={id!}
-        orderItems={order?.items || []}
-      />
+      {canAccess('shipping') && (
+        <ShipmentCreationModal
+          isOpen={showShipmentModal}
+          onClose={() => setShowShipmentModal(false)}
+          onSubmit={handleCreateShipment}
+          loading={sendingToShiprocket}
+          selectedShippingProvider={selectedShippingProvider}
+          onShippingProviderChange={setSelectedShippingProvider}
+          selectedWarehouseId={selectedWarehouseId}
+          onWarehouseChange={setSelectedWarehouseId}
+          warehouses={warehouses}
+          shippingProviders={shippingProviders}
+          manualTrackingId={manualTrackingId}
+          manualCarrierName={manualCarrierName}
+          manualTrackingUrl={manualTrackingUrl}
+          onManualTrackingIdChange={setManualTrackingId}
+          onManualCarrierNameChange={setManualCarrierName}
+          onManualTrackingUrlChange={setManualTrackingUrl}
+          orderId={id!}
+          orderItems={order?.items || []}
+        />
+      )}
 
       <PaymentVerificationModal
         isOpen={showPaymentVerifyModal}
