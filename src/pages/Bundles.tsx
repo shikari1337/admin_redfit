@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { FaPlus, FaSearch, FaToggleOn, FaToggleOff, FaBoxOpen, FaEdit, FaTrash, FaTimes, FaSave } from 'react-icons/fa';
 import { bundlesAPI, productsAPI, productQuantityBundlesAPI } from '../services/api';
 
@@ -9,21 +9,10 @@ interface BundleListItem {
   slug: string;
   description?: string;
   isActive: boolean;
-  items: Array<{
-    product: {
-      _id: string;
-      name: string;
-      slug: string;
-      images?: string[];
-    } | string;
-  }>;
-  options: Array<{
-    title: string;
-    quantity: number;
-    price: number;
-    discountLabel?: string;
-  }>;
-  updatedAt: string;
+  price?: number;
+  compareAtPrice?: number;
+  itemCount?: number;
+  updatedAt?: string;
 }
 
 interface QuantityBasedBundle {
@@ -89,35 +78,27 @@ const Bundles: React.FC = () => {
   };
 
   /**
-   * CRITICAL FIX: Sanitize bundle to ensure all IDs are strings
+   * Map a PG bundle row (GET /product-bundles returns pb.* + item_count) to the
+   * list shape. The list endpoint is lightweight — it returns a COUNT, not the
+   * items array, and there is no `options` concept in PostgreSQL.
    */
   const sanitizeBundle = (bundle: any): BundleListItem | null => {
     if (!bundle) return null;
-    
-    const normalizedId = normalizeBundleId(bundle._id);
+    const normalizedId = normalizeBundleId(bundle._id ?? bundle.id);
     if (!normalizedId) {
       console.warn('⚠️ Invalid bundle ID, skipping:', bundle);
       return null;
     }
-    
-    // Sanitize items - ensure product IDs are strings
-    const sanitizedItems = (bundle.items || []).map((item: any) => {
-      const productId = normalizeBundleId(item.product?._id || item.product);
-      return {
-        product: productId ? {
-          _id: productId,
-          name: item.product?.name || '',
-          slug: item.product?.slug || '',
-          images: item.product?.images || [],
-        } : (typeof item.product === 'string' ? item.product : ''),
-        swatchImage: item.swatchImage || '',
-      };
-    });
-    
     return {
-      ...bundle,
       _id: normalizedId,
-      items: sanitizedItems,
+      name: bundle.name || '',
+      slug: bundle.slug || '',
+      description: bundle.description || '',
+      isActive: (bundle.isActive ?? bundle.is_active) !== false,
+      price: Number(bundle.price ?? 0),
+      compareAtPrice: bundle.compareAtPrice ?? bundle.compare_at_price ?? undefined,
+      itemCount: Number(bundle.itemCount ?? bundle.item_count ?? 0),
+      updatedAt: bundle.updatedAt ?? bundle.updated_at,
     };
   };
 
@@ -475,7 +456,7 @@ const Bundles: React.FC = () => {
                       Products
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Options
+                      Price
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Status
@@ -537,57 +518,17 @@ const Bundles: React.FC = () => {
                         )}
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-700">
-                        <div className="flex flex-wrap gap-2">
-                          {bundle.items.map((item, idx) => {
-                            const product =
-                              typeof item.product === 'string' ? null : item.product;
-                            return (
-                              <Link
-                                key={`${bundle._id}-item-${idx}`}
-                                to={`/products/${product?.slug || (product?._id ? String(product._id) : '')}/edit`}
-                                className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-full hover:bg-gray-200 transition"
-                                onClick={(e) => {
-                                  if (!product || !product._id) {
-                                    e.preventDefault();
-                                  }
-                                }}
-                              >
-                                <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-white border border-gray-200 overflow-hidden">
-                                  {product?.images?.[0] ? (
-                                    <img
-                                      src={product.images[0]}
-                                      alt={product.name}
-                                      className="w-full h-full object-cover"
-                                    />
-                                  ) : (
-                                    <span className="text-xs text-gray-500">#{idx + 1}</span>
-                                  )}
-                                </span>
-                                <span className="text-sm font-medium">
-                                  {product?.name ?? 'Product'}
-                                </span>
-                              </Link>
-                            );
-                          })}
-                        </div>
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-sm font-medium">
+                          <FaBoxOpen className="text-gray-400" />
+                          {bundle.itemCount ?? 0} {bundle.itemCount === 1 ? 'product' : 'products'}
+                        </span>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="space-y-1">
-                          {bundle.options.map((option, idx) => (
-                            <div key={`${bundle._id}-option-${idx}`} className="text-sm text-gray-700">
-                              <span className="font-medium">{option.title}</span>{' '}
-                              <span className="text-gray-500">
-                                · choose {option.quantity}{' '}
-                                {option.quantity === 2 ? 'products' : 'products'}
-                              </span>{' '}
-                              <span className="text-gray-900 font-semibold">₹{option.price}</span>
-                              {option.discountLabel && (
-                                <span className="ml-2 inline-flex items-center px-2 py-0.5 text-xs bg-red-100 text-red-700 rounded-full">
-                                  {option.discountLabel}
-                                </span>
-                              )}
-                            </div>
-                          ))}
+                        <div className="text-sm">
+                          <span className="font-semibold text-gray-900">₹{Number(bundle.price ?? 0).toLocaleString('en-IN')}</span>
+                          {bundle.compareAtPrice != null && Number(bundle.compareAtPrice) > Number(bundle.price ?? 0) && (
+                            <span className="ml-2 text-xs text-gray-400 line-through">₹{Number(bundle.compareAtPrice).toLocaleString('en-IN')}</span>
+                          )}
                         </div>
                       </td>
                       <td className="px-6 py-4">

@@ -3,6 +3,8 @@ import {
   FaPlus, FaTrash, FaChevronDown, FaChevronUp,
   FaArrowUp, FaArrowDown, FaEdit, FaTimes,
 } from 'react-icons/fa';
+import IconPicker from '../IconPicker';
+import ImageInputWithActions from '../common/ImageInputWithActions';
 
 interface LookupItem { _id: string; name: string; slug: string; }
 interface AttributeValue { name: string; slug: string; }
@@ -14,6 +16,7 @@ interface MegaLink {
   target: string;
   url?: string;
   icon?: string;
+  image?: string;
 }
 
 interface MegaColumn {
@@ -418,6 +421,12 @@ function LinkRow({
                 className="flex-1 text-xs border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:border-blue-400" />
             )}
           </div>
+
+          {/* Icon + image — rendered in the storefront mega menu (image takes priority over icon) */}
+          <div className="pt-1.5 border-t border-gray-100 space-y-2">
+            <IconPicker value={link.icon || ''} onChange={(id) => onChange({ ...link, icon: id })} label="Icon (optional)" />
+            <ImageInputWithActions value={link.image || ''} onChange={(url) => onChange({ ...link, image: url })} label="Image (optional — shown instead of the icon)" />
+          </div>
         </div>
       )}
     </div>
@@ -572,16 +581,39 @@ const MegaMenuEditor: React.FC<MegaMenuEditorProps> = ({
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Featured Image URL</label>
-              <input
-                type="text"
-                value={data.featuredImage}
-                onChange={e => setField('featuredImage', e.target.value)}
-                placeholder="https://…"
-                className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-blue-400"
+              <ImageInputWithActions
+                value={data.featuredImage || ''}
+                onChange={(url) => setField('featuredImage', url)}
+                label="Featured Image (optional)"
               />
             </div>
           </div>
+
+          {/* Featured image link + alt (only relevant when an image is set) */}
+          {data.featuredImage && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Featured Image Link</label>
+                <input
+                  type="text"
+                  value={data.featuredImageLink || ''}
+                  onChange={e => setField('featuredImageLink', e.target.value)}
+                  placeholder="/category/... or https://…"
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-blue-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Featured Image Alt</label>
+                <input
+                  type="text"
+                  value={data.featuredImageAlt || ''}
+                  onChange={e => setField('featuredImageAlt', e.target.value)}
+                  placeholder="Describe the image"
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-blue-400"
+                />
+              </div>
+            </div>
+          )}
 
           {/* Columns */}
           <div>

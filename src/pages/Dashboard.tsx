@@ -50,15 +50,23 @@ const Dashboard: React.FC = () => {
         }
 
         const revenue = orders.reduce((sum: number, order: any) => {
-          const total = order.total || order.totalAmount || 0;
-          const paymentStatus = order.paymentStatus || order.payment?.status || 'pending';
-          return sum + (paymentStatus === 'completed' ? total : 0);
+          const total = Number(order.total ?? order.totalAmount ?? 0);
+          // PG columns are snake_case (payment_status / order_status). Count paid orders,
+          // plus delivered/completed COD orders whose payment lands on delivery.
+          const paymentStatus = order.payment_status ?? order.paymentStatus ?? 'pending';
+          const orderStatus = order.order_status ?? order.orderStatus ?? '';
+          const isRealised = paymentStatus === 'completed' || ['delivered', 'completed'].includes(orderStatus);
+          return sum + (isRealised ? total : 0);
         }, 0);
 
         const pending = orders.filter((order: any) => {
-          const status = order.orderStatus || order.status || 'pending';
-          return status === 'pending' || status === 'confirmed';
+          const status = order.order_status ?? order.orderStatus ?? 'pending';
+          return status === 'pending' || status === 'confirmed' || status === 'processing';
         }).length;
+
+        // Real totals come from the paginated count metadata, not the page length.
+        const totalOrders = (ordersRes as any)?.total ?? (ordersRes as any)?.pagination?.total ?? orders.length;
+        const totalProducts = (productsRes as any)?.total ?? (productsRes as any)?.pagination?.total ?? products.length;
 
         // Analytics Data
         const analyticsData: any = analyticsRes?.data || analyticsRes || {};
@@ -68,8 +76,8 @@ const Dashboard: React.FC = () => {
         const topViewedProducts = analyticsData.topViewedProducts || [];
 
         setStats({
-          totalProducts: products.length,
-          totalOrders: orders.length,
+          totalProducts,
+          totalOrders,
           totalRevenue: revenue,
           pendingOrders: pending,
           pageViews,

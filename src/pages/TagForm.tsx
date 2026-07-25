@@ -34,7 +34,7 @@ const TagForm: React.FC = () => {
         name: tag.name || '',
         slug: tag.slug || '',
         description: tag.description || '',
-        isActive: tag.isActive !== false,
+        isActive: (tag.is_active ?? tag.isActive) !== false,
       });
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to fetch tag');

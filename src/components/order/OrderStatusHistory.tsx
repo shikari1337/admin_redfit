@@ -1,14 +1,17 @@
 import React from 'react';
-import { format } from 'date-fns';
 import StatusBadge from './StatusBadge';
+import { formatPicked, pickDate, HISTORY_DATE_KEYS } from '../../utils/date';
 
 interface StatusHistoryEntry {
   status: string;
-  changedAt: string | Date;
+  /** Entries have drifted between changed_at / timestamp — read whichever exists. */
+  changedAt?: string | Date;
+  changed_at?: string | Date;
+  timestamp?: string | Date;
   changedBy?: {
     name?: string;
     email?: string;
-  };
+  } | string;
   notes?: string;
   location?: string;
 }
@@ -25,30 +28,40 @@ const OrderStatusHistory: React.FC<OrderStatusHistoryProps> = ({ statusHistory }
         <div className="space-y-3">
           {statusHistory
             .slice()
-            .reverse()
-            .map((entry, index) => (
-              <div key={index} className="border-l-4 border-red-500 pl-4 pb-3">
-                <div className="flex items-center justify-between">
-                  <StatusBadge status={entry.status} type="order" />
-                  <span className="text-xs text-gray-500">
-                    {format(new Date(entry.changedAt), 'MMM dd, yyyy HH:mm')}
-                  </span>
+            // Newest first, ordering by whichever date field the entry carries.
+            .sort((a, b) => {
+              const da = pickDate(a, ...HISTORY_DATE_KEYS)?.getTime() ?? 0;
+              const db = pickDate(b, ...HISTORY_DATE_KEYS)?.getTime() ?? 0;
+              return db - da;
+            })
+            .map((entry, index) => {
+              const changedBy = typeof entry.changedBy === 'string'
+                ? entry.changedBy
+                : entry.changedBy?.name || entry.changedBy?.email;
+              return (
+                <div key={index} className="border-l-4 border-red-500 pl-4 pb-3">
+                  <div className="flex items-center justify-between">
+                    <StatusBadge status={entry.status} type="order" />
+                    <span className="text-xs text-gray-500">
+                      {formatPicked(entry, HISTORY_DATE_KEYS)}
+                    </span>
+                  </div>
+                  {entry.location && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      Location: {entry.location}
+                    </p>
+                  )}
+                  {changedBy && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      Changed by: {changedBy}
+                    </p>
+                  )}
+                  {entry.notes && (
+                    <p className="text-sm text-gray-600 mt-1">{entry.notes}</p>
+                  )}
                 </div>
-                {entry.location && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    Location: {entry.location}
-                  </p>
-                )}
-                {entry.changedBy && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    Changed by: {entry.changedBy.name || entry.changedBy.email || 'Admin'}
-                  </p>
-                )}
-                {entry.notes && (
-                  <p className="text-sm text-gray-600 mt-1">{entry.notes}</p>
-                )}
-              </div>
-            ))}
+              );
+            })}
         </div>
       ) : (
         <div className="text-center py-8 text-gray-500">

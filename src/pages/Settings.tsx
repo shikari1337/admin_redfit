@@ -5,7 +5,6 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
-  Phone,
   CreditCard,
   MessageSquare,
   Settings as SettingsIcon,
@@ -22,6 +21,9 @@ import {
   RefreshCw,
   CheckCircle,
   AlertCircle,
+  Hash,
+  Globe,
+  Inbox,
 } from 'lucide-react';
 import { getTenantApiKey, setTenantApiKey } from '@/services/api';
 
@@ -29,6 +31,12 @@ const settingsSections = [
   {
     heading: 'Store',
     items: [
+      {
+        title: 'Store Configuration',
+        description: 'Business identity, contact, address, country & currencies, regional settings, social links, business hours — used across the storefront',
+        icon: Globe,
+        path: '/settings/store-config',
+      },
       {
         title: 'Staff & Permissions',
         description: 'Manage staff accounts and their access permissions',
@@ -40,6 +48,12 @@ const settingsSections = [
         description: 'Manage your plan, subscription, and invoices',
         icon: Receipt,
         path: '/settings/billing',
+      },
+      {
+        title: 'Setup Wizard',
+        description: 'Re-run the guided store setup: identity, payments, shipping, and launch checklist',
+        icon: SettingsIcon,
+        path: '/setup',
       },
     ],
   },
@@ -76,6 +90,12 @@ const settingsSections = [
         icon: CreditCard,
         path: '/settings/payment-discount',
       },
+      {
+        title: 'Store Wallet',
+        description: 'Prepaid wallet balance, recharges, and the transaction ledger for platform services',
+        icon: CreditCard,
+        path: '/settings/wallet',
+      },
     ],
   },
   {
@@ -99,6 +119,42 @@ const settingsSections = [
         description: 'Define box sizes used when calculating shipping dimensions',
         icon: Box,
         path: '/settings/packages',
+      },
+    ],
+  },
+  {
+    heading: 'Orders',
+    items: [
+      {
+        title: 'Invoice',
+        description: 'Legal details, GST registrations, bank details, numbering and design for tax invoices',
+        icon: FileText,
+        path: '/settings/invoice',
+      },
+      {
+        title: 'Order Numbering',
+        description: 'Prefix, suffix and format for order numbers — retail/bulk and B2B numbered separately',
+        icon: Hash,
+        path: '/settings/order-numbering',
+      },
+      {
+        title: 'Return Policies',
+        description: 'Define return windows, conditions, and refund rules assignable to products',
+        icon: RefreshCw,
+        path: '/settings/return-policies',
+        module: 'returns',
+      },
+    ],
+  },
+  {
+    heading: 'Catalog',
+    items: [
+      {
+        title: 'Manufacturers',
+        description: 'Manage manufacturer profiles, licenses, and country of origin used on products',
+        icon: Building2,
+        path: '/settings/manufacturers',
+        module: 'manufacturers',
       },
     ],
   },
@@ -142,28 +198,39 @@ const settingsSections = [
         path: '/settings/api-integrations',
       },
       {
-        title: 'SMS Templates',
-        description: 'Configure SMSAlert templates for orders and cart recovery',
+        title: 'SMS & WhatsApp Templates',
+        description: 'Configure SMS and WhatsApp message templates for orders, OTP, and cart recovery',
         icon: MessageSquare,
         path: '/settings/sms-templates',
-        module: 'sms',
       },
       {
-        title: 'Contact Details',
-        description: 'Phone number, WhatsApp, and email shown on the storefront',
-        icon: Phone,
+        title: 'Contact Submissions',
+        description: 'View & reply to messages sent through the storefront contact form (also saved to your Leads CRM). To edit the phone/email/address shown to shoppers, use Store Configuration.',
+        icon: Inbox,
         path: '/settings/contact',
       },
     ],
   },
   {
-    heading: 'Appearance',
+    heading: 'Appearance & SEO',
     items: [
       {
         title: 'Style & Branding',
         description: 'Colors, fonts, logos, storefront theme, and announcement bar',
         icon: Palette,
         path: '/appearance/style',
+      },
+      {
+        title: 'SEO',
+        description: 'Meta titles & descriptions, analytics IDs (GA4, GTM, Meta Pixel), sitemap and robots',
+        icon: Globe,
+        path: '/seo',
+      },
+      {
+        title: 'Product Display',
+        description: 'Toggle storefront product page sections: reviews, related products, sale countdown, and more',
+        icon: SettingsIcon,
+        path: '/appearance/products',
       },
     ],
   },
@@ -173,7 +240,7 @@ const STOREFRONT_URL = import.meta.env.VITE_STOREFRONT_URL || 'http://localhost:
 
 const Settings: React.FC = () => {
   const navigate = useNavigate();
-  const { canAccess } = useAuth();
+  const { canAccess, storeModules, user } = useAuth();
   const [tenantApiKeyInput, setTenantApiKeyInput] = useState('');
   const [tenantApiKeySet, setTenantApiKeySet] = useState(false);
   const [tenantApiKeySaved, setTenantApiKeySaved] = useState(false);
@@ -231,7 +298,17 @@ const Settings: React.FC = () => {
       </div>
 
       {settingsSections.map((section) => {
-        const visibleItems = section.items.filter((item: any) => !item.module || canAccess(item.module));
+        // A module-gated card stays visible (grayed out) for admins when the
+        // module is merely disabled — hiding it entirely made settings look
+        // "missing". Staff without the permission still don't see it at all.
+        const isModuleOff = (item: any) =>
+          item.module && item.module in storeModules && !storeModules[item.module];
+        const visibleItems = section.items.filter(
+          (item: any) =>
+            !item.module ||
+            canAccess(item.module) ||
+            (user?.role === 'admin' && isModuleOff(item))
+        );
         if (!visibleItems.length) return null;
         return (
         <div key={section.heading}>
@@ -285,11 +362,16 @@ const Settings: React.FC = () => {
                   </Card>
                 );
               }
+              const moduleOff = isModuleOff(item) && !canAccess(item.module);
               return (
                 <Card
                   key={item.path}
-                  className="group cursor-pointer hover:border-primary hover:shadow-md transition-all duration-200"
-                  onClick={() => item.path && navigate(item.path)}
+                  className={`group cursor-pointer transition-all duration-200 ${
+                    moduleOff
+                      ? 'opacity-70 border-dashed hover:border-amber-400'
+                      : 'hover:border-primary hover:shadow-md'
+                  }`}
+                  onClick={() => (moduleOff ? navigate('/settings/modules') : item.path && navigate(item.path))}
                 >
                   <CardContent className="p-5 flex items-start gap-4">
                     <div className="flex-shrink-0 w-10 h-10 bg-muted rounded-lg flex items-center justify-center group-hover:bg-primary/10 transition-colors">
@@ -302,6 +384,11 @@ const Settings: React.FC = () => {
                       <p className="text-sm text-muted-foreground mt-0.5 leading-snug">
                         {item.description}
                       </p>
+                      {moduleOff && (
+                        <p className="text-xs font-medium text-amber-600 mt-1.5">
+                          Module disabled — click to enable it in Modules
+                        </p>
+                      )}
                     </div>
                     {item.path && (
                       <ChevronRight className="flex-shrink-0 w-4 h-4 text-muted-foreground/50 group-hover:text-primary transition-colors mt-0.5" />

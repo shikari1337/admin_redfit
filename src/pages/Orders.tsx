@@ -2,12 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ordersAPI, shippingAPI } from '../services/api';
-import { format } from 'date-fns';
-import { FaTruck, FaWhatsapp, FaEye } from 'react-icons/fa';
+import { formatDate } from '../utils/date';
+import { FaTruck, FaWhatsapp, FaEye, FaDownload, FaPlus } from 'react-icons/fa';
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast"; // Assuming useToast is available, fallback to alert if not
 import { FaCheckCircle } from 'react-icons/fa';
@@ -17,8 +18,13 @@ const Orders: React.FC = () => {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
+  // Retail vs B2B tab — only meaningful (and only shown) when the B2B module is on.
+  const [typeFilter, setTypeFilter] = useState<'all' | 'retail' | 'b2b'>('all');
+  const b2bEnabled = canAccess('b2b');
   const [sendingToShiprocket, setSendingToShiprocket] = useState<string | null>(null);
   const [confirmingOrder, setConfirmingOrder] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [exporting, setExporting] = useState(false);
   
   // Try to use toast, fallback to window.alert if not available
   let toast: any;
@@ -31,12 +37,14 @@ const Orders: React.FC = () => {
 
   useEffect(() => {
     fetchOrders();
-  }, [statusFilter]);
+  }, [statusFilter, typeFilter]);
 
   const fetchOrders = async () => {
     try {
       setLoading(true);
-      const params = statusFilter !== 'all' ? { status: statusFilter } : {};
+      const params: any = {};
+      if (statusFilter !== 'all') params.status = statusFilter;
+      if (typeFilter !== 'all') params.order_type = typeFilter;
       const response = await ordersAPI.getAll({ ...params, limit: 100 });
       
       let fetchedOrders: any[] = [];
@@ -53,6 +61,7 @@ const Orders: React.FC = () => {
       }
       
       setOrders(fetchedOrders);
+      setSelectedIds([]);
     } catch (error: any) {
       console.error('Failed to fetch orders:', error);
       toast({
@@ -110,6 +119,25 @@ const Orders: React.FC = () => {
     window.open(whatsappUrl, '_blank');
   };
 
+  const toggleSelect = (id: string, checked: boolean) => {
+    setSelectedIds(prev => checked ? [...new Set([...prev, id])] : prev.filter(x => x !== id));
+  };
+
+  /** Export the selected orders' sales data — or everything in the filter. */
+  const handleExport = async (onlySelected: boolean) => {
+    setExporting(true);
+    try {
+      await ordersAPI.exportCsv({
+        ids: onlySelected ? selectedIds : undefined,
+        status: statusFilter !== 'all' ? statusFilter : undefined,
+      });
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Export failed", description: error?.response?.data?.message || 'Could not export orders' });
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const getStatusBadgeVariant = (status: string): "default" | "secondary" | "destructive" | "outline" | null => {
     const s = status?.toLowerCase();
     if (['delivered', 'completed', 'shipped'].includes(s)) return 'default';
@@ -129,24 +157,66 @@ const Orders: React.FC = () => {
           <h1 className="text-3xl font-bold tracking-tight text-foreground">Orders</h1>
           <p className="text-muted-foreground mt-1 text-sm">Manage and track customer orders, shipments, and statuses.</p>
         </div>
-        <Select
-          value={statusFilter}
-          onValueChange={setStatusFilter}
-        >
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="All Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="pending">Pending</SelectItem>
-            <SelectItem value="confirmed">Confirmed</SelectItem>
-            <SelectItem value="processing">Processing</SelectItem>
-            <SelectItem value="shipped">Shipped</SelectItem>
-            <SelectItem value="delivered">Delivered</SelectItem>
-            <SelectItem value="cancelled">Cancelled</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="default" size="sm" className="h-9 bg-green-600 hover:bg-green-700" asChild>
+            <Link to="/orders/new">
+              <FaPlus className="mr-1.5 h-3 w-3" /> Create Order
+            </Link>
+          </Button>
+          {selectedIds.length > 0 && (
+            <Button variant="outline" size="sm" className="h-9" onClick={() => handleExport(true)} disabled={exporting}>
+              <FaDownload className="mr-1.5 h-3 w-3" />
+              Export {selectedIds.length} selected
+            </Button>
+          )}
+          <Button variant="outline" size="sm" className="h-9" onClick={() => handleExport(false)} disabled={exporting}>
+            <FaDownload className="mr-1.5 h-3 w-3" />
+            {exporting ? 'Exporting…' : 'Export all'}
+          </Button>
+          <Select
+            value={statusFilter}
+            onValueChange={setStatusFilter}
+          >
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="All Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="confirmed">Confirmed</SelectItem>
+              <SelectItem value="processing">Processing</SelectItem>
+              <SelectItem value="on_hold">On Hold</SelectItem>
+              <SelectItem value="shipped">Shipped</SelectItem>
+              <SelectItem value="delivered">Delivered</SelectItem>
+              <SelectItem value="cancelled">Cancelled</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
+
+      {/* Retail / B2B tabs — shown only when the B2B module is enabled. */}
+      {b2bEnabled && (
+        <div className="flex items-center gap-1 mb-4 border-b border-border">
+          {([
+            { key: 'all', label: 'All Orders' },
+            { key: 'retail', label: 'Retail' },
+            { key: 'b2b', label: 'B2B / Wholesale' },
+          ] as const).map(t => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setTypeFilter(t.key)}
+              className={`px-4 py-2 text-sm font-medium -mb-px border-b-2 transition-colors ${
+                typeFilter === t.key
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <Card className="shadow-sm">
         <CardContent className="p-0">
@@ -154,6 +224,13 @@ const Orders: React.FC = () => {
             <Table>
               <TableHeader className="bg-muted/50">
                 <TableRow>
+                  <TableHead className="w-10 px-4 py-3">
+                    <Checkbox
+                      checked={orders.length > 0 && selectedIds.length === orders.length}
+                      onCheckedChange={(checked: boolean | "indeterminate") =>
+                        setSelectedIds(checked ? orders.map(o => o._id) : [])}
+                    />
+                  </TableHead>
                   <TableHead className="font-semibold px-4 py-3">Order ID</TableHead>
                   <TableHead className="font-semibold px-4 py-3">Customer</TableHead>
                   <TableHead className="font-semibold px-4 py-3">Amount</TableHead>
@@ -166,7 +243,7 @@ const Orders: React.FC = () => {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-48 text-center">
+                    <TableCell colSpan={8} className="h-48 text-center">
                       <div className="flex items-center justify-center">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
                       </div>
@@ -174,15 +251,34 @@ const Orders: React.FC = () => {
                   </TableRow>
                 ) : orders.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-48 text-center text-muted-foreground">
+                    <TableCell colSpan={8} className="h-48 text-center text-muted-foreground">
                       No orders found matching the filter criteria.
                     </TableCell>
                   </TableRow>
                 ) : (
                   orders.map((order) => (
                     <TableRow key={order._id} className="hover:bg-muted/50 transition-colors">
+                      <TableCell className="px-4 py-3">
+                        <Checkbox
+                          checked={selectedIds.includes(order._id)}
+                          onCheckedChange={(checked: boolean | "indeterminate") => toggleSelect(order._id, checked as boolean)}
+                        />
+                      </TableCell>
                       <TableCell className="font-medium px-4 py-3">
-                        {order.orderId || order._id?.substring(0, 8).toUpperCase()}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span>{order.orderId || order._id?.substring(0, 8).toUpperCase()}</span>
+                          {/* Sale type at a glance — B2B (wholesale) vs retail. */}
+                          {(order.orderType ?? order.order_type) === 'b2b' ? (
+                            <Badge variant="outline" className="border-purple-300 bg-purple-50 text-purple-700 text-[10px] px-1.5 py-0">
+                              B2B{(order.b2bTier ?? order.b2b_tier) ? ` · ${order.b2bTier ?? order.b2b_tier}` : ''}
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-muted-foreground">Retail</Badge>
+                          )}
+                          {(order.isFlagged ?? order.is_flagged) && (
+                            <Badge variant="outline" className="border-red-300 bg-red-50 text-red-700 text-[10px] px-1.5 py-0">Flagged</Badge>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="px-4 py-3">
                         <div className="font-medium">{order.shippingAddress?.fullName || 'Unknown Customer'}</div>
@@ -216,9 +312,9 @@ const Orders: React.FC = () => {
                         </Badge>
                       </TableCell>
                       <TableCell className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
-                        {order.createdAt
-                          ? format(new Date(order.createdAt), 'MMM dd, yyyy')
-                          : 'N/A'}
+                        {/* Date AND time — ops needs to see when the order came in. */}
+                        <div>{formatDate(order.createdAt ?? order.created_at, 'MMM dd, yyyy', 'N/A')}</div>
+                        <div className="text-xs font-medium text-foreground">{formatDate(order.createdAt ?? order.created_at, 'hh:mm a', '')}</div>
                       </TableCell>
                       <TableCell className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-2 isolate">

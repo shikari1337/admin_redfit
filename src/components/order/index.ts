@@ -9,6 +9,9 @@ export { default as OrderNotes } from './OrderNotes';
 export { default as DiscountBreakdown } from './DiscountBreakdown';
 export { default as Modal } from './Modal';
 export { default as ShipmentCreationModal } from './ShipmentCreationModal';
+export { default as OrderFulfillmentCard } from './OrderFulfillmentCard';
+export { default as OrderItemsEditModal } from './OrderItemsEditModal';
+export { default as OrderJourneyCard } from './OrderJourneyCard';
 export { default as PaymentVerificationModal } from './PaymentVerificationModal';
 export { default as UpdateEmailModal } from './UpdateEmailModal';
 

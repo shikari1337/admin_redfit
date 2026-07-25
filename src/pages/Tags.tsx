@@ -8,11 +8,21 @@ interface Tag {
   name: string;
   slug: string;
   description?: string;
+  is_active?: boolean;
   isActive?: boolean;
+  product_count?: number;
   productCount?: number;
   createdAt?: string;
   updatedAt?: string;
 }
+
+// PG returns snake_case (is_active, product_count). Normalize to the camelCase
+// the component reads so status/toggle/edit all work against the PostgreSQL API.
+const normalizeTag = (t: any): Tag => ({
+  ...t,
+  isActive: t?.is_active ?? t?.isActive ?? false,
+  productCount: t?.product_count ?? t?.productCount ?? 0,
+});
 
 const Tags: React.FC = () => {
   const [tags, setTags] = useState<Tag[]>([]);
@@ -39,7 +49,7 @@ const Tags: React.FC = () => {
       }
       const response = await tagsAPI.getAll(params);
       const tagsData = response.data || response;
-      setTags(Array.isArray(tagsData) ? tagsData : []);
+      setTags(Array.isArray(tagsData) ? tagsData.map(normalizeTag) : []);
     } catch (err: any) {
       console.error('Failed to fetch tags:', err);
       setError(err.response?.data?.message || 'Failed to fetch tags');

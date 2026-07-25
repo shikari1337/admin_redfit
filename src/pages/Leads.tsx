@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { leadsAPI } from '../services/api';
+import { Link } from 'react-router-dom';
+import { leadsAPI, cartsAPI } from '../services/api';
 import LeadDetailsModal from '../components/leads/LeadDetailsModal';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -64,6 +65,61 @@ const STATUS_OPTIONS = [
   'completed',
   'converted',
 ];
+
+/**
+ * Abandoned carts inside the CRM — these ARE warm leads (a filled cart with
+ * contact info). Shows the hottest ones with a jump into the full workspace.
+ */
+const AbandonedCartsCrmPanel: React.FC = () => {
+  const [carts, setCarts] = useState<any[]>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    cartsAPI.listAdmin({ status: 'abandoned' })
+      .then((data: any) => {
+        const list = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
+        setCarts(list);
+      })
+      .catch(() => setCarts([]))
+      .finally(() => setLoaded(true));
+  }, []);
+
+  if (!loaded || carts.length === 0) return null;
+
+  return (
+    <Card className="border-amber-200 bg-amber-50/40">
+      <CardContent className="py-4 px-5">
+        <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+          <div>
+            <p className="font-semibold text-foreground">
+              🛒 {carts.length} abandoned cart{carts.length === 1 ? '' : 's'} waiting for follow-up
+            </p>
+            <p className="text-xs text-muted-foreground">Filled carts with contact details — the warmest leads you have.</p>
+          </div>
+          <Button size="sm" variant="outline" asChild>
+            <Link to="/orders/abandoned-carts">Open cart recovery</Link>
+          </Button>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {carts.slice(0, 6).map((c: any) => (
+            <Link
+              key={c._id ?? c.id}
+              to={`/orders/abandoned-carts/${c._id ?? c.id}`}
+              className="border rounded-md bg-background px-3 py-2 hover:border-amber-400 transition-colors"
+            >
+              <p className="text-sm font-medium truncate">
+                {c.user?.name || 'Guest'} · {(c.items?.length ?? 0)} item(s)
+              </p>
+              <p className="text-xs text-muted-foreground truncate">
+                {c.user?.phoneNumber || 'no phone'} · last active {c.lastActiveAt ? new Date(c.lastActiveAt).toLocaleDateString('en-IN') : '—'}
+              </p>
+            </Link>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
 
 const Leads: React.FC = () => {
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -203,6 +259,8 @@ const Leads: React.FC = () => {
           Add New Lead
         </Button>
       </div>
+
+      <AbandonedCartsCrmPanel />
 
       <Card>
         <CardContent className="p-0">

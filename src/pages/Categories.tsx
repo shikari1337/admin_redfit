@@ -37,6 +37,9 @@ const emptyForm = {
   parent: 'none',
   isActive: true,
   isPublic: true,
+  metaTitle: '',
+  metaDesc: '',
+  ogImageUrl: '',
 };
 
 const Categories: React.FC = () => {
@@ -101,6 +104,9 @@ const Categories: React.FC = () => {
       parent: category.parent ? String(category.parent) : 'none',
       isActive: category.isActive !== false,
       isPublic: category.isPublic !== false,
+      metaTitle: (category as any).metaTitle ?? (category as any).meta_title ?? '',
+      metaDesc: (category as any).metaDesc ?? (category as any).meta_desc ?? '',
+      ogImageUrl: (category as any).ogImageUrl ?? (category as any).og_image_url ?? '',
     });
     setError(null);
     setImageError(null);
@@ -137,6 +143,9 @@ const Categories: React.FC = () => {
       isActive: formState.isActive,
       isPublic: formState.isPublic,
       parent: formState.parent && formState.parent !== 'none' ? formState.parent : null,
+      metaTitle: formState.metaTitle?.trim() || undefined,
+      metaDesc: formState.metaDesc?.trim() || undefined,
+      ogImageUrl: formState.ogImageUrl?.trim() || undefined,
     };
 
     if (formState.slug?.trim()) {
@@ -319,6 +328,39 @@ const Categories: React.FC = () => {
                   placeholder="Optional description"
                   className="resize-y"
                 />
+              </div>
+
+              <div className="space-y-3 border-t border-gray-100 pt-4">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">SEO (search engines &amp; social)</p>
+                <div className="space-y-2">
+                  <Label htmlFor="metaTitle">Meta Title</Label>
+                  <Input
+                    id="metaTitle"
+                    value={formState.metaTitle}
+                    onChange={e => setFormState({ ...formState, metaTitle: e.target.value })}
+                    placeholder="Defaults to the category name"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="metaDesc">Meta Description</Label>
+                  <Textarea
+                    id="metaDesc"
+                    rows={2}
+                    value={formState.metaDesc}
+                    onChange={e => setFormState({ ...formState, metaDesc: e.target.value })}
+                    placeholder="Shown in search results (~160 characters)"
+                    className="resize-y"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Social Share Image (Open Graph)</Label>
+                  <ImageInputWithActions
+                    value={formState.ogImageUrl || ''}
+                    onChange={(url: string) => setFormState({ ...formState, ogImageUrl: url })}
+                    label=""
+                    placeholder="OG image URL (https://...)"
+                  />
+                </div>
               </div>
 
               <div className="space-y-2">

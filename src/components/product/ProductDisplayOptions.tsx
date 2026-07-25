@@ -3,14 +3,12 @@ import React from 'react';
 interface ProductDisplayOptionsProps {
   disableVariants: boolean;
   showOutOfStockVariants: boolean;
-  showFeatures: boolean;
   isActive: boolean;
   isFeatured?: boolean;
   isDigital?: boolean;
   requiresPrescription?: boolean;
   onDisableVariantsChange: (value: boolean) => void;
   onShowOutOfStockVariantsChange: (value: boolean) => void;
-  onShowFeaturesChange: (value: boolean) => void;
   onIsActiveChange: (value: boolean) => void;
   onIsFeaturedChange?: (value: boolean) => void;
   onIsDigitalChange?: (value: boolean) => void;
@@ -35,9 +33,9 @@ const Row: React.FC<{ id: string; label: string; desc: string; checked: boolean;
 );
 
 const ProductDisplayOptions: React.FC<ProductDisplayOptionsProps> = ({
-  disableVariants, showOutOfStockVariants, showFeatures, isActive,
+  disableVariants, showOutOfStockVariants, isActive,
   isFeatured = false, isDigital = false, requiresPrescription = false,
-  onDisableVariantsChange, onShowOutOfStockVariantsChange, onShowFeaturesChange, onIsActiveChange,
+  onDisableVariantsChange, onShowOutOfStockVariantsChange, onIsActiveChange,
   onIsFeaturedChange, onIsDigitalChange, onRequiresPrescriptionChange,
 }) => {
   return (
@@ -52,10 +50,6 @@ const ProductDisplayOptions: React.FC<ProductDisplayOptionsProps> = ({
         <Row id="isFeatured" label="Featured Product"
           desc="Show in featured sections and homepage"
           checked={isFeatured} onChange={v => onIsFeaturedChange && onIsFeaturedChange(v)} />
-
-        <Row id="showFeatures" label="Show Features Box"
-          desc="Display features section on product page"
-          checked={showFeatures} onChange={onShowFeaturesChange} />
 
         <Row id="isDigital" label="Digital Product"
           desc="No shipping required; deliver via download/email"

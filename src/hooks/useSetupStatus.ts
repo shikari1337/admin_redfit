@@ -56,8 +56,9 @@ export function useSetupStatus(): SetupStatus {
         const settings: Record<string, any> =
           raw?.success !== undefined && raw?.data !== undefined ? raw.data : raw ?? {};
 
-        const storeNameDone = !!(settings.general?.siteName?.trim());
-        const contactDone = !!(settings.general?.websiteUrl || settings.storeEmail || settings.contact?.email);
+        const sc = settings.storeConfig ?? {};
+        const storeNameDone = !!(sc.business?.name?.trim() || settings.general?.siteName?.trim());
+        const contactDone = !!(sc.contact?.email?.trim() || settings.general?.websiteUrl || settings.storeEmail || settings.contact?.email);
         const logoDone = !!(settings.logo?.logoUrl?.trim());
         const gstDone = !!(settings.gstin?.trim() || settings.gst);
         const paymentDone = checkPaymentConfigured(settings);
@@ -68,14 +69,14 @@ export function useSetupStatus(): SetupStatus {
             key: 'store_info',
             label: 'Store Information',
             description: 'Store name, description, currency, and website URL',
-            path: '/appearance/style',
+            path: '/settings/store-config',
             done: storeNameDone,
           },
           {
             key: 'contact',
-            label: 'Contact Details',
-            description: 'Email, phone, and WhatsApp number',
-            path: '/settings/contact',
+            label: 'Contact & Address',
+            description: 'Email, phone, WhatsApp, and business address',
+            path: '/settings/store-config',
             done: contactDone,
           },
           {

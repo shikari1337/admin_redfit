@@ -4,12 +4,14 @@ import PageTransitionLoader from './PageTransitionLoader';
 import { AppSidebar } from './app-sidebar';
 import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import StoreSwitcher from './StoreSwitcher';
+import NotificationBell from './NotificationBell';
 import { useAuth } from '../contexts/AuthContext';
 import {
-  Home, ShoppingCart, Truck, Warehouse, Users, Factory,
+  Home, ShoppingCart, Truck, Warehouse, Users,
   Megaphone, Ticket, Star, HelpCircle, Palette, FileText, Settings,
   UserCheck, Images, Package2, LineChart, Building2, ShieldCheck,
-  BookOpen, RotateCcw, Store,
+  BookOpen, RotateCcw, Store, Plug,
+  Rss, PackageSearch,
 } from 'lucide-react';
 import { SetupBanner } from './SetupBanner';
 
@@ -44,11 +46,21 @@ const Layout: React.FC = () => {
           title: 'Analytics', url: '/analytics/dashboard', icon: LineChart, items: [
             { title: 'Dashboard',  url: '/analytics/dashboard' },
             { title: 'Store',      url: '/analytics/store' },
+            { title: 'Marketing',  url: '/analytics/marketing' },
             { title: 'Users',      url: '/analytics/users' },
             { title: 'Realtime',   url: '/analytics/realtime' },
             { title: 'Custom',     url: '/analytics/custom' },
           ],
         }] : []),
+      ],
+    },
+    {
+      title: 'Orders',
+      items: [
+        ...(canAccess('orders')    ? [{ title: 'Orders',     url: '/orders',    icon: ShoppingCart }] : []),
+        ...(canAccess('orders')    ? [{ title: 'Abandoned Carts', url: '/orders/abandoned-carts', icon: ShoppingCart }] : []),
+        ...(canAccess('returns')   ? [{ title: 'Returns',   url: '/returns',   icon: RotateCcw }] : []),
+        ...(canAccess('shipping')  ? [{ title: 'Shipments', url: '/shipments', icon: Truck }] : []),
       ],
     },
     {
@@ -58,6 +70,7 @@ const Layout: React.FC = () => {
           title: 'Products', url: '/products', icon: Package2, items: [
             { title: 'All Products',        url: '/products' },
             { title: 'Create Product',      url: '/products/new' },
+            { title: 'Import / Export',     url: '/products/import-export' },
             ...(canAccess('bundles')     ? [{ title: 'Bundles',             url: '/products/bundles' }] : []),
             { title: 'Categories',          url: '/products/categories' },
             { title: 'Brands',              url: '/products/brands' },
@@ -69,26 +82,22 @@ const Layout: React.FC = () => {
           ],
         }] : []),
         ...(canAccess('inventory')  ? [{ title: 'Inventory',  url: '/inventory',  icon: Warehouse }] : []),
-        ...(canAccess('b2b')        ? [{ title: 'B2B',        url: '/b2b',        icon: Factory }] : []),
+        ...(canAccess('inventory')  ? [{ title: 'Warehouses', url: '/warehouses', icon: PackageSearch }] : []),
         ...(canAccess('vendors') ? [{ title: 'Vendors', url: '/vendors', icon: Store }] : []),
         ...(canAccess('gallery')    ? [{ title: 'Gallery',    url: '/gallery',    icon: Images }] : []),
-      ],
-    },
-    {
-      title: 'Orders',
-      items: [
-        ...(canAccess('orders')    ? [{ title: 'Orders',     url: '/orders',    icon: ShoppingCart }] : []),
-        ...(canAccess('returns')   ? [{ title: 'Returns',   url: '/returns',   icon: RotateCcw }] : []),
-        ...(canAccess('shipping')  ? [{ title: 'Shipments', url: '/shipments', icon: Truck }] : []),
-        ...(canAccess('inventory') ? [{ title: 'Warehouses',url: '/warehouses',icon: Warehouse }] : []),
       ],
     },
     {
       title: 'Marketing',
       items: [
         ...(canAccess('marketing')     ? [{ title: 'Marketing',        url: '/marketing',                icon: Megaphone }] : []),
+        ...(canAccess('channel_sync')  ? [{
+          title: 'Multi-Channel Sync', url: '/channels', icon: Plug, items: [
+            { title: 'Channels', url: '/channels' },
+            { title: 'Mapping',  url: '/channels/mapping' },
+          ],
+        }] : []),
         ...(canAccess('coupons')       ? [{ title: 'Coupons',          url: '/coupons',                  icon: Ticket }] : []),
-        ...(canAccess('abandoned_cart')? [{ title: 'Abandoned Carts',  url: '/orders/abandoned-carts',   icon: ShoppingCart }] : []),
       ],
     },
     {
@@ -99,9 +108,10 @@ const Layout: React.FC = () => {
       // ──────────────────────────────────────────────────────────────────────
       title: 'Store Customers',
       items: [
-        ...(canAccess('customers')  ? [{ title: 'All Customers',  url: '/users',  icon: Users }] : []),
+        ...(canAccess('customers')  ? [{ title: 'All Customers',  url: '/customers',  icon: Users }] : []),
         ...(canAccess('crm')        ? [{ title: 'Leads (CRM)',    url: '/leads',  icon: UserCheck }] : []),
-        ...(canAccess('b2b')            ? [{ title: 'B2B Customers',  url: '/b2b',    icon: Building2 }] : []),
+        // Single entry — B2B covers accounts, quotes and price lists together (was duplicated under Catalog before).
+        ...(canAccess('b2b')        ? [{ title: 'B2B',            url: '/b2b',    icon: Building2 }] : []),
       ],
     },
     {
@@ -113,11 +123,14 @@ const Layout: React.FC = () => {
             { title: 'Banners', url: '/appearance/banners' },
             { title: 'Menus',   url: '/appearance/menus' },
             { title: 'Style',   url: '/appearance/style' },
+            { title: 'Products', url: '/appearance/products' },
+            { title: 'Trust Badges', url: '/appearance/trust-badges' },
           ],
         }] : []),
         ...(canAccess('faqs')    ? [{ title: 'FAQs',        url: '/faqs',    icon: HelpCircle }] : []),
         ...(canAccess('reviews') ? [{ title: 'Reviews',     url: '/reviews', icon: Star }] : []),
         ...(canAccess('blog')    ? [{ title: 'Blog Posts',   url: '/blogs',   icon: BookOpen }] : []),
+        { title: 'SEO', url: '/seo', icon: Rss },
       ],
     },
     {
@@ -132,14 +145,19 @@ const Layout: React.FC = () => {
         ...(canAccess('settings') ? [{
           title: 'Settings', url: '/settings', icon: Settings, items: [
             { title: 'General',            url: '/settings' },
+            { title: 'Store Configuration', url: '/settings/store-config' },
             { title: 'API Integrations',   url: '/settings/api-integrations' },
-            { title: 'Contact',            url: '/settings/contact' },
+            { title: 'Contact Submissions', url: '/settings/contact' },
             { title: 'Payment & Discount', url: '/settings/payment-discount' },
             { title: 'Payment Gateways',   url: '/settings/payment-gateways' },
-            { title: 'SMS Templates',      url: '/settings/sms-templates' },
+            { title: 'SMS / WhatsApp Templates', url: '/settings/sms-templates' },
             { title: 'GST Display',        url: '/settings/gst' },
-            { title: 'Tax Rules',          url: '/settings/tax-rules' },
+            ...(canAccess('gst_tax')       ? [{ title: 'Tax Rules',        url: '/settings/tax-rules' }] : []),
+            { title: 'Invoice',            url: '/settings/invoice' },
+            { title: 'Order Numbering',    url: '/settings/order-numbering' },
             { title: 'Shipping',           url: '/settings/shipping' },
+            { title: 'Packages',           url: '/settings/packages' },
+            { title: 'Wallet',             url: '/settings/wallet' },
             { title: 'Modules',            url: '/settings/modules' },
             { title: 'Billing',            url: '/settings/billing' },
             ...(canAccess('returns')       ? [{ title: 'Return Policies',  url: '/settings/return-policies' }] : []),
@@ -179,8 +197,9 @@ const Layout: React.FC = () => {
             </div>
           </div>
 
-          {/* Right: store switcher */}
+          {/* Right: notifications + store switcher */}
           <div className="flex items-center gap-3 shrink-0">
+            <NotificationBell />
             <StoreSwitcher />
           </div>
         </header>

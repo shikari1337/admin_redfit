@@ -20,6 +20,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 interface Shipment {
   _id: string;
@@ -49,7 +55,7 @@ interface ShipmentTableProps {
   onSelectAll: (checked: boolean) => void;
   onSchedulePickup: (shipment: Shipment) => void;
   onUpdateStatus: (shipmentId: string, status: string) => void;
-  onDownloadLabel?: (shipmentId: string) => void;
+  onDownloadLabel?: (shipmentId: string, size?: '4R' | 'A4') => void;
   onDownloadManifest?: (shipmentId: string) => void;
   onDownloadPickupReceipt?: (shipmentId: string) => void;
   onNdrReattempt?: (shipmentId: string) => void;
@@ -250,17 +256,28 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
                         <Calendar className="h-4 w-4" />
                       </Button>
                     )}
-                    {/* Download Label Button */}
+                    {/* Download Label — page size picker (4R thermal / A4) */}
                     {(shipment.providerData?.shiprocketAWB || shipment.providerData?.delhiveryWaybill) && onDownloadLabel && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => onDownloadLabel(shipment._id)}
-                        className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                        title="Download Shipping Label (PDF)"
-                      >
-                        <FileText className="h-4 w-4" />
-                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                            title="Download Shipping Label (PDF)"
+                          >
+                            <FileText className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => onDownloadLabel(shipment._id, '4R')}>
+                            Label — 4R (thermal)
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => onDownloadLabel(shipment._id, 'A4')}>
+                            Label — A4
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     )}
                     {/* Download Manifest Button */}
                     {(shipment.providerData?.shiprocketAWB || shipment.providerData?.delhiveryWaybill) && onDownloadManifest && (

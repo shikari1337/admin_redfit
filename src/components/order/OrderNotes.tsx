@@ -1,71 +1,74 @@
-import React from 'react';
-import { FaEdit, FaSave } from 'react-icons/fa';
+import React, { useState } from 'react';
+import { FaPaperPlane } from 'react-icons/fa';
+import { formatDate } from '../../utils/date';
+
+interface NoteEntry {
+  text: string;
+  created_at?: string | Date;
+  createdAt?: string | Date;
+  author_email?: string;
+  authorEmail?: string;
+}
 
 interface OrderNotesProps {
-  notes: string;
-  editing: boolean;
-  onEdit: () => void;
-  onSave: () => void;
-  onCancel: () => void;
-  onChange: (value: string) => void;
+  notes: NoteEntry[];
+  onAdd: (text: string) => Promise<void> | void;
   saving: boolean;
 }
 
-const OrderNotes: React.FC<OrderNotesProps> = ({
-  notes,
-  editing,
-  onEdit,
-  onSave,
-  onCancel,
-  onChange,
-  saving,
-}) => {
+const OrderNotes: React.FC<OrderNotesProps> = ({ notes, onAdd, saving }) => {
+  const [draft, setDraft] = useState('');
+
+  const handleAdd = async () => {
+    if (!draft.trim()) return;
+    await onAdd(draft.trim());
+    setDraft('');
+  };
+
+  const sorted = [...(notes || [])].sort((a, b) => {
+    const da = new Date(a.created_at ?? a.createdAt ?? 0).getTime();
+    const db = new Date(b.created_at ?? b.createdAt ?? 0).getTime();
+    return db - da;
+  });
+
   return (
     <div className="bg-white rounded-lg shadow p-6">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-bold">Order Notes</h2>
-        {!editing ? (
-          <button
-            onClick={onEdit}
-            className="text-blue-600 hover:text-blue-800"
-            title="Edit notes"
-          >
-            <FaEdit size={16} />
-          </button>
-        ) : (
-          <div className="flex gap-2">
-            <button
-              onClick={onSave}
-              disabled={saving}
-              className="flex items-center gap-2 px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
-            >
-              <FaSave size={14} />
-              {saving ? 'Saving...' : 'Save'}
-            </button>
-            <button
-              onClick={onCancel}
-              className="px-3 py-1 bg-gray-300 text-gray-700 rounded hover:bg-gray-400"
-            >
-              Cancel
-            </button>
-          </div>
-        )}
-      </div>
-      {editing ? (
+      <h2 className="text-xl font-bold mb-4">Order Notes</h2>
+
+      <div className="flex gap-2 mb-4">
         <textarea
-          value={notes}
-          onChange={(e) => onChange(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 min-h-[100px]"
-          placeholder="Add order notes..."
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAdd(); }}
+          className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 min-h-[60px] text-sm"
+          placeholder="Add an internal note… (⌘/Ctrl + Enter to send)"
         />
+        <button
+          onClick={handleAdd}
+          disabled={saving || !draft.trim()}
+          className="flex items-center gap-2 px-3 h-fit py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 text-sm"
+        >
+          <FaPaperPlane size={12} />
+          {saving ? 'Saving…' : 'Add'}
+        </button>
+      </div>
+
+      {sorted.length === 0 ? (
+        <p className="text-sm text-gray-500">No notes yet.</p>
       ) : (
-        <p className="text-gray-700 whitespace-pre-wrap">
-          {notes || 'No notes available'}
-        </p>
+        <div className="space-y-3 max-h-80 overflow-y-auto">
+          {sorted.map((n, i) => (
+            <div key={i} className="border-l-2 border-gray-200 pl-3 py-0.5">
+              <p className="text-sm text-gray-700 whitespace-pre-wrap">{n.text}</p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {n.author_email || n.authorEmail || 'System'} · {formatDate(n.created_at ?? n.createdAt, 'MMM dd, yyyy HH:mm', '')}
+              </p>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
 };
 
 export default OrderNotes;
-

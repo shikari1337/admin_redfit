@@ -44,13 +44,34 @@ interface DelhiveryServiceType {
 }
 
 interface OrderItem {
-  productName: string;
-  size: string;
+  // Items arrive either pre-mapped (productName/size) or as raw order_items
+  // rows (product_name/sku/attributes) — read both shapes.
+  productName?: string;
+  product_name?: string;
+  name?: string;
+  sku?: string;
+  size?: string;
+  attributes?: Record<string, string>;
   quantity: number;
   price: number;
+  /** Per-unit weight (kg) — joined from the variation/product by the API. */
+  weight_kg?: number;
+  weightKg?: number;
   _id?: string;
   productId?: string;
 }
+
+/** Boxes store length/breadth/height (+ optional `weight` = the box's own dead
+ *  weight in kg); tolerate the legacy lengthCm/widthCm/heightCm spellings. */
+const boxDims = (box: any) => ({
+  length: box?.length ?? box?.lengthCm ?? '',
+  breadth: box?.breadth ?? box?.widthCm ?? '',
+  height: box?.height ?? box?.heightCm ?? '',
+  deadWeightKg: Number(box?.weight ?? box?.deadWeightKg ?? 0) || 0,
+});
+
+const itemUnitWeightKg = (item?: OrderItem): number =>
+  Number(item?.weight_kg ?? item?.weightKg ?? 0.5) || 0.5;
 
 interface ShipmentCreationModalProps {
   isOpen: boolean;
@@ -63,6 +84,8 @@ interface ShipmentCreationModalProps {
     breadth?: number;
     height?: number;
     selectedItemIndices?: number[];
+    /** PART-QUANTITY selections: exactly which units this parcel carries. */
+    itemSelections?: Array<{ sku: string; quantity: number }>;
     packageBoxId?: string;
   }) => void;
   loading: boolean;
@@ -80,6 +103,13 @@ interface ShipmentCreationModalProps {
   onManualTrackingUrlChange: (value: string) => void;
   orderId: string;
   orderItems: OrderItem[];
+  /**
+   * Units still unshipped per line (key = SKU, or product name for SKU-less
+   * lines) — from the order's fulfillment. When provided, the modal defaults
+   * and CAPS each line at the REMAINING quantity and skips fully-shipped lines,
+   * so a reship after a part shipment can't double-ship.
+   */
+  remainingByKey?: Record<string, number>;
 }
 
 const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
@@ -101,6 +131,7 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
   onManualTrackingUrlChange,
   orderId,
   orderItems = [],
+  remainingByKey,
 }) => {
   const [courierRates, setCourierRates] = useState<CourierRate[]>([]);
   const [delhiveryRates, setDelhiveryRates] = useState<DelhiveryServiceType[]>([]);
@@ -121,6 +152,51 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
   
   // Selected items for this shipment
   const [selectedItemIndices, setSelectedItemIndices] = useState<number[]>([]);
+  // PART-QUANTITY: how many units of each selected line go in THIS parcel
+  // (defaults to the line's full quantity).
+  const [selectedQtys, setSelectedQtys] = useState<Record<number, number>>({});
+  // One-shot guard: auto-pick the default box only once per modal open, so a
+  // deliberate "-- Custom Dimensions --" choice isn't overridden.
+  const autoBoxAppliedRef = React.useRef(false);
+
+  /** Line identity — must mirror the backend's lineKey (SKU, else product name). */
+  const lineKeyOf = (item?: OrderItem): string =>
+    String(item?.sku || item?.productName || item?.product_name || item?.name || '').trim();
+
+  /** Max units THIS parcel may carry: the unshipped remainder when known, else the ordered qty. */
+  const lineMax = (idx: number): number => {
+    const ordered = Number(orderItems[idx]?.quantity) || 1;
+    if (!remainingByKey) return ordered;
+    const rem = remainingByKey[lineKeyOf(orderItems[idx])];
+    return rem === undefined ? ordered : Math.max(0, Math.min(ordered, rem));
+  };
+
+  const qtyFor = (idx: number, qtys: Record<number, number> = selectedQtys): number => {
+    const max = lineMax(idx);
+    const q = Math.floor(Number(qtys[idx]));
+    return Number.isFinite(q) && q >= 1 ? Math.min(q, max) : max;
+  };
+
+  /** Auto weight = Σ selected units' weight + the box's dead weight. */
+  const computeAutoWeight = (indices: number[], boxId: string, qtys: Record<number, number> = selectedQtys): string => {
+    const productsKg = indices.reduce((s, idx) => {
+      const it = orderItems[idx];
+      return s + itemUnitWeightKg(it) * qtyFor(idx, qtys);
+    }, 0);
+    const box = packageBoxes.find(b => (b._id ?? b.id) === boxId);
+    const total = productsKg + (box ? boxDims(box).deadWeightKg : 0);
+    return total > 0 ? total.toFixed(2) : '';
+  };
+
+  const setLineQty = (idx: number, next: number) => {
+    const max = lineMax(idx);
+    const q = Math.min(Math.max(1, Math.floor(next) || 1), Math.max(1, max));
+    setSelectedQtys(prev => {
+      const merged = { ...prev, [idx]: q };
+      setWeight(computeAutoWeight(selectedItemIndices, selectedPackageBoxId, merged));
+      return merged;
+    });
+  };
 
   useEffect(() => {
     if (shippingProviders) {
@@ -376,17 +452,42 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
     }
   };
 
-  // Initialize selected items to all items when modal opens
+  // On open: select every item and pre-fill the weight from the items' real
+  // (variation/product) weights. Dimension defaults hold until a box applies.
   useEffect(() => {
     if (isOpen && orderItems.length > 0) {
-      setSelectedItemIndices(orderItems.map((_, index) => index));
-      setWeight(''); // Requires manual entry per user request
-      // Default dimensions for UI guidance (still needs weight)
+      autoBoxAppliedRef.current = false;
+      // Pre-select only lines with units still to ship (all, on a fresh order).
+      const selectable = orderItems.map((_, index) => index).filter((idx) => lineMax(idx) > 0);
+      setSelectedItemIndices(selectable);
+      setSelectedQtys({});
+      setWeight(computeAutoWeight(selectable, '', {}));
       if (!length) setLength('20');
       if (!breadth) setBreadth('15');
       if (!height) setHeight('10');
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, orderItems]);
+
+  // Boxes load async — once they arrive, auto-apply the default (or only/first)
+  // box so dimensions AND dead weight fill without a click. One-shot per open.
+  useEffect(() => {
+    if (!isOpen || autoBoxAppliedRef.current || !packageBoxes.length || selectedPackageBoxId) return;
+    const box = packageBoxes.find((b: any) => b.isDefault ?? b.is_default) ?? packageBoxes[0];
+    if (!box) return;
+    autoBoxAppliedRef.current = true;
+    const boxId = String(box._id ?? box.id ?? '');
+    setSelectedPackageBoxId(boxId);
+    const d = boxDims(box);
+    if (d.length) setLength(String(d.length));
+    if (d.breadth) setBreadth(String(d.breadth));
+    if (d.height) setHeight(String(d.height));
+    setWeight(computeAutoWeight(
+      selectedItemIndices.length ? selectedItemIndices : orderItems.map((_, i) => i),
+      boxId,
+    ));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, packageBoxes, selectedPackageBoxId, orderItems]);
 
   const handleClose = () => {
     onManualTrackingIdChange('');
@@ -401,24 +502,39 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
     setBreadth('');
     setHeight('');
     setSelectedItemIndices([]);
+    setSelectedQtys({});
     setSelectedPackageBoxId('');
     onClose();
   };
   
   const toggleItemSelection = (index: number) => {
     setSelectedItemIndices(prev => {
-      if (prev.includes(index)) {
-        const newSelection = prev.filter(i => i !== index);
-        // Weight must be entered manually, but we can reset the hint
-        setWeight('');
-        return newSelection;
-      } else {
-        const newSelection = [...prev, index];
-        setWeight('');
-        return newSelection;
-      }
+      const newSelection = prev.includes(index)
+        ? prev.filter(i => i !== index)
+        : [...prev, index];
+      // Deselecting resets the line's qty back to "all".
+      setSelectedQtys(q => {
+        const next = { ...q };
+        if (!newSelection.includes(index)) delete next[index];
+        // Keep the auto weight in step with the selection (still editable).
+        setWeight(computeAutoWeight(newSelection, selectedPackageBoxId, next));
+        return next;
+      });
+      return newSelection;
     });
   };
+
+  /** The exact units this parcel will carry — sent to the backend. */
+  const buildItemSelections = (): Array<{ sku: string; quantity: number }> =>
+    selectedItemIndices.map((idx) => {
+      const it = orderItems[idx];
+      return {
+        sku: String(it?.sku || it?.productName || it?.product_name || it?.name || '').trim(),
+        quantity: qtyFor(idx),
+      };
+    }).filter((s) => s.sku && s.quantity > 0);
+
+  const isPartQuantity = selectedItemIndices.some((idx) => qtyFor(idx) < (Number(orderItems[idx]?.quantity) || 1));
 
   // Check if submission is disabled based on provider
   const getValidationError = (): string | null => {
@@ -475,6 +591,7 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
             breadth: parseFloat(breadth),
             height: parseFloat(height),
             selectedItemIndices: selectedItemIndices.length > 0 ? selectedItemIndices : undefined,
+            itemSelections: selectedItemIndices.length > 0 ? buildItemSelections() : undefined,
             packageBoxId: selectedPackageBoxId || undefined,
           });
         }}
@@ -642,34 +759,84 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
                     Select Items for This Shipment *
                   </label>
                   <div className="space-y-3 max-h-56 overflow-y-auto pr-2">
-                    {orderItems.map((item, index) => (
+                    {orderItems.map((item, index) => {
+                      const max = lineMax(index);
+                      const shippedOut = max === 0;
+                      const ordered = Number(item.quantity) || 1;
+                      return (
                       <div
                         key={index}
-                        onClick={() => toggleItemSelection(index)}
-                        className={`flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer transition-all ${
-                          selectedItemIndices.includes(index)
-                            ? 'border-blue-600 bg-blue-50 shadow-md'
-                            : 'border-gray-200 hover:border-gray-400 hover:shadow-sm'
+                        onClick={() => { if (!shippedOut) toggleItemSelection(index); }}
+                        className={`flex items-center gap-3 p-4 border-2 rounded-xl transition-all ${
+                          shippedOut
+                            ? 'border-gray-100 bg-gray-50 opacity-60 cursor-not-allowed'
+                            : selectedItemIndices.includes(index)
+                              ? 'border-blue-600 bg-blue-50 shadow-md cursor-pointer'
+                              : 'border-gray-200 hover:border-gray-400 hover:shadow-sm cursor-pointer'
                         }`}
                       >
                         <input
                           type="checkbox"
                           checked={selectedItemIndices.includes(index)}
+                          disabled={shippedOut}
                           onChange={() => toggleItemSelection(index)}
                           onClick={(e) => e.stopPropagation()}
                           className="h-4 w-4 text-blue-600"
                         />
                         <div className="flex-1">
-                          <p className="font-medium text-sm text-gray-900">{item.productName}</p>
+                          <p className="font-medium text-sm text-gray-900">
+                            {item.productName || item.product_name || item.name || 'Item'}
+                          </p>
                           <p className="text-xs text-gray-500">
-                            Size: {item.size} | Qty: {item.quantity} | ₹{(item.price * item.quantity).toLocaleString('en-IN')}
+                            {[
+                              item.sku ? `SKU: ${item.sku}` : null,
+                              item.size || (item.attributes && Object.values(item.attributes).filter(Boolean).join(' · ')) || null,
+                              remainingByKey && max < ordered
+                                ? `Remaining: ${max} of ${ordered}`
+                                : `Ordered: ${ordered}`,
+                              `₹${(item.price * item.quantity).toLocaleString('en-IN')}`,
+                            ].filter(Boolean).join(' | ')}
                           </p>
                         </div>
+                        {shippedOut && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-green-100 text-green-700 shrink-0">
+                            FULLY SHIPPED
+                          </span>
+                        )}
+                        {/* PART-QUANTITY: how many units of this line ship in THIS parcel */}
+                        {!shippedOut && selectedItemIndices.includes(index) && max > 1 && (
+                          <div
+                            className="flex items-center gap-1.5 shrink-0"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => setLineQty(index, qtyFor(index) - 1)}
+                              disabled={qtyFor(index) <= 1}
+                              className="w-7 h-7 rounded-md border border-gray-300 text-gray-700 font-bold disabled:opacity-40 hover:bg-gray-100"
+                            >−</button>
+                            <span className={`text-sm font-semibold w-14 text-center ${qtyFor(index) < max ? 'text-blue-700' : 'text-gray-900'}`}>
+                              {qtyFor(index)} / {max}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setLineQty(index, qtyFor(index) + 1)}
+                              disabled={qtyFor(index) >= max}
+                              className="w-7 h-7 rounded-md border border-gray-300 text-gray-700 font-bold disabled:opacity-40 hover:bg-gray-100"
+                            >+</button>
+                          </div>
+                        )}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                   <p className="text-xs text-gray-500 mt-2">
                     Selected: {selectedItemIndices.length} of {orderItems.length} items
+                    {(isPartQuantity || (selectedItemIndices.length > 0 && selectedItemIndices.length < orderItems.length)) && (
+                      <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-700 font-semibold">
+                        PART SHIPMENT — remaining units stay open for another parcel
+                      </span>
+                    )}
                   </p>
                 </div>
               )}
@@ -692,22 +859,28 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
                         const boxId = e.target.value;
                         setSelectedPackageBoxId(boxId);
                         if (boxId) {
-                          const box = packageBoxes.find(b => b._id === boxId);
+                          const box = packageBoxes.find(b => (b._id ?? b.id) === boxId);
                           if (box) {
-                            setLength(box.lengthCm?.toString() || '');
-                            setBreadth(box.widthCm?.toString() || '');
-                            setHeight(box.heightCm?.toString() || '');
+                            const d = boxDims(box);
+                            setLength(String(d.length || ''));
+                            setBreadth(String(d.breadth || ''));
+                            setHeight(String(d.height || ''));
                           }
                         }
+                        // Re-derive weight with the new box's dead weight (or none).
+                        setWeight(computeAutoWeight(selectedItemIndices, boxId));
                       }}
                       className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm font-medium bg-white hover:border-gray-400 transition-colors"
                     >
                       <option value="">-- Custom Dimensions --</option>
-                      {packageBoxes.map(box => (
-                        <option key={box._id} value={box._id}>
-                          {box.name} ({box.lengthCm}x{box.widthCm}x{box.heightCm} cm)
-                        </option>
-                      ))}
+                      {packageBoxes.map(box => {
+                        const d = boxDims(box);
+                        return (
+                          <option key={box._id ?? box.id} value={box._id ?? box.id}>
+                            {box.name} ({d.length}x{d.breadth}x{d.height} cm{d.deadWeightKg ? `, box ${d.deadWeightKg} kg` : ''})
+                          </option>
+                        );
+                      })}
                     </select>
                   </div>
                 )}
@@ -726,6 +899,9 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
                       placeholder="0.5"
                       className="w-full px-4 py-3 text-sm border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white hover:border-gray-400 transition-colors"
                     />
+                    <p className="text-[11px] text-gray-500 mt-1">
+                      Auto-calculated from the selected items' product weights + the box's dead weight — adjust if the actual parcel differs.
+                    </p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">

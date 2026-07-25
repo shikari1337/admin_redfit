@@ -35,6 +35,7 @@ interface AuthContextValue extends AuthState {
   login: (token: string, storeApiKey: string) => Promise<void>;
   logout: (all?: boolean) => Promise<void>;
   refreshUser: () => Promise<void>;
+  refreshModules: () => Promise<void>;
   canAccess: (module: string) => boolean;
   storeModules: Record<string, boolean>;
 }
@@ -159,6 +160,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [storeModules, setStoreModules] = useState<Record<string, boolean>>({});
   const initRan = useRef(false);
 
+  // Reloads the store's module map. Kept separate so it can also run on window
+  // focus — otherwise toggling a module (e.g. B2B) in the super-admin wouldn't
+  // take effect until a full re-login, leaving the module's page/menu blocked
+  // by a stale cache.
+  const refreshModules = useCallback(async () => {
+    try {
+      const { modulesAPI } = await import('../services/api');
+      const mods = await modulesAPI.list();
+      const modsList = Array.isArray(mods) ? mods : mods?.modules ?? mods?.data ?? [];
+      const modMap: Record<string, boolean> = {};
+      for (const m of modsList) modMap[m.key] = m.enabled !== false;
+      setStoreModules(modMap);
+    } catch { /* modules not critical */ }
+  }, []);
+
   const fetchAndSetUser = useCallback(async (token: string, storeApiKey: string): Promise<boolean> => {
     try {
       const userData = await authAPI.me();
@@ -173,22 +189,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isAuthenticated: true,
       });
 
-      // Load store modules in background
-      try {
-        const { modulesAPI } = await import('../services/api');
-        const mods = await modulesAPI.list();
-        const modsList = Array.isArray(mods) ? mods : mods?.modules ?? mods?.data ?? [];
-        const modMap: Record<string, boolean> = {};
-        for (const m of modsList) modMap[m.key] = m.enabled !== false;
-        setStoreModules(modMap);
-      } catch { /* modules not critical */ }
+      // Load store modules in background (fresh from the platform toggles).
+      refreshModules();
       return true;
     } catch {
       clearSession();
       setState({ user: null, token: null, storeApiKey: null, isLoaded: true, isAuthenticated: false });
       return false;
     }
-  }, []);
+  }, [refreshModules]);
 
   // Bootstrap: restore session on mount
   useEffect(() => {
@@ -204,6 +213,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setTenantApiKey(session.storeApiKey);
     fetchAndSetUser(session.token, session.storeApiKey);
   }, [fetchAndSetUser]);
+
+  // Keep the module map fresh: re-fetch when the admin returns to the tab, so a
+  // module enabled elsewhere (super-admin) unblocks its page without a re-login.
+  useEffect(() => {
+    const onFocus = () => { if (document.visibilityState === 'visible') refreshModules(); };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
+  }, [refreshModules]);
 
   const login = useCallback(async (token: string, storeApiKey: string) => {
     saveSession(token, storeApiKey);
@@ -237,7 +258,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [state.user, storeModules]);
 
   return (
-    <AuthContext.Provider value={{ ...state, login, logout, refreshUser, canAccess, storeModules }}>
+    <AuthContext.Provider value={{ ...state, login, logout, refreshUser, refreshModules, canAccess, storeModules }}>
       {children}
     </AuthContext.Provider>
   );

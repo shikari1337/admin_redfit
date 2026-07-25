@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { FaDownload, FaSearch, FaSms, FaSyncAlt } from 'react-icons/fa';
+import { Link } from 'react-router-dom';
+import { FaDownload, FaEye, FaSearch, FaSms, FaSyncAlt } from 'react-icons/fa';
 import { cartsAPI } from '../services/api';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ButtonLoader from '../components/ButtonLoader';
@@ -301,9 +302,12 @@ const AbandonedCarts: React.FC = () => {
                   return (
                   <tr key={cartIdStr} className="hover:bg-gray-50">
                     <td className="px-6 py-4 align-top">
-                      <div className="text-sm font-semibold text-gray-900">
+                      <Link
+                        to={`/orders/abandoned-carts/${cartIdStr}`}
+                        className="text-sm font-semibold text-blue-600 hover:underline"
+                      >
                         Cart ID: {cart.cartId || cartIdStr.slice(-8)}
-                      </div>
+                      </Link>
                       <div className="text-xs text-gray-500">
                         {cart.isGuest ? (
                           <span className="inline-flex items-center px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">
@@ -381,14 +385,23 @@ const AbandonedCarts: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4 align-top text-right">
-                      <button
-                        onClick={() => handleSendRecovery(cart)}
-                        disabled={sendingSmsIds.has(cartIdStr)}
-                        className="inline-flex items-center px-3 py-2 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-400"
-                      >
-                        <FaSms className="mr-2" />
-                        {sendingSmsIds.has(cartIdStr) ? 'Sending...' : 'Send Recovery'}
-                      </button>
+                      <div className="inline-flex items-center gap-2">
+                        <Link
+                          to={`/orders/abandoned-carts/${cartIdStr}`}
+                          className="inline-flex items-center px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                        >
+                          <FaEye className="mr-2" />
+                          View
+                        </Link>
+                        <button
+                          onClick={() => handleSendRecovery(cart)}
+                          disabled={sendingSmsIds.has(cartIdStr)}
+                          className="inline-flex items-center px-3 py-2 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-400"
+                        >
+                          <FaSms className="mr-2" />
+                          {sendingSmsIds.has(cartIdStr) ? 'Sending...' : 'Send Recovery'}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                   );

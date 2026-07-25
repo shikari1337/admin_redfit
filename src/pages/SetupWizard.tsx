@@ -12,20 +12,21 @@ import {
   Store, Phone, Image, Receipt, CreditCard, Truck,
   Check, ChevronRight, Loader2, AlertCircle,
 } from 'lucide-react';
+import {
+  StoreConfig, EMPTY_STORE_CONFIG, loadStoreConfig, storeConfigSavePayload,
+  COUNTRIES, CURRENCIES, TIMEZONES, LANGUAGES, INDIAN_STATES,
+} from '@/lib/storeConfig';
 
 // ─── Step definitions ─────────────────────────────────────────────────────────
 
 const STEPS = [
-  { id: 'store',    label: 'Store Info',    icon: Store,      description: 'Basic store details' },
-  { id: 'contact',  label: 'Contact',       icon: Phone,      description: 'Email, phone & address' },
+  { id: 'store',    label: 'Store & Region', icon: Store,      description: 'Name, currency, country & reach' },
+  { id: 'contact',  label: 'Contact & Address', icon: Phone,   description: 'Email, phone & business address' },
   { id: 'branding', label: 'Branding',      icon: Image,      description: 'Logo & colors' },
   { id: 'tax',      label: 'Tax / GST',     icon: Receipt,    description: 'GSTIN & tax preferences' },
   { id: 'payment',  label: 'Payment',       icon: CreditCard, description: 'Enable payment methods' },
   { id: 'shipping', label: 'Shipping',      icon: Truck,      description: 'Shipping fees & COD' },
 ];
-
-const CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD'];
-const TIMEZONES  = ['Asia/Kolkata', 'UTC', 'America/New_York', 'Europe/London', 'Asia/Dubai', 'Asia/Singapore'];
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -36,22 +37,18 @@ const SetupWizard: React.FC = () => {
   const [saveError, setSaveError]     = useState<string | null>(null);
   const [loadingSettings, setLoadingSettings] = useState(true);
 
-  // ── Step 1: Store Info ──
-  const [storeName,    setStoreName]    = useState('');
-  const [storeDesc,    setStoreDesc]    = useState('');
-  const [websiteUrl,   setWebsiteUrl]   = useState('');
-  const [currency,     setCurrency]     = useState('INR');
-  const [timezone,     setTimezone]     = useState('Asia/Kolkata');
+  // ── Canonical store config (drives store / contact / branding-logo steps) ──
+  const [cfg, setCfg] = useState<StoreConfig>(EMPTY_STORE_CONFIG);
+  const set = <S extends keyof StoreConfig>(section: S, patch: Partial<StoreConfig[S]>) =>
+    setCfg((c) => ({ ...c, [section]: { ...(c[section] as any), ...patch } }));
+  const toggleOperating = (code: string) =>
+    setCfg((c) => {
+      const has = c.regional.operatingCountries.includes(code);
+      const next = has ? c.regional.operatingCountries.filter((x) => x !== code) : [...c.regional.operatingCountries, code];
+      return { ...c, regional: { ...c.regional, operatingCountries: next.length ? next : ['IN'] } };
+    });
 
-  // ── Step 2: Contact ──
-  const [contactEmail,    setContactEmail]    = useState('');
-  const [contactPhone,    setContactPhone]    = useState('');
-  const [whatsappNumber,  setWhatsappNumber]  = useState('');
-  const [storeAddress,    setStoreAddress]    = useState('');
-
-  // ── Step 3: Branding ──
-  const [logoUrl,        setLogoUrl]        = useState('');
-  const [faviconUrl,     setFaviconUrl]     = useState('');
+  // ── Branding colors (separate `colors` settings key) ──
   const [primaryColor,   setPrimaryColor]   = useState('#0D9488');
   const [secondaryColor, setSecondaryColor] = useState('#F59E0B');
 
@@ -84,32 +81,19 @@ const SetupWizard: React.FC = () => {
         const s: Record<string, any> =
           raw?.success !== undefined && raw?.data !== undefined ? raw.data : raw ?? {};
 
-        // Step 1
-        if (s.general?.siteName)        setStoreName(s.general.siteName);
-        if (s.general?.siteDescription) setStoreDesc(s.general.siteDescription);
-        if (s.general?.websiteUrl)      setWebsiteUrl(s.general.websiteUrl);
-        if (s.general?.currency)        setCurrency(s.general.currency);
-        if (s.general?.timezone)        setTimezone(s.general.timezone);
+        setCfg(loadStoreConfig(s));
 
-        // Step 2
-        if (s.contact?.email || s.storeEmail)         setContactEmail(s.contact?.email || s.storeEmail || '');
-        if (s.contact?.phoneNumber || s.storePhone)   setContactPhone(s.contact?.phoneNumber || s.storePhone || '');
-        if (s.contact?.whatsappNumber || s.whatsapp)  setWhatsappNumber(s.contact?.whatsappNumber || s.whatsapp || '');
-        if (s.contact?.address || s.storeAddress)     setStoreAddress(s.contact?.address || s.storeAddress || '');
-
-        // Step 3
-        if (s.logo?.logoUrl)        setLogoUrl(s.logo.logoUrl);
-        if (s.logo?.faviconUrl)     setFaviconUrl(s.logo.faviconUrl);
+        // Branding colors
         if (s.colors?.primaryColor) setPrimaryColor(s.colors.primaryColor);
         if (s.colors?.secondaryColor) setSecondaryColor(s.colors.secondaryColor);
 
-        // Step 4
+        // Tax
         if (s.gstin)                          setGstin(s.gstin);
         if (s.gst?.showPriceIncludingGst != null) setShowPriceIncludingGst(s.gst.showPriceIncludingGst);
         if (s.gst?.showGstOnCheckout != null)     setShowGstOnCheckout(s.gst.showGstOnCheckout);
         if (s.gst?.defaultRate)               setDefaultGstRate(String(s.gst.defaultRate));
 
-        // Step 5
+        // Payment
         if (s.cod?.isEnabled != null)           setCodEnabled(s.cod.isEnabled);
         if (s.cod?.charge != null)              setCodChargePay(String(s.cod.charge));
         if (s.razorpay?.isEnabled != null)      setRazorpayEnabled(s.razorpay.isEnabled);
@@ -119,7 +103,7 @@ const SetupWizard: React.FC = () => {
         if (s.upi?.upiId)                       setUpiId(s.upi.upiId);
         if (s.upi?.payeeName)                   setUpiPayeeName(s.upi.payeeName);
 
-        // Step 6
+        // Shipping
         if (s.shipping?.freeShippingAmount != null) setFreeShippingAmount(String(s.shipping.freeShippingAmount));
         if (s.shipping?.codCharge != null)          setCodCharge(String(s.shipping.codCharge));
         if (s.shipping?.defaultFee != null)         setDefaultShippingFee(String(s.shipping.defaultFee));
@@ -135,27 +119,16 @@ const SetupWizard: React.FC = () => {
     try {
       const stepId = STEPS[currentStep].id;
 
-      if (stepId === 'store') {
-        await api.post('/settings/bulk', {
-          settings: [
-            { key: 'general', value: { siteName: storeName, siteDescription: storeDesc, websiteUrl, currency, timezone }, grp: 'general', is_public: true },
-          ],
-        });
-      }
-
-      if (stepId === 'contact') {
-        await api.post('/settings/bulk', {
-          settings: [
-            { key: 'contact', value: { email: contactEmail, phoneNumber: contactPhone, whatsappNumber, address: storeAddress }, grp: 'contact', is_public: true },
-          ],
-        });
+      // Store / Contact steps persist the whole canonical config (+ legacy mirror).
+      if (stepId === 'store' || stepId === 'contact') {
+        await api.post('/settings/bulk', { settings: storeConfigSavePayload(cfg) });
       }
 
       if (stepId === 'branding') {
         await api.post('/settings/bulk', {
           settings: [
-            { key: 'logo',   value: { logoUrl, faviconUrl },                           grp: 'appearance', is_public: true },
-            { key: 'colors', value: { primaryColor, secondaryColor },                  grp: 'appearance', is_public: true },
+            ...storeConfigSavePayload(cfg), // keeps logo/favicon in sync with canonical config
+            { key: 'colors', value: { primaryColor, secondaryColor }, grp: 'appearance', is_public: true },
           ],
         });
       }
@@ -207,8 +180,14 @@ const SetupWizard: React.FC = () => {
   };
 
   const handleFinish = async () => {
+    // Mark the store as configured on the final save.
+    setCfg((c) => ({ ...c, setupCompleted: true }));
     const ok = await saveCurrentStep();
-    if (ok) navigate('/dashboard');
+    if (ok) {
+      // Ensure setupCompleted is persisted even if the last step wasn't store/contact.
+      try { await api.post('/settings/bulk', { settings: storeConfigSavePayload({ ...cfg, setupCompleted: true }) }); } catch { /* best-effort */ }
+      navigate('/dashboard');
+    }
   };
 
   const handleSkip = () => {
@@ -237,7 +216,7 @@ const SetupWizard: React.FC = () => {
         <div>
           <h1 className="text-xl font-bold text-foreground">Store Setup</h1>
           <p className="text-sm text-muted-foreground">
-            Complete these steps to launch your store. You can always change these later in Settings.
+            Complete these steps to launch your store. You can always change these later in Settings → Store Configuration.
           </p>
         </div>
         <Button variant="ghost" size="sm" onClick={() => navigate('/dashboard')} className="text-muted-foreground">
@@ -327,67 +306,158 @@ const SetupWizard: React.FC = () => {
               </div>
             )}
 
-            {/* ── STEP: Store Info ── */}
+            {/* ── STEP: Store & Region ── */}
             {STEPS[currentStep].id === 'store' && (
               <Card>
                 <CardContent className="p-6 space-y-5">
                   <div className="space-y-2">
                     <Label htmlFor="w-storeName">Store Name <span className="text-destructive">*</span></Label>
-                    <Input id="w-storeName" value={storeName} onChange={e => setStoreName(e.target.value)} placeholder="e.g. Homeomead" />
+                    <Input id="w-storeName" value={cfg.business.name} onChange={e => set('business', { name: e.target.value })} placeholder="e.g. HomeoMead" />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="w-legalName">Legal Entity Name</Label>
+                      <Input id="w-legalName" value={cfg.business.legalName} onChange={e => set('business', { legalName: e.target.value })} placeholder="HomeoMead Wellness Pvt. Ltd." />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="w-tagline">Tagline</Label>
+                      <Input id="w-tagline" value={cfg.business.tagline} onChange={e => set('business', { tagline: e.target.value })} placeholder="Authentic homeopathy, delivered" />
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="w-storeDesc">Store Description</Label>
-                    <Textarea id="w-storeDesc" value={storeDesc} onChange={e => setStoreDesc(e.target.value)} placeholder="Short description shown on the storefront" rows={3} />
+                    <Textarea id="w-storeDesc" value={cfg.business.description} onChange={e => set('business', { description: e.target.value })} placeholder="Short description shown on the storefront footer" rows={3} />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="w-websiteUrl">Website URL</Label>
-                    <Input id="w-websiteUrl" value={websiteUrl} onChange={e => setWebsiteUrl(e.target.value)} placeholder="https://yourstore.com" />
+                    <Input id="w-websiteUrl" value={cfg.business.websiteUrl} onChange={e => set('business', { websiteUrl: e.target.value })} placeholder="https://yourstore.com" />
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div className="space-y-2">
-                      <Label>Currency</Label>
-                      <Select value={currency} onValueChange={setCurrency}>
+                      <Label>Base Country</Label>
+                      <Select value={cfg.regional.baseCountry} onValueChange={v => set('regional', { baseCountry: v })}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          {CURRENCIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                          {COUNTRIES.map(c => <SelectItem key={c.code} value={c.code}>{c.name}</SelectItem>)}
                         </SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-2">
-                      <Label>Timezone</Label>
-                      <Select value={timezone} onValueChange={setTimezone}>
+                      <Label>Currency</Label>
+                      <Select value={cfg.regional.currency} onValueChange={v => set('regional', { currency: v })}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          {TIMEZONES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                          {CURRENCIES.map(c => <SelectItem key={c.code} value={c.code}>{c.symbol} {c.code}</SelectItem>)}
                         </SelectContent>
                       </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Language</Label>
+                      <Select value={cfg.regional.language} onValueChange={v => set('regional', { language: v })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {LANGUAGES.map(l => <SelectItem key={l.code} value={l.code}>{l.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Timezone</Label>
+                    <Select value={cfg.regional.timezone} onValueChange={v => set('regional', { timezone: v })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {TIMEZONES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Countries you sell / ship to</Label>
+                    <p className="text-xs text-muted-foreground">Controls the country list at checkout.</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {COUNTRIES.slice(0, 12).map(c => {
+                        const on = cfg.regional.operatingCountries.includes(c.code);
+                        return (
+                          <button
+                            key={c.code} type="button" onClick={() => toggleOperating(c.code)}
+                            className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm text-left transition-colors ${
+                              on ? 'border-primary bg-primary/5' : 'border-gray-200 text-muted-foreground hover:bg-muted'
+                            }`}
+                          >
+                            <span className={`h-3.5 w-3.5 rounded-sm border flex items-center justify-center ${on ? 'bg-primary border-primary' : 'border-gray-300'}`}>
+                              {on && <Check className="h-2.5 w-2.5 text-white" />}
+                            </span>
+                            {c.name}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 </CardContent>
               </Card>
             )}
 
-            {/* ── STEP: Contact ── */}
+            {/* ── STEP: Contact & Address ── */}
             {STEPS[currentStep].id === 'contact' && (
               <Card>
                 <CardContent className="p-6 space-y-5">
                   <div className="space-y-2">
-                    <Label htmlFor="w-email">Store Email <span className="text-destructive">*</span></Label>
-                    <Input id="w-email" type="email" value={contactEmail} onChange={e => setContactEmail(e.target.value)} placeholder="contact@yourstore.com" />
+                    <Label htmlFor="w-email">Support Email <span className="text-destructive">*</span></Label>
+                    <Input id="w-email" type="email" value={cfg.contact.email} onChange={e => set('contact', { email: e.target.value })} placeholder="support@yourstore.com" />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="w-phone">Phone Number</Label>
-                      <Input id="w-phone" value={contactPhone} onChange={e => setContactPhone(e.target.value)} placeholder="+91 98765 43210" />
+                      <Input id="w-phone" value={cfg.contact.phone} onChange={e => set('contact', { phone: e.target.value })} placeholder="+91 98765 43210" />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="w-whatsapp">WhatsApp Number</Label>
-                      <Input id="w-whatsapp" value={whatsappNumber} onChange={e => setWhatsappNumber(e.target.value)} placeholder="+91 98765 43210" />
+                      <Input id="w-whatsapp" value={cfg.contact.whatsapp} onChange={e => set('contact', { whatsapp: e.target.value })} placeholder="+91 98765 43210" />
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="w-address">Store Address</Label>
-                    <Textarea id="w-address" value={storeAddress} onChange={e => setStoreAddress(e.target.value)} placeholder="Full address shown on invoices and contact page" rows={3} />
+
+                  <div className="pt-2 border-t space-y-4">
+                    <p className="text-sm font-medium text-foreground">Business Address</p>
+                    <div className="space-y-2">
+                      <Label htmlFor="w-addr1">Address Line 1</Label>
+                      <Input id="w-addr1" value={cfg.address.line1} onChange={e => set('address', { line1: e.target.value })} placeholder="123 Health Avenue" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="w-city">City</Label>
+                        <Input id="w-city" value={cfg.address.city} onChange={e => set('address', { city: e.target.value })} placeholder="New Delhi" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>State / Region</Label>
+                        {cfg.address.country === 'IN' ? (
+                          <Select value={cfg.address.state || undefined} onValueChange={v => set('address', { state: v })}>
+                            <SelectTrigger><SelectValue placeholder="Select state" /></SelectTrigger>
+                            <SelectContent>
+                              {INDIAN_STATES.map(st => <SelectItem key={st} value={st}>{st}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Input value={cfg.address.state} onChange={e => set('address', { state: e.target.value })} placeholder="State / Province" />
+                        )}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="w-postal">Postal / PIN Code</Label>
+                        <Input id="w-postal" value={cfg.address.postalCode} onChange={e => set('address', { postalCode: e.target.value })} placeholder="110001" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Country</Label>
+                        <Select value={cfg.address.country} onValueChange={v => set('address', { country: v })}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {COUNTRIES.map(c => <SelectItem key={c.code} value={c.code}>{c.name}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -399,13 +469,13 @@ const SetupWizard: React.FC = () => {
                 <CardContent className="p-6 space-y-5">
                   <div className="space-y-2">
                     <Label htmlFor="w-logoUrl">Logo URL</Label>
-                    <Input id="w-logoUrl" value={logoUrl} onChange={e => setLogoUrl(e.target.value)} placeholder="https://cdn.yourstore.com/logo.png" />
+                    <Input id="w-logoUrl" value={cfg.business.logoUrl} onChange={e => set('business', { logoUrl: e.target.value })} placeholder="https://cdn.yourstore.com/logo.png" />
                     <p className="text-xs text-muted-foreground">Upload the logo in Gallery first, then paste the URL here. Or set it later in Appearance → Style.</p>
-                    {logoUrl && <img src={logoUrl} alt="logo preview" className="h-12 mt-2 object-contain rounded border" />}
+                    {cfg.business.logoUrl && <img src={cfg.business.logoUrl} alt="logo preview" className="h-12 mt-2 object-contain rounded border" />}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="w-faviconUrl">Favicon URL</Label>
-                    <Input id="w-faviconUrl" value={faviconUrl} onChange={e => setFaviconUrl(e.target.value)} placeholder="https://cdn.yourstore.com/favicon.ico" />
+                    <Input id="w-faviconUrl" value={cfg.business.faviconUrl} onChange={e => set('business', { faviconUrl: e.target.value })} placeholder="https://cdn.yourstore.com/favicon.ico" />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">

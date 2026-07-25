@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FaArrowLeft, FaPlus, FaEdit, FaTrash, FaWarehouse, FaStore, FaTruck, FaSave, FaTimes, FaSync } from 'react-icons/fa';
 import { warehousesAPI } from '../services/api';
+import PhoneInput from '../components/PhoneInput';
+import CarrierLocationMap from '../components/shipments/CarrierLocationMap';
 
 interface Warehouse {
   _id: string;
@@ -408,13 +410,15 @@ const Warehouses: React.FC = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Contact Phone *</label>
-                <input
-                  type="tel"
-                  required
+                <PhoneInput
                   value={formData.contact.phone}
-                  onChange={(e) => handleChange('contact.phone', e.target.value)}
-                  placeholder="+91 9876543210"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                  dialCode={(formData.contact as any).dialCode}
+                  required
+                  placeholder="9876543210"
+                  onChange={({ number, dialCode }) => {
+                    handleChange('contact.phone', number);
+                    handleChange('contact.dialCode', dialCode);
+                  }}
                 />
               </div>
               <div>
@@ -476,29 +480,17 @@ const Warehouses: React.FC = () => {
                 </div>
                 {formData.shippingProviders.shiprocket.enabled && (
                   <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Shiprocket Warehouse ID</label>
-                      <input
-                        type="text"
-                        value={formData.shippingProviders.shiprocket.warehouseId}
-                        onChange={(e) => handleChange('shippingProviders.shiprocket.warehouseId', e.target.value)}
-                        placeholder="e.g. 12345 (from Shiprocket dashboard)"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">
-                        Map this warehouse to your Shiprocket warehouse. Find the ID in Shiprocket → Settings → Pickup Locations.
-                      </p>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Pickup Location Name</label>
-                      <input
-                        type="text"
-                        value={formData.shippingProviders.shiprocket.pickupLocation}
-                        onChange={(e) => handleChange('shippingProviders.shiprocket.pickupLocation', e.target.value)}
-                        placeholder="Default Location (fallback if warehouse ID not set)"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                      />
-                    </div>
+                    {/* Picked from the locations that actually exist on the connected
+                        account — a typed code that doesn't match breaks every booking. */}
+                    <CarrierLocationMap
+                      provider="shiprocket"
+                      active={formData.shippingProviders.shiprocket.enabled}
+                      value={formData.shippingProviders.shiprocket.pickupLocation}
+                      onChange={(code) => handleChange('shippingProviders.shiprocket.pickupLocation', code)}
+                    />
+                    <p className="text-xs text-gray-500">
+                      Shipments booked from <strong>this</strong> warehouse are picked up from the location selected above.
+                    </p>
                   </div>
                 )}
               </div>
@@ -521,20 +513,17 @@ const Warehouses: React.FC = () => {
                   </label>
                 </div>
                 {formData.shippingProviders.delhivery.enabled && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      DELHIVERY Warehouse Name * <span className="text-xs text-gray-500">(As registered with DELHIVERY)</span>
-                    </label>
-                    <input
-                      type="text"
-                      required={formData.shippingProviders.delhivery.enabled}
+                  <div className="space-y-2">
+                    <CarrierLocationMap
+                      provider="delhivery"
+                      label="Delhivery warehouse"
+                      active={formData.shippingProviders.delhivery.enabled}
                       value={formData.shippingProviders.delhivery.warehouseCode}
-                      onChange={(e) => handleChange('shippingProviders.delhivery.warehouseCode', e.target.value)}
-                      placeholder="Enter exact warehouse name as registered with DELHIVERY"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                      onChange={(code) => handleChange('shippingProviders.delhivery.warehouseCode', code)}
                     />
-                    <p className="text-xs text-gray-500 mt-1">
-                      This must match exactly with the warehouse name registered in your DELHIVERY account. Contact your DELHIVERY SPOC if unsure.
+                    <p className="text-xs text-gray-500">
+                      Delhivery identifies pickups by warehouse <em>name</em>, so this must match their record exactly —
+                      selecting from the list above guarantees that.
                     </p>
                   </div>
                 )}

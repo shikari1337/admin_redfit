@@ -163,36 +163,15 @@ const Shipments: React.FC = () => {
         if (endDate) params.endDate = endDate;
 
         const response = await shipmentsAPI.getAll(params);
-        console.log('[Shipments] getAll raw response:', response);
-        console.log('[Shipments] response type:', typeof response, Array.isArray(response) ? 'is-array' : 'not-array');
-        console.log('[Shipments] response keys:', response ? Object.keys(response) : 'null');
-        if (response?.shipments) {
-          console.log('[Shipments] shipments count:', response.shipments.length);
-          if (response.shipments.length > 0) {
-            console.log('[Shipments] First shipment:', JSON.stringify(response.shipments[0], null, 2));
-            console.log('[Shipments] First shipment keys:', Object.keys(response.shipments[0]));
-          }
-        }
         let shipmentsData: any[] = [];
         if (Array.isArray(response)) {
-          console.log('[Shipments] Branch: response is array');
           shipmentsData = response;
         } else if (Array.isArray(response?.shipments)) {
-          console.log('[Shipments] Branch: response.shipments is array');
           shipmentsData = response.shipments;
         } else if (Array.isArray(response?.data)) {
-          console.log('[Shipments] Branch: response.data is array');
           shipmentsData = response.data;
         } else if (Array.isArray(response?.data?.shipments)) {
-          console.log('[Shipments] Branch: response.data.shipments is array');
           shipmentsData = response.data.shipments;
-        } else {
-          console.log('[Shipments] Branch: NO MATCH - response structure unexpected');
-        }
-
-        console.log('[Shipments] Final shipmentsData count:', shipmentsData.length);
-        if (shipmentsData.length > 0) {
-          console.log('[Shipments] Final first shipment:', JSON.stringify(shipmentsData[0], null, 2));
         }
 
         setShipments(Array.isArray(shipmentsData) ? shipmentsData : []);
@@ -427,6 +406,8 @@ const Shipments: React.FC = () => {
           .filter(Boolean);
         if (skus.length > 0) shipmentData.orderItemIndices = skus;
       }
+      // PART-QUANTITY selections win over the plain SKU list when present.
+      if (modalData?.itemSelections?.length) shipmentData.itemSelections = modalData.itemSelections;
 
       console.log('[Shipments] Creating shipment with data:', shipmentData);
       const response = await shipmentsAPI.create(shipmentData);
@@ -436,7 +417,10 @@ const Shipments: React.FC = () => {
       // or it could be { data: shipment } depending on response structure
       const shipmentObj = response?.data || response;
       const shipmentNumber = shipmentObj?.shipmentNumber || '';
-      const awb = shipmentObj?.providerData?.delhiveryWaybill
+      // Provider bookings return awbCode/waybill; manual returns tracking info.
+      const awb = shipmentObj?.awbCode
+        || shipmentObj?.waybill
+        || shipmentObj?.providerData?.delhiveryWaybill
         || shipmentObj?.providerData?.shiprocketAWB
         || '';
       const provider = shipmentObj?.shippingProvider || selectedShippingProvider;
@@ -482,7 +466,9 @@ const Shipments: React.FC = () => {
               setFetchingStatus(true);
               try {
                 const response = await shipmentsAPI.fetchStatusUpdates();
-                alert(`Status updates fetched!\nUpdated: ${response.data?.updated || 0}\nFailed: ${response.data?.failed || 0}\nSkipped: ${response.data?.skipped || 0}`);
+                // The api client unwraps {success,data} → stats may be top-level.
+                const stats = (response?.updated !== undefined ? response : response?.data) || {};
+                alert(`Status updates fetched!\nUpdated: ${stats.updated || 0}\nUnchanged: ${stats.skipped || 0}\nFailed: ${stats.failed || 0}`);
                 fetchShipments();
               } catch (error: any) {
                 console.error('Failed to fetch status updates:', error);
@@ -581,9 +567,9 @@ const Shipments: React.FC = () => {
             }}
             onSchedulePickup={handleSchedulePickup}
             onUpdateStatus={handleUpdateStatus}
-            onDownloadLabel={async (shipmentId) => {
+            onDownloadLabel={async (shipmentId, size) => {
               try {
-                await shipmentsAPI.downloadLabel(shipmentId);
+                await shipmentsAPI.downloadLabel(shipmentId, size || '4R');
               } catch (error: any) {
                 console.error('Failed to download label:', error);
                 alert(error.response?.data?.message || 'Failed to download label');
@@ -690,8 +676,10 @@ const Shipments: React.FC = () => {
         orderItems={selectedOrder?.items?.map((item: any) => ({
           productName: item.productName || item.name || 'Product',
           size: item.size || 'N/A',
+          sku: item.sku,
           quantity: item.quantity || 1,
           price: item.price || 0,
+          weight_kg: item.weight_kg ?? item.weightKg,
         })) || []}
       />
 

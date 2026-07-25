@@ -71,17 +71,47 @@ export const api = axios.create({
 });
 
 /**
- * Map PostgreSQL `id` → `_id` recursively so all admin pages that use `_id`
- * (written for MongoDB) keep working against the PostgreSQL backend.
+ * Keys whose VALUES are opaque JSON payloads that either round-trip back to the
+ * backend verbatim (product/page editors) or carry their own meaningful key
+ * shape. We do NOT descend into these — injecting camelCase aliases inside them
+ * would bloat what gets saved and corrupt stored JSONB. The key itself still
+ * gets an alias; only its children are left untouched.
+ */
+const OPAQUE_VALUE_KEYS = new Set([
+  'seo', 'page_sections', 'pagesections', 'aplus_content', 'apluscontent',
+  'custom_data', 'customdata', 'specifications', 'offers', 'wash_care_instructions',
+  'attributes', 'conditions', 'meta', 'metadata', 'config', 'schema_markup',
+  'items', 'blocks', 'sections', 'settings', 'shipping_providers', 'store_access',
+  'permissions', 'gst', 'status_history', 'timeline', 'b2b_pricing', 'b2bpricing',
+  'variation_attributes', 'children', 'size_chart', 'sizechart', 'filters',
+  'product_ids', 'category_ids', 'schema', 'value', 'data', 'raw',
+]);
+
+const snakeToCamel = (s: string): string => s.replace(/_([a-z0-9])/g, (_m, c: string) => c.toUpperCase());
+
+/**
+ * Normalize PostgreSQL responses for the MongoDB-era admin:
+ *  1. add `_id` alias for `id`
+ *  2. add camelCase aliases for every snake_case key (non-destructive — originals
+ *     are kept, so both `is_active` and `isActive` read correctly)
+ * Opaque JSON values (see above) are passed through untouched so editors that
+ * save the object back don't persist alias junk into JSONB columns.
  */
 const normalizeIds = (data: any): any => {
   if (Array.isArray(data)) return data.map(normalizeIds);
-  if (data && typeof data === 'object' && !(data instanceof Date) && !(data instanceof Blob)) {
+  if (data && typeof data === 'object'
+      && !(data instanceof Date) && !(data instanceof Blob)
+      && !(typeof File !== 'undefined' && data instanceof File)) {
     const out: Record<string, any> = {};
     for (const [k, v] of Object.entries(data)) {
-      out[k] = normalizeIds(v);
+      out[k] = OPAQUE_VALUE_KEYS.has(k.toLowerCase()) ? v : normalizeIds(v);
     }
-    // PostgreSQL returns `id` (UUID); admin pages expect `_id` — add alias
+    // camelCase aliases (added after, so they point at normalized values)
+    for (const k of Object.keys(data)) {
+      if (!k.includes('_') || k.startsWith('_')) continue;
+      const camel = snakeToCamel(k);
+      if (camel !== k && out[camel] === undefined) out[camel] = out[k];
+    }
     if (out.id !== undefined && out._id === undefined) out._id = out.id;
     return out;
   }
@@ -109,6 +139,11 @@ const normalizeResponse = (response: any): any => {
       }
       if (response.count !== undefined) {
         Object.defineProperty(extracted, 'count', { value: response.count, writable: true, enumerable: false, configurable: true });
+      }
+      // Preserve sibling metadata (e.g. b2b applications' status `counts`) that
+      // would otherwise be dropped when the envelope is unwrapped to its array.
+      if (response.counts !== undefined) {
+        Object.defineProperty(extracted, 'counts', { value: response.counts, writable: true, enumerable: false, configurable: true });
       }
     }
     return extracted;
@@ -475,24 +510,6 @@ export const aiAPI = {
   },
 };
 
-// Content API (Page Editor module - requires page_editor permission)
-export const contentAPI = {
-  list: async () => {
-    const response = await api.get('/content');
-    const data = response.data;
-    if (Array.isArray(data)) return data;
-    return data?.data ?? [];
-  },
-  getBySlug: async (slug: string) => {
-    const response = await api.get(`/content/${slug}`);
-    return response.data?.data ?? response.data;
-  },
-  save: async (slug: string, payload: { title?: string; sections?: any[]; isActive?: boolean }) => {
-    const response = await api.put(`/content/${slug}`, payload);
-    return response.data?.data ?? response.data;
-  },
-};
-
 // Products API
 export const productsAPI = {
   getAll: async (params?: { active?: boolean; search?: string; category?: string; categorySlug?: string; attributes?: string | object; page?: number; limit?: number }) => {
@@ -630,6 +647,43 @@ export const productsAPI = {
     a.download = `products-all-${date}.csv`;
     a.click();
     URL.revokeObjectURL(objUrl);
+  },
+
+  // ── Multi-sheet linked workbook (Products/Variations/A+/Specs/Brands/…) ──
+  downloadWorkbook: async (kind: 'export' | 'template' = 'export'): Promise<void> => {
+    const path = kind === 'template' ? '/products/workbook/template' : '/products/workbook/export';
+    const response = await api.get(path, { responseType: 'blob' });
+    const blob = new Blob([response.data], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const date = new Date().toISOString().split('T')[0];
+    const objUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = objUrl;
+    a.download = kind === 'template' ? 'catalog-import-template.xlsx' : `catalog-${date}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(objUrl);
+  },
+  previewWorkbook: async (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    const response = await api.post('/products/workbook/preview', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data?.data ?? response.data;
+  },
+  importWorkbook: async (
+    file: File,
+    options?: { mapping?: Record<string, any>; mode?: 'upsert' | 'create_only'; dryRun?: boolean }
+  ) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (options) form.append('options', JSON.stringify(options));
+    const response = await api.post('/products/workbook/import', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 180000, // large catalogs can take a while
+    });
+    return response.data?.data ?? response.data;
   },
 };
 
@@ -1155,10 +1209,57 @@ export const vendorsAPI = {
 
 // Orders API
 export const ordersAPI = {
+  /** CSV export — all filtered orders, or just `ids` when a selection was made. */
+  exportCsv: async (params?: { ids?: string[]; status?: string; from?: string; to?: string }) => {
+    const response = await api.get('/orders/export/csv', {
+      params: { ...params, ids: params?.ids?.length ? params.ids.join(',') : undefined },
+      responseType: 'blob',
+    });
+    const blob = response.data instanceof Blob ? response.data : new Blob([response.data], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `orders-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  },
+  /** Manually create a sales order (prices resolve server-side; B2B applies when customerId given). */
+  createManual: async (data: {
+    items: Array<{ productId: string; variationId?: string; sku?: string; quantity: number; unitPrice?: number; discountPercent?: number }>;
+    shippingAddress: Record<string, any>;
+    billingAddress?: Record<string, any>;
+    customerId?: string;
+    paymentMethod: 'cod' | 'prepaid';
+    shippingCost?: number;
+    discount?: number;
+    discountReason?: string;
+    gstin?: string;
+    notes?: string;
+    hold?: boolean;
+  }) => {
+    const response = await api.post('/orders/manual', data);
+    return response.data;
+  },
+  /** Replace order lines while payment is pending (repriced server-side). */
+  updateItems: async (id: string, data: {
+    items: Array<{ productId: string; variationId?: string; sku?: string; quantity: number; unitPrice?: number; discountPercent?: number }>;
+    discount?: number; discountReason?: string; shippingCost?: number;
+  }) => {
+    const response = await api.put(`/orders/${id}/items`, data);
+    return response.data;
+  },
+  /** Shareable review-and-pay link for the order (Shopify-style). */
+  getPayLink: async (id: string) => {
+    const response = await api.get(`/orders/${id}/pay-link`);
+    return response.data;
+  },
   getAll: async (params?: {
     orderId?: string;
     mobileNumber?: string;
     status?: string;
+    order_type?: 'retail' | 'b2b';
     limit?: number;
     page?: number;
     startDate?: string;
@@ -1172,20 +1273,31 @@ export const ordersAPI = {
     const response = await api.get(`/orders/${id}`);
     return response.data;
   },
-  confirmOrder: async (id: string) => {
-    const response = await api.post(`/orders/${id}/confirm`);
-    return response.data;
-  },
+  // "Confirmed" and "Completed" are just status transitions handled by /status
+  // below — there never was a dedicated /confirm or /complete route.
   updateStatus: async (id: string, status: string, notes?: string) => {
     const response = await api.put(`/orders/${id}/status`, { status, notes });
     return response.data;
   },
-  markOrderCompleted: async (id: string) => {
-    const response = await api.post(`/orders/${id}/complete`);
+  /** Confirm a pending order (shorthand for the pending → confirmed transition). */
+  confirmOrder: async (id: string, notes?: string) => {
+    const response = await api.put(`/orders/${id}/status`, { status: 'confirmed', notes });
     return response.data;
   },
-  updateNotes: async (id: string, notes: string) => {
-    const response = await api.put(`/orders/${id}/notes`, { notes });
+  /** Park an order that needs attention without cancelling it. */
+  holdOrder: async (id: string, reason?: string) => {
+    const response = await api.put(`/orders/${id}/status`, { status: 'on_hold', notes: reason });
+    return response.data;
+  },
+  /** Mark/clear "needs attention" — independent of order status. */
+  setFlag: async (id: string, flagged: boolean, reason?: string) => {
+    const response = await api.put(`/orders/${id}/flag`, { flagged, reason });
+    return response.data;
+  },
+  // Timestamped, append-only notes log — replaces the old single-overwrite
+  // updateNotes, which called a PUT /:id/notes route that never existed.
+  addNote: async (id: string, text: string) => {
+    const response = await api.post(`/orders/${id}/notes`, { text });
     return response.data;
   },
   sendEmail: async (id: string, type: 'confirmation' | 'update' | 'invoice', options?: { subject?: string; content?: string }) => {
@@ -1397,7 +1509,95 @@ export const reviewsAPI = {
 };
 
 // Shipping API
+/** Truthful config state for one courier account. */
+export interface ShippingProviderStatus {
+  provider: string;
+  label: string;
+  configured: boolean;
+  source: 'store' | 'platform' | 'env' | 'none';
+  account_name: string | null;
+  missing: string[];
+  applies_markup: boolean;
+  bills_wallet: boolean;
+  details: Record<string, string | undefined>;
+}
+
 export const shippingAPI = {
+  /** Which carriers are actually configured, and whose account is in effect. */
+  getProviderStatus: async (): Promise<ShippingProviderStatus[]> => {
+    const response = await api.get('/shipping/providers/status');
+    const raw = response.data;
+    return Array.isArray(raw) ? raw : (Array.isArray(raw?.data) ? raw.data : []);
+  },
+  /** Live credential check against the carrier. */
+  testConnection: async (provider: string): Promise<{ ok: boolean; message: string; source?: string }> => {
+    const response = await api.post(`/shipping/${provider}/test-connection`);
+    const raw = response.data;
+    return raw?.data ?? raw ?? { ok: false, message: 'No response' };
+  },
+  /**
+   * Issue the AWB for a Shiprocket order that was created but never dispatched
+   * (empty carrier wallet, courier outage). Re-running the full booking would
+   * create a SECOND order at Shiprocket — this finishes the existing one.
+   */
+  assignAwb: async (shipmentId: string, courierId?: number): Promise<{ awbCode?: string; courierName?: string }> => {
+    const response = await api.post('/shipping/shiprocket/assign-awb', { shipmentId, courierId });
+    const raw = response.data;
+    return raw?.data ?? raw ?? {};
+  },
+  /** The store's own courier credentials (secrets never returned). */
+  getProviderCredentials: async (): Promise<{
+    shiprocket: { isEnabled: boolean; email: string; apiUrl: string; pickupLocation: string; channelId: string; passwordSet: boolean };
+    delhivery: { isEnabled: boolean; apiUrl: string; apiTokenSet: boolean };
+  }> => {
+    const response = await api.get('/shipping/providers/credentials');
+    const raw = response.data;
+    return raw?.data ?? raw;
+  },
+  /** Save the store's own courier credentials. Blank secret = keep existing. */
+  saveProviderCredentials: async (data: {
+    shiprocket?: { isEnabled?: boolean; email?: string; password?: string; apiUrl?: string; pickupLocation?: string; channelId?: string };
+    delhivery?: { isEnabled?: boolean; apiToken?: string; apiUrl?: string };
+  }) => {
+    const response = await api.put('/shipping/providers/credentials', data);
+    return response.data?.data ?? response.data;
+  },
+  /** Shiprocket sales channels — orders are filed under one of these. */
+  getShiprocketChannels: async (): Promise<{
+    configured: boolean;
+    selected: string | null;
+    selected_valid: boolean | null;
+    channels: Array<{ id: string; name: string; type?: string; status?: string }>;
+    message?: string;
+  }> => {
+    const response = await api.get('/shipping/shiprocket/channels');
+    const raw = response.data;
+    const d = raw?.data ?? raw;
+    return {
+      configured: !!d?.configured,
+      selected: d?.selected ?? null,
+      selected_valid: d?.selected_valid ?? null,
+      channels: Array.isArray(d?.channels) ? d.channels : [],
+      message: d?.message,
+    };
+  },
+  /** Pickup locations registered on the carrier account, for warehouse mapping. */
+  getPickupLocations: async (provider: string): Promise<{
+    configured: boolean; supported: boolean; source?: string;
+    locations: Array<{ code: string; name: string; address?: string; city?: string; state?: string; pincode?: string; phone?: string }>;
+    message?: string;
+  }> => {
+    const response = await api.get(`/shipping/${provider}/pickup-locations`);
+    const raw = response.data;
+    const d = raw?.data ?? raw;
+    return {
+      configured: !!d?.configured,
+      supported: d?.supported !== false,
+      source: d?.source,
+      locations: Array.isArray(d?.locations) ? d.locations : [],
+      message: d?.message,
+    };
+  },
   createShipment: async (orderId: string, options?: {
     warehouseId?: string;
     shippingProvider?: 'shiprocket' | 'delhivery' | 'manual';
@@ -1558,9 +1758,10 @@ export const shipmentsAPI = {
     const response = await api.post(`/shipments/${id}/ndr-update-phone`, { phone });
     return response.data;
   },
-  downloadLabel: async (id: string) => {
+  downloadLabel: async (id: string, pdfSize: '4R' | 'A4' = '4R') => {
     try {
       const response = await api.get(`/shipments/${id}/download-label`, {
+        params: { pdf_size: pdfSize },
         responseType: 'blob',
         headers: { 'Accept': 'application/pdf' },
       });
@@ -1570,8 +1771,8 @@ export const shipmentsAPI = {
       link.href = url;
       const contentDisposition = response.headers['content-disposition'];
       const filename = contentDisposition
-        ? contentDisposition.split('filename=')[1]?.replace(/"/g, '') || `label-${id}.pdf`
-        : `label-${id}.pdf`;
+        ? contentDisposition.split('filename=')[1]?.replace(/"/g, '') || `label-${id}-${pdfSize}.pdf`
+        : `label-${id}-${pdfSize}.pdf`;
       link.setAttribute('download', filename);
       document.body.appendChild(link);
       link.click();
@@ -1700,8 +1901,12 @@ export const couponsAPI = {
 };
 
 export const smsTemplatesAPI = {
-  list: async () => {
-    const response = await api.get('/sms-templates');
+  list: async (channel: 'sms' | 'whatsapp' = 'sms') => {
+    const response = await api.get('/sms-templates', { params: { channel } });
+    return response.data;
+  },
+  catalog: async () => {
+    const response = await api.get('/sms-templates/catalog');
     return response.data;
   },
   update: async (
@@ -1711,6 +1916,7 @@ export const smsTemplatesAPI = {
       templateId?: string;
       isEnabled?: boolean;
       variablesHint?: string[];
+      channel?: 'sms' | 'whatsapp';
     }
   ) => {
     const response = await api.put(`/sms-templates/${event}`, data);
@@ -1731,6 +1937,115 @@ export const smsConfigAPI = {
     apiKey?: string;
   }) => {
     const response = await api.put('/sms-config', data);
+    return response.data;
+  },
+  /** Verify the saved key against the provider; returns balance/credits. */
+  test: async () => {
+    try {
+      const response = await api.post('/sms-config/test', {});
+      return { ok: true, ...(response.data?.data ?? response.data ?? {}) };
+    } catch (e: any) {
+      return { ok: false, message: e?.response?.data?.message || 'Connection test failed' };
+    }
+  },
+  /** DLT-approved templates registered on the provider account. */
+  getProviderTemplates: async () => {
+    try {
+      const response = await api.get('/sms-config/provider-templates');
+      const raw = response.data;
+      return { ok: true, templates: Array.isArray(raw) ? raw : (raw?.data ?? []) };
+    } catch (e: any) {
+      return { ok: false, templates: [], message: e?.response?.data?.message || 'Could not load provider templates' };
+    }
+  },
+  sendTest: async (data: { phoneNumber: string; message?: string; event?: string }) => {
+    try {
+      const response = await api.post('/sms-config/test-sms', data);
+      return { ok: true, ...(response.data?.data ?? {}), message: response.data?.message };
+    } catch (e: any) {
+      return { ok: false, message: e?.response?.data?.message || 'Test SMS failed' };
+    }
+  },
+  /** Preview which registered DLT template would back each action. */
+  previewAutoMap: async () => {
+    try {
+      const response = await api.get('/sms-config/auto-map');
+      const raw = response.data;
+      return { ok: true, proposals: Array.isArray(raw) ? raw : (raw?.data ?? []) };
+    } catch (e: any) {
+      return { ok: false, proposals: [], message: e?.response?.data?.message || 'Auto-map failed' };
+    }
+  },
+  /** Apply the mapping so real sends use the DLT-approved wording. */
+  applyAutoMap: async (events?: string[]) => {
+    try {
+      const response = await api.post('/sms-config/auto-map', events?.length ? { events } : {});
+      return { ok: true, message: response.data?.message, ...(response.data?.data ?? {}) };
+    } catch (e: any) {
+      return { ok: false, message: e?.response?.data?.message || 'Auto-map failed' };
+    }
+  },
+};
+
+// ─── ORDER NUMBERING (serialized order numbers: retail/bulk + B2B) ───────────
+export interface OrderNumberingScope {
+  prefix: string;
+  suffix: string;
+  padding: number;
+  start: number;
+  reset: 'never' | 'yearly' | 'monthly' | 'daily';
+  format: string;
+  enabled: boolean;
+}
+
+// ─── INVOICES (config/customiser, PDF, multi-channel send) ───────────────────
+export const invoicesAPI = {
+  /** Config + which required legal fields are still blank. */
+  getConfig: async () => {
+    const response = await api.get('/invoices/config');
+    return response.data;
+  },
+  updateConfig: async (config: any) => {
+    const response = await api.put('/invoices/config', config);
+    return response.data;
+  },
+  /** Live PDF preview of UNSAVED settings (consumes no invoice number). */
+  preview: async (config: any) => {
+    const response = await api.post('/invoices/preview', { config }, { responseType: 'blob' });
+    return response.data as Blob;
+  },
+  /** What the invoice will contain — for review before sending. */
+  getForOrder: async (orderId: string) => {
+    const response = await api.get(`/invoices/order/${orderId}`);
+    return response.data;
+  },
+  downloadPdf: async (orderId: string) => {
+    const response = await api.get(`/invoices/order/${orderId}/pdf`, { responseType: 'blob' });
+    return response.data as Blob;
+  },
+  /** Send on one or more channels: email (PDF attached), whatsapp, sms. */
+  send: async (orderId: string, opts: {
+    channels: Array<'email' | 'whatsapp' | 'sms'>;
+    email?: string; phone?: string; subject?: string; message?: string;
+    invoiceUrl?: string; force?: boolean;
+  }) => {
+    const response = await api.post(`/invoices/order/${orderId}/send`, opts);
+    return response.data;
+  },
+};
+
+export const orderNumberingAPI = {
+  get: async () => {
+    const response = await api.get('/settings/order-numbering');
+    return response.data;
+  },
+  update: async (config: { retail: OrderNumberingScope; b2b: OrderNumberingScope; separateB2bSeries?: boolean }) => {
+    const response = await api.put('/settings/order-numbering', config);
+    return response.data;
+  },
+  /** Live preview for unsaved form values. */
+  preview: async (scope: 'retail' | 'b2b', config: OrderNumberingScope) => {
+    const response = await api.post('/settings/order-numbering/preview', { scope, config });
     return response.data;
   },
 };
@@ -1797,9 +2112,43 @@ export const cartsAPI = {
     const response = await api.get('/carts/admin/export');
     return response.data;
   },
+  getDetail: async (cartId: string) => {
+    const response = await api.get(`/carts/admin/${cartId}`);
+    return response.data;
+  },
   sendRecovery: async (cartId: string) => {
     const response = await api.post(`/carts/${cartId}/send-recovery`);
     return response.data;
+  },
+  addNote: async (cartId: string, text: string) => {
+    const response = await api.post(`/carts/admin/${cartId}/notes`, { text });
+    return response.data;
+  },
+};
+
+// Cross-store customer journey/behaviour (public.customer_activity, store-scoped
+// reads) — powers the journey timeline on cart-recovery and order pages.
+export const journeyAPI = {
+  customerJourney: async (customerId: string, limit = 100) => {
+    const response = await api.get(`/analytics/customers/${customerId}/journey`, { params: { limit } });
+    return response.data;
+  },
+  customerBehavior: async (customerId: string) => {
+    const response = await api.get(`/analytics/customers/${customerId}/behavior`);
+    return response.data;
+  },
+};
+
+// Store Customers API — the shoppers who registered/ordered on THIS store.
+// (Distinct from usersAPI, which is admin/staff accounts.)
+export const customersAPI = {
+  getAll: async (params?: { page?: number; limit?: number; search?: string }) => {
+    const response = await api.get('/customers', { params });
+    return response.data;
+  },
+  getById: async (customerId: string) => {
+    const response = await api.get(`/customers/${customerId}`);
+    return response.data?.data ?? response.data;
   },
 };
 
@@ -2126,6 +2475,14 @@ export const modulesAPI = {
     const response = await api.post('/modules/initialize');
     return response.data;
   },
+  storeTypes: async () => {
+    const response = await api.get('/modules/store-types');
+    return response.data;
+  },
+  applyStoreType: async (type: string) => {
+    const response = await api.post('/modules/apply-store-type', { type });
+    return response.data;
+  },
 };
 
 // ─── BILLING API ─────────────────────────────────────────────────────────────
@@ -2154,44 +2511,64 @@ export const billingAPI = {
 
 // ─── B2B API ──────────────────────────────────────────────────────────────────
 export const b2bAPI = {
-  getAccounts: async (params?: { page?: number; limit?: number; search?: string; isActive?: boolean }) => {
-    const response = await api.get('/b2b/accounts', { params });
+  // ── Applications inbox (storefront /b2b-register lands here) ──
+  getApplications: async (status?: 'pending' | 'approved' | 'rejected') => {
+    const response = await api.get('/b2b/applications', { params: status ? { status } : {} });
     return response.data;
   },
-  getAccountById: async (id: string) => {
-    const response = await api.get(`/b2b/accounts/${id}`);
+  approveApplication: async (id: string, data: { tier?: string; credit_limit?: number; credit_days?: number; note?: string }) => {
+    const response = await api.post(`/b2b/applications/${id}/approve`, data);
     return response.data;
   },
-  createAccount: async (data: any) => {
-    const response = await api.post('/b2b/accounts', data);
+  rejectApplication: async (id: string, note?: string) => {
+    const response = await api.post(`/b2b/applications/${id}/reject`, { note });
     return response.data;
   },
-  updateAccount: async (id: string, data: any) => {
-    const response = await api.put(`/b2b/accounts/${id}`, data);
+  // ── Store B2B settings — tiers/plans + default discount (pricing P4/P5) ──
+  getSettings: async () => {
+    const response = await api.get('/b2b/settings');
     return response.data;
   },
-  deleteAccount: async (id: string) => {
-    const response = await api.delete(`/b2b/accounts/${id}`);
+  updateSettings: async (data: any) => {
+    const response = await api.put('/b2b/settings', data);
     return response.data;
   },
-  getQuotes: async (params?: { page?: number; limit?: number; status?: string; accountId?: string }) => {
-    const response = await api.get('/b2b/quotes', { params });
+  // ── Bulk / quantity slabs (pricing P2/P3) ──
+  getSlabs: async (productId?: string) => {
+    const response = await api.get('/b2b/slabs', { params: productId ? { product_id: productId } : {} });
     return response.data;
   },
-  getQuoteById: async (id: string) => {
-    const response = await api.get(`/b2b/quotes/${id}`);
+  createSlab: async (data: any) => {
+    const response = await api.post('/b2b/slabs', data);
     return response.data;
   },
-  createQuote: async (data: any) => {
-    const response = await api.post('/b2b/quotes', data);
+  updateSlab: async (id: string, data: any) => {
+    const response = await api.put(`/b2b/slabs/${id}`, data);
     return response.data;
   },
-  updateQuote: async (id: string, data: any) => {
-    const response = await api.put(`/b2b/quotes/${id}`, data);
+  deleteSlab: async (id: string) => {
+    const response = await api.delete(`/b2b/slabs/${id}`);
     return response.data;
   },
-  convertQuoteToOrder: async (id: string) => {
-    const response = await api.post(`/b2b/quotes/${id}/convert-order`);
+  // ── B2B customers = approved applicants (these are the real "accounts") ──
+  getB2BCustomers: async () => {
+    const response = await api.get('/b2b/customers');
+    return response.data;
+  },
+  // ── Negotiated per-account contracts (pricing P1 — highest) ──
+  getProductContracts: async (productId: string) => {
+    const response = await api.get(`/b2b/contracts/product/${productId}`);
+    return response.data;
+  },
+  createContract: async (data: {
+    customer_id: string; product_id: string; variation_id?: string | null;
+    unit_price: number; valid_from?: string | null; valid_until?: string | null;
+  }) => {
+    const response = await api.post('/b2b/contracts', data);
+    return response.data;
+  },
+  deleteContract: async (id: string) => {
+    const response = await api.delete(`/b2b/contracts/${id}`);
     return response.data;
   },
   // Price Lists
@@ -2235,6 +2612,14 @@ export const b2bAPI = {
   },
   createMOQRule: async (priceListId: string, data: any) => {
     const response = await api.post(`/b2b/price-lists/${priceListId}/moq`, data);
+    return response.data;
+  },
+  updateMOQRule: async (priceListId: string, ruleId: string, data: any) => {
+    const response = await api.put(`/b2b/price-lists/${priceListId}/moq/${ruleId}`, data);
+    return response.data;
+  },
+  deleteMOQRule: async (priceListId: string, ruleId: string) => {
+    const response = await api.delete(`/b2b/price-lists/${priceListId}/moq/${ruleId}`);
     return response.data;
   },
 };
@@ -2353,6 +2738,24 @@ export const inventoryAPI = {
     const response = await api.get(`/inventory/${productId}/history`);
     return response.data;
   },
+  getValuation: async () => {
+    const response = await api.get('/inventory/valuation');
+    return response.data;
+  },
+  exportExcel: async (search?: string) => {
+    const response = await api.get('/inventory/export', { params: search ? { search } : {}, responseType: 'blob' });
+    return response.data as Blob;
+  },
+  downloadTemplate: async () => {
+    const response = await api.get('/inventory/template', { responseType: 'blob' });
+    return response.data as Blob;
+  },
+  importExcel: async (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    const response = await api.post('/inventory/import', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+    return response.data;
+  },
 };
 
 // ─── TAX RULES API ────────────────────────────────────────────────────────────
@@ -2446,7 +2849,11 @@ export const searchAPI = {
     if (!q || q.trim().length < 3) return [];
     try {
       const response = await api.get('/search', { params: { type, q: q.trim(), limit } });
-      const data = response.data?.data;
+      // The response interceptor unwraps {success,data} → response.data IS the
+      // array; `response.data.data` was always undefined and search came back
+      // empty everywhere it was used.
+      const d: any = response.data;
+      const data = Array.isArray(d) ? d : d?.data;
       return Array.isArray(data) ? data : [];
     } catch { return []; }
   },
@@ -2454,7 +2861,8 @@ export const searchAPI = {
     if (!q || q.trim().length < 3) return {};
     try {
       const response = await api.get('/search', { params: { type: types.join(','), q: q.trim(), limit } });
-      return response.data?.data || {};
+      const d: any = response.data;
+      return (d && !Array.isArray(d) && typeof d === 'object' && !('success' in d) ? d : d?.data) || {};
     } catch { return {}; }
   },
 };
@@ -2491,8 +2899,9 @@ export const paymentRulesAPI = {
 
 // ─── SHIPPING ZONES API ──────────────────────────────────────────────────────
 export const shippingZonesAPI = {
+  // Admin always sees everything (active + inactive) so it can manage both.
   getAll: async () => {
-    const response = await api.get('/shipping/zones');
+    const response = await api.get('/shipping/zones', { params: { active: 'false' } });
     return response.data;
   },
   create: async (data: any) => {
@@ -2511,7 +2920,7 @@ export const shippingZonesAPI = {
 
 // ─── PINCODE ZONES API ───────────────────────────────────────────────────────
 export const pincodeZonesAPI = {
-  getAll: async (params?: { page?: number; limit?: number; search?: string }) => {
+  getAll: async (params?: { page?: number; per_page?: number }) => {
     const response = await api.get('/shipping/pincode-zones', { params });
     return response.data;
   },
@@ -2525,10 +2934,6 @@ export const pincodeZonesAPI = {
   },
   delete: async (id: string) => {
     const response = await api.delete(`/shipping/pincode-zones/${id}`);
-    return response.data;
-  },
-  bulkImport: async (zones: any[]) => {
-    const response = await api.post('/shipping/pincode-zones/bulk', { zones });
     return response.data;
   },
 };
@@ -2560,28 +2965,35 @@ export const variantGroupsAPI = {
 // ─── SEO API ─────────────────────────────────────────────────────────────────
 export const seoAPI = {
   get: async () => {
-    const response = await api.get('/seo');
+    const response = await api.get('/seo/settings');
     return response.data;
   },
   update: async (data: any) => {
-    const response = await api.put('/seo', data);
+    const response = await api.put('/seo/settings', data);
     return response.data;
   },
   getRedirects: async () => {
     const response = await api.get('/seo/redirects');
     return response.data;
   },
-  createRedirect: async (data: { from: string; to: string; type?: 301 | 302 }) => {
+  createRedirect: async (data: { from: string; to: string }) => {
     const response = await api.post('/seo/redirects', data);
     return response.data;
   },
-  deleteRedirect: async (id: string) => {
-    const response = await api.delete(`/seo/redirects/${id}`);
+  // The backend keys redirects by their `from` path, not an id.
+  deleteRedirect: async (from: string) => {
+    const response = await api.delete('/seo/redirects', { data: { from } });
     return response.data;
   },
-  generateSitemap: async () => {
-    const response = await api.post('/seo/sitemap/generate');
-    return response.data;
+  // Fetched (not linked directly) so the tenant's x-api-key header resolves the
+  // correct store — a bare <a href> would hit api.redfit.in with no tenant context.
+  getSitemap: async () => {
+    const response = await api.get('/seo/sitemap.xml', { responseType: 'text', transformResponse: (d) => d });
+    return response.data as string;
+  },
+  getRobots: async () => {
+    const response = await api.get('/seo/robots.txt', { responseType: 'text', transformResponse: (d) => d });
+    return response.data as string;
   },
 };
 
@@ -2613,6 +3025,82 @@ export const pluginsAPI = {
   },
 };
 
+// ─── CONTACTS API (contact-form submissions inbox) ───────────────────────────
+export const contactsAPI = {
+  getAll: async (params?: { status?: string; is_read?: boolean; limit?: number; offset?: number }) => {
+    const response = await api.get('/contact', { params });
+    return response.data;
+  },
+  getById: async (id: string) => {
+    const response = await api.get(`/contact/${id}`);
+    return response.data;
+  },
+  reply: async (id: string, reply_message: string) => {
+    const response = await api.put(`/contact/${id}/reply`, { reply_message });
+    return response.data;
+  },
+  updateStatus: async (id: string, status: 'new' | 'read' | 'replied' | 'closed') => {
+    const response = await api.put(`/contact/${id}/status`, { status });
+    return response.data;
+  },
+  delete: async (id: string) => {
+    const response = await api.delete(`/contact/${id}`);
+    return response.data;
+  },
+};
+
+// ─── TRUST BADGES API ────────────────────────────────────────────────────────
+export const trustBadgesAPI = {
+  // Admin always sees everything (active + inactive) so it can manage both.
+  getAll: async () => {
+    const response = await api.get('/trust-badges', { params: { active: 'false' } });
+    return response.data;
+  },
+  create: async (data: { title: string; description?: string; image_url?: string; display_order?: number; is_active?: boolean }) => {
+    const response = await api.post('/trust-badges', data);
+    return response.data;
+  },
+  update: async (id: string, data: Partial<{ title: string; description: string; image_url: string; display_order: number; is_active: boolean }>) => {
+    const response = await api.put(`/trust-badges/${id}`, data);
+    return response.data;
+  },
+  delete: async (id: string) => {
+    const response = await api.delete(`/trust-badges/${id}`);
+    return response.data;
+  },
+};
+
+// ─── WALLET API ──────────────────────────────────────────────────────────────
+// Store's own prepaid wallet — funds metered services (SMS/WhatsApp/email/
+// shipping/AI). Recharging by hand is intentionally not exposed here; only a
+// Razorpay top-up. See backend/src/routes/wallet.ts.
+export const walletAPI = {
+  get: async () => {
+    const response = await api.get('/wallet');
+    return response.data;
+  },
+  getTransactions: async (params?: { page?: number; limit?: number; category?: string; direction?: 'credit' | 'debit' }) => {
+    const response = await api.get('/wallet/transactions', { params });
+    return response.data;
+  },
+  getPricing: async () => {
+    const response = await api.get('/wallet/pricing');
+    return response.data;
+  },
+  createRechargeOrder: async (amount: number) => {
+    const response = await api.post('/wallet/recharge/create-order', { amount });
+    return response.data;
+  },
+  verifyRecharge: async (payload: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }) => {
+    const response = await api.post('/wallet/recharge/verify', payload);
+    return response.data;
+  },
+  getRecharges: async () => {
+    const response = await api.get('/wallet/recharges');
+    return response.data;
+  },
+};
+
 export const packagesAPI = {
   getAll: async () => {
     const response = await api.get('/packages');
@@ -2640,6 +3128,66 @@ export const bannersAPI = {
   delete: async (id: string) => {
     const response = await api.delete(`/banners/${id}`);
     return response.data;
+  },
+};
+
+// ── Multi-Channel Sync (marketplaces + catalog feeds) ─────────────────────────
+export const channelsAPI = {
+  // Platforms the super admin has enabled for this store
+  getPlatforms: async () => {
+    try { const r = await api.get('/channels/platforms'); return r.data?.data ?? []; }
+    catch (e: any) { safeError(e); return []; }
+  },
+  // Connections
+  getConnections: async () => {
+    try { const r = await api.get('/channels/connections'); return r.data?.data ?? []; }
+    catch (e: any) { safeError(e); return []; }
+  },
+  getConnection: async (id: string) => {
+    const r = await api.get(`/channels/connections/${id}`); return r.data?.data;
+  },
+  createConnection: async (payload: any) => {
+    const r = await api.post('/channels/connections', payload); return r.data?.data;
+  },
+  updateConnection: async (id: string, payload: any) => {
+    const r = await api.put(`/channels/connections/${id}`, payload); return r.data?.data;
+  },
+  deleteConnection: async (id: string) => {
+    const r = await api.delete(`/channels/connections/${id}`); return r.data;
+  },
+  testConnection: async (id: string) => {
+    const r = await api.post(`/channels/connections/${id}/test`); return r.data?.data;
+  },
+  syncNow: async (id: string) => {
+    const r = await api.post(`/channels/connections/${id}/sync`); return r.data?.data;
+  },
+  rotateFeedToken: async (id: string) => {
+    const r = await api.post(`/channels/connections/${id}/feed-token`); return r.data?.data;
+  },
+  autoMap: async (connectionId: string) => {
+    const r = await api.post(`/channels/connections/${connectionId}/auto-map`); return r.data;
+  },
+  // Mappings
+  getMappings: async (params?: { channelId?: string; productId?: string; variationId?: string }) => {
+    try { const r = await api.get('/channels/mappings', { params }); return r.data?.data ?? []; }
+    catch (e: any) { safeError(e); return []; }
+  },
+  createMapping: async (payload: any) => {
+    const r = await api.post('/channels/mappings', payload); return r.data?.data;
+  },
+  updateMapping: async (id: string, payload: any) => {
+    const r = await api.put(`/channels/mappings/${id}`, payload); return r.data?.data;
+  },
+  deleteMapping: async (id: string) => {
+    const r = await api.delete(`/channels/mappings/${id}`); return r.data;
+  },
+  bulkMappings: async (mappings: any[]) => {
+    const r = await api.post('/channels/mappings/bulk', { mappings }); return r.data;
+  },
+  // Logs
+  getLogs: async (params?: { channelId?: string; limit?: number }) => {
+    try { const r = await api.get('/channels/logs', { params }); return r.data?.data ?? []; }
+    catch (e: any) { safeError(e); return []; }
   },
 };
 

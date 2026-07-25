@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { productsAPI, categoriesAPI, brandsAPI, attributesAPI, attributeValuesAPI } from '../services/api';
 import { FaPlus, FaTrash, FaCog, FaCopy } from 'react-icons/fa';
-import { Pencil, Download, Upload, Loader2, ChevronDown, Search, X } from 'lucide-react';
+import { Pencil, Download, Upload, Loader2, ChevronDown, Search, X, FileSpreadsheet } from 'lucide-react';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -975,6 +975,13 @@ const Products: React.FC = () => {
               <DropdownMenuItem onClick={downloadFaqsTemplate}>FAQs template</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {/* Full linked workbook (all data + column mapping) */}
+          <Button asChild variant="outline" size="sm">
+            <Link to="/products/import-export">
+              <FileSpreadsheet className="mr-2 h-4 w-4" /> Bulk Workbook
+            </Link>
+          </Button>
 
           {canManageProducts && (
             <Button asChild className="bg-primary hover:bg-primary/90 text-primary-foreground">

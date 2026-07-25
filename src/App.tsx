@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard';
 import Products from './pages/Products';
 import Bundles from './pages/Bundles';
 import AbandonedCarts from './pages/AbandonedCarts';
+import AbandonedCartDetail from './pages/AbandonedCartDetail';
 import Categories from './pages/Categories';
 import Brands from './pages/Brands';
 import Attributes from './pages/Attributes';
@@ -15,8 +16,10 @@ import Specifications from './pages/Specifications';
 import SpecificationForm from './pages/SpecificationForm';
 import Orders from './pages/Orders';
 import ProductForm from './pages/ProductForm';
+import ProductImportExport from './pages/ProductImportExport';
 import BundleForm from './pages/BundleForm';
 import OrderDetail from './pages/OrderDetail';
+import ManualOrderCreate from './pages/ManualOrderCreate';
 import FAQs from './pages/FAQs';
 import Reviews from './pages/Reviews';
 import Coupons from './pages/Coupons';
@@ -28,23 +31,28 @@ import SmsTemplates from './pages/SmsTemplates';
 import ApiIntegrationSettings from './pages/ApiIntegrationSettings';
 import PaymentGatewaySettings from './pages/PaymentGatewaySettings';
 import GstSettings from './pages/GstSettings';
+import OrderNumbering from './pages/OrderNumbering';
+import InvoiceSettings from './pages/InvoiceSettings';
 import Settings from './pages/Settings';
 import ShippingSettings from './pages/ShippingSettings';
 import Warehouses from './pages/Warehouses';
 import Shipments from './pages/Shipments';
 import Users from './pages/Users';
 import UserDetail from './pages/UserDetail';
+import Customers from './pages/Customers';
 import Gallery from './pages/Gallery';
 import Logs from './pages/Logs';
 import Pages from './pages/Pages';
 import PageForm from './pages/PageForm';
 import AppearanceMenus from './pages/AppearanceMenus';
 import AppearanceStyle from './pages/AppearanceStyle';
+import AppearanceProducts from './pages/AppearanceProducts';
+import TrustBadges from './pages/TrustBadges';
 import AppearanceBanners from './pages/AppearanceBanners';
 import Leads from './pages/Leads';
-import ContentManager from './pages/ContentManager';
-import PageEditor from './pages/PageEditor';
 import Staff from './pages/Staff';
+import Channels from './pages/Channels';
+import ChannelMapping from './pages/ChannelMapping';
 import Layout from './components/Layout';
 import { ProtectedModuleRoute } from './components/ProtectedModuleRoute';
 import { ProtectedRoute } from './components/ProtectedRoute';
@@ -54,6 +62,7 @@ import StoreAnalytics from './pages/analytics/StoreAnalytics';
 import UserAnalytics from './pages/analytics/UserAnalytics';
 import RealtimeAnalytics from './pages/analytics/RealtimeAnalytics';
 import CustomAnalytics from './pages/analytics/CustomAnalytics';
+import MarketingAnalytics from './pages/analytics/MarketingAnalytics';
 import Modules from './pages/Modules';
 import PackageBoxes from './pages/PackageBoxes';
 import B2B from './pages/B2B';
@@ -71,6 +80,9 @@ import VariantLinkGroups from './pages/VariantLinkGroups';
 import Vendors from './pages/Vendors';
 import VendorForm from './pages/VendorForm';
 import SetupWizard from './pages/SetupWizard';
+import StoreConfiguration from './pages/StoreConfiguration';
+import Wallet from './pages/Wallet';
+import Seo from './pages/Seo';
 
 function App() {
   console.log('📱 Admin Panel: App component rendering...');
@@ -104,7 +116,9 @@ function App() {
           <Route path="analytics/users" element={<UserAnalytics />} />
           <Route path="analytics/realtime" element={<RealtimeAnalytics />} />
           <Route path="analytics/custom" element={<CustomAnalytics />} />
+          <Route path="analytics/marketing" element={<MarketingAnalytics />} />
           <Route path="products" element={<Products />} />
+          <Route path="products/import-export" element={<ProductImportExport />} />
           <Route path="products/new" element={<ProductForm />} />
           <Route path="products/:id/edit" element={<ProductForm />} />
           <Route path="products/:id/sections" element={<ProductSectionsManager />} />
@@ -124,9 +138,12 @@ function App() {
           <Route path="products/tags/new" element={<TagForm />} />
           <Route path="gallery" element={<Gallery />} />
           <Route path="orders" element={<Orders />} />
+          <Route path="orders/new" element={<ManualOrderCreate />} />
           <Route path="orders/abandoned-carts" element={<AbandonedCarts />} />
+          <Route path="orders/abandoned-carts/:id" element={<AbandonedCartDetail />} />
           <Route path="orders/:id" element={<OrderDetail />} />
           <Route path="shipments" element={<ProtectedModuleRoute module="shipping"><Shipments /></ProtectedModuleRoute>} />
+          <Route path="customers" element={<Customers />} />
           <Route path="users" element={<Users />} />
           <Route path="users/:id" element={<UserDetail />} />
           <Route path="logs" element={<Logs />} />
@@ -140,6 +157,8 @@ function App() {
           <Route path="appearance/banners" element={<AppearanceBanners />} />
           <Route path="appearance/pages" element={<Pages />} />
           <Route path="appearance/style" element={<AppearanceStyle />} />
+          <Route path="appearance/products" element={<AppearanceProducts />} />
+          <Route path="appearance/trust-badges" element={<TrustBadges />} />
           <Route path="pages" element={<Navigate to="/appearance/pages" replace />} />
           <Route path="pages/new" element={<PageForm />} />
           <Route path="pages/:id/edit" element={<PageForm />} />
@@ -151,23 +170,8 @@ function App() {
               </ProtectedModuleRoute>
             }
           />
-          <Route
-            path="content"
-            element={
-              <ProtectedModuleRoute module="page_builder">
-                <ContentManager />
-              </ProtectedModuleRoute>
-            }
-          />
-          <Route
-            path="content/:pageSlug/edit"
-            element={
-              <ProtectedModuleRoute module="page_builder">
-                <PageEditor />
-              </ProtectedModuleRoute>
-            }
-          />
           <Route path="settings" element={<Settings />} />
+          <Route path="settings/store-config" element={<StoreConfiguration />} />
           <Route path="settings/staff" element={<Staff />} />
           <Route path="settings/general" element={<Navigate to="/appearance/style" replace />} />
           <Route path="settings/api-integrations" element={<ApiIntegrationSettings />} />
@@ -176,13 +180,19 @@ function App() {
           <Route path="settings/payment-gateways" element={<PaymentGatewaySettings />} />
           <Route path="settings/sms-templates" element={<SmsTemplates />} />
           <Route path="settings/gst" element={<GstSettings />} />
+          <Route path="settings/order-numbering" element={<OrderNumbering />} />
+          <Route path="settings/invoice" element={<InvoiceSettings />} />
           <Route path="settings/shipping" element={<ShippingSettings />} />
           <Route path="settings/modules" element={<Modules />} />
           <Route path="settings/packages" element={<PackageBoxes />} />
+          <Route path="settings/wallet" element={<Wallet />} />
+          <Route path="seo" element={<Seo />} />
           <Route path="settings/billing" element={<Billing />} />
           <Route path="warehouses" element={<ProtectedModuleRoute module="inventory"><Warehouses /></ProtectedModuleRoute>} />
           <Route path="inventory" element={<ProtectedModuleRoute module="inventory"><Inventory /></ProtectedModuleRoute>} />
           <Route path="b2b" element={<ProtectedModuleRoute module="b2b"><B2B /></ProtectedModuleRoute>} />
+          <Route path="channels" element={<ProtectedModuleRoute module="channel_sync"><Channels /></ProtectedModuleRoute>} />
+          <Route path="channels/mapping" element={<ProtectedModuleRoute module="channel_sync"><ChannelMapping /></ProtectedModuleRoute>} />
           <Route path="marketing" element={<ProtectedModuleRoute module="marketing"><Marketing /></ProtectedModuleRoute>} />
           <Route path="blogs" element={<ProtectedModuleRoute module="blog"><Blogs /></ProtectedModuleRoute>} />
           <Route path="blogs/new" element={<ProtectedModuleRoute module="blog"><BlogForm /></ProtectedModuleRoute>} />

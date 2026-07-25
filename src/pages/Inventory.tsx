@@ -1,14 +1,38 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { inventoryAPI } from '../services/api';
+
+interface Valuation {
+  grand_total?: number;
+  total_units?: number;
+  items?: any[];
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
 
 interface InventoryItem {
   _id: string;
   name: string;
+  productName?: string;
+  variationName?: string | null;
   sku?: string;
   slug?: string;
   stock?: number;
   reservedStock?: number;
   availableStock?: number;
+  mrp?: number;
+  sellingPrice?: number;
+  salePrice?: number | null;
+  b2bPrice?: number | null;
+  hsnCode?: string | null;
   variations?: Array<{
     _id?: string;
     attributes?: Record<string, string>;
@@ -20,6 +44,9 @@ interface InventoryItem {
   category?: { name?: string } | string;
   isActive?: boolean;
 }
+
+const money = (n?: number | null) =>
+  n == null || n === 0 ? '—' : `₹${Number(n).toLocaleString('en-IN')}`;
 
 export default function Inventory() {
   const [items, setItems] = useState<InventoryItem[]>([]);
@@ -34,6 +61,10 @@ export default function Inventory() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [valuation, setValuation] = useState<Valuation | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const LIMIT = 20;
 
@@ -60,10 +91,69 @@ export default function Inventory() {
 
   useEffect(() => { loadInventory(); }, [loadInventory]);
 
+  const loadValuation = useCallback(async () => {
+    try {
+      const data = await inventoryAPI.getValuation();
+      setValuation(data?.data ?? data ?? null);
+    } catch { /* non-critical */ }
+  }, []);
+
+  useEffect(() => { loadValuation(); }, [loadValuation]);
+
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     setPage(1);
     loadInventory();
+  };
+
+  const handleExport = async () => {
+    try {
+      setExporting(true);
+      const blob = await inventoryAPI.exportExcel(search || undefined);
+      downloadBlob(blob, `inventory-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    } catch {
+      setError('Failed to export inventory.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleTemplate = async () => {
+    try {
+      const blob = await inventoryAPI.downloadTemplate();
+      downloadBlob(blob, 'inventory-import-template.xlsx');
+    } catch {
+      setError('Failed to download template.');
+    }
+  };
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (!file) return;
+    try {
+      setImporting(true);
+      setError(null);
+      const res = await inventoryAPI.importExcel(file);
+      const r = res?.data ?? res;
+      // `failed` from the backend already folds in parse errors; fall back to the
+      // separate arrays for older responses.
+      const failed = Array.isArray(r?.failed) ? r.failed.length : ((r?.failed ?? 0) + (r?.parse_errors?.length ?? 0));
+      const extras = [
+        r?.price_updated ? `${r.price_updated} price${r.price_updated > 1 ? 's' : ''}` : '',
+        r?.b2b_updated ? `${r.b2b_updated} wholesale` : '',
+      ].filter(Boolean).join(', ');
+      setSuccess(
+        `Updated ${r?.updated ?? 0} SKU(s)${extras ? ` (${extras})` : ''}${failed ? `, ${failed} skipped` : ''}.`
+      );
+      setTimeout(() => setSuccess(null), 6000);
+      loadInventory();
+      loadValuation();
+    } catch (err: any) {
+      setError(err?.response?.data?.message || 'Failed to import file.');
+    } finally {
+      setImporting(false);
+    }
   };
 
   const openEdit = (item: InventoryItem) => {
@@ -122,9 +212,36 @@ export default function Inventory() {
       <div className="page-header">
         <div>
           <h1>Inventory</h1>
-          <p className="subtitle">Monitor and manage stock levels across all products.</p>
+          <p className="subtitle">Manage stock, retail &amp; B2B pricing across all SKUs. Export to Excel, edit, and re-import — blank cells are left unchanged.</p>
+        </div>
+        <div className="header-actions">
+          <button className="btn btn-secondary" onClick={handleTemplate}>Template</button>
+          <button className="btn btn-secondary" onClick={handleExport} disabled={exporting}>
+            {exporting ? 'Exporting…' : '⬇ Export Excel'}
+          </button>
+          <button className="btn btn-primary" onClick={() => fileInputRef.current?.click()} disabled={importing}>
+            {importing ? 'Importing…' : '⬆ Import Excel'}
+          </button>
+          <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={handleImportFile} />
         </div>
       </div>
+
+      {valuation && (
+        <div className="summary-cards">
+          <div className="summary-card">
+            <span className="summary-label">Inventory Value</span>
+            <span className="summary-value">₹{Math.round(valuation.grand_total ?? 0).toLocaleString('en-IN')}</span>
+          </div>
+          <div className="summary-card">
+            <span className="summary-label">Total Units</span>
+            <span className="summary-value">{(valuation.total_units ?? 0).toLocaleString('en-IN')}</span>
+          </div>
+          <div className="summary-card">
+            <span className="summary-label">SKUs</span>
+            <span className="summary-value">{total.toLocaleString('en-IN')}</span>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="alert alert-error">
@@ -176,8 +293,10 @@ export default function Inventory() {
                   <th>SKU</th>
                   <th>Category</th>
                   <th>Total Stock</th>
-                  <th>Reserved</th>
                   <th>Available</th>
+                  <th>MRP</th>
+                  <th>Selling</th>
+                  <th>B2B</th>
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
@@ -190,16 +309,27 @@ export default function Inventory() {
                       <td>
                         <div className="product-cell">
                           {item.images?.[0] && (
-                            <img src={item.images[0]} alt={item.name} className="product-thumb" />
+                            <img src={item.images[0]} alt="" className="product-thumb" />
                           )}
-                          <span>{item.name}</span>
+                          {/* Product name is the primary label; the variation only
+                              appears as a secondary line when it actually adds
+                              information (multi-variation products) — the backend
+                              already collapses the redundant case into `name`. */}
+                          <span className="product-names">
+                            <span className="product-name-main">{item.productName ?? item.name}</span>
+                            {item.variationName && item.variationName !== item.productName && (
+                              <span className="product-name-sub">{item.variationName}</span>
+                            )}
+                          </span>
                         </div>
                       </td>
                       <td>{item.sku ?? '—'}</td>
                       <td>{getCategoryName(item.category)}</td>
                       <td>{item.stock ?? 0}</td>
-                      <td>{item.reservedStock ?? 0}</td>
                       <td><strong>{getAvailableStock(item)}</strong></td>
+                      <td>{money(item.mrp)}</td>
+                      <td>{money(item.sellingPrice)}</td>
+                      <td>{money(item.b2bPrice)}</td>
                       <td>
                         <span className="status-pill" style={{ background: status.bg, color: status.color }}>
                           {status.label}
@@ -277,9 +407,14 @@ export default function Inventory() {
 
       <style>{`
         .inv-page { padding: 24px; max-width: 1200px; margin: 0 auto; }
-        .page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
+        .page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; gap: 16px; flex-wrap: wrap; }
         .page-header h1 { margin: 0 0 4px; font-size: 1.5rem; }
         .subtitle { margin: 0; color: #666; font-size: 0.875rem; }
+        .header-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+        .summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
+        .summary-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; }
+        .summary-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7280; font-weight: 600; }
+        .summary-value { font-size: 1.35rem; font-weight: 700; color: #111827; }
         .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
         .search-form { display: flex; gap: 8px; flex: 1; min-width: 200px; max-width: 400px; }
         .search-form input { flex: 1; padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.875rem; }
@@ -304,7 +439,10 @@ export default function Inventory() {
         td { padding: 10px 12px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; }
         tr:hover td { background: #fafafa; }
         .product-cell { display: flex; align-items: center; gap: 10px; }
-        .product-thumb { width: 36px; height: 36px; object-fit: cover; border-radius: 6px; border: 1px solid #e5e7eb; }
+        .product-thumb { width: 36px; height: 36px; object-fit: cover; border-radius: 6px; border: 1px solid #e5e7eb; flex-shrink: 0; }
+        .product-names { display: flex; flex-direction: column; line-height: 1.3; }
+        .product-name-main { font-weight: 500; }
+        .product-name-sub { font-size: 12px; color: #6b7280; }
         .status-pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
         .pagination { display: flex; justify-content: center; align-items: center; gap: 16px; margin-top: 20px; }
         .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }

@@ -92,7 +92,6 @@ export interface ProductFormData {
   customerOrderImages: string[];
   disableVariants: boolean;
   showOutOfStockVariants: boolean;
-  showFeatures: boolean;
   isActive: boolean;
   // Product type: 'single' for products without variations, 'variation' for products with attribute-based variations
   productType?: 'single' | 'variation';

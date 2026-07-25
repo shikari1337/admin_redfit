@@ -15,6 +15,10 @@ const GstSettings: React.FC = () => {
   const [gstin, setGstin]                           = useState('');
   const [showPriceIncludingGst, setShowPriceIncludingGst] = useState(false);
   const [showGstOnCheckout, setShowGstOnCheckout]   = useState(true);
+  // Whether GST is actually charged/recorded. Without this the order's tax and
+  // CGST/SGST/IGST breakdown stay zero and no GST invoice can be produced.
+  const [gstEnabled, setGstEnabled]                 = useState(false);
+  const [defaultRate, setDefaultRate]               = useState<number>(18);
 
   useEffect(() => { fetchSettings(); }, []);
 
@@ -27,6 +31,8 @@ const GstSettings: React.FC = () => {
       if (gst) {
         setShowPriceIncludingGst(gst.showPriceIncludingGst ?? false);
         setShowGstOnCheckout(gst.showGstOnCheckout ?? true);
+        setGstEnabled(gst.enabled === true);
+        setDefaultRate(Number(gst.defaultRate ?? 18));
       }
       // Load GSTIN from admin settings
       const adminRes = await api.get('/settings/admin');
@@ -46,7 +52,13 @@ const GstSettings: React.FC = () => {
       // Save GSTIN separately in the settings table
       await api.put('/settings/gstin', { value: gstin.trim().toUpperCase() });
       // Save display prefs via the GST settings key
-      await gstSettingsAPI.update({ showPriceIncludingGst, showGstOnCheckout });
+      // Send the whole object — PUT /settings/:key replaces the value, so
+      // omitting enabled/defaultRate here would silently wipe them.
+      await gstSettingsAPI.update({
+        showPriceIncludingGst, showGstOnCheckout,
+        enabled: gstEnabled,
+        defaultRate: Number(defaultRate) || 0,
+      } as any);
       alert('GST settings saved successfully!');
     } catch (err: any) {
       alert(err?.response?.data?.message || 'Failed to save GST settings');
@@ -96,6 +108,36 @@ const GstSettings: React.FC = () => {
           </div>
 
           <div className="border-t pt-5 space-y-5">
+            {/* Collect GST — the master switch. Everything below is display only. */}
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <div className="font-medium text-sm">Collect GST on orders</div>
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  Records the CGST/SGST/IGST split on every order so GST invoices can be issued.
+                  While this is off, orders are saved with zero tax.
+                </div>
+              </div>
+              <Switch checked={gstEnabled} onCheckedChange={setGstEnabled} />
+            </div>
+
+            {/* Default rate */}
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex-1">
+                <div className="font-medium text-sm">Default GST rate (%)</div>
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  Applied to products without their own tax rule. Intra-state splits into
+                  CGST+SGST; inter-state becomes IGST.
+                </div>
+              </div>
+              <Input
+                type="number" min="0" max="28" step="0.5"
+                value={defaultRate}
+                onChange={(e) => setDefaultRate(Number(e.target.value))}
+                className="w-24"
+                disabled={!gstEnabled}
+              />
+            </div>
+
             {/* Show price including GST */}
             <div className="flex items-center justify-between gap-4">
               <div>

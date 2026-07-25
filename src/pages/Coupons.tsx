@@ -26,6 +26,8 @@ interface Coupon {
   usageCount: number;
   userLimit?: number;
   clubbedWithOtherCoupons: boolean;
+  isPublic?: boolean;
+  is_public?: boolean;
   validFrom: string;
   validUntil: string;
   isActive: boolean;
@@ -208,19 +210,24 @@ const Coupons: React.FC = () => {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className={`h-8 px-2 text-xs font-medium w-[90px] justify-start ${
-                              coupon.isActive 
-                              ? 'text-green-700 hover:text-green-800 hover:bg-green-100 bg-green-50' 
-                              : 'text-slate-600 hover:text-slate-700 hover:bg-slate-200 bg-slate-100'
-                            }`}
-                            onClick={() => handleToggleActive(coupon)}
-                          >
-                            {coupon.isActive ? <FaCheckCircle className="mr-1.5 h-3 w-3" /> : <FaTimesCircle className="mr-1.5 h-3 w-3" />}
-                            {coupon.isActive ? 'Active' : 'Inactive'}
-                          </Button>
+                          <div className="flex flex-col gap-1 items-start">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className={`h-8 px-2 text-xs font-medium w-[90px] justify-start ${
+                                coupon.isActive
+                                ? 'text-green-700 hover:text-green-800 hover:bg-green-100 bg-green-50'
+                                : 'text-slate-600 hover:text-slate-700 hover:bg-slate-200 bg-slate-100'
+                              }`}
+                              onClick={() => handleToggleActive(coupon)}
+                            >
+                              {coupon.isActive ? <FaCheckCircle className="mr-1.5 h-3 w-3" /> : <FaTimesCircle className="mr-1.5 h-3 w-3" />}
+                              {coupon.isActive ? 'Active' : 'Inactive'}
+                            </Button>
+                            <span className={`text-[10px] px-2 ${(coupon.isPublic ?? coupon.is_public ?? true) ? 'text-blue-600' : 'text-muted-foreground'}`}>
+                              {(coupon.isPublic ?? coupon.is_public ?? true) ? 'Public' : 'Hidden'}
+                            </span>
+                          </div>
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-2">

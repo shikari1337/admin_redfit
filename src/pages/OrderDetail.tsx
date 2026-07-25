@@ -6,9 +6,9 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { ordersAPI, shippingAPI, paymentsAPI, shipmentsAPI } from '../services/api';
-import { format } from 'date-fns';
-import { FaCheckCircle, FaEnvelope, FaFileInvoice, FaCreditCard, FaTruck, FaArrowLeft } from 'react-icons/fa';
+import { ordersAPI, shippingAPI, paymentsAPI, shipmentsAPI, invoicesAPI } from '../services/api';
+import { formatDate } from '../utils/date';
+import { FaCheckCircle, FaEnvelope, FaFileInvoice, FaCreditCard, FaTruck, FaArrowLeft, FaDownload, FaWhatsapp, FaSms, FaChevronDown } from 'react-icons/fa';
 import {
   StatusBadge,
   OrderItems,
@@ -21,12 +21,19 @@ import {
   ShipmentCreationModal,
   PaymentVerificationModal,
   UpdateEmailModal,
+  OrderFulfillmentCard,
+  OrderJourneyCard,
+  OrderItemsEditModal,
 } from '../components/order';
 import { PickupModal } from '../components/shipments';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 
 const OrderDetail: React.FC = () => {
@@ -43,8 +50,6 @@ const OrderDetail: React.FC = () => {
   const [updating, setUpdating] = useState(false);
   const [savingNotes, setSavingNotes] = useState(false);
   const [sendingToShiprocket, setSendingToShiprocket] = useState(false);
-  const [editingNotes, setEditingNotes] = useState(false);
-  const [notesText, setNotesText] = useState('');
   const [statusNotes, setStatusNotes] = useState('');
   const [warehouses, setWarehouses] = useState<any[]>([]);
   const [shippingProviders, setShippingProviders] = useState<any[]>([]);
@@ -61,6 +66,10 @@ const OrderDetail: React.FC = () => {
   const [upiPaymentId, setUpiPaymentId] = useState('');
   const [paymentVerificationNotes, setPaymentVerificationNotes] = useState('');
   const [sendingEmail, setSendingEmail] = useState<string | null>(null);
+  // Which invoice action is running: 'download' | 'email' | 'whatsapp' | 'sms' | null.
+  const [invoiceBusy, setInvoiceBusy] = useState<string | null>(null);
+  const [showEditItems, setShowEditItems] = useState(false);
+  const [payLink, setPayLink] = useState<string | null>(null);
   const [showUpdateEmailModal, setShowUpdateEmailModal] = useState(false);
   const [updateEmailSubject, setUpdateEmailSubject] = useState('');
   const [updateEmailContent, setUpdateEmailContent] = useState('');
@@ -71,6 +80,7 @@ const OrderDetail: React.FC = () => {
   const [pickupTimeSlot, setPickupTimeSlot] = useState('');
   const [pickupNotes, setPickupNotes] = useState('');
   const [schedulingPickup, setSchedulingPickup] = useState(false);
+  const [assigningAwb, setAssigningAwb] = useState(false);
 
   let toast: any;
   try {
@@ -91,13 +101,45 @@ const OrderDetail: React.FC = () => {
       const response = await ordersAPI.getById(id);
       const orderData = response?.data || response;
       setOrder(orderData);
-      setNotesText(orderData?.notes || '');
+      // Shareable review-and-pay link — useful while unpaid, or for COD orders
+      // that want to pay online before dispatch.
+      if (orderData && (orderData.paymentStatus !== 'completed')) {
+        ordersAPI.getPayLink(orderData.orderId || id)
+          .then((r: any) => setPayLink(r?.url ?? r?.data?.url ?? null))
+          .catch(() => setPayLink(null));
+      } else {
+        setPayLink(null);
+      }
     } catch (error) {
       console.error('Failed to load order:', error);
       toast({ variant: "destructive", title: "Error", description: 'Failed to load order' });
       navigate('/orders');
     } finally {
       setLoading(false);
+    }
+  };
+
+  /**
+   * Finish a booking that stalled after the carrier order was created (empty
+   * Shiprocket wallet, courier outage). Re-running "Create Shipment" would book
+   * a SECOND order at the carrier, so this reuses the stored shipment id.
+   */
+  const handleAssignAwb = async () => {
+    const shipmentId = order?.shiprocketShipmentId ?? order?.shiprocket_shipment_id;
+    if (!shipmentId) return;
+    setAssigningAwb(true);
+    try {
+      const r = await shippingAPI.assignAwb(String(shipmentId));
+      toast({ title: 'AWB assigned', description: `${r.awbCode ?? ''} ${r.courierName ? `via ${r.courierName}` : ''}`.trim() });
+      await fetchOrder();
+    } catch (e: any) {
+      toast({
+        variant: 'destructive',
+        title: 'AWB not assigned',
+        description: e?.response?.data?.message || e?.message || 'Assignment failed',
+      });
+    } finally {
+      setAssigningAwb(false);
     }
   };
 
@@ -118,15 +160,13 @@ const OrderDetail: React.FC = () => {
     }
   };
 
-  const handleSaveNotes = async () => {
+  const handleAddNote = async (text: string) => {
     setSavingNotes(true);
     try {
-      await ordersAPI.updateNotes(id!, notesText);
-      setEditingNotes(false);
+      await ordersAPI.addNote(id!, text);
       fetchOrder();
-      toast({ title: "Success", description: "Notes updated successfully" });
     } catch (error) {
-      toast({ variant: "destructive", title: "Error", description: 'Failed to save notes' });
+      toast({ variant: "destructive", title: "Error", description: 'Failed to save note' });
     } finally {
       setSavingNotes(false);
     }
@@ -229,7 +269,9 @@ const OrderDetail: React.FC = () => {
     
     setConfirmingOrder(true);
     try {
-      await ordersAPI.confirmOrder(id!);
+      // POST /:id/confirm never existed on the backend — this always 404'd.
+      // "Confirmed" is just a normal status transition, already handled by /status.
+      await ordersAPI.updateStatus(id!, 'confirmed');
       toast({ title: "Confirmed", description: 'Order confirmed successfully!' });
       fetchOrder();
     } catch (error: any) {
@@ -244,7 +286,8 @@ const OrderDetail: React.FC = () => {
     
     setUpdating(true);
     try {
-      await ordersAPI.markOrderCompleted(id!);
+      // Same story as confirm — POST /:id/complete never existed.
+      await ordersAPI.updateStatus(id!, 'completed');
       toast({ title: "Completed", description: 'Order marked as completed successfully!' });
       fetchOrder();
     } catch (error: any) {
@@ -279,6 +322,50 @@ const OrderDetail: React.FC = () => {
       toast({ variant: "destructive", title: "Error", description: error.response?.data?.message || `Failed to send ${type} email` });
     } finally {
       setSendingEmail(null);
+    }
+  };
+
+  const handleDownloadInvoice = async () => {
+    setInvoiceBusy('download');
+    try {
+      const blob = await invoicesAPI.downloadPdf(order.orderId || id!);
+      const url = window.URL.createObjectURL(blob instanceof Blob ? blob : new Blob([blob], { type: 'application/pdf' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `invoice-${order.orderId || id}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error: any) {
+      // Blob error bodies hide the JSON message — surface something useful anyway.
+      toast({ variant: "destructive", title: "Download failed", description: error.response?.status === 422 ? 'Complete the invoice settings (seller details) first' : (error.message || 'Could not generate the invoice PDF') });
+    } finally {
+      setInvoiceBusy(null);
+    }
+  };
+
+  const handleSendInvoice = async (channel: 'email' | 'whatsapp' | 'sms') => {
+    setInvoiceBusy(channel);
+    try {
+      const r = await invoicesAPI.send(order.orderId || id!, { channels: [channel] });
+      const result = r?.results?.[channel] ?? r?.data?.results?.[channel];
+      if (result && result.ok === false) {
+        toast({ variant: "destructive", title: `Invoice ${channel} failed`, description: result.reason || 'Send failed' });
+      } else {
+        toast({ title: "Invoice sent", description: `Invoice sent via ${channel}` });
+      }
+    } catch (error: any) {
+      const missing = error.response?.data?.missing;
+      toast({
+        variant: "destructive",
+        title: `Invoice ${channel} failed`,
+        description: Array.isArray(missing) && missing.length
+          ? `Complete invoice settings first — missing: ${missing.join(', ')}`
+          : (error.response?.data?.message || 'Send failed'),
+      });
+    } finally {
+      setInvoiceBusy(null);
     }
   };
 
@@ -338,21 +425,23 @@ const OrderDetail: React.FC = () => {
       }
 
       // Map warehouseId to name or code for readable backend processing
-      let readableWarehouseId = selectedWarehouseId;
+      // Send the warehouse's real id. This used to send `code` ("human-readable
+      // ids"), which the backend looks up with `WHERE id = $1` — a uuid column —
+      // so it failed with `invalid input syntax for type uuid: "HWH001"`.
       const selectedW = warehouses.find(w => w._id === selectedWarehouseId);
-      if (selectedW) {
-        readableWarehouseId = selectedW.code || selectedW.name || selectedWarehouseId;
-      }
+      const warehouseIdToSend = selectedW?._id || selectedWarehouseId;
 
       const shipmentData: any = {
-        orderIds: [order.orderId || id!], // Pass human-readable string IDs
-        warehouseId: readableWarehouseId, // Pass human-readable string IDs
+        orderIds: [order.orderId || id!], // order_id is resolvable by the backend
+        warehouseId: warehouseIdToSend,
         shippingProvider: selectedShippingProvider,
         weight: modalData?.weight || 0.5,
         length: modalData?.length || 10,
         breadth: modalData?.breadth || 10,
         height: modalData?.height || 5,
         orderItemIndices: orderItemSkus.length > 0 ? orderItemSkus : undefined, // We repurposed orderItemIndices to carry SKUs dynamically for readable logging
+        // PART-QUANTITY selections win over the plain SKU list when present.
+        itemSelections: modalData?.itemSelections?.length ? modalData.itemSelections : undefined,
       };
 
       if (selectedShippingProvider === 'manual') {
@@ -447,7 +536,12 @@ const OrderDetail: React.FC = () => {
 
   if (!order) return null;
 
-  const statusOptions = ['pending','confirmed','processing','shipped','delivered','cancelled','returned','completed'];
+  // The API aliases snake_case to camelCase mechanically, so `shiprocket_awb`
+  // arrives as `shiprocketAwb` — `shiprocketAWB` was never populated and the AWB
+  // silently never rendered. Accept every spelling.
+  const shiprocketAwb = order.shiprocketAwb ?? order.shiprocket_awb ?? order.shiprocketAWB ?? null;
+
+  const statusOptions = ['pending','confirmed','processing','on_hold','shipped','delivered','cancelled','returned','completed'];
   const discountBreakdown = order.discountReason ? order.discountReason.split(',').map((d: string) => d.trim()) : [];
 
   return (
@@ -484,20 +578,47 @@ const OrderDetail: React.FC = () => {
           <div className="flex items-center isolate">
             {order.shippingAddress?.email && (
               <>
-                <Button variant="outline" size="sm" className="h-10 rounded-r-none border-r-0 text-green-700 hover:text-green-800"
-                  onClick={() => handleSendEmail('confirmation')} disabled={sendingEmail !== null}>
-                  <FaEnvelope className="mr-2 h-3.5 w-3.5" /> Confirmation
+                {/* Each button reflects and disables ONLY its own action, so
+                    clicking one no longer greys out (or visually "clicks") the
+                    other two. */}
+                <Button type="button" variant="outline" size="sm" className="h-10 rounded-r-none border-r-0 text-green-700 hover:text-green-800"
+                  onClick={() => handleSendEmail('confirmation')} disabled={sendingEmail === 'confirmation'}>
+                  <FaEnvelope className="mr-2 h-3.5 w-3.5" />
+                  {sendingEmail === 'confirmation' ? 'Sending…' : 'Confirmation'}
                 </Button>
-                <Button variant="outline" size="sm" className="h-10 rounded-none border-r-0 text-blue-700 hover:text-blue-800"
-                  onClick={() => setShowUpdateEmailModal(true)} disabled={sendingEmail !== null}>
-                  <FaEnvelope className="mr-2 h-3.5 w-3.5" /> Update
-                </Button>
-                <Button variant="outline" size="sm" className="h-10 rounded-l-none text-purple-700 hover:text-purple-800 mr-2"
-                  onClick={() => handleSendEmail('invoice')} disabled={sendingEmail !== null}>
-                  <FaFileInvoice className="mr-2 h-3.5 w-3.5" /> Invoice
+                <Button type="button" variant="outline" size="sm" className="h-10 rounded-l-none text-blue-700 hover:text-blue-800 mr-2"
+                  onClick={() => setShowUpdateEmailModal(true)} disabled={sendingEmail === 'update'}>
+                  <FaEnvelope className="mr-2 h-3.5 w-3.5" />
+                  {sendingEmail === 'update' ? 'Sending…' : 'Update'}
                 </Button>
               </>
             )}
+
+            {/* Invoice: download the PDF or send it on a specific channel. */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="outline" size="sm" className="h-10 text-purple-700 hover:text-purple-800 mr-2"
+                  disabled={invoiceBusy !== null}>
+                  <FaFileInvoice className="mr-2 h-3.5 w-3.5" />
+                  {invoiceBusy ? `Invoice (${invoiceBusy})…` : 'Invoice'}
+                  <FaChevronDown className="ml-2 h-3 w-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleDownloadInvoice}>
+                  <FaDownload className="mr-2 h-3.5 w-3.5" /> Download PDF
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleSendInvoice('email')} disabled={!order.shippingAddress?.email}>
+                  <FaEnvelope className="mr-2 h-3.5 w-3.5" /> Send via Email
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleSendInvoice('whatsapp')}>
+                  <FaWhatsapp className="mr-2 h-3.5 w-3.5" /> Send via WhatsApp
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleSendInvoice('sms')}>
+                  <FaSms className="mr-2 h-3.5 w-3.5" /> Send via SMS
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
 
             {order.orderStatus === 'pending' && order.paymentMethod === 'prepaid' && order.paymentStatus !== 'completed' && (
               <Button variant="secondary" size="sm" className="h-10 bg-yellow-100 text-yellow-800 hover:bg-yellow-200 mr-2"
@@ -510,6 +631,20 @@ const OrderDetail: React.FC = () => {
               <Button variant="default" size="sm" className="h-10 bg-green-600 hover:bg-green-700 mr-2"
                 onClick={handleConfirmOrder} disabled={confirmingOrder || (order.paymentMethod === 'prepaid' && order.paymentStatus !== 'completed')}>
                 <FaCheckCircle className="mr-2 h-3.5 w-3.5" /> {confirmingOrder ? 'Confirming...' : 'Confirm Order'}
+              </Button>
+            )}
+
+            {/* Hold / release — parks an order (stock query, address doubt) without cancelling. */}
+            {['pending', 'confirmed', 'processing'].includes(order.orderStatus) && (
+              <Button variant="secondary" size="sm" className="h-10 bg-orange-100 text-orange-800 hover:bg-orange-200 mr-2"
+                onClick={() => handleStatusUpdate('on_hold')} disabled={updating}>
+                Put on Hold
+              </Button>
+            )}
+            {order.orderStatus === 'on_hold' && (
+              <Button variant="secondary" size="sm" className="h-10 bg-blue-100 text-blue-800 hover:bg-blue-200 mr-2"
+                onClick={() => handleStatusUpdate('confirmed')} disabled={updating}>
+                Release Hold
               </Button>
             )}
 
@@ -532,7 +667,50 @@ const OrderDetail: React.FC = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
-          <OrderItems items={order.items || []} />
+          <div className="relative">
+            <OrderItems
+              items={order.items || []}
+              b2bTier={order.b2bTier ?? order.b2b_tier}
+              orderDiscount={Number(order.discount) || 0}
+            />
+            {/* Items are editable only while unpaid and unshipped. */}
+            {order.paymentStatus !== 'completed'
+              && ['pending', 'confirmed', 'on_hold', 'processing'].includes(order.orderStatus)
+              && !(order.shipments?.length) && (
+              <Button size="sm" variant="outline" className="absolute top-4 right-4"
+                onClick={() => setShowEditItems(true)}>
+                Edit items
+              </Button>
+            )}
+          </div>
+
+          {/* Review-and-pay link — Shopify-style page the customer can open to
+              check the order and pay online (works for COD before dispatch too). */}
+          {payLink && (
+            <Card className="shadow-sm border-emerald-200 bg-emerald-50/40">
+              <CardContent className="py-3 px-4 flex items-center justify-between gap-3 flex-wrap">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-foreground">Customer payment / confirmation link</p>
+                  <p className="text-xs font-mono text-muted-foreground break-all">{payLink}</p>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <Button size="sm" variant="outline"
+                    onClick={() => { navigator.clipboard.writeText(payLink); toast({ title: 'Link copied' }); }}>
+                    Copy
+                  </Button>
+                  <Button size="sm" variant="outline" asChild>
+                    <a href={payLink} target="_blank" rel="noopener noreferrer">Open</a>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          <OrderFulfillmentCard
+            fulfillment={order.fulfillment}
+            shipments={order.shipments}
+            sla={order.sla}
+          />
 
           <Card className="shadow-sm">
             <CardHeader className="pb-3 border-b">
@@ -541,7 +719,7 @@ const OrderDetail: React.FC = () => {
             <CardContent className="pt-6">
               <OrderSummary
                 subtotal={order.subtotal || 0}
-                shipping={order.shipping || 0}
+                shipping={order.shippingCost || order.shipping_cost || order.shipping || 0}
                 discount={order.discount || 0}
                 total={order.total || 0}
                 gst={order.gst}
@@ -584,23 +762,37 @@ const OrderDetail: React.FC = () => {
             </CardContent>
           </Card>
 
-          {order.billingAddress && (
-            <Card className="shadow-sm">
-              <CardHeader className="pb-3 border-b">
-                <CardTitle className="text-xl">Billing Address</CardTitle>
-              </CardHeader>
-              <CardContent className="pt-6">
-                <div className="space-y-2 text-muted-foreground text-sm">
-                  <p className="font-semibold text-foreground text-base mb-1">{order.billingAddress?.fullName}</p>
-                  <p>{order.billingAddress?.address}</p>
-                  {order.billingAddress?.addressLine2 && <p>{order.billingAddress.addressLine2}</p>}
-                  <p>{order.billingAddress?.district}, {order.billingAddress?.state} {order.billingAddress?.pincode}</p>
-                  <p className="pt-2 font-medium">Phone: {order.billingAddress?.mobileNumber}</p>
-                  {order.billingAddress?.email && <p className="font-medium">Email: {order.billingAddress.email}</p>}
-                </div>
-              </CardContent>
-            </Card>
-          )}
+          {(() => {
+            // Most orders never capture a separate billing address — checkout only
+            // asks for one when it differs from shipping. Show it either way instead
+            // of hiding the whole card, clearly labeled when it's a fallback.
+            const billing = order.billingAddress || order.billing_address;
+            const usingShippingFallback = !billing;
+            const addr = billing || order.shippingAddress || order.shipping_address;
+            if (!addr) return null;
+            return (
+              <Card className="shadow-sm">
+                <CardHeader className="pb-3 border-b">
+                  <CardTitle className="text-xl flex items-center gap-2">
+                    Billing Address
+                    {usingShippingFallback && (
+                      <span className="text-xs font-normal text-muted-foreground">(same as shipping)</span>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-6">
+                  <div className="space-y-2 text-muted-foreground text-sm">
+                    <p className="font-semibold text-foreground text-base mb-1">{addr.fullName || addr.full_name}</p>
+                    <p>{addr.address}</p>
+                    {(addr.addressLine2 || addr.address_line2) && <p>{addr.addressLine2 || addr.address_line2}</p>}
+                    <p>{addr.district}, {addr.state} {addr.pincode}</p>
+                    <p className="pt-2 font-medium">Phone: {addr.mobileNumber || addr.mobile_number}</p>
+                    {addr.email && <p className="font-medium">Email: {addr.email}</p>}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })()}
         </div>
 
         <div className="space-y-6">
@@ -614,10 +806,37 @@ const OrderDetail: React.FC = () => {
                   <p className="text-muted-foreground mb-1">Order Status</p>
                   <StatusBadge status={order.orderStatus} type="order" />
                 </div>
+                {/* Order type — B2B (wholesale) vs retail, plus the tier that priced it. */}
+                <div>
+                  <p className="text-muted-foreground mb-1">Order Type</p>
+                  {(order.orderType ?? order.order_type) === 'b2b' ? (
+                    <Badge className="bg-blue-500/15 text-blue-700 border-blue-200 hover:bg-blue-500/25">
+                      B2B{(order.b2bTier ?? order.b2b_tier) ? ` — ${order.b2bTier ?? order.b2b_tier} tier` : ''}
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline">Retail</Badge>
+                  )}
+                </div>
+                {(order.customerGstin ?? order.customer_gstin) && (
+                  <div>
+                    <p className="text-muted-foreground mb-0.5">Invoice GSTIN</p>
+                    <p className="font-mono text-xs font-semibold text-foreground">{order.customerGstin ?? order.customer_gstin}</p>
+                  </div>
+                )}
                 <div>
                   <p className="text-muted-foreground mb-0.5">Payment Method</p>
                   <p className="font-semibold text-foreground">{order.paymentMethod === 'cod' ? 'COD' : 'Prepaid'}</p>
                 </div>
+                {order.paymentMethod === 'cod' && (
+                  <div>
+                    <p className="text-muted-foreground mb-1">COD Verification</p>
+                    <Badge className={(order.isOtpVerified ?? order.is_otp_verified)
+                      ? 'bg-green-500/15 text-green-700 border-green-200 hover:bg-green-500/25'
+                      : 'bg-yellow-500/15 text-yellow-700 border-yellow-200 hover:bg-yellow-500/25'}>
+                      {(order.isOtpVerified ?? order.is_otp_verified) ? 'Verified (OTP)' : 'Not verified'}
+                    </Badge>
+                  </div>
+                )}
                 <div>
                   <p className="text-muted-foreground mb-1">Payment Status</p>
                   <StatusBadge status={order.paymentStatus} type="payment" />
@@ -625,7 +844,7 @@ const OrderDetail: React.FC = () => {
                 <div>
                   <p className="text-muted-foreground mb-0.5">Order Date</p>
                   <p className="font-medium text-foreground">
-                    {order.createdAt ? format(new Date(order.createdAt), 'MMM dd, yyyy HH:mm') : 'N/A'}
+                    {formatDate(order.createdAt ?? order.created_at, 'MMM dd, yyyy HH:mm', 'N/A')}
                   </p>
                 </div>
                 {order.trackingUrl && (
@@ -642,10 +861,30 @@ const OrderDetail: React.FC = () => {
                     <p className="font-medium text-foreground capitalize">{order.shippingProvider}</p>
                   </div>
                 )}
-                {order.shiprocketAWB && (
+                {shiprocketAwb && (
                   <div className="pt-2 border-t">
                     <p className="text-muted-foreground mb-1">Shiprocket AWB</p>
-                    <p className="font-mono text-foreground font-medium bg-muted px-2 py-1 rounded w-fit">{order.shiprocketAWB}</p>
+                    <p className="font-mono text-foreground font-medium bg-muted px-2 py-1 rounded w-fit">{shiprocketAwb}</p>
+                  </div>
+                )}
+                {/* Booked at the carrier but never dispatched — without this the
+                    order looks shipped in Shiprocket while no AWB exists, and the
+                    only visible action (Create Shipment) would duplicate it. */}
+                {!shiprocketAwb && (order.shiprocketShipmentId ?? order.shiprocket_shipment_id) && (
+                  <div className="pt-2 border-t space-y-2">
+                    <p className="text-muted-foreground mb-1">Shiprocket AWB</p>
+                    <Badge className="bg-yellow-500/15 text-yellow-700 border-yellow-200 hover:bg-yellow-500/25">
+                      Order created, not dispatched
+                    </Badge>
+                    <p className="text-xs text-muted-foreground">
+                      Shiprocket order #{order.shiprocketOrderId ?? order.shiprocket_order_id} exists but has no AWB.
+                      This usually means the Shiprocket account wallet is below its ₹100 minimum.
+                      Top up at shiprocket.in, then assign the AWB here — don&apos;t create the shipment
+                      again or a duplicate order is booked.
+                    </p>
+                    <Button size="sm" variant="outline" onClick={handleAssignAwb} disabled={assigningAwb}>
+                      {assigningAwb ? 'Assigning…' : 'Assign AWB'}
+                    </Button>
                   </div>
                 )}
                 {order.delhiveryWaybill && (
@@ -663,12 +902,12 @@ const OrderDetail: React.FC = () => {
                         Schedule Pickup
                       </Button>
                     )}
-                    {(order.shiprocketAWB || order.delhiveryWaybill) && (
+                    {(shiprocketAwb || order.delhiveryWaybill) && (
                       <Button variant="outline" size="sm" className="h-9" onClick={handleDownloadLabel}>
                         Download Label
                       </Button>
                     )}
-                    {((order.shippingProvider === 'shiprocket' && order.shiprocketAWB) || (order.shippingProvider === 'delhivery' && order.delhiveryWaybill)) && (
+                    {((order.shippingProvider === 'shiprocket' && shiprocketAwb) || (order.shippingProvider === 'delhivery' && order.delhiveryWaybill)) && (
                       <Button variant="outline" size="sm" className="h-9" onClick={handleDownloadManifest}>
                         Download Manifest
                       </Button>
@@ -685,15 +924,81 @@ const OrderDetail: React.FC = () => {
             </CardContent>
           </Card>
 
+          {order.risk && (() => {
+            // Authenticity reads HIGHER = BETTER (100 = fully trustworthy).
+            const authenticity: number = order.risk.authenticity ?? Math.max(0, 100 - (order.risk.score ?? 0));
+            const tone = authenticity >= 80
+              ? { label: 'Authentic', text: 'text-green-700', chip: 'bg-green-100 text-green-700', bar: 'bg-green-500' }
+              : authenticity >= 50
+                ? { label: 'Review advised', text: 'text-yellow-700', chip: 'bg-yellow-100 text-yellow-700', bar: 'bg-yellow-500' }
+                : { label: 'High risk', text: 'text-red-700', chip: 'bg-red-100 text-red-700', bar: 'bg-red-500' };
+            const standing = order.risk.standing;
+            return (
+              <Card className="shadow-sm">
+                <CardHeader className="pb-3 border-b">
+                  <CardTitle className="text-xl flex items-center justify-between">
+                    <span>Order Authenticity</span>
+                    <span className={`text-xs font-semibold px-2 py-1 rounded-full ${tone.chip}`}>
+                      {tone.label}
+                    </span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-4">
+                  {/* Score gauge — the higher the score, the more authentic. */}
+                  <div className="flex items-end justify-between mb-1">
+                    <span className={`text-3xl font-bold ${tone.text}`}>{authenticity}</span>
+                    <span className="text-xs text-muted-foreground mb-1">/ 100</span>
+                  </div>
+                  <div className="h-2.5 rounded-full bg-muted overflow-hidden mb-1">
+                    <div className={`h-full rounded-full ${tone.bar}`} style={{ width: `${Math.max(2, authenticity)}%` }} />
+                  </div>
+                  <div className="flex justify-between text-[10px] text-muted-foreground mb-3">
+                    <span className="text-red-600">Risky</span>
+                    <span className="text-yellow-600">Review</span>
+                    <span className="text-green-600">Authentic</span>
+                  </div>
+
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Heuristic score from address completeness, IP-vs-shipping-address location, and this
+                    customer's cancellation history across every store on the platform — not a fraud guarantee.
+                  </p>
+                  {order.risk.flags?.length > 0 ? (
+                    <ul className="space-y-2">
+                      {order.risk.flags.map((f: any, i: number) => (
+                        <li key={i} className="flex items-start gap-2 text-sm">
+                          <span className={`mt-1 h-2 w-2 rounded-full shrink-0 ${
+                            f.severity === 'high' ? 'bg-red-500' : f.severity === 'medium' ? 'bg-yellow-500' : 'bg-gray-400'
+                          }`} />
+                          <span className="text-foreground">{f.message}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-green-700">No risk signals detected.</p>
+                  )}
+                  {standing && standing.totalOrders > 0 && (
+                    <p className="text-xs text-muted-foreground mt-3 pt-3 border-t">
+                      Platform history: {standing.totalOrders} order(s) across {standing.storeCount} store(s),
+                      {' '}{standing.totalCancelled} cancelled/returned.
+                    </p>
+                  )}
+                  {order.risk.ipGeo && (
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Order IP geolocates to {[order.risk.ipGeo.city, order.risk.ipGeo.region, order.risk.ipGeo.country].filter(Boolean).join(', ') || 'an unknown location'}.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })()}
+
+          <OrderJourneyCard attribution={order.attribution} />
+
           <Card className="shadow-sm">
             <CardContent className="p-0">
               <OrderNotes
-                notes={notesText}
-                editing={editingNotes}
-                onEdit={() => setEditingNotes(true)}
-                onSave={handleSaveNotes}
-                onCancel={() => { setEditingNotes(false); setNotesText(order.notes || ''); }}
-                onChange={setNotesText}
+                notes={order.orderNotes || order.order_notes || []}
+                onAdd={handleAddNote}
                 saving={savingNotes}
               />
             </CardContent>
@@ -727,6 +1032,9 @@ const OrderDetail: React.FC = () => {
           onManualTrackingUrlChange={setManualTrackingUrl}
           orderId={id!}
           orderItems={order?.items || []}
+          remainingByKey={Array.isArray(order?.fulfillment?.lines)
+            ? Object.fromEntries(order.fulfillment.lines.map((l: any) => [String(l.sku || l.name || '').trim(), Number(l.remaining) || 0]))
+            : undefined}
         />
       )}
 
@@ -754,6 +1062,15 @@ const OrderDetail: React.FC = () => {
         content={updateEmailContent}
         onSubjectChange={setUpdateEmailSubject}
         onContentChange={setUpdateEmailContent}
+      />
+
+      <OrderItemsEditModal
+        isOpen={showEditItems}
+        onClose={() => setShowEditItems(false)}
+        orderId={order.orderId || id!}
+        items={order.items || []}
+        currentDiscount={Number(order.discount) || 0}
+        onSaved={() => { toast({ title: 'Order updated', description: 'Items repriced and totals recomputed' }); fetchOrder(); }}
       />
 
       <PickupModal

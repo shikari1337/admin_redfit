@@ -17,6 +17,7 @@ interface CouponFormData {
   usageLimit?: number;
   userLimit?: number;
   clubbedWithOtherCoupons: boolean;
+  isPublic: boolean;
   validFrom: string;
   validUntil: string;
   isActive: boolean;
@@ -39,6 +40,7 @@ const CouponForm: React.FC = () => {
     validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     isActive: true,
     clubbedWithOtherCoupons: false,
+    isPublic: true,
   });
 
   useEffect(() => {
@@ -71,6 +73,7 @@ const CouponForm: React.FC = () => {
         userLimit: coupon.userLimit ?? coupon.user_limit ?? undefined,
         isActive: coupon.isActive ?? coupon.is_active ?? true,
         clubbedWithOtherCoupons: coupon.clubbedWithOtherCoupons ?? coupon.clubbed_with_others ?? false,
+        isPublic: coupon.isPublic ?? coupon.is_public ?? true,
       });
     } catch (err: any) {
       setError(err.message || 'Failed to fetch coupon');
@@ -332,6 +335,19 @@ const CouponForm: React.FC = () => {
                   />
                   <span className="text-sm font-medium leading-none">Can be clubbed with other coupons</span>
                 </label>
+
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <Checkbox
+                    checked={formData.isPublic}
+                    onCheckedChange={(checked) => setFormData(prev => ({ ...prev, isPublic: checked as boolean }))}
+                  />
+                  <span className="text-sm font-medium leading-none">Show on storefront (deals page &amp; checkout coupon list)</span>
+                </label>
+                {!formData.isPublic && (
+                  <p className="text-xs text-muted-foreground -mt-2 ml-6">
+                    Hidden coupons still work if a customer types the code manually — this only controls whether it's advertised.
+                  </p>
+                )}
               </div>
             </div>
 

@@ -17,6 +17,16 @@ interface RegistryModule {
   category?: string;
 }
 
+interface StoreType {
+  key: string;
+  label: string;
+  description: string;
+  icon: string;
+  vertical: string;
+  highlights: string[];
+  modules: Record<string, boolean>;
+}
+
 const CATEGORY_LABELS: Record<string, string> = {
   core:        'Core',
   commerce:    'Commerce',
@@ -32,6 +42,8 @@ const CATEGORY_LABELS: Record<string, string> = {
 export default function Modules() {
   const [modules, setModules] = useState<Module[]>([]);
   const [registry, setRegistry] = useState<Record<string, RegistryModule>>({});
+  const [storeTypes, setStoreTypes] = useState<StoreType[]>([]);
+  const [applyingType, setApplyingType] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [initLoading, setInitLoading] = useState(false);
@@ -42,18 +54,40 @@ export default function Modules() {
     try {
       setLoading(true);
       setError(null);
-      const [modulesRes, registryRes] = await Promise.all([
+      const [modulesRes, registryRes, typesRes] = await Promise.all([
         modulesAPI.list(),
         modulesAPI.getRegistry(),
+        modulesAPI.storeTypes().catch(() => null),
       ]);
       const modulesList = Array.isArray(modulesRes) ? modulesRes : modulesRes?.modules ?? [];
       const registryData = registryRes?.registry ?? registryRes ?? {};
+      const typesList = Array.isArray(typesRes) ? typesRes : typesRes?.data ?? [];
       setModules(modulesList);
       setRegistry(registryData);
+      setStoreTypes(typesList);
     } catch (err: any) {
       setError(err?.response?.data?.error?.message || err?.message || 'Failed to load modules');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleApplyStoreType = async (t: StoreType) => {
+    const enabledCount = Object.values(t.modules).filter(Boolean).length;
+    if (!window.confirm(
+      `Apply the "${t.label}" store type?\n\nThis replaces your current module setup with this type's recommended features (${enabledCount} modules on) and sets the product compliance vertical. You can fine-tune individual modules afterwards.`
+    )) return;
+    try {
+      setApplyingType(t.key);
+      setError(null);
+      await modulesAPI.applyStoreType(t.key);
+      setSuccess(`Applied "${t.label}" store type. Reload any open product form to see the fields update.`);
+      setTimeout(() => setSuccess(null), 5000);
+      await loadData();
+    } catch (err: any) {
+      setError(err?.response?.data?.message || err?.response?.data?.error?.message || err?.message || 'Failed to apply store type');
+    } finally {
+      setApplyingType(null);
     }
   };
 
@@ -133,6 +167,53 @@ export default function Modules() {
       {success && (
         <div className="alert alert-success">
           <span>{success}</span>
+        </div>
+      )}
+
+      {/* ── Store-type templates ── */}
+      {!loading && storeTypes.length > 0 && (
+        <div style={{ marginBottom: 28 }}>
+          <div style={{ marginBottom: 10 }}>
+            <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Start from a store type</h2>
+            <p className="page-subtitle" style={{ margin: '2px 0 0' }}>
+              Pick the kind of store you run to enable a sensible bundle of features and product
+              fields (e.g. Fashion turns on size charts &amp; wash-care; SaaS turns off shipping).
+              Every module stays toggleable below.
+            </p>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
+            {storeTypes.map(t => {
+              const onCount = Object.values(t.modules).filter(Boolean).length;
+              return (
+                <div key={t.key} style={{
+                  border: '1px solid #e5e7eb', borderRadius: 10, padding: 14, background: '#fff',
+                  display: 'flex', flexDirection: 'column', gap: 8,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 22, lineHeight: 1 }}>{t.icon}</span>
+                    <span style={{ fontWeight: 700, fontSize: 14 }}>{t.label}</span>
+                  </div>
+                  <p style={{ fontSize: 12, color: '#6b7280', margin: 0, minHeight: 32 }}>{t.description}</p>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {t.highlights.slice(0, 4).map(h => (
+                      <span key={h} style={{
+                        fontSize: 10.5, color: '#374151', background: '#f3f4f6',
+                        borderRadius: 999, padding: '2px 8px',
+                      }}>{h}</span>
+                    ))}
+                  </div>
+                  <button
+                    className="btn btn-secondary"
+                    style={{ marginTop: 'auto', fontSize: 12.5 }}
+                    onClick={() => handleApplyStoreType(t)}
+                    disabled={applyingType !== null}
+                  >
+                    {applyingType === t.key ? 'Applying…' : `Apply (${onCount} features)`}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 

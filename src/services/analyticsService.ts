@@ -22,6 +22,16 @@ const buildParams = (range?: AnalyticsRange, startDate?: Date, endDate?: Date): 
 };
 
 export const analyticsAPI = {
+    /** Marketing attribution: paid vs organic, by channel/campaign/device. */
+    getMarketing: async (opts: { from?: string; to?: string; model?: 'first' | 'last' } = {}) => {
+        const p = new URLSearchParams();
+        if (opts.from) p.set('from', opts.from);
+        if (opts.to) p.set('to', opts.to);
+        if (opts.model) p.set('model', opts.model);
+        const response = await api.get(`/attribution/analytics?${p.toString()}`);
+        return response;
+    },
+
     getDashboardStats: async (range?: AnalyticsRange, startDate?: Date, endDate?: Date) => {
         const params = buildParams(range, startDate, endDate);
         const response = await api.get(`/analytics/dashboard?${params.toString()}`);

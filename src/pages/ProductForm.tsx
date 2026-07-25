@@ -230,8 +230,9 @@ const ProductForm: React.FC = () => {
     weight: '0.5', length: '10', breadth: '10', height: '5',
     countryOfOrigin: '', modelNumber: '', licenseNumber: '',
     expiryMonths: undefined as number | undefined,
+    packSize: 1, soldAsPack: false,
     isActive: true, isFeatured: false, isDigital: false, requiresPrescription: false,
-    disableVariants: false, showOutOfStockVariants: true, showFeatures: true,
+    disableVariants: false, showOutOfStockVariants: true,
     productType: 'single' as 'single' | 'variation',
     attributeIds: [] as string[],
     selectedAttributeValues: {} as Record<string, string[]>,
@@ -411,8 +412,11 @@ const ProductForm: React.FC = () => {
         salePrice: p.salePrice != null ? String(p.salePrice) : p.sale_price != null ? String(p.sale_price) : '',
         saleStartsAt: toDatetimeLocal(p.saleStartsAt || p.sale_starts_at || ''),
         saleEndsAt: toDatetimeLocal(p.saleEndsAt || p.sale_ends_at || ''),
-        description: p.description || p.short_desc || '',
-        richDescription: p.richDescription || p.long_desc || p.rich_desc || '',
+        // Short Description ↔ short_desc, Full Description ↔ rich_desc/long_desc.
+        // (Historically the short field was mis-saved into long_desc; prefer the
+        // correct columns first so fixed products round-trip cleanly.)
+        description: p.short_desc || p.description || '',
+        richDescription: p.rich_desc || p.long_desc || p.richDescription || '',
         descriptionImage: p.descriptionImage || p.description_image || '',
         images: p.images || [],
         videos: p.videos || [],
@@ -431,16 +435,21 @@ const ProductForm: React.FC = () => {
         modelNumber: p.modelNumber || p.model_number || '',
         licenseNumber: p.licenseNumber || p.license_number || '',
         expiryMonths: p.expiryMonths || p.expiry_months || undefined,
+        packSize: Number(p.packSize ?? p.pack_size ?? 1) || 1,
+        soldAsPack: !!(p.soldAsPack ?? p.sold_as_pack),
         isActive: p.isActive !== false && p.is_active !== false,
         isFeatured: !!(p.isFeatured || p.is_featured),
         isDigital: !!(p.isDigital || p.is_digital),
         requiresPrescription: !!(p.requiresPrescription || p.requires_prescription),
         disableVariants: !!(p.disableVariants || p.disable_variants),
         showOutOfStockVariants: p.showOutOfStockVariants !== false && p.show_oos_variants !== false,
-        showFeatures: p.showFeatures !== false,
         productType: (p.productType || p.product_type || ((p.variations?.length || p.attributeIds?.length) ? 'variation' : 'single')) as 'single' | 'variation',
         attributeIds: p.attributeIds?.length ? p.attributeIds : (p.attributes || []).map((a: any) => a._id).filter(Boolean),
-        selectedAttributeValues: {},
+        // The detail API now returns which catalogue values each attribute uses
+        // (from product_attributes + the variation JSONB) so the editor loads
+        // populated instead of empty — an empty load here would wipe the
+        // assignments on the next save.
+        selectedAttributeValues: p.selectedAttributeValues || p.selected_attribute_values || {},
         variations: normalizeVariations(p.variations || []),
         specificationId: p.specificationId ? normalizeCategoryId(p.specificationId) || undefined : undefined,
         specifications: p.specifications || undefined,
@@ -452,7 +461,19 @@ const ProductForm: React.FC = () => {
         crossSellIds: (p.crossSellIds || p.cross_sell_ids || []).filter(Boolean),
         upsellIds: (p.upsellIds || p.upsell_ids || []).filter(Boolean),
         fbtIds: (p.fbtIds || p.fbt_ids || []).filter(Boolean),
-        b2bPricing: p.b2bPricing || p.b2b_pricing || [],
+        // product_b2b_pricing rows come back snake_case — map to the component's shape.
+        b2bPricing: (p.b2bPricing || p.b2b_pricing || []).map((s: any) => ({
+          id: s.id,
+          tierName: s.tier_name ?? s.tierName ?? '',
+          variationId: s.variation_id ?? s.variationId ?? null,
+          minQty: Number(s.min_qty ?? s.minQty ?? 1),
+          maxQty: s.max_qty ?? s.maxQty ?? undefined,
+          priceType: s.price_type ?? s.priceType ?? 'fixed',
+          priceValue: Number(s.price_value ?? s.priceValue ?? 0),
+          isActive: (s.is_active ?? s.isActive) !== false,
+          validFrom: (s.valid_from ?? s.validFrom)?.slice?.(0, 10) || undefined,
+          validUntil: (s.valid_until ?? s.validUntil)?.slice?.(0, 10) || undefined,
+        })),
       },
       scMode, scId,
       seo: {
@@ -728,7 +749,13 @@ const ProductForm: React.FC = () => {
         price: parseFloat(fd.price), originalPrice: parseFloat(fd.originalPrice),
         salePrice: fd.salePrice ? parseFloat(fd.salePrice) : null,
         saleStartsAt: fd.saleStartsAt || null, saleEndsAt: fd.saleEndsAt || null,
-        description: fd.description, richDescription: fd.richDescription,
+        // Short Description → short_desc; Full Description → long_desc AND rich_desc
+        // (the storefront reads whichever is present). The old `description` key
+        // aliased to long_desc on the backend, so the short text was silently
+        // written to the wrong column and short_desc stayed empty.
+        shortDescription: fd.description,
+        longDescription: fd.richDescription,
+        richDescription: fd.richDescription,
         descriptionImage: fd.descriptionImage || undefined,
         images: fd.images, videos: fd.videos.filter(v => v.trim()),
         brandId: fd.brandId || null, manufacturerId: fd.manufacturerId || null,
@@ -741,10 +768,11 @@ const ProductForm: React.FC = () => {
         modelNumber: fd.modelNumber || undefined,
         licenseNumber: fd.licenseNumber || undefined,
         expiryMonths: fd.expiryMonths || undefined,
+        packSize: Math.max(1, Number(fd.packSize) || 1),
+        soldAsPack: !!fd.soldAsPack,
         isActive: fd.isActive, isFeatured: fd.isFeatured, isDigital: fd.isDigital,
         requiresPrescription: fd.requiresPrescription,
         disableVariants: fd.disableVariants, showOutOfStockVariants: fd.showOutOfStockVariants,
-        showFeatures: fd.showFeatures,
         productType,
         attributeIds: productType === 'variation' ? cleanedAttributeIds : undefined,
         variations: productType === 'variation' ? (cleanedVariations ?? []) : undefined,
@@ -890,6 +918,7 @@ const ProductForm: React.FC = () => {
               errors={{ name: errors.name }}
             />
 
+            {canAccess('product_specifications') && (<>
             {/* Compliance & Specifications (config-driven by store vertical) */}
             <ProductComplianceSections
               config={productConfig}
@@ -951,6 +980,7 @@ const ProductForm: React.FC = () => {
                 </div>
               </div>
             </div>
+            </>)}
 
             {/* Product Type */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-5">
@@ -1016,19 +1046,24 @@ const ProductForm: React.FC = () => {
             )}
 
             {/* A+ Content */}
+            {canAccess('aplus_content') && (
             <ProductContentSections
               blocks={formData.aplusContent}
               onChange={blocks => applyFormData(p => ({ ...p, aplusContent: blocks }))}
               productId={id}
             />
+            )}
 
             {/* Offers */}
+            {canAccess('product_offers') && (
             <ProductOffers
               offers={formData.offers}
               onChange={offers => setFormData(p => ({ ...p, offers }))}
             />
+            )}
 
             {/* Related */}
+            {canAccess('related_products') && (
             <ProductRelated
               crossSellIds={formData.crossSellIds}
               upsellIds={formData.upsellIds}
@@ -1038,6 +1073,7 @@ const ProductForm: React.FC = () => {
               onFbtChange={ids => setFormData(p => ({ ...p, fbtIds: ids }))}
               currentProductId={id}
             />
+            )}
 
             {/* SEO */}
             <ProductSEO
@@ -1105,14 +1141,23 @@ const ProductForm: React.FC = () => {
             {/* Brand & Manufacturer */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 space-y-3">
               <h3 className="text-sm font-semibold text-gray-900">Brand & Manufacturer</h3>
-              <div>
-                <label className="text-xs font-medium text-gray-600 block mb-1">Brand</label>
-                <select value={formData.brandId} onChange={e => setFormData(p => ({ ...p, brandId: e.target.value }))}
-                  className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-red-400">
-                  <option value="">None</option>
-                  {availableBrands.map(b => <option key={b._id} value={b._id}>{b.name}</option>)}
-                </select>
-              </div>
+              {/* Brand is a per-product field only for simple products. For variable
+                  products each variation carries its own brand (set in the Variations
+                  editor), so a single product-level brand would be misleading. */}
+              {formData.productType === 'single' ? (
+                <div>
+                  <label className="text-xs font-medium text-gray-600 block mb-1">Brand</label>
+                  <select value={formData.brandId} onChange={e => setFormData(p => ({ ...p, brandId: e.target.value }))}
+                    className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-red-400">
+                    <option value="">None</option>
+                    {availableBrands.map(b => <option key={b._id} value={b._id}>{b.name}</option>)}
+                  </select>
+                </div>
+              ) : (
+                <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded px-2.5 py-2">
+                  Brand is set <span className="font-medium text-gray-700">per variation</span> for variable products — choose it in the Variations editor.
+                </div>
+              )}
               <div>
                 <label className="text-xs font-medium text-gray-600 block mb-1">Manufacturer</label>
                 <select value={formData.manufacturerId} onChange={e => setFormData(p => ({ ...p, manufacturerId: e.target.value }))}
@@ -1183,29 +1228,51 @@ const ProductForm: React.FC = () => {
               <p className="text-xs text-gray-400 mt-1">Country of origin, manufacturer, packed/imported by etc. are in the Compliance section.</p>
             </div>
 
+            {/* Pack sizing — units per sales pack. When "sold only in packs" is on,
+                the storefront steps quantity by the pack size and orders are
+                enforced to pack multiples (B2B MOQ increments can require more). */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 space-y-2">
+              <label className="text-xs font-medium text-gray-600 block">Pack / Case size</label>
+              <div className="flex items-center gap-2">
+                <input type="number" min="1" value={formData.packSize || 1}
+                  onChange={e => setFormData(p => ({ ...p, packSize: Math.max(1, parseInt(e.target.value) || 1) }))}
+                  className="w-24 px-2.5 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-red-400" />
+                <span className="text-xs text-gray-500">units per pack</span>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
+                <input type="checkbox" checked={formData.soldAsPack}
+                  onChange={e => setFormData(p => ({ ...p, soldAsPack: e.target.checked }))}
+                  className="rounded border-gray-300 text-red-500 focus:ring-red-400" />
+                Sold only in packs (buy in multiples of {formData.packSize || 1})
+              </label>
+              <p className="text-xs text-gray-400">Leave pack size 1 for products sold as singles.</p>
+            </div>
+
             {/* Display Options */}
             <ProductDisplayOptions
               disableVariants={formData.disableVariants}
               showOutOfStockVariants={formData.showOutOfStockVariants}
-              showFeatures={formData.showFeatures}
               isActive={formData.isActive}
               isFeatured={formData.isFeatured}
               isDigital={formData.isDigital}
               requiresPrescription={formData.requiresPrescription}
               onDisableVariantsChange={v => setFormData(p => ({ ...p, disableVariants: v }))}
               onShowOutOfStockVariantsChange={v => setFormData(p => ({ ...p, showOutOfStockVariants: v }))}
-              onShowFeaturesChange={v => setFormData(p => ({ ...p, showFeatures: v }))}
               onIsActiveChange={v => setFormData(p => ({ ...p, isActive: v }))}
               onIsFeaturedChange={v => setFormData(p => ({ ...p, isFeatured: v }))}
               onIsDigitalChange={v => setFormData(p => ({ ...p, isDigital: v }))}
               onRequiresPrescriptionChange={v => setFormData(p => ({ ...p, requiresPrescription: v }))}
             />
 
-            {/* B2B Pricing — hidden when the B2B module is disabled for this store */}
+            {/* B2B Pricing — hidden when the B2B module is disabled for this store.
+                productId enables per-account contract prices (P1); variations let a
+                tier/account price target one variation. */}
             {canAccess('b2b') && (
               <ProductB2BPricing
                 tiers={formData.b2bPricing}
                 onChange={tiers => setFormData(p => ({ ...p, b2bPricing: tiers }))}
+                productId={id}
+                variations={formData.variations}
               />
             )}
 
@@ -1227,12 +1294,14 @@ const ProductForm: React.FC = () => {
             )}
 
             {/* Wash Care */}
+            {canAccess('wash_care') && (
             <ProductWashCare
               instructions={formData.washCareInstructions}
               onInstructionsChange={instructions => setFormData(p => ({ ...p, washCareInstructions: instructions }))}
               productId={id}
               productName={formData.name}
             />
+            )}
 
           </div>
         </div>
