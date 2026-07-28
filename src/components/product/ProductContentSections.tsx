@@ -194,13 +194,22 @@ const HighlightEditor: React.FC<{ block: Extract<ContentBlock, { type: 'highligh
 );
 
 const BlockEditor: React.FC<{ block: ContentBlock; onChange: (b: ContentBlock) => void }> = ({ block, onChange }) => {
-  switch (block.type) {
-    case 'text': return <TextEditor block={block} onChange={onChange} />;
-    case 'image_text': return <ImageTextEditor block={block} onChange={onChange} />;
-    case 'icon_box': return <IconBoxEditor block={block} onChange={onChange} />;
-    case 'faq': return <FAQEditor block={block} onChange={onChange} />;
-    case 'video': return <VideoEditor block={block} onChange={onChange} />;
-    case 'highlight_strip': return <HighlightEditor block={block} onChange={onChange} />;
+  // Blocks arrive from imports/older schemas that may omit `data`/`items` —
+  // coerce to the canonical shape so the editors never index into undefined.
+  const b: any = block || {};
+  switch (b.type) {
+    case 'text':
+      return <TextEditor block={{ ...b, data: { heading: '', body: '', ...(b.data || {}) } }} onChange={onChange} />;
+    case 'image_text':
+      return <ImageTextEditor block={{ ...b, data: { heading: '', body: '', imageUrl: '', imagePosition: 'left', ...(b.data || {}) } }} onChange={onChange} />;
+    case 'icon_box':
+      return <IconBoxEditor block={{ ...b, items: Array.isArray(b.items) ? b.items : [] }} onChange={onChange} />;
+    case 'faq':
+      return <FAQEditor block={{ ...b, items: Array.isArray(b.items) ? b.items : [] }} onChange={onChange} />;
+    case 'video':
+      return <VideoEditor block={{ ...b, url: b.url ?? '', caption: b.caption ?? '' }} onChange={onChange} />;
+    case 'highlight_strip':
+      return <HighlightEditor block={{ ...b, items: Array.isArray(b.items) ? b.items : [] }} onChange={onChange} />;
     default: return <p className="text-xs text-gray-400">Unknown block type</p>;
   }
 };

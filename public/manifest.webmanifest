@@ -1,0 +1,14 @@
+{
+  "name": "Growcord Warehouse Scanner",
+  "short_name": "Scanner",
+  "description": "Warehouse scanner: lookup, putaway, pick, move, count",
+  "start_url": "/scan",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f3f4f6",
+  "theme_color": "#111827",
+  "icons": [
+    { "src": "/scanner-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

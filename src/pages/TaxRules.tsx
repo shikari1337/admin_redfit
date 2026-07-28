@@ -40,23 +40,6 @@ interface TaxRule {
 
 // ─── Default component presets ────────────────────────────────────────────────
 
-const PRESET_COMPONENTS: Record<string, TaxComponent[]> = {
-  gst: [
-    { name: 'CGST', rate: 0, inter_state: false },
-    { name: 'SGST', rate: 0, inter_state: false },
-    { name: 'IGST', rate: 0, inter_state: true },
-  ],
-  vat: [
-    { name: 'VAT', rate: 0, inter_state: false },
-  ],
-  cess: [
-    { name: 'CGST', rate: 0, inter_state: false },
-    { name: 'SGST', rate: 0, inter_state: false },
-    { name: 'IGST', rate: 0, inter_state: true },
-    { name: 'Cess', rate: 0, inter_state: false },
-  ],
-};
-
 const COMPONENT_SUGGESTIONS = ['CGST', 'SGST', 'IGST', 'VAT', 'Cess', 'CST', 'Surcharge'];
 
 const APPLIES_TO_OPTIONS = [
@@ -75,19 +58,6 @@ function defaultGstComponents(rate: number): TaxComponent[] {
     { name: 'SGST', rate: half,   inter_state: false },
     { name: 'IGST', rate: rate,   inter_state: true  },
   ];
-}
-
-function formatComponents(components: TaxComponent[], short = false): string {
-  if (!components?.length) return '—';
-  const intra = components.filter(c => !c.inter_state);
-  const inter  = components.filter(c =>  c.inter_state);
-  if (short) {
-    const parts: string[] = [];
-    if (intra.length) parts.push(intra.map(c => `${c.name} ${c.rate}%`).join(' + '));
-    if (inter.length)  parts.push(inter.map(c =>  `${c.name} ${c.rate}%`).join(' + '));
-    return parts.join(' / ');
-  }
-  return components.map(c => `${c.name} ${c.rate}%`).join(' · ');
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -175,7 +145,6 @@ const TaxRules: React.FC = () => {
     const r = parseFloat(val) || 0;
     setComponents(prev => {
       // only auto-update if it looks like a standard GST setup
-      const hasIgst = prev.some(c => c.name === 'IGST');
       const hasOnlyGst = prev.every(c => ['CGST','SGST','IGST'].includes(c.name));
       if (!hasOnlyGst) return prev;
       const half = parseFloat((r / 2).toFixed(2));

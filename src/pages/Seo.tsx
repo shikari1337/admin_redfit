@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, Save, Plus, Trash2, RefreshCw, Copy, Check } from 'lucide-react';
-import { seoAPI } from '../services/api';
+import { ArrowLeft, Loader2, Save, Plus, Trash2, RefreshCw, Copy, Check, BarChart3, CircleCheck, CircleDashed } from 'lucide-react';
+import api, { seoAPI } from '../services/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,6 +12,44 @@ import {
 } from '@/components/ui/table';
 
 interface Redirect { from: string; to: string; }
+
+/** Non-secret client-side tracking IDs, stored as the public `tracking` setting.
+ *  These appear in storefront page source anyway; server secrets (Meta CAPI
+ *  token) stay in API & Integration settings, never here. */
+interface TrackingIds {
+  ga4Id: string;
+  gtmId: string;
+  metaPixelId: string;
+  clarityId: string;
+  hotjarId: string;
+}
+
+const EMPTY_TRACKING: TrackingIds = { ga4Id: '', gtmId: '', metaPixelId: '', clarityId: '', hotjarId: '' };
+
+const TRACKING_FIELDS: Array<{
+  key: keyof TrackingIds; label: string; placeholder: string; help: React.ReactNode;
+}> = [
+  {
+    key: 'ga4Id', label: 'Google Analytics 4 — Measurement ID', placeholder: 'G-XXXXXXXXXX',
+    help: <>Analytics ▸ Admin ▸ Data Streams ▸ your web stream. Starts with <code>G-</code>.</>,
+  },
+  {
+    key: 'gtmId', label: 'Google Tag Manager — Container ID', placeholder: 'GTM-XXXXXXX',
+    help: <>Optional. Use GTM if you manage tags there instead of hardcoding GA4/Pixel.</>,
+  },
+  {
+    key: 'metaPixelId', label: 'Meta (Facebook) Pixel ID', placeholder: '123456789012345',
+    help: <>Events Manager ▸ Data Sources ▸ your pixel. The server-side Conversion API token is set separately in API &amp; Integrations.</>,
+  },
+  {
+    key: 'clarityId', label: 'Microsoft Clarity — Project ID', placeholder: 'abcdef1234',
+    help: <>Free heatmaps + session recordings. clarity.microsoft.com ▸ Settings ▸ Overview.</>,
+  },
+  {
+    key: 'hotjarId', label: 'Hotjar — Site ID', placeholder: '3123456',
+    help: <>Optional second heatmap tool. Numeric Site ID from your Hotjar dashboard.</>,
+  },
+];
 
 const CopyButton: React.FC<{ text: string }> = ({ text }) => {
   const [copied, setCopied] = useState(false);
@@ -31,6 +69,8 @@ const Seo: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [settings, setSettings] = useState<Record<string, any>>({});
+  const [tracking, setTracking] = useState<TrackingIds>(EMPTY_TRACKING);
+  const [savingTracking, setSavingTracking] = useState(false);
   const [robotsTxt, setRobotsTxt] = useState('');
   const [redirects, setRedirects] = useState<Redirect[]>([]);
   const [newFrom, setNewFrom] = useState('');
@@ -47,16 +87,55 @@ const Seo: React.FC = () => {
   const load = async () => {
     setLoading(true);
     try {
-      const [s, r] = await Promise.all([seoAPI.get(), seoAPI.getRedirects()]);
+      const [s, r, settingsRes] = await Promise.all([
+        seoAPI.get(),
+        seoAPI.getRedirects(),
+        // Admin settings carry the stored `tracking` object (axios unwraps {success,data}).
+        api.get('/settings/admin').then((res) => res.data).catch(() => ({})),
+      ]);
       setSettings(s || {});
       setRobotsTxt(s?.robotsTxt || '');
       setRedirects(Array.isArray(r) ? r : []);
+      const t = (settingsRes?.tracking ?? {}) as Partial<TrackingIds>;
+      setTracking({
+        ga4Id: t.ga4Id || settingsRes?.ga4?.measurementId || '',
+        gtmId: t.gtmId || '',
+        metaPixelId: t.metaPixelId || settingsRes?.metaPixel?.pixelId || '',
+        clarityId: t.clarityId || '',
+        hotjarId: t.hotjarId || '',
+      });
     } catch (err: any) {
       setError(err?.response?.data?.message || 'Failed to load SEO settings');
     } finally {
       setLoading(false);
     }
   };
+
+  const handleSaveTracking = async () => {
+    setSavingTracking(true);
+    setError(null);
+    try {
+      const value: TrackingIds = {
+        ga4Id: tracking.ga4Id.trim(),
+        gtmId: tracking.gtmId.trim(),
+        metaPixelId: tracking.metaPixelId.trim(),
+        clarityId: tracking.clarityId.trim(),
+        hotjarId: tracking.hotjarId.trim(),
+      };
+      // Stored PUBLIC so the storefront's GET /settings returns it (non-secret IDs).
+      await api.put('/settings/tracking', { value, is_public: true, group_name: 'analytics' });
+      setTracking(value);
+      setSuccess('Tracking & analytics IDs saved. The storefront picks them up within a minute.');
+      setTimeout(() => setSuccess(null), 4000);
+    } catch (err: any) {
+      setError(err?.response?.data?.message || 'Failed to save tracking IDs');
+    } finally {
+      setSavingTracking(false);
+    }
+  };
+
+  const setTrackingField = (key: keyof TrackingIds, val: string) =>
+    setTracking((prev) => ({ ...prev, [key]: val }));
 
   const loadPreviews = async () => {
     setPreviewLoading(true);
@@ -133,9 +212,10 @@ const Seo: React.FC = () => {
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back
         </Button>
-        <h1 className="text-3xl font-bold tracking-tight text-foreground">SEO</h1>
+        <h1 className="text-3xl font-bold tracking-tight text-foreground">SEO &amp; Analytics</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          URL redirects and the sitemap/robots.txt served to search engines.
+          Tracking IDs (GA4, GTM, Meta Pixel, Clarity, Hotjar), URL redirects, and the
+          sitemap/robots.txt served to search engines.
         </p>
       </div>
 
@@ -148,6 +228,51 @@ const Seo: React.FC = () => {
       {success && (
         <div className="rounded-md border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-800">{success}</div>
       )}
+
+      {/* Tracking & Analytics */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <BarChart3 className="h-4 w-4 text-muted-foreground" /> Tracking &amp; Analytics
+          </CardTitle>
+          <p className="text-xs text-muted-foreground mt-1.5">
+            Paste each ID to enable the tag on your storefront. Tags load only after a visitor
+            grants analytics/marketing consent (DPDP&nbsp;Act / GDPR). Leave a field blank to
+            disable that tag. Every storefront action (page view, product view, add-to-cart,
+            checkout, purchase, search, login) is also recorded in your in-house Analytics.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {TRACKING_FIELDS.map((f) => {
+            const val = tracking[f.key];
+            const on = !!val.trim();
+            return (
+              <div key={f.key} className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs">{f.label}</Label>
+                  <span className={`inline-flex items-center gap-1 text-[11px] font-medium ${on ? 'text-green-600' : 'text-muted-foreground'}`}>
+                    {on ? <CircleCheck className="h-3 w-3" /> : <CircleDashed className="h-3 w-3" />}
+                    {on ? 'Active' : 'Not set'}
+                  </span>
+                </div>
+                <Input
+                  value={val}
+                  onChange={(e) => setTrackingField(f.key, e.target.value)}
+                  placeholder={f.placeholder}
+                  className="h-9 font-mono text-sm"
+                />
+                <p className="text-[11px] text-muted-foreground leading-snug">{f.help}</p>
+              </div>
+            );
+          })}
+          <div className="pt-1">
+            <Button onClick={handleSaveTracking} disabled={savingTracking}>
+              {savingTracking ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+              Save tracking IDs
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Redirects */}
       <Card>

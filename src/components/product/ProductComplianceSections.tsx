@@ -76,19 +76,19 @@ const ProductComplianceSections: React.FC<Props> = ({ config, value, onChange, m
   const activeConfig = config && config.complianceSections?.length ? config : FALLBACK_CONFIG;
 
   const getVal = (sk: string, fk: string): string =>
-    value.find(s => s.key === sk)?.items.find(i => i.key === fk)?.value ?? '';
+    (value || []).find(s => s?.key === sk)?.items?.find(i => i?.key === fk)?.value ?? '';
 
   const setVal = (section: ComplianceSection, field: ComplianceField, v: string) => {
-    const next = [...value];
-    let sec = next.find(s => s.key === section.key);
+    const next = [...(value || [])];
+    let sec = next.find(s => s?.key === section.key);
     if (!sec) { sec = { key: section.key, heading: section.title, items: [] }; next.push(sec); }
-    else { sec.heading = section.title; }
-    const item = sec.items.find(i => i.key === field.key);
+    else { sec.heading = section.title; sec.items = Array.isArray(sec.items) ? sec.items : []; }
+    const item = sec.items.find(i => i?.key === field.key);
     if (item) { item.value = v; item.label = field.label; }
     else sec.items.push({ key: field.key, label: field.label, value: v });
     // prune empty items so we don't store blanks
-    sec.items = sec.items.filter(i => i.value !== '');
-    onChange(next.filter(s => s.items.length > 0 || s.key === section.key));
+    sec.items = sec.items.filter(i => i?.value !== '');
+    onChange(next.filter(s => (s?.items?.length ?? 0) > 0 || s?.key === section.key));
   };
 
   const renderField = (section: ComplianceSection, field: ComplianceField) => {

@@ -4,7 +4,10 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Redfit Admin Dashboard</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#111827" />
+    <link rel="apple-touch-icon" href="/scanner-icon.svg" />
+    <title>Growcord Admin Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
   </head>
   <body>
@@ -19,6 +22,13 @@
       </div>
     </div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('/sw.js').catch(function () {});
+        });
+      }
+    </script>
     <style>
       @keyframes spin {
         to { transform: rotate(360deg); }

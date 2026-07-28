@@ -68,11 +68,11 @@ export function AppSidebar({ userPerms, onLogout, menuGroups }: AppSidebarProps)
             <SidebarMenuButton size="lg" asChild>
               <Link to="/dashboard">
                 <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">
-                  R
+                  G
                 </div>
-                <div className="grid flex-1 text-left text-sm leading-tight text-white hover:text-white">
-                  <span className="truncate font-semibold">Redfit Admin</span>
-                  <span className="truncate text-xs">V4 Dashboard</span>
+                <div className="grid flex-1 text-left text-sm leading-tight text-sidebar-foreground">
+                  <span className="truncate font-semibold">Growcord Admin</span>
+                  <span className="truncate text-xs text-muted-foreground">ERP &amp; Commerce</span>
                 </div>
               </Link>
             </SidebarMenuButton>
@@ -84,7 +84,7 @@ export function AppSidebar({ userPerms, onLogout, menuGroups }: AppSidebarProps)
         {menuGroups.map((group) => (
           group.items.length > 0 && (
             <SidebarGroup key={group.title}>
-              <SidebarGroupLabel>{group.title}</SidebarGroupLabel>
+              <SidebarGroupLabel className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/80">{group.title}</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
                   {group.items.map((item) => {

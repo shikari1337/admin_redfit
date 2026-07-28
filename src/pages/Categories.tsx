@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { FaPlus, FaSave, FaUndo, FaTrash } from 'react-icons/fa';
-import { categoriesAPI } from '../services/api';
+import { categoriesAPI, attributesAPI } from '../services/api';
 import ImageInputWithActions from '../components/common/ImageInputWithActions';
 import IconPicker, { getIconComponent } from '../components/IconPicker';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,10 +40,15 @@ const emptyForm = {
   metaTitle: '',
   metaDesc: '',
   ogImageUrl: '',
+  // Category → attribute FILTER: show only / hide variations whose attribute value matches.
+  filterAttributeSlug: '',
+  filterAttributeValue: '',
+  filterAttributeMode: 'only', // 'only' (show only matching) | 'exclude' (hide matching)
 };
 
 const Categories: React.FC = () => {
   const [categories, setCategories] = useState<Category[]>([]);
+  const [attributes, setAttributes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -56,6 +61,10 @@ const Categories: React.FC = () => {
 
   useEffect(() => {
     fetchCategories();
+    // Attributes (+ their values) power the "prioritise attribute" picker below.
+    attributesAPI.list({ isActive: true })
+      .then((a: any) => setAttributes(Array.isArray(a) ? a : []))
+      .catch(() => setAttributes([]));
   }, []);
 
   const fetchCategories = async () => {
@@ -107,6 +116,10 @@ const Categories: React.FC = () => {
       metaTitle: (category as any).metaTitle ?? (category as any).meta_title ?? '',
       metaDesc: (category as any).metaDesc ?? (category as any).meta_desc ?? '',
       ogImageUrl: (category as any).ogImageUrl ?? (category as any).og_image_url ?? '',
+      filterAttributeSlug: (category as any).filter_attribute_slug ?? (category as any).filterAttributeSlug ?? '',
+      // A leading "!" in the stored value means EXCLUDE (hide matching); else INCLUDE.
+      filterAttributeValue: String((category as any).filter_attribute_value ?? (category as any).filterAttributeValue ?? '').replace(/^!/, ''),
+      filterAttributeMode: String((category as any).filter_attribute_value ?? (category as any).filterAttributeValue ?? '').startsWith('!') ? 'exclude' : 'only',
     });
     setError(null);
     setImageError(null);
@@ -146,6 +159,15 @@ const Categories: React.FC = () => {
       metaTitle: formState.metaTitle?.trim() || undefined,
       metaDesc: formState.metaDesc?.trim() || undefined,
       ogImageUrl: formState.ogImageUrl?.trim() || undefined,
+      // null (not undefined) so clearing the mapping actually unsets it on update.
+      // Exclude mode is encoded as a leading "!" on the value (no schema change).
+      filterAttributeSlug: formState.filterAttributeSlug?.trim() || null,
+      filterAttributeValue: (() => {
+        const slug = formState.filterAttributeSlug?.trim();
+        const val = formState.filterAttributeValue?.trim();
+        if (!slug || !val) return null;
+        return formState.filterAttributeMode === 'exclude' ? `!${val}` : val;
+      })(),
     };
 
     if (formState.slug?.trim()) {
@@ -360,6 +382,80 @@ const Categories: React.FC = () => {
                     label=""
                     placeholder="OG image URL (https://...)"
                   />
+                </div>
+              </div>
+
+              {/* Category → attribute filter */}
+              <div className="space-y-3 border-t border-gray-100 pt-4">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Filter by a product attribute</p>
+                <p className="-mt-1 text-[11px] text-gray-400">
+                  Show <strong>only</strong> — or <strong>hide</strong> — variations whose attribute value matches. E.g. a
+                  &ldquo;Dilutions&rdquo; category with <em>Potency · Hide · Q</em> hides mother tinctures (potency&nbsp;Q);
+                  &ldquo;Mother Tinctures&rdquo; with <em>Potency · Only show · Q</em> shows only them. Leave blank = show everything.
+                </p>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label>Attribute</Label>
+                    <Select
+                      value={formState.filterAttributeSlug || 'none'}
+                      onValueChange={v => setFormState({ ...formState, filterAttributeSlug: v === 'none' ? '' : v, filterAttributeValue: '' })}
+                    >
+                      <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">None</SelectItem>
+                        {attributes.map((a: any) => (
+                          <SelectItem key={a.slug ?? a._id} value={a.slug}>{a.name ?? a.slug}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Mode</Label>
+                    <Select
+                      value={formState.filterAttributeMode}
+                      onValueChange={v => setFormState({ ...formState, filterAttributeMode: v })}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="only">Only show</SelectItem>
+                        <SelectItem value="exclude">Hide</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Value</Label>
+                    {(() => {
+                      const attr = attributes.find((a: any) => a.slug === formState.filterAttributeSlug);
+                      const values: any[] = Array.isArray(attr?.values) ? attr.values : [];
+                      if (!formState.filterAttributeSlug) {
+                        return <Input disabled placeholder="Pick an attribute first" />;
+                      }
+                      if (values.length) {
+                        return (
+                          <Select
+                            value={formState.filterAttributeValue || 'none'}
+                            onValueChange={v => setFormState({ ...formState, filterAttributeValue: v === 'none' ? '' : v })}
+                          >
+                            <SelectTrigger><SelectValue placeholder="Any" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">Any</SelectItem>
+                              {values.map((val: any, i: number) => {
+                                const slug = val.slug ?? val.value ?? String(val);
+                                return <SelectItem key={`${slug}-${i}`} value={slug}>{val.name ?? val.label ?? slug}</SelectItem>;
+                              })}
+                            </SelectContent>
+                          </Select>
+                        );
+                      }
+                      return (
+                        <Input
+                          value={formState.filterAttributeValue}
+                          onChange={e => setFormState({ ...formState, filterAttributeValue: e.target.value })}
+                          placeholder="Attribute value slug (e.g. dilution)"
+                        />
+                      );
+                    })()}
+                  </div>
                 </div>
               </div>
 

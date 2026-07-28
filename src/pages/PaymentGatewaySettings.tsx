@@ -265,7 +265,7 @@ const PaymentGatewaySettings: React.FC = () => {
                     type="text"
                     value={formData.upi.payeeName}
                     onChange={(e) => handleChange('upi', 'payeeName', e.target.value)}
-                    placeholder="e.g., REDFIT_GROWCORD"
+                    placeholder="e.g., GROWCORD_STORE"
                   />
                   <p className="text-[10px] text-muted-foreground">Name shown to customers when making payment</p>
                 </div>

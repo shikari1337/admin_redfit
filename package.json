@@ -1,7 +1,7 @@
 {
-  "name": "redfit-admin",
+  "name": "growcord-admin",
   "version": "1.0.0",
-  "description": "Admin Dashboard for Redfit Store",
+  "description": "Admin Dashboard for Growcord Stores",
   "type": "module",
   "scripts": {
     "dev": "vite",

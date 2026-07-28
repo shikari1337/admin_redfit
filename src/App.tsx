@@ -46,13 +46,17 @@ import Pages from './pages/Pages';
 import PageForm from './pages/PageForm';
 import AppearanceMenus from './pages/AppearanceMenus';
 import AppearanceStyle from './pages/AppearanceStyle';
+import Themes from './pages/Themes';
+import ThemeCustomizer from './pages/ThemeCustomizer';
 import AppearanceProducts from './pages/AppearanceProducts';
 import TrustBadges from './pages/TrustBadges';
 import AppearanceBanners from './pages/AppearanceBanners';
 import Leads from './pages/Leads';
 import Staff from './pages/Staff';
 import Channels from './pages/Channels';
+import ChannelAllocation from './pages/panels/ChannelAllocation';
 import ChannelMapping from './pages/ChannelMapping';
+import ChannelImport from './pages/ChannelImport';
 import Layout from './components/Layout';
 import { ProtectedModuleRoute } from './components/ProtectedModuleRoute';
 import { ProtectedRoute } from './components/ProtectedRoute';
@@ -84,6 +88,113 @@ import StoreConfiguration from './pages/StoreConfiguration';
 import Wallet from './pages/Wallet';
 import Seo from './pages/Seo';
 
+// ERP panels (per-role workspaces)
+import AccountingDashboard from './pages/panels/AccountingDashboard';
+import Expenses from './pages/panels/Expenses';
+import RecurringInvoices from './pages/panels/RecurringInvoices';
+import FixedAssets from './pages/panels/FixedAssets';
+import TrialBalance from './pages/panels/TrialBalance';
+import Journals from './pages/panels/Journals';
+import ChartOfAccounts from './pages/panels/ChartOfAccounts';
+import OpeningBalances from './pages/panels/OpeningBalances';
+import Gstr1 from './pages/panels/Gstr1';
+import RateCheck from './pages/panels/RateCheck';
+import VendorBills from './pages/panels/VendorBills';
+import Payables from './pages/panels/Payables';
+import Receivables from './pages/panels/Receivables';
+import PaymentsReceived from './pages/panels/PaymentsReceived';
+import Dunning from './pages/panels/Dunning';
+import CreditControl from './pages/panels/CreditControl';
+import Tds from './pages/panels/Tds';
+import TcsRegister from './pages/panels/TcsRegister';
+import ScheduledJobs from './pages/panels/ScheduledJobs';
+import ReportSchedules from './pages/panels/ReportSchedules';
+import Reconciliation from './pages/panels/Reconciliation';
+import BankRecon from './pages/panels/BankRecon';
+import BankRules from './pages/panels/BankRules';
+import BankAccounts from './pages/panels/BankAccounts';
+import Einvoicing from './pages/panels/Einvoicing';
+import AuditTrail from './pages/panels/AuditTrail';
+import AccountingSettings from './pages/panels/AccountingSettings';
+import InventoryPanelDashboard from './pages/panels/InventoryPanelDashboard';
+import Purchasing from './pages/panels/Purchasing';
+import VendorScorecard from './pages/panels/VendorScorecard';
+import OrdersPanelDashboard from './pages/panels/OrdersPanelDashboard';
+import Ewb from './pages/panels/Ewb';
+import Quotations from './pages/panels/Quotations';
+import SalesDocuments from './pages/panels/SalesDocuments';
+import Itc2b from './pages/panels/Itc2b';
+import Batches from './pages/panels/Batches';
+import WarehouseLayout from './pages/panels/WarehouseLayout';
+import PickLists from './pages/panels/PickLists';
+import CycleCounts from './pages/panels/CycleCounts';
+import LabelsBarcodes from './pages/panels/LabelsBarcodes';
+import Reports from './pages/panels/Reports';
+import Reorder from './pages/panels/Reorder';
+import Gstr3b from './pages/panels/Gstr3b';
+import Gstr9 from './pages/panels/Gstr9';
+import DocumentLibrary from './pages/panels/DocumentLibrary';
+import HsnSummary from './pages/panels/HsnSummary';
+import SeriesGaps from './pages/panels/SeriesGaps';
+import GstRateCodes from './pages/panels/GstRateCodes';
+import FxRates from './pages/panels/FxRates';
+import FinancialStatements from './pages/panels/FinancialStatements';
+import GeneralLedger from './pages/panels/GeneralLedger';
+import Outlets from './pages/panels/Outlets';
+import StockTransfers from './pages/panels/StockTransfers';
+import Consignment from './pages/panels/Consignment';
+import DistributorNetwork from './pages/panels/DistributorNetwork';
+import UomSettings from './pages/panels/UomSettings';
+import BillOfMaterials from './pages/panels/BillOfMaterials';
+import WorkOrders from './pages/panels/WorkOrders';
+import Approvals from './pages/panels/Approvals';
+import ReturnsRto from './pages/panels/ReturnsRto';
+import CodReconciliation from './pages/panels/CodReconciliation';
+import WeightDisputes from './pages/panels/WeightDisputes';
+import Refunds from './pages/panels/Refunds';
+import WorkflowRules from './pages/panels/WorkflowRules';
+import DocumentTemplates from './pages/panels/DocumentTemplates';
+import CustomFields from './pages/panels/CustomFields';
+import MarketplaceSettlements from './pages/panels/MarketplaceSettlements';
+import ScannerShell from './pages/scanner/ScannerShell';
+import ScanLookup from './pages/scanner/ScanLookup';
+import ScanPutaway from './pages/scanner/ScanPutaway';
+import ScanPick from './pages/scanner/ScanPick';
+import ScanMove from './pages/scanner/ScanMove';
+import ScanCount from './pages/scanner/ScanCount';
+import PosSurface from './pages/pos/PosSurface';
+import VendorPortal from './pages/vendor/VendorPortal';
+import CustomerPortal from './pages/customer/CustomerPortal';
+import PartnerPortal from './pages/partner/PartnerPortal';
+import SetupGuide from './pages/SetupGuide';
+// Marketing panel (docs/MARKETING_PANEL.md)
+import MarketingDashboard from './pages/panels/marketing/MarketingDashboard';
+import MarketingCampaigns from './pages/panels/marketing/MarketingCampaigns';
+import MarketingTemplates from './pages/panels/marketing/MarketingTemplates';
+import MarketingAudiences from './pages/panels/marketing/MarketingAudiences';
+import MarketingAutomation from './pages/panels/marketing/MarketingAutomation';
+import AdsManager from './pages/panels/marketing/AdsManager';
+import AdsAudiences from './pages/panels/marketing/AdsAudiences';
+import MarketingAnalyticsHub from './pages/panels/marketing/MarketingAnalyticsHub';
+import MarketingCompliance from './pages/panels/marketing/MarketingCompliance';
+import MarketingSettings from './pages/panels/marketing/MarketingSettings';
+import AdsOAuthCallback from './pages/panels/marketing/AdsOAuthCallback';
+import MarketingPerformance from './pages/panels/marketing/MarketingPerformance';
+import GrowthAnalytics from './pages/panels/marketing/GrowthAnalytics';
+import { useAuth } from './contexts/AuthContext';
+import { WORKSPACES, WorkspaceKey, ROLE_SURFACE, ErpRole } from './lib/rbac';
+import RouteGuard from './components/RouteGuard';
+
+/** Lands every user on THEIR surface: worker → scanner, cashier → POS,
+ *  accountant → Accounting panel, warehouse manager → Inventory… */
+function RoleHome() {
+  const { workspaces, user } = useAuth();
+  const surface = ROLE_SURFACE[user?.role as ErpRole];
+  if (surface) return <Navigate to={surface} replace />;
+  const first = (workspaces[0] ?? 'commerce') as WorkspaceKey;
+  return <Navigate to={WORKSPACES[first]?.home ?? '/dashboard'} replace />;
+}
+
 function App() {
   console.log('📱 Admin Panel: App component rendering...');
 
@@ -100,6 +211,45 @@ function App() {
             </ProtectedRoute>
           }
         />
+        {/* Theme customizer — full-screen Shopify-style live editor */}
+        <Route
+          path="/themes/:id/customize"
+          element={
+            <ProtectedRoute>
+              <ThemeCustomizer />
+            </ProtectedRoute>
+          }
+        />
+        {/* Warehouse scanner — full-screen mobile workspace (WMS slice 4b) */}
+        <Route
+          path="/scan"
+          element={
+            <ProtectedRoute>
+              <RouteGuard><ScannerShell /></RouteGuard>
+            </ProtectedRoute>
+          }
+        >
+          <Route index element={<ScanLookup />} />
+          <Route path="putaway" element={<ScanPutaway />} />
+          <Route path="pick" element={<ScanPick />} />
+          <Route path="move" element={<ScanMove />} />
+          <Route path="count" element={<ScanCount />} />
+        </Route>
+        {/* POS — full-screen counter-sales surface */}
+        <Route
+          path="/pos"
+          element={
+            <ProtectedRoute>
+              <RouteGuard><PosSurface /></RouteGuard>
+            </ProtectedRoute>
+          }
+        />
+        {/* Vendor portal — PUBLIC, no login: the URL token is the access (spec §12) */}
+        <Route path="/vendor/:token" element={<VendorPortal />} />
+        {/* Customer portal (B2B statements) — PUBLIC, no login: the URL token is the access (spec §12) */}
+        <Route path="/customer/:token" element={<CustomerPortal />} />
+        {/* Franchise/partner portal — PUBLIC, no login: shelf + self-reported sales + money (spec §5/§12) */}
+        <Route path="/partner/:token" element={<PartnerPortal />} />
         <Route
           path="/"
           element={
@@ -108,8 +258,93 @@ function App() {
             </ProtectedRoute>
           }
         >
-          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route index element={<RoleHome />} />
           <Route path="dashboard" element={<Dashboard />} />
+          {/* ERP panels — separate workspaces per organisational role */}
+          <Route path="panel/accounting" element={<AccountingDashboard />} />
+          <Route path="panel/accounting/trial-balance" element={<TrialBalance />} />
+          <Route path="panel/accounting/chart-of-accounts" element={<ChartOfAccounts />} />
+          <Route path="panel/accounting/opening-balances" element={<OpeningBalances />} />
+          <Route path="panel/accounting/journals" element={<Journals />} />
+          <Route path="panel/accounting/statements" element={<FinancialStatements />} />
+          <Route path="panel/accounting/general-ledger" element={<GeneralLedger />} />
+          <Route path="panel/accounting/gstr1" element={<Gstr1 />} />
+          <Route path="panel/accounting/gstr3b" element={<Gstr3b />} />
+          <Route path="panel/accounting/gstr9" element={<Gstr9 />} />
+          <Route path="panel/accounting/hsn-summary" element={<HsnSummary />} />
+          <Route path="panel/accounting/series-gaps" element={<SeriesGaps />} />
+          <Route path="panel/accounting/rate-check" element={<RateCheck />} />
+          <Route path="panel/accounting/rate-codes" element={<GstRateCodes />} />
+          <Route path="panel/accounting/fx" element={<FxRates />} />
+          <Route path="panel/accounting/bills" element={<VendorBills />} />
+          <Route path="panel/accounting/payables" element={<Payables />} />
+          <Route path="panel/accounting/receivables" element={<Receivables />} />
+          <Route path="panel/accounting/payments-received" element={<PaymentsReceived />} />
+          <Route path="panel/accounting/recurring-invoices" element={<RecurringInvoices />} />
+          <Route path="panel/accounting/dunning" element={<Dunning />} />
+          <Route path="panel/customers/credit" element={<CreditControl />} />
+          <Route path="panel/accounting/reconciliation" element={<Reconciliation />} />
+          <Route path="panel/accounting/expenses" element={<Expenses />} />
+          <Route path="panel/accounting/assets" element={<FixedAssets />} />
+          <Route path="panel/accounting/tds" element={<Tds />} />
+          <Route path="panel/accounting/tcs" element={<TcsRegister />} />
+          <Route path="panel/accounting/scheduled-jobs" element={<ScheduledJobs />} />
+          <Route path="panel/accounting/report-schedules" element={<ReportSchedules />} />
+          <Route path="panel/accounting/bank-accounts" element={<BankAccounts />} />
+          <Route path="panel/accounting/bank-recon" element={<BankRecon />} />
+          <Route path="panel/accounting/bank-rules" element={<BankRules />} />
+          <Route path="panel/accounting/einvoicing" element={<Einvoicing />} />
+          <Route path="panel/accounting/audit" element={<AuditTrail />} />
+          <Route path="panel/accounting/settings" element={<AccountingSettings />} />
+          <Route path="panel/accounting/documents" element={<DocumentLibrary />} />
+          <Route path="panel/accounting/itc" element={<Itc2b />} />
+          <Route path="panel/inventory" element={<InventoryPanelDashboard />} />
+          <Route path="panel/inventory/purchasing" element={<Purchasing />} />
+          <Route path="panel/inventory/batches" element={<Batches />} />
+          <Route path="panel/inventory/wms" element={<WarehouseLayout />} />
+          <Route path="panel/inventory/pick-lists" element={<PickLists />} />
+          <Route path="panel/inventory/counts" element={<CycleCounts />} />
+          <Route path="panel/inventory/labels" element={<LabelsBarcodes />} />
+          <Route path="panel/inventory/reports" element={<Reports />} />
+          <Route path="panel/inventory/reorder" element={<Reorder />} />
+          <Route path="panel/inventory/outlets" element={<Outlets />} />
+          <Route path="panel/inventory/transfers" element={<StockTransfers />} />
+          <Route path="panel/inventory/consignment" element={<Consignment />} />
+          <Route path="panel/inventory/network" element={<DistributorNetwork />} />
+          <Route path="panel/inventory/uom" element={<UomSettings />} />
+          <Route path="panel/inventory/bom" element={<BillOfMaterials />} />
+          <Route path="panel/inventory/work-orders" element={<WorkOrders />} />
+          <Route path="panel/inventory/approvals" element={<Approvals />} />
+          <Route path="panel/purchasing" element={<Purchasing />} />
+          <Route path="panel/purchasing/scorecard" element={<VendorScorecard />} />
+          <Route path="panel/orders" element={<OrdersPanelDashboard />} />
+          <Route path="panel/orders/ewb" element={<Ewb />} />
+          <Route path="panel/orders/quotations" element={<Quotations />} />
+          <Route path="panel/orders/documents" element={<SalesDocuments />} />
+          <Route path="panel/orders/rto" element={<ReturnsRto />} />
+          <Route path="panel/orders/cod-recon" element={<CodReconciliation />} />
+          <Route path="panel/orders/weight-disputes" element={<WeightDisputes />} />
+          {/* managed refund pipeline (081): request → approve → send → confirmed */}
+          <Route path="panel/orders/refunds" element={<Refunds />} />
+          <Route path="panel/orders/automation-rules" element={<WorkflowRules />} />
+          <Route path="panel/settings/templates" element={<DocumentTemplates />} />
+          <Route path="panel/settings/custom-fields" element={<CustomFields />} />
+          <Route path="panel/accounting/settlements" element={<MarketplaceSettlements />} />
+          <Route path="setup-guide" element={<SetupGuide />} />
+          {/* Marketing panel — module-gated (marketing); ads pages also need ads_management */}
+          <Route path="panel/marketing" element={<ProtectedModuleRoute module="marketing"><MarketingDashboard /></ProtectedModuleRoute>} />
+          <Route path="panel/marketing/performance" element={<ProtectedModuleRoute module="marketing"><MarketingPerformance /></ProtectedModuleRoute>} />
+          <Route path="panel/marketing/growth" element={<ProtectedModuleRoute module="marketing"><GrowthAnalytics /></ProtectedModuleRoute>} />
+          <Route path="panel/marketing/campaigns" element={<ProtectedModuleRoute module="marketing"><MarketingCampaigns /></ProtectedModuleRoute>} />
+          <Route path="panel/marketing/templates" element={<ProtectedModuleRoute module="marketing"><MarketingTemplates /></ProtectedModuleRoute>} />
+          <Route path="panel/marketing/audiences" element={<ProtectedModuleRoute module="marketing"><MarketingAudiences /></ProtectedModuleRoute>} />
+          <Route path="panel/marketing/automation" element={<ProtectedModuleRoute module="marketing"><MarketingAutomation /></ProtectedModuleRoute>} />
+          <Route path="panel/marketing/ads" element={<ProtectedModuleRoute module="ads_management"><AdsManager /></ProtectedModuleRoute>} />
+          <Route path="panel/marketing/ads/audiences" element={<ProtectedModuleRoute module="ads_management"><AdsAudiences /></ProtectedModuleRoute>} />
+          <Route path="panel/marketing/ads/oauth/callback" element={<ProtectedModuleRoute module="ads_management"><AdsOAuthCallback /></ProtectedModuleRoute>} />
+          <Route path="panel/marketing/analytics" element={<ProtectedModuleRoute module="marketing"><MarketingAnalyticsHub /></ProtectedModuleRoute>} />
+          <Route path="panel/marketing/compliance" element={<ProtectedModuleRoute module="marketing"><MarketingCompliance /></ProtectedModuleRoute>} />
+          <Route path="panel/marketing/settings" element={<ProtectedModuleRoute module="marketing"><MarketingSettings /></ProtectedModuleRoute>} />
           <Route path="analytics" element={<Navigate to="/analytics/dashboard" replace />} />
           <Route path="analytics/dashboard" element={<AnalyticsDashboard />} />
           <Route path="analytics/store" element={<StoreAnalytics />} />
@@ -157,6 +392,7 @@ function App() {
           <Route path="appearance/banners" element={<AppearanceBanners />} />
           <Route path="appearance/pages" element={<Pages />} />
           <Route path="appearance/style" element={<AppearanceStyle />} />
+          <Route path="appearance/themes" element={<Themes />} />
           <Route path="appearance/products" element={<AppearanceProducts />} />
           <Route path="appearance/trust-badges" element={<TrustBadges />} />
           <Route path="pages" element={<Navigate to="/appearance/pages" replace />} />
@@ -192,7 +428,9 @@ function App() {
           <Route path="inventory" element={<ProtectedModuleRoute module="inventory"><Inventory /></ProtectedModuleRoute>} />
           <Route path="b2b" element={<ProtectedModuleRoute module="b2b"><B2B /></ProtectedModuleRoute>} />
           <Route path="channels" element={<ProtectedModuleRoute module="channel_sync"><Channels /></ProtectedModuleRoute>} />
+          <Route path="channels/allocation" element={<ProtectedModuleRoute module="channel_sync"><ChannelAllocation /></ProtectedModuleRoute>} />
           <Route path="channels/mapping" element={<ProtectedModuleRoute module="channel_sync"><ChannelMapping /></ProtectedModuleRoute>} />
+          <Route path="channels/import" element={<ProtectedModuleRoute module="channel_sync"><ChannelImport /></ProtectedModuleRoute>} />
           <Route path="marketing" element={<ProtectedModuleRoute module="marketing"><Marketing /></ProtectedModuleRoute>} />
           <Route path="blogs" element={<ProtectedModuleRoute module="blog"><Blogs /></ProtectedModuleRoute>} />
           <Route path="blogs/new" element={<ProtectedModuleRoute module="blog"><BlogForm /></ProtectedModuleRoute>} />

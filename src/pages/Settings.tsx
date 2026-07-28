@@ -221,8 +221,8 @@ const settingsSections = [
         path: '/appearance/style',
       },
       {
-        title: 'SEO',
-        description: 'Meta titles & descriptions, analytics IDs (GA4, GTM, Meta Pixel), sitemap and robots',
+        title: 'SEO & Analytics',
+        description: 'Tracking IDs (GA4, GTM, Meta Pixel, Microsoft Clarity, Hotjar), URL redirects, sitemap and robots',
         icon: Globe,
         path: '/seo',
       },

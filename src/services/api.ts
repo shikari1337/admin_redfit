@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // API Configuration
-// All requests go to api.redfit.in for consistent tenant identification
+// All requests go to the platform API domain for consistent tenant identification
 // The backend identifies tenant from the Host header or x-api-key (store API key)
 const API_VERSION = import.meta.env.VITE_API_VERSION || 'v1';
 const API_KEY = import.meta.env.VITE_API_KEY;
@@ -32,8 +32,8 @@ let rawBaseUrl = import.meta.env.VITE_API_SERVER_URL;
 
 // If not set, use production API URL
 if (!rawBaseUrl || rawBaseUrl.trim() === '') {
-  // Production default
-  rawBaseUrl = 'https://api.redfit.in';
+  // Production default (set VITE_API_SERVER_URL to override)
+  rawBaseUrl = 'https://api.growcord.in';
 } else {
   // Remove trailing /api if it exists (handle cases where user includes it)
   if (rawBaseUrl.endsWith('/api')) {
@@ -58,7 +58,7 @@ console.log('🔧 Admin API Configuration:', {
   currentOrigin: window.location.origin,
   currentHostname: window.location.hostname,
   protocol: window.location.protocol,
-  NOTE: 'All requests go to api.redfit.in for consistent tenant identification'
+  NOTE: 'All requests go to the platform API domain for consistent tenant identification'
 });
 
 export const api = axios.create({
@@ -274,6 +274,28 @@ api.interceptors.response.use(
         console.error('❌ DNS lookup failed - Hostname not found:', error.config?.baseURL);
       }
     } else {
+      /**
+       * Access refusals carry an actionable payload the UI must not swallow.
+       * The backend returns { error: { code, message, moduleKey, upgrade } } for
+       * module/plan gating and { code: 'PERMISSION_DENIED', message } for RBAC.
+       * Without this the user just saw a page that silently failed to save.
+       * `AccessNotice` listens for this event and renders the explanation.
+       */
+      if (error.response?.status === 403) {
+        const d: any = error.response?.data ?? {};
+        const code = d?.error?.code ?? d?.code;
+        if (['MODULE_DISABLED', 'MODULE_NOT_IN_PLAN', 'MODULE_VIEW_ONLY', 'PERMISSION_DENIED'].includes(code)) {
+          window.dispatchEvent(new CustomEvent('admin:access-denied', {
+            detail: {
+              code,
+              message: d?.error?.message ?? d?.message,
+              moduleLabel: d?.error?.moduleLabel,
+              upgrade: d?.error?.upgrade === true,
+            },
+          }));
+        }
+      }
+
       // HTTP errors (server responded with error status)
       const errorData = error.response?.data;
       console.error('❌ Response Error:', {
@@ -487,11 +509,20 @@ export const staffAPI = {
     const response = await api.get('/staff');
     return response.data?.data ?? response.data ?? [];
   },
-  update: async (id: string, data: { permissions?: string[]; isActive?: boolean; name?: string }) => {
+  /**
+   * The grantable permission catalogue + each role's baseline, straight from
+   * the backend's RBAC grammar — so the picker can never drift from what the
+   * API enforces.
+   */
+  getPermissionCatalog: async () => {
+    const response = await api.get('/staff/permissions');
+    return response.data?.data ?? response.data;
+  },
+  update: async (id: string, data: { permissions?: string[]; isActive?: boolean; name?: string; role?: string }) => {
     const response = await api.put(`/staff/${id}`, data);
     return response.data?.data ?? response.data;
   },
-  create: async (data: { email: string; password: string; name: string; permissions?: string[] }) => {
+  create: async (data: { email: string; password: string; name: string; role?: string; permissions?: string[] }) => {
     const response = await api.post('/staff', data);
     return response.data?.data ?? response.data;
   },
@@ -1205,6 +1236,11 @@ export const vendorsAPI = {
       return response.data;
     } catch (error: any) { safeError(error); }
   },
+  // Mint a vendor-portal share link (no login for the supplier). Returns { token, path }.
+  mintPortalToken: async (id: string, opts?: { label?: string; expiresAt?: string | null }) => {
+    const response = await api.post(`/vendors/${id}/portal-token`, opts || {});
+    return response.data?.data || response.data;
+  },
 };
 
 // Orders API
@@ -1547,8 +1583,9 @@ export const shippingAPI = {
   },
   /** The store's own courier credentials (secrets never returned). */
   getProviderCredentials: async (): Promise<{
-    shiprocket: { isEnabled: boolean; email: string; apiUrl: string; pickupLocation: string; channelId: string; passwordSet: boolean };
+    shiprocket: { isEnabled: boolean; email: string; apiUrl: string; pickupLocation: string; channelId: string; passwordSet: boolean; webhookTokenSet: boolean; requireSignedWebhook: boolean };
     delhivery: { isEnabled: boolean; apiUrl: string; apiTokenSet: boolean };
+    slug?: string | null;
   }> => {
     const response = await api.get('/shipping/providers/credentials');
     const raw = response.data;
@@ -1556,10 +1593,18 @@ export const shippingAPI = {
   },
   /** Save the store's own courier credentials. Blank secret = keep existing. */
   saveProviderCredentials: async (data: {
-    shiprocket?: { isEnabled?: boolean; email?: string; password?: string; apiUrl?: string; pickupLocation?: string; channelId?: string };
+    shiprocket?: { isEnabled?: boolean; email?: string; password?: string; apiUrl?: string; pickupLocation?: string; channelId?: string; requireSignedWebhook?: boolean };
     delhivery?: { isEnabled?: boolean; apiToken?: string; apiUrl?: string };
   }) => {
     const response = await api.put('/shipping/providers/credentials', data);
+    return response.data?.data ?? response.data;
+  },
+  /**
+   * Generate (or rotate) the Shiprocket webhook secret. The full token is returned
+   * ONCE — show it, let the owner copy it into Shiprocket, then it's only "set".
+   */
+  generateWebhookSecret: async (): Promise<{ webhookToken: string }> => {
+    const response = await api.post('/shipping/providers/shiprocket/webhook-secret');
     return response.data?.data ?? response.data;
   },
   /** Shiprocket sales channels — orders are filed under one of these. */
@@ -2149,6 +2194,11 @@ export const customersAPI = {
   getById: async (customerId: string) => {
     const response = await api.get(`/customers/${customerId}`);
     return response.data?.data ?? response.data;
+  },
+  // Mint a customer-portal share link (no login for the B2B buyer). Returns { token, path }.
+  mintPortalToken: async (customerId: string, opts?: { label?: string; expiresAt?: string | null }) => {
+    const response = await api.post(`/customers/${customerId}/portal-token`, opts || {});
+    return response.data?.data || response.data;
   },
 };
 
@@ -2986,7 +3036,7 @@ export const seoAPI = {
     return response.data;
   },
   // Fetched (not linked directly) so the tenant's x-api-key header resolves the
-  // correct store — a bare <a href> would hit api.redfit.in with no tenant context.
+  // correct store — a bare <a href> would hit the platform API with no tenant context.
   getSitemap: async () => {
     const response = await api.get('/seo/sitemap.xml', { responseType: 'text', transformResponse: (d) => d });
     return response.data as string;
@@ -3135,12 +3185,12 @@ export const bannersAPI = {
 export const channelsAPI = {
   // Platforms the super admin has enabled for this store
   getPlatforms: async () => {
-    try { const r = await api.get('/channels/platforms'); return r.data?.data ?? []; }
+    try { const r = await api.get('/channels/platforms'); return r.data?.data ?? r.data ?? []; }
     catch (e: any) { safeError(e); return []; }
   },
   // Connections
   getConnections: async () => {
-    try { const r = await api.get('/channels/connections'); return r.data?.data ?? []; }
+    try { const r = await api.get('/channels/connections'); return r.data?.data ?? r.data ?? []; }
     catch (e: any) { safeError(e); return []; }
   },
   getConnection: async (id: string) => {
@@ -3169,7 +3219,7 @@ export const channelsAPI = {
   },
   // Mappings
   getMappings: async (params?: { channelId?: string; productId?: string; variationId?: string }) => {
-    try { const r = await api.get('/channels/mappings', { params }); return r.data?.data ?? []; }
+    try { const r = await api.get('/channels/mappings', { params }); return r.data?.data ?? r.data ?? []; }
     catch (e: any) { safeError(e); return []; }
   },
   createMapping: async (payload: any) => {
@@ -3186,8 +3236,79 @@ export const channelsAPI = {
   },
   // Logs
   getLogs: async (params?: { channelId?: string; limit?: number }) => {
-    try { const r = await api.get('/channels/logs', { params }); return r.data?.data ?? []; }
+    try { const r = await api.get('/channels/logs', { params }); return r.data?.data ?? r.data ?? []; }
     catch (e: any) { safeError(e); return []; }
+  },
+  // ── Custom channels + Excel import ─────────────────────────────────────────
+  createCustomChannel: async (name: string, notes?: string) => {
+    const r = await api.post('/channels/custom', { name, notes }); return r.data?.data ?? r.data;
+  },
+  // Step 1: read columns + sample rows + auto-guess + saved match
+  importPreview: async (channelId: string, file: File, purpose: 'inventory' | 'orders') => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('purpose', purpose);
+    const r = await api.post(`/channels/${channelId}/import/preview`, form, { headers: { 'Content-Type': 'multipart/form-data' } });
+    return r.data?.data ?? r.data;
+  },
+  // Step 2: apply (dryRun=true → preview counts only; false → writes + saves match)
+  importApply: async (
+    channelId: string, file: File,
+    opts: {
+      purpose: 'inventory' | 'orders'; mapping: Record<string, string>; mode: 'set' | 'adjust'; dryRun: boolean;
+      /** Default 'atomic' = all-or-nothing (server rejects the file with 422). */
+      writeMode?: 'atomic' | 'partial';
+    },
+  ) => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('purpose', opts.purpose);
+    form.append('mode', opts.mode);
+    form.append('dryRun', String(opts.dryRun));
+    form.append('mapping', JSON.stringify(opts.mapping));
+    // `mode` in the body is the inventory set/adjust switch, so the write mode
+    // travels in the query string.
+    const qs = opts.writeMode === 'partial' ? '?mode=partial' : '';
+    const r = await api.post(`/channels/${channelId}/import/apply${qs}`, form, { headers: { 'Content-Type': 'multipart/form-data' } });
+    return r.data?.data ?? r.data;
+  },
+  importHistory: async (channelId: string) => {
+    try { const r = await api.get(`/channels/${channelId}/import/history`); return r.data?.data ?? r.data ?? []; }
+    catch (e: any) { safeError(e); return []; }
+  },
+  channelOrders: async (channelId: string) => {
+    try { const r = await api.get(`/channels/${channelId}/orders`); return r.data?.data ?? r.data ?? []; }
+    catch (e: any) { safeError(e); return []; }
+  },
+};
+
+// ── Per-channel availability allocation ("virtual bins", migration 090) ───────
+export const channelAllocationAPI = {
+  getConfig: async () => {
+    try { const r = await api.get('/channel-allocations/config'); return r.data?.data ?? { enabled: false }; }
+    catch (e: any) { safeError(e); return { enabled: false }; }
+  },
+  setEnabled: async (enabled: boolean) => {
+    const r = await api.put('/channel-allocations/config', { enabled }); return r.data?.data;
+  },
+  list: async (params?: { channelId?: string; variationId?: string; activeOnly?: boolean }) => {
+    try { const r = await api.get('/channel-allocations', { params }); return r.data?.data ?? []; }
+    catch (e: any) { safeError(e); return []; }
+  },
+  // Live "who gets what" for one SKU (accepts a SKU string or a variation id).
+  preview: async (skuOrId: string) => {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(skuOrId);
+    const r = await api.get('/channel-allocations/preview', { params: isUuid ? { variationId: skuOrId } : { sku: skuOrId } });
+    return r.data?.data;
+  },
+  save: async (payload: { channel_id: string; variation_id: string; cap_units?: number | null; cap_pct?: number | null; priority?: number; active?: boolean; notes?: string }) => {
+    const r = await api.post('/channel-allocations', payload); return r.data?.data;
+  },
+  update: async (id: string, payload: Record<string, any>) => {
+    const r = await api.put(`/channel-allocations/${id}`, payload); return r.data?.data;
+  },
+  remove: async (id: string) => {
+    const r = await api.delete(`/channel-allocations/${id}`); return r.data;
   },
 };
 

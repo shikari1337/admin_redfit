@@ -10,6 +10,7 @@
  */
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { authAPI, setTenantApiKey, getTenantApiKey } from '../services/api';
+import { effectivePermissionsFor, hasPermIn, workspacesFor } from '../lib/rbac';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -17,8 +18,12 @@ export interface AdminUser {
   _id: string;
   name: string;
   email: string;
-  role: 'admin' | 'staff';
+  role: 'admin' | 'staff' | 'accountant' | 'auditor' | 'store_manager' | 'warehouse_manager';
   permissions: string[];
+  /** ERP RBAC (backend kernel/rbac): resolved role matrix + per-user grants. */
+  effective_permissions?: string[];
+  /** Panels this user may enter (commerce | orders | inventory | accounting). */
+  workspaces?: string[];
   isActive: boolean;
   lastLogin?: string;
 }
@@ -37,6 +42,10 @@ interface AuthContextValue extends AuthState {
   refreshUser: () => Promise<void>;
   refreshModules: () => Promise<void>;
   canAccess: (module: string) => boolean;
+  /** ERP permission check ('accounting.read', 'inventory.adjust', …). */
+  hasPerm: (perm: string) => boolean;
+  /** Panels available to this user, in preference order. */
+  workspaces: string[];
   storeModules: Record<string, boolean>;
 }
 
@@ -249,16 +258,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await fetchAndSetUser(state.token, state.storeApiKey);
   }, [state.token, state.storeApiKey, fetchAndSetUser]);
 
+  /**
+   * Is this MODULE available to the store? (feature/plan gating — "has the store
+   * bought this?"). It is NOT an authorization check.
+   *
+   * It used to also require the user's `permissions` array to contain the bare
+   * module name, which conflated two unrelated axes and broke both ways:
+   * a `store_manager` holding `marketing.manage` saw NO marketing nav because
+   * nobody had ticked the legacy `marketing` string, while ticking that string
+   * granted no API access at all (the API checks `<area>.<action>`). Permission
+   * is now always `hasPerm`; this answers only the module question.
+   */
   const canAccess = useCallback((module: string): boolean => {
     if (!state.user) return false;
     // Module disabled → hidden for everyone (admin included); only when storeModules is loaded
     if (module in storeModules && !storeModules[module]) return false;
-    if (state.user.role === 'admin') return true;
-    return state.user.permissions?.includes(module) ?? false;
+    return true;
   }, [state.user, storeModules]);
 
+  // ERP permission check: backend-resolved effective_permissions win; the
+  // local matrix mirror covers sessions that predate the field.
+  const hasPerm = useCallback((perm: string): boolean => {
+    if (!state.user) return false;
+    const eff = state.user.effective_permissions
+      ?? effectivePermissionsFor(state.user.role, state.user.permissions ?? []);
+    return hasPermIn(eff, perm);
+  }, [state.user]);
+
+  const workspaces = state.user
+    ? (state.user.workspaces ?? workspacesFor(state.user.role))
+    : [];
+
   return (
-    <AuthContext.Provider value={{ ...state, login, logout, refreshUser, refreshModules, canAccess, storeModules }}>
+    <AuthContext.Provider value={{ ...state, login, logout, refreshUser, refreshModules, canAccess, hasPerm, workspaces, storeModules }}>
       {children}
     </AuthContext.Provider>
   );

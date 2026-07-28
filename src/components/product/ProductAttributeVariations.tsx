@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { FaTrash, FaCog, FaChevronDown, FaChevronRight, FaCheck, FaTimes, FaMagic, FaUpload, FaExternalLinkAlt } from 'react-icons/fa';
-import { attributesAPI, attributeValuesAPI, uploadAPI } from '../../services/api';
+import { attributesAPI, attributeValuesAPI, uploadAPI, categoriesAPI } from '../../services/api';
 import type { AttributeOption, AttributeValueOption, ProductVariation } from '../../types/productForm';
 
 interface ProductAttributeVariationsProps {
@@ -61,6 +61,9 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
   });
   const [editingVariationId, setEditingVariationId] = useState<string | null>(null);
   const [uploadingImages, setUploadingImages] = useState<Record<string, boolean>>({});
+  // Categories for the per-variation category picker (each variation can be linked
+  // to its OWN category, overriding the product's for storefront listing).
+  const [availableCategories, setAvailableCategories] = useState<Array<{ _id: string; id?: string; name: string; parent?: string | null }>>([]);
   const editRowRef = useRef<HTMLTableRowElement>(null);
   // Inline attribute-value / attribute creation
   const [newValueInput, setNewValueInput] = useState<Record<string, string>>({});
@@ -68,6 +71,16 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
   const [savingValueFor, setSavingValueFor] = useState<string | null>(null);
   const [newAttrName, setNewAttrName] = useState('');
   const [creatingAttr, setCreatingAttr] = useState(false);
+
+  // Categories for the per-variation picker.
+  useEffect(() => {
+    categoriesAPI.list()
+      .then((res: any) => {
+        const list = Array.isArray(res) ? res : (res?.data ?? res?.data?.data ?? []);
+        setAvailableCategories(Array.isArray(list) ? list : []);
+      })
+      .catch(() => setAvailableCategories([]));
+  }, []);
 
   // Load available attributes
   useEffect(() => {
@@ -898,6 +911,41 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
                                       placeholder="e.g. abies-canadensis-ch-6c-30ml"
                                     />
                                   </div>
+                                </div>
+
+                                {/* Per-variation categories (optional override) */}
+                                <div className="mb-4">
+                                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                                    Categories <span className="font-normal text-gray-400">— optional; overrides the product&rsquo;s categories for THIS variation on the storefront</span>
+                                  </label>
+                                  <div className="flex flex-wrap gap-1.5 p-2 border border-gray-300 rounded-md bg-white max-h-28 overflow-y-auto">
+                                    {availableCategories.length === 0 && (
+                                      <span className="text-[11px] text-gray-400">No categories available.</span>
+                                    )}
+                                    {availableCategories.map((c) => {
+                                      const cid = c._id ?? (c.id as string);
+                                      const cur: string[] = Array.isArray(variation.categories) ? variation.categories : [];
+                                      const selected = cur.includes(cid);
+                                      return (
+                                        <button
+                                          key={cid}
+                                          type="button"
+                                          onClick={() => {
+                                            const next = selected ? cur.filter(x => x !== cid) : [...cur, cid];
+                                            handleVariationChange(variation.id, 'categories', next);
+                                          }}
+                                          className={`px-2 py-0.5 text-[11px] rounded-full border transition-colors ${selected ? 'bg-blue-500 text-white border-blue-500' : 'bg-gray-50 text-gray-600 border-gray-200 hover:border-blue-300'}`}
+                                        >
+                                          {c.name}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                  {Array.isArray(variation.categories) && variation.categories.length > 0 && (
+                                    <p className="mt-1 text-[10.5px] text-blue-600">
+                                      Shows only in the {variation.categories.length} selected {variation.categories.length === 1 ? 'category' : 'categories'} (not the product&rsquo;s).
+                                    </p>
+                                  )}
                                 </div>
 
                                 {/* Pricing / stock grid */}

@@ -110,7 +110,7 @@ const ProductSEO: React.FC<ProductSEOProps> = ({
               className={`flex-1 px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
                 errors.slug ? 'border-red-500' : 'border-gray-300'
               }`}
-              placeholder="e.g., redfit-premium-tshirt"
+              placeholder="e.g., premium-tshirt"
             />
             <button
               type="button"
@@ -219,7 +219,7 @@ const ProductSEO: React.FC<ProductSEOProps> = ({
                   className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
                     errors.canonicalUrl ? 'border-red-500' : 'border-gray-300'
                   }`}
-                  placeholder="https://redfit.in/products/redfit-premium-tshirt"
+                  placeholder="https://yourstore.com/products/premium-tshirt"
                 />
                 {errors.canonicalUrl && <p className="mt-1 text-sm text-red-500">{errors.canonicalUrl}</p>}
               </div>
@@ -245,7 +245,7 @@ const ProductSEO: React.FC<ProductSEOProps> = ({
                 value={seoData.keywords}
                 onChange={(e) => updateSeoField('keywords', e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                placeholder="performance t-shirt, gym wear, redfit"
+                placeholder="performance t-shirt, gym wear, sportswear"
               />
               <p className="mt-1 text-xs text-gray-500">Comma-separated keywords (optional).</p>
             </div>

@@ -62,7 +62,8 @@ const ProductB2BPricing: React.FC<ProductB2BPricingProps> = ({ tiers, onChange, 
   // Tier names come from store.settings.b2b.tiers — the SAME list the waterfall
   // matches against. Free text here would silently never match a customer.
   useEffect(() => {
-    b2bAPI.getSettings().then((r) => setStoreTiers(Object.keys(r?.data?.tiers ?? {}))).catch(() => setStoreTiers([]));
+    // Interceptor unwraps {success,data} → r IS the settings object; tolerate both.
+    b2bAPI.getSettings().then((r) => setStoreTiers(Object.keys(r?.tiers ?? r?.data?.tiers ?? {}))).catch(() => setStoreTiers([]));
     b2bAPI.getB2BCustomers().then((r) => setCustomers(r?.data ?? [])).catch(() => setCustomers([]));
   }, []);
 

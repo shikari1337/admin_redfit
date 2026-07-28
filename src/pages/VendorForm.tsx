@@ -3,10 +3,9 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { vendorsAPI } from '../services/api';
 import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
+import { CustomFieldsCard } from '@/components/erp';
 
 const toSlug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-
-const BANK_FIELDS = ['account_number', 'ifsc_code', 'bank_name', 'account_holder'];
 
 const VendorForm: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -264,6 +263,14 @@ const VendorForm: React.FC = () => {
           </Button>
         </div>
       </form>
+
+      {/*
+        Custom fields (spec §19) — the owner's own boxes on a vendor, e.g.
+        "License number". Deliberately OUTSIDE this form: the card loads and
+        saves itself through /custom-fields, so this page's own save path is
+        untouched and a store with no custom fields sees nothing at all.
+      */}
+      {isEdit && <CustomFieldsCard entityType="vendor" entityId={id} />}
     </div>
   );
 };

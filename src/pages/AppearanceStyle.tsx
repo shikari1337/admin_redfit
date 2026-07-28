@@ -150,11 +150,11 @@ const AppearanceStyle: React.FC = () => {
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Website URL</label>
-              <input type="text" value={formData.general.websiteUrl} onChange={(e) => handleChange('general', 'websiteUrl', e.target.value)} placeholder="https://redfit.in" className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500" />
+              <input type="text" value={formData.general.websiteUrl} onChange={(e) => handleChange('general', 'websiteUrl', e.target.value)} placeholder="https://yourstore.com" className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Site Name</label>
-              <input type="text" value={formData.general.siteName} onChange={(e) => handleChange('general', 'siteName', e.target.value)} placeholder="Redfit" className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500" />
+              <input type="text" value={formData.general.siteName} onChange={(e) => handleChange('general', 'siteName', e.target.value)} placeholder="Your Store" className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Site Description</label>

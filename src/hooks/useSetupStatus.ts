@@ -18,14 +18,6 @@ export interface SetupStatus {
   refresh: () => void;
 }
 
-function checkStep(settings: Record<string, any>, key: string): boolean {
-  const val = settings[key];
-  if (!val) return false;
-  if (typeof val === 'string') return val.trim().length > 0;
-  if (typeof val === 'object') return Object.keys(val).length > 0;
-  return !!val;
-}
-
 function checkPaymentConfigured(settings: Record<string, any>): boolean {
   const rp = settings.razorpay;
   const upi = settings.upi;

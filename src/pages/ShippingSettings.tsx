@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, Truck, Warehouse, Loader2, MapPin, Plus, Pencil, Trash2 } from 'lucide-react';
+import { ArrowLeft, Save, Truck, Warehouse, Loader2, MapPin, Plus, Pencil, Trash2, ShieldCheck, Copy, KeyRound } from 'lucide-react';
 import api, { shippingZonesAPI, pincodeZonesAPI, shippingAPI, type ShippingProviderStatus } from '../services/api';
 import ConnectionStatus, { type ConnState } from '../components/common/ConnectionStatus';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -43,6 +43,12 @@ const ShippingSettings: React.FC = () => {
   const [channels, setChannels] = useState<Array<{ id: string; name: string; type?: string; status?: string }>>([]);
   const [channelsLoading, setChannelsLoading] = useState(false);
   const [channelsMsg, setChannelsMsg] = useState<string | null>(null);
+  // ── Webhook security (Shiprocket) ───────────────────────────────────────
+  const [webhookTokenSet, setWebhookTokenSet] = useState(false);
+  const [storeSlug, setStoreSlug] = useState<string | null>(null);
+  const [genSecret, setGenSecret] = useState<string | null>(null); // shown ONCE after generate
+  const [genLoading, setGenLoading] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     shippingConfig: {
       freeShippingThreshold: 500,
@@ -59,6 +65,7 @@ const ShippingSettings: React.FC = () => {
       pickupLocation: '',
       channelId: '',
       isEnabled: false,
+      requireSignedWebhook: false,
     },
     delhivery: {
       apiToken: '',
@@ -286,6 +293,7 @@ const ShippingSettings: React.FC = () => {
             pickupLocation: creds.shiprocket.pickupLocation || '',
             channelId: (creds.shiprocket as any).channelId || '',
             password: '', // never prefill a secret
+            requireSignedWebhook: !!creds.shiprocket.requireSignedWebhook,
           },
           delhivery: {
             ...prev.delhivery,
@@ -294,6 +302,8 @@ const ShippingSettings: React.FC = () => {
             apiToken: '',
           },
         }));
+        setWebhookTokenSet(!!creds.shiprocket.webhookTokenSet);
+        setStoreSlug(creds.slug ?? null);
       } catch { /* status strip still reports the truth */ }
     } catch (error: any) {
       console.error('Failed to fetch settings:', error);
@@ -329,6 +339,7 @@ const ShippingSettings: React.FC = () => {
           apiUrl: formData.shiprocket.apiUrl,
           pickupLocation: formData.shiprocket.pickupLocation,
           channelId: formData.shiprocket.channelId,
+          requireSignedWebhook: formData.shiprocket.requireSignedWebhook,
           ...(formData.shiprocket.password ? { password: formData.shiprocket.password } : {}),
         },
         delhivery: {
@@ -371,6 +382,41 @@ const ShippingSettings: React.FC = () => {
         [field]: value,
       },
     }));
+  };
+
+  // ── Webhook security helpers ────────────────────────────────────────────
+  const apiBase = (api.defaults.baseURL || '').replace(/\/$/, '');
+  const webhookUrl = storeSlug
+    ? `${apiBase.startsWith('http') ? apiBase : window.location.origin + apiBase}/webhooks/shipping/track/${storeSlug}`
+    : '';
+
+  const copy = async (text: string, tag: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(tag);
+      setTimeout(() => setCopied((c) => (c === tag ? null : c)), 1500);
+    } catch { /* clipboard blocked — the value is visible to select manually */ }
+  };
+
+  const generateWebhookSecret = async () => {
+    if (
+      webhookTokenSet &&
+      !confirm(
+        'A webhook secret already exists. Generating a new one REPLACES it. ' +
+        'You must update the new secret in your Shiprocket dashboard, or tracking pushes ' +
+        'signed with the old secret will be rejected once enforcement is on. Continue?'
+      )
+    ) return;
+    setGenLoading(true);
+    try {
+      const r = await shippingAPI.generateWebhookSecret();
+      setGenSecret(r.webhookToken);
+      setWebhookTokenSet(true);
+    } catch (e: any) {
+      alert(e?.response?.data?.message || 'Failed to generate webhook secret');
+    } finally {
+      setGenLoading(false);
+    }
   };
 
   if (loading) {
@@ -636,6 +682,90 @@ const ShippingSettings: React.FC = () => {
               >
                 Map warehouses →
               </button>
+            </div>
+
+            {/* Webhook security — verify Shiprocket status pushes are really from Shiprocket */}
+            <div className="rounded-lg border bg-muted/30 px-4 py-4 space-y-4">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-green-600" />
+                <h4 className="text-sm font-semibold text-foreground">Webhook security</h4>
+                {webhookTokenSet
+                  ? <Badge className="bg-green-500/15 text-green-700 border-green-200">Secret set</Badge>
+                  : <Badge variant="secondary">No secret</Badge>}
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Shiprocket sends live order-tracking updates to your store over a webhook. Set a secret
+                here, paste it into Shiprocket, then require signed webhooks so only Shiprocket can push
+                status changes to your orders.
+              </p>
+
+              {/* The URL to register in the Shiprocket dashboard */}
+              <div className="space-y-1.5">
+                <Label className="text-xs">Webhook URL — paste into Shiprocket → Settings → API → Webhooks</Label>
+                <div className="flex gap-2">
+                  <Input
+                    readOnly
+                    value={webhookUrl || 'Save credentials first to reveal your webhook URL'}
+                    className="font-mono text-xs"
+                    onFocus={(e) => e.currentTarget.select()}
+                  />
+                  <Button type="button" variant="outline" size="sm" disabled={!webhookUrl} onClick={() => copy(webhookUrl, 'url')}>
+                    <Copy className="h-3.5 w-3.5 mr-1" />{copied === 'url' ? 'Copied' : 'Copy'}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Generate / rotate the shared secret */}
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={generateWebhookSecret} disabled={genLoading}>
+                    {genLoading ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <KeyRound className="h-3.5 w-3.5 mr-1" />}
+                    {webhookTokenSet ? 'Regenerate webhook secret' : 'Generate webhook secret'}
+                  </Button>
+                  <span className="text-[11px] text-muted-foreground">Set the SAME value as the security token in Shiprocket.</span>
+                </div>
+                {genSecret && (
+                  <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 space-y-1.5">
+                    <p className="text-[11px] font-medium text-amber-800">Copy this now — it is shown only once and cannot be retrieved later.</p>
+                    <div className="flex gap-2">
+                      <Input readOnly value={genSecret} className="font-mono text-xs" onFocus={(e) => e.currentTarget.select()} />
+                      <Button type="button" variant="outline" size="sm" onClick={() => copy(genSecret, 'secret')}>
+                        <Copy className="h-3.5 w-3.5 mr-1" />{copied === 'secret' ? 'Copied' : 'Copy'}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Enforcement toggle — opt-in, off by default */}
+              <div className="space-y-2 pt-1">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <Checkbox
+                    className="mt-0.5"
+                    checked={formData.shiprocket.requireSignedWebhook}
+                    onCheckedChange={(checked) => handleChange('shiprocket', 'requireSignedWebhook', checked as boolean)}
+                  />
+                  <span>
+                    <span className="text-sm font-medium">Require signed webhooks (reject unsigned)</span>
+                    <span className="block text-[11px] text-muted-foreground mt-0.5">
+                      When on, any tracking push that doesn&apos;t carry your secret is ignored. Leave this
+                      OFF (the default) if your Shiprocket webhook has no security token registered.
+                    </span>
+                  </span>
+                </label>
+                {formData.shiprocket.requireSignedWebhook && !webhookTokenSet && (
+                  <p className="text-[11px] font-medium text-red-700">
+                    No secret is set. If you save with this ON, ALL tracking pushes will be rejected until
+                    you generate a secret above and register it in Shiprocket.
+                  </p>
+                )}
+                {formData.shiprocket.requireSignedWebhook && webhookTokenSet && (
+                  <p className="text-[11px] text-amber-700">
+                    Only turn this on AFTER you&apos;ve set the secret in your Shiprocket dashboard, or your
+                    tracking updates will stop. Click &ldquo;Save Changes&rdquo; to apply.
+                  </p>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>

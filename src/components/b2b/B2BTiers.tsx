@@ -29,7 +29,9 @@ export default function B2BTiers() {
   useEffect(() => {
     b2bAPI.getSettings()
       .then((r) => {
-        const s = r?.data ?? {};
+        // The axios interceptor already unwraps {success,data} → r IS the
+        // settings object; tolerate both shapes so this never loads blank.
+        const s = (r && typeof r === 'object' && 'enabled' in r) ? r : (r?.data ?? {});
         setEnabled(!!s.enabled);
         setDefaultPct(String(s.default_discount_pct ?? 0));
         setPriceMode(s.price_mode === 'inclusive' ? 'inclusive' : 'exclusive');

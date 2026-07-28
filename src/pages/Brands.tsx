@@ -15,7 +15,19 @@ interface Brand {
   name: string;
   slug: string;
   description?: string;
+  /** Long-form brand story (HTML) shown on the brand page below the banner */
+  content?: string;
+  /** Main image — brand page hero / large cards */
   imageUrl?: string;
+  /** Square logo */
+  logoUrl?: string;
+  /** Wide banner for the brand page header */
+  bannerUrl?: string;
+  /** Small square for brand chips / grid tiles */
+  thumbnailUrl?: string;
+  metaTitle?: string;
+  metaDesc?: string;
+  ogImageUrl?: string;
   displayOrder?: number;
   isActive?: boolean;
   isFeatured?: boolean;
@@ -25,7 +37,14 @@ const emptyForm = {
   name: '',
   slug: '',
   description: '',
+  content: '',
   imageUrl: '',
+  logoUrl: '',
+  bannerUrl: '',
+  thumbnailUrl: '',
+  metaTitle: '',
+  metaDesc: '',
+  ogImageUrl: '',
   displayOrder: '',
   isActive: true,
   isFeatured: false,
@@ -72,11 +91,19 @@ const Brands: React.FC = () => {
 
   const handleEdit = (brand: Brand) => {
     setSelectedId(brand._id);
+    const b = brand as any;
     setFormState({
       name: brand.name || '',
       slug: brand.slug || '',
       description: brand.description || '',
-      imageUrl: brand.imageUrl || '',
+      content: b.content || '',
+      imageUrl: brand.imageUrl || b.image_url || '',
+      logoUrl: b.logoUrl || b.logo_url || '',
+      bannerUrl: b.bannerUrl || b.banner_url || '',
+      thumbnailUrl: b.thumbnailUrl || b.thumbnail_url || '',
+      metaTitle: b.metaTitle || b.meta_title || '',
+      metaDesc: b.metaDesc || b.meta_desc || '',
+      ogImageUrl: b.ogImageUrl || b.og_image_url || '',
       displayOrder: brand.displayOrder !== undefined && brand.displayOrder !== null ? String(brand.displayOrder) : '',
       isActive: brand.isActive !== false,
       isFeatured: brand.isFeatured === true,
@@ -95,10 +122,20 @@ const Brands: React.FC = () => {
     setSaving(true);
     setError(null);
 
+    // null (not undefined) for cleared strings so an emptied field actually clears
+    // the column on update (undefined keys are dropped before the SQL builder).
+    const orNull = (v?: string) => (v && v.trim() ? v.trim() : null);
     const payload: Record<string, any> = {
       name: formState.name.trim(),
-      description: formState.description?.trim() || undefined,
-      imageUrl: formState.imageUrl?.trim() || undefined,
+      description: orNull(formState.description),
+      content: orNull(formState.content),
+      imageUrl: orNull(formState.imageUrl),
+      logoUrl: orNull(formState.logoUrl),
+      bannerUrl: orNull(formState.bannerUrl),
+      thumbnailUrl: orNull(formState.thumbnailUrl),
+      metaTitle: orNull(formState.metaTitle),
+      metaDesc: orNull(formState.metaDesc),
+      ogImageUrl: orNull(formState.ogImageUrl),
       displayOrder: formState.displayOrder ? Number(formState.displayOrder) : undefined,
       isActive: formState.isActive,
       isFeatured: formState.isFeatured,
@@ -185,9 +222,9 @@ const Brands: React.FC = () => {
                     }`}
                   >
                     <div className="flex-1 min-w-0 pr-4 flex gap-4">
-                      {brand.imageUrl && (
+                      {(brand.thumbnailUrl || brand.logoUrl || brand.imageUrl) && (
                         <div className="h-12 w-12 flex-shrink-0 bg-white rounded border overflow-hidden">
-                          <img src={brand.imageUrl} alt={brand.name} className="h-full w-full object-contain" />
+                          <img src={brand.thumbnailUrl || brand.logoUrl || brand.imageUrl} alt={brand.name} className="h-full w-full object-contain" />
                         </div>
                       )}
                       <div>
@@ -270,13 +307,90 @@ const Brands: React.FC = () => {
               </div>
 
               <div className="space-y-2">
-                <Label>Brand Logo</Label>
-                <ImageInputWithActions
-                  value={formState.imageUrl || ''}
-                  onChange={(url: string) => setFormState({ ...formState, imageUrl: url })}
-                  label=""
-                  placeholder="Image URL (https://...)"
+                <Label htmlFor="content">Content (brand story — shown on the brand page)</Label>
+                <Textarea
+                  id="content"
+                  rows={5}
+                  value={formState.content}
+                  onChange={e => setFormState({ ...formState, content: e.target.value })}
+                  placeholder="<p>Long-form brand story… HTML supported.</p>"
+                  className="resize-y font-mono text-xs"
                 />
+              </div>
+
+              {/* Per-use-case imagery: each slot serves a different surface/size */}
+              <div className="space-y-4 rounded-md border p-3">
+                <p className="text-sm font-semibold m-0">Images</p>
+                <div className="space-y-2">
+                  <Label>Logo (square — header, product page)</Label>
+                  <ImageInputWithActions
+                    value={formState.logoUrl || ''}
+                    onChange={(url: string) => setFormState({ ...formState, logoUrl: url })}
+                    label=""
+                    placeholder="Logo URL (https://...)"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Main image (brand page hero / large cards)</Label>
+                  <ImageInputWithActions
+                    value={formState.imageUrl || ''}
+                    onChange={(url: string) => setFormState({ ...formState, imageUrl: url })}
+                    label=""
+                    placeholder="Main image URL (https://...)"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Banner (wide — brand page header)</Label>
+                  <ImageInputWithActions
+                    value={formState.bannerUrl || ''}
+                    onChange={(url: string) => setFormState({ ...formState, bannerUrl: url })}
+                    label=""
+                    placeholder="Banner URL (https://...)"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Thumbnail (small square — brand chips, grids)</Label>
+                  <ImageInputWithActions
+                    value={formState.thumbnailUrl || ''}
+                    onChange={(url: string) => setFormState({ ...formState, thumbnailUrl: url })}
+                    label=""
+                    placeholder="Thumbnail URL (https://...)"
+                  />
+                </div>
+              </div>
+
+              {/* SEO */}
+              <div className="space-y-4 rounded-md border p-3">
+                <p className="text-sm font-semibold m-0">SEO</p>
+                <div className="space-y-2">
+                  <Label htmlFor="metaTitle">Meta title</Label>
+                  <Input
+                    id="metaTitle"
+                    value={formState.metaTitle}
+                    onChange={e => setFormState({ ...formState, metaTitle: e.target.value })}
+                    placeholder="Shown in the browser tab & search results"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="metaDesc">Meta description</Label>
+                  <Textarea
+                    id="metaDesc"
+                    rows={2}
+                    value={formState.metaDesc}
+                    onChange={e => setFormState({ ...formState, metaDesc: e.target.value })}
+                    placeholder="~155 characters for search snippets"
+                    className="resize-y"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Social share image (Open Graph)</Label>
+                  <ImageInputWithActions
+                    value={formState.ogImageUrl || ''}
+                    onChange={(url: string) => setFormState({ ...formState, ogImageUrl: url })}
+                    label=""
+                    placeholder="OG image URL (https://...)"
+                  />
+                </div>
               </div>
 
               <div className="space-y-2">

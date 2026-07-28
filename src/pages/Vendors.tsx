@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { vendorsAPI } from '../services/api';
 import { FaPlus, FaTrash } from 'react-icons/fa';
-import { Pencil, Loader2 } from 'lucide-react';
+import { Pencil, Loader2, Link2, Copy, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -31,6 +31,32 @@ const Vendors: React.FC = () => {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+
+  // Vendor-portal share link
+  const [portalLink, setPortalLink] = useState<{ vendorName: string; url: string } | null>(null);
+  const [portalLoadingId, setPortalLoadingId] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const handlePortalLink = async (vendor: any) => {
+    const id = String(vendor.id || vendor._id || '');
+    setPortalLoadingId(id);
+    try {
+      const res = await vendorsAPI.mintPortalToken(id);
+      const path = res?.path || (res?.token ? `/vendor/${res.token}` : '');
+      if (!path) { alert('Could not create a portal link.'); return; }
+      setCopied(false);
+      setPortalLink({ vendorName: vendor.business_name, url: `${window.location.origin}${path}` });
+    } catch {
+      alert('Could not create a portal link. You need the "purchasing.manage" permission.');
+    } finally {
+      setPortalLoadingId(null);
+    }
+  };
+
+  const copyPortalLink = async () => {
+    if (!portalLink) return;
+    try { await navigator.clipboard.writeText(portalLink.url); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
+  };
 
   useEffect(() => {
     loadVendors();
@@ -212,6 +238,11 @@ const Vendors: React.FC = () => {
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
+                                <DropdownMenuItem className="cursor-pointer" onClick={() => handlePortalLink(vendor)} disabled={portalLoadingId === id}>
+                                  {portalLoadingId === id
+                                    ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    : <Link2 className="mr-2 h-4 w-4" />} Portal link
+                                </DropdownMenuItem>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem className="text-destructive focus:text-destructive cursor-pointer" onClick={() => handleDelete(id)}>
                                   <FaTrash className="mr-2 h-4 w-4" /> Delete
@@ -229,6 +260,39 @@ const Vendors: React.FC = () => {
           </TableBody>
         </Table>
       </div>
+
+      {/* Vendor-portal share link modal */}
+      {portalLink && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setPortalLink(null)}>
+          <div className="w-full max-w-lg rounded-lg bg-card p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2">
+              <Link2 className="h-5 w-5 text-primary" />
+              <h2 className="text-lg font-semibold">Portal link for {portalLink.vendorName}</h2>
+            </div>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Send this link to the supplier (WhatsApp, email — anything). No password needed:
+              they open it, see their purchase orders, confirm them, and track which bills are paid.
+            </p>
+            <div className="mt-4 flex items-center gap-2">
+              <input
+                readOnly
+                value={portalLink.url}
+                onFocus={(e) => e.currentTarget.select()}
+                className="flex-1 rounded-md border border-input bg-muted px-3 py-2 text-sm font-mono"
+              />
+              <Button onClick={copyPortalLink} className="shrink-0">
+                {copied ? <><Check className="mr-1.5 h-4 w-4" /> Copied</> : <><Copy className="mr-1.5 h-4 w-4" /> Copy</>}
+              </Button>
+            </div>
+            <p className="mt-3 text-xs text-muted-foreground">
+              Anyone with this link can view this vendor's orders and bills. You can revoke it later from the database if needed.
+            </p>
+            <div className="mt-5 flex justify-end">
+              <Button variant="outline" onClick={() => setPortalLink(null)}>Close</Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

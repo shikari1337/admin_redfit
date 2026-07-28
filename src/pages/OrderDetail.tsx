@@ -755,9 +755,9 @@ const OrderDetail: React.FC = () => {
                 razorpaySignature={order.razorpaySignature}
                 upiPaymentId={order.upiPaymentId}
                 upiPaymentLink={order.upiPaymentLink}
-                upiVerificationStatus={order.upiVerificationStatus}
-                upiPaymentScreenshot={order.upiPaymentScreenshot}
-                upiVerificationNotes={order.upiVerificationNotes}
+                upiVerificationStatus={order.upiVerifyStatus ?? order.upi_verify_status ?? order.upiVerificationStatus}
+                upiPaymentScreenshot={order.upiScreenshot ?? order.upi_screenshot ?? order.upiPaymentScreenshot}
+                upiVerificationNotes={order.upiVerifyNotes ?? order.upi_verify_notes ?? order.upiVerificationNotes}
               />
             </CardContent>
           </Card>
@@ -1047,7 +1047,7 @@ const OrderDetail: React.FC = () => {
         razorpayPaymentId={razorpayPaymentId}
         upiPaymentId={upiPaymentId}
         paymentVerificationNotes={paymentVerificationNotes}
-        upiPaymentScreenshot={order.upiPaymentScreenshot}
+        upiPaymentScreenshot={order.upiScreenshot ?? order.upi_screenshot ?? order.upiPaymentScreenshot}
         onRazorpayPaymentIdChange={setRazorpayPaymentId}
         onUpiPaymentIdChange={setUpiPaymentId}
         onPaymentVerificationNotesChange={setPaymentVerificationNotes}

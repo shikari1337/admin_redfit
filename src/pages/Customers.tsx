@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { customersAPI } from '../services/api';
-import { User, Phone, Mail, Search, ShoppingBag, Building2 } from 'lucide-react';
+import { User, Phone, Mail, Search, ShoppingBag, Building2, Link2, Copy, Check, Loader2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -33,6 +33,32 @@ const Customers: React.FC = () => {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const limit = 20;
+
+  // Customer-portal share link (B2B statements) — mirrors the Vendors page.
+  const [portalLink, setPortalLink] = useState<{ name: string; url: string } | null>(null);
+  const [portalLoadingId, setPortalLoadingId] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const handlePortalLink = async (c: StoreCustomer) => {
+    const id = String(c.customer_id);
+    setPortalLoadingId(id);
+    try {
+      const res = await customersAPI.mintPortalToken(id);
+      const path = res?.path || (res?.token ? `/customer/${res.token}` : '');
+      if (!path) { alert('Could not create a portal link.'); return; }
+      setCopied(false);
+      setPortalLink({ name: c.name || 'this customer', url: `${window.location.origin}${path}` });
+    } catch {
+      alert('Could not create a portal link. You need the "customers.manage" permission.');
+    } finally {
+      setPortalLoadingId(null);
+    }
+  };
+
+  const copyPortalLink = async () => {
+    if (!portalLink) return;
+    try { await navigator.clipboard.writeText(portalLink.url); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
+  };
 
   useEffect(() => {
     const t = setTimeout(() => { setDebounced(search); setPage(1); }, 300);
@@ -107,15 +133,16 @@ const Customers: React.FC = () => {
                 <TableHead>Total Spent</TableHead>
                 <TableHead>Last Order</TableHead>
                 <TableHead>Type</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={6} className="h-24 text-center">
+                <TableRow><TableCell colSpan={7} className="h-24 text-center">
                   <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-primary" />
                 </TableCell></TableRow>
               ) : customers.length === 0 ? (
-                <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                <TableRow><TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                   No customers yet. They appear here once someone registers or places an order on your store.
                 </TableCell></TableRow>
               ) : (
@@ -153,6 +180,20 @@ const Customers: React.FC = () => {
                         <Badge variant="secondary">Retail</Badge>
                       )}
                     </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handlePortalLink(c)}
+                        disabled={portalLoadingId === String(c.customer_id)}
+                        title="Create a no-login portal link the customer can open to see their balance & statement"
+                      >
+                        {portalLoadingId === String(c.customer_id)
+                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          : <Link2 className="h-3.5 w-3.5 mr-1" />}
+                        Portal link
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))
               )}
@@ -160,6 +201,39 @@ const Customers: React.FC = () => {
           </Table>
         </div>
       </Card>
+
+      {/* Customer-portal share link modal (B2B statements) */}
+      {portalLink && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setPortalLink(null)}>
+          <div className="w-full max-w-lg rounded-lg bg-card p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2">
+              <Link2 className="h-5 w-5 text-primary" />
+              <h2 className="text-lg font-semibold">Portal link for {portalLink.name}</h2>
+            </div>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Send this link to the customer (WhatsApp, email — anything). No password needed:
+              they open it, see what they owe, view every invoice and payment, and download their statement PDF.
+            </p>
+            <div className="mt-4 flex items-center gap-2">
+              <input
+                readOnly
+                value={portalLink.url}
+                onFocus={(e) => e.currentTarget.select()}
+                className="flex-1 rounded-md border border-input bg-muted px-3 py-2 text-sm font-mono"
+              />
+              <Button onClick={copyPortalLink} className="shrink-0">
+                {copied ? <><Check className="mr-1.5 h-4 w-4" /> Copied</> : <><Copy className="mr-1.5 h-4 w-4" /> Copy</>}
+              </Button>
+            </div>
+            <p className="mt-3 text-xs text-muted-foreground">
+              Anyone with this link can view this customer's balance and statement. You can revoke it later if needed.
+            </p>
+            <div className="mt-5 flex justify-end">
+              <Button variant="outline" onClick={() => setPortalLink(null)}>Close</Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {totalPages > 1 && (
         <div className="flex items-center justify-between">

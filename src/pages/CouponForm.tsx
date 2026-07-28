@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { couponsAPI } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 import { FaArrowLeft, FaSave } from 'react-icons/fa';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -22,12 +23,16 @@ interface CouponFormData {
   validUntil: string;
   isActive: boolean;
   applicableProducts?: string[];
+  /** Who may use it: 'all' | 'retail' (not B2B) | 'b2b' (only B2B accounts) */
+  customerSegment: 'all' | 'retail' | 'b2b';
 }
 
 const CouponForm: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const isEdit = !!id;
+  const { canAccess } = useAuth();
+  const b2bEnabled = canAccess('b2b');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,6 +46,7 @@ const CouponForm: React.FC = () => {
     isActive: true,
     clubbedWithOtherCoupons: false,
     isPublic: true,
+    customerSegment: 'all',
   });
 
   useEffect(() => {
@@ -74,6 +80,9 @@ const CouponForm: React.FC = () => {
         isActive: coupon.isActive ?? coupon.is_active ?? true,
         clubbedWithOtherCoupons: coupon.clubbedWithOtherCoupons ?? coupon.clubbed_with_others ?? false,
         isPublic: coupon.isPublic ?? coupon.is_public ?? true,
+        customerSegment: (['all', 'retail', 'b2b'].includes(coupon.customerSegment ?? coupon.customer_segment)
+          ? (coupon.customerSegment ?? coupon.customer_segment)
+          : 'all') as 'all' | 'retail' | 'b2b',
       });
     } catch (err: any) {
       setError(err.message || 'Failed to fetch coupon');
@@ -347,6 +356,28 @@ const CouponForm: React.FC = () => {
                   <p className="text-xs text-muted-foreground -mt-2 ml-6">
                     Hidden coupons still work if a customer types the code manually — this only controls whether it's advertised.
                   </p>
+                )}
+
+                {/* Retail/B2B applicability — only meaningful when the B2B module is on.
+                    Enforced server-side (validate + checkout), not just hidden in the UI. */}
+                {b2bEnabled && (
+                  <div className="space-y-2 rounded-md border p-3 bg-indigo-50/40 border-indigo-100">
+                    <label className="text-sm font-medium leading-none">Who can use this coupon?</label>
+                    <select
+                      name="customerSegment"
+                      value={formData.customerSegment}
+                      onChange={(e) => setFormData(prev => ({ ...prev, customerSegment: e.target.value as 'all' | 'retail' | 'b2b' }))}
+                      className="w-full h-9 px-2 border rounded-md text-sm bg-background"
+                    >
+                      <option value="all">Everyone (retail + B2B)</option>
+                      <option value="retail">Retail customers only — B2B accounts can't use it</option>
+                      <option value="b2b">B2B accounts only</option>
+                    </select>
+                    <p className="text-[11px] text-muted-foreground">
+                      B2B buyers already get wholesale pricing — "Retail only" stops them stacking
+                      retail promos on top. The rule is enforced at apply time and at checkout.
+                    </p>
+                  </div>
                 )}
               </div>
             </div>

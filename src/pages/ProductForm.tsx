@@ -27,6 +27,7 @@ import ProductAttributes from '../components/product/ProductAttributes';
 import type { ContentBlock } from '../components/product/ProductContentSections';
 import type { B2BPricingTier } from '../components/product/ProductB2BPricing';
 import type { ProductOffer } from '../components/product/ProductOffers';
+import { normalizeSpecifications, normalizeContentBlocks, serializeContentBlocks } from '../lib/productNormalize';
 import {
   CategoryOption,
   SizeChartEntry,
@@ -452,11 +453,11 @@ const ProductForm: React.FC = () => {
         selectedAttributeValues: p.selectedAttributeValues || p.selected_attribute_values || {},
         variations: normalizeVariations(p.variations || []),
         specificationId: p.specificationId ? normalizeCategoryId(p.specificationId) || undefined : undefined,
-        specifications: p.specifications || undefined,
+        specifications: normalizeSpecifications(p.specifications),
         sizeChart: scEntries,
         washCareInstructions: p.washCareInstructions || p.wash_care_instructions || [],
         customerOrderImages: p.customerOrderImages || p.customer_order_images || [],
-        aplusContent: p.aplusContent || p.aplus_content || p.pageSections || p.page_sections || [],
+        aplusContent: normalizeContentBlocks(p.aplusContent || p.aplus_content || p.pageSections || p.page_sections),
         offers: p.offers || [],
         crossSellIds: (p.crossSellIds || p.cross_sell_ids || []).filter(Boolean),
         upsellIds: (p.upsellIds || p.upsell_ids || []).filter(Boolean),
@@ -700,6 +701,9 @@ const ProductForm: React.FC = () => {
             if (v.originalPrice != null) pld.originalPrice = Math.max(0, v.originalPrice);
             if (v.images?.length) pld.images = v.images;
             if (v.shortDescription?.trim()) pld.shortDescription = v.shortDescription.trim();
+            // Per-variation categories — always send the array (even empty) so clearing
+            // a variation's categories actually removes the links on the backend.
+            if (Array.isArray(v.categories)) pld.categories = v.categories;
             return pld;
           })
           .filter((v): v is any => v !== null);
@@ -715,10 +719,11 @@ const ProductForm: React.FC = () => {
 
       const sanitizedCategories = (fd.categories || []).map(normalizeCategoryId).filter((x): x is string => x !== null);
 
+      // Stock 0 is a legitimate value (out of stock) — it must reach the backend.
+      // Only variation products skip product-level stock (variations own it).
       let stockData: number | undefined;
-      if ((!cleanedVariations?.length) && fd.stock != null) {
-        const s = Math.max(0, Math.floor(fd.stock));
-        if (s > 0) stockData = s;
+      if ((!cleanedVariations?.length) && fd.stock != null && Number.isFinite(fd.stock)) {
+        stockData = Math.max(0, Math.floor(fd.stock));
       }
 
       const sizeChartPayload = sizeChartMode === 'reference'
@@ -774,16 +779,22 @@ const ProductForm: React.FC = () => {
         requiresPrescription: fd.requiresPrescription,
         disableVariants: fd.disableVariants, showOutOfStockVariants: fd.showOutOfStockVariants,
         productType,
-        attributeIds: productType === 'variation' ? cleanedAttributeIds : undefined,
+        // Filter attributes apply to SIMPLE products too (Woo model) — always send
+        // the array so single-product assignments persist; the backend sets
+        // product_attributes from any array it receives (put.ts).
+        attributeIds: cleanedAttributeIds,
         variations: productType === 'variation' ? (cleanedVariations ?? []) : undefined,
         categories: sanitizedCategories, featuredCategory: fd.featuredCategory || null,
         tags: fd.tags.map(t => (typeof t === 'object' && t._id ? t._id : t)).filter(Boolean),
         ...(fd.specificationId ? { specificationId: fd.specificationId } : {}),
         ...(fd.specifications ? { specifications: fd.specifications } : {}),
         sizeChart: sizeChartPayload,
-        washCareInstructions: fd.washCareInstructions.filter(i => i.text.trim()),
+        washCareInstructions: (fd.washCareInstructions || []).filter(i => i?.text?.trim()),
         customerOrderImages: fd.customerOrderImages,
-        aplusContent: fd.aplusContent, pageSections: fd.aplusContent,
+        // Serialized to the flat {type,title,html} shape the storefront PDP
+        // renders. page_sections is PDP layout config (a different concept) —
+        // it must NOT be overwritten with content blocks.
+        aplusContent: serializeContentBlocks(fd.aplusContent),
         offers: fd.offers,
         crossSellIds: fd.crossSellIds, upsellIds: fd.upsellIds, fbtIds: fd.fbtIds,
         b2bPricing: fd.b2bPricing,
@@ -953,17 +964,17 @@ const ProductForm: React.FC = () => {
                         <button type="button" onClick={() => { const s = [...(formData.specifications || [])]; s.splice(si, 1); setFormData(p => ({ ...p, specifications: s.length ? s : undefined })); }}
                           className="text-xs text-red-500">Remove</button>
                       </div>
-                      {sec.items.map((item, ii) => (
+                      {(sec.items || []).map((item, ii) => (
                         <div key={ii} className="flex gap-2 mb-1.5">
-                          <input value={item.key} onChange={e => { const s = [...(formData.specifications || [])]; const items = [...sec.items]; items[ii] = { ...item, key: e.target.value }; s[si] = { ...sec, items }; setFormData(p => ({ ...p, specifications: s })); }}
+                          <input value={item.key} onChange={e => { const s = [...(formData.specifications || [])]; const items = [...(sec.items || [])]; items[ii] = { ...item, key: e.target.value }; s[si] = { ...sec, items }; setFormData(p => ({ ...p, specifications: s })); }}
                             placeholder="Key" className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm" />
-                          <input value={item.value} onChange={e => { const s = [...(formData.specifications || [])]; const items = [...sec.items]; items[ii] = { ...item, value: e.target.value }; s[si] = { ...sec, items }; setFormData(p => ({ ...p, specifications: s })); }}
+                          <input value={item.value} onChange={e => { const s = [...(formData.specifications || [])]; const items = [...(sec.items || [])]; items[ii] = { ...item, value: e.target.value }; s[si] = { ...sec, items }; setFormData(p => ({ ...p, specifications: s })); }}
                             placeholder="Value" className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm" />
-                          <button type="button" onClick={() => { const s = [...(formData.specifications || [])]; const items = sec.items.filter((_, j) => j !== ii); s[si] = { ...sec, items: items.length ? items : [{ key: '', value: '' }] }; setFormData(p => ({ ...p, specifications: s })); }}
-                            disabled={sec.items.length === 1} className="text-xs text-red-400 disabled:opacity-30">✕</button>
+                          <button type="button" onClick={() => { const s = [...(formData.specifications || [])]; const items = (sec.items || []).filter((_, j) => j !== ii); s[si] = { ...sec, items: items.length ? items : [{ key: '', value: '' }] }; setFormData(p => ({ ...p, specifications: s })); }}
+                            disabled={(sec.items || []).length === 1} className="text-xs text-red-400 disabled:opacity-30">✕</button>
                         </div>
                       ))}
-                      <button type="button" onClick={() => { const s = [...(formData.specifications || [])]; s[si] = { ...sec, items: [...sec.items, { key: '', value: '' }] }; setFormData(p => ({ ...p, specifications: s })); }}
+                      <button type="button" onClick={() => { const s = [...(formData.specifications || [])]; s[si] = { ...sec, items: [...(sec.items || []), { key: '', value: '' }] }; setFormData(p => ({ ...p, specifications: s })); }}
                         className="text-xs text-blue-600">+ Add Row</button>
                     </div>
                   ))}

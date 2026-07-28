@@ -1,224 +1,124 @@
-import React, { useEffect, useState } from 'react';
-import { ordersAPI, productsAPI } from '../services/api';
-import { analyticsAPI } from '../services/analyticsService';
-import { FaBox, FaShoppingCart, FaRupeeSign, FaUsers, FaEye, FaUserClock } from 'react-icons/fa';
+import React from 'react';
+import { Link } from 'react-router-dom';
+import DateRangeBar, { useDateRange } from '../components/panelAnalytics/DateRangeBar';
+import { usePanelStats } from '../components/panelAnalytics/usePanelStats';
+import { StatTile, ChartCard, TimeSeries, Donut } from '../components/panelAnalytics/Kit';
+import { SERIES } from '../components/panelAnalytics/vizTheme';
+import { fmtRupees } from '../lib/money';
 import LoadingSpinner from '../components/LoadingSpinner';
 
+/**
+ * E-commerce panel dashboard. All numbers are computed SERVER-SIDE over the
+ * selected range (no 1000-order client cap). Two revenue truths, labeled:
+ * gross sales = value of non-cancelled orders; collected = payment completed
+ * or COD delivered.
+ */
 const Dashboard: React.FC = () => {
-  const [stats, setStats] = useState({
-    totalProducts: 0,
-    totalOrders: 0,
-    totalRevenue: 0,
-    pendingOrders: 0,
-    pageViews: 0,
-    uniqueVisitors: 0,
-    liveVisitors: 0,
-  });
-  const [topViewed, setTopViewed] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { range, preset, setPreset, custom, setCustom } = useDateRange('30d');
+  const { data, loading, error } = usePanelStats<any>('commerce', range);
 
-  useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        const [productsRes, ordersRes, analyticsRes] = await Promise.all([
-          productsAPI.getAll(),
-          ordersAPI.getAll({ limit: 1000 }),
-          analyticsAPI.getDashboardStats(),
-        ]);
-
-        // Backend returns: { success: true, data: products[], count: number }
-        // Handle different response structures
-        let products: any[] = [];
-        if (Array.isArray(productsRes)) {
-          products = productsRes;
-        } else if (Array.isArray(productsRes?.data)) {
-          products = productsRes.data;
-        } else if (Array.isArray(productsRes?.data?.data)) {
-          products = productsRes.data.data;
-        }
-
-        // Backend returns: { success: true, data: orders[], pagination: {...} }
-        let orders: any[] = [];
-        if (Array.isArray(ordersRes)) {
-          orders = ordersRes;
-        } else if (ordersRes?.data && Array.isArray(ordersRes.data)) {
-          orders = ordersRes.data;
-        } else if (ordersRes?.success && ordersRes?.data && Array.isArray(ordersRes.data)) {
-          orders = ordersRes.data;
-        } else if (ordersRes?.data?.data && Array.isArray(ordersRes.data.data)) {
-          orders = ordersRes.data.data;
-        }
-
-        const revenue = orders.reduce((sum: number, order: any) => {
-          const total = Number(order.total ?? order.totalAmount ?? 0);
-          // PG columns are snake_case (payment_status / order_status). Count paid orders,
-          // plus delivered/completed COD orders whose payment lands on delivery.
-          const paymentStatus = order.payment_status ?? order.paymentStatus ?? 'pending';
-          const orderStatus = order.order_status ?? order.orderStatus ?? '';
-          const isRealised = paymentStatus === 'completed' || ['delivered', 'completed'].includes(orderStatus);
-          return sum + (isRealised ? total : 0);
-        }, 0);
-
-        const pending = orders.filter((order: any) => {
-          const status = order.order_status ?? order.orderStatus ?? 'pending';
-          return status === 'pending' || status === 'confirmed' || status === 'processing';
-        }).length;
-
-        // Real totals come from the paginated count metadata, not the page length.
-        const totalOrders = (ordersRes as any)?.total ?? (ordersRes as any)?.pagination?.total ?? orders.length;
-        const totalProducts = (productsRes as any)?.total ?? (productsRes as any)?.pagination?.total ?? products.length;
-
-        // Analytics Data
-        const analyticsData: any = analyticsRes?.data || analyticsRes || {};
-        const pageViews = analyticsData.pageViews || 0;
-        const uniqueVisitors = analyticsData.uniqueVisitors || 0;
-        const liveVisitors = analyticsData.liveVisitors || 0;
-        const topViewedProducts = analyticsData.topViewedProducts || [];
-
-        setStats({
-          totalProducts,
-          totalOrders,
-          totalRevenue: revenue,
-          pendingOrders: pending,
-          pageViews,
-          uniqueVisitors,
-          liveVisitors,
-        });
-        setTopViewed(topViewedProducts);
-
-      } catch (error) {
-        console.error('Failed to fetch stats:', error);
-        // Set default values on error to prevent crash
-        setStats({
-          totalProducts: 0,
-          totalOrders: 0,
-          totalRevenue: 0,
-          pendingOrders: 0,
-          pageViews: 0,
-          uniqueVisitors: 0,
-          liveVisitors: 0,
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchStats();
-  }, []);
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <LoadingSpinner size="lg" color="primary" text="Loading dashboard..." />
-      </div>
-    );
-  }
-
-  const statCards = [
-    {
-      title: 'Total Revenue',
-      value: `₹${stats.totalRevenue.toLocaleString('en-IN')}`,
-      icon: FaRupeeSign,
-      color: 'bg-green-600',
-    },
-    {
-      title: 'Total Orders',
-      value: stats.totalOrders,
-      icon: FaShoppingCart,
-      color: 'bg-blue-500',
-    },
-    {
-      title: 'Unique Visitors',
-      value: stats.uniqueVisitors,
-      icon: FaUsers,
-      color: 'bg-purple-500',
-    },
-    {
-      title: 'Page Views',
-      value: stats.pageViews,
-      icon: FaEye,
-      color: 'bg-indigo-500',
-    },
-    {
-      title: 'Live Now',
-      value: stats.liveVisitors,
-      icon: FaUserClock,
-      color: 'bg-red-500',
-    },
-    {
-      title: 'Total Products',
-      value: stats.totalProducts,
-      icon: FaBox,
-      color: 'bg-gray-500',
-    },
-  ];
+  const s = data?.summary;
+  const bucket = data?.bucket ?? 'day';
 
   return (
-    <div>
-      <h1 className="text-3xl font-bold text-gray-900 mb-6">Dashboard</h1>
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+          <p className="text-sm text-gray-500">Sales, orders and traffic for this store.</p>
+        </div>
+        <DateRangeBar preset={preset} onPreset={setPreset} custom={custom} onCustom={setCustom} />
+      </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">
-        {statCards.map((stat, index) => {
-          const Icon = stat.icon;
-          return (
-            <div
-              key={index}
-              className="bg-white rounded-lg shadow p-4 hover:shadow-md transition-shadow"
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-gray-500 text-xs font-medium uppercase tracking-wider">{stat.title}</p>
-                  <p className="text-xl font-bold text-gray-900 mt-1">{stat.value}</p>
-                </div>
-                <div className={`${stat.color} p-2 rounded-lg opacity-90`}>
-                  <Icon className="text-white text-lg" />
-                </div>
+      {error && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+      {loading && !data && <div className="flex h-40 items-center justify-center"><LoadingSpinner size="lg" color="primary" text="Loading analytics..." /></div>}
+
+      {s && (
+        <>
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            <StatTile label="Gross sales" value={fmtRupees(s.gross_sales)}
+              sub={`${s.orders.toLocaleString('en-IN')} orders · AOV ${fmtRupees(s.aov)}`} />
+            <StatTile label="Collected revenue" value={fmtRupees(s.collected_revenue)}
+              sub={`${s.collected_orders} paid / delivered-COD orders`} />
+            <StatTile label="Units sold" value={s.units_sold.toLocaleString('en-IN')}
+              sub={`${s.cancelled_orders} cancelled orders excluded`} />
+            <StatTile label="New buyers" value={s.new_customers.toLocaleString('en-IN')}
+              sub="First order placed in this period" />
+            <StatTile label="Sessions" value={s.sessions.toLocaleString('en-IN')}
+              sub={`Conversion ${s.conversion_rate.toFixed(1)}%`} />
+            <StatTile label="Page views" value={s.page_views.toLocaleString('en-IN')} />
+            <StatTile label="Orders" value={s.orders.toLocaleString('en-IN')}
+              sub={(data.order_type_split ?? [])
+                .map((t: any) => `${t.orders} ${t.type} (${fmtRupees(t.value)})`)
+                .join(' · ') || undefined} />
+            <StatTile label="Cancelled" value={s.cancelled_orders.toLocaleString('en-IN')} />
+          </div>
+
+          <div className="grid gap-6 lg:grid-cols-3">
+            <div className="lg:col-span-2">
+              <ChartCard title="Sales over time"
+                sub="Gross = non-cancelled order value · Collected = payment completed or COD delivered">
+                <TimeSeries data={data.timeseries} granularity={bucket} money
+                  series={[
+                    { key: 'gross_sales', name: 'Gross sales', color: SERIES[0], kind: 'area', money: true },
+                    { key: 'collected_revenue', name: 'Collected', color: SERIES[2], kind: 'line', money: true },
+                  ]} />
+              </ChartCard>
+            </div>
+            <ChartCard title="Payment methods" sub="Non-cancelled orders in range">
+              <Donut data={(data.payment_split ?? []).map((p: any) => ({ name: p.method, value: p.orders }))} />
+            </ChartCard>
+          </div>
+
+          <ChartCard title="Orders per period" sub="Non-cancelled orders">
+            <TimeSeries data={data.timeseries} granularity={bucket} height={200}
+              series={[{ key: 'orders', name: 'Orders', color: SERIES[0], kind: 'bar' }]} />
+          </ChartCard>
+
+          <div className="grid gap-6 lg:grid-cols-2">
+            <div className="rounded-lg border bg-white shadow-sm">
+              <div className="border-b px-4 py-3 font-semibold text-gray-900">Top products by revenue</div>
+              <div className="divide-y text-sm">
+                {(data.top_products ?? []).length === 0 && <div className="p-4 text-gray-500">No sales in range.</div>}
+                {(data.top_products ?? []).map((p: any, i: number) => (
+                  <div key={p.id ?? i} className="flex items-center justify-between px-4 py-2">
+                    <div className="min-w-0 pr-3">
+                      <span className="mr-2 font-mono text-xs text-gray-400">#{i + 1}</span>
+                      <span className="font-medium text-gray-800">{p.name}</span>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <div className="font-mono">{fmtRupees(p.revenue)}</div>
+                      <div className="text-xs text-gray-400">{p.units} units</div>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
-          );
-        })}
-      </div>
 
-      {/* Top Value Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Top Viewed Products */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-bold text-gray-900 mb-4">Top Viewed Products</h3>
-          {topViewed.length > 0 ? (
-            <div className="space-y-4">
-              {topViewed.map((item, idx) => (
-                <div key={idx} className="flex items-center justify-between border-b pb-2 last:border-0">
-                  <div className="flex items-center gap-3">
-                    <span className="text-gray-400 font-mono text-sm w-4">#{idx + 1}</span>
-                    <span className="text-gray-800 font-medium truncate max-w-xs">{item.name}</span>
-                  </div>
-                  <span className="text-indigo-600 font-semibold text-sm">{item.views} views</span>
-                </div>
-              ))}
+            <div className="rounded-lg border bg-white shadow-sm">
+              <div className="border-b px-4 py-3 font-semibold text-gray-900">Top customers</div>
+              <div className="divide-y text-sm">
+                {(data.top_customers ?? []).length === 0 && <div className="p-4 text-gray-500">No customer orders in range.</div>}
+                {(data.top_customers ?? []).map((c: any, i: number) => (
+                  <Link key={c.customer_id ?? i} to={`/customers/${c.customer_id}`}
+                    className="flex items-center justify-between px-4 py-2 hover:bg-gray-50">
+                    <div className="min-w-0 pr-3">
+                      <span className="mr-2 font-mono text-xs text-gray-400">#{i + 1}</span>
+                      <span className="font-medium text-gray-800">{c.name ?? 'Guest'}</span>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <div className="font-mono">{fmtRupees(c.spent)}</div>
+                      <div className="text-xs text-gray-400">{c.orders} orders</div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
             </div>
-          ) : (
-            <p className="text-gray-500 text-sm italic">No view data available yet.</p>
-          )}
-        </div>
-
-        {/* Quick Actions (Placeholder for now) */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-bold text-gray-900 mb-4">Quick Actions</h3>
-          <div className="grid grid-cols-2 gap-4">
-            <button className="p-4 bg-gray-50 rounded-lg border hover:bg-gray-100 transition-colors text-left">
-              <span className="block text-sm font-semibold text-gray-700">Add Product</span>
-              <span className="text-xs text-gray-500">Create a new listing</span>
-            </button>
-            <button className="p-4 bg-gray-50 rounded-lg border hover:bg-gray-100 transition-colors text-left">
-              <span className="block text-sm font-semibold text-gray-700">View Orders</span>
-              <span className="text-xs text-gray-500">Process pending orders</span>
-            </button>
           </div>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 };
 
 export default Dashboard;
-

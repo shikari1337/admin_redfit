@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authAPI, getTenantApiKey, setTenantApiKey } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -253,7 +253,7 @@ const Login: React.FC = () => {
   const [finalError, setFinalError]     = useState('');
 
   useEffect(() => {
-    if (isAuthenticated) navigate('/dashboard', { replace: true });
+    if (isAuthenticated) navigate('/', { replace: true });
     // Clear any stale store API key so login always starts with central auth.
     // The correct store key is set after the user picks their store.
     else setTenantApiKey(null);
@@ -285,7 +285,7 @@ const Login: React.FC = () => {
     setStep('finalizing');
     try {
       await login(token, apiKey);
-      navigate('/dashboard', { replace: true });
+      navigate('/', { replace: true });
     } catch {
       setFinalError('Session setup failed. Please try again.');
       setStep('credentials');
@@ -301,9 +301,9 @@ const Login: React.FC = () => {
         {/* Logo */}
         <div className="text-center">
           <div className="inline-flex w-14 h-14 rounded-2xl bg-primary items-center justify-center text-primary-foreground text-2xl font-bold shadow-lg mb-4">
-            R
+            G
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Redfit Admin</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Growcord Admin</h1>
           <p className="text-sm text-gray-500 mt-1">{stepLabel}</p>
         </div>
 
@@ -349,7 +349,7 @@ const Login: React.FC = () => {
               onClick={() => setStep('credentials')}
               className="mt-5 w-full text-center text-xs text-gray-400 hover:text-gray-600 transition-colors"
             >
-              ← Sign in with a different account
+              ← Sign in with a different account
             </button>
           )}
         </div>

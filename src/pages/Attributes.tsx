@@ -12,6 +12,8 @@ interface Attribute {
   description?: string;
   imageUrl?: string;
   isActive: boolean;
+  /** Card axis: variations split into one storefront card per value combo of flagged attributes */
+  showAsProduct?: boolean;
   order: number;
   createdAt?: string;
   updatedAt?: string;
@@ -40,6 +42,7 @@ const emptyAttributeForm: {
   description: string;
   imageUrl: string;
   isActive: boolean;
+  showAsProduct: boolean;
   order: number;
 } = {
   name: '',
@@ -49,6 +52,7 @@ const emptyAttributeForm: {
   description: '',
   imageUrl: '',
   isActive: true,
+  showAsProduct: false,
   order: 0,
 };
 
@@ -127,6 +131,7 @@ const Attributes: React.FC = () => {
           description: currentAttribute.description || '',
           imageUrl: currentAttribute.imageUrl || '',
           isActive: currentAttribute.isActive !== false,
+          showAsProduct: !!((currentAttribute as any).showAsProduct ?? (currentAttribute as any).show_as_product),
           order: currentAttribute.order || 0,
         });
         setHasUnsavedChanges(false);
@@ -317,6 +322,7 @@ const Attributes: React.FC = () => {
         chartType: attributeFormState.chartType,
         description: attributeFormState.description.trim() || undefined,
         isActive: attributeFormState.isActive,
+        showAsProduct: attributeFormState.showAsProduct,
         order: attributeFormState.order,
       };
       
@@ -634,6 +640,11 @@ const Attributes: React.FC = () => {
                               {!attribute.isActive && (
                                 <span className="text-xs px-2 py-1 rounded bg-red-100 text-red-800 font-medium">
                                   Inactive
+                                </span>
+                              )}
+                              {!!(attribute.showAsProduct ?? (attribute as any).show_as_product) && (
+                                <span className="text-xs px-2 py-1 rounded bg-indigo-100 text-indigo-800 font-medium" title="Listings split into one card per value of this attribute">
+                                  Card axis
                                 </span>
                               )}
                             </div>
@@ -961,6 +972,25 @@ const Attributes: React.FC = () => {
               <label htmlFor="attributeIsActive" className="ml-2 text-sm font-medium text-gray-700 cursor-pointer">
                 Active (visible in product forms)
               </label>
+            </div>
+            <div className="p-3 bg-indigo-50 border border-indigo-100 rounded-lg">
+              <div className="flex items-center">
+                <input
+                  type="checkbox"
+                  id="attributeShowAsProduct"
+                  checked={attributeFormState.showAsProduct}
+                  onChange={(e) => handleAttributeFormChange('showAsProduct', e.target.checked)}
+                  className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                />
+                <label htmlFor="attributeShowAsProduct" className="ml-2 text-sm font-medium text-gray-800 cursor-pointer">
+                  Show as product (card axis)
+                </label>
+              </div>
+              <p className="text-xs text-gray-500 mt-1.5 ml-6">
+                Category &amp; search listings show one product card per value of this attribute
+                (e.g. Brand, Form → an "Adel MT" card). Attributes NOT flagged (potency, size…)
+                become dropdown selectors on each card instead.
+              </p>
             </div>
             <div className="flex gap-2 pt-4">
               <button

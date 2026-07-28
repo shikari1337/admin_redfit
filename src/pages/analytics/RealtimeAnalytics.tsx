@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { analyticsAPI } from '../../services/analyticsService';
+import { api } from '../../services/api';
+import { payload } from '../../lib/unwrap';
 import { ComposableMap, Geographies, Geography } from 'react-simple-maps';
 import { FaGlobeAmericas, FaDesktop, FaMobileAlt } from 'react-icons/fa';
 import LoadingSpinner from '../../components/LoadingSpinner';
@@ -10,15 +12,20 @@ const RealtimeAnalytics: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [visitors, setVisitors] = useState<any[]>([]);
     const [geoData, setGeoData] = useState<any[]>([]);
+    const [today, setToday] = useState<any>(null);
 
     const fetchData = async () => {
         try {
-            const [visitorList, mapData] = await Promise.all([
+            const day = new Date().toISOString().slice(0, 10);
+            const [visitorList, mapData, todayStats] = await Promise.all([
                 analyticsAPI.getRealtimeVisitors(),
-                analyticsAPI.getLiveMap()
+                analyticsAPI.getLiveMap(),
+                // Today's trading ticker from the server-accurate panel feed
+                api.get('/analytics/panels/commerce', { params: { from: day, to: day } }).catch(() => null),
             ]);
             setVisitors(visitorList?.data || []);
             setGeoData(mapData?.data || []);
+            if (todayStats) setToday(payload<any>(todayStats)?.summary ?? null);
         } catch (error) {
             console.error('Failed to fetch realtime data:', error);
         } finally {
@@ -42,7 +49,27 @@ const RealtimeAnalytics: React.FC = () => {
                     <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
                 </span>
                 Realtime Overview
+                <span className="ml-2 text-xs font-normal text-gray-400">refreshes every 30s</span>
             </h1>
+
+            <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 mb-6">
+                <div className="rounded-lg border bg-white p-4 shadow-sm">
+                    <div className="text-xs font-medium uppercase tracking-wider text-gray-500">Active now (30 min)</div>
+                    <div className="mt-1 text-2xl font-bold text-gray-900">{visitors.length.toLocaleString('en-IN')}</div>
+                </div>
+                <div className="rounded-lg border bg-white p-4 shadow-sm">
+                    <div className="text-xs font-medium uppercase tracking-wider text-gray-500">Orders today</div>
+                    <div className="mt-1 text-2xl font-bold text-gray-900">{(today?.orders ?? 0).toLocaleString('en-IN')}</div>
+                </div>
+                <div className="rounded-lg border bg-white p-4 shadow-sm">
+                    <div className="text-xs font-medium uppercase tracking-wider text-gray-500">Gross sales today</div>
+                    <div className="mt-1 text-2xl font-bold text-gray-900">₹{Number(today?.gross_sales ?? 0).toLocaleString('en-IN')}</div>
+                </div>
+                <div className="rounded-lg border bg-white p-4 shadow-sm">
+                    <div className="text-xs font-medium uppercase tracking-wider text-gray-500">Page views today</div>
+                    <div className="mt-1 text-2xl font-bold text-gray-900">{(today?.page_views ?? 0).toLocaleString('en-IN')}</div>
+                </div>
+            </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
                 {/* Live Map */}

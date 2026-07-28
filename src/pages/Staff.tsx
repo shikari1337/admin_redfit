@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { staffAPI } from '../services/api';
+import { ASSIGNABLE_ROLES, ROLE_LABELS } from '../lib/rbac';
+import PermissionPicker from '../components/PermissionPicker';
 import { useAuth } from '../contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Switch } from '@/components/ui/switch';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -19,10 +20,17 @@ import {
 } from '@/components/ui/tooltip';
 import {
   UserPlus, Pencil, Trash2, Loader2, ShieldCheck, ShieldOff,
-  Eye, EyeOff, AlertCircle, ChevronDown, ChevronRight, Info,
+  Eye, EyeOff, AlertCircle, Info,
 } from 'lucide-react';
 
-// ─── Module definitions ────────────────────────────────────────────────────────
+// ─── Legacy module definitions (RETIRED — kept only for reading OLD grants) ───
+//
+// These bare module names were what the old picker granted. The API checks
+// `<area>.<action>`, so all of them except `page_editor` were INERT: ticking
+// "Store Settings" here granted nothing at all. The picker is now
+// `components/PermissionPicker.tsx`, driven by GET /staff/permissions.
+// This table survives ONLY so `permissionSummary` can still label the legacy
+// strings sitting on existing user rows.
 
 interface ModuleGroup {
   group: string;
@@ -115,13 +123,10 @@ const Staff: React.FC = () => {
   const [deleteTarget, setDeleteTarget]   = useState<any | null>(null);
 
   // Create form
-  const [createForm, setCreateForm] = useState({ name: '', email: '', password: '', permissions: [] as string[] });
+  const [createForm, setCreateForm] = useState({ name: '', email: '', password: '', role: 'staff', permissions: [] as string[] });
   const [createError, setCreateError]     = useState('');
   const [creating, setCreating]           = useState(false);
   const [showPassword, setShowPassword]   = useState(false);
-
-  // Expanded groups in permissions editor
-  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({ Catalog: true, Commerce: true });
 
   useEffect(() => { fetchStaff(); }, []);
 
@@ -158,10 +163,11 @@ const Staff: React.FC = () => {
         name: createForm.name.trim(),
         email: createForm.email.trim(),
         password: createForm.password,
+        role: createForm.role,
         permissions: createForm.permissions,
       });
       setShowCreate(false);
-      setCreateForm({ name: '', email: '', password: '', permissions: [] });
+      setCreateForm({ name: '', email: '', password: '', role: 'staff', permissions: [] });
       await fetchStaff();
     } catch (err: any) {
       setCreateError(err?.response?.data?.message || 'Failed to create staff member.');
@@ -184,22 +190,10 @@ const Staff: React.FC = () => {
   const openEdit = (member: any) => {
     setEditingStaff(member);
     setEditPerms([...(member.permissions || [])]);
-    setExpandedGroups(Object.fromEntries(MODULE_GROUPS.map(g => [g.group, true])));
   };
 
-  const toggleEditPerm = (id: string) => {
-    setEditPerms(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]);
-  };
-
-  const toggleGroupAll = (group: ModuleGroup) => {
-    const ids = group.modules.map(m => m.id);
-    const allSelected = ids.every(id => editPerms.includes(id));
-    if (allSelected) setEditPerms(prev => prev.filter(p => !ids.includes(p)));
-    else setEditPerms(prev => [...new Set([...prev, ...ids])]);
-  };
-
-  const selectAll = () => setEditPerms([...ALL_MODULE_IDS]);
-  const clearAll  = () => setEditPerms([]);
+  /** Drops every EXTRA grant; the role's own baseline is untouched. */
+  const clearAll = () => setEditPerms([]);
 
   const saveEdit = async () => {
     if (!editingStaff) return;
@@ -213,15 +207,6 @@ const Staff: React.FC = () => {
     finally { setSavingId(null); }
   };
 
-  // ── Create form permission toggle ─────────────────────────────────────────
-  const toggleCreatePerm = (id: string) => {
-    setCreateForm(prev => ({
-      ...prev,
-      permissions: prev.permissions.includes(id)
-        ? prev.permissions.filter(p => p !== id)
-        : [...prev.permissions, id],
-    }));
-  };
 
   const permissionSummary = (perms: string[]) => {
     if (!perms?.length) return 'No access';
@@ -435,6 +420,22 @@ const Staff: React.FC = () => {
                 </div>
               </div>
               <div className="space-y-1.5">
+                <Label>Role *</Label>
+                <select
+                  value={createForm.role}
+                  onChange={e => setCreateForm(p => ({ ...p, role: e.target.value }))}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  {ASSIGNABLE_ROLES.map(r => (
+                    <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  The role decides which panel they land in (Accounting, Inventory, Orders…) and what they can do there.
+                  Module access below is additive on top.
+                </p>
+              </div>
+              <div className="space-y-1.5">
                 <Label>Password *</Label>
                 <div className="relative">
                   <Input
@@ -468,11 +469,10 @@ const Staff: React.FC = () => {
                     </Button>
                   </div>
                 </div>
-                <PermissionMatrix
-                  permissions={createForm.permissions}
-                  onToggle={toggleCreatePerm}
-                  expandedGroups={expandedGroups}
-                  onToggleGroup={key => setExpandedGroups(p => ({ ...p, [key]: !p[key] }))}
+                <PermissionPicker
+                  value={createForm.permissions}
+                  role={createForm.role}
+                  onChange={next => setCreateForm(p => ({ ...p, permissions: next }))}
                 />
               </div>
 
@@ -501,25 +501,26 @@ const Staff: React.FC = () => {
                 <ShieldCheck className="h-5 w-5" /> Edit Permissions
               </DialogTitle>
               <DialogDescription>
-                {editingStaff?.name} ({editingStaff?.email}) — toggle which modules this staff member can access.
+                {editingStaff?.name} ({editingStaff?.email}) — role <strong>{ROLE_LABELS[(editingStaff?.role || 'staff') as keyof typeof ROLE_LABELS] ?? editingStaff?.role}</strong>.
+                Grant extra permissions on top of it below.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 pt-2">
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">
-                  {editPerms.length} of {ALL_MODULE_IDS.length} modules granted
+                  {editPerms.length} extra permission{editPerms.length === 1 ? '' : 's'} granted
                 </span>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" className="h-7 text-xs" onClick={selectAll}>All</Button>
-                  <Button variant="outline" size="sm" className="h-7 text-xs" onClick={clearAll}>None</Button>
-                </div>
+                {/* No "select all": granting every permission is what the admin
+                    ROLE is for — a staff account with all of them is an admin
+                    with extra steps, and it defeats least privilege. */}
+                <Button variant="outline" size="sm" className="h-7 text-xs" onClick={clearAll}>
+                  Clear extras
+                </Button>
               </div>
-              <PermissionMatrix
-                permissions={editPerms}
-                onToggle={toggleEditPerm}
-                expandedGroups={expandedGroups}
-                onToggleGroup={key => setExpandedGroups(p => ({ ...p, [key]: !p[key] }))}
-                onGroupToggle={toggleGroupAll}
+              <PermissionPicker
+                value={editPerms}
+                role={editingStaff?.role || 'staff'}
+                onChange={setEditPerms}
               />
               <div className="flex gap-2 justify-end pt-2">
                 <Button variant="outline" onClick={() => setEditingStaff(null)}>Cancel</Button>
@@ -556,82 +557,5 @@ const Staff: React.FC = () => {
     </TooltipProvider>
   );
 };
-
-// ─── Permission Matrix sub-component ─────────────────────────────────────────
-
-interface PermissionMatrixProps {
-  permissions: string[];
-  onToggle: (id: string) => void;
-  expandedGroups: Record<string, boolean>;
-  onToggleGroup: (key: string) => void;
-  onGroupToggle?: (group: ModuleGroup) => void;
-}
-
-const PermissionMatrix: React.FC<PermissionMatrixProps> = ({
-  permissions, onToggle, expandedGroups, onToggleGroup, onGroupToggle,
-}) => (
-  <div className="space-y-2 border rounded-md overflow-hidden">
-    {MODULE_GROUPS.map((group) => {
-      const expanded = expandedGroups[group.group] !== false;
-      const groupIds = group.modules.map(m => m.id);
-      const allChecked = groupIds.every(id => permissions.includes(id));
-      const someChecked = groupIds.some(id => permissions.includes(id));
-
-      return (
-        <div key={group.group} className="border-b last:border-0">
-          {/* Group header */}
-          <div
-            className="flex items-center justify-between px-4 py-2.5 bg-muted/40 cursor-pointer hover:bg-muted/60 transition-colors"
-            onClick={() => onToggleGroup(group.group)}
-          >
-            <div className="flex items-center gap-2.5">
-              {onGroupToggle && (
-                <Checkbox
-                  checked={allChecked}
-                  data-state={someChecked && !allChecked ? 'indeterminate' : undefined}
-                  onCheckedChange={() => onGroupToggle(group)}
-                  onClick={e => e.stopPropagation()}
-                  className="h-3.5 w-3.5"
-                />
-              )}
-              <Badge variant="outline" className={`text-[11px] font-semibold border ${group.color}`}>
-                {group.group}
-              </Badge>
-              <span className="text-xs text-muted-foreground">
-                {groupIds.filter(id => permissions.includes(id)).length}/{groupIds.length}
-              </span>
-            </div>
-            {expanded
-              ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
-              : <ChevronRight className="h-4 w-4 text-muted-foreground" />
-            }
-          </div>
-
-          {/* Module rows */}
-          {expanded && (
-            <div className="divide-y">
-              {group.modules.map(mod => (
-                <label
-                  key={mod.id}
-                  className="flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-muted/20 transition-colors"
-                >
-                  <Checkbox
-                    checked={permissions.includes(mod.id)}
-                    onCheckedChange={() => onToggle(mod.id)}
-                    className="mt-0.5"
-                  />
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium">{mod.label}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{mod.desc}</p>
-                  </div>
-                </label>
-              ))}
-            </div>
-          )}
-        </div>
-      );
-    })}
-  </div>
-);
 
 export default Staff;

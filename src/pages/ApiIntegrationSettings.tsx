@@ -300,7 +300,7 @@ const ApiIntegrationSettings: React.FC = () => {
                   type="email"
                   value={formData.smtp.fromEmail}
                   onChange={(e) => handleChange('smtp', 'fromEmail', e.target.value)}
-                  placeholder="noreply@redfit.in"
+                  placeholder="noreply@yourstore.com"
                 />
               </div>
               <div className="space-y-2">
@@ -309,7 +309,7 @@ const ApiIntegrationSettings: React.FC = () => {
                   type="email"
                   value={formData.smtp.adminEmail}
                   onChange={(e) => handleChange('smtp', 'adminEmail', e.target.value)}
-                  placeholder="admin@redfit.in"
+                  placeholder="admin@yourstore.com"
                 />
               </div>
             </div>

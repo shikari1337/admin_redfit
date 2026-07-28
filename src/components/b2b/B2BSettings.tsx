@@ -31,7 +31,9 @@ export default function B2BSettings() {
     try {
       setLoading(true);
       const res = await modulesAPI.list();
-      const b2bMod = res?.data?.find((m: any) => m.key === 'b2b');
+      // Interceptor unwraps {success,data} → res is usually the array itself.
+      const list: any[] = Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : [];
+      const b2bMod = list.find((m: any) => m.key === 'b2b');
       if (b2bMod && b2bMod.config) {
         setSettings({
           minOrderValue: b2bMod.config.minOrderValue || 0,
