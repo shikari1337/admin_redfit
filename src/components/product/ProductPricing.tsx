@@ -21,6 +21,10 @@ interface ProductPricingProps {
   hsnCode?: string;
   taxRuleId?: string;
   taxRules?: Array<{ _id: string; id?: string; name: string; rate?: number }>;
+  /** gst_tax module gate — when false the HSN + Tax Rule controls are hidden
+   *  (the backend silently strips those fields when the module is off, so
+   *  showing them would be a form that lies about saving). Default true. */
+  showTaxFields?: boolean;
   stock: number | undefined;
   showStock: boolean;
   weight: string;
@@ -64,7 +68,7 @@ const Toggle: React.FC<{ checked: boolean; onChange: (v: boolean) => void }> = (
 
 const ProductPricing: React.FC<ProductPricingProps> = ({
   price, originalPrice, salePrice = '', saleStartsAt = '', saleEndsAt = '',
-  sku, hsnCode = '', taxRuleId = '', taxRules = [],
+  sku, hsnCode = '', taxRuleId = '', taxRules = [], showTaxFields = true,
   stock, showStock, weight, length, breadth, height,
   onPriceChange, onOriginalPriceChange, onSalePriceChange, onSaleStartsAtChange, onSaleEndsAtChange,
   onSkuChange, onHsnCodeChange, onTaxRuleIdChange, onStockChange,
@@ -167,7 +171,7 @@ const ProductPricing: React.FC<ProductPricingProps> = ({
           )}
         </div>
 
-        {/* SKU + HSN */}
+        {/* SKU + HSN (HSN is gst_tax-gated — matches the backend field guard) */}
         <div className="grid grid-cols-2 gap-3 pt-3 border-t">
           <div className="space-y-1.5">
             <Label htmlFor="sku" className="text-xs">SKU</Label>
@@ -177,28 +181,32 @@ const ProductPricing: React.FC<ProductPricingProps> = ({
               placeholder="AUTO-GENERATED" />
             {errors.sku && <p className="text-xs text-destructive">{errors.sku}</p>}
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="hsnCode" className="text-xs">HSN Code</Label>
-            <Input id="hsnCode" type="text" value={hsnCode}
-              onChange={e => onHsnCodeChange && onHsnCodeChange(e.target.value)}
-              className={`h-8 text-sm ${errors.hsnCode ? 'border-destructive' : ''}`} placeholder="e.g. 3004" />
-          </div>
+          {showTaxFields && (
+            <div className="space-y-1.5">
+              <Label htmlFor="hsnCode" className="text-xs">HSN Code</Label>
+              <Input id="hsnCode" type="text" value={hsnCode}
+                onChange={e => onHsnCodeChange && onHsnCodeChange(e.target.value)}
+                className={`h-8 text-sm ${errors.hsnCode ? 'border-destructive' : ''}`} placeholder="e.g. 3004" />
+            </div>
+          )}
         </div>
 
-        {/* Tax Rule */}
-        <div className="space-y-1.5 pt-3 border-t">
-          <Label className="text-xs">Tax / GST Rule</Label>
-          <Select value={taxRuleId || 'none'} onValueChange={val => onTaxRuleIdChange && onTaxRuleIdChange(val === 'none' ? '' : val)}>
-            <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Default / None" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">Default / None</SelectItem>
-              {taxRules.map(rule => {
-                const key = rule._id || rule.id || rule.name;
-                return <SelectItem key={key} value={key}>{rule.name}{rule.rate !== undefined ? ` — ${rule.rate}%` : ''}</SelectItem>;
-              })}
-            </SelectContent>
-          </Select>
-        </div>
+        {/* Tax Rule — gst_tax-gated like HSN */}
+        {showTaxFields && (
+          <div className="space-y-1.5 pt-3 border-t">
+            <Label className="text-xs">Tax / GST Rule</Label>
+            <Select value={taxRuleId || 'none'} onValueChange={val => onTaxRuleIdChange && onTaxRuleIdChange(val === 'none' ? '' : val)}>
+              <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Default / None" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Default / None</SelectItem>
+                {taxRules.map(rule => {
+                  const key = rule._id || rule.id || rule.name;
+                  return <SelectItem key={key} value={key}>{rule.name}{rule.rate !== undefined ? ` — ${rule.rate}%` : ''}</SelectItem>;
+                })}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
 
         {/* Stock */}
         {showStock && (
@@ -207,7 +215,7 @@ const ProductPricing: React.FC<ProductPricingProps> = ({
             <Input id="stock" type="number" min="0" step="1" value={stock ?? ''}
               onChange={e => { const v = e.target.value; onStockChange(v === '' ? undefined : Math.max(0, parseInt(v) || 0)); }}
               className="h-8 text-sm w-32" placeholder="0" />
-            <p className="text-xs text-muted-foreground">For variation products, manage stock per variation below.</p>
+            <p className="text-xs text-muted-foreground">For variation products, manage stock per variation below. Changing stock here books a ledgered adjustment (visible in movement history) — unchanged values are never re-sent.</p>
           </div>
         )}
 

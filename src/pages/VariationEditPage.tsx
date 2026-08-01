@@ -3,10 +3,15 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { FaArrowLeft, FaSave, FaPlus, FaTrash } from 'react-icons/fa';
 import { productsAPI, uploadAPI, taxRulesAPI } from '../services/api';
 import type { ProductVariation } from '../types/productForm';
+import { useAuth } from '../contexts/AuthContext';
+import ProductInventoryPanel from '../components/product/ProductInventoryPanel';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const VariationEditPage: React.FC = () => {
   const { productSlug, variationIndex } = useParams<{ productSlug: string; variationIndex: string }>();
   const navigate = useNavigate();
+  const { canAccess } = useAuth();
 
   const [product, setProduct] = useState<any>(null);
   const [variation, setVariation] = useState<ProductVariation | null>(null);
@@ -212,6 +217,7 @@ const VariationEditPage: React.FC = () => {
               className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="0"
             />
+            <p className="text-[11px] text-gray-400 mt-1">Changes book a ledgered adjustment (see Inventory &amp; ERP below); unchanged values are ignored.</p>
           </div>
           <div className="flex flex-col justify-center">
             <label className="block text-xs font-medium text-gray-700 mb-2">Status</label>
@@ -232,7 +238,9 @@ const VariationEditPage: React.FC = () => {
           </div>
         </div>
 
-        {/* HSN + Tax Rule */}
+        {/* HSN + Tax Rule — gst_tax module only; with the module off the backend
+            strips these fields, so showing the inputs would silently lie. */}
+        {canAccess('gst_tax') && (
         <div className="grid grid-cols-2 gap-4 pt-2 border-t">
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">HSN Code</label>
@@ -268,7 +276,17 @@ const VariationEditPage: React.FC = () => {
             <p className="text-xs text-gray-400 mt-1">GST vs IGST auto-determined from delivery address.</p>
           </div>
         </div>
+        )}
       </div>
+
+      {/* Inventory & ERP — live balances, batches, incoming POs, ledger history */}
+      {UUID_RE.test(String(v.id || '')) && (
+        <ProductInventoryPanel
+          variationId={String(v.id)}
+          sku={v.sku}
+          onStockChanged={(newStock) => handleChange('stock', newStock)}
+        />
+      )}
 
       {/* Content */}
       <div className="bg-white rounded-lg border border-gray-200 p-5 space-y-4">

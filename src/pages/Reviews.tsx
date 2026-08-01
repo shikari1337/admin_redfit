@@ -1,769 +1,509 @@
-import React, { useEffect, useState } from 'react';
-import { reviewsAPI, uploadAPI } from '../services/api';
-import { FaUpload, FaTimes, FaPlus, FaTrash, FaEdit, FaFileCsv, FaDownload } from 'react-icons/fa';
-import ImageInputWithActions from '../components/common/ImageInputWithActions';
+import React from 'react';
+import {
+  Star, Plus, Upload, Download, Search, Check, Ban, Flag, EyeOff, Trash2,
+  ShieldCheck, MessageSquare, Image as ImageIcon, RefreshCw, X, Loader2, AlertTriangle,
+} from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { reviewsAPI, type AdminReview, type ReviewCounts, type ReviewStatus } from '@/services/api';
+import {
+  Page, PageHeader, StatCard, StatGrid, Btn, StatusChip, TabBar,
+  TableShell, THead, Th, TBody, Tr, Td, EmptyState, Pagination, SelectInput,
+} from '@/components/erp';
+import { StarRating } from '@/components/reviews/StarRating';
+import { MediaStrip, MediaLightbox } from '@/components/reviews/ReviewMedia';
+import { ReviewDetailDrawer } from '@/components/reviews/ReviewDetailDrawer';
+import { ReviewEditorModal } from '@/components/reviews/ReviewEditorModal';
+import { ReviewImportModal } from '@/components/reviews/ReviewImportModal';
+import { cn } from '@/lib/utils';
 
-interface Review {
-  _id: string;
-  productId: string | { _id: string; name: string; sku?: string }; // Can be populated
-  orderId?: string;
-  customerName: string;
-  customerEmail?: string;
-  customerImage?: string;
-  rating: number;
-  review: string;
-  images?: string[];
-  link?: string;
-  description?: string;
-  isVerified: boolean;
-  isApproved: boolean;
-  helpfulCount: number;
-  createdAt: string;
-}
+/**
+ * REVIEWS WORKSPACE
+ *
+ * Built around the job the store owner actually has — "clear the queue, then
+ * curate" — instead of the old page's single always-open form.
+ *
+ *   Tabs      = the moderation queue, with live counts so you can see the work.
+ *   Row click = a detail drawer (read, watch, moderate, reply, re-link).
+ *   Selection = a bulk action bar; approving 50 reviews is one request.
+ *   Import    = preview + validate before anything is written.
+ *
+ * Permissions: reading needs content.read, acting needs content.manage, and
+ * deleting needs content.delete — which is a SEPARATE permission because deletes
+ * in this codebase are permanent (COMMON_MISTAKES #49).
+ */
 
-interface Product {
-  _id: string;
-  name: string;
-  sku?: string;
-}
+const TABS = [
+  { key: 'pending',  label: 'Needs review', status: 'pending' },
+  { key: 'approved', label: 'Published',    status: 'approved' },
+  { key: 'reported', label: 'Reported',     status: '' },
+  { key: 'rejected', label: 'Rejected',     status: 'rejected,spam' },
+  { key: 'all',      label: 'All',          status: '' },
+] as const;
+
+type TabKey = typeof TABS[number]['key'];
+
+const SORTS = [
+  { v: 'newest', l: 'Newest first' },
+  { v: 'oldest', l: 'Oldest first' },
+  { v: 'highest', l: 'Highest rated' },
+  { v: 'lowest', l: 'Lowest rated' },
+  { v: 'helpful', l: 'Most helpful' },
+  { v: 'media', l: 'With photos & video' },
+  { v: 'reported', l: 'Most reported' },
+];
 
 const Reviews: React.FC = () => {
-  const [reviews, setReviews] = useState<Review[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, pages: 0 });
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [newReview, setNewReview] = useState<Partial<Review>>({
-    productId: '',
-    customerName: '',
-    customerEmail: '',
-    rating: 5,
-    review: '',
-    link: '',
-    description: '',
-    images: [],
-    isApproved: true,
-    isVerified: false,
-  });
-  const [newImage, setNewImage] = useState<File | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [bulkUploadMode, setBulkUploadMode] = useState(false);
-  const [_csvFile, setCsvFile] = useState<File | null>(null); // File state for CSV upload (setter used for clearing)
-  const [csvData, setCsvData] = useState<any[]>([]);
+  const { hasPerm } = useAuth();
+  const canManage = hasPerm('content.manage');
+  const canDelete = hasPerm('content.delete');
 
-  useEffect(() => {
-    fetchReviews();
-  }, [pagination.page]);
+  const [tab, setTab] = React.useState<TabKey>('pending');
+  const [rows, setRows] = React.useState<AdminReview[]>([]);
+  const [total, setTotal] = React.useState(0);
+  const [counts, setCounts] = React.useState<ReviewCounts | null>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
 
-  useEffect(() => {
-    fetchProducts();
-  }, []);
+  const [page, setPage] = React.useState(1);
+  const [pageSize, setPageSize] = React.useState(25);
+  const [search, setSearch] = React.useState('');
+  const [debounced, setDebounced] = React.useState('');
+  const [rating, setRating] = React.useState('');
+  const [mediaOnly, setMediaOnly] = React.useState(false);
+  const [verifiedOnly, setVerifiedOnly] = React.useState(false);
+  const [sort, setSort] = React.useState('newest');
 
-  const fetchReviews = async () => {
+  const [selected, setSelected] = React.useState<Set<string>>(new Set());
+  const [active, setActive] = React.useState<AdminReview | null>(null);
+  const [lightbox, setLightbox] = React.useState<{ media: any[]; index: number } | null>(null);
+  const [showEditor, setShowEditor] = React.useState(false);
+  const [showImport, setShowImport] = React.useState(false);
+  const [bulkBusy, setBulkBusy] = React.useState(false);
+
+  React.useEffect(() => {
+    const t = setTimeout(() => { setDebounced(search); setPage(1); }, 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const load = React.useCallback(async () => {
+    setLoading(true); setError(null);
+    const def = TABS.find((t) => t.key === tab)!;
     try {
-      setLoading(true);
-      const response = await reviewsAPI.getAll({
-        page: pagination.page,
-        limit: pagination.limit,
-      });
-      // Backend returns: { data: reviews[], pagination: {...} }
-      // API interceptor normalizes to: { data: reviews[], pagination: {...} } or reviews[]
-      let reviewsData: any[] = [];
-      if (Array.isArray(response)) {
-        reviewsData = response;
-      } else if (Array.isArray(response?.data)) {
-        reviewsData = response.data;
-      } else if (Array.isArray(response?.data?.data)) {
-        reviewsData = response.data.data;
-      }
-      // Ensure all _id fields are strings
-      const sanitizedReviews = reviewsData.map((review: any) => ({
-        ...review,
-        _id: typeof review._id === 'string' ? review._id : String(review._id || ''),
-        productId: typeof review.productId === 'string' 
-          ? review.productId 
-          : (typeof review.productId === 'object' && review.productId?._id 
-            ? (typeof review.productId._id === 'string' ? review.productId._id : String(review.productId._id || ''))
-            : ''),
-      }));
-      setReviews(sanitizedReviews);
-      if (response?.pagination) {
-        setPagination(prev => ({ ...prev, ...response.pagination }));
-      }
-    } catch (error) {
-      console.error('Failed to fetch reviews:', error);
-      setReviews([]);
+      const [list, c] = await Promise.all([
+        reviewsAPI.list({
+          status: def.status || undefined,
+          reported: tab === 'reported' || undefined,
+          rating: rating || undefined,
+          hasMedia: mediaOnly || undefined,
+          verified: verifiedOnly || undefined,
+          search: debounced || undefined,
+          sort,
+          limit: pageSize,
+          offset: (page - 1) * pageSize,
+        }),
+        reviewsAPI.counts().catch(() => null),
+      ]);
+      setRows(list.rows);
+      setTotal(list.total);
+      if (c) setCounts(c);
+      setSelected(new Set());
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'Could not load reviews.');
+      setRows([]); setTotal(0);
     } finally {
       setLoading(false);
     }
+  }, [tab, rating, mediaOnly, verifiedOnly, debounced, sort, page, pageSize]);
+
+  React.useEffect(() => { load(); }, [load]);
+
+  // Keep the drawer showing fresh data after an action refreshes the list.
+  React.useEffect(() => {
+    if (active) setActive(rows.find((r) => r.id === active.id) ?? null);
+  }, [rows]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  const bulk = async (fn: () => Promise<any>) => {
+    setBulkBusy(true);
+    try { await fn(); await load(); }
+    catch (e: any) { setError(e?.response?.data?.message || 'That action could not be completed.'); }
+    finally { setBulkBusy(false); }
   };
 
-  const fetchProducts = async () => {
-    try {
-      const response = await reviewsAPI.getProducts();
-      // Backend returns: { success: true, data: products[], count: number }
-      // API interceptor normalizes to: products[] or { data: products[] }
-      let productsData: any[] = [];
-      if (Array.isArray(response)) {
-        productsData = response;
-      } else if (Array.isArray(response?.data)) {
-        productsData = response.data;
-      } else if (Array.isArray(response?.data?.data)) {
-        productsData = response.data.data;
-      }
-      // Ensure we have SKU field and _id is string
-      setProducts(productsData.map((p: any) => ({
-        _id: typeof p._id === 'string' ? p._id : String(p._id || ''),
-        name: p.name || '',
-        sku: p.sku || '',
-      })));
-    } catch (error) {
-      console.error('Failed to fetch products:', error);
-      setProducts([]);
-    }
-  };
+  const ids = [...selected];
+  const allOnPageSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
 
-  // Helper function to normalize productId to string
-  const normalizeProductId = (productId: string | { _id: string; name: string; sku?: string } | undefined): string => {
-    if (!productId) return '';
-    if (typeof productId === 'string') return productId;
-    if (typeof productId === 'object' && productId !== null) {
-      const id = productId._id;
-      return typeof id === 'string' ? id : String(id || '');
-    }
-    return '';
-  };
+  const toggleAll = () =>
+    setSelected(allOnPageSelected ? new Set() : new Set(rows.map((r) => r.id)));
 
-  const handleImageUpload = async (reviewId?: string) => {
-    if (!newImage) return;
-
-    setUploading(true);
-    try {
-      const response = await uploadAPI.uploadSingle(newImage, 'reviews');
-      const imageUrl = response.data.url;
-
-      if (reviewId && editingId) {
-        // Update existing review
-        const review = reviews.find(r => {
-          const rId = typeof r._id === 'string' ? r._id : String(r._id || '');
-          return rId === reviewId;
-        });
-        if (review) {
-          const updatedImages = [...(review.images || []), imageUrl];
-          const rId = typeof review._id === 'string' ? review._id : String(review._id || '');
-          await reviewsAPI.update(rId, { images: updatedImages });
-          fetchReviews();
-        }
-      } else {
-        // Add to new review
-        setNewReview({
-          ...newReview,
-          images: [...(newReview.images || []), imageUrl],
-        });
-      }
-      setNewImage(null);
-    } catch (error) {
-      alert('Failed to upload image');
-    } finally {
-      setUploading(false);
-    }
-  };
-
-
-  const handleSaveReview = async () => {
-    try {
-      if (editingId) {
-        await reviewsAPI.update(editingId, newReview);
-      } else {
-        await reviewsAPI.create(newReview);
-      }
-      setNewReview({
-        productId: '',
-        customerName: '',
-        customerEmail: '',
-        rating: 5,
-        review: '',
-        link: '',
-        description: '',
-        images: [],
-        customerImage: undefined,
-        isApproved: true,
-        isVerified: false,
-      });
-      setEditingId(null);
-      fetchReviews();
-    } catch (error: any) {
-      alert(error.response?.data?.message || 'Failed to save review');
-    }
-  };
-
-  const handleDeleteReview = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this review?')) return;
-    try {
-      await reviewsAPI.delete(id);
-      fetchReviews();
-    } catch (error) {
-      alert('Failed to delete review');
-    }
-  };
-
-  const handleToggleApproval = async (id: string, approved: boolean) => {
-    try {
-      await reviewsAPI.approve(id, approved);
-      fetchReviews();
-    } catch (error) {
-      alert('Failed to update approval status');
-    }
-  };
-
-  const handleCsvUpload = async (file: File) => {
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const text = e.target?.result as string;
-      const lines = text.split('\n').filter(line => line.trim());
-      if (lines.length < 2) {
-        alert('CSV file must have at least a header row and one data row');
-        return;
-      }
-      
-      const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/\s+/g, ''));
-      
-      const parsedData = lines.slice(1).map((line, lineIndex) => {
-        // Handle quoted values in CSV
-        const values: string[] = [];
-        let currentValue = '';
-        let inQuotes = false;
-        
-        for (let i = 0; i < line.length; i++) {
-          const char = line[i];
-          if (char === '"') {
-            inQuotes = !inQuotes;
-          } else if (char === ',' && !inQuotes) {
-            values.push(currentValue.trim());
-            currentValue = '';
-          } else {
-            currentValue += char;
-          }
-        }
-        values.push(currentValue.trim());
-        
-        const row: any = {};
-        headers.forEach((header, index) => {
-          row[header] = values[index] || '';
-        });
-        row._lineIndex = lineIndex + 2; // Line number for error reporting
-        return row;
-      });
-
-      setCsvData(parsedData);
-      
-      let successCount = 0;
-      let errorCount = 0;
-      
-      // Process CSV data and create reviews
-      for (const row of parsedData) {
-        try {
-          // Handle Product SKU - need to find product by SKU
-          const productSku = row.productsku || row.product_sku || row.sku || '';
-          if (!productSku) {
-            console.warn(`Skipping row ${row._lineIndex}: Missing Product SKU`);
-            errorCount++;
-            continue;
-          }
-
-          // Find product by SKU
-          const product = products.find(p => p.sku === productSku);
-          if (!product) {
-            console.warn(`Skipping row ${row._lineIndex}: Product with SKU "${productSku}" not found`);
-            errorCount++;
-            continue;
-          }
-
-          const reviewData: any = {
-            productId: product._id,
-            customerName: row.name || row.customername || row.customer_name || '',
-            customerEmail: row.email || row.customeremail || row.customer_email || '',
-            rating: parseInt(row.rating || '5'),
-            review: row.review || row.reviewtext || '',
-            link: row.link || row.url || '',
-            description: row.description || row.desc || '',
-            isApproved: row.approved === 'TRUE' || row.approved === 'true' || row.approved === '1' || row.approved === true,
-            isVerified: row.verified === 'TRUE' || row.verified === 'true' || row.verified === '1' || row.verified === true,
-            images: [],
-          };
-
-          // Handle customer image URL
-          if (row.customerimage || row.customer_image || row.imageurl || row.image_url) {
-            reviewData.customerImage = row.customerimage || row.customer_image || row.imageurl || row.image_url;
-          }
-
-          // Handle review images (comma-separated URLs)
-          if (row.reviewimages || row.review_images || row.images) {
-            const imageUrls = (row.reviewimages || row.review_images || row.images).split(',').map((url: string) => url.trim()).filter((url: string) => url);
-            reviewData.images = imageUrls;
-          }
-
-          await reviewsAPI.create(reviewData);
-          successCount++;
-        } catch (error: any) {
-          console.error(`Failed to create review from CSV row ${row._lineIndex}:`, error);
-          errorCount++;
-        }
-      }
-
-      alert(`Import complete: ${successCount} successful, ${errorCount} failed`);
-      setCsvFile(null);
-      setCsvData([]);
-      fetchReviews();
-    };
-    reader.readAsText(file);
-  };
-
-  const exportToCsv = () => {
-    const headers = ['Name', 'Email', 'Rating', 'Review', 'Link', 'Description', 'Product SKU', 'Customer Image', 'Review Images', 'Approved', 'Verified'];
-    const rows = reviews.map(review => {
-      // Get product SKU - handle both populated and non-populated cases
-      let productSku = '';
-      if (typeof review.productId === 'object' && review.productId !== null) {
-        productSku = (review.productId as any).sku || '';
-      } else {
-        // If not populated, try to find in products array
-        const product = products.find(p => p._id === review.productId);
-        productSku = product?.sku || '';
-      }
-      
-      // Format review images as comma-separated string
-      const reviewImages = (review.images || []).join(',');
-      
-      return [
-        review.customerName,
-        review.customerEmail || '',
-        review.rating.toString(),
-        review.review,
-        review.link || '',
-        review.description || '',
-        productSku,
-        review.customerImage || '',
-        reviewImages,
-        review.isApproved ? 'TRUE' : 'FALSE',
-        review.isVerified ? 'TRUE' : 'FALSE',
-      ];
+  const toggleOne = (id: string) =>
+    setSelected((s) => {
+      const n = new Set(s);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
     });
 
-    const csv = [headers.join(','), ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'reviews.csv';
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  if (loading) {
-    return <div className="text-center py-12">Loading reviews...</div>;
-  }
-
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">Reviews & Testimonials</h1>
-        <div className="flex gap-2">
-          <button
-            onClick={exportToCsv}
-            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
-          >
-            <FaDownload size={14} />
-            Export CSV
-          </button>
-          <button
-            onClick={() => setBulkUploadMode(!bulkUploadMode)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-          >
-            <FaFileCsv size={14} />
-            {bulkUploadMode ? 'Cancel Bulk Upload' : 'Bulk Upload CSV'}
-          </button>
-          <button
-            onClick={() => setEditingId(null)}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
-          >
-            <FaPlus size={14} />
-            Add Review
-          </button>
-        </div>
-      </div>
-
-      {/* Bulk CSV Upload */}
-      {bulkUploadMode && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Bulk Upload Reviews (CSV)</h2>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                CSV File (headers: Name, Email, Rating, Review, Link, Description, Product SKU, Customer Image, Review Images, Approved, Verified)
-              </label>
-              <input
-                type="file"
-                accept=".csv"
-                onChange={(e) => {
-                  if (e.target.files && e.target.files[0]) {
-                    setCsvFile(e.target.files[0]);
-                    handleCsvUpload(e.target.files[0]);
-                  }
-                }}
-                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-              />
-            </div>
-            {csvData.length > 0 && (
-              <div className="bg-gray-50 p-4 rounded-md">
-                <p className="text-sm text-gray-600">Preview: {csvData.length} rows found</p>
-              </div>
+    <Page>
+      <PageHeader
+        title="Reviews"
+        icon={Star}
+        description="Moderate what shoppers say, reply publicly, and curate what shows on your product pages."
+        actions={
+          <>
+            <Btn variant="outline" onClick={load} title="Refresh">
+              <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
+            </Btn>
+            {canManage && (
+              <>
+                <Btn variant="outline" onClick={() => reviewsAPI.exportCsv({
+                  status: TABS.find((t) => t.key === tab)!.status || undefined,
+                  search: debounced || undefined,
+                })}>
+                  <Download className="h-4 w-4" /> Export
+                </Btn>
+                <Btn variant="outline" onClick={() => setShowImport(true)}>
+                  <Upload className="h-4 w-4" /> Import
+                </Btn>
+                <Btn onClick={() => setShowEditor(true)}>
+                  <Plus className="h-4 w-4" /> Add review
+                </Btn>
+              </>
             )}
-          </div>
-        </div>
-      )}
+          </>
+        }
+      />
 
-      {/* Add/Edit Review Form */}
-      {!bulkUploadMode && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">
-            {editingId ? 'Edit Review' : 'Add New Review'}
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Product</label>
-              <select
-                value={normalizeProductId(newReview.productId)}
-                onChange={(e) => setNewReview({ ...newReview, productId: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-              >
-                <option value="">Select Product</option>
-                {products.map(product => (
-                  <option key={product._id} value={product._id}>{product.name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-              <input
-                type="text"
-                value={newReview.customerName || ''}
-                onChange={(e) => setNewReview({ ...newReview, customerName: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                placeholder="Customer Name"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-              <input
-                type="email"
-                value={newReview.customerEmail || ''}
-                onChange={(e) => setNewReview({ ...newReview, customerEmail: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                placeholder="customer@example.com"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Rating (1-5)</label>
-              <select
-                value={newReview.rating || 5}
-                onChange={(e) => setNewReview({ ...newReview, rating: parseInt(e.target.value) })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-              >
-                {[5, 4, 3, 2, 1].map(r => (
-                  <option key={r} value={r}>{r} Star{r > 1 ? 's' : ''}</option>
-                ))}
-              </select>
-            </div>
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Review</label>
-              <textarea
-                value={newReview.review || ''}
-                onChange={(e) => setNewReview({ ...newReview, review: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                rows={3}
-                placeholder="Customer review text"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Link</label>
-              <input
-                type="url"
-                value={newReview.link || ''}
-                onChange={(e) => setNewReview({ ...newReview, link: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                placeholder="https://example.com"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-              <input
-                type="text"
-                value={newReview.description || ''}
-                onChange={(e) => setNewReview({ ...newReview, description: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                placeholder="Additional description"
-              />
-            </div>
-            <div className="md:col-span-2">
-              <ImageInputWithActions
-                value={newReview.customerImage || ''}
-                onChange={(url) => setNewReview({ ...newReview, customerImage: url })}
-                label="Customer Image (Profile Photo)"
-                placeholder="Enter customer image URL manually (https://...)"
-                contextData={newReview.customerName ? { productName: newReview.customerName, itemDescription: newReview.description } : undefined}
-              />
-            </div>
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Review Images</label>
-              <div className="flex items-center gap-2 mb-2">
-                <label className="flex items-center gap-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 cursor-pointer">
-                  <FaUpload size={14} />
-                  Upload Image
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => {
-                      if (e.target.files && e.target.files[0]) {
-                        setNewImage(e.target.files[0]);
-                      }
-                    }}
-                  />
-                </label>
-                {newImage && (
-                  <button
-                    onClick={() => handleImageUpload()}
-                    disabled={uploading}
-                    className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {uploading ? 'Uploading...' : 'Upload'}
-                  </button>
+      {/* Health at a glance */}
+      <StatGrid>
+        <StatCard
+          label="Average rating"
+          value={counts ? Number(counts.avg_rating || 0).toFixed(1) : '—'}
+          sub={<StarRating value={Math.round(Number(counts?.avg_rating || 0))} size={12} />}
+          icon={Star}
+        />
+        <StatCard
+          label="Awaiting moderation"
+          value={counts?.pending ?? '—'}
+          sub={counts?.pending ? 'Shoppers cannot see these yet' : 'Queue is clear'}
+          tone={counts?.pending ? 'warn' : 'default'}
+          icon={MessageSquare}
+        />
+        <StatCard
+          label="Published"
+          value={counts?.approved ?? '—'}
+          sub={`${counts?.total ?? 0} total collected`}
+          icon={Check}
+        />
+        <StatCard
+          label="Reported"
+          value={counts?.reported ?? '—'}
+          sub={counts?.reported ? 'Flagged by shoppers' : 'Nothing flagged'}
+          tone={counts?.reported ? 'bad' : 'default'}
+          icon={Flag}
+        />
+      </StatGrid>
+
+      <TabBar
+        active={tab}
+        onChange={(k) => { setTab(k as TabKey); setPage(1); }}
+        tabs={TABS.map((t) => {
+          const n = !counts ? null
+            : t.key === 'pending' ? counts.pending
+            : t.key === 'approved' ? counts.approved
+            : t.key === 'reported' ? counts.reported
+            : t.key === 'rejected' ? counts.rejected + counts.spam
+            : counts.total;
+          return {
+            key: t.key,
+            label: (
+              <span className="inline-flex items-center gap-1.5">
+                {t.label}
+                {n != null && n > 0 && (
+                  <span className={cn(
+                    'rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
+                    t.key === 'pending' ? 'bg-amber-100 text-amber-700'
+                      : t.key === 'reported' ? 'bg-red-100 text-red-700'
+                      : 'bg-gray-100 text-gray-600',
+                  )}>{n}</span>
                 )}
-              </div>
-              {newReview.images && newReview.images.length > 0 && (
-                <div className="flex flex-wrap gap-2 mt-2">
-                  {newReview.images.map((img, index) => (
-                    <div key={index} className="relative">
-                      <img src={img} alt={`Review ${index + 1}`} className="w-20 h-20 object-cover rounded" />
-                      <button
-                        onClick={() => {
-                          setNewReview({
-                            ...newReview,
-                            images: newReview.images?.filter((_, i) => i !== index),
-                          });
-                        }}
-                        className="absolute -top-1 -right-1 bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center"
-                      >
-                        <FaTimes size={10} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className="flex items-center gap-4">
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={newReview.isApproved || false}
-                  onChange={(e) => setNewReview({ ...newReview, isApproved: e.target.checked })}
-                  className="rounded"
-                />
-                <span className="text-sm text-gray-700">Approved</span>
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={newReview.isVerified || false}
-                  onChange={(e) => setNewReview({ ...newReview, isVerified: e.target.checked })}
-                  className="rounded"
-                />
-                <span className="text-sm text-gray-700">Verified</span>
-              </label>
-            </div>
-            <div className="flex justify-end">
-              <button
-                onClick={handleSaveReview}
-                className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
-              >
-                {editingId ? 'Update Review' : 'Add Review'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+              </span>
+            ),
+          };
+        })}
+      />
 
-      {/* Reviews List */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rating</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Review</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Image</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Link</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {reviews.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-6 py-4 text-center text-gray-500">
-                    No reviews found. Add your first review above.
-                  </td>
-                </tr>
-              ) : (
-                reviews.map((review) => {
-                  const reviewId = typeof review._id === 'string' ? review._id : String(review._id || '');
-                  return (
-                <tr key={reviewId}>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      {review.customerImage && (
-                        <img
-                          src={review.customerImage}
-                          alt={review.customerName}
-                          className="w-10 h-10 rounded-full mr-3"
-                          onError={(e) => e.currentTarget.style.display = 'none'}
-                        />
-                      )}
-                      <div>
-                        <div className="text-sm font-medium text-gray-900">{review.customerName}</div>
-                        {review.customerEmail && (
-                          <div className="text-sm text-gray-500">{review.customerEmail}</div>
-                        )}
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center gap-1">
-                      {[...Array(5)].map((_, i) => (
-                        <span key={i} className={i < review.rating ? 'text-yellow-400' : 'text-gray-300'}>★</span>
-                      ))}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="text-sm text-gray-900 line-clamp-2">{review.review}</div>
-                    {review.description && (
-                      <div className="text-xs text-gray-500 mt-1">{review.description}</div>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    {review.images && review.images.length > 0 ? (
-                      <div className="flex gap-1">
-                        {review.images.slice(0, 2).map((img, index) => (
-                          <img
-                            key={index}
-                            src={img}
-                            alt={`Review ${index + 1}`}
-                            className="w-12 h-12 object-cover rounded"
-                          />
-                        ))}
-                        {review.images.length > 2 && (
-                          <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center text-xs">
-                            +{review.images.length - 2}
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-gray-400 text-sm">No image</span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    {review.link ? (
-                      <a
-                        href={review.link}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:text-blue-800 text-sm"
-                      >
-                        View
-                      </a>
-                    ) : (
-                      <span className="text-gray-400 text-sm">-</span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex flex-col gap-1">
-                      <button
-                        onClick={() => handleToggleApproval(reviewId, !review.isApproved)}
-                        className={`text-xs px-2 py-1 rounded ${
-                          review.isApproved
-                            ? 'bg-green-100 text-green-800'
-                            : 'bg-gray-100 text-gray-800'
-                        }`}
-                      >
-                        {review.isApproved ? 'Approved' : 'Pending'}
-                      </button>
-                      {review.isVerified && (
-                        <span className="text-xs px-2 py-1 bg-blue-100 text-blue-800 rounded">Verified</span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => {
-                          setEditingId(reviewId);
-                          setNewReview({
-                            ...review,
-                            productId: normalizeProductId(review.productId) as string,
-                          });
-                        }}
-                        className="text-indigo-600 hover:text-indigo-900"
-                      >
-                        <FaEdit size={14} />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteReview(reviewId)}
-                        className="text-red-600 hover:text-red-900"
-                      >
-                        <FaTrash size={14} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-                );
-              })
-              )}
-            </tbody>
-          </table>
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[16rem] flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search reviews, reviewers, product names…"
+            className="h-9 w-full rounded-lg border border-gray-300 pl-9 pr-8 text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+          />
+          {search && (
+            <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-gray-400 hover:bg-gray-100">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
+
+        <SelectInput value={rating} onChange={(e) => { setRating(e.target.value); setPage(1); }} className="h-9 w-auto">
+          <option value="">All ratings</option>
+          {[5, 4, 3, 2, 1].map((n) => <option key={n} value={n}>{n} star{n > 1 ? 's' : ''}</option>)}
+          <option value="1,2">Critical (1–2)</option>
+        </SelectInput>
+
+        <SelectInput value={sort} onChange={(e) => setSort(e.target.value)} className="h-9 w-auto">
+          {SORTS.map((s) => <option key={s.v} value={s.v}>{s.l}</option>)}
+        </SelectInput>
+
+        {[
+          { on: mediaOnly, set: setMediaOnly, icon: ImageIcon, label: 'With media' },
+          { on: verifiedOnly, set: setVerifiedOnly, icon: ShieldCheck, label: 'Verified' },
+        ].map((f) => (
+          <button
+            key={f.label}
+            onClick={() => { f.set(!f.on); setPage(1); }}
+            className={cn(
+              'inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm transition',
+              f.on ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50',
+            )}
+          >
+            <f.icon className="h-3.5 w-3.5" /> {f.label}
+          </button>
+        ))}
       </div>
 
-      {/* Pagination */}
-      {pagination.pages > 1 && (
-        <div className="bg-white rounded-lg shadow mt-6">
-          <div className="bg-gray-50 px-4 py-3 flex items-center justify-between border-t border-gray-200">
-            <div className="text-sm text-gray-700">
-              Showing {((pagination.page - 1) * pagination.limit) + 1} to {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total} results
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setPagination(prev => ({ ...prev, page: prev.page - 1 }))}
-                disabled={pagination.page === 1}
-                className="px-3 py-1 border border-gray-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-              >
-                Previous
-              </button>
-              <button
-                onClick={() => setPagination(prev => ({ ...prev, page: prev.page + 1 }))}
-                disabled={pagination.page >= pagination.pages}
-                className="px-3 py-1 border border-gray-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-              >
-                Next
-              </button>
-            </div>
-          </div>
+      {error && (
+        <p className="flex items-start gap-2 rounded-lg bg-red-50 p-3 text-sm text-red-700">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {error}
+        </p>
+      )}
+
+      {/* Bulk action bar — appears only when something is selected */}
+      {selected.size > 0 && canManage && (
+        <div className="sticky top-2 z-20 flex flex-wrap items-center gap-2 rounded-lg border border-gray-900/10 bg-gray-900 px-3 py-2 text-white shadow-lg">
+          <span className="text-sm font-medium tabular-nums">{selected.size} selected</span>
+          <span className="mx-1 h-4 w-px bg-white/20" />
+          {([
+            { s: 'approved', label: 'Approve', icon: Check },
+            { s: 'rejected', label: 'Reject', icon: Ban },
+            { s: 'spam', label: 'Spam', icon: Flag },
+            { s: 'hidden', label: 'Hide', icon: EyeOff },
+          ] as Array<{ s: ReviewStatus; label: string; icon: any }>).map((a) => (
+            <button
+              key={a.s}
+              disabled={bulkBusy}
+              onClick={() => bulk(() => reviewsAPI.moderate(ids, a.s))}
+              className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-sm hover:bg-white/15 disabled:opacity-50"
+            >
+              <a.icon className="h-3.5 w-3.5" /> {a.label}
+            </button>
+          ))}
+          <button
+            disabled={bulkBusy}
+            onClick={() => bulk(() => reviewsAPI.feature(ids, true))}
+            className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-sm hover:bg-white/15 disabled:opacity-50"
+          >
+            <Star className="h-3.5 w-3.5" /> Pin
+          </button>
+          {canDelete && (
+            <button
+              disabled={bulkBusy}
+              onClick={() => {
+                if (confirm(`Delete ${ids.length} review(s) permanently? This cannot be undone.`)) {
+                  bulk(() => reviewsAPI.bulkDelete(ids));
+                }
+              }}
+              className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-sm text-red-300 hover:bg-red-500/20 disabled:opacity-50"
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Delete
+            </button>
+          )}
+          <span className="flex-1" />
+          {bulkBusy && <Loader2 className="h-4 w-4 animate-spin" />}
+          <button onClick={() => setSelected(new Set())} className="rounded-md px-2 py-1 text-sm hover:bg-white/15">
+            Clear
+          </button>
         </div>
       )}
-    </div>
+
+      {/* List */}
+      {loading && !rows.length ? (
+        <div className="space-y-2">
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="h-20 animate-pulse rounded-lg bg-gray-100" />
+          ))}
+        </div>
+      ) : !rows.length ? (
+        <EmptyState
+          icon={Star}
+          title={debounced ? 'No reviews match your search' : tab === 'pending' ? 'Nothing waiting for you' : 'No reviews yet'}
+          description={
+            debounced ? 'Try a different word, or clear the filters.'
+              : tab === 'pending' ? 'Every review has been moderated. New ones will land here.'
+              : 'Reviews shoppers leave on your product pages appear here. You can also add or import existing ones.'
+          }
+          action={canManage && !debounced ? (
+            <div className="flex gap-2">
+              <Btn onClick={() => setShowEditor(true)}><Plus className="h-4 w-4" /> Add review</Btn>
+              <Btn variant="outline" onClick={() => setShowImport(true)}><Upload className="h-4 w-4" /> Import CSV</Btn>
+            </div>
+          ) : undefined}
+        />
+      ) : (
+        <TableShell>
+          <table className="w-full text-sm">
+            <THead>
+              {canManage && (
+                <Th className="w-10">
+                  <input
+                    type="checkbox"
+                    checked={allOnPageSelected}
+                    onChange={toggleAll}
+                    aria-label="Select all on this page"
+                    className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                </Th>
+              )}
+              <Th>Product</Th>
+              <Th className="w-28">Rating</Th>
+              <Th>Review</Th>
+              <Th className="w-36">Media</Th>
+              <Th className="w-32">Status</Th>
+              <Th className="w-28">Date</Th>
+            </THead>
+            <TBody>
+              {rows.map((r) => (
+                <Tr
+                  key={r.id}
+                  onClick={() => setActive(r)}
+                  className={cn('cursor-pointer', selected.has(r.id) && 'bg-indigo-50/60')}
+                >
+                  {canManage && (
+                    <Td onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selected.has(r.id)}
+                        onChange={() => toggleOne(r.id)}
+                        aria-label={`Select review by ${r.customer_name}`}
+                        className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                      />
+                    </Td>
+                  )}
+
+                  <Td>
+                    <div className="flex items-center gap-2">
+                      {r.product_image ? (
+                        <img src={r.product_image} alt="" className="h-9 w-9 shrink-0 rounded object-cover" />
+                      ) : (
+                        <span className="h-9 w-9 shrink-0 rounded bg-gray-100" />
+                      )}
+                      <span className="min-w-0">
+                        <span className="block max-w-[13rem] truncate font-medium text-gray-900">
+                          {r.variation_name || r.product_name}
+                        </span>
+                        <span className="block truncate text-xs text-gray-400">{r.product_sku}</span>
+                      </span>
+                    </div>
+                  </Td>
+
+                  <Td>
+                    <StarRating value={r.rating} size={13} />
+                    {r.is_verified && (
+                      <span className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-emerald-700">
+                        <ShieldCheck className="h-3 w-3" /> Verified
+                      </span>
+                    )}
+                  </Td>
+
+                  <Td>
+                    <span className="block max-w-md">
+                      {r.title && <span className="block truncate font-medium text-gray-900">{r.title}</span>}
+                      <span className="block truncate text-gray-600">{r.review}</span>
+                      <span className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-gray-400">
+                        <span>{r.customer_name}</span>
+                        {r.helpful_count > 0 && <span>· {r.helpful_count} found helpful</span>}
+                        {r.reply_body && (
+                          <span className="inline-flex items-center gap-0.5 text-indigo-600">
+                            <MessageSquare className="h-3 w-3" /> replied
+                          </span>
+                        )}
+                        {r.reported_count > 0 && (
+                          <span className="inline-flex items-center gap-0.5 text-red-600">
+                            <Flag className="h-3 w-3" /> {r.reported_count}
+                          </span>
+                        )}
+                        {(r.auto_flags?.length ?? 0) > 0 && (
+                          <span className="inline-flex items-center gap-0.5 text-amber-600">
+                            <AlertTriangle className="h-3 w-3" /> check
+                          </span>
+                        )}
+                      </span>
+                    </span>
+                  </Td>
+
+                  <Td onClick={(e) => e.stopPropagation()}>
+                    <MediaStrip
+                      media={r.media}
+                      onOpen={(i) => setLightbox({ media: r.media, index: i })}
+                    />
+                  </Td>
+
+                  <Td>
+                    <div className="flex flex-wrap items-center gap-1">
+                      <StatusChip status={r.status} />
+                      {r.is_featured && <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />}
+                    </div>
+                    {canManage && r.status === 'pending' && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); bulk(() => reviewsAPI.moderate([r.id], 'approved')); }}
+                        className="mt-1 inline-flex items-center gap-1 rounded bg-emerald-600 px-1.5 py-0.5 text-[11px] font-medium text-white hover:bg-emerald-700"
+                      >
+                        <Check className="h-3 w-3" /> Approve
+                      </button>
+                    )}
+                  </Td>
+
+                  <Td muted>
+                    {new Date(r.created_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: '2-digit' })}
+                  </Td>
+                </Tr>
+              ))}
+            </TBody>
+          </table>
+        </TableShell>
+      )}
+
+      <Pagination
+        page={page}
+        pageSize={pageSize}
+        total={total}
+        onPage={setPage}
+        onPageSize={(n) => { setPageSize(n); setPage(1); }}
+      />
+
+      <ReviewDetailDrawer
+        review={active}
+        onClose={() => setActive(null)}
+        onChanged={load}
+        canManage={canManage}
+        canDelete={canDelete}
+      />
+      <ReviewEditorModal open={showEditor} onClose={() => setShowEditor(false)} onSaved={load} />
+      <ReviewImportModal open={showImport} onClose={() => setShowImport(false)} onImported={load} />
+      {lightbox && (
+        <MediaLightbox
+          media={lightbox.media}
+          index={lightbox.index}
+          onIndex={(i) => setLightbox({ ...lightbox, index: i })}
+          onClose={() => setLightbox(null)}
+        />
+      )}
+    </Page>
   );
 };
 
 export default Reviews;
-

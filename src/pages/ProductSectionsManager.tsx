@@ -4,6 +4,7 @@ import { productsAPI, uploadAPI } from '../services/api';
 import { FaArrowLeft, FaCheck, FaTimes, FaEdit, FaPlus, FaTrash, FaUpload, FaMagic, FaImage } from 'react-icons/fa';
 import ImageInputWithActions from '../components/common/ImageInputWithActions';
 import IconPicker from '../components/IconPicker';
+import { useAuth } from '../contexts/AuthContext';
 
 interface ProductPageSection {
   sectionId: string;
@@ -14,6 +15,22 @@ interface ProductPageSection {
   customData?: any;
 }
 
+/**
+ * Sections read by the LIVE Next.js storefront (storefront/src/app/product/[slug]/page.tsx).
+ * These are built-ins: toggleable + orderable, never deletable. With empty customData the
+ * storefront renders nothing for them (or falls back to the product's own fields), so
+ * defaulting them to enabled is safe.
+ */
+const storefrontSections: Omit<ProductPageSection, 'order' | 'customData'>[] = [
+  { sectionId: 'short-description', name: 'Short Description Override', description: 'Overrides the product short description on the live storefront product page', enabled: true },
+  { sectionId: 'description', name: 'Description', description: 'Rich HTML description — overrides the product description on the live storefront', enabled: true },
+  { sectionId: 'dosage', name: 'Dosage', description: 'Dosage instructions block on the live storefront product page', enabled: true },
+  { sectionId: 'important-info', name: 'Important Information', description: 'Important information block on the live storefront product page', enabled: true },
+  { sectionId: 'faqs', name: 'FAQs', description: 'Question & answer list rendered on the live storefront product page', enabled: true },
+  { sectionId: 'form-content', name: 'Per-Form Content', description: 'Different description/dosage per product form — Dilution, Mother Tincture…', enabled: true },
+];
+
+/** Sections rendered ONLY by the legacy ecom/ single-product theme — the main storefront ignores them. */
 const availableSections: Omit<ProductPageSection, 'order' | 'customData'>[] = [
   { sectionId: 'features', name: 'Features Box', description: 'Top Quality, Easy Exchange, Free Shipping', enabled: true },
   { sectionId: 'whySpeedster', name: 'Why Speedster', description: 'Why choose this product', enabled: true },
@@ -23,7 +40,7 @@ const availableSections: Omit<ProductPageSection, 'order' | 'customData'>[] = [
   { sectionId: 'customerOrderGallery', name: 'Customer Order Gallery', description: 'Screenshots of customer orders', enabled: true },
   { sectionId: 'stylingGuide', name: 'Styling Guide', description: 'How to style the product', enabled: true },
   { sectionId: 'instagramFeed', name: 'Instagram Feed', description: 'Instagram posts grid', enabled: true },
-  { sectionId: 'faq', name: 'FAQ', description: 'Frequently asked questions', enabled: true },
+  { sectionId: 'faq', name: 'FAQ', description: "Frequently asked questions (legacy theme FAQ — the main storefront uses the 'FAQs' section in the live group above)", enabled: true },
   { sectionId: 'whyUs', name: 'Why Us', description: 'Benefits and advantages', enabled: true },
 ];
 
@@ -161,6 +178,7 @@ const CustomSectionModal: React.FC<{
 const ProductSectionsManager: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { canAccess } = useAuth();
   const [sections, setSections] = useState<ProductPageSection[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -206,18 +224,20 @@ const ProductSectionsManager: React.FC = () => {
       // Initialize sections from product or use defaults
       // PG returns snake_case page_sections; MongoDB returned camelCase pageSections
       const existingPageSections: any[] = product.page_sections || product.pageSections || [];
+      // Built-ins = live-storefront sections FIRST, then legacy ecom-theme sections
+      const builtInSections = [...storefrontSections, ...availableSections];
       if (existingPageSections.length > 0) {
-        // Merge with available sections to get full info
-        const mergedSections = availableSections.map(availSection => {
-          const productSection = existingPageSections.find((ps: any) => ps.sectionId === availSection.sectionId);
+        // Merge with built-in sections to get full info (enabled/order/customData preserved)
+        const mergedSections = builtInSections.map(builtIn => {
+          const productSection = existingPageSections.find((ps: any) => ps.sectionId === builtIn.sectionId);
           return {
-            ...availSection,
+            ...builtIn,
             enabled: productSection?.enabled !== false,
-            order: productSection?.order ?? availableSections.indexOf(availSection),
+            order: productSection?.order ?? builtInSections.indexOf(builtIn),
             customData: productSection?.customData,
           };
         });
-        // Add any sections that exist in product but not in availableSections
+        // Add any sections that exist in product but not in the built-in catalogs (custom)
         existingPageSections.forEach((ps: any) => {
           if (!mergedSections.find(s => s.sectionId === ps.sectionId)) {
             mergedSections.push({
@@ -233,7 +253,7 @@ const ProductSectionsManager: React.FC = () => {
         setSections(mergedSections.sort((a, b) => a.order - b.order));
       } else {
         // Use defaults
-        setSections(availableSections.map((section, index) => ({
+        setSections(builtInSections.map((section, index) => ({
           ...section,
           enabled: section.enabled,
           order: index,
@@ -258,7 +278,9 @@ const ProductSectionsManager: React.FC = () => {
 
   const handleDeleteSection = (sectionId: string) => {
     // Only allow deleting custom (non-built-in) sections
-    const isBuiltIn = availableSections.some(s => s.sectionId === sectionId);
+    const isBuiltIn =
+      storefrontSections.some(s => s.sectionId === sectionId) ||
+      availableSections.some(s => s.sectionId === sectionId);
     if (isBuiltIn) return;
     if (!confirm('Remove this custom section?')) return;
     setSections(prev => prev.filter(s => s.sectionId !== sectionId));
@@ -272,26 +294,18 @@ const ProductSectionsManager: React.FC = () => {
     ));
   };
 
-  const handleMoveUp = (index: number) => {
-    if (index === 0) return;
+  /** Swap a section with its neighbour WITHIN its display group, re-numbering
+   *  global `order` by array index (sections list stays a single ordered array). */
+  const moveWithinGroup = (group: ProductPageSection[], groupIndex: number, dir: -1 | 1) => {
+    const current = group[groupIndex];
+    const neighbour = group[groupIndex + dir];
+    if (!current || !neighbour) return;
+    const a = sections.findIndex(s => s.sectionId === current.sectionId);
+    const b = sections.findIndex(s => s.sectionId === neighbour.sectionId);
+    if (a === -1 || b === -1) return;
     const items = [...sections];
-    [items[index - 1], items[index]] = [items[index], items[index - 1]];
-    const updatedItems = items.map((item, i) => ({
-      ...item,
-      order: i,
-    }));
-    setSections(updatedItems);
-  };
-
-  const handleMoveDown = (index: number) => {
-    if (index === sections.length - 1) return;
-    const items = [...sections];
-    [items[index], items[index + 1]] = [items[index + 1], items[index]];
-    const updatedItems = items.map((item, i) => ({
-      ...item,
-      order: i,
-    }));
-    setSections(updatedItems);
+    [items[a], items[b]] = [items[b], items[a]];
+    setSections(items.map((item, i) => ({ ...item, order: i })));
   };
 
   const handleSave = async () => {
@@ -315,6 +329,29 @@ const ProductSectionsManager: React.FC = () => {
     }
   };
 
+  // Module gate — the backend field guard strips page_sections when the A+ Content
+  // module is off, so the editor would silently lie. Show a notice instead.
+  if (!canAccess('aplus_content')) {
+    return (
+      <div className="p-6 flex items-center justify-center min-h-[60vh]">
+        <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-8 max-w-md text-center">
+          <h1 className="text-lg font-bold text-gray-900 mb-2">Content sections are disabled for this store</h1>
+          <p className="text-sm text-gray-600 mb-6">
+            The A+ Content / Content Blocks module is turned off. Ask your platform admin to
+            enable it — saves are ignored while it is off.
+          </p>
+          <button
+            type="button"
+            onClick={() => navigate('/products')}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
+          >
+            <FaArrowLeft size={12} /> Back to Products
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -322,6 +359,83 @@ const ProductSectionsManager: React.FC = () => {
       </div>
     );
   }
+
+  // Partition into display groups (each keeps its relative order from `sections`)
+  const storefrontIds = new Set(storefrontSections.map(s => s.sectionId));
+  const legacyIds = new Set(availableSections.map(s => s.sectionId));
+  const storefrontGroup = sections.filter(s => storefrontIds.has(s.sectionId));
+  const legacyGroup = sections.filter(s => legacyIds.has(s.sectionId));
+  const customGroup = sections.filter(s => !storefrontIds.has(s.sectionId) && !legacyIds.has(s.sectionId));
+
+  const renderSectionRow = (section: ProductPageSection, group: ProductPageSection[], groupIndex: number) => {
+    const isCustom = !storefrontIds.has(section.sectionId) && !legacyIds.has(section.sectionId);
+    return (
+      <div
+        key={section.sectionId}
+        className={`flex items-center gap-4 p-4 border rounded-lg bg-white ${isCustom ? 'border-indigo-200 bg-indigo-50/30' : 'border-gray-200'}`}
+      >
+        <div className="flex flex-col gap-1">
+          <button
+            type="button"
+            onClick={() => moveWithinGroup(group, groupIndex, -1)}
+            disabled={groupIndex === 0}
+            className="text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            ↑
+          </button>
+          <button
+            type="button"
+            onClick={() => moveWithinGroup(group, groupIndex, 1)}
+            disabled={groupIndex === group.length - 1}
+            className="text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            ↓
+          </button>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <h3 className="font-semibold text-gray-900">{section.name}</h3>
+            {isCustom && (
+              <span className="text-[10px] font-medium px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded">Custom</span>
+            )}
+          </div>
+          <p className="text-sm text-gray-500">{section.description}</p>
+          <span className="text-xs text-gray-400 font-mono">id: {section.sectionId} · export: section_{section.sectionId}_*</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setEditingSection(section.sectionId)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-800 rounded-md hover:bg-blue-200"
+            title="Edit Content"
+          >
+            <FaEdit /> Edit Content
+          </button>
+          <button
+            type="button"
+            onClick={() => handleToggleSection(section.sectionId)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${
+              section.enabled
+                ? 'bg-green-100 text-green-800 hover:bg-green-200'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            {section.enabled ? <><FaCheck /> Enabled</> : <><FaTimes /> Disabled</>}
+          </button>
+          {isCustom && (
+            <button
+              type="button"
+              onClick={() => handleDeleteSection(section.sectionId)}
+              className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-md"
+              title="Remove custom section"
+            >
+              <FaTrash size={13} />
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="p-6">
@@ -349,76 +463,29 @@ const ProductSectionsManager: React.FC = () => {
           </button>
         </div>
 
-        <div className="space-y-3">
-          {sections.map((section, index) => {
-            const isCustom = !availableSections.some(s => s.sectionId === section.sectionId);
-            return (
-            <div
-              key={section.sectionId}
-              className={`flex items-center gap-4 p-4 border rounded-lg bg-white ${isCustom ? 'border-indigo-200 bg-indigo-50/30' : 'border-gray-200'}`}
-            >
-              <div className="flex flex-col gap-1">
-                <button
-                  type="button"
-                  onClick={() => handleMoveUp(index)}
-                  disabled={index === 0}
-                  className="text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  ↑
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleMoveDown(index)}
-                  disabled={index === sections.length - 1}
-                  className="text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  ↓
-                </button>
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <h3 className="font-semibold text-gray-900">{section.name}</h3>
-                  {isCustom && (
-                    <span className="text-[10px] font-medium px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded">Custom</span>
-                  )}
-                </div>
-                <p className="text-sm text-gray-500">{section.description}</p>
-                <span className="text-xs text-gray-400 font-mono">id: {section.sectionId} · export: section_{section.sectionId}_*</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setEditingSection(section.sectionId)}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-800 rounded-md hover:bg-blue-200"
-                  title="Edit Content"
-                >
-                  <FaEdit /> Edit Content
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleToggleSection(section.sectionId)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${
-                    section.enabled
-                      ? 'bg-green-100 text-green-800 hover:bg-green-200'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-                >
-                  {section.enabled ? <><FaCheck /> Enabled</> : <><FaTimes /> Disabled</>}
-                </button>
-                {isCustom && (
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteSection(section.sectionId)}
-                    className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-md"
-                    title="Remove custom section"
-                  >
-                    <FaTrash size={13} />
-                  </button>
-                )}
+        <div className="space-y-6">
+          <div>
+            <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-1">Storefront sections (live theme)</h2>
+            <p className="text-xs text-gray-500 mb-3">These render on the main storefront product page.</p>
+            <div className="space-y-3">
+              {storefrontGroup.map((section, i) => renderSectionRow(section, storefrontGroup, i))}
+            </div>
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-1">Legacy template sections (single-product theme only)</h2>
+            <p className="text-xs text-gray-500 mb-3">These render only on the single-product (ecom) storefront theme — the main storefront ignores them.</p>
+            <div className="space-y-3">
+              {legacyGroup.map((section, i) => renderSectionRow(section, legacyGroup, i))}
+            </div>
+          </div>
+          {customGroup.length > 0 && (
+            <div>
+              <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-1">Custom sections</h2>
+              <div className="space-y-3">
+                {customGroup.map((section, i) => renderSectionRow(section, customGroup, i))}
               </div>
             </div>
-          );
-          })}
+          )}
         </div>
       </div>
 
@@ -534,6 +601,17 @@ const SectionContentEditor: React.FC<SectionContentEditorProps> = ({ section, on
 
   const renderEditor = () => {
     switch (section.sectionId) {
+      // ── Live storefront sections ──
+      case 'short-description':
+      case 'description':
+      case 'dosage':
+      case 'important-info':
+        return <HtmlContentEditor data={formData} onChange={setFormData} />;
+      case 'faqs':
+        return <FaqItemsEditor data={formData} onChange={setFormData} />;
+      case 'form-content':
+        return <FormContentEditor data={formData} onChange={setFormData} />;
+      // ── Legacy ecom-theme sections ──
       case 'features':
         return <FeaturesEditor data={formData} onChange={setFormData} />;
       case 'whySpeedster':
@@ -689,6 +767,17 @@ const SectionContentEditor: React.FC<SectionContentEditorProps> = ({ section, on
 // Default content generators
 const getDefaultContent = (sectionId: string): any => {
   switch (sectionId) {
+    // Live storefront sections — deliberately empty: with no content the
+    // storefront renders nothing / falls back to the product's own fields.
+    case 'short-description':
+    case 'description':
+    case 'dosage':
+    case 'important-info':
+      return { content: '' };
+    case 'faqs':
+      return { items: [] };
+    case 'form-content':
+      return { forms: {} };
     case 'features':
       return {
         items: [
@@ -859,6 +948,196 @@ const CustomSectionDataEditor: React.FC<{ data: any; onChange: (data: any) => vo
       >
         <FaPlus size={10} /> Add field
       </button>
+    </div>
+  );
+};
+
+// ─── Live storefront section editors ──────────────────────────────────────────
+
+/** short-description / description / dosage / important-info → customData.content */
+const HtmlContentEditor: React.FC<{ data: any; onChange: (data: any) => void }> = ({ data, onChange }) => (
+  <div className="space-y-2">
+    <label className="block text-sm font-medium text-gray-700">Content (HTML allowed)</label>
+    <textarea
+      value={data?.content || ''}
+      onChange={(e) => onChange({ ...data, content: e.target.value })}
+      className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono text-sm resize-y focus:outline-none focus:ring-2 focus:ring-blue-500"
+      rows={14}
+      placeholder="<p>Your content…</p>"
+    />
+    <p className="text-xs text-gray-500">
+      Overrides the product's own text on the live storefront. Leave empty to keep the product default.
+    </p>
+  </div>
+);
+
+/** faqs → customData.items = [{ question, answer }] */
+const FaqItemsEditor: React.FC<{ data: any; onChange: (data: any) => void }> = ({ data, onChange }) => {
+  const items: Array<{ question?: string; answer?: string }> = data?.items || [];
+
+  const updateItem = (index: number, field: 'question' | 'answer', value: string) => {
+    const next = [...items];
+    next[index] = { ...next[index], [field]: value };
+    onChange({ ...data, items: next });
+  };
+
+  const addItem = () => {
+    onChange({ ...data, items: [...items, { question: '', answer: '' }] });
+  };
+
+  const removeItem = (index: number) => {
+    onChange({ ...data, items: items.filter((_, i) => i !== index) });
+  };
+
+  return (
+    <div className="space-y-4">
+      <h3 className="font-semibold text-gray-900">Questions & Answers</h3>
+      {items.map((item, index) => (
+        <div key={index} className="border border-gray-200 rounded-lg p-4 space-y-3">
+          <div className="flex justify-between items-center">
+            <h4 className="font-medium text-gray-900">FAQ {index + 1}</h4>
+            <button
+              type="button"
+              onClick={() => removeItem(index)}
+              className="text-red-600 hover:text-red-800"
+              title="Remove question"
+            >
+              <FaTrash />
+            </button>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Question</label>
+            <input
+              type="text"
+              value={item.question || ''}
+              onChange={(e) => updateItem(index, 'question', e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              placeholder="e.g. How should I store this medicine?"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Answer</label>
+            <textarea
+              value={item.answer || ''}
+              onChange={(e) => updateItem(index, 'answer', e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              rows={3}
+              placeholder="Answer shown when the question is expanded"
+            />
+          </div>
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={addItem}
+        className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+      >
+        <FaPlus /> Add Question
+      </button>
+    </div>
+  );
+};
+
+/** form-content → customData.forms = { [formName]: { description?, dosage?, importantInfo?, faqs? } } */
+const FormContentEditor: React.FC<{ data: any; onChange: (data: any) => void }> = ({ data, onChange }) => {
+  const [newFormName, setNewFormName] = useState('');
+  const forms: Record<string, any> = data?.forms || {};
+  const formKeys = Object.keys(forms);
+
+  const updateForm = (key: string, field: 'description' | 'dosage' | 'importantInfo', value: string) => {
+    onChange({ ...data, forms: { ...forms, [key]: { ...forms[key], [field]: value } } });
+  };
+
+  const addForm = () => {
+    const key = newFormName.trim();
+    if (!key) return;
+    if (forms[key]) {
+      alert(`A form named "${key}" already exists.`);
+      return;
+    }
+    onChange({ ...data, forms: { ...forms, [key]: { description: '', dosage: '', importantInfo: '' } } });
+    setNewFormName('');
+  };
+
+  const removeForm = (key: string) => {
+    if (!confirm(`Remove content for form "${key}"?`)) return;
+    const next = { ...forms };
+    delete next[key];
+    onChange({ ...data, forms: next });
+  };
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-gray-600">
+        Per-form content for products whose variations span multiple forms (e.g. Dilution and
+        Mother Tincture). The storefront shows the block matching the selected variation's form.
+      </p>
+      {formKeys.length === 0 && (
+        <p className="text-sm text-gray-400 italic">No forms yet — add one below (e.g. "Dilution", "Mother Tincture").</p>
+      )}
+      {formKeys.map((key) => (
+        <div key={key} className="border border-gray-200 rounded-lg p-4 space-y-3">
+          <div className="flex justify-between items-center">
+            <h4 className="font-medium text-gray-900">{key}</h4>
+            <button
+              type="button"
+              onClick={() => removeForm(key)}
+              className="text-red-600 hover:text-red-800"
+              title="Remove this form"
+            >
+              <FaTrash />
+            </button>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Description (HTML allowed)</label>
+            <textarea
+              value={forms[key]?.description || ''}
+              onChange={(e) => updateForm(key, 'description', e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm resize-y"
+              rows={4}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Dosage (HTML allowed)</label>
+            <textarea
+              value={forms[key]?.dosage || ''}
+              onChange={(e) => updateForm(key, 'dosage', e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm resize-y"
+              rows={3}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Important info (HTML allowed)</label>
+            <textarea
+              value={forms[key]?.importantInfo || ''}
+              onChange={(e) => updateForm(key, 'importantInfo', e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm resize-y"
+              rows={3}
+            />
+          </div>
+        </div>
+      ))}
+      <div className="flex gap-2 items-center">
+        <input
+          type="text"
+          value={newFormName}
+          onChange={(e) => setNewFormName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addForm(); } }}
+          placeholder='Add form (e.g. "Dilution")'
+          className="flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        <button
+          type="button"
+          onClick={addForm}
+          className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+        >
+          <FaPlus /> Add form
+        </button>
+      </div>
+      <p className="text-xs text-gray-500">
+        Per-form FAQs can be added via JSON in a custom field (a <code className="bg-gray-100 px-1 rounded">faqs</code> array
+        of {'{'}question, answer{'}'} inside the form object is preserved if present).
+      </p>
     </div>
   );
 };

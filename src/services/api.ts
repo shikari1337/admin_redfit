@@ -1656,56 +1656,180 @@ export const menusAPI = {
   },
 };
 
-// Reviews API
+// ── Reviews API ──────────────────────────────────────────────────────────────
+/**
+ * Talks to the rebuilt reviews surface (backend/src/routes/reviews.ts).
+ *
+ * What the previous version got wrong, so it is not reintroduced:
+ *   • `approve` called PUT /reviews/:id/approve — the route is POST, so every
+ *     approval from the panel 404'd.
+ *   • `create` posted multipart/form-data to a JSON endpoint.
+ *   • `getProducts` pulled an unpaginated /products for a <select> of a
+ *     44k-SKU catalog; product linking is a variation-level typeahead now.
+ *   • `generateProfileImage` called a route that does not exist.
+ *
+ * Reads use `r.data?.data ?? r.data` because this axios instance UNWRAPS
+ * `{success,data}` (COMMON_MISTAKES #30/#40) — never write `r.data.data` alone.
+ */
+export type ReviewStatus = 'pending' | 'approved' | 'rejected' | 'spam' | 'hidden';
+
+export interface ReviewMedia {
+  type: 'image' | 'video';
+  url: string;
+  thumb?: string;
+  mime?: string;
+  bytes?: number;
+  duration?: number;
+}
+
+export interface AdminReview {
+  id: string;
+  product_id: string;
+  variation_id?: string | null;
+  product_name?: string;
+  product_slug?: string;
+  product_sku?: string;
+  product_image?: string;
+  variation_name?: string;
+  rating: number;
+  title?: string | null;
+  review: string;
+  description?: string | null;
+  link?: string | null;
+  customer_name: string;
+  customer_email?: string | null;
+  customer_email_masked?: string | null;
+  customer_image?: string | null;
+  has_customer_account?: boolean;
+  media: ReviewMedia[];
+  media_count: number;
+  images?: string[];
+  status: ReviewStatus;
+  moderation_reason?: string | null;
+  moderated_at?: string | null;
+  auto_flags?: string[];
+  source?: string;
+  is_verified: boolean;
+  is_featured: boolean;
+  helpful_count: number;
+  not_helpful_count: number;
+  reported_count: number;
+  reply_body?: string | null;
+  reply_by?: string | null;
+  reply_at?: string | null;
+  reply_published?: boolean;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface ReviewListParams {
+  status?: string;
+  rating?: string;
+  productId?: string;
+  search?: string;
+  source?: string;
+  hasMedia?: boolean;
+  hasVideo?: boolean;
+  verified?: boolean;
+  featured?: boolean;
+  reported?: boolean;
+  dateFrom?: string;
+  dateTo?: string;
+  sort?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ReviewCounts {
+  pending: number; approved: number; rejected: number; spam: number; hidden: number;
+  reported: number; with_media: number; total: number; avg_rating: number;
+}
+
+const rows = <T = any>(r: any): T[] => {
+  const d = r?.data?.data ?? r?.data;
+  return Array.isArray(d) ? d : [];
+};
+
 export const reviewsAPI = {
-  getAll: async (params?: { productId?: string; approved?: boolean; page?: number; limit?: number }) => {
-    const response = await api.get('/reviews', { params });
-    // Backend returns: { data: reviews[], pagination: {...} }
-    return response.data;
+  /** Moderation queue — returns rows AND an accurate total for real pagination. */
+  list: async (params: ReviewListParams = {}): Promise<{ rows: AdminReview[]; total: number }> => {
+    const r = await api.get('/reviews/admin', { params });
+    return { rows: rows<AdminReview>(r), total: Number(r.data?.total ?? r.data?.pagination?.total ?? 0) };
   },
-  getById: async (id: string) => {
-    const response = await api.get(`/reviews/${id}`);
-    return response.data;
+
+  counts: async (): Promise<ReviewCounts> => {
+    const r = await api.get('/reviews/admin/counts');
+    return (r.data?.data ?? r.data ?? {}) as ReviewCounts;
   },
-  create: async (data: any) => {
-    const formData = new FormData();
-    Object.keys(data).forEach(key => {
-      if (key === 'images' && Array.isArray(data[key])) {
-        // Images are already URLs, just add them
-        data[key].forEach((img: string) => formData.append('images', img));
-      } else if (data[key] !== undefined && data[key] !== null) {
-        formData.append(key, typeof data[key] === 'object' ? JSON.stringify(data[key]) : data[key]);
-      }
+
+  getById: async (id: string): Promise<AdminReview> => {
+    const r = await api.get(`/reviews/${id}`);
+    return (r.data?.data ?? r.data) as AdminReview;
+  },
+
+  reports: async (id: string) => {
+    const r = await api.get(`/reviews/admin/${id}/reports`);
+    return rows(r);
+  },
+
+  /** Admin-authored review (seeding / testimonials / migrating a platform). */
+  create: async (data: Record<string, any>): Promise<AdminReview> => {
+    const r = await api.post('/reviews/admin', data);
+    return (r.data?.data ?? r.data) as AdminReview;
+  },
+
+  update: async (id: string, data: Record<string, any>): Promise<AdminReview> => {
+    const r = await api.put(`/reviews/${id}`, data);
+    return (r.data?.data ?? r.data) as AdminReview;
+  },
+
+  delete: async (id: string) => (await api.delete(`/reviews/${id}`)).data,
+
+  /** Bulk moderation — the queue's primary action. One request for N reviews. */
+  moderate: async (ids: string[], status: ReviewStatus, reason?: string) => {
+    const r = await api.post('/reviews/admin/moderate', { ids, status, reason });
+    return r.data;
+  },
+
+  feature: async (ids: string[], featured: boolean) =>
+    (await api.post('/reviews/admin/feature', { ids, featured })).data,
+
+  bulkDelete: async (ids: string[]) =>
+    (await api.post('/reviews/admin/bulk-delete', { ids })).data,
+
+  reply: async (id: string, body: string | null, published = true) =>
+    (await api.post(`/reviews/${id}/reply`, { body, published })).data,
+
+  resolveReports: async (id: string, status: 'reviewed' | 'dismissed' = 'reviewed') =>
+    (await api.post(`/reviews/admin/${id}/resolve-reports`, { status })).data,
+
+  /** Server-side import: ONE request for the whole file, with per-row results. */
+  import: async (importRows: Record<string, any>[]) => {
+    const r = await api.post('/reviews/admin/import', { rows: importRows });
+    return (r.data?.data ?? r.data) as {
+      imported: number; failed: number; errors: Array<{ row: number; reason: string }>;
+    };
+  },
+
+  /** Full CSV export honouring the current filters — not just the visible page. */
+  exportCsv: async (params: ReviewListParams = {}) => {
+    const r = await api.get('/reviews/admin/export', { params, responseType: 'blob' });
+    const url = URL.createObjectURL(new Blob([r.data as any], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `reviews-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+
+  /** Upload one review image or video; returns the stored asset descriptor. */
+  uploadMedia: async (file: File): Promise<ReviewMedia> => {
+    const fd = new FormData();
+    fd.append('file', file);
+    const r = await api.post('/reviews/upload', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
     });
-    const response = await api.post('/reviews', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
-    return response.data;
-  },
-  update: async (id: string, data: any) => {
-    const response = await api.put(`/reviews/${id}`, data);
-    return response.data;
-  },
-  delete: async (id: string) => {
-    const response = await api.delete(`/reviews/${id}`);
-    return response.data;
-  },
-  generateProfileImage: async (customerName: string, description?: string) => {
-    const response = await api.post('/reviews/generate-profile-image', {
-      customerName,
-      description,
-    });
-    return response.data;
-  },
-  approve: async (id: string, approved: boolean) => {
-    const response = await api.put(`/reviews/${id}/approve`, { approved });
-    return response.data;
-  },
-  getProducts: async () => {
-    const response = await api.get('/products');
-    return response.data;
+    return (r.data?.data ?? r.data) as ReviewMedia;
   },
 };
 

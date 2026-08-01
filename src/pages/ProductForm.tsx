@@ -251,6 +251,11 @@ const ProductForm: React.FC = () => {
 
   const formDataRef = useRef(formData);
   useEffect(() => { formDataRef.current = formData; }, [formData]);
+  // Stock AS LOADED, keyed by variation id (plus the product-level value).
+  // Stock is LEDGERED on the backend: the form must only send it when the
+  // operator actually changed it — re-sending the loaded value on every save
+  // used to clobber sales/receipts that happened while the form was open.
+  const initialStockRef = useRef<{ product?: number; variations: Record<string, number> }>({ variations: {} });
 
   const [slug, setSlug] = useState('');
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
@@ -457,7 +462,11 @@ const ProductForm: React.FC = () => {
         sizeChart: scEntries,
         washCareInstructions: p.washCareInstructions || p.wash_care_instructions || [],
         customerOrderImages: p.customerOrderImages || p.customer_order_images || [],
-        aplusContent: normalizeContentBlocks(p.aplusContent || p.aplus_content || p.pageSections || p.page_sections),
+        // NEVER seed from pageSections/page_sections — that is the SEPARATE
+        // storefront-layout column (gear icon → Sections Manager). Falling back
+        // to it here adopted layout rows into the A+ editor and persisted them
+        // into aplus_content on the next save (cross-column bleed).
+        aplusContent: normalizeContentBlocks(p.aplusContent || p.aplus_content),
         offers: p.offers || [],
         crossSellIds: (p.crossSellIds || p.cross_sell_ids || []).filter(Boolean),
         upsellIds: (p.upsellIds || p.upsell_ids || []).filter(Boolean),
@@ -490,9 +499,23 @@ const ProductForm: React.FC = () => {
     };
   };
 
+  // Remember stock AS LOADED (see initialStockRef) — keyed by variation UUID.
+  const captureInitialStock = (p: any) => {
+    const map: Record<string, number> = {};
+    for (const v of p?.variations || []) {
+      const vid = String(v.id || v._id || '');
+      if (vid) map[vid] = Number(v.stock) || 0;
+    }
+    initialStockRef.current = {
+      product: typeof p?.stock === 'number' ? p.stock : undefined,
+      variations: map,
+    };
+  };
+
   const loadPrefilledData = (p: any) => {
     const { data, scMode, scId, seo } = mapProductToForm(p);
     setFormData(data);
+    captureInitialStock(p);
     if (p.slug) { setSlug(p.slug); setSlugManuallyEdited(true); }
     setSeoData(seo);
     setSizeChartMode(scMode);
@@ -516,6 +539,7 @@ const ProductForm: React.FC = () => {
 
       const { data, scMode, scId, seo } = mapProductToForm(product);
       setFormData(data);
+      captureInitialStock(product);
       setSlug(product.slug ? String(product.slug) : slugifyValue(product.name || ''));
       setSlugManuallyEdited(true);
       setSeoData(seo);
@@ -690,17 +714,31 @@ const ProductForm: React.FC = () => {
             const pld: Record<string, any> = {
               attributes: attrs,
               sku: v.sku.trim().toUpperCase().slice(0, 48),
-              stock: Math.max(0, v.stock || 0),
               isActive: v.isActive !== false,
             };
             // Send the real UUID for existing variations so the backend UPDATES them
             // instead of re-INSERTing (which violates the unique SKU constraint).
             if (v.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v.id))) pld.id = v.id;
+            // Stock is LEDGERED — only send it when the operator changed it here.
+            // Re-sending the loaded value on every save would book a movement
+            // over whatever sold/arrived while the form was open. New variations
+            // (no UUID yet) always send it — that is their opening balance.
+            const stockNow = Math.max(0, v.stock || 0);
+            const stockLoaded = pld.id ? initialStockRef.current.variations[String(pld.id)] : undefined;
+            if (!pld.id || stockLoaded === undefined || stockNow !== stockLoaded) pld.stock = stockNow;
             if (v.brandId) pld.brandId = v.brandId;   // → primary_brand_id via backend mapper
             if (v.price != null) pld.price = Math.max(0, v.price);
             if (v.originalPrice != null) pld.originalPrice = Math.max(0, v.originalPrice);
             if (v.images?.length) pld.images = v.images;
             if (v.shortDescription?.trim()) pld.shortDescription = v.shortDescription.trim();
+            // Per-variation content typed in the inline editor — these columns
+            // exist and VariationEditPage saves them; the inline editor's values
+            // used to be silently discarded here.
+            if (typeof v.name === 'string' && v.name.trim()) pld.name = v.name.trim();
+            if (typeof v.slug === 'string' && v.slug.trim()) pld.slug = v.slug.trim();
+            if (typeof v.description === 'string' && v.description.trim()) pld.description = v.description;
+            if (typeof v.dosage === 'string' && v.dosage.trim()) pld.dosage = v.dosage;
+            if (typeof v.importantInfo === 'string' && v.importantInfo.trim()) pld.importantInfo = v.importantInfo;
             // Per-variation categories — always send the array (even empty) so clearing
             // a variation's categories actually removes the links on the backend.
             if (Array.isArray(v.categories)) pld.categories = v.categories;
@@ -721,9 +759,14 @@ const ProductForm: React.FC = () => {
 
       // Stock 0 is a legitimate value (out of stock) — it must reach the backend.
       // Only variation products skip product-level stock (variations own it).
+      // Changed-only: an untouched value is omitted so an unrelated edit can
+      // never overwrite stock that moved while the form was open.
       let stockData: number | undefined;
       if ((!cleanedVariations?.length) && fd.stock != null && Number.isFinite(fd.stock)) {
-        stockData = Math.max(0, Math.floor(fd.stock));
+        const target = Math.max(0, Math.floor(fd.stock));
+        if (initialStockRef.current.product === undefined || target !== initialStockRef.current.product) {
+          stockData = target;
+        }
       }
 
       const sizeChartPayload = sizeChartMode === 'reference'
@@ -1058,11 +1101,26 @@ const ProductForm: React.FC = () => {
 
             {/* A+ Content */}
             {canAccess('aplus_content') && (
+            <>
             <ProductContentSections
               blocks={formData.aplusContent}
               onChange={blocks => applyFormData(p => ({ ...p, aplusContent: blocks }))}
               productId={id}
             />
+            {/* These are two DIFFERENT things sharing one module: A+ blocks above
+                are rich CONTENT (aplus_content column, "Product Highlights" on the
+                PDP); the Sections Manager is PDP LAYOUT + per-section text
+                (page_sections column, gear icon on the Products list). */}
+            {isEdit && (
+              <p className="text-xs text-gray-500 -mt-2">
+                Looking to reorder / toggle the product page's sections (description, dosage, FAQs…)?{' '}
+                <button type="button" onClick={() => navigate(`/products/${id}/sections`)}
+                  className="text-blue-600 hover:text-blue-800 font-medium underline-offset-2 hover:underline">
+                  Open the Page Sections manager →
+                </button>
+              </p>
+            )}
+            </>
             )}
 
             {/* Offers */}
@@ -1131,6 +1189,7 @@ const ProductForm: React.FC = () => {
               price={formData.price} originalPrice={formData.originalPrice}
               salePrice={formData.salePrice} saleStartsAt={formData.saleStartsAt} saleEndsAt={formData.saleEndsAt}
               sku={formData.sku} hsnCode={formData.hsnCode} taxRuleId={formData.taxRuleId} taxRules={availableTaxRules}
+              showTaxFields={canAccess('gst_tax')}
               stock={formData.stock} showStock={formData.productType === 'single'}
               weight={formData.weight} length={formData.length} breadth={formData.breadth} height={formData.height}
               onPriceChange={v => { setFormData(p => ({ ...p, price: v })); setErrors(prev => ({ ...prev, price: '' })); }}
@@ -1237,6 +1296,34 @@ const ProductForm: React.FC = () => {
                 placeholder="24"
                 className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-red-400" />
               <p className="text-xs text-gray-400 mt-1">Country of origin, manufacturer, packed/imported by etc. are in the Compliance section.</p>
+            </div>
+
+            {/* Product identifiers — real columns (model_number, license_number,
+                country_of_origin) that previously lived in form state and the save
+                payload but had NO input anywhere. */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 space-y-3">
+              <h3 className="text-sm font-semibold text-gray-900">Product Identifiers</h3>
+              <div>
+                <label className="text-xs font-medium text-gray-600 block mb-1">Model Number</label>
+                <input type="text" value={formData.modelNumber || ''}
+                  onChange={e => setFormData(p => ({ ...p, modelNumber: e.target.value }))}
+                  className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-red-400" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600 block mb-1">License Number</label>
+                <input type="text" value={formData.licenseNumber || ''}
+                  onChange={e => setFormData(p => ({ ...p, licenseNumber: e.target.value }))}
+                  placeholder="Drug license / FSSAI etc."
+                  className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-red-400" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600 block mb-1">Country of Origin</label>
+                <input type="text" value={formData.countryOfOrigin || ''}
+                  onChange={e => setFormData(p => ({ ...p, countryOfOrigin: e.target.value }))}
+                  placeholder="India"
+                  className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-red-400" />
+                <p className="text-xs text-gray-400 mt-0.5">A Compliance-section country (if filled there) overrides this on save.</p>
+              </div>
             </div>
 
             {/* Pack sizing — units per sales pack. When "sold only in packs" is on,

@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { b2bAPI } from '../../services/api';
 
-/** A product×tier bulk slab → product_b2b_pricing (pricing P2, or P3 when tierName is empty). */
+/** A product×tier bulk slab → product_b2b_pricing (pricing P3 tier slab, or P4 any-tier when
+ *  tierName is empty — price-list rules from B2B → Price Lists outrank BOTH). */
 export interface B2BPricingTier {
   id?: string;
   tierName: string;           // '' = Any tier (generic slab → P3)
@@ -54,6 +56,11 @@ const ProductB2BPricing: React.FC<ProductB2BPricingProps> = ({ tiers, onChange, 
   const [contracts, setContracts] = useState<B2BContract[]>([]);
   const [loadingContracts, setLoadingContracts] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Permission honesty — 403 on b2b.read means "can't see", not "doesn't exist".
+  const [tiersDenied, setTiersDenied] = useState(false);
+  const [accountsDenied, setAccountsDenied] = useState(false);
+  // Names of ACTIVE price lists whose rules target this product (they outrank the slabs here).
+  const [plOverrides, setPlOverrides] = useState<string[]>([]);
 
   // New-contract form
   const [cForm, setCForm] = useState({ customer_id: '', variation_id: '', unit_price: '', valid_until: '' });
@@ -63,8 +70,12 @@ const ProductB2BPricing: React.FC<ProductB2BPricingProps> = ({ tiers, onChange, 
   // matches against. Free text here would silently never match a customer.
   useEffect(() => {
     // Interceptor unwraps {success,data} → r IS the settings object; tolerate both.
-    b2bAPI.getSettings().then((r) => setStoreTiers(Object.keys(r?.tiers ?? r?.data?.tiers ?? {}))).catch(() => setStoreTiers([]));
-    b2bAPI.getB2BCustomers().then((r) => setCustomers(r?.data ?? [])).catch(() => setCustomers([]));
+    b2bAPI.getSettings()
+      .then((r) => setStoreTiers(Object.keys(r?.tiers ?? r?.data?.tiers ?? {})))
+      .catch((e: any) => { setStoreTiers([]); if (e?.response?.status === 403) setTiersDenied(true); });
+    b2bAPI.getB2BCustomers()
+      .then((r) => setCustomers(r?.data ?? []))
+      .catch((e: any) => { setCustomers([]); if (e?.response?.status === 403) setAccountsDenied(true); });
   }, []);
 
   const loadContracts = () => {
@@ -76,6 +87,39 @@ const ProductB2BPricing: React.FC<ProductB2BPricingProps> = ({ tiers, onChange, 
       .finally(() => setLoadingContracts(false));
   };
   useEffect(loadContracts, [productId]);
+
+  // Price-list rules (B2B → Price Lists) OUTRANK every slab on this card. Surface any
+  // active rule targeting this product so merchants aren't surprised at checkout.
+  // Best-effort: on 403 / any failure we say nothing (no error, no notice).
+  const variationIdsKey = variations.map((v) => v.id).filter(Boolean).join(',');
+  useEffect(() => {
+    if (!productId) { setPlOverrides([]); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const lr: any = await b2bAPI.getPriceLists();
+        const lists: any[] = Array.isArray(lr) ? lr : (lr?.data ?? []);
+        const varIds = new Set(variationIdsKey ? variationIdsKey.split(',') : []);
+        const hits: string[] = [];
+        for (const list of lists.filter((l: any) => l?.is_active !== false)) {
+          try {
+            const rr: any = await b2bAPI.getPriceRules(list.id);
+            const rules: any[] = Array.isArray(rr) ? rr : (rr?.data ?? []);
+            const matches = rules.some((rule: any) => rule?.is_active !== false && (
+              rule?.rule_type === 'global'
+              || (rule?.rule_type === 'product' && rule?.entity_id === productId)
+              || (rule?.rule_type === 'variant' && rule?.entity_id && varIds.has(rule.entity_id))
+            ));
+            if (matches) hits.push(list?.name || 'Unnamed list');
+          } catch { /* rules unreadable for this list — skip it */ }
+        }
+        if (!cancelled) setPlOverrides(hits);
+      } catch {
+        if (!cancelled) setPlOverrides([]); // 403 or module off — show nothing
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [productId, variationIdsKey]);
 
   const add = () => onChange([...tiers, defaultTier()]);
   const remove = (idx: number) => onChange(tiers.filter((_, i) => i !== idx));
@@ -120,13 +164,35 @@ const ProductB2BPricing: React.FC<ProductB2BPricingProps> = ({ tiers, onChange, 
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 space-y-5">
       <div>
         <h3 className="text-sm font-semibold text-gray-900">B2B / Wholesale Pricing</h3>
-        <p className="text-xs text-gray-500 mt-0.5">
-          Prices for approved business customers. First match wins:
-          <span className="font-semibold"> Account → Tier → Any-tier → tier % → store default → retail.</span>
+        <p className="text-xs text-gray-500 mt-0.5">Prices for approved business customers. First match wins:</p>
+        <ol className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 text-[11px] text-gray-600">
+          <li><span className="font-bold bg-gray-100 text-gray-700 rounded px-1">1</span> Account price (this card)</li>
+          <li>
+            <span className="font-bold bg-gray-100 text-gray-700 rounded px-1">2</span>{' '}
+            <Link to="/b2b" className="text-blue-600 hover:underline">Price-list rules</Link>
+            {' '}(B2B → Price Lists — override everything below)
+          </li>
+          <li><span className="font-bold bg-gray-100 text-gray-700 rounded px-1">3</span> Tier slab (this card)</li>
+          <li><span className="font-bold bg-gray-100 text-gray-700 rounded px-1">4</span> Any-tier slab (this card)</li>
+          <li><span className="font-bold bg-gray-100 text-gray-700 rounded px-1">5</span> Store tier %</li>
+          <li><span className="font-bold bg-gray-100 text-gray-700 rounded px-1">6</span> Store default %</li>
+          <li><span className="font-bold bg-gray-100 text-gray-700 rounded px-1">7</span> Retail</li>
+          <li className="font-semibold text-gray-700">Never above MRP.</li>
+        </ol>
+        <p className="text-[11px] text-gray-500 mt-1">
+          Saving these prices requires the <span className="font-semibold">b2b.manage</span> permission — rows are ignored otherwise.
         </p>
       </div>
 
       {err && <p className="text-xs text-red-600 bg-red-50 px-2 py-1.5 rounded">{err}</p>}
+
+      {plOverrides.length > 0 && (
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1.5 rounded">
+          A price-list rule ({plOverrides.map((n) => `'${n}'`).join(', ')}) also prices this product for
+          customers on that list — it overrides the slabs below.{' '}
+          <Link to="/b2b" className="font-semibold underline">Review price lists</Link>
+        </p>
+      )}
 
       {/* ── Account prices (P1 — highest priority) ── */}
       <div className="border border-gray-200 rounded-lg p-3">
@@ -135,7 +201,7 @@ const ProductB2BPricing: React.FC<ProductB2BPricingProps> = ({ tiers, onChange, 
             <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wide">Account prices</h4>
             <p className="text-[11px] text-gray-500">Highest priority — overrides every tier and bulk rule for that account.</p>
           </div>
-          <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">P1</span>
+          <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">P1 · Account prices</span>
         </div>
 
         {!productId ? (
@@ -159,9 +225,15 @@ const ProductB2BPricing: React.FC<ProductB2BPricingProps> = ({ tiers, onChange, 
             )}
 
             {customers.length === 0 ? (
-              <p className="text-[11px] text-amber-600 py-1">
-                No approved B2B accounts yet — approve one in B2B → Applications.
-              </p>
+              accountsDenied ? (
+                <p className="text-[11px] text-gray-400 py-1">
+                  Your role can’t read B2B accounts (needs b2b.read).
+                </p>
+              ) : (
+                <p className="text-[11px] text-amber-600 py-1">
+                  No approved B2B accounts yet — approve one in B2B → Applications.
+                </p>
+              )
             ) : (
               <div className="grid grid-cols-12 gap-2 items-end">
                 <div className="col-span-4">
@@ -217,14 +289,18 @@ const ProductB2BPricing: React.FC<ProductB2BPricingProps> = ({ tiers, onChange, 
             <p className="text-[11px] text-gray-500">Per tier, optionally per quantity band and variation.</p>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-[10px] font-bold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">P2/P3</span>
+            <span className="text-[10px] font-bold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">P3–P4 · Tier &amp; bulk slabs</span>
             <button type="button" onClick={add} className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">
               + Add
             </button>
           </div>
         </div>
 
-        {storeTiers.length === 0 && (
+        {tiersDenied ? (
+          <p className="text-[11px] text-gray-400 mb-2">
+            Your role can’t read B2B settings (needs b2b.read) — tier names unavailable.
+          </p>
+        ) : storeTiers.length === 0 && (
           <p className="text-[11px] text-amber-600 mb-2">
             No tiers defined — add them in B2B → Plans &amp; Tiers, or use “Any tier”.
           </p>
@@ -258,6 +334,7 @@ const ProductB2BPricing: React.FC<ProductB2BPricingProps> = ({ tiers, onChange, 
                 <div>
                   <label className="text-xs text-gray-500 block mb-0.5">Variation</label>
                   <select className={inputCls} value={tier.variationId ?? ''}
+                    title="A slab with a variation applies ONLY to that pack; leave 'All variations' to price the whole product."
                     onChange={(e) => update(idx, { variationId: e.target.value || null })}>
                     <option value="">All variations</option>
                     {variations.filter((v) => v.id).map((v) => (
@@ -271,7 +348,10 @@ const ProductB2BPricing: React.FC<ProductB2BPricingProps> = ({ tiers, onChange, 
                     onChange={(e) => update(idx, { priceType: e.target.value as B2BPricingTier['priceType'] })}>
                     <option value="fixed">Fixed Price (₹)</option>
                     <option value="percentage_off">% Off</option>
-                    <option value="markup_on_cost">Markup on Cost</option>
+                    {/* Dead option — no cost_price exists anywhere; kept ONLY for rows that already use it. */}
+                    {tier.priceType === 'markup_on_cost' && (
+                      <option value="markup_on_cost">Markup on cost (no cost configured — prices ABOVE retail)</option>
+                    )}
                   </select>
                 </div>
               </div>
@@ -298,6 +378,13 @@ const ProductB2BPricing: React.FC<ProductB2BPricingProps> = ({ tiers, onChange, 
                     onBlur={e => { if (!e.target.value) update(idx, { priceValue: 0 }); }} />
                 </div>
               </div>
+
+              {tier.priceType === 'markup_on_cost' && (
+                <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1.5 rounded">
+                  No cost price exists in this store, so this computes retail + {Number(tier.priceValue) || 0}%
+                  (capped at MRP) — almost certainly not what you want. Switch to Fixed or % off retail.
+                </p>
+              )}
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
