@@ -14,6 +14,15 @@ import {
   ProductFeaturedBlockEditor,
   ProductBestSellersBlockEditor,
 } from './BlockEditors';
+import {
+  TestimonialsBlockEditor,
+  VideoBlockEditor,
+  GalleryBlockEditor,
+  StatsBlockEditor,
+  TimelineBlockEditor,
+  PricingBlockEditor,
+  ContactFormBlockEditor,
+} from './BlockEditorsExtra';
 
 interface BlockEditorProps {
   block: {
@@ -91,6 +100,22 @@ const BlockEditor: React.FC<BlockEditorProps> = ({ block, onChange, onGenerateAI
         return <ProductFeaturedBlockEditor {...editorProps} />;
       case 'product-best-sellers':
         return <ProductBestSellersBlockEditor {...editorProps} />;
+      // Previously unhandled → raw JSON textarea. Every type the backend
+      // advertises in GET /pages/block-types now has a real editor.
+      case 'testimonials':
+        return <TestimonialsBlockEditor {...editorProps} />;
+      case 'video':
+        return <VideoBlockEditor {...editorProps} />;
+      case 'gallery':
+        return <GalleryBlockEditor {...editorProps} />;
+      case 'stats':
+        return <StatsBlockEditor {...editorProps} />;
+      case 'timeline':
+        return <TimelineBlockEditor {...editorProps} />;
+      case 'pricing':
+        return <PricingBlockEditor {...editorProps} />;
+      case 'contact-form':
+        return <ContactFormBlockEditor {...editorProps} />;
       default:
         return (
           <div className="space-y-4">

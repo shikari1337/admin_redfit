@@ -2,6 +2,101 @@ import React from 'react';
 import { FaTrash, FaPlus } from 'react-icons/fa';
 import IconPicker from '../IconPicker';
 import ImageInputWithActions from '../common/ImageInputWithActions';
+import RichTextEditor from '../common/RichTextEditor';
+
+// ─── Shared field primitives ────────────────────────────────────────────────
+// Every block editor uses these so each type gets the SAME capabilities:
+// upload-or-URL images, real HTML editing, and icon selection.
+
+const INPUT = 'w-full px-3 py-2 border border-gray-300 rounded-md';
+const LABEL = 'block text-sm font-medium text-gray-700 mb-2';
+
+export const TextField: React.FC<{
+  label: string; value: any; onChange: (v: string) => void; placeholder?: string; type?: string;
+}> = ({ label, value, onChange, placeholder, type = 'text' }) => (
+  <div>
+    <label className={LABEL}>{label}</label>
+    <input type={type} value={value ?? ''} onChange={(e) => onChange(e.target.value)}
+      className={INPUT} placeholder={placeholder} />
+  </div>
+);
+
+export const NumberField: React.FC<{
+  label: string; value: any; onChange: (v: number | undefined) => void; placeholder?: string; min?: number;
+}> = ({ label, value, onChange, placeholder, min }) => (
+  <div>
+    <label className={LABEL}>{label}</label>
+    <input type="number" min={min} value={value ?? ''}
+      onChange={(e) => onChange(e.target.value === '' ? undefined : Number(e.target.value))}
+      className={INPUT} placeholder={placeholder} />
+  </div>
+);
+
+/** HTML content with a real editor — plain textareas made authors write raw tags. */
+export const HtmlField: React.FC<{
+  label: string; value: any; onChange: (html: string) => void; placeholder?: string; minHeight?: number;
+}> = ({ label, value, onChange, placeholder, minHeight = 160 }) => (
+  <div>
+    <label className={LABEL}>{label}</label>
+    <RichTextEditor value={value ?? ''} onChange={onChange} placeholder={placeholder} minHeight={minHeight} />
+    <p className="text-xs text-gray-500 mt-1">Formatting is saved as HTML and rendered on the storefront.</p>
+  </div>
+);
+
+/** Repeating-items list: add / remove / reorder, with a per-item editor. */
+export function ItemsField<T>({ label, items, onChange, blank, render, addLabel = 'Add Item' }: {
+  label: string;
+  items: T[] | undefined;
+  onChange: (items: T[]) => void;
+  blank: () => T;
+  render: (item: T, set: (patch: Partial<T>) => void, index: number) => React.ReactNode;
+  addLabel?: string;
+}) {
+  const list: T[] = Array.isArray(items) ? items : [];
+  const setAt = (i: number, patch: Partial<T>) =>
+    onChange(list.map((it, idx) => (idx === i ? { ...(it as any), ...(patch as any) } : it)));
+  const move = (i: number, dir: -1 | 1) => {
+    const j = i + dir;
+    if (j < 0 || j >= list.length) return;
+    const next = [...list];
+    [next[i], next[j]] = [next[j], next[i]];
+    onChange(next);
+  };
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-2">
+        <label className="block text-sm font-medium text-gray-700">{label}</label>
+        <button type="button" onClick={() => onChange([...list, blank()])}
+          className="flex items-center gap-1 px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">
+          <FaPlus /> {addLabel}
+        </button>
+      </div>
+      <div className="space-y-3">
+        {list.length === 0 && (
+          <p className="text-xs text-gray-400 border-2 border-dashed rounded-md p-4 text-center">
+            None yet — use “{addLabel}”.
+          </p>
+        )}
+        {list.map((item, i) => (
+          <div key={i} className="p-3 border border-gray-200 rounded-md bg-gray-50 space-y-2">
+            <div className="flex justify-between items-center">
+              <span className="text-xs font-semibold text-gray-500">#{i + 1}</span>
+              <div className="flex items-center gap-1">
+                <button type="button" onClick={() => move(i, -1)} disabled={i === 0}
+                  className="px-1.5 text-xs text-gray-500 disabled:opacity-30" title="Move up">↑</button>
+                <button type="button" onClick={() => move(i, 1)} disabled={i === list.length - 1}
+                  className="px-1.5 text-xs text-gray-500 disabled:opacity-30" title="Move down">↓</button>
+                <button type="button" onClick={() => onChange(list.filter((_, j) => j !== i))}
+                  className="text-red-500 hover:text-red-700 ml-1" title="Remove"><FaTrash size={12} /></button>
+              </div>
+            </div>
+            {render(item, (patch) => setAt(i, patch), i)}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 // Hero Block Editor
 export const HeroBlockEditor: React.FC<{ data: any; onChange: (data: any) => void; pageId?: string }> = ({ data, onChange, pageId }) => {
@@ -74,17 +169,14 @@ export const TextBlockEditor: React.FC<{ data: any; onChange: (data: any) => voi
           placeholder="Section title"
         />
       </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Content</label>
-        <textarea
-          value={data?.content || ''}
-          onChange={(e) => onChange({ ...data, content: e.target.value })}
-          rows={10}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md"
-          placeholder="Enter HTML content or plain text..."
-        />
-        <p className="text-xs text-gray-500 mt-1">You can use HTML tags for formatting</p>
-      </div>
+      {/* Real WYSIWYG — authors had to hand-write HTML tags in a bare textarea. */}
+      <HtmlField
+        label="Content"
+        value={data?.content}
+        onChange={(html) => onChange({ ...data, content: html })}
+        placeholder="Write your content…"
+        minHeight={220}
+      />
     </div>
   );
 };
