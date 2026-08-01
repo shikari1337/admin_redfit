@@ -221,16 +221,13 @@ export const TextImageBlockEditor: React.FC<{ data: any; onChange: (data: any) =
           className="w-full px-3 py-2 border border-gray-300 rounded-md"
         />
       </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Content</label>
-        <textarea
-          value={data?.content || ''}
-          onChange={(e) => onChange({ ...data, content: e.target.value })}
-          rows={6}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md"
-          placeholder="Enter HTML content or plain text..."
-        />
-      </div>
+      <HtmlField
+        label="Content"
+        value={data?.content}
+        onChange={(html) => onChange({ ...data, content: html })}
+        placeholder="Write the section copy…"
+        minHeight={180}
+      />
       <ImageInputWithActions
         value={data?.image || ''}
         onChange={(url) => onChange({ ...data, image: url })}
@@ -255,145 +252,57 @@ export const TextImageBlockEditor: React.FC<{ data: any; onChange: (data: any) =
   );
 };
 
-// Features Block Editor
-export const FeaturesBlockEditor: React.FC<{ data: any; onChange: (data: any) => void }> = ({ data, onChange }) => {
-  const updateItem = (index: number, field: string, value: string) => {
-    const items = [...(data?.items || [])];
-    items[index] = { ...items[index], [field]: value };
-    onChange({ ...data, items });
-  };
-
-  const addItem = () => {
-    onChange({
-      ...data,
-      items: [...(data?.items || []), { icon: '✨', iconName: '', title: '', description: '' }]
-    });
-  };
-
-  const removeItem = (index: number) => {
-    const items = [...(data?.items || [])];
-    items.splice(index, 1);
-    onChange({ ...data, items });
-  };
-
-  return (
-    <div className="space-y-4">
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Title</label>
-        <input
-          type="text"
-          value={data?.title || ''}
-          onChange={(e) => onChange({ ...data, title: e.target.value })}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md"
-        />
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Features</label>
-        {(data?.items || []).map((item: any, index: number) => (
-          <div key={index} className="flex flex-col gap-2 p-3 border border-gray-200 rounded-md bg-gray-50 mb-2">
-            <div className="flex gap-2 items-end">
-              <div className="flex-1">
-                <IconPicker
-                  label="Icon"
-                  value={item.iconName || ''}
-                  onChange={(name) => {
-                    updateItem(index, 'iconName', name);
-                    if (name) updateItem(index, 'icon', '');
-                  }}
-                />
-              </div>
-              <div className="flex-1">
-                <label className="block text-xs font-medium text-gray-600 mb-1">Or emoji/URL</label>
-                <input
-                  type="text"
-                  value={item.icon || ''}
-                  onChange={(e) => {
-                    updateItem(index, 'icon', e.target.value);
-                    if (e.target.value) updateItem(index, 'iconName', '');
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-                  placeholder="✨ or https://..."
-                />
-              </div>
-            </div>
-            <input
-              type="text"
-              value={item.title || ''}
-              onChange={(e) => updateItem(index, 'title', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-              placeholder="Feature title"
+// Features Block Editor — icon picker (or emoji/URL), rich-text description,
+// an optional image per feature, and reorderable items.
+export const FeaturesBlockEditor: React.FC<{ data: any; onChange: (data: any) => void; pageId?: string }> = ({ data, onChange, pageId }) => (
+  <div className="space-y-4">
+    <TextField label="Title" value={data?.title} onChange={(v) => onChange({ ...data, title: v })} placeholder="Section title" />
+    <TextField label="Subtitle" value={data?.subtitle} onChange={(v) => onChange({ ...data, subtitle: v })} placeholder="Optional intro line" />
+    <ItemsField
+      label="Features" addLabel="Add Feature"
+      items={data?.items}
+      onChange={(items) => onChange({ ...data, items })}
+      blank={() => ({ icon: '', iconName: '', title: '', description: '', image: '' })}
+      render={(item: any, set, i) => (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 items-end">
+            <IconPicker
+              label="Icon"
+              value={item.iconName || ''}
+              // Icon picker and emoji/URL are alternatives — setting one clears
+              // the other so the renderer never has to guess which wins.
+              onChange={(name) => set({ iconName: name, ...(name ? { icon: '' } : {}) })}
             />
-            <textarea
-              value={item.description || ''}
-              onChange={(e) => updateItem(index, 'description', e.target.value)}
-              rows={2}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-              placeholder="Feature description"
-            />
-            <button
-              type="button"
-              onClick={() => removeItem(index)}
-              className="text-red-500 hover:text-red-700 text-sm self-end"
-            >
-              <FaTrash className="inline mr-1" /> Remove
-            </button>
+            <TextField label="Or emoji / image URL" value={item.icon}
+              onChange={(v) => set({ icon: v, ...(v ? { iconName: '' } : {}) })} placeholder="✨ or https://..." />
           </div>
-        ))}
-        <button
-          type="button"
-          onClick={addItem}
-          className="px-3 py-1 bg-blue-500 text-white rounded-md text-sm hover:bg-blue-600"
-        >
-          <FaPlus className="inline mr-1" /> Add Feature
-        </button>
-      </div>
-    </div>
-  );
-};
+          <TextField label="Title" value={item.title} onChange={(v) => set({ title: v })} placeholder="Feature title" />
+          <HtmlField label="Description" value={item.description} onChange={(v) => set({ description: v })} minHeight={90} />
+          <ImageInputWithActions value={item.image || ''} onChange={(url) => set({ image: url })}
+            label="Image (optional)" placeholder="Upload or paste URL"
+            productId={pageId} sectionId="features" fieldPath={'items.' + i + '.image'} />
+        </>
+      )}
+    />
+  </div>
+);
 
-// CTA Block Editor
-export const CTABlockEditor: React.FC<{ data: any; onChange: (data: any) => void }> = ({ data, onChange }) => {
-  return (
-    <div className="space-y-4">
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Title</label>
-        <input
-          type="text"
-          value={data?.title || ''}
-          onChange={(e) => onChange({ ...data, title: e.target.value })}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md"
-        />
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Subtitle</label>
-        <input
-          type="text"
-          value={data?.subtitle || ''}
-          onChange={(e) => onChange({ ...data, subtitle: e.target.value })}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md"
-        />
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Button Text</label>
-        <input
-          type="text"
-          value={data?.buttonText || ''}
-          onChange={(e) => onChange({ ...data, buttonText: e.target.value })}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md"
-        />
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Button Link</label>
-        <input
-          type="text"
-          value={data?.buttonLink || ''}
-          onChange={(e) => onChange({ ...data, buttonLink: e.target.value })}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md"
-        />
-      </div>
+// CTA Block Editor — rich body copy + optional background image.
+export const CTABlockEditor: React.FC<{ data: any; onChange: (data: any) => void; pageId?: string }> = ({ data, onChange, pageId }) => (
+  <div className="space-y-4">
+    <TextField label="Title" value={data?.title} onChange={(v) => onChange({ ...data, title: v })} placeholder="Ready to start?" />
+    <TextField label="Subtitle" value={data?.subtitle} onChange={(v) => onChange({ ...data, subtitle: v })} />
+    <HtmlField label="Body text (optional)" value={data?.description}
+      onChange={(v) => onChange({ ...data, description: v })} minHeight={110} />
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      <TextField label="Button Text" value={data?.buttonText} onChange={(v) => onChange({ ...data, buttonText: v })} placeholder="Shop now" />
+      <TextField label="Button Link" value={data?.buttonLink} onChange={(v) => onChange({ ...data, buttonLink: v })} placeholder="/products" />
     </div>
-  );
-};
+    <ImageInputWithActions value={data?.backgroundImage || ''} onChange={(url) => onChange({ ...data, backgroundImage: url })}
+      label="Background Image (optional)" placeholder="Upload or paste URL"
+      productId={pageId} sectionId="cta" fieldPath="backgroundImage" />
+  </div>
+);
 
 // Product Categories Block Editor
 export const ProductCategoriesBlockEditor: React.FC<{ data: any; onChange: (data: any) => void }> = ({ data, onChange }) => {
@@ -642,74 +551,22 @@ export const ProductBestSellersBlockEditor: React.FC<{ data: any; onChange: (dat
   );
 };
 
-// FAQ Accordion Block Editor
-export const FAQAccordionBlockEditor: React.FC<{ data: any; onChange: (data: any) => void }> = ({ data, onChange }) => {
-  const updateItem = (index: number, field: string, value: string) => {
-    const items = [...(data?.items || [])];
-    items[index] = { ...items[index], [field]: value };
-    onChange({ ...data, items });
-  };
-
-  const addItem = () => {
-    onChange({
-      ...data,
-      items: [...(data?.items || []), { question: '', answer: '' }]
-    });
-  };
-
-  const removeItem = (index: number) => {
-    const items = [...(data?.items || [])];
-    items.splice(index, 1);
-    onChange({ ...data, items });
-  };
-
-  return (
-    <div className="space-y-4">
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Title</label>
-        <input
-          type="text"
-          value={data?.title || ''}
-          onChange={(e) => onChange({ ...data, title: e.target.value })}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md"
-        />
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">FAQ Items</label>
-        {(data?.items || []).map((item: any, index: number) => (
-          <div key={index} className="flex flex-col gap-2 p-3 border border-gray-200 rounded-md bg-gray-50 mb-2">
-            <input
-              type="text"
-              value={item.question || ''}
-              onChange={(e) => updateItem(index, 'question', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-              placeholder="Question"
-            />
-            <textarea
-              value={item.answer || ''}
-              onChange={(e) => updateItem(index, 'answer', e.target.value)}
-              rows={4}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-              placeholder="Answer (HTML supported)"
-            />
-            <button
-              type="button"
-              onClick={() => removeItem(index)}
-              className="text-red-500 hover:text-red-700 text-sm self-end"
-            >
-              <FaTrash className="inline mr-1" /> Remove
-            </button>
-          </div>
-        ))}
-        <button
-          type="button"
-          onClick={addItem}
-          className="px-3 py-1 bg-blue-500 text-white rounded-md text-sm hover:bg-blue-600"
-        >
-          <FaPlus className="inline mr-1" /> Add FAQ
-        </button>
-      </div>
-    </div>
-  );
-};
+// FAQ Accordion Block Editor — rich-text answers + reorderable questions.
+export const FAQAccordionBlockEditor: React.FC<{ data: any; onChange: (data: any) => void }> = ({ data, onChange }) => (
+  <div className="space-y-4">
+    <TextField label="Title" value={data?.title} onChange={(v) => onChange({ ...data, title: v })} placeholder="Frequently asked questions" />
+    <ItemsField
+      label="FAQ Items" addLabel="Add FAQ"
+      items={data?.items}
+      onChange={(items) => onChange({ ...data, items })}
+      blank={() => ({ question: '', answer: '' })}
+      render={(item: any, set) => (
+        <>
+          <TextField label="Question" value={item.question} onChange={(v) => set({ question: v })} placeholder="Question" />
+          <HtmlField label="Answer" value={item.answer} onChange={(v) => set({ answer: v })} minHeight={110} placeholder="Answer…" />
+        </>
+      )}
+    />
+  </div>
+);
 
