@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { api } from '../services/api';
+import { api, attributesAPI, variantGroupsAPI } from '../services/api';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
@@ -7,12 +7,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { FaPlus, FaTimes, FaEdit, FaTrash, FaSearch } from 'react-icons/fa';
+import { FaPlus, FaTimes, FaEdit, FaTrash, FaSearch, FaArrowUp, FaArrowDown } from 'react-icons/fa';
 
-interface ProductOption {
-  id: string;
+interface MemberRow {
+  productId: string;
   name: string;
-  slug: string;
+  slug?: string;
+  sku?: string;
+  attributeValue: string;
+  isDefault: boolean;
 }
 
 interface VariantLinkGroup {
@@ -20,8 +23,14 @@ interface VariantLinkGroup {
   name: string;
   display_attribute_slug?: string;
   is_active: boolean;
+  /** From GET / — number of member products. */
+  member_count?: number;
+  /** Legacy shape kept for tolerance. */
   products?: string[];
+  members?: any[];
 }
+
+interface AttributeOpt { _id?: string; id?: string; name?: string; slug?: string }
 
 const EMPTY_FORM = {
   name: '',
@@ -36,19 +45,24 @@ const VariantLinkGroups: React.FC = () => {
   const [showModal, setShowModal] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState({ ...EMPTY_FORM });
-  const [selectedProducts, setSelectedProducts] = useState<ProductOption[]>([]);
+  const [members, setMembers] = useState<MemberRow[]>([]);
+  const [membersLoading, setMembersLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [attributes, setAttributes] = useState<AttributeOpt[]>([]);
 
   // Product search state
   const [productSearch, setProductSearch] = useState('');
-  const [productResults, setProductResults] = useState<ProductOption[]>([]);
+  const [productResults, setProductResults] = useState<any[]>([]);
   const [productSearching, setProductSearching] = useState(false);
   const [showProductDropdown, setShowProductDropdown] = useState(false);
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { fetchGroups(); }, []);
+  useEffect(() => {
+    attributesAPI.list({ isActive: true }).then((list: any[]) => setAttributes(Array.isArray(list) ? list : []));
+  }, []);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -71,15 +85,19 @@ const VariantLinkGroups: React.FC = () => {
       else if (Array.isArray(data?.data)) setGroups(data.data);
       else setGroups([]);
     } catch (err: any) {
-      if (err?.response?.status === 404) {
-        setGroups([]);
-      } else {
-        setError(err?.response?.data?.message || 'Failed to load variant link groups. The endpoint may not be available yet.');
-      }
+      // A failed load must NOT masquerade as an empty list — show the error.
+      setGroups([]);
+      setError(err?.response?.data?.message
+        || (err?.response?.status ? `Failed to load variant link groups (HTTP ${err.response.status}).` : 'Failed to load variant link groups — is the backend reachable?'));
     } finally {
       setLoading(false);
     }
   };
+
+  const memberCount = (g: VariantLinkGroup): number =>
+    typeof g.member_count === 'number' ? g.member_count
+      : Array.isArray(g.members) ? g.members.length
+      : g.products?.length ?? 0;
 
   const searchProducts = async (q: string) => {
     if (!q.trim()) { setProductResults([]); setShowProductDropdown(false); return; }
@@ -90,11 +108,9 @@ const VariantLinkGroups: React.FC = () => {
       let items: any[] = [];
       if (Array.isArray(raw)) items = raw;
       else if (Array.isArray(raw?.data)) items = raw.data;
-      const opts: ProductOption[] = items.map((p: any) => ({
-        id: p.id ?? p._id ?? '',
-        name: p.name ?? '',
-        slug: p.slug ?? '',
-      }));
+      const opts = items
+        .map((p: any) => ({ id: p.id ?? p._id ?? '', name: p.name ?? '', slug: p.slug ?? '', sku: p.sku ?? '' }))
+        .filter((p: any) => p.id);
       setProductResults(opts);
       setShowProductDropdown(opts.length > 0);
     } catch {
@@ -110,23 +126,54 @@ const VariantLinkGroups: React.FC = () => {
     searchTimeout.current = setTimeout(() => searchProducts(value), 350);
   };
 
-  const selectProduct = (product: ProductOption) => {
-    if (!selectedProducts.find(p => p.id === product.id)) {
-      setSelectedProducts(prev => [...prev, product]);
-    }
+  const selectProduct = (product: any) => {
+    setMembers(prev => {
+      if (prev.some(m => m.productId === product.id)) return prev;
+      return [...prev, {
+        productId: product.id,
+        name: product.name,
+        slug: product.slug,
+        sku: product.sku,
+        attributeValue: '',
+        isDefault: prev.length === 0,
+      }];
+    });
     setProductSearch('');
     setProductResults([]);
     setShowProductDropdown(false);
   };
 
-  const removeProduct = (id: string) => {
-    setSelectedProducts(prev => prev.filter(p => p.id !== id));
+  const removeMember = (productId: string) => {
+    setMembers(prev => {
+      const next = prev.filter(m => m.productId !== productId);
+      // Keep exactly one default when possible.
+      if (next.length && !next.some(m => m.isDefault)) next[0] = { ...next[0], isDefault: true };
+      return next;
+    });
+  };
+
+  const updateMember = (idx: number, patch: Partial<MemberRow>) => {
+    setMembers(prev => prev.map((m, i) => (i === idx ? { ...m, ...patch } : m)));
+  };
+
+  const setDefaultMember = (idx: number) => {
+    setMembers(prev => prev.map((m, i) => ({ ...m, isDefault: i === idx })));
+  };
+
+  const moveMember = (idx: number, dir: -1 | 1) => {
+    setMembers(prev => {
+      const j = idx + dir;
+      if (j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[idx], next[j]] = [next[j], next[idx]];
+      return next;
+    });
   };
 
   const openCreate = () => {
     setEditId(null);
     setForm({ ...EMPTY_FORM });
-    setSelectedProducts([]);
+    setMembers([]);
     setFormError(null);
     setProductSearch('');
     setShowModal(true);
@@ -141,27 +188,38 @@ const VariantLinkGroups: React.FC = () => {
     });
     setFormError(null);
     setProductSearch('');
+    setMembers([]);
     setShowModal(true);
 
-    // Load linked products
-    if (group.products && group.products.length > 0) {
-      try {
-        const opts: ProductOption[] = [];
-        for (const pid of group.products) {
-          try {
-            const res = await api.get(`/products/${pid}`);
-            const d = res.data?.data ?? res.data;
-            if (d) opts.push({ id: d.id ?? d._id ?? pid, name: d.name ?? pid, slug: d.slug ?? '' });
-          } catch {
-            opts.push({ id: pid, name: pid, slug: '' });
-          }
-        }
-        setSelectedProducts(opts);
-      } catch {
-        setSelectedProducts([]);
-      }
-    } else {
-      setSelectedProducts([]);
+    // ONE hydrated fetch — GET /variant-groups/:id returns members with
+    // name/sku/attribute_value/sort_order/is_default (no per-product N+1).
+    setMembersLoading(true);
+    try {
+      const g: any = await variantGroupsAPI.getById(group.id);
+      const fresh = g?.id ? g : (g?.data?.id ? g.data : null);
+      if (!fresh) throw new Error('Group not found');
+      const rows: MemberRow[] = (fresh.members || [])
+        .slice()
+        .sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+        .map((m: any) => ({
+          productId: m.product_id ?? m.productId ?? '',
+          name: m.name ?? m.product_id ?? '',
+          slug: m.slug ?? '',
+          sku: m.sku ?? '',
+          attributeValue: m.attribute_value ?? m.attributeValue ?? '',
+          isDefault: !!(m.is_default ?? m.isDefault),
+        }))
+        .filter((m: MemberRow) => m.productId);
+      setMembers(rows);
+      setForm({
+        name: fresh.name ?? group.name,
+        display_attribute_slug: fresh.display_attribute_slug ?? '',
+        is_active: fresh.is_active !== false,
+      });
+    } catch (err: any) {
+      setFormError(err?.response?.data?.message || 'Failed to load the group\'s members — editing them now could wipe the list. Close and retry.');
+    } finally {
+      setMembersLoading(false);
     }
   };
 
@@ -172,18 +230,24 @@ const VariantLinkGroups: React.FC = () => {
     setSaving(true);
     setFormError(null);
 
+    // NEW payload contract: { name, displayAttributeSlug, isActive, members }
     const payload: Record<string, any> = {
       name: form.name.trim(),
-      display_attribute_slug: form.display_attribute_slug.trim() || undefined,
-      is_active: form.is_active,
-      products: selectedProducts.map(p => p.id),
+      displayAttributeSlug: form.display_attribute_slug.trim() || undefined,
+      isActive: form.is_active,
+      members: members.map((m, i) => ({
+        productId: m.productId,
+        attributeValue: m.attributeValue.trim(),
+        sortOrder: i,
+        isDefault: m.isDefault,
+      })),
     };
 
     try {
       if (editId) {
-        await api.put(`/variant-groups/${editId}`, payload);
+        await variantGroupsAPI.update(editId, payload);
       } else {
-        await api.post('/variant-groups', payload);
+        await variantGroupsAPI.create(payload);
       }
       setShowModal(false);
       fetchGroups();
@@ -197,7 +261,7 @@ const VariantLinkGroups: React.FC = () => {
   const handleDelete = async (group: VariantLinkGroup) => {
     if (!confirm(`Delete variant link group "${group.name}"?`)) return;
     try {
-      await api.delete(`/variant-groups/${group.id}`);
+      await variantGroupsAPI.delete(group.id);
       fetchGroups();
     } catch (err: any) {
       alert(err?.response?.data?.message || 'Failed to delete group');
@@ -220,8 +284,9 @@ const VariantLinkGroups: React.FC = () => {
       </div>
 
       {error && (
-        <div className="p-4 border border-destructive/50 bg-destructive/10 text-sm text-destructive rounded-md">
-          {error}
+        <div className="p-4 border border-destructive/50 bg-destructive/10 text-sm text-destructive rounded-md flex items-center justify-between gap-3">
+          <span>{error}</span>
+          <Button variant="outline" size="sm" onClick={fetchGroups}>Retry</Button>
         </div>
       )}
 
@@ -246,6 +311,12 @@ const VariantLinkGroups: React.FC = () => {
                     </div>
                   </TableCell>
                 </TableRow>
+              ) : error ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="h-32 text-center text-muted-foreground">
+                    Couldn't load groups — see the error above.
+                  </TableCell>
+                </TableRow>
               ) : groups.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} className="h-48 text-center text-muted-foreground">
@@ -260,7 +331,7 @@ const VariantLinkGroups: React.FC = () => {
                       {group.display_attribute_slug || '—'}
                     </TableCell>
                     <TableCell className="px-4 py-3 text-sm text-muted-foreground">
-                      {group.products?.length ?? 0} product{(group.products?.length ?? 0) !== 1 ? 's' : ''}
+                      {memberCount(group)} product{memberCount(group) !== 1 ? 's' : ''}
                     </TableCell>
                     <TableCell className="px-4 py-3">
                       {group.is_active
@@ -289,7 +360,7 @@ const VariantLinkGroups: React.FC = () => {
       {/* Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-6 border-b">
               <h2 className="text-lg font-semibold">{editId ? 'Edit Variant Link Group' : 'New Variant Link Group'}</h2>
               <Button variant="ghost" size="sm" onClick={() => setShowModal(false)}>
@@ -317,13 +388,31 @@ const VariantLinkGroups: React.FC = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="display-attr">Display Attribute Slug</Label>
-                  <Input
-                    id="display-attr"
-                    value={form.display_attribute_slug}
-                    onChange={e => setForm(f => ({ ...f, display_attribute_slug: e.target.value }))}
-                    placeholder="e.g. brand or potency"
-                  />
+                  <Label htmlFor="display-attr">Display Attribute</Label>
+                  {attributes.length > 0 ? (
+                    <select
+                      id="display-attr"
+                      value={form.display_attribute_slug}
+                      onChange={e => setForm(f => ({ ...f, display_attribute_slug: e.target.value }))}
+                      className="w-full h-9 px-3 border border-input rounded-md text-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-ring"
+                    >
+                      <option value="">— none —</option>
+                      {attributes.map(a => {
+                        const slug = a.slug || a.name || '';
+                        return <option key={a._id || a.id || slug} value={slug}>{a.name || slug}</option>;
+                      })}
+                      {form.display_attribute_slug && !attributes.some(a => (a.slug || a.name) === form.display_attribute_slug) && (
+                        <option value={form.display_attribute_slug}>{form.display_attribute_slug}</option>
+                      )}
+                    </select>
+                  ) : (
+                    <Input
+                      id="display-attr"
+                      value={form.display_attribute_slug}
+                      onChange={e => setForm(f => ({ ...f, display_attribute_slug: e.target.value }))}
+                      placeholder="e.g. brand or potency"
+                    />
+                  )}
                   <p className="text-xs text-muted-foreground">The attribute whose value is shown in the variant selector on the product page.</p>
                 </div>
 
@@ -336,28 +425,51 @@ const VariantLinkGroups: React.FC = () => {
                   <Label htmlFor="group-active" className="cursor-pointer">Group is active</Label>
                 </div>
 
-                {/* Product Multi-Select */}
+                {/* Members — value / default / order editable per row */}
                 <div className="space-y-2">
                   <Label>Linked Products</Label>
 
-                  {/* Selected products */}
-                  {selectedProducts.length > 0 && (
-                    <div className="flex flex-wrap gap-2 p-3 border rounded-lg bg-muted/30 min-h-[2.5rem]">
-                      {selectedProducts.map(p => (
-                        <span
-                          key={p.id}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary border border-primary/20"
-                        >
-                          {p.name}
+                  {membersLoading ? (
+                    <p className="text-xs text-muted-foreground py-2">Loading members…</p>
+                  ) : members.length > 0 && (
+                    <div className="border rounded-lg divide-y">
+                      {members.map((m, idx) => (
+                        <div key={m.productId} className="flex items-center gap-2 px-3 py-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{m.name}</p>
+                            {m.sku && <p className="text-[11px] font-mono text-muted-foreground truncate">{m.sku}</p>}
+                          </div>
+                          <Input
+                            value={m.attributeValue}
+                            onChange={e => updateMember(idx, { attributeValue: e.target.value })}
+                            placeholder="Attribute value"
+                            className="w-36 h-8 text-xs"
+                          />
+                          <label className="flex items-center gap-1 text-[11px] text-muted-foreground cursor-pointer shrink-0"
+                            title="Shown first on the product page">
+                            <input type="radio" name="vlg-default" checked={m.isDefault}
+                              onChange={() => setDefaultMember(idx)} className="w-3.5 h-3.5" />
+                            default
+                          </label>
+                          <div className="flex flex-col shrink-0">
+                            <button type="button" onClick={() => moveMember(idx, -1)} disabled={idx === 0}
+                              className="text-muted-foreground hover:text-foreground disabled:opacity-25 p-0.5" title="Move up">
+                              <FaArrowUp className="h-2.5 w-2.5" />
+                            </button>
+                            <button type="button" onClick={() => moveMember(idx, 1)} disabled={idx === members.length - 1}
+                              className="text-muted-foreground hover:text-foreground disabled:opacity-25 p-0.5" title="Move down">
+                              <FaArrowDown className="h-2.5 w-2.5" />
+                            </button>
+                          </div>
                           <button
                             type="button"
-                            onClick={() => removeProduct(p.id)}
-                            className="hover:text-destructive transition-colors"
-                            aria-label={`Remove ${p.name}`}
+                            onClick={() => removeMember(m.productId)}
+                            className="text-muted-foreground hover:text-destructive transition-colors shrink-0"
+                            aria-label={`Remove ${m.name}`}
                           >
                             <FaTimes className="h-3 w-3" />
                           </button>
-                        </span>
+                        </div>
                       ))}
                     </div>
                   )}
@@ -387,8 +499,8 @@ const VariantLinkGroups: React.FC = () => {
                             key={p.id}
                             type="button"
                             onClick={() => selectProduct(p)}
-                            className={`w-full text-left px-4 py-2.5 text-sm hover:bg-muted transition-colors ${selectedProducts.find(sp => sp.id === p.id) ? 'opacity-50 cursor-not-allowed' : ''}`}
-                            disabled={Boolean(selectedProducts.find(sp => sp.id === p.id))}
+                            className={`w-full text-left px-4 py-2.5 text-sm hover:bg-muted transition-colors ${members.find(sp => sp.productId === p.id) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            disabled={Boolean(members.find(sp => sp.productId === p.id))}
                           >
                             <span className="font-medium">{p.name}</span>
                             {p.slug && <span className="text-muted-foreground ml-2 font-mono text-xs">{p.slug}</span>}
@@ -401,7 +513,7 @@ const VariantLinkGroups: React.FC = () => {
               </div>
 
               <div className="flex gap-3 p-6 border-t">
-                <Button type="submit" disabled={saving} className="flex-1">
+                <Button type="submit" disabled={saving || membersLoading} className="flex-1">
                   {saving ? 'Saving...' : editId ? 'Update Group' : 'Create Group'}
                 </Button>
                 <Button type="button" variant="outline" onClick={() => setShowModal(false)}>

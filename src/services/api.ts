@@ -761,6 +761,19 @@ export const productsAPI = {
     }
     return responseData?.data || responseData;
   },
+  /**
+   * POST /api/v1/products/:id/duplicate — CREATES an inactive standalone copy
+   * (columns + categories + tags + attribute links + product-level B2B slabs,
+   * NO variation rows). Optional body: { name?, sku?, joinGroupId?,
+   * attributeValue? } — with joinGroupId the copy is inserted into that
+   * variant group with the given attributeValue. Returns the created product
+   * (interceptor already unwrapped {success,data}).
+   */
+  duplicateAsVariant: async (id: string, body?: { name?: string; sku?: string; joinGroupId?: string; attributeValue?: string }) => {
+    const response = await api.post(`/products/${id}/duplicate`, body || {});
+    const d = response.data;
+    return d?.data && d?.success ? d.data : (d?.data ?? d);
+  },
   generateContent: async (id: string, sectionId: string, prompt?: string) => {
     // Backend route: POST /api/v1/products/:id/generate-content
     // Body: { sectionId: string, prompt?: string }
@@ -3305,6 +3318,16 @@ export const variantGroupsAPI = {
   },
   update: async (id: string, data: any) => {
     const response = await api.put(`/variant-groups/${id}`, data);
+    return response.data;
+  },
+  /** POST /variant-groups/:id/members — { productId, attributeValue?, isDefault? } */
+  addMember: async (id: string, data: { productId: string; attributeValue?: string; isDefault?: boolean }) => {
+    const response = await api.post(`/variant-groups/${id}/members`, data);
+    return response.data;
+  },
+  /** DELETE /variant-groups/:id/members/:productId — removes the membership only. */
+  removeMember: async (id: string, productId: string) => {
+    const response = await api.delete(`/variant-groups/${id}/members/${productId}`);
     return response.data;
   },
   delete: async (id: string) => {

@@ -7,6 +7,9 @@ interface ProductDisplayOptionsProps {
   isFeatured?: boolean;
   isDigital?: boolean;
   requiresPrescription?: boolean;
+  /** ProductForm re-homes this toggle into the Medical tab (pharmacy_fields
+   *  module) — pass false to hide the row here and avoid a duplicate control. */
+  showRequiresPrescription?: boolean;
   onDisableVariantsChange: (value: boolean) => void;
   onShowOutOfStockVariantsChange: (value: boolean) => void;
   onIsActiveChange: (value: boolean) => void;
@@ -35,6 +38,7 @@ const Row: React.FC<{ id: string; label: string; desc: string; checked: boolean;
 const ProductDisplayOptions: React.FC<ProductDisplayOptionsProps> = ({
   disableVariants, showOutOfStockVariants, isActive,
   isFeatured = false, isDigital = false, requiresPrescription = false,
+  showRequiresPrescription = true,
   onDisableVariantsChange, onShowOutOfStockVariantsChange, onIsActiveChange,
   onIsFeaturedChange, onIsDigitalChange, onRequiresPrescriptionChange,
 }) => {
@@ -55,9 +59,11 @@ const ProductDisplayOptions: React.FC<ProductDisplayOptionsProps> = ({
           desc="No shipping required; deliver via download/email"
           checked={isDigital} onChange={v => onIsDigitalChange && onIsDigitalChange(v)} />
 
+        {showRequiresPrescription && (
         <Row id="requiresPrescription" label="Requires Prescription"
           desc="Customer must upload a valid prescription"
           checked={requiresPrescription} onChange={v => onRequiresPrescriptionChange && onRequiresPrescriptionChange(v)} />
+        )}
 
         <Row id="disableVariants" label="Disable Variant Picker"
           desc="Hide variant selection on product page"

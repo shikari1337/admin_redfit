@@ -580,11 +580,16 @@ const Products: React.FC = () => {
   const handleDuplicate = async (id: string) => {
     setDuplicatingId(id);
     try {
-      const response = await productsAPI.duplicate(id);
-      if (response?.data) {
-        navigate('/products/new', { state: { prefilledData: response.data, duplicatedFrom: id } });
+      // POST /products/:id/duplicate CREATES an inactive standalone copy and
+      // returns it. The axios interceptor has ALREADY unwrapped {success,data}
+      // — the old `response?.data` check inspected a key that no longer exists
+      // and alerted "failed" even though the copy was created.
+      const created: any = await productsAPI.duplicateAsVariant(id, {});
+      const product = created?.id || created?.slug ? created : (created?.data ?? created);
+      if (product?.slug || product?.id || product?._id) {
+        navigate(`/products/${product.slug || product.id || product._id}/edit`);
       } else {
-        alert('Failed to load product data for duplication.');
+        alert('Duplicate failed — the server returned no product.');
       }
     } catch (error) {
       console.error('Failed to duplicate:', error);

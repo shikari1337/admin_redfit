@@ -129,6 +129,41 @@ const ProductB2BPricing: React.FC<ProductB2BPricingProps> = ({ tiers, onChange, 
     onChange(next);
   };
 
+  // ── Simple products: one flat wholesale price ────────────────────────────
+  // With no variations, most merchants want ONE wholesale number, not a slab
+  // matrix. The input below binds to a single GENERIC slab (any tier, whole
+  // product, min qty 1, fixed price) — created on first type, updated in
+  // place, removed when cleared. The full editor stays available under
+  // "Advanced".
+  const isSimple = variations.length === 0;
+  const isGenericFlat = (t: B2BPricingTier) =>
+    !t.tierName && (t.variationId == null || t.variationId === '') && Number(t.minQty) === 1 && t.priceType === 'fixed';
+  let flatIdx = tiers.findIndex((t) => isGenericFlat(t) && !t.maxQty);
+  if (flatIdx === -1) flatIdx = tiers.findIndex(isGenericFlat);
+  const flatValue = flatIdx >= 0 ? tiers[flatIdx].priceValue : undefined;
+
+  const setFlatPrice = (raw: string) => {
+    if (raw === '') {
+      if (flatIdx >= 0) onChange(tiers.filter((_, i) => i !== flatIdx));
+      return;
+    }
+    const num = parseFloat(raw);
+    if (isNaN(num)) return;
+    if (flatIdx >= 0) {
+      const next = [...tiers];
+      next[flatIdx] = { ...next[flatIdx], priceValue: num, isActive: true };
+      onChange(next);
+    } else {
+      onChange([...tiers, { tierName: '', variationId: null, minQty: 1, priceType: 'fixed', priceValue: num, isActive: true }]);
+    }
+  };
+
+  // Advanced slab editor: collapsed by default for simple products, but opens
+  // itself when the product already carries slabs beyond the flat one.
+  const hasAdvancedSlabs = tiers.some((_t, i) => i !== flatIdx);
+  const [advToggled, setAdvToggled] = useState<boolean | null>(null);
+  const advOpen = advToggled ?? hasAdvancedSlabs;
+
   const addContract = async () => {
     if (!productId) return;
     if (!cForm.customer_id || cForm.unit_price === '') { setErr('Pick an account and enter a price.'); return; }
@@ -192,6 +227,31 @@ const ProductB2BPricing: React.FC<ProductB2BPricingProps> = ({ tiers, onChange, 
           customers on that list — it overrides the slabs below.{' '}
           <Link to="/b2b" className="font-semibold underline">Review price lists</Link>
         </p>
+      )}
+
+      {/* ── Simple product: flat wholesale price (binds to ONE generic slab) ── */}
+      {isSimple && (
+        <div className="border-2 border-blue-200 bg-blue-50/40 rounded-lg p-3">
+          <label className="text-sm font-semibold text-gray-900 block">Wholesale price (₹)</label>
+          <p className="text-[11px] text-gray-500 mb-2">
+            One price for every approved B2B customer (any tier, from 1 unit). Clear it to remove.
+          </p>
+          <div className="flex items-center gap-2">
+            <span className="text-gray-500 text-sm">₹</span>
+            <input
+              type="number" step="0.01" min="0"
+              className="w-40 px-2.5 py-2 border border-gray-300 rounded text-base font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400"
+              value={flatValue ?? ''}
+              onChange={(e) => setFlatPrice(e.target.value)}
+              placeholder="e.g. 78.50"
+            />
+            {flatIdx >= 0 && tiers[flatIdx].maxQty != null && (
+              <span className="text-[11px] text-amber-700">
+                Note: this slab is capped at qty {tiers[flatIdx].maxQty} (edit under Advanced).
+              </span>
+            )}
+          </div>
+        </div>
       )}
 
       {/* ── Account prices (P1 — highest priority) ── */}
@@ -281,8 +341,19 @@ const ProductB2BPricing: React.FC<ProductB2BPricingProps> = ({ tiers, onChange, 
         )}
       </div>
 
-      {/* ── Tier / bulk slabs (P2 / P3) ── */}
+      {/* ── Tier / bulk slabs (P2 / P3) — collapsed behind "Advanced" for simple products ── */}
       <div className="border border-gray-200 rounded-lg p-3">
+        {isSimple && (
+          <button type="button" onClick={() => setAdvToggled(!advOpen)}
+            className="w-full flex items-center justify-between text-left group"
+            aria-expanded={advOpen}>
+            <span className="text-xs font-bold text-gray-700 uppercase tracking-wide group-hover:text-gray-900">
+              Advanced: tiers &amp; quantity slabs
+            </span>
+            <span className="text-gray-400 text-xs">{advOpen ? '▲ Hide' : '▼ Show'}</span>
+          </button>
+        )}
+        {(!isSimple || advOpen) && (<div className={isSimple ? 'mt-3' : undefined}>
         <div className="flex items-center justify-between mb-2">
           <div>
             <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wide">Tier &amp; bulk prices</h4>
@@ -409,6 +480,7 @@ const ProductB2BPricing: React.FC<ProductB2BPricingProps> = ({ tiers, onChange, 
             </div>
           ))}
         </div>
+        </div>)}
       </div>
     </div>
   );
