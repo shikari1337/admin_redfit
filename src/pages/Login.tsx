@@ -55,7 +55,17 @@ const StepCredentials: React.FC<StepCredentialsProps> = ({ onSuccess }) => {
     try {
       // If a specific store key is provided, use per-store login.
       // A domain-pinned store outranks any env/manual key.
-      const storeKey = (domainStore?.apiKey || manualKey.trim() || envKey || '').trim();
+      //
+      // On the CENTRAL console the leftover key must NOT pin the login. It used
+      // to: `getTenantApiKey()` returns a stored key BEFORE its platform-domain
+      // guard runs, and logout deliberately keeps that key — so after signing
+      // into any one store, every later sign-in was forced back at that store.
+      // Logging into a DIFFERENT store then failed with "Invalid email or
+      // password", because the account genuinely isn't in the pinned tenant.
+      // Here the console must stay tenant-less until central auth resolves the
+      // account; only an explicitly typed key still pins.
+      const ambientKey = isPlatformDomain() ? '' : (envKey || '');
+      const storeKey = (domainStore?.apiKey || manualKey.trim() || ambientKey || '').trim();
       if (storeKey) {
         setTenantApiKey(storeKey);
         const res = await authAPI.login(email, password);

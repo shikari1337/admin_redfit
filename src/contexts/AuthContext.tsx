@@ -9,7 +9,10 @@
  *  - If stored storeApiKey drifts from current store context → force re-login
  */
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { authAPI, setTenantApiKey, getTenantApiKey } from '../services/api';
+import {
+  authAPI, setTenantApiKey, getTenantApiKey, isPlatformDomain,
+  TENANT_API_KEY_STORAGE_KEY,
+} from '../services/api';
 import { effectivePermissionsFor, hasPermIn, workspacesFor } from '../lib/rbac';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -151,7 +154,16 @@ export function loadSession(): StoredSession | null {
 export function clearSession(): void {
   sessionStorage.removeItem(SESSION_KEY);
   localStorage.removeItem('admin_token');
-  // Don't remove TENANT_API_KEY_STORAGE_KEY — it may be set from env and needed for login
+  // Keep TENANT_API_KEY_STORAGE_KEY on a store domain — it may come from env and
+  // is needed to log back in.
+  //
+  // On the CENTRAL console the opposite is true: there is no ambient tenant, and
+  // keeping the last store's key made the next sign-in pin to that store, so a
+  // user with an account on a DIFFERENT store was told "Invalid email or
+  // password". Signing out of the console must leave no tenant behind.
+  try {
+    if (isPlatformDomain()) localStorage.removeItem(TENANT_API_KEY_STORAGE_KEY);
+  } catch { /* storage unavailable — nothing to clear */ }
 }
 
 // ─── Context ──────────────────────────────────────────────────────────────────
