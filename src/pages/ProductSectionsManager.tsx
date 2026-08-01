@@ -185,6 +185,9 @@ const ProductSectionsManager: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [editingSection, setEditingSection] = useState<string | null>(null);
   const [showCustomModal, setShowCustomModal] = useState(false);
+  /** Unsaved LAYOUT changes (toggle/reorder/custom add/delete). Content edits
+   *  persist immediately from the modal, so they never set this. */
+  const [dirty, setDirty] = useState(false);
   // Store the resolved product ID for updates (may differ from URL param which can be a slug)
   const [productId, setProductId] = useState<string>('');
 
@@ -275,6 +278,7 @@ const ProductSectionsManager: React.FC = () => {
       return;
     }
     setSections(prev => [...prev, { ...section, order: prev.length }]);
+    setDirty(true);
   };
 
   const handleDeleteSection = (sectionId: string) => {
@@ -285,6 +289,7 @@ const ProductSectionsManager: React.FC = () => {
     if (isBuiltIn) return;
     if (!confirm('Remove this custom section?')) return;
     setSections(prev => prev.filter(s => s.sectionId !== sectionId));
+    setDirty(true);
   };
 
   const handleToggleSection = (sectionId: string) => {
@@ -293,6 +298,7 @@ const ProductSectionsManager: React.FC = () => {
         ? { ...section, enabled: !section.enabled }
         : section
     ));
+    setDirty(true);
   };
 
   /** Swap a section with its neighbour WITHIN its display group, re-numbering
@@ -307,26 +313,42 @@ const ProductSectionsManager: React.FC = () => {
     const items = [...sections];
     [items[a], items[b]] = [items[b], items[a]];
     setSections(items.map((item, i) => ({ ...item, order: i })));
+    setDirty(true);
   };
 
-  const handleSave = async () => {
+  /**
+   * Persist a sections array RIGHT NOW. The old flow was a two-step trap: the
+   * content modal's "Save" only updated local state, and nothing reached the
+   * backend until a second "Save Sections" click — so edits were routinely
+   * typed, "saved", and lost. Content edits now persist from the modal itself;
+   * layout changes (toggle/reorder) stage here and flag `dirty`.
+   */
+  const persistSections = async (next: ProductPageSection[]): Promise<boolean> => {
     try {
       setSaving(true);
-      const page_sections = sections.map(section => ({
+      const page_sections = next.map(section => ({
         sectionId: section.sectionId,
         enabled: section.enabled,
         order: section.order,
         customData: section.customData,
       }));
-
       // Send as page_sections (snake_case) to match the PostgreSQL column name
       await productsAPI.update(productId || id!, { page_sections });
-      alert('Sections updated successfully!');
-      navigate('/products');
+      setDirty(false);
+      return true;
     } catch (error: any) {
       alert(error.response?.data?.message || 'Failed to save sections');
+      return false;
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSave = async () => {
+    const ok = await persistSections(sections);
+    if (ok) {
+      alert('Sections updated successfully!');
+      navigate('/products');
     }
   };
 
@@ -504,7 +526,12 @@ const ProductSectionsManager: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex justify-end gap-4">
+      <div className="flex items-center justify-end gap-4">
+        {dirty && (
+          <span className="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-3 py-1">
+            Unsaved layout changes — click "Save Sections"
+          </span>
+        )}
         <button
           type="button"
           onClick={() => navigate(`/products/${id}/edit`)}
@@ -530,19 +557,22 @@ const ProductSectionsManager: React.FC = () => {
         />
       )}
 
-      {/* Section Content Editor Modal */}
+      {/* Section Content Editor Modal — its Save PERSISTS immediately (no
+          second "Save Sections" click needed for content). */}
       {editingSection && (
         <SectionContentEditor
           section={sections.find(s => s.sectionId === editingSection)!}
-          productId={id || undefined}
+          productId={productId || id || undefined}
           onClose={() => setEditingSection(null)}
-          onSave={(customData) => {
-            setSections(sections.map(s =>
+          onSave={async (customData) => {
+            const next = sections.map(s =>
               s.sectionId === editingSection
                 ? { ...s, customData }
                 : s
-            ));
-            setEditingSection(null);
+            );
+            setSections(next);
+            const ok = await persistSections(next);
+            if (ok) setEditingSection(null);
           }}
         />
       )}
@@ -554,7 +584,8 @@ const ProductSectionsManager: React.FC = () => {
 interface SectionContentEditorProps {
   section: ProductPageSection;
   onClose: () => void;
-  onSave: (customData: any) => void;
+  /** Persists immediately (async) — the modal awaits it and shows progress. */
+  onSave: (customData: any) => void | Promise<void>;
   productId?: string;
 }
 
@@ -576,9 +607,11 @@ const SectionContentEditor: React.FC<SectionContentEditorProps> = ({ section, on
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [generatePrompt, setGeneratePrompt] = useState('');
+  const [savingContent, setSavingContent] = useState(false);
 
-  const handleSave = () => {
-    onSave(formData);
+  const handleSave = async () => {
+    setSavingContent(true);
+    try { await onSave(formData); } finally { setSavingContent(false); }
   };
 
   const handleGenerateContent = async () => {
@@ -701,9 +734,10 @@ const SectionContentEditor: React.FC<SectionContentEditorProps> = ({ section, on
             </button>
             <button
               onClick={handleSave}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              disabled={savingContent}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
             >
-              Save Content
+              {savingContent ? 'Saving…' : 'Save Content'}
             </button>
           </div>
         </div>
