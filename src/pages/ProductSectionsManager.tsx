@@ -480,8 +480,12 @@ const SectionContentEditor: React.FC<SectionContentEditorProps> = ({ section, on
   const { id } = useParams();
   const effectiveProductId = productId || id;
   
+  /** Has this section ever been saved? Drives the "storefront is showing its
+   *  own default" notice — an empty object counts as unsaved. */
+  const hasSavedContent = !!section.customData && Object.keys(section.customData).length > 0;
+
   const [formData, setFormData] = useState<any>(() => {
-    if (section.customData) {
+    if (hasSavedContent) {
       return section.customData;
     }
     return getDefaultContent(section.sectionId);
@@ -579,6 +583,20 @@ const SectionContentEditor: React.FC<SectionContentEditorProps> = ({ section, on
             </div>
           </div>
           <div className="p-6">
+            {/* Until a section is saved the storefront renders ITS OWN built-in
+                content, which is why the page can show copy that appears
+                nowhere here. Say so plainly instead of letting the two silently
+                disagree. */}
+            {!hasSavedContent && (
+              <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
+                <span className="mt-0.5 shrink-0">ⓘ</span>
+                <span>
+                  Nothing is saved for this section yet, so your storefront is showing its
+                  <b> built-in default content</b> — that is the text you see on the live page.
+                  Fill this in and save to take control of it; whatever you save replaces the default.
+                </span>
+              </div>
+            )}
             {renderEditor()}
           </div>
           <div className="sticky bottom-0 bg-white border-t border-gray-200 p-4 flex justify-end gap-4">
@@ -680,14 +698,19 @@ const getDefaultContent = (sectionId: string): any => {
         ]
       };
     case 'whySpeedster':
+      // Deliberately BLANK. This used to ship demo copy for a Formula 1 jacket
+      // (a different store's template). Because the storefront renders its own
+      // built-in content until something is saved here, that demo text made the
+      // editor disagree with the live page — and saving it would have replaced
+      // the real product copy with Ferrari jacket text.
       return {
-        heading: 'OWN THE LEGEND. FEEL THE SPEED.',
-        subtitle: 'The F1 Speedster isn\'t just a jacket—it\'s an experience. We\'ve poured passion into every stitch to create a piece of apparel that connects you to the heart-pounding world of Formula 1.',
+        heading: '',
+        subtitle: '',
         imageUrl: '',
         items: [
-          { title: 'Race-Ready Authenticity', description: 'Feel the grid\'s energy with meticulously embroidered sponsor logos and an official Ferrari prancing horse emblem.', iconType: 'shield' },
-          { title: 'Unmatched Comfort & Quality', description: 'Built with premium, all-weather fabric and a plush inner lining, the Speedster provides warmth without the bulk.', iconType: 'star' },
-          { title: 'Stand Out From The Crowd', description: 'The bold, iconic red, white, and black color-blocking is instantly recognizable.', iconType: 'bolt' },
+          { title: '', description: '', iconType: 'shield' },
+          { title: '', description: '', iconType: 'star' },
+          { title: '', description: '', iconType: 'bolt' },
         ]
       };
     case 'whyUs':
@@ -706,7 +729,7 @@ const getDefaultContent = (sectionId: string): any => {
     case 'stylingGuide':
       return {
         heading: 'Styling & Pairing Guide',
-        subtitle: 'Discover how to style your premium racing jacket for different occasions',
+        subtitle: 'Discover how to style this product for different occasions',
         items: [
           { title: 'Casual Street Style', description: 'Pair with denim jeans and sneakers for an everyday look', image: '' },
           { title: 'Sporty Look', description: 'Team up with track pants and running shoes for a sporty vibe', image: '' },
@@ -720,7 +743,7 @@ const getDefaultContent = (sectionId: string): any => {
         heading: 'Follow Us on Instagram',
         posts: [
           { id: '1', imageUrl: '', caption: 'New arrivals! Check out our latest collection', link: '' },
-          { id: '2', imageUrl: '', caption: 'Customer styling our racing jacket', link: '' },
+          { id: '2', imageUrl: '', caption: 'Customer photo', link: '' },
           { id: '3', imageUrl: '', caption: 'Behind the scenes of our photoshoot', link: '' },
           { id: '4', imageUrl: '', caption: 'Limited edition drop!', link: '' },
           { id: '5', imageUrl: '', caption: 'Customer reviews and testimonials', link: '' },
@@ -755,7 +778,7 @@ const getDefaultContent = (sectionId: string): any => {
     case 'videos':
       return {
         heading: 'SEE IT IN ACTION',
-        subtitle: 'Watch how our customers style their premium racing jackets',
+        subtitle: 'Watch this product in action',
         videos: [], // Will use product.videos if empty
       };
     default:
