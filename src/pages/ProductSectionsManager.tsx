@@ -4,6 +4,7 @@ import { productsAPI, uploadAPI } from '../services/api';
 import { FaArrowLeft, FaCheck, FaTimes, FaEdit, FaPlus, FaTrash, FaUpload, FaMagic, FaImage } from 'react-icons/fa';
 import ImageInputWithActions from '../components/common/ImageInputWithActions';
 import IconPicker from '../components/IconPicker';
+import RichTextEditor from '../components/common/RichTextEditor';
 import { useAuth } from '../contexts/AuthContext';
 
 interface ProductPageSection {
@@ -449,10 +450,24 @@ const ProductSectionsManager: React.FC = () => {
         <h1 className="text-2xl font-bold text-gray-800">Manage Product Page Sections</h1>
       </div>
 
+      {/* The #1 confusion on this page: the hero/highlight blocks people SEE on
+          their product page (image+text bands, icon strips, comparison tables)
+          are A+ CONTENT — a different column, edited in the product form. This
+          page controls section LAYOUT + text overrides only. Say so up front. */}
+      <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 mb-4 text-sm text-amber-900">
+        <span className="font-semibold">Looking for the image/icon “highlight” blocks you see on the product page?</span>{' '}
+        Those are <span className="font-semibold">A+ Content</span>, not page sections — edit them in{' '}
+        <button type="button" onClick={() => navigate(`/products/${id}/edit`)}
+          className="font-semibold text-amber-900 underline underline-offset-2 hover:text-amber-700">
+          the product editor → Product Content (A+ Sections)
+        </button>. This page controls which sections show, their order, and their text content.
+      </div>
+
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
         <div className="flex items-center justify-between mb-4">
           <p className="text-sm text-gray-600">
-            Enable/disable and reorder sections on the product page.
+            Enable/disable and reorder sections on the product page. Which group applies depends on
+            the storefront your store runs — both are saved on the product either way.
           </p>
           <button
             type="button"
@@ -465,15 +480,15 @@ const ProductSectionsManager: React.FC = () => {
 
         <div className="space-y-6">
           <div>
-            <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-1">Storefront sections (live theme)</h2>
-            <p className="text-xs text-gray-500 mb-3">These render on the main storefront product page.</p>
+            <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-1">Multi-product storefront sections</h2>
+            <p className="text-xs text-gray-500 mb-3">Rendered by the multi-product storefront (catalog stores, e.g. homeomead.com). Stores on the single-product template ignore these.</p>
             <div className="space-y-3">
               {storefrontGroup.map((section, i) => renderSectionRow(section, storefrontGroup, i))}
             </div>
           </div>
           <div>
-            <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-1">Legacy template sections (single-product theme only)</h2>
-            <p className="text-xs text-gray-500 mb-3">These render only on the single-product (ecom) storefront theme — the main storefront ignores them.</p>
+            <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-1">Single-product template sections</h2>
+            <p className="text-xs text-gray-500 mb-3">Rendered by the single-product storefront template (e.g. ziptronbags.com). Sections with no content edited here fall back to the template's built-in copy.</p>
             <div className="space-y-3">
               {legacyGroup.map((section, i) => renderSectionRow(section, legacyGroup, i))}
             </div>
@@ -954,22 +969,43 @@ const CustomSectionDataEditor: React.FC<{ data: any; onChange: (data: any) => vo
 
 // ─── Live storefront section editors ──────────────────────────────────────────
 
-/** short-description / description / dosage / important-info → customData.content */
-const HtmlContentEditor: React.FC<{ data: any; onChange: (data: any) => void }> = ({ data, onChange }) => (
-  <div className="space-y-2">
-    <label className="block text-sm font-medium text-gray-700">Content (HTML allowed)</label>
-    <textarea
-      value={data?.content || ''}
-      onChange={(e) => onChange({ ...data, content: e.target.value })}
-      className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono text-sm resize-y focus:outline-none focus:ring-2 focus:ring-blue-500"
-      rows={14}
-      placeholder="<p>Your content…</p>"
-    />
-    <p className="text-xs text-gray-500">
-      Overrides the product's own text on the live storefront. Leave empty to keep the product default.
-    </p>
-  </div>
-);
+/** short-description / description / dosage / important-info → customData.content.
+ *  Rich-text (same editor as product descriptions) with an optional raw-HTML
+ *  view for people pasting markup — never a bare "paste HTML" box. */
+const HtmlContentEditor: React.FC<{ data: any; onChange: (data: any) => void }> = ({ data, onChange }) => {
+  const [rawMode, setRawMode] = React.useState(false);
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <label className="block text-sm font-medium text-gray-700">Content</label>
+        <button type="button" onClick={() => setRawMode(m => !m)}
+          className="text-xs text-blue-600 hover:text-blue-800 font-medium">
+          {rawMode ? 'Visual editor' : 'Edit HTML'}
+        </button>
+      </div>
+      {rawMode ? (
+        <textarea
+          value={data?.content || ''}
+          onChange={(e) => onChange({ ...data, content: e.target.value })}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono text-sm resize-y focus:outline-none focus:ring-2 focus:ring-blue-500"
+          rows={14}
+          placeholder="<p>Your content…</p>"
+        />
+      ) : (
+        <RichTextEditor
+          value={data?.content || ''}
+          onChange={(html: string) => onChange({ ...data, content: html })}
+          placeholder="Section content — use the toolbar to format headings, lists, links…"
+          minHeight={220}
+        />
+      )}
+      <p className="text-xs text-gray-500">
+        Overrides the product's own text on the multi-product storefront. Leave empty to keep the product default.
+        Scripts and inline event handlers are stripped on save.
+      </p>
+    </div>
+  );
+};
 
 /** faqs → customData.items = [{ question, answer }] */
 const FaqItemsEditor: React.FC<{ data: any; onChange: (data: any) => void }> = ({ data, onChange }) => {
