@@ -45,6 +45,20 @@ const availableSections: Omit<ProductPageSection, 'order' | 'customData'>[] = [
   { sectionId: 'whyUs', name: 'Why Us', description: 'Benefits and advantages', enabled: true },
 ];
 
+/**
+ * A+ Content as a LAYOUT entry: the blocks themselves live in
+ * products.aplus_content and are edited in the product editor — this row only
+ * controls WHERE the block renders (single-product template order) and WHETHER
+ * it renders at all. Disabling hides it on BOTH storefronts without deleting a
+ * single block, so it can be turned back on later intact.
+ */
+const APLUS_SECTION: Omit<ProductPageSection, 'order' | 'customData'> = {
+  sectionId: 'aplusContent',
+  name: 'A+ Content (Product Highlights)',
+  description: 'Rich content blocks from the product editor — toggle off to hide WITHOUT deleting; blocks stay saved.',
+  enabled: true,
+};
+
 // ─── Custom Section Modal ─────────────────────────────────────────────────────
 
 interface CustomField { key: string; value: string; }
@@ -228,8 +242,10 @@ const ProductSectionsManager: React.FC = () => {
       // Initialize sections from product or use defaults
       // PG returns snake_case page_sections; MongoDB returned camelCase pageSections
       const existingPageSections: any[] = product.page_sections || product.pageSections || [];
-      // Built-ins = live-storefront sections FIRST, then legacy ecom-theme sections
-      const builtInSections = [...storefrontSections, ...availableSections];
+      // Built-ins = live-storefront sections FIRST, then legacy ecom-theme
+      // sections, then A+ Content LAST — section content renders before the A+
+      // blocks by default.
+      const builtInSections = [...storefrontSections, ...availableSections, APLUS_SECTION];
       if (existingPageSections.length > 0) {
         // Merge with built-in sections to get full info (enabled/order/customData preserved)
         const mergedSections = builtInSections.map(builtIn => {
@@ -284,6 +300,7 @@ const ProductSectionsManager: React.FC = () => {
   const handleDeleteSection = (sectionId: string) => {
     // Only allow deleting custom (non-built-in) sections
     const isBuiltIn =
+      sectionId === APLUS_SECTION.sectionId ||
       storefrontSections.some(s => s.sectionId === sectionId) ||
       availableSections.some(s => s.sectionId === sectionId);
     if (isBuiltIn) return;
@@ -388,10 +405,13 @@ const ProductSectionsManager: React.FC = () => {
   const legacyIds = new Set(availableSections.map(s => s.sectionId));
   const storefrontGroup = sections.filter(s => storefrontIds.has(s.sectionId));
   const legacyGroup = sections.filter(s => legacyIds.has(s.sectionId));
-  const customGroup = sections.filter(s => !storefrontIds.has(s.sectionId) && !legacyIds.has(s.sectionId));
+  const aplusGroup = sections.filter(s => s.sectionId === APLUS_SECTION.sectionId);
+  const customGroup = sections.filter(s =>
+    !storefrontIds.has(s.sectionId) && !legacyIds.has(s.sectionId) && s.sectionId !== APLUS_SECTION.sectionId);
 
   const renderSectionRow = (section: ProductPageSection, group: ProductPageSection[], groupIndex: number) => {
-    const isCustom = !storefrontIds.has(section.sectionId) && !legacyIds.has(section.sectionId);
+    const isAplus = section.sectionId === APLUS_SECTION.sectionId;
+    const isCustom = !isAplus && !storefrontIds.has(section.sectionId) && !legacyIds.has(section.sectionId);
     return (
       <div
         key={section.sectionId}
@@ -426,6 +446,18 @@ const ProductSectionsManager: React.FC = () => {
           <span className="text-xs text-gray-400 font-mono">id: {section.sectionId} · export: section_{section.sectionId}_*</span>
         </div>
         <div className="flex items-center gap-2">
+          {isAplus ? (
+            // A+ blocks are authored in the product editor — this row only
+            // positions/toggles them.
+            <button
+              type="button"
+              onClick={() => navigate(`/products/${id}/edit`)}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-800 rounded-md hover:bg-blue-200"
+              title="Edit A+ blocks in the product editor"
+            >
+              <FaEdit /> Edit in Product Editor
+            </button>
+          ) : (
           <button
             type="button"
             onClick={() => setEditingSection(section.sectionId)}
@@ -434,6 +466,7 @@ const ProductSectionsManager: React.FC = () => {
           >
             <FaEdit /> Edit Content
           </button>
+          )}
           <button
             type="button"
             onClick={() => handleToggleSection(section.sectionId)}
@@ -520,6 +553,19 @@ const ProductSectionsManager: React.FC = () => {
               <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-1">Custom sections</h2>
               <div className="space-y-3">
                 {customGroup.map((section, i) => renderSectionRow(section, customGroup, i))}
+              </div>
+            </div>
+          )}
+          {aplusGroup.length > 0 && (
+            <div>
+              <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-1">A+ Content</h2>
+              <p className="text-xs text-gray-500 mb-3">
+                Renders on BOTH storefronts, AFTER all the sections above. Toggling it off hides the
+                blocks without deleting anything — they stay saved on the product and come back the
+                moment you re-enable.
+              </p>
+              <div className="space-y-3">
+                {aplusGroup.map((section, i) => renderSectionRow(section, aplusGroup, i))}
               </div>
             </div>
           )}
