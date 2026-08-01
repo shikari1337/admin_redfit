@@ -29,6 +29,14 @@ const VendorForm: React.FC = () => {
     bank_ifsc_code: '',
     bank_name: '',
     bank_account_holder: '',
+    // Tax & compliance (real vendor columns — mig 052 TDS, mig 053 MSME).
+    // Only persisted on EDIT: createVendor uses a fixed INSERT column list.
+    payment_terms_days: '',
+    msme_classification: '' as '' | 'micro' | 'small' | 'medium',
+    udyam_number: '',
+    tds_section: '',
+    tds_rate_pct: '', // percent in the UI; stored as milli-percent (×1000)
+    lower_deduction_cert: '',
   });
 
   useEffect(() => {
@@ -49,6 +57,12 @@ const VendorForm: React.FC = () => {
         bank_ifsc_code: bd.ifsc_code || '',
         bank_name: bd.bank_name || '',
         bank_account_holder: bd.account_holder || '',
+        payment_terms_days: data.payment_terms_days != null ? String(data.payment_terms_days) : '',
+        msme_classification: (data.msme_classification || '') as '' | 'micro' | 'small' | 'medium',
+        udyam_number: data.udyam_number || '',
+        tds_section: data.tds_section || '',
+        tds_rate_pct: data.tds_rate_milli_pct != null ? String(Number(data.tds_rate_milli_pct) / 1000) : '',
+        lower_deduction_cert: data.lower_deduction_cert || '',
       });
     }).catch(() => setError('Failed to load vendor'))
       .finally(() => setLoading(false));
@@ -75,7 +89,17 @@ const VendorForm: React.FC = () => {
       logo_url: form.logo_url.trim() || undefined,
       is_active: form.is_active,
     };
-    if (isEdit) payload.status = form.status;
+    if (isEdit) {
+      payload.status = form.status;
+      // Tax & compliance — real vendor columns; updateVendor auto-whitelists them.
+      // `null` clears a column; the create route ignores these (fixed INSERT).
+      payload.payment_terms_days = form.payment_terms_days === '' ? null : parseInt(form.payment_terms_days, 10) || 0;
+      payload.msme_classification = form.msme_classification || null;
+      payload.udyam_number = form.udyam_number.trim() || null;
+      payload.tds_section = form.tds_section.trim() || null;
+      payload.tds_rate_milli_pct = form.tds_rate_pct === '' ? null : Math.round(Number(form.tds_rate_pct) * 1000);
+      payload.lower_deduction_cert = form.lower_deduction_cert.trim() || null;
+    }
     // Bank details
     const bank: Record<string, string> = {};
     if (form.bank_account_number) bank.account_number = form.bank_account_number;
@@ -252,6 +276,97 @@ const VendorForm: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/*
+          Tax & Compliance — real vendor columns (payment terms, MSME/Udyam,
+          TDS). Shown on EDIT only: the create route uses a fixed INSERT and
+          cannot persist these, so we let the user create the vendor first, then
+          set them here. These also drive the Payables 43B(h) warning and the
+          26Q TDS register.
+        */}
+        {isEdit && (
+          <div className="rounded-md border bg-card p-5 space-y-4">
+            <div>
+              <h2 className="font-semibold text-base">Tax &amp; Compliance</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Payment terms &amp; MSME status feed the Payables 45-day (Section 43B(h)) warning; TDS details feed the 26Q register.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Payment terms (days)</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={form.payment_terms_days}
+                  onChange={(e) => setForm((f) => ({ ...f, payment_terms_days: e.target.value }))}
+                  placeholder="e.g. 45"
+                  className="w-full px-3 py-2 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">MSME classification</label>
+                <select
+                  value={form.msme_classification}
+                  onChange={(e) => setForm((f) => ({ ...f, msme_classification: e.target.value as '' | 'micro' | 'small' | 'medium' }))}
+                  className="w-full px-3 py-2 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="">Not MSME</option>
+                  <option value="micro">Micro</option>
+                  <option value="small">Small</option>
+                  <option value="medium">Medium</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Udyam number</label>
+                <input
+                  type="text"
+                  value={form.udyam_number}
+                  onChange={(e) => setForm((f) => ({ ...f, udyam_number: e.target.value.toUpperCase() }))}
+                  maxLength={30}
+                  placeholder="UDYAM-XX-00-0000000"
+                  className="w-full px-3 py-2 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">TDS section</label>
+                <input
+                  type="text"
+                  value={form.tds_section}
+                  onChange={(e) => setForm((f) => ({ ...f, tds_section: e.target.value.toUpperCase() }))}
+                  maxLength={30}
+                  placeholder="194C / 194Q / 194J"
+                  className="w-full px-3 py-2 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">TDS rate (%)</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  value={form.tds_rate_pct}
+                  onChange={(e) => setForm((f) => ({ ...f, tds_rate_pct: e.target.value }))}
+                  placeholder="e.g. 2"
+                  className="w-full px-3 py-2 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+                <p className="text-xs text-muted-foreground mt-1">Overrides the statutory rate for this vendor. Leave blank to use the default.</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Lower-deduction certificate</label>
+                <input
+                  type="text"
+                  value={form.lower_deduction_cert}
+                  onChange={(e) => setForm((f) => ({ ...f, lower_deduction_cert: e.target.value }))}
+                  maxLength={40}
+                  placeholder="Certificate no. (if any)"
+                  className="w-full px-3 py-2 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono"
+                />
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="flex items-center gap-3">
           <Button type="submit" disabled={saving} className="bg-primary hover:bg-primary/90 text-primary-foreground">

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { FaDownload, FaEye, FaSearch, FaSms, FaSyncAlt } from 'react-icons/fa';
+import { FaCog, FaDownload, FaEye, FaSearch, FaSms, FaSyncAlt } from 'react-icons/fa';
 import { cartsAPI } from '../services/api';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ButtonLoader from '../components/ButtonLoader';
@@ -45,6 +45,9 @@ const AbandonedCarts: React.FC = () => {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<'abandoned' | 'active' | 'converted'>('abandoned');
   const [error, setError] = useState<string | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [cartSettings, setCartSettings] = useState<any>(null);
+  const [savingSettings, setSavingSettings] = useState(false);
 
   const fetchCarts = useCallback(async () => {
     try {
@@ -92,10 +95,32 @@ const AbandonedCarts: React.FC = () => {
     await fetchCarts();
   };
 
-  const handleStatusChange = async (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const newStatus = event.target.value as typeof status;
-    setStatus(newStatus);
-    // fetchCarts will be called automatically by useEffect when status changes
+  /** Load the store's cart timings the first time the panel is opened. */
+  const toggleSettings = async () => {
+    const next = !showSettings;
+    setShowSettings(next);
+    if (next && !cartSettings) {
+      try {
+        setCartSettings(await cartsAPI.getSettings());
+      } catch {
+        setError('Could not load cart timing settings.');
+      }
+    }
+  };
+
+  const saveCartSettings = async () => {
+    setSavingSettings(true);
+    try {
+      // The server clamps out-of-range values, so echo BACK what it stored
+      // rather than what was typed — otherwise the form shows a value that
+      // isn't in effect.
+      setCartSettings(await cartsAPI.updateSettings(cartSettings ?? {}));
+      setError(null);
+    } catch {
+      setError('Could not save cart timing settings.');
+    } finally {
+      setSavingSettings(false);
+    }
   };
 
   const handleExport = async () => {
@@ -207,6 +232,13 @@ const AbandonedCarts: React.FC = () => {
             )}
           </button>
           <button
+            onClick={toggleSettings}
+            className="inline-flex items-center px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+          >
+            <FaCog className="mr-2" />
+            {showSettings ? 'Hide timing' : 'Cart timing'}
+          </button>
+          <button
             onClick={handleExport}
             disabled={exporting}
             className="inline-flex items-center px-3 py-2 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-400"
@@ -215,6 +247,39 @@ const AbandonedCarts: React.FC = () => {
             {exporting ? 'Exporting...' : 'Export CSV'}
           </button>
         </div>
+      </div>
+
+      {/* Two tabs: carts still being shopped, and carts that went cold.
+          `converted` stays reachable as a third tab — it is the proof that a
+          recovery nudge worked, and hiding it would hide the outcome. */}
+      <div className="border-b border-gray-200">
+        <nav className="-mb-px flex gap-6" aria-label="Cart status">
+          {([
+            { key: 'active', label: 'Active carts', hint: 'Still being shopped' },
+            { key: 'abandoned', label: 'Abandoned carts', hint: 'Idle past the threshold' },
+            { key: 'converted', label: 'Recovered', hint: 'Became an order' },
+          ] as const).map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setStatus(t.key)}
+              aria-current={status === t.key ? 'page' : undefined}
+              title={t.hint}
+              className={`whitespace-nowrap border-b-2 px-1 pb-3 pt-2 text-sm font-medium transition-colors ${
+                status === t.key
+                  ? 'border-red-600 text-red-600'
+                  : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              }`}
+            >
+              {t.label}
+              {status === t.key && (
+                <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+                  {carts.length}
+                </span>
+              )}
+            </button>
+          ))}
+        </nav>
       </div>
 
       <form
@@ -240,17 +305,58 @@ const AbandonedCarts: React.FC = () => {
               Search
             </button>
           </div>
-          <select
-            value={status}
-            onChange={handleStatusChange}
-            className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
-          >
-            <option value="abandoned">Abandoned</option>
-            <option value="active">Active</option>
-            <option value="converted">Converted</option>
-          </select>
         </div>
       </form>
+
+      {showSettings && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 space-y-4">
+          <div>
+            <h2 className="font-semibold text-gray-900">Cart timing</h2>
+            <p className="text-sm text-gray-600 mt-1">
+              A cart with items counts as <strong>abandoned</strong> once it has been idle for this
+              long. The sweep runs every 15 minutes, so a change takes effect on the next pass.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {([
+              { key: 'abandonmentMinutes', label: 'Idle before abandoned', unit: 'minutes', hint: '5 min – 7 days' },
+              { key: 'recoveryDelayHours', label: 'Wait before 1st reminder', unit: 'hours', hint: '0 – 14 days' },
+              { key: 'maxRecoveryAttempts', label: 'Max reminders per cart', unit: 'messages', hint: '0 – 10' },
+              { key: 'recoveryGapHours', label: 'Gap between reminders', unit: 'hours', hint: '1 h – 30 days' },
+            ] as const).map((f) => (
+              <div key={f.key}>
+                <label htmlFor={`cs-${f.key}`} className="block text-xs font-medium text-gray-700">
+                  {f.label}
+                </label>
+                <div className="mt-1 flex items-center gap-2">
+                  <input
+                    id={`cs-${f.key}`}
+                    type="number"
+                    min={0}
+                    value={cartSettings?.[f.key] ?? ''}
+                    onChange={(e) => setCartSettings((s: any) => ({ ...(s ?? {}), [f.key]: e.target.value === '' ? '' : Number(e.target.value) }))}
+                    className="w-24 px-2 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                  />
+                  <span className="text-xs text-gray-500">{f.unit}</span>
+                </div>
+                <p className="mt-1 text-[11px] text-gray-400">{f.hint}</p>
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={saveCartSettings}
+              disabled={savingSettings}
+              className="px-3 py-2 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-400"
+            >
+              {savingSettings ? 'Saving…' : 'Save timing'}
+            </button>
+            <span className="text-xs text-gray-500">
+              Values outside the allowed range are clamped by the server.
+            </span>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md">

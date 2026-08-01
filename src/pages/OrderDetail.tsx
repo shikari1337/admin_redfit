@@ -24,6 +24,7 @@ import {
   OrderFulfillmentCard,
   OrderJourneyCard,
   OrderItemsEditModal,
+  OrderAddressEditor,
 } from '../components/order';
 import { PickupModal } from '../components/shipments';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,6 +36,35 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
+
+/**
+ * Legal order-status moves, mirroring ALLOWED_TRANSITIONS in
+ * `backend/src/routes/orders.ts`. The API is the authority (it 409s on an
+ * illegal move); this is here so the dropdown only offers moves that will work.
+ *
+ * `on_hold` parks an order that needs attention — stock, address, a payment
+ * query — without cancelling it, and is reachable from every pre-shipping state.
+ * Terminal states (cancelled, completed) have no exits.
+ */
+const ALLOWED_TRANSITIONS: Record<string, string[]> = {
+  pending: ['confirmed', 'processing', 'on_hold', 'cancelled'],
+  confirmed: ['processing', 'shipped', 'on_hold', 'cancelled'],
+  processing: ['shipped', 'on_hold', 'cancelled'],
+  on_hold: ['pending', 'confirmed', 'processing', 'cancelled'],
+  shipped: ['out_for_delivery', 'delivered', 'returned', 'cancelled'],
+  out_for_delivery: ['delivered', 'shipped', 'returned'],
+  delivered: ['return_requested', 'completed'],
+  return_requested: ['returned', 'delivered'],
+  returned: ['completed'],
+  cancelled: [],
+  completed: [],
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  on_hold: 'On hold',
+  out_for_delivery: 'Out for delivery',
+  return_requested: 'Return requested',
+};
 
 const OrderDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -144,14 +174,15 @@ const OrderDetail: React.FC = () => {
   };
 
   const handleStatusUpdate = async (newStatus: string) => {
-    if (!confirm(`Update order status to ${newStatus}?`)) return;
+    const label = STATUS_LABEL[newStatus] ?? newStatus;
+    if (!confirm(`Update order status to ${label}?`)) return;
 
     setUpdating(true);
     try {
       await ordersAPI.updateStatus(id!, newStatus, statusNotes || undefined);
       setStatusNotes('');
       fetchOrder();
-      toast({ title: "Success", description: `Order status updated to ${newStatus} successfully!` });
+      toast({ title: "Success", description: `Order status updated to ${label}.` });
     } catch (error: any) {
       const errorMessage = error.response?.data?.message || error.message || 'Failed to update order status';
       toast({ variant: "destructive", title: "Update Failed", description: errorMessage });
@@ -541,7 +572,12 @@ const OrderDetail: React.FC = () => {
   // silently never rendered. Accept every spelling.
   const shiprocketAwb = order.shiprocketAwb ?? order.shiprocket_awb ?? order.shiprocketAWB ?? null;
 
-  const statusOptions = ['pending','confirmed','processing','on_hold','shipped','delivered','cancelled','returned','completed'];
+  // Only the moves the API will actually accept. The flat list this replaced
+  // offered every status from every state, so most picks came back 409 ("Cannot
+  // move an order from X to Y") with no hint of what WAS allowed. Mirrors
+  // ALLOWED_TRANSITIONS in backend/src/routes/orders.ts — keep the two in step.
+  const statusOptions = [order.orderStatus, ...(ALLOWED_TRANSITIONS[order.orderStatus] ?? [])]
+    .filter((s, i, a) => s && a.indexOf(s) === i);
   const discountBreakdown = order.discountReason ? order.discountReason.split(',').map((d: string) => d.trim()) : [];
 
   return (
@@ -569,8 +605,15 @@ const OrderDetail: React.FC = () => {
               </SelectTrigger>
               <SelectContent>
                 {statusOptions.map(status => (
-                  <SelectItem key={status} value={status} className="capitalize">{status}</SelectItem>
+                  <SelectItem key={status} value={status} className="capitalize">
+                    {STATUS_LABEL[status] ?? status}
+                  </SelectItem>
                 ))}
+                {statusOptions.length === 1 && (
+                  <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                    No further changes — this order is closed.
+                  </div>
+                )}
               </SelectContent>
             </Select>
           </div>
@@ -740,6 +783,15 @@ const OrderDetail: React.FC = () => {
                 warehouseId={order.warehouseId}
                 gst={order.gst}
                 onWhatsAppClick={handleWhatsAppClick}
+                headerAction={
+                  <OrderAddressEditor
+                    orderId={order._id || order.id}
+                    orderStatus={order.orderStatus || order.order_status}
+                    kind="shipping"
+                    address={order.shippingAddress || order.shipping_address}
+                    onSaved={(next: any) => setOrder((o: any) => ({ ...o, shippingAddress: next, shipping_address: next }))}
+                  />
+                }
               />
             </CardContent>
           </Card>
@@ -773,12 +825,23 @@ const OrderDetail: React.FC = () => {
             return (
               <Card className="shadow-sm">
                 <CardHeader className="pb-3 border-b">
-                  <CardTitle className="text-xl flex items-center gap-2">
-                    Billing Address
-                    {usingShippingFallback && (
-                      <span className="text-xs font-normal text-muted-foreground">(same as shipping)</span>
-                    )}
-                  </CardTitle>
+                  <div className="flex items-center justify-between gap-3">
+                    <CardTitle className="text-xl flex items-center gap-2">
+                      Billing Address
+                      {usingShippingFallback && (
+                        <span className="text-xs font-normal text-muted-foreground">(same as shipping)</span>
+                      )}
+                    </CardTitle>
+                    {/* Seeded from the shipping address when none was captured, so
+                        saving here CREATES a distinct billing address for the order. */}
+                    <OrderAddressEditor
+                      orderId={order._id || order.id}
+                      orderStatus={order.orderStatus || order.order_status}
+                      kind="billing"
+                      address={addr}
+                      onSaved={(next: any) => setOrder((o: any) => ({ ...o, billingAddress: next, billing_address: next }))}
+                    />
+                  </div>
                 </CardHeader>
                 <CardContent className="pt-6">
                   <div className="space-y-2 text-muted-foreground text-sm">

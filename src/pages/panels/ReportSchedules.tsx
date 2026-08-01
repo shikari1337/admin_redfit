@@ -1,7 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../services/api';
 import { payload } from '../../lib/unwrap';
-import { Page, PageHeader, Btn, Field, SelectInput, TextInput, StatusChip, EmptyState } from '../../components/erp';
+import { useAuth } from '../../contexts/AuthContext';
+import {
+  Page, PageHeader, Btn, Field, SelectInput, TextInput, StatusChip, EmptyState,
+  ExportMenu, type CsvColumn,
+} from '../../components/erp';
 
 /**
  * Scheduled Reports — "Email me a report on a schedule, without logging in."
@@ -57,6 +61,8 @@ const emptyForm = () => ({
 });
 
 const ReportSchedules: React.FC = () => {
+  const { hasPerm } = useAuth();
+  const canPost = hasPerm('accounting.post'); // reads=accounting.read; writes=accounting.post
   const [tab, setTab] = useState<'schedules' | 'history'>('schedules');
   const [catalogue, setCatalogue] = useState<ReportInfo[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -144,6 +150,16 @@ const ReportSchedules: React.FC = () => {
   };
 
   const labelOf = (key: string) => catalogue.find((r) => r.key === key)?.label ?? key;
+
+  const runCols: CsvColumn<Run>[] = [
+    { key: 'report_key', label: 'Report', format: (r) => labelOf(r.report_key) },
+    { key: 'period_key', label: 'Period' },
+    { key: 'status', label: 'Status' },
+    { key: 'item_count', label: 'Rows' },
+    { key: 'recipients', label: 'Sent to', format: (r) => (r.recipients ?? []).join('; ') },
+    { key: 'ran_at', label: 'When', format: (r) => fmtWhen(r.ran_at) },
+    { key: 'detail', label: 'Detail', format: (r) => r.error || r.detail || '' },
+  ];
 
   return (
     <Page>
@@ -237,9 +253,10 @@ const ReportSchedules: React.FC = () => {
             </p>
 
             <div className="mt-3 flex items-center gap-2">
-              <Btn onClick={save} disabled={saving}>{saving ? 'Saving…' : form.id ? 'Update schedule' : 'Create schedule'}</Btn>
-              {form.id && <Btn variant="ghost" onClick={() => setForm(emptyForm())}>Cancel edit</Btn>}
+              {canPost && <Btn onClick={save} disabled={saving}>{saving ? 'Saving…' : form.id ? 'Update schedule' : 'Create schedule'}</Btn>}
+              {canPost && form.id && <Btn variant="ghost" onClick={() => setForm(emptyForm())}>Cancel edit</Btn>}
               <Btn variant="outline" onClick={() => preview(form.report_key, form.format)}>Preview download</Btn>
+              {!canPost && <span className="text-xs text-gray-400">You can preview reports; scheduling needs the <code className="font-mono">accounting.post</code> permission.</span>}
             </div>
           </div>
 
@@ -277,9 +294,9 @@ const ReportSchedules: React.FC = () => {
                       <td className="px-4 py-2">
                         <div className="flex justify-end gap-1">
                           <Btn variant="outline" size="sm" onClick={() => preview(s.report_key, s.format)}>Preview</Btn>
-                          <Btn variant="success" size="sm" onClick={() => runNow(s)} disabled={busyId === s.id}>{busyId === s.id ? '…' : 'Send now'}</Btn>
-                          <Btn variant="ghost" size="sm" onClick={() => startEdit(s)}>Edit</Btn>
-                          <Btn variant="ghost" size="sm" className="text-red-600" onClick={() => remove(s)} disabled={busyId === s.id}>Delete</Btn>
+                          {canPost && <Btn variant="success" size="sm" onClick={() => runNow(s)} disabled={busyId === s.id}>{busyId === s.id ? '…' : 'Send now'}</Btn>}
+                          {canPost && <Btn variant="ghost" size="sm" onClick={() => startEdit(s)}>Edit</Btn>}
+                          {canPost && <Btn variant="ghost" size="sm" className="text-red-600" onClick={() => remove(s)} disabled={busyId === s.id}>Delete</Btn>}
                         </div>
                       </td>
                     </tr>
@@ -292,7 +309,11 @@ const ReportSchedules: React.FC = () => {
       )}
 
       {tab === 'history' && (
-        <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div className="space-y-3">
+          <div className="flex justify-end">
+            <ExportMenu filename="report-delivery-history" columns={runCols} rows={runs} />
+          </div>
+          <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
           {runs.length === 0 ? (
             <div className="p-6"><EmptyState title="Nothing sent yet" description="Runs will appear here once a schedule fires or you use Send now." /></div>
           ) : (
@@ -323,6 +344,7 @@ const ReportSchedules: React.FC = () => {
               </tbody>
             </table>
           )}
+          </div>
         </div>
       )}
     </Page>

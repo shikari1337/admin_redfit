@@ -3,7 +3,7 @@ import { api } from '../../services/api';
 import { payload } from '../../lib/unwrap';
 import {
   Page, PageHeader, Btn, SectionCard, StatusChip, EmptyState,
-  TableShell, THead, Th, TBody, Tr, Td, EmptyRow, inrMinor,
+  TableShell, THead, Th, TBody, Tr, Td, EmptyRow, inrMinor, ExportMenu, type CsvColumn,
 } from '../../components/erp';
 
 /**
@@ -66,6 +66,17 @@ const OUTCOME_TEXT: Record<string, string> = {
   failed: 'Something went wrong',
   pending: 'Running now',
 };
+
+const runCols: CsvColumn<Run>[] = [
+  { key: 'job_key', label: 'Job' },
+  { key: 'run_key', label: 'Period covered' },
+  { key: 'status', label: 'Outcome', format: (r) => OUTCOME_TEXT[r.status] ?? r.status },
+  { key: 'item_count', label: 'Items' },
+  { key: 'amount_minor', label: 'Amount', money: true },
+  { key: 'notified', label: 'Owner told?', format: (r) => (r.notified ? 'Yes' : 'No') },
+  { key: 'started_at', label: 'Ran at', format: (r) => when(r.started_at) },
+  { key: 'detail', label: 'What happened', format: (r) => r.detail ?? '' },
+];
 
 const ScheduledJobs: React.FC = () => {
   const [jobs, setJobs] = useState<Job[] | null>(null);
@@ -177,7 +188,10 @@ const ScheduledJobs: React.FC = () => {
       )}
 
       {openJob && (
-        <SectionCard title={`History — ${(jobs ?? []).find((j) => j.key === openJob)?.label ?? openJob}`}>
+        <SectionCard
+          title={`History — ${(jobs ?? []).find((j) => j.key === openJob)?.label ?? openJob}`}
+          action={<ExportMenu filename={`scheduled-job-${openJob}-runs`} columns={runCols} rows={runs.filter((r) => r.job_key === openJob)} />}
+        >
           <TableShell maxHeight="50vh">
             <table className="w-full text-sm">
               <THead>

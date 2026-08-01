@@ -1,39 +1,78 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { api } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
-import { fmtMinor } from '../../lib/money';
 import { payload } from '../../lib/unwrap';
+import { formatDate } from '../../utils/date';
 import {
   Page, PageHeader, Btn, StatusChip, TextInput, SelectInput,
-  TableShell, THead, Th, TBody, Tr, Td,
+  TableShell, THead, Th, TBody, Tr, Td, inrMinor,
+  FilterBar, Field, SearchInput, ExportMenu, Pagination, AttachmentPanel,
+  useListControls, type CsvColumn,
 } from '../../components/erp';
 
 /** Accounts Payable — vendor bills with 3-way match status. */
+
+// Client CSV of the vendor-bill rows the page already holds.
+const BILL_CSV_COLUMNS: CsvColumn<any>[] = [
+  { key: 'voucher_number', label: 'Voucher' },
+  { key: 'bill_number', label: 'Vendor bill #' },
+  { key: 'vendor_name', label: 'Vendor' },
+  { key: 'po_number', label: 'PO' },
+  { key: 'bill_date', label: 'Bill date' },
+  { key: 'total_minor', label: 'Total', money: true },
+  { key: 'match_status', label: 'Match' },
+  { key: 'status', label: 'Status' },
+];
+
 const VendorBills: React.FC = () => {
   const { hasPerm } = useAuth();
   const [rows, setRows] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
   const [error, setError] = useState('');
   const canPost = hasPerm('accounting.post');
   const canRecord = hasPerm('purchasing.manage');
+  const canRead = hasPerm('purchasing.read');
+
+  // Server pagination (limit/offset); the /purchasing/bills route exposes no
+  // server-side filters, so search/status/match narrow the loaded page below.
+  const lc = useListControls({ pageSize: 25 });
+  const [matchFilter, setMatchFilter] = useState('');
 
   const [showNew, setShowNew] = useState(false);
   const [pos, setPos] = useState<any[]>([]);
   const [poDetail, setPoDetail] = useState<any>(null);
   const [form, setForm] = useState({ billNumber: '', billDate: new Date().toISOString().slice(0, 10), cgst: 0, sgst: 0, igst: 0 });
   const [billLines, setBillLines] = useState<any[]>([]);
+  // Which bill's attachments (supplier invoice scans) are open below the table.
+  const [attachFor, setAttachFor] = useState<{ id: string; number: string } | null>(null);
 
   const load = async () => {
     try {
-      const res = await api.get('/purchasing/bills');
-      setRows(res.data.rows ?? []);
+      const res = await api.get('/purchasing/bills', {
+        params: { limit: lc.pageSize, offset: (lc.page - 1) * lc.pageSize },
+      });
+      setRows(res.data?.rows ?? []);
+      setTotal(res.data?.total ?? 0);
     } catch (e: any) { setError(e?.response?.data?.message ?? e.message); }
   };
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [lc.page, lc.pageSize]);
   useEffect(() => {
-    load();
     api.get('/purchasing/pos').then((r) =>
       setPos((r.data.rows ?? []).filter((p: any) => ['received', 'partially_received'].includes(p.status)))
     ).catch(() => {});
   }, []);
+
+  // Within-page filter (server has no filters yet — see report/deferred).
+  const filtered = useMemo(() => {
+    const q = lc.search.trim().toLowerCase();
+    return rows.filter((b) => {
+      const matchesQ = !q || [b.bill_number, b.vendor_name, b.po_number, b.voucher_number]
+        .some((v) => String(v ?? '').toLowerCase().includes(q));
+      const matchesStatus = !lc.status || b.status === lc.status;
+      const matchesMatch = !matchFilter || b.match_status === matchFilter;
+      return matchesQ && matchesStatus && matchesMatch;
+    });
+  }, [rows, lc.search, lc.status, matchFilter]);
 
   const pickPo = async (poId: string) => {
     if (!poId) { setPoDetail(null); setBillLines([]); return; }
@@ -68,11 +107,11 @@ const VendorBills: React.FC = () => {
     try { await api.post(`/purchasing/bills/${id}/approve`); await load(); }
     catch (e: any) { setError(e?.response?.data?.message ?? e.message); }
   };
-  const pay = async (id: string) => {
+  const pay = async (id: string, paymentAccountCode: '1000' | '1010') => {
     setError('');
     try {
       await api.post(`/purchasing/bills/${id}/pay`, {
-        paymentDate: new Date().toISOString().slice(0, 10), paymentAccountCode: '1010',
+        paymentDate: new Date().toISOString().slice(0, 10), paymentAccountCode,
       });
       await load();
     } catch (e: any) { setError(e?.response?.data?.message ?? e.message); }
@@ -83,9 +122,14 @@ const VendorBills: React.FC = () => {
       <PageHeader
         title="Vendor Bills (Accounts Payable)"
         description="Approval clears GRIR into AP and assigns a PB voucher. Mismatched bills need a human decision — nothing is auto-accepted."
-        actions={canRecord && (
-          <Btn onClick={() => setShowNew((s) => !s)}>{showNew ? 'Close' : '+ Record bill'}</Btn>
-        )}
+        actions={
+          <div className="flex items-center gap-2">
+            <ExportMenu filename="vendor-bills" columns={BILL_CSV_COLUMNS} rows={filtered} canExport={canRead} />
+            {canRecord && (
+              <Btn onClick={() => setShowNew((s) => !s)}>{showNew ? 'Close' : '+ Record bill'}</Btn>
+            )}
+          </div>
+        }
       />
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
 
@@ -126,6 +170,27 @@ const VendorBills: React.FC = () => {
         </div>
       )}
 
+      <FilterBar>
+        <Field label="Search">
+          <SearchInput placeholder="Bill #, vendor, PO, voucher…" value={lc.search} onChange={(e) => lc.setSearch(e.target.value)} />
+        </Field>
+        <Field label="Status">
+          <SelectInput value={lc.status} onChange={(e) => lc.setStatus(e.target.value)}>
+            <option value="">All statuses</option>
+            <option value="recorded">Recorded</option>
+            <option value="approved">Approved</option>
+            <option value="paid">Paid</option>
+          </SelectInput>
+        </Field>
+        <Field label="Match">
+          <SelectInput value={matchFilter} onChange={(e) => setMatchFilter(e.target.value)}>
+            <option value="">All</option>
+            <option value="matched">Matched</option>
+            <option value="mismatch">Mismatch</option>
+          </SelectInput>
+        </Field>
+      </FilterBar>
+
       <TableShell>
         <table className="w-full text-sm">
           <THead>
@@ -134,15 +199,21 @@ const VendorBills: React.FC = () => {
             {canPost && <Th num>Actions</Th>}
           </THead>
           <TBody>
-            {rows.length === 0 && <tr><td colSpan={9} className="px-4 py-6 text-center text-gray-500">No vendor bills yet — record them from the Purchasing page.</td></tr>}
-            {rows.map((b: any) => (
+            {filtered.length === 0 && <tr><td colSpan={canPost ? 9 : 8} className="px-4 py-6 text-center text-gray-500">No vendor bills yet — record them from the Purchasing page.</td></tr>}
+            {filtered.map((b: any) => (
               <Tr key={b.id} title={b.match_notes ?? ''}>
-                <Td className="font-mono">{b.voucher_number ?? '—'}</Td>
+                <Td className="font-mono">
+                  <button
+                    onClick={() => setAttachFor((cur) => cur?.id === b.id ? null : { id: b.id, number: b.voucher_number ?? b.bill_number })}
+                    className={`hover:underline ${attachFor?.id === b.id ? 'font-semibold text-gray-900' : 'text-gray-700'}`}
+                    title="View / add supplier-invoice attachments"
+                  >{b.voucher_number ?? '—'}</button>
+                </Td>
                 <Td className="font-mono">{b.bill_number}</Td>
                 <Td>{b.vendor_name}</Td>
                 <Td className="font-mono">{b.po_number ?? '—'}</Td>
-                <Td>{b.bill_date}</Td>
-                <Td num>{fmtMinor(b.total_minor)}</Td>
+                <Td>{formatDate(b.bill_date, 'dd MMM yyyy', b.bill_date ?? '—')}</Td>
+                <Td num>{inrMinor(b.total_minor)}</Td>
                 <Td><StatusChip status={b.match_status} /></Td>
                 <Td><StatusChip status={b.status} /></Td>
                 {canPost && (
@@ -151,7 +222,11 @@ const VendorBills: React.FC = () => {
                       <button onClick={() => approve(b.id)} className="font-medium text-gray-900 hover:underline">Approve</button>
                     )}
                     {b.status === 'approved' && (
-                      <button onClick={() => pay(b.id)} className="font-medium text-gray-900 hover:underline">Pay (Bank)</button>
+                      <span className="whitespace-nowrap">
+                        <button onClick={() => pay(b.id, '1010')} className="font-medium text-gray-900 hover:underline">Pay (Bank)</button>
+                        <span className="text-gray-300"> · </span>
+                        <button onClick={() => pay(b.id, '1000')} className="font-medium text-gray-900 hover:underline">Cash</button>
+                      </span>
                     )}
                   </Td>
                 )}
@@ -160,6 +235,17 @@ const VendorBills: React.FC = () => {
           </TBody>
         </table>
       </TableShell>
+
+      <Pagination page={lc.page} pageSize={lc.pageSize} total={total} onPage={lc.setPage} onPageSize={lc.setPageSize} />
+
+      {attachFor && (
+        <AttachmentPanel
+          entityType="vendor_bill"
+          entityId={attachFor.id}
+          title={`Attachments · ${attachFor.number}`}
+          description="Supplier invoice scans and supporting files for this bill."
+        />
+      )}
     </Page>
   );
 };

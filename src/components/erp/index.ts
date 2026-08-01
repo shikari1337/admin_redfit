@@ -35,3 +35,19 @@ export { CustomFieldsCard } from './CustomFieldsCard';
 export type { CustomFieldEntityType } from './CustomFieldsCard';
 // Polymorphic attachments (099) — drop-in "attach files to this record" widget
 export { AttachmentPanel } from './AttachmentPanel';
+
+// ── Shared Books/list foundation (export · filter · pagination · drill-through) ──
+// One place a build wave imports the whole list toolkit from '@/components/erp'.
+export { ExportMenu } from './ExportMenu';
+export type { ExportMenuProps, ServerExport } from './ExportMenu';
+export { Pagination } from './Pagination';
+export { DrillLink } from './DrillLink';
+export { BooksToolbar } from './BooksToolbar';
+// Client-side CSV path (lib/csv.ts) — re-exported so CSV lives with the kit.
+export { toCsv, downloadCsv } from '@/lib/csv';
+export type { CsvColumn } from '@/lib/csv';
+// List-controls hook (search+status+range+pagination state → axios params).
+export { useListControls } from '@/hooks/useListControls';
+export type {
+  UseListControls, UseListControlsOptions, ListControlsState, ListParams,
+} from '@/hooks/useListControls';

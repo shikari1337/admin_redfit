@@ -1,17 +1,27 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { fmtMinor } from '../../lib/money';
 import { payload } from '../../lib/unwrap';
 import {
-  Page, PageHeader, Btn, Card, SectionCard, FilterBar, Field, TextInput, SelectInput,
+  Page, PageHeader, Btn, Card, SectionCard, FilterBar, Field, TextInput, SelectInput, SearchInput,
   StatusChip, TableShell, THead, Th, TBody, Tr, Td,
+  ExportMenu, Pagination, AttachmentPanel, useListControls, type CsvColumn,
 } from '../../components/erp';
 
 interface JournalLine { accountCode: string; debit: string; credit: string; }
 
 const emptyLine = (): JournalLine => ({ accountCode: '', debit: '', credit: '' });
+
+const journalCols: CsvColumn<any>[] = [
+  { key: 'journal_number', label: 'Journal #' },
+  { key: 'journal_date', label: 'Date' },
+  { key: 'narration', label: 'Narration', format: (j) => j.narration ?? j.document_type ?? '' },
+  { key: 'document_type', label: 'Type' },
+  { key: 'status', label: 'Status', format: (j) => j.status ?? 'posted' },
+  { key: 'total_debit_minor', label: 'Amount', money: true },
+];
 
 const Journals: React.FC = () => {
   const { hasPerm } = useAuth();
@@ -27,14 +37,30 @@ const Journals: React.FC = () => {
   const [error, setError] = useState('');
 
   const canPost = hasPerm('accounting.post');
+  const canRead = hasPerm('accounting.read');
+
+  // Client-side search/status/date + pagination. The list endpoint only takes
+  // limit/offset, so we fetch a full page (server cap 200) and filter in-browser.
+  const lc = useListControls({ pageSize: 20 });
 
   const load = async () => {
-    const res = await api.get('/accounting/journals', { params: { limit: 100 } });
+    const res = await api.get('/accounting/journals', { params: { limit: 200 } });
     setJournals(payload(res) ?? []);
   };
   useEffect(() => {
     load();
     api.get('/accounting/accounts').then((r) => setAccounts(payload(r) ?? [])).catch(() => {});
+    // Drill-through targets: ?open=<id> expands a journal (from the GL page);
+    // ?q=<text> pre-fills the search (e.g. from Opening Balances' journal number).
+    const openId = params.get('open');
+    if (openId) {
+      api.get(`/accounting/journals/${openId}`)
+        .then((r) => setExpanded((e) => ({ ...e, [openId]: payload(r) })))
+        .catch(() => {});
+    }
+    const q = params.get('q');
+    if (q) lc.setSearch(q);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const toggle = async (id: string) => {
@@ -42,6 +68,19 @@ const Journals: React.FC = () => {
     const res = await api.get(`/accounting/journals/${id}`);
     setExpanded((e) => ({ ...e, [id]: payload(res) }));
   };
+
+  const filtered = useMemo(() => {
+    const q = lc.debouncedSearch.trim().toLowerCase();
+    return journals.filter((j) => {
+      if (q && !`${j.journal_number ?? ''} ${j.narration ?? ''} ${j.document_type ?? ''}`.toLowerCase().includes(q)) return false;
+      if (lc.status && (j.status ?? 'posted') !== lc.status) return false;
+      if (lc.from && j.journal_date && j.journal_date < lc.from) return false;
+      if (lc.to && j.journal_date && j.journal_date > lc.to) return false;
+      return true;
+    });
+  }, [journals, lc.debouncedSearch, lc.status, lc.from, lc.to]);
+
+  const paged = filtered.slice((lc.page - 1) * lc.pageSize, lc.page * lc.pageSize);
 
   const totals = lines.reduce(
     (acc, l) => ({ d: acc.d + (Number(l.debit) || 0), c: acc.c + (Number(l.credit) || 0) }),
@@ -84,9 +123,14 @@ const Journals: React.FC = () => {
       <PageHeader
         title="Journals"
         description="Posted entries are immutable — corrections are reversal journals."
-        actions={canPost && (
-          <Btn onClick={() => setShowNew((s) => !s)}>{showNew ? 'Close' : '+ Manual journal'}</Btn>
-        )}
+        actions={
+          <div className="flex items-center gap-2">
+            <ExportMenu filename="journals" columns={journalCols} rows={filtered} canExport={canRead} disabled={!filtered.length} />
+            {canPost && (
+              <Btn onClick={() => setShowNew((s) => !s)}>{showNew ? 'Close' : '+ Manual journal'}</Btn>
+            )}
+          </div>
+        }
       />
 
       {showNew && canPost && (
@@ -132,9 +176,25 @@ const Journals: React.FC = () => {
         </SectionCard>
       )}
 
+      <FilterBar>
+        <Field label="Search">
+          <SearchInput placeholder="Journal # or narration…" value={lc.search} onChange={(e) => lc.setSearch(e.target.value)} />
+        </Field>
+        <Field label="Status">
+          <SelectInput value={lc.status} onChange={(e) => lc.setStatus(e.target.value)}>
+            <option value="">All</option>
+            <option value="posted">Posted</option>
+            <option value="reversed">Reversed</option>
+          </SelectInput>
+        </Field>
+        <Field label="From"><TextInput type="date" value={lc.from} onChange={(e) => lc.setFrom(e.target.value)} /></Field>
+        <Field label="To"><TextInput type="date" value={lc.to} onChange={(e) => lc.setTo(e.target.value)} /></Field>
+      </FilterBar>
+
       <Card className="divide-y divide-gray-100 overflow-hidden">
         {journals.length === 0 && <div className="p-6 text-center text-sm text-gray-500">No journals yet.</div>}
-        {journals.map((j) => (
+        {journals.length > 0 && filtered.length === 0 && <div className="p-6 text-center text-sm text-gray-500">No journals match these filters.</div>}
+        {paged.map((j) => (
           <div key={j.id}>
             <button onClick={() => toggle(j.id)} className="flex w-full items-center justify-between px-4 py-2 text-left text-sm hover:bg-gray-50">
               <div className="flex items-center gap-2">
@@ -171,11 +231,17 @@ const Journals: React.FC = () => {
                     Reverse this journal
                   </Btn>
                 )}
+                <div className="mt-3">
+                  <AttachmentPanel entityType="journal" entityId={j.id}
+                    description="Supporting documents for this journal (contracts, calculations, approvals)." />
+                </div>
               </div>
             )}
           </div>
         ))}
       </Card>
+
+      <Pagination page={lc.page} pageSize={lc.pageSize} total={filtered.length} onPage={lc.setPage} onPageSize={lc.setPageSize} />
     </Page>
   );
 };

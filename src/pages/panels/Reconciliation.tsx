@@ -1,33 +1,61 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { api } from '../../services/api';
 import { fmtMinor } from '../../lib/money';
 import { payload } from '../../lib/unwrap';
-import { Page, PageHeader, Btn, Card, SectionCard } from '../../components/erp';
+import { Page, PageHeader, Btn, Card, SectionCard, ExportMenu, type CsvColumn } from '../../components/erp';
 import { ShieldCheck, ShieldAlert } from 'lucide-react';
 
 /** Stock ↔ ledger ↔ GL reconciliation (invariants I3/I6 + dual-write bridge). */
+
+// Flattened drift-sample CSV so an incident can be handed off / attached to a ticket.
+interface DriftExportRow { check: string; ref: string; expected: string; actual: string }
+const DRIFT_COLS: CsvColumn<DriftExportRow>[] = [
+  { key: 'check', label: 'Check' },
+  { key: 'ref', label: 'Reference' },
+  { key: 'expected', label: 'Expected' },
+  { key: 'actual', label: 'Actual' },
+];
+
 const Reconciliation: React.FC = () => {
   const [data, setData] = useState<any>(null);
   const [outbox, setOutbox] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   const run = async () => {
-    setLoading(true);
+    setLoading(true); setError('');
     try {
       setData(payload(await api.get('/accounting/reconciliation/stock')));
       setOutbox(payload(await api.get('/accounting/ops/outbox')));
+    } catch (e: any) {
+      setError(e?.response?.data?.message ?? e.message ?? 'Could not run the reconciliation.');
     } finally { setLoading(false); }
   };
   useEffect(() => { run(); }, []);
+
+  const driftRows = useMemo<DriftExportRow[]>(() => [
+    ...((data?.i3_ledger_vs_balance?.samples ?? []) as any[]).map((s) => ({
+      check: 'I3 ledger≠balance', ref: String(s.variation_id ?? ''), expected: String(s.ledger ?? ''), actual: String(s.balance ?? ''),
+    })),
+    ...((data?.legacy_vs_balance?.samples ?? []) as any[]).map((s) => ({
+      check: 'dual-write balance≠legacy', ref: String(s.sku ?? s.variation_id ?? ''), expected: String(s.balance ?? ''), actual: String(s.legacy ?? ''),
+    })),
+  ], [data]);
 
   return (
     <Page>
       <PageHeader
         title="Stock Reconciliation"
         description="Detects drift; never auto-repairs. A non-zero drift is an incident, not a cleanup task."
-        actions={<Btn onClick={run}>Re-run</Btn>}
+        actions={
+          <>
+            <ExportMenu filename="stock-drift" columns={DRIFT_COLS} rows={driftRows} disabled={driftRows.length === 0} />
+            <Btn onClick={run}>Re-run</Btn>
+          </>
+        }
       />
 
+      {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
       {loading && <div className="text-sm text-gray-500">Running…</div>}
       {data && !loading && (
         <>

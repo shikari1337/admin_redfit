@@ -7,7 +7,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { FaSearch, FaTrash } from 'react-icons/fa';
 import Modal from './Modal';
-import { ordersAPI, productsAPI, searchAPI } from '../../services/api';
+import { ordersAPI, productsAPI } from '../../services/api';
 
 interface EditLine {
   productId: string;
@@ -35,7 +35,6 @@ const OrderItemsEditModal: React.FC<Props> = ({ isOpen, onClose, orderId, items,
   const [discount, setDiscount] = useState('');
   const [search, setSearch] = useState('');
   const [results, setResults] = useState<any[]>([]);
-  const [picking, setPicking] = useState<any | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<any>(null);
@@ -45,8 +44,10 @@ const OrderItemsEditModal: React.FC<Props> = ({ isOpen, onClose, orderId, items,
     setLines((items ?? []).map((i: any) => ({
       productId: i.product_id ?? i.productId,
       variationId: i.variation_id ?? i.variationId ?? undefined,
-      sku: i.sku ?? undefined,
-      name: i.product_name ?? i.productName ?? 'Item',
+      // Show the store's own SKU and the full pack name (see CATALOG_LABEL_SQL);
+      // the sale-time snapshot is the fallback.
+      sku: i.catalog_sku ?? i.catalogSku ?? i.sku ?? undefined,
+      name: i.catalog_name ?? i.catalogName ?? i.product_name ?? i.productName ?? 'Item',
       variantLabel: Object.values(i.attributes ?? {}).filter(Boolean).join(' · ') || undefined,
       quantity: Number(i.quantity) || 1,
       price: Number(i.price) || 0,
@@ -55,40 +56,37 @@ const OrderItemsEditModal: React.FC<Props> = ({ isOpen, onClose, orderId, items,
     setError(null);
   }, [isOpen, items, currentDiscount]);
 
+  // SKU-level search, same as the manual-order screen: a line must name the PACK
+  // (the variation), otherwise it binds to the parent product and the order,
+  // invoice and packing slip all show the short family name and the generated
+  // `P-…` placeholder SKU. See productsAPI.searchVariations.
   useEffect(() => {
     if (search.trim().length < 3) { setResults([]); return; }
     clearTimeout(timer.current);
     timer.current = setTimeout(async () => {
-      setResults(await searchAPI.query('product', search.trim(), 8));
+      setResults(await productsAPI.searchVariations(search.trim(), 12));
     }, 350);
     return () => clearTimeout(timer.current);
   }, [search]);
 
-  const pickProduct = async (r: any) => {
-    setResults([]);
-    setSearch('');
-    try {
-      const p = await productsAPI.getById(r.id);
-      const prod = p?.data ?? p;
-      const variations: any[] = prod?.variations ?? [];
-      if (variations.length > 0) setPicking(prod);
-      else addLine(prod, null);
-    } catch { setError('Could not load the product'); }
-  };
-
-  const addLine = (prod: any, variation: any | null) => {
-    const price = Number(variation?.salePrice ?? variation?.sale_price ?? variation?.sellingPrice ?? variation?.selling_price
-      ?? prod?.salePrice ?? prod?.sale_price ?? prod?.sellingPrice ?? prod?.selling_price ?? prod?.mrp ?? 0);
+  const addLine = (v: any) => {
+    const price = Number(v.salePrice ?? v.sale_price ?? v.sellingPrice ?? v.selling_price ?? v.mrp ?? 0);
+    const productId = v.productId ?? v.product_id;
+    if (!productId) { setError('That row has no product reference'); return; }
     setLines(ls => [...ls, {
-      productId: prod.id ?? prod._id,
-      variationId: variation?.id ?? variation?._id ?? undefined,
-      sku: variation?.sku ?? prod?.sku ?? undefined,
-      name: prod.title ?? prod.name ?? 'Product',
-      variantLabel: Object.values(variation?.attributes ?? {}).filter(Boolean).join(' · ') || undefined,
+      productId,
+      variationId: v.isVariation === false || v.is_variation === false
+        ? undefined : (v.variationId ?? v.variation_id ?? v.id),
+      sku: v.sku ?? undefined,
+      name: v.name ?? v.title ?? 'Product',
+      variantLabel: Object.entries(v.attributes ?? {})
+        .filter(([, val]) => val != null && String(val).trim() !== '')
+        .map(([, val]) => String(val)).join(' · ') || undefined,
       quantity: 1,
       price,
     }]);
-    setPicking(null);
+    setResults([]);
+    setSearch('');
   };
 
   const handleSave = async () => {
@@ -138,7 +136,7 @@ const OrderItemsEditModal: React.FC<Props> = ({ isOpen, onClose, orderId, items,
             <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-3.5 w-3.5" />
             <input
               className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Search products to add (min 3 chars)"
+              placeholder="Search by SKU or full pack name (min 3 chars)"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -146,30 +144,15 @@ const OrderItemsEditModal: React.FC<Props> = ({ isOpen, onClose, orderId, items,
           {results.length > 0 && (
             <div className="absolute z-20 mt-1 w-full border rounded-md bg-white shadow-lg max-h-56 overflow-y-auto">
               {results.map((r: any) => (
-                <button key={r.id} type="button" onClick={() => pickProduct(r)}
-                  className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm">
-                  <span className="font-medium">{r.label}</span>
-                  {r.sublabel && <span className="text-gray-400 text-xs ml-2">{r.sublabel}</span>}
+                <button key={r.id} type="button" onClick={() => addLine(r)}
+                  className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm border-b last:border-b-0">
+                  <span className="font-medium">{r.name ?? r.title}</span>
+                  <span className="text-gray-400 text-xs ml-2 font-mono">SKU {r.sku ?? '—'}</span>
                 </button>
               ))}
             </div>
           )}
         </div>
-
-        {picking && (
-          <div className="border rounded-md p-3 bg-blue-50/60">
-            <p className="text-sm font-semibold mb-2">Pick a variation of {picking.title ?? picking.name}:</p>
-            <div className="flex flex-wrap gap-2">
-              {(picking.variations ?? []).map((v: any) => (
-                <button key={v.id ?? v._id} type="button" onClick={() => addLine(picking, v)}
-                  className="px-3 py-1.5 border border-gray-300 rounded-md text-sm hover:bg-white">
-                  {Object.values(v.attributes ?? {}).filter(Boolean).join(' · ') || v.sku || 'Variant'}
-                </button>
-              ))}
-              <button type="button" onClick={() => setPicking(null)} className="px-3 py-1.5 text-sm text-gray-500">Cancel</button>
-            </div>
-          </div>
-        )}
 
         <div className="space-y-2">
           {lines.map((l, idx) => (

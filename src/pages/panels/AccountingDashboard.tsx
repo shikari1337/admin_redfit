@@ -8,7 +8,7 @@ import DateRangeBar, { useDateRange } from '../../components/panelAnalytics/Date
 import { usePanelStats } from '../../components/panelAnalytics/usePanelStats';
 import { StatTile, ChartCard, TimeSeries } from '../../components/panelAnalytics/Kit';
 import { SERIES } from '../../components/panelAnalytics/vizTheme';
-import { Page, PageHeader, SectionCard } from '../../components/erp';
+import { Page, PageHeader, SectionCard, DrillLink } from '../../components/erp';
 import { BookOpen, Scale, FileSpreadsheet, ShieldAlert } from 'lucide-react';
 
 /**
@@ -75,12 +75,12 @@ const AccountingDashboard: React.FC = () => {
           <StatTile label="Trial balance"
             value={tb.nets_to_zero ? 'Balanced' : 'OUT OF BALANCE'}
             sub={`Dr ${fmtMinor(tb.total_debit_minor)} · Cr ${fmtMinor(tb.total_credit_minor)}${tb.as_of ? ` as of ${tb.as_of}` : ''}`} />
-          <StatTile label="Cash & bank" value={fmtMinor(pos.cash_and_bank)} />
+          <StatTile label="Cash & bank" value={fmtMinor(pos?.cash_and_bank)} />
           <StatTile label="Receivables / Payables"
-            value={fmtMinor(pos.accounts_receivable)}
-            sub={`AP ${fmtMinor(pos.accounts_payable)} · GR/IR ${fmtMinor(pos.grir_clearing)}`} />
-          <StatTile label="Inventory (books)" value={fmtMinor(pos.inventory)}
-            sub={`GST output ${fmtMinor(pos.gst_output)} · input ${fmtMinor(pos.gst_input)}`} />
+            value={fmtMinor(pos?.accounts_receivable)}
+            sub={`AP ${fmtMinor(pos?.accounts_payable)} · GR/IR ${fmtMinor(pos?.grir_clearing)}`} />
+          <StatTile label="Inventory (books)" value={fmtMinor(pos?.inventory)}
+            sub={`GST output ${fmtMinor(pos?.gst_output)} · input ${fmtMinor(pos?.gst_input)}`} />
         </div>
       )}
 
@@ -172,7 +172,7 @@ const AccountingDashboard: React.FC = () => {
             {journals.map((j) => (
               <div key={j.id} className="flex items-center justify-between px-5 py-2.5">
                 <div>
-                  <span className="font-mono font-medium">{j.journal_number}</span>
+                  <DrillLink to="/panel/accounting/journals" className="font-mono">{j.journal_number}</DrillLink>
                   <span className="ml-2 text-gray-500">{j.narration ?? j.document_type}</span>
                 </div>
                 <div className="text-right">

@@ -3,7 +3,7 @@ import { api } from '../../services/api';
 import { payload } from '../../lib/unwrap';
 import {
   Page, PageHeader, Btn, Field, TextInput, SelectInput, SearchInput, Chip, StatCard, StatGrid,
-  TableShell, THead, Th, TBody, Tr, Td, inr,
+  TableShell, THead, Th, TBody, Tr, Td, inr, ExportMenu, Pagination, type CsvColumn,
 } from '../../components/erp';
 
 /**
@@ -54,6 +54,27 @@ interface Exposure {
   vendors: ExposureVendor[];
 }
 
+// Client CSV of the on-screen ageing rows. Amounts here are in RUPEES (the AP
+// ageing query returns rupees, rendered with `inr`, not minor units) — so we
+// format numerically rather than using the `money` (minor-unit) flag.
+const rup = (n: unknown) => Number(n ?? 0).toFixed(2);
+const AGEING_CSV_COLUMNS: CsvColumn<Vendor>[] = [
+  { key: 'vendor_name', label: 'Vendor', format: (v) => v.vendor_name ?? '' },
+  { key: 'msme_classification', label: 'MSME class' },
+  { key: 'udyam_number', label: 'Udyam' },
+  { key: 'bill_count', label: 'Bills' },
+  { key: 'open_count', label: 'Open' },
+  { key: 'total_outstanding', label: 'Outstanding', format: (v) => rup(v.total_outstanding) },
+  { key: 'oldest_open_date', label: 'Oldest open' },
+  { key: 'oldest_open_age_days', label: 'Oldest age (days)' },
+  { key: 'breached_amount', label: 'Breached amount', format: (v) => rup(v.breached_amount) },
+  { key: 'at_risk_7d_amount', label: 'At-risk (7d)', format: (v) => rup(v.at_risk_7d_amount) },
+  { key: 'd0_30', label: '0-30', format: (v) => rup(v.ageing?.d0_30) },
+  { key: 'd31_45', label: '31-45', format: (v) => rup(v.ageing?.d31_45) },
+  { key: 'd46_90', label: '46-90', format: (v) => rup(v.ageing?.d46_90) },
+  { key: 'd90_plus', label: '90+', format: (v) => rup(v.ageing?.d90_plus) },
+];
+
 const AgeChips: React.FC<{ a: Ageing }> = ({ a }) => {
   const chips: Array<[string, number, 'green' | 'amber' | 'red']> = [
     ['0-30', a.d0_30, 'green'],
@@ -90,6 +111,10 @@ const Payables: React.FC = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
+  // Client-side filter + pagination over the (single-payload) ageing rows.
+  const [q, setQ] = useState('');
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 25;
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -110,6 +135,16 @@ const Payables: React.FC = () => {
 
   const hasExposure = !!exposure && (exposure.breached_amount > 0.005 || exposure.at_risk_7d_amount > 0.005);
 
+  const filtered = React.useMemo(() => {
+    const term = q.trim().toLowerCase();
+    if (!term) return vendors;
+    return vendors.filter((v) =>
+      (v.vendor_name ?? '').toLowerCase().includes(term) ||
+      (v.udyam_number ?? '').toLowerCase().includes(term));
+  }, [vendors, q]);
+  const pageStart = (page - 1) * PAGE_SIZE;
+  const paged = filtered.slice(pageStart, pageStart + PAGE_SIZE);
+
   return (
     <Page>
       <PageHeader
@@ -119,7 +154,15 @@ const Payables: React.FC = () => {
           <div className="flex items-end gap-2">
             <Field label="As of"><TextInput type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} /></Field>
             <Btn variant="outline" onClick={() => setShowEditor((s) => !s)}>{showEditor ? 'Hide' : 'Vendor MSME details'}</Btn>
-            <Btn variant="outline" onClick={() => download('/ap/ageing', { asOf, format: 'csv' }, `payables-ageing-${asOf}.csv`)}>Export CSV</Btn>
+            <ExportMenu
+              filename={`payables-ageing-${asOf}`}
+              columns={AGEING_CSV_COLUMNS}
+              rows={filtered}
+              serverExports={[
+                { label: 'Full ageing (server CSV)', path: '/ap/ageing', params: { asOf, format: 'csv' }, filename: `payables-ageing-${asOf}.csv` },
+                { label: 'MSME exposure (CSV)', path: '/ap/msme-exposure', params: { asOf, format: 'csv' }, filename: `msme-exposure-${asOf}.csv` },
+              ]}
+            />
           </div>
         }
       />
@@ -173,6 +216,9 @@ const Payables: React.FC = () => {
       {showEditor && <VendorMsmeEditor onSaved={load} maxDays={maxDays} />}
 
       {/* ── Ageing table ── */}
+      <div className="max-w-sm">
+        <SearchInput placeholder="Filter by vendor name / Udyam…" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} />
+      </div>
       <TableShell>
         <table className="w-full text-sm">
           <THead>
@@ -184,13 +230,13 @@ const Payables: React.FC = () => {
             <Th num>Outstanding</Th>
           </THead>
           <TBody>
-            {vendors.length === 0 && !loading && (
-              <tr><td colSpan={6} className="px-4 py-6 text-center text-gray-500">Nothing payable — no open vendor bills. 🎉</td></tr>
+            {filtered.length === 0 && !loading && (
+              <tr><td colSpan={6} className="px-4 py-6 text-center text-gray-500">{vendors.length === 0 ? 'Nothing payable — no open vendor bills. 🎉' : 'No vendors match your filter.'}</td></tr>
             )}
             {loading && (
               <tr><td colSpan={6} className="px-4 py-6 text-center text-gray-500">Loading…</td></tr>
             )}
-            {vendors.map((v) => (
+            {paged.map((v) => (
               <Tr key={v.vendor_id} className={v.breached_amount > 0.005 ? 'bg-red-50/40' : ''}>
                 <Td>
                   <div className="font-medium text-gray-900">{v.vendor_name ?? 'Vendor'}<MsmeBadge v={v} /></div>
@@ -224,6 +270,8 @@ const Payables: React.FC = () => {
           </TBody>
         </table>
       </TableShell>
+
+      <Pagination page={page} pageSize={PAGE_SIZE} total={filtered.length} onPage={setPage} />
     </Page>
   );
 };

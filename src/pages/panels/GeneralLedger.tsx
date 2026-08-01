@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../../services/api';
 import { payload } from '../../lib/unwrap';
 import {
   Page, PageHeader, SectionCard, Btn, StatCard, StatGrid,
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow, TextInput, SelectInput, Field, inrMinor,
+  ExportMenu, DrillLink, type CsvColumn,
 } from '../../components/erp';
 
 /**
@@ -20,22 +22,27 @@ const fyStart = (d = new Date()) => {
   return `${y}-04-01`;
 };
 
-function downloadBlob(res: any, filename: string) {
-  const blob = res.data instanceof Blob ? res.data : new Blob([res.data as any], { type: 'text/csv' });
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = filename;
-  document.body.appendChild(a); a.click(); a.remove();
-  window.URL.revokeObjectURL(url);
-}
-
 const errMsg = (e: any) => e?.response?.data?.message ?? e?.response?.data?.error ?? e?.message ?? 'Something went wrong';
 
+// Client-side CSV of the ledger lines the page already holds (blanks zero amounts,
+// matching the on-screen table). The server export below carries the opening/closing rows.
+const ledgerCols: CsvColumn<any>[] = [
+  { key: 'date', label: 'Date' },
+  { key: 'journalNumber', label: 'Journal' },
+  { key: 'documentType', label: 'Type' },
+  { key: 'narration', label: 'Narration' },
+  { key: 'debitMinor', label: 'Debit', format: (l) => (l.debitMinor === '0' ? '' : inrMinor(l.debitMinor)) },
+  { key: 'creditMinor', label: 'Credit', format: (l) => (l.creditMinor === '0' ? '' : inrMinor(l.creditMinor)) },
+  { key: 'runningBalanceMinor', label: 'Running balance', money: true },
+];
+
 const GeneralLedger: React.FC = () => {
+  const [sp] = useSearchParams();
   const [accounts, setAccounts] = useState<any[]>([]);
-  const [accountCode, setAccountCode] = useState('1010'); // Bank by default
-  const [from, setFrom] = useState(fyStart());
-  const [to, setTo] = useState(todayStr());
+  // Drill-through target: Trial Balance / statement lines link here with ?account (+ optional from/to).
+  const [accountCode, setAccountCode] = useState(sp.get('account') || '1010'); // Bank by default
+  const [from, setFrom] = useState(sp.get('from') || fyStart());
+  const [to, setTo] = useState(sp.get('to') || todayStr());
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -62,12 +69,7 @@ const GeneralLedger: React.FC = () => {
   };
   useEffect(() => { if (accounts.length) load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [accounts.length]);
 
-  const downloadCsv = async () => {
-    downloadBlob(
-      await api.get('/accounting/reports/account-ledger', { params: { accountCode, from, to, format: 'csv' }, responseType: 'blob' }),
-      `account-ledger-${accountCode}-${from}-to-${to}.csv`,
-    );
-  };
+  const exportBase = `account-ledger-${accountCode}-${from}-to-${to}`;
 
   return (
     <Page>
@@ -88,7 +90,18 @@ const GeneralLedger: React.FC = () => {
         <Field label="From"><TextInput type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
         <Field label="To"><TextInput type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
         <Btn onClick={load} disabled={!accountCode}>Show</Btn>
-        <Btn variant="success" onClick={downloadCsv} disabled={!data}>Download CSV</Btn>
+        <ExportMenu
+          filename={exportBase}
+          columns={ledgerCols}
+          rows={data?.lines ?? []}
+          disabled={!data}
+          serverExports={[{
+            label: 'Full ledger CSV (server)',
+            path: '/accounting/reports/account-ledger',
+            params: { accountCode, from, to, format: 'csv' },
+            filename: `${exportBase}.csv`,
+          }]}
+        />
       </div>
 
       {error && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
@@ -120,7 +133,11 @@ const GeneralLedger: React.FC = () => {
                   {data.lines.map((l: any, i: number) => (
                     <Tr key={`${l.journalId}-${i}`}>
                       <Td muted>{l.date}</Td>
-                      <Td className="whitespace-nowrap">{l.journalNumber}</Td>
+                      <Td className="whitespace-nowrap">
+                        {l.journalId
+                          ? <DrillLink to={`/panel/accounting/journals?open=${l.journalId}`} title="Open this journal">{l.journalNumber}</DrillLink>
+                          : l.journalNumber}
+                      </Td>
                       <Td muted>{l.documentType ?? ''}</Td>
                       <Td className="max-w-[24rem] truncate" title={l.narration ?? ''}>{l.narration ?? ''}</Td>
                       <Td num>{l.debitMinor === '0' ? '' : inrMinor(l.debitMinor)}</Td>

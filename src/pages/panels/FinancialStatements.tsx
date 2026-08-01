@@ -5,6 +5,7 @@ import { payload } from '../../lib/unwrap';
 import {
   Page, PageHeader, SectionCard, Btn, StatCard, StatGrid, TabBar,
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow, TextInput, SelectInput, Field, inrMinor,
+  ExportMenu, DrillLink, type CsvColumn,
 } from '../../components/erp';
 
 /**
@@ -26,16 +27,17 @@ const fyEndDefault = (d = new Date()) => {
   return `${y}-03-31`;
 };
 
-function downloadBlob(res: any, filename: string) {
-  const blob = res.data instanceof Blob ? res.data : new Blob([res.data as any], { type: 'text/csv' });
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = filename;
-  document.body.appendChild(a); a.click(); a.remove();
-  window.URL.revokeObjectURL(url);
-}
-
 const errMsg = (e: any) => e?.response?.data?.message ?? e?.response?.data?.error ?? e?.message ?? 'Something went wrong';
+
+/** Drill from a statement line's account code into that account's ledger over the same window. */
+const glDrill = (code: string, opts: { from?: string; to?: string }) => {
+  const q = new URLSearchParams({ account: code });
+  if (opts.from) q.set('from', opts.from);
+  if (opts.to) q.set('to', opts.to);
+  return `/panel/accounting/general-ledger?${q.toString()}`;
+};
+const AccountDrill: React.FC<{ code: string; from?: string; to?: string }> = ({ code, from, to }) =>
+  code ? <DrillLink to={glDrill(code, { from, to })} title="View this account's ledger">{code}</DrillLink> : <>{code}</>;
 
 /** A "compare prior year" checkbox styled like the rest of the toolbar. */
 const CompareToggle: React.FC<{ checked: boolean; onChange: (v: boolean) => void }> = ({ checked, onChange }) => (
@@ -80,7 +82,7 @@ const FinancialStatements: React.FC = () => {
 
 // ── Balance Sheet ──────────────────────────────────────────────────────────
 
-const BsSectionTable: React.FC<{ label: string; accounts: any[]; subtotalMinor: string; priorSubtotalMinor?: string; comparePrior: boolean }> = ({ label, accounts, subtotalMinor, priorSubtotalMinor, comparePrior }) => (
+const BsSectionTable: React.FC<{ label: string; accounts: any[]; subtotalMinor: string; priorSubtotalMinor?: string; comparePrior: boolean; asOf: string }> = ({ label, accounts, subtotalMinor, priorSubtotalMinor, comparePrior, asOf }) => (
   <SectionCard title={label}>
     <TableShell>
       <table className="w-full text-sm">
@@ -89,7 +91,7 @@ const BsSectionTable: React.FC<{ label: string; accounts: any[]; subtotalMinor: 
           {accounts.length === 0 && <EmptyRow colSpan={comparePrior ? 4 : 3}>Nothing here for this date.</EmptyRow>}
           {accounts.map((a: any, i: number) => (
             <Tr key={`${a.code}-${i}`}>
-              <Td muted>{a.code}</Td>
+              <Td muted><AccountDrill code={a.code} to={asOf} /></Td>
               <Td>{a.name}</Td>
               <Td num>{inrMinor(a.balanceMinor)}</Td>
               {comparePrior && <Td num className="text-gray-500">{inrMinor(a.priorBalanceMinor ?? '0')}</Td>}
@@ -122,9 +124,12 @@ const BalanceSheetTab: React.FC = () => {
   };
   useEffect(() => { load(); }, []);
 
-  const downloadCsv = async () => {
-    downloadBlob(await api.get('/accounting/reports/balance-sheet', { params: { asOf, comparePrior: comparePrior ? 1 : undefined, format: 'csv' }, responseType: 'blob' }), `balance-sheet-${asOf}.csv`);
-  };
+  const csvRows = data ? [data.assets, data.liabilities, data.equity].flatMap((s: any) =>
+    s.accounts.map((a: any) => ({ section: s.label, code: a.code, name: a.name, amt: a.balanceMinor }))) : [];
+  const csvCols: CsvColumn<any>[] = [
+    { key: 'section', label: 'Section' }, { key: 'code', label: 'Code' },
+    { key: 'name', label: 'Account' }, { key: 'amt', label: 'Amount', money: true },
+  ];
 
   return (
     <>
@@ -132,7 +137,18 @@ const BalanceSheetTab: React.FC = () => {
         <Field label="As of date"><TextInput type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} /></Field>
         <CompareToggle checked={comparePrior} onChange={setComparePrior} />
         <Btn onClick={load}>Show</Btn>
-        <Btn variant="success" onClick={downloadCsv} disabled={!data}>Download CSV</Btn>
+        <ExportMenu
+          filename={`balance-sheet-${asOf}`}
+          columns={csvCols}
+          rows={csvRows}
+          disabled={!data}
+          serverExports={[{
+            label: 'Full CSV (server)',
+            path: '/accounting/reports/balance-sheet',
+            params: { asOf, comparePrior: comparePrior ? 1 : undefined, format: 'csv' },
+            filename: `balance-sheet-${asOf}.csv`,
+          }]}
+        />
       </div>
 
       {error && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
@@ -166,9 +182,9 @@ const BalanceSheetTab: React.FC = () => {
             </div>
           </SectionCard>
 
-          <BsSectionTable label={data.assets.label} accounts={data.assets.accounts} subtotalMinor={data.assets.subtotalMinor} priorSubtotalMinor={data.assets.priorSubtotalMinor} comparePrior={!!data.comparePrior} />
-          <BsSectionTable label={data.liabilities.label} accounts={data.liabilities.accounts} subtotalMinor={data.liabilities.subtotalMinor} priorSubtotalMinor={data.liabilities.priorSubtotalMinor} comparePrior={!!data.comparePrior} />
-          <BsSectionTable label={data.equity.label} accounts={data.equity.accounts} subtotalMinor={data.equity.subtotalMinor} priorSubtotalMinor={data.equity.priorSubtotalMinor} comparePrior={!!data.comparePrior} />
+          <BsSectionTable label={data.assets.label} accounts={data.assets.accounts} subtotalMinor={data.assets.subtotalMinor} priorSubtotalMinor={data.assets.priorSubtotalMinor} comparePrior={!!data.comparePrior} asOf={asOf} />
+          <BsSectionTable label={data.liabilities.label} accounts={data.liabilities.accounts} subtotalMinor={data.liabilities.subtotalMinor} priorSubtotalMinor={data.liabilities.priorSubtotalMinor} comparePrior={!!data.comparePrior} asOf={asOf} />
+          <BsSectionTable label={data.equity.label} accounts={data.equity.accounts} subtotalMinor={data.equity.subtotalMinor} priorSubtotalMinor={data.equity.priorSubtotalMinor} comparePrior={!!data.comparePrior} asOf={asOf} />
 
           <SectionCard title="What this means" flush>
             <ul className="list-disc space-y-1 px-8 py-4 text-sm text-gray-600">
@@ -199,9 +215,12 @@ const ProfitLossTab: React.FC = () => {
   };
   useEffect(() => { load(); }, []);
 
-  const downloadCsv = async () => {
-    downloadBlob(await api.get('/accounting/reports/p-and-l', { params: { from, to, comparePrior: comparePrior ? 1 : undefined, format: 'csv' }, responseType: 'blob' }), `profit-and-loss-${from}-to-${to}.csv`);
-  };
+  const pnlCsvRows = data ? [data.revenueFromOperations, data.otherIncome, data.costOfGoodsSold, data.otherExpenses]
+    .flatMap((s: any) => s.lines.map((l: any) => ({ section: s.label, code: l.code, name: l.name, amt: l.amountMinor }))) : [];
+  const pnlCsvCols: CsvColumn<any>[] = [
+    { key: 'section', label: 'Section' }, { key: 'code', label: 'Code' },
+    { key: 'name', label: 'Line' }, { key: 'amt', label: 'Amount', money: true },
+  ];
 
   const cp = !!data?.comparePrior;
   const cols = cp ? 4 : 3;
@@ -211,7 +230,7 @@ const ProfitLossTab: React.FC = () => {
       {section.lines.length === 0 && <EmptyRow colSpan={cols}>None in this period.</EmptyRow>}
       {section.lines.map((l: any, i: number) => (
         <Tr key={`${section.key}-${l.code}-${i}`}>
-          <Td muted>{l.code}</Td>
+          <Td muted><AccountDrill code={l.code} from={from} to={to} /></Td>
           <Td>{l.name}</Td>
           <Td num>{inrMinor(l.amountMinor)}</Td>
           {cp && <Td num className="text-gray-500">{inrMinor(l.priorAmountMinor ?? '0')}</Td>}
@@ -239,7 +258,18 @@ const ProfitLossTab: React.FC = () => {
         <Field label="To"><TextInput type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
         <CompareToggle checked={comparePrior} onChange={setComparePrior} />
         <Btn onClick={load}>Show</Btn>
-        <Btn variant="success" onClick={downloadCsv} disabled={!data}>Download CSV</Btn>
+        <ExportMenu
+          filename={`profit-and-loss-${from}-to-${to}`}
+          columns={pnlCsvCols}
+          rows={pnlCsvRows}
+          disabled={!data}
+          serverExports={[{
+            label: 'Full CSV (server)',
+            path: '/accounting/reports/p-and-l',
+            params: { from, to, comparePrior: comparePrior ? 1 : undefined, format: 'csv' },
+            filename: `profit-and-loss-${from}-to-${to}.csv`,
+          }]}
+        />
       </div>
 
       {error && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
@@ -288,7 +318,7 @@ const ProfitLossTab: React.FC = () => {
 
 // ── Cash Flow ──────────────────────────────────────────────────────────────
 
-const CashBucket: React.FC<{ bucket: any }> = ({ bucket }) => (
+const CashBucket: React.FC<{ bucket: any; from: string; to: string }> = ({ bucket, from, to }) => (
   <SectionCard title={bucket.label}>
     <TableShell>
       <table className="w-full text-sm">
@@ -297,7 +327,7 @@ const CashBucket: React.FC<{ bucket: any }> = ({ bucket }) => (
           {bucket.lines.length === 0 && <EmptyRow colSpan={3}>No cash movements in this bucket.</EmptyRow>}
           {bucket.lines.map((l: any, i: number) => (
             <Tr key={`${l.code}-${i}`}>
-              <Td muted>{l.code}</Td>
+              <Td muted><AccountDrill code={l.code} from={from} to={to} /></Td>
               <Td>{l.name}</Td>
               <Td num className={Number(l.amountMinor) < 0 ? 'text-red-600' : ''}>{inrMinor(l.amountMinor)}</Td>
             </Tr>
@@ -328,9 +358,12 @@ const CashFlowTab: React.FC = () => {
   };
   useEffect(() => { load(); }, []);
 
-  const downloadCsv = async () => {
-    downloadBlob(await api.get('/accounting/reports/cash-flow', { params: { from, to, method, format: 'csv' }, responseType: 'blob' }), `cash-flow-${method}-${from}-to-${to}.csv`);
-  };
+  const cfCsvRows = data ? [data.operating, data.investing, data.financing]
+    .flatMap((b: any) => b.lines.map((l: any) => ({ section: b.label, code: l.code, name: l.name, amt: l.amountMinor }))) : [];
+  const cfCsvCols: CsvColumn<any>[] = [
+    { key: 'section', label: 'Section' }, { key: 'code', label: 'Code' },
+    { key: 'name', label: 'Account' }, { key: 'amt', label: 'Cash', money: true },
+  ];
 
   return (
     <>
@@ -344,7 +377,18 @@ const CashFlowTab: React.FC = () => {
           </SelectInput>
         </Field>
         <Btn onClick={load}>Show</Btn>
-        <Btn variant="success" onClick={downloadCsv} disabled={!data}>Download CSV</Btn>
+        <ExportMenu
+          filename={`cash-flow-${method}-${from}-to-${to}`}
+          columns={cfCsvCols}
+          rows={cfCsvRows}
+          disabled={!data}
+          serverExports={[{
+            label: 'Full CSV (server)',
+            path: '/accounting/reports/cash-flow',
+            params: { from, to, method, format: 'csv' },
+            filename: `cash-flow-${method}-${from}-to-${to}.csv`,
+          }]}
+        />
       </div>
 
       {error && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
@@ -359,9 +403,9 @@ const CashFlowTab: React.FC = () => {
             <StatCard label="Closing cash & bank" value={inrMinor(data.closingCashMinor)} tone="info" />
           </StatGrid>
 
-          <CashBucket bucket={data.operating} />
-          <CashBucket bucket={data.investing} />
-          <CashBucket bucket={data.financing} />
+          <CashBucket bucket={data.operating} from={from} to={to} />
+          <CashBucket bucket={data.investing} from={from} to={to} />
+          <CashBucket bucket={data.financing} from={from} to={to} />
 
           <SectionCard title="How this is built" flush>
             <ul className="list-disc space-y-1 px-8 py-4 text-sm text-gray-600">
@@ -391,9 +435,18 @@ const EquityTab: React.FC = () => {
   };
   useEffect(() => { load(); }, []);
 
-  const downloadCsv = async () => {
-    downloadBlob(await api.get('/accounting/reports/equity-statement', { params: { from, to, format: 'csv' }, responseType: 'blob' }), `equity-statement-${from}-to-${to}.csv`);
-  };
+  const eqCsvRows = data ? [
+    { movement: `Opening balance (${data.from})`, ...data.opening },
+    ...data.movements.map((m: any) => ({ movement: m.label, ...m })),
+    { movement: `Closing balance (${data.to})`, ...data.closing },
+  ] : [];
+  const eqCsvCols: CsvColumn<any>[] = [
+    { key: 'movement', label: 'Movement' },
+    { key: 'capitalMinor', label: 'Capital & reserves', money: true },
+    { key: 'retainedEarningsMinor', label: 'Retained earnings', money: true },
+    { key: 'currentEarningsMinor', label: 'Current earnings', money: true },
+    { key: 'totalMinor', label: 'Total', money: true },
+  ];
 
   const cols4 = (c: any) => (
     <>
@@ -410,7 +463,18 @@ const EquityTab: React.FC = () => {
         <Field label="From"><TextInput type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
         <Field label="To"><TextInput type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
         <Btn onClick={load}>Show</Btn>
-        <Btn variant="success" onClick={downloadCsv} disabled={!data}>Download CSV</Btn>
+        <ExportMenu
+          filename={`equity-statement-${from}-to-${to}`}
+          columns={eqCsvCols}
+          rows={eqCsvRows}
+          disabled={!data}
+          serverExports={[{
+            label: 'Full CSV (server)',
+            path: '/accounting/reports/equity-statement',
+            params: { from, to, format: 'csv' },
+            filename: `equity-statement-${from}-to-${to}.csv`,
+          }]}
+        />
       </div>
 
       {error && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
@@ -475,9 +539,12 @@ const RatiosTab: React.FC = () => {
   };
   useEffect(() => { load(); }, []);
 
-  const downloadCsv = async () => {
-    downloadBlob(await api.get('/accounting/reports/ratios', { params: { from, to, format: 'csv' }, responseType: 'blob' }), `ratios-${from}-to-${to}.csv`);
-  };
+  const ratioCsvCols: CsvColumn<any>[] = [
+    { key: 'label', label: 'Ratio' },
+    { key: 'value', label: 'Value', format: (r) => fmtRatio(r) },
+    { key: 'unit', label: 'Unit' },
+    { key: 'formula', label: 'Formula' },
+  ];
 
   return (
     <>
@@ -485,7 +552,18 @@ const RatiosTab: React.FC = () => {
         <Field label="From"><TextInput type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
         <Field label="To"><TextInput type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
         <Btn onClick={load}>Show</Btn>
-        <Btn variant="success" onClick={downloadCsv} disabled={!data}>Download CSV</Btn>
+        <ExportMenu
+          filename={`ratios-${from}-to-${to}`}
+          columns={ratioCsvCols}
+          rows={data?.ratios ?? []}
+          disabled={!data}
+          serverExports={[{
+            label: 'Full CSV (server)',
+            path: '/accounting/reports/ratios',
+            params: { from, to, format: 'csv' },
+            filename: `ratios-${from}-to-${to}.csv`,
+          }]}
+        />
       </div>
 
       {error && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}

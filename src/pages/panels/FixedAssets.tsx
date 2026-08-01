@@ -5,7 +5,20 @@ import { payload } from '../../lib/unwrap';
 import {
   Page, PageHeader, Btn, StatCard, StatGrid, StatusChip,
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow, inrMinor,
+  Field, SelectInput, SearchInput, ExportMenu, type CsvColumn,
 } from '../../components/erp';
+
+const assetCols: CsvColumn<any>[] = [
+  { key: 'asset_number', label: 'Number' },
+  { key: 'name', label: 'Asset' },
+  { key: 'category_label', label: 'Type' },
+  { key: 'purchase_date', label: 'Bought' },
+  { key: 'cost_minor', label: 'Cost', money: true },
+  { key: 'accumulated_depreciation_minor', label: 'Depreciated', money: true },
+  { key: 'months_booked', label: 'Months booked' },
+  { key: 'book_value_minor', label: 'Book value', money: true },
+  { key: 'status', label: 'Status' },
+];
 
 /**
  * Fixed Assets — things you bought that last years: vans, fridges, computers.
@@ -40,6 +53,8 @@ const FixedAssets: React.FC = () => {
   const [cats, setCats] = useState<Opt[]>([]);
   const [reg, setReg] = useState<{ rows: any[]; totals: any }>({ rows: [], totals: {} });
   const [statusFilter, setStatusFilter] = useState<'active' | 'disposed' | ''>('active');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [search, setSearch] = useState('');
   const [error, setError] = useState('');
 
   const [showNew, setShowNew] = useState(false);
@@ -55,12 +70,19 @@ const FixedAssets: React.FC = () => {
     try {
       const params: any = {};
       if (statusFilter) params.status = statusFilter;
+      if (categoryFilter) params.category = categoryFilter;
       setReg(payload<any>(await api.get('/assets', { params })) ?? { rows: [], totals: {} });
     } catch (e: any) { setError(e?.response?.data?.message ?? e.message); }
   };
 
   useEffect(() => { api.get('/assets/categories').then((r) => setCats(payload<Opt[]>(r) ?? [])).catch(() => {}); }, []);
-  useEffect(() => { load(); }, [statusFilter]);
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [statusFilter, categoryFilter]);
+
+  // Text search stays client-side (the register endpoint has no search param).
+  const q = search.trim().toLowerCase();
+  const rows = q
+    ? reg.rows.filter((a: any) => `${a.asset_number ?? ''} ${a.name ?? ''}`.toLowerCase().includes(q))
+    : reg.rows;
 
   // Live depreciation preview (matches the server — SLM flat, WDV reducing balance).
   const preview = useMemo(() => {
@@ -126,7 +148,12 @@ const FixedAssets: React.FC = () => {
       <PageHeader
         title="Fixed Assets"
         description="Things you bought that last years — vans, fridges, computers. They lose value monthly; we book that depreciation for you and track what each is worth today."
-        actions={canPost && <Btn onClick={() => setShowNew((s) => !s)}>{showNew ? 'Close' : '+ Add asset'}</Btn>}
+        actions={
+          <div className="flex items-center gap-2">
+            <ExportMenu filename="fixed-assets" columns={assetCols} rows={rows} disabled={!rows.length} />
+            {canPost && <Btn onClick={() => setShowNew((s) => !s)}>{showNew ? 'Close' : '+ Add asset'}</Btn>}
+          </div>
+        }
       />
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
@@ -245,14 +272,25 @@ const FixedAssets: React.FC = () => {
         </div>
       )}
 
-      <div className="flex items-center gap-2 text-sm">
-        <span className="text-gray-500">Show:</span>
-        {(['active', 'disposed', ''] as const).map((s) => (
-          <button key={s || 'all'} onClick={() => setStatusFilter(s)}
-            className={`rounded-full px-3 py-1 ${statusFilter === s ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-            {s === '' ? 'All' : s === 'active' ? 'In use' : 'Disposed'}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-end gap-3 text-sm">
+        <div className="flex items-center gap-2">
+          <span className="text-gray-500">Show:</span>
+          {(['active', 'disposed', ''] as const).map((s) => (
+            <button key={s || 'all'} onClick={() => setStatusFilter(s)}
+              className={`rounded-full px-3 py-1 ${statusFilter === s ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+              {s === '' ? 'All' : s === 'active' ? 'In use' : 'Disposed'}
+            </button>
+          ))}
+        </div>
+        <Field label="Type">
+          <SelectInput value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+            <option value="">All types</option>
+            {cats.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+          </SelectInput>
+        </Field>
+        <Field label="Search">
+          <SearchInput placeholder="Number or name…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        </Field>
       </div>
 
       <TableShell>
@@ -262,8 +300,8 @@ const FixedAssets: React.FC = () => {
             <Th num>Cost</Th><Th num>Depreciated</Th><Th num>Book value</Th><Th>Status</Th><Th num>Action</Th>
           </THead>
           <TBody>
-            {reg.rows.length === 0 && <EmptyRow colSpan={9}>No assets in this view.</EmptyRow>}
-            {reg.rows.map((a: any) => (
+            {rows.length === 0 && <EmptyRow colSpan={9}>No assets in this view.</EmptyRow>}
+            {rows.map((a: any) => (
               <Tr key={a.id}>
                 <Td className="font-mono">{a.asset_number}</Td>
                 <Td className="font-medium text-gray-900">{a.name}</Td>

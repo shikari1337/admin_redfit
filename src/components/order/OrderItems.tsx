@@ -13,6 +13,18 @@ interface OrderItem {
   product_name?: string;
   productName?: string;
   sku?: string;
+  /**
+   * Full pack name and the store's OWN SKU, resolved against the live catalogue
+   * by the order read path (`CATALOG_LABEL_SQL`, backend db/queries/orders.ts).
+   * `product_name`/`sku` are the sale-time snapshot and stay as the fallback —
+   * for a line placed without a variation they hold the parent product's short
+   * name and its generated `P-…` placeholder SKU, which is neither what the
+   * store stocks nor what it ships.
+   */
+  catalog_name?: string;
+  catalogName?: string;
+  catalog_sku?: string;
+  catalogSku?: string;
   quantity: number;
   price: number | string;
   mrp?: number | string;
@@ -73,8 +85,8 @@ const OrderItems: React.FC<OrderItemsProps> = ({ items, b2bTier, orderDiscount =
     const discPct = baseValue > 0 ? (discAmt / baseValue) * 100 : 0;
     return {
       item,
-      name: item.product_name || item.productName || 'Unnamed product',
-      sku: item.sku || '—',
+      name: item.catalog_name || item.catalogName || item.product_name || item.productName || 'Unnamed product',
+      sku: item.catalog_sku || item.catalogSku || item.sku || '—',
       variant: formatVariant(item.attributes),
       price,
       qty,

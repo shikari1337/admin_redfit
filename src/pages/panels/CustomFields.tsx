@@ -2,9 +2,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Loader2, SlidersHorizontal, EyeOff, Eye, Plus } from 'lucide-react';
 import { api } from '../../services/api';
 import { payload } from '../../lib/unwrap';
+import { useAuth } from '../../contexts/AuthContext';
 import {
   Page, PageHeader, Btn, SectionCard, Field, TextInput, SelectInput,
-  TableShell, THead, Th, TBody, Tr, Td, EmptyRow, Chip,
+  TableShell, THead, Th, TBody, Tr, Td, EmptyRow, Chip, ExportMenu, type CsvColumn,
 } from '../../components/erp';
 
 /**
@@ -67,6 +68,7 @@ const emptyDraft = {
 };
 
 const CustomFields: React.FC = () => {
+  const { hasPerm } = useAuth();
   const [meta, setMeta] = useState<Meta | null>(null);
   const [entityType, setEntityType] = useState('vendor');
   const [defs, setDefs] = useState<FieldDef[]>([]);
@@ -146,7 +148,7 @@ const CustomFields: React.FC = () => {
     setNotice('');
     try {
       const res = await api.delete(`/custom-fields/defs/${d.id}`);
-      const kept = (res as any)?.data?.retainedValues ?? 0;
+      const kept = payload<{ retainedValues?: number }>(res)?.retainedValues ?? 0;
       setNotice(`"${d.label}" is now hidden. ${kept} saved answer(s) were kept.`);
       await load();
     } catch (e: any) {
@@ -191,6 +193,18 @@ const CustomFields: React.FC = () => {
   }
 
   const typeLabel = (t: FieldType) => meta?.fieldTypes.find((f) => f.key === t)?.label ?? t;
+
+  const exportCols: CsvColumn<FieldDef>[] = [
+    { key: 'label', label: 'Field' },
+    { key: 'field_type', label: 'Type', format: (d) => typeLabel(d.field_type) },
+    { key: 'field_key', label: 'Key' },
+    { key: 'required', label: 'Required', format: (d) => (d.required ? 'Yes' : 'No') },
+    { key: 'usage', label: 'Records answered', format: (d) => usage[d.entity_type]?.[d.field_key] ?? 0 },
+    { key: 'active', label: 'Status', format: (d) => (d.active ? 'Visible' : 'Hidden (answers kept)') },
+    { key: 'show_in_list', label: 'Show in list', format: (d) => (d.show_in_list ? 'Yes' : 'No') },
+    { key: 'sort_order', label: 'Order' },
+    { key: 'help_text', label: 'Hint', format: (d) => d.help_text ?? '' },
+  ];
 
   return (
     <Page width="wide">
@@ -334,6 +348,7 @@ const CustomFields: React.FC = () => {
         title={`Fields on every ${entityLabel.toLowerCase()}`}
         description={WHERE_IT_SHOWS[entityType]}
         flush
+        action={<ExportMenu filename={`custom-fields-${entityType}`} columns={exportCols} rows={rows} canExport={hasPerm('settings.manage')} />}
       >
         <TableShell>
           <table className="w-full text-sm">

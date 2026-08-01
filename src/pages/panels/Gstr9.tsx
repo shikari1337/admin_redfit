@@ -1,11 +1,23 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../services/api';
 import { payload } from '../../lib/unwrap';
+import { useAuth } from '../../contexts/AuthContext';
 import {
   Page, PageHeader, SectionCard, Btn, StatCard, StatGrid,
-  TableShell, THead, Th, TBody, Tr, Td, TextInput, TabBar, inr,
+  TableShell, THead, Th, TBody, Tr, Td, TextInput, TabBar, inr, ExportMenu,
 } from '../../components/erp';
+import type { CsvColumn } from '../../components/erp';
 import { useGstRegistrations, RegistrationSelect } from './gstinFilter';
+
+interface RateWiseCsvRow { ratePct: number | string; taxableValue: number; igst: number; cgst: number; sgst: number; }
+// Annual-return figures are in RUPEE units → raw numbers in the CSV.
+const RATEWISE_CSV_COLS: CsvColumn<RateWiseCsvRow>[] = [
+  { key: 'ratePct', label: 'Rate %' },
+  { key: 'taxableValue', label: 'Taxable value' },
+  { key: 'igst', label: 'IGST' },
+  { key: 'cgst', label: 'CGST' },
+  { key: 'sgst', label: 'SGST' },
+];
 
 /** Current Indian financial year label from today (Apr–Mar). */
 function currentFy(): string {
@@ -73,17 +85,21 @@ const Part: React.FC<{ title: string; defaultOpen?: boolean; children: React.Rea
 };
 
 const Gstr9: React.FC = () => {
+  const { hasPerm } = useAuth();
+  const canPost = hasPerm('accounting.post');
+  const canRead = hasPerm('accounting.read');
   const [fy, setFy] = useState(currentFy());
   const [tab, setTab] = useState<'return' | '9c'>('return');
   const [g9, setG9] = useState<any>(null);
   const [g9c, setG9c] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [gstin, setGstin] = useState('');
   const regs = useGstRegistrations();
 
   const load = async (year: string, g: string = gstin) => {
-    setLoading(true); setSaveMsg(null);
+    setLoading(true); setSaveMsg(null); setError('');
     try {
       const [a, b] = await Promise.all([
         // Annual return scopes to the chosen registration…
@@ -93,19 +109,11 @@ const Gstr9: React.FC = () => {
         api.get(`/accounting/gstr9/${year}/9c`),
       ]);
       setG9(payload(a)); setG9c(payload(b));
+    } catch (e: any) {
+      setError(e?.response?.data?.message ?? e?.message ?? 'Could not build the annual return.');
     } finally { setLoading(false); }
   };
   useEffect(() => { load(fy); }, []);
-
-  const downloadCsv = async () => {
-    const res = await api.get(`/accounting/gstr9/${g9.fy}/csv`, { params: gstin ? { gstin } : {}, responseType: 'blob' });
-    const blob = res.data instanceof Blob ? res.data : new Blob([res.data as any], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = `gstr9-${g9.fy}.csv`;
-    document.body.appendChild(a); a.click(); a.remove();
-    window.URL.revokeObjectURL(url);
-  };
 
   const saveSnapshot = async () => {
     setSaveMsg(null);
@@ -133,11 +141,29 @@ const Gstr9: React.FC = () => {
             <RegistrationSelect regs={regs} value={gstin} onChange={(g) => { setGstin(g); load(fy, g); }} />
             <TextInput value={fy} onChange={(e) => setFy(e.target.value)} placeholder="2025-26" className="w-28" />
             <Btn onClick={() => load(fy)}>Build return</Btn>
-            <Btn variant="success" onClick={downloadCsv} disabled={!g9}>Download CSV</Btn>
-            <Btn variant="outline" onClick={saveSnapshot} disabled={!g9}>Save filed snapshot</Btn>
+            <ExportMenu
+              filename={g9 ? `gstr9-${g9.fy}` : `gstr9-${fy}`}
+              columns={RATEWISE_CSV_COLS}
+              rows={g9?.partII?.rateWise ?? []}
+              canExport={canRead}
+              disabled={!g9}
+              serverExports={g9 ? [{
+                label: 'Annual return CSV (full)',
+                path: `/accounting/gstr9/${g9.fy}/csv`,
+                params: gstin ? { gstin } : {},
+                filename: `gstr9-${g9.fy}.csv`,
+              }] : []}
+            />
+            {/* Freezing a filed snapshot needs accounting.post — hide it otherwise
+                rather than render a button that only 403s. */}
+            {canPost && <Btn variant="outline" onClick={saveSnapshot} disabled={!g9}>Save filed snapshot</Btn>}
           </div>
         }
       />
+
+      {error && (
+        <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
+      )}
 
       {/* Inherited pending-owner caveat — surfaced, never fixed. */}
       <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">

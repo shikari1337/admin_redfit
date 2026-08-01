@@ -4,6 +4,7 @@ import PageTransitionLoader from './PageTransitionLoader';
 import { AppSidebar } from './app-sidebar';
 import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import StoreSwitcher from './StoreSwitcher';
+import { getDomainStore } from '../services/api';
 import NotificationBell from './NotificationBell';
 import { useAuth } from '../contexts/AuthContext';
 import {
@@ -19,6 +20,7 @@ import { SetupBanner } from './SetupBanner';
 import RouteGuard from './RouteGuard';
 import AccessNotice from './AccessNotice';
 import { WORKSPACES, WorkspaceKey, workspaceFromPath } from '../lib/rbac';
+import { PRODUCT, IS_SUITE, productAllowsWorkspace } from '../lib/product';
 
 const Layout: React.FC = () => {
   const { user, canAccess, hasPerm, workspaces, isAuthenticated, logout } = useAuth();
@@ -28,8 +30,11 @@ const Layout: React.FC = () => {
   // last one (sessionStorage) so leaving a panel page doesn't bounce the tabs.
   const [stickyWorkspace, setStickyWorkspace] = useState<WorkspaceKey>(() => {
     const fromPath = workspaceFromPath(window.location.pathname);
-    if (window.location.pathname.startsWith('/panel/')) return fromPath;
-    return (sessionStorage.getItem('active_workspace') as WorkspaceKey) || fromPath;
+    const candidate = window.location.pathname.startsWith('/panel/')
+      ? fromPath
+      : ((sessionStorage.getItem('active_workspace') as WorkspaceKey) || fromPath);
+    // Single-product build (VITE_PRODUCT) pins to that product's workspace.
+    return productAllowsWorkspace(candidate) ? candidate : (PRODUCT.workspaces?.[0] ?? candidate);
   });
   useEffect(() => {
     if (location.pathname.startsWith('/panel/')) {
@@ -75,57 +80,102 @@ const Layout: React.FC = () => {
       const mod = moduleForWorkspace[w];
       return !mod || canAccess(mod);
     })
+    .filter((w) => productAllowsWorkspace(w)) // single-product build hides other workspaces
     .map((w) => ({ key: w, title: WORKSPACES[w].title, home: WORKSPACES[w].home }));
   const switcherGroup: { title: string; items: any[] }[] = [];
 
-  const accountingMenu = [
+  // ── BOOKS (accounting workspace) — Zoho-style grouped IA ────────────────────
+  // Two independent gates: module bought (canAccess) AND user permitted (hasPerm).
+  // When either fails, every group is empty and the workspace shows nothing.
+  const acct = canAccess('accounting') && hasPerm('accounting.read');
+  const accountingMenu = !acct ? [] : [
     {
-      title: 'Accounting',
-      // Two independent gates: module bought (canAccess) AND user permitted
-      // (hasPerm). canAccess is module-only now — it is not an authz check.
-      items: !canAccess('accounting') || !hasPerm('accounting.read') ? [] : [
+      title: 'Overview',
+      items: [
         { title: 'Dashboard', url: '/panel/accounting', icon: Home },
-        { title: 'Chart of Accounts', url: '/panel/accounting/chart-of-accounts', icon: BookOpen },
-        { title: 'Opening Balances', url: '/panel/accounting/opening-balances', icon: Scale },
-        { title: 'Trial Balance', url: '/panel/accounting/trial-balance', icon: Scale },
-        { title: 'Journals', url: '/panel/accounting/journals', icon: BookOpen },
-        { title: 'Financial Statements', url: '/panel/accounting/statements', icon: Scale },
-        { title: 'General Ledger', url: '/panel/accounting/general-ledger', icon: BookOpen },
-        { title: 'GSTR-1 Draft', url: '/panel/accounting/gstr1', icon: FileSpreadsheet },
-        { title: 'GSTR-3B Summary', url: '/panel/accounting/gstr3b', icon: FileSpreadsheet },
-        { title: 'HSN Summary (Table 12)', url: '/panel/accounting/hsn-summary', icon: FileSpreadsheet },
-        { title: 'GSTR-9 (Annual)', url: '/panel/accounting/gstr9', icon: FileSpreadsheet },
-        { title: 'ITC / GSTR-2B', url: '/panel/accounting/itc', icon: FileSpreadsheet },
-        { title: 'Vendor Bills (AP)', url: '/panel/accounting/bills', icon: FileText },
-        { title: 'Payables (AP)', url: '/panel/accounting/payables', icon: FileText },
+        { title: 'Financial Statements', url: '/panel/accounting/statements', icon: LineChart },
+      ],
+    },
+    {
+      title: 'Sales',
+      items: [
         { title: 'Receivables (AR)', url: '/panel/accounting/receivables', icon: FileText },
         { title: 'Payments Received', url: '/panel/accounting/payments-received', icon: Wallet },
         ...(canAccess('subscriptions') ? [{ title: 'Recurring Invoices', url: '/panel/accounting/recurring-invoices', icon: Repeat }] : []),
         { title: 'Payment Reminders', url: '/panel/accounting/dunning', icon: Bell },
-        ...(hasPerm('accounting.read') ? [{ title: 'Marketplace Payouts', url: '/panel/accounting/settlements', icon: Store }] : []),
+        { title: 'Marketplace Payouts', url: '/panel/accounting/settlements', icon: Store },
+      ],
+    },
+    {
+      title: 'Purchases',
+      items: [
+        { title: 'Vendor Bills (AP)', url: '/panel/accounting/bills', icon: FileText },
+        { title: 'Payables (AP)', url: '/panel/accounting/payables', icon: FileText },
         { title: 'Expenses & Bank Book', url: '/panel/accounting/expenses', icon: Wallet },
-        { title: 'Fixed Assets', url: '/panel/accounting/assets', icon: Building2 },
-        { title: 'TDS (26Q / 27Q)', url: '/panel/accounting/tds', icon: ShieldCheck },
-        { title: 'TCS (27EQ · s.206C)', url: '/panel/accounting/tcs', icon: ShieldCheck },
-        { title: 'Scheduled Jobs', url: '/panel/accounting/scheduled-jobs', icon: CalendarClock },
-        { title: 'Scheduled Reports', url: '/panel/accounting/report-schedules', icon: Mail },
+        ...(hasPerm('purchasing.read') ? [{ title: 'Vendors', url: '/vendors', icon: Building2 }] : []),
+      ],
+    },
+    {
+      title: 'Banking',
+      items: [
         { title: 'Bank Accounts', url: '/panel/accounting/bank-accounts', icon: Wallet },
         { title: 'Bank Reconciliation', url: '/panel/accounting/bank-recon', icon: ArrowLeftRight },
         { title: 'Bank Rules', url: '/panel/accounting/bank-rules', icon: ArrowLeftRight },
-        { title: 'GST Rate Check', url: '/panel/accounting/rate-check', icon: ShieldCheck },
-        { title: 'Statutory Rate Codes', url: '/panel/accounting/rate-codes', icon: ShieldCheck },
         { title: 'Currencies & FX', url: '/panel/accounting/fx', icon: Coins },
+      ],
+    },
+    {
+      title: 'Accountant',
+      items: [
+        { title: 'Chart of Accounts', url: '/panel/accounting/chart-of-accounts', icon: BookOpen },
+        { title: 'Manual Journals', url: '/panel/accounting/journals', icon: BookOpen },
+        { title: 'Opening Balances', url: '/panel/accounting/opening-balances', icon: Scale },
+        { title: 'Trial Balance', url: '/panel/accounting/trial-balance', icon: Scale },
+        { title: 'General Ledger', url: '/panel/accounting/general-ledger', icon: BookOpen },
+        { title: 'Fixed Assets', url: '/panel/accounting/assets', icon: Building2 },
         { title: 'Reconciliation', url: '/panel/accounting/reconciliation', icon: Scale },
-        ...(canAccess('einvoicing') && hasPerm('gst.read') ? [{ title: 'E-invoicing (IRN)', url: '/panel/accounting/einvoicing', icon: FileSpreadsheet }] : []),
         { title: 'Number Series & Gaps', url: '/panel/accounting/series-gaps', icon: FileSpreadsheet },
-        ...(hasPerm('audit.read') ? [{ title: 'Audit Trail', url: '/panel/accounting/audit', icon: ShieldCheck }] : []),
+      ],
+    },
+    {
+      title: 'Filing & Compliance',
+      items: [
+        {
+          title: 'GST Returns', url: '/panel/accounting/gstr1', icon: FileSpreadsheet, items: [
+            { title: 'GSTR-1 Draft',    url: '/panel/accounting/gstr1' },
+            { title: 'GSTR-3B Summary', url: '/panel/accounting/gstr3b' },
+            { title: 'GSTR-9 (Annual)', url: '/panel/accounting/gstr9' },
+            { title: 'HSN Summary',     url: '/panel/accounting/hsn-summary' },
+            { title: 'ITC / GSTR-2B',   url: '/panel/accounting/itc' },
+          ],
+        },
+        ...(canAccess('einvoicing') && hasPerm('gst.read') ? [{ title: 'E-invoicing (IRN)', url: '/panel/accounting/einvoicing', icon: FileSpreadsheet }] : []),
+        {
+          title: 'Direct Taxes', url: '/panel/accounting/tds', icon: ShieldCheck, items: [
+            { title: 'TDS (26Q / 27Q)', url: '/panel/accounting/tds' },
+            { title: 'TCS (s.206C)',    url: '/panel/accounting/tcs' },
+          ],
+        },
+        {
+          title: 'GST Rates', url: '/panel/accounting/rate-check', icon: ShieldCheck, items: [
+            { title: 'GST Rate Check',      url: '/panel/accounting/rate-check' },
+            { title: 'Statutory Rate Codes', url: '/panel/accounting/rate-codes' },
+          ],
+        },
+      ],
+    },
+    {
+      title: 'Setup',
+      items: [
         ...(hasPerm('content.read') ? [{ title: 'Document Library', url: '/panel/accounting/documents', icon: FolderArchive }] : []),
         ...(hasPerm('settings.manage') ? [{ title: 'Document Templates', url: '/panel/settings/templates', icon: FileText }] : []),
         ...(hasPerm('settings.manage') ? [{ title: 'Custom Fields', url: '/panel/settings/custom-fields', icon: SlidersHorizontal }] : []),
+        { title: 'Scheduled Jobs', url: '/panel/accounting/scheduled-jobs', icon: CalendarClock },
+        { title: 'Scheduled Reports', url: '/panel/accounting/report-schedules', icon: Mail },
+        ...(hasPerm('audit.read') ? [{ title: 'Audit Trail', url: '/panel/accounting/audit', icon: ShieldCheck }] : []),
         { title: 'Settings', url: '/panel/accounting/settings', icon: Settings },
       ],
     },
-    ...switcherGroup,
   ];
 
   const marketingMenu = [
@@ -160,7 +210,7 @@ const Layout: React.FC = () => {
       items: !canAccess('purchasing') || !hasPerm('purchasing.read') ? [] : [
         { title: 'Purchase Orders & GRNs', url: '/panel/purchasing', icon: Store },
         ...(hasPerm('purchasing.read') ? [{ title: 'Vendor Scorecard', url: '/panel/purchasing/scorecard', icon: LineChart }] : []),
-        ...(hasPerm('products.read') ? [{ title: 'Vendors', url: '/vendors', icon: Building2 }] : []),
+        ...(hasPerm('purchasing.read') ? [{ title: 'Vendors', url: '/vendors', icon: Building2 }] : []),
         ...(hasPerm('accounting.read') ? [{ title: 'Vendor Bills (3-way match)', url: '/panel/accounting/bills', icon: FileText }] : []),
         { title: 'Batches & Expiry', url: '/panel/inventory/batches', icon: PackageSearch },
         ...(canAccess('wms') && hasPerm('inventory.read') ? [{ title: 'Barcodes & Labels', url: '/panel/inventory/labels', icon: FileText }] : []),
@@ -394,30 +444,39 @@ const Layout: React.FC = () => {
             {/* Left: sidebar trigger + PANEL TABS (the top-level areas) */}
             <div className="flex min-w-0 items-center gap-2">
               <SidebarTrigger className="-ml-1 shrink-0 text-gray-500" />
-              <nav className="flex items-center gap-1 overflow-x-auto">
-                {headerTabs.map((t) => {
-                  const active = t.key === activeWorkspace;
-                  return (
-                    <button
-                      key={t.key}
-                      onClick={() => selectWorkspace(t.key)}
-                      className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                        active
-                          ? 'bg-gray-900 text-white shadow-sm'
-                          : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
-                      }`}
-                    >
-                      {t.title}
-                    </button>
-                  );
-                })}
-              </nav>
+              {headerTabs.length > 1 ? (
+                <nav className="flex items-center gap-1 overflow-x-auto">
+                  {headerTabs.map((t) => {
+                    const active = t.key === activeWorkspace;
+                    return (
+                      <button
+                        key={t.key}
+                        onClick={() => selectWorkspace(t.key)}
+                        className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                          active
+                            ? 'bg-gray-900 text-white shadow-sm'
+                            : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
+                        }`}
+                      >
+                        {t.title}
+                      </button>
+                    );
+                  })}
+                </nav>
+              ) : (
+                // Single-product build (or single-workspace role): show the product name, not a lone tab.
+                <span className="whitespace-nowrap px-2 text-sm font-semibold text-gray-900">
+                  {IS_SUITE ? (headerTabs[0]?.title ?? '') : PRODUCT.name}
+                </span>
+              )}
             </div>
 
-            {/* Right: notifications + store switcher */}
+            {/* Right: notifications + store switcher. The switcher is hidden on a
+                domain-pinned deployment (admin.<store>.com) — that domain manages
+                exactly one store, so switching away from it makes no sense. */}
             <div className="flex shrink-0 items-center gap-3">
               <NotificationBell />
-              <StoreSwitcher />
+              {!getDomainStore() && <StoreSwitcher />}
             </div>
           </div>
           {/* Breadcrumb row (kept, moved below the tabs) */}

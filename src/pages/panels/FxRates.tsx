@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import {
   Page, PageHeader, SectionCard, Btn, Chip,
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow, TextInput, SelectInput, Field,
+  FilterBar, ExportMenu, Pagination, useListControls, type CsvColumn,
 } from '../../components/erp';
 
 /**
@@ -52,6 +53,23 @@ const SOURCE_LABEL: Record<string, string> = {
   customs: 'CBIC notified',
 };
 
+// Client-side CSV exports. Rate is a ₹-per-unit decimal STRING (not minor units);
+// revaluation unrealised IS minor units → money:true.
+const RATE_COLS: CsvColumn<RateRow>[] = [
+  { key: 'as_of_date', label: 'As on' },
+  { key: 'currency', label: 'Currency' },
+  { key: 'rate', label: 'INR per unit', format: (r) => r.rate },
+  { key: 'source', label: 'Source', format: (r) => SOURCE_LABEL[r.source] ?? r.source },
+  { key: 'note', label: 'Note', format: (r) => r.note ?? '' },
+];
+const REVAL_COLS: CsvColumn<any>[] = [
+  { key: 'period', label: 'Period' },
+  { key: 'currency', label: 'Currency' },
+  { key: 'unrealised_minor', label: 'Unrealised', money: true },
+  { key: 'status', label: 'Status' },
+  { key: 'as_of_date', label: 'As at' },
+];
+
 const FxRates: React.FC = () => {
   const { hasPerm } = useAuth();
   const canWrite = hasPerm('accounting.post');
@@ -70,6 +88,7 @@ const FxRates: React.FC = () => {
   const [convOut, setConvOut] = useState<{ inrMajor: string; rate: string; rateDate: string; source: string } | null>(null);
 
   const [historyFilter, setHistoryFilter] = useState('');
+  const histLc = useListControls({ pageSize: 25 });  // rate-history date range + paging (client-side)
 
   // Period-end (unrealised) revaluation
   const lastDayPrevMonth = () => { const d = new Date(); d.setUTCDate(0); return d.toISOString().slice(0, 10); };
@@ -87,7 +106,10 @@ const FxRates: React.FC = () => {
       ]);
       const dd: FxData = payload(d);
       setData(dd);
-      setRates(payload(r) ?? []);
+      // /fx/rates returns { success, rows, total } (not the {success,data} envelope),
+      // so read defensively: array (if unwrapped) or the { rows } object.
+      const rr: any = payload(r);
+      setRates(Array.isArray(rr) ? rr : (rr?.rows ?? []));
       const firstForeign = dd.currencies.find((c) => c.isActive && !c.isBase)
         ?? dd.currencies.find((c) => !c.isBase);
       if (firstForeign) {
@@ -200,8 +222,14 @@ const FxRates: React.FC = () => {
   const foreign = currencies.filter((c) => !c.isBase);
   const activeForeign = foreign.filter((c) => c.isActive);
   const shownRates = useMemo(
-    () => (historyFilter ? rates.filter((r) => r.currency === historyFilter) : rates),
-    [rates, historyFilter]);
+    () => rates.filter((r) => {
+      if (historyFilter && r.currency !== historyFilter) return false;
+      if (histLc.from && r.as_of_date < histLc.from) return false;   // ISO strings sort lexically
+      if (histLc.to && r.as_of_date > histLc.to) return false;
+      return true;
+    }),
+    [rates, historyFilter, histLc.from, histLc.to]);
+  const pageRates = shownRates.slice((histLc.page - 1) * histLc.pageSize, histLc.page * histLc.pageSize);
 
   return (
     <Page>
@@ -473,7 +501,10 @@ const FxRates: React.FC = () => {
         )}
         {revals.length > 0 && (
           <div className="border-t border-gray-100 px-6 py-4">
-            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">Recorded revaluations</div>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="text-xs font-medium uppercase tracking-wide text-gray-500">Recorded revaluations</div>
+              <ExportMenu filename="fx-revaluations" columns={REVAL_COLS} rows={revals} disabled={revals.length === 0} />
+            </div>
             <TableShell>
               <table className="w-full text-sm">
                 <THead>
@@ -507,16 +538,19 @@ const FxRates: React.FC = () => {
       <SectionCard
         title="Rate history"
         description="Every rate ever entered, with where it came from. This is the audit trail behind each foreign document's rupee value."
+        action={<ExportMenu filename="fx-rate-history" columns={RATE_COLS} rows={shownRates} disabled={shownRates.length === 0} />}
       >
-        <div className="flex flex-wrap items-end gap-3 px-6 pt-4">
+        <FilterBar>
           <Field label="Show">
-            <SelectInput value={historyFilter} onChange={(e) => setHistoryFilter(e.target.value)}
+            <SelectInput value={historyFilter} onChange={(e) => { setHistoryFilter(e.target.value); histLc.setPage(1); }}
               className="min-w-[10rem]">
               <option value="">All currencies</option>
               {foreign.map((c) => <option key={c.code} value={c.code}>{c.code}</option>)}
             </SelectInput>
           </Field>
-        </div>
+          <Field label="From"><TextInput type="date" value={histLc.from} onChange={(e) => histLc.setFrom(e.target.value)} /></Field>
+          <Field label="To"><TextInput type="date" value={histLc.to} onChange={(e) => histLc.setTo(e.target.value)} /></Field>
+        </FilterBar>
         <TableShell>
           <table className="w-full text-sm">
             <THead>
@@ -524,8 +558,8 @@ const FxRates: React.FC = () => {
             </THead>
             <TBody>
               {shownRates.length === 0 &&
-                <EmptyRow colSpan={5}>No rates entered yet.</EmptyRow>}
-              {shownRates.map((r) => (
+                <EmptyRow colSpan={5}>{rates.length === 0 ? 'No rates entered yet.' : 'No rates match your filters.'}</EmptyRow>}
+              {pageRates.map((r) => (
                 <Tr key={r.id}>
                   <Td className="font-medium">{r.as_of_date}</Td>
                   <Td>{r.currency}</Td>
@@ -537,6 +571,7 @@ const FxRates: React.FC = () => {
             </TBody>
           </table>
         </TableShell>
+        <Pagination page={histLc.page} pageSize={histLc.pageSize} total={shownRates.length} onPage={histLc.setPage} onPageSize={histLc.setPageSize} />
       </SectionCard>
 
       <SectionCard title="What this does and does not do" flush>

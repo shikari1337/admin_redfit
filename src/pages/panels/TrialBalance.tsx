@@ -2,7 +2,19 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../../services/api';
 import { fmtMinor } from '../../lib/money';
 import { payload } from '../../lib/unwrap';
-import { Page, PageHeader, TableShell, THead, Th, TBody, Tr, Td, EmptyRow, Field, TextInput, Btn } from '../../components/erp';
+import {
+  Page, PageHeader, TableShell, THead, Th, TBody, Tr, Td, EmptyRow, Field, TextInput, Btn,
+  ExportMenu, DrillLink, type CsvColumn,
+} from '../../components/erp';
+
+// The account rows are already client-held — CSV is assembled in the browser (money = minor units).
+const tbCols: CsvColumn<any>[] = [
+  { key: 'code', label: 'Code' },
+  { key: 'name', label: 'Account' },
+  { key: 'account_type', label: 'Type' },
+  { key: 'debit_minor', label: 'Debit', money: true },
+  { key: 'credit_minor', label: 'Credit', money: true },
+];
 
 const TrialBalance: React.FC = () => {
   const [asOf, setAsOf] = useState('');
@@ -27,6 +39,12 @@ const TrialBalance: React.FC = () => {
           <div className="flex items-end gap-2">
             <Field label="As of"><TextInput type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} /></Field>
             <Btn onClick={() => load(asOf || undefined)}>Apply</Btn>
+            <ExportMenu
+              filename={`trial-balance-${asOf || 'latest'}`}
+              columns={tbCols}
+              rows={data?.rows ?? []}
+              disabled={!data?.rows?.length}
+            />
           </div>
         }
       />
@@ -55,7 +73,9 @@ const TrialBalance: React.FC = () => {
             )}
             {data?.rows?.map((r: any) => (
               <Tr key={r.code}>
-                <Td className="font-mono">{r.code}</Td>
+                <Td className="font-mono">
+                  <DrillLink to={`/panel/accounting/general-ledger?account=${r.code}${asOf ? `&to=${asOf}` : ''}`} title="View this account's ledger">{r.code}</DrillLink>
+                </Td>
                 <Td>{r.name}</Td>
                 <Td muted className="capitalize">{r.account_type}</Td>
                 <Td num>{fmtMinor(r.debit_minor)}</Td>

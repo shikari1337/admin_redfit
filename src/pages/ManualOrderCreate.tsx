@@ -10,7 +10,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { FaArrowLeft, FaPlus, FaTrash, FaSearch, FaCopy, FaUser } from 'react-icons/fa';
-import { ordersAPI, customersAPI, productsAPI, searchAPI } from '../services/api';
+import { ordersAPI, customersAPI, productsAPI } from '../services/api';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,15 +22,18 @@ import { useToast } from "@/hooks/use-toast";
 interface Line {
   productId: string;
   variationId?: string;
+  /** The store's OWN SKU (from the variation), not the parent's `P-…` placeholder. */
   sku?: string;
+  /** FULL pack name — "ASPIDOSPERMA QUEBRACHO Q 30 ML SBL", what the invoice prints. */
   name: string;
   variantLabel?: string;
   quantity: number;
   /** Catalog price — an estimate; the server reprices authoritatively. */
   price: number;
   mrp?: number;
+  stock?: number;
   unitPrice?: string;        // manual override (input as string)
-  discountPercent?: string;  // manual line discount %
+  discountPercent?: string;  // additional line discount %
   b2b?: boolean;
 }
 
@@ -44,12 +47,16 @@ const ManualOrderCreate: React.FC = () => {
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerResults, setCustomerResults] = useState<any[]>([]);
   const [customer, setCustomer] = useState<any | null>(null);
+  /** Full profile from GET /customers/:id — address book, email, GSTIN. */
+  const [customerDetail, setCustomerDetail] = useState<any | null>(null);
+  const [prefilling, setPrefilling] = useState(false);
+  const [gstin, setGstin] = useState('');
   const [address, setAddress] = useState({ fullName: '', mobileNumber: '', email: '', address: '', district: '', state: '', pincode: '' });
 
-  // Products
+  // Products — searched at SKU (variation) level, see productsAPI.searchVariations
   const [productSearch, setProductSearch] = useState('');
   const [productResults, setProductResults] = useState<any[]>([]);
-  const [pickingProduct, setPickingProduct] = useState<any | null>(null); // full product incl. variations
+  const [searching, setSearching] = useState(false);
   const [lines, setLines] = useState<Line[]>([]);
   const searchTimer = useRef<any>(null);
 
@@ -76,81 +83,121 @@ const ManualOrderCreate: React.FC = () => {
     return () => clearTimeout(t);
   }, [customerSearch]);
 
+  /**
+   * Pull EVERYTHING the store already holds about this customer into the form.
+   *
+   * The directory row only carries name/phone/email, so the saved address book,
+   * the registered email and the GSTIN come from `GET /customers/:id` (they live
+   * in the platform DB — customers and their addresses are global). A picked
+   * customer overwrites the form: the operator chose this person, so their
+   * registered details should replace whatever was half-typed, not lose to it.
+   */
   const pickCustomer = (c: any) => {
     setCustomer(c);
     setCustomerResults([]);
     setCustomerSearch('');
+    setPrefilling(true);
     // Store-customer rows expose contact as `phone`; older shapes vary.
     setAddress(a => ({
       ...a,
-      fullName: a.fullName || c.name || '',
-      mobileNumber: a.mobileNumber || c.phone || c.phoneNumber || c.phone_number || '',
-      email: a.email || c.email || '',
+      fullName: c.name || a.fullName || '',
+      mobileNumber: c.phone || c.phoneNumber || c.phone_number || a.mobileNumber || '',
+      email: c.email || a.email || '',
     }));
-    // Prefill the address from the customer's saved addresses when available.
+
     const globalId = c.customerId ?? c.customer_id ?? c.id;
-    if (globalId) {
-      customersAPI.getById(String(globalId)).then((detail: any) => {
-        const d = detail?.data ?? detail ?? {};
-        const addr = (Array.isArray(d.addresses) ? d.addresses[0] : null)
-          ?? d.defaultAddress ?? d.default_address ?? null;
-        if (addr) {
-          setAddress(a => ({
-            ...a,
-            address: a.address || addr.address || addr.line1 || '',
-            district: a.district || addr.district || addr.city || '',
-            state: a.state || addr.state || '',
-            pincode: a.pincode || addr.pincode || '',
-          }));
-        }
-      }).catch(() => { /* optional prefill */ });
-    }
+    if (!globalId) { setPrefilling(false); return; }
+    customersAPI.getById(String(globalId)).then((detail: any) => {
+      const d = detail?.data ?? detail ?? {};
+      setCustomerDetail(d);
+      // Saved address book first (default address wins), then the address used on
+      // this store's most recent order for a customer who checked out as a guest.
+      const saved: any[] = Array.isArray(d.addresses) ? d.addresses : [];
+      const book = saved.find((x: any) => x.is_default ?? x.isDefault) ?? saved[0] ?? null;
+      const last = d.last_order_address ?? d.lastOrderAddress ?? null;
+      const addr = book ?? last;
+      setAddress(a => ({
+        fullName: addr?.full_name ?? addr?.fullName ?? d.name ?? a.fullName ?? '',
+        mobileNumber: addr?.mobile ?? addr?.mobile_number ?? addr?.mobileNumber ?? d.phone ?? a.mobileNumber ?? '',
+        email: d.email ?? addr?.email ?? a.email ?? '',
+        address: [addr?.line1 ?? addr?.address ?? '', addr?.line2 ?? '', addr?.landmark ?? '']
+          .filter(Boolean).join(', ') || a.address || '',
+        district: addr?.district ?? addr?.city ?? a.district ?? '',
+        state: addr?.state ?? a.state ?? '',
+        pincode: addr?.pincode ?? a.pincode ?? '',
+      }));
+      if (d.gstin) setGstin(String(d.gstin));
+    }).catch(() => { /* optional prefill — the operator can still type it */ })
+      .finally(() => setPrefilling(false));
   };
 
-  // ── Product search ──
+  /** Re-apply one of the customer's other saved addresses. */
+  const applySavedAddress = (addr: any) => {
+    setAddress(a => ({
+      ...a,
+      fullName: addr.full_name ?? addr.fullName ?? a.fullName,
+      mobileNumber: addr.mobile ?? addr.mobile_number ?? addr.mobileNumber ?? a.mobileNumber,
+      address: [addr.line1 ?? '', addr.line2 ?? '', addr.landmark ?? ''].filter(Boolean).join(', '),
+      district: addr.district ?? '',
+      state: addr.state ?? '',
+      pincode: addr.pincode ?? '',
+    }));
+  };
+
+  /**
+   * Product search runs at SKU (variation) level.
+   *
+   * Searching PRODUCTS returned the remedy family ("Aspidosperma Quebracho",
+   * 52 packs behind it) and the line ended up bound to the parent — so the
+   * order, the invoice and the packing slip all showed the short family name and
+   * the generated `P-ASPIDOSPERMA-QUEBRACHO` placeholder instead of the pack the
+   * store actually stocks and ships. Searching variations means typing either
+   * "aspidosperma q 30 ml sbl" or the SKU "641536" lands the exact row, and the
+   * line carries the store's own SKU from the start.
+   */
   useEffect(() => {
-    if (productSearch.trim().length < 3) { setProductResults([]); return; }
+    if (productSearch.trim().length < 3) { setProductResults([]); setSearching(false); return; }
     clearTimeout(searchTimer.current);
+    setSearching(true);
     searchTimer.current = setTimeout(async () => {
-      const results = await searchAPI.query('product', productSearch.trim(), 8);
-      setProductResults(results);
+      try {
+        setProductResults(await productsAPI.searchVariations(productSearch.trim(), 12));
+      } catch {
+        setProductResults([]);
+      } finally {
+        setSearching(false);
+      }
     }, 350);
     return () => clearTimeout(searchTimer.current);
   }, [productSearch]);
 
-  const pickProduct = async (result: any) => {
-    setProductResults([]);
-    setProductSearch('');
-    try {
-      const p = await productsAPI.getById(result.id);
-      const prod = p?.data ?? p;
-      const variations: any[] = prod?.variations ?? [];
-      if (variations.length > 0) {
-        setPickingProduct(prod);   // needs a variation choice
-      } else {
-        addLine(prod, null);
-      }
-    } catch {
-      toast({ variant: 'destructive', title: 'Error', description: 'Could not load the product' });
+  const addLine = (v: any) => {
+    const price = Number(v.salePrice ?? v.sale_price ?? v.sellingPrice ?? v.selling_price ?? v.mrp ?? 0);
+    const mrp = Number(v.mrp ?? 0);
+    const attrs = v.attributes ?? {};
+    const productId = v.productId ?? v.product_id;
+    const variationId = v.variationId ?? v.variation_id ?? v.id;
+    if (!productId) {
+      toast({ variant: 'destructive', title: 'Could not add', description: 'That row has no product reference' });
+      return;
     }
-  };
-
-  const addLine = (prod: any, variation: any | null) => {
-    const price = Number(variation?.salePrice ?? variation?.sale_price ?? variation?.sellingPrice ?? variation?.selling_price
-      ?? prod?.salePrice ?? prod?.sale_price ?? prod?.sellingPrice ?? prod?.selling_price ?? 0);
-    const mrp = Number(variation?.mrp ?? prod?.mrp ?? 0);
-    const attrs = variation?.attributes ?? {};
     setLines(ls => [...ls, {
-      productId: prod.id ?? prod._id,
-      variationId: variation?.id ?? variation?._id ?? undefined,
-      sku: variation?.sku ?? prod?.sku ?? undefined,
-      name: prod.title ?? prod.name ?? 'Product',
-      variantLabel: Object.values(attrs).filter(Boolean).join(' · ') || undefined,
+      productId,
+      // A product with no variations lists as itself; only send a variationId
+      // when the row really is one, so the server prices the right record.
+      variationId: v.isVariation === false || v.is_variation === false ? undefined : variationId,
+      sku: v.sku ?? undefined,
+      name: v.name ?? v.title ?? 'Product',
+      variantLabel: Object.entries(attrs)
+        .filter(([, val]) => val != null && String(val).trim() !== '')
+        .map(([, val]) => String(val)).join(' · ') || undefined,
       quantity: 1,
       price: price || mrp,
       mrp: mrp || undefined,
+      stock: v.stock != null ? Number(v.stock) : undefined,
     }]);
-    setPickingProduct(null);
+    setProductResults([]);
+    setProductSearch('');
   };
 
   const updateLine = (idx: number, patch: Partial<Line>) => {
@@ -188,6 +235,7 @@ const ManualOrderCreate: React.FC = () => {
           discountPercent: l.discountPercent !== undefined && l.discountPercent !== '' ? parseFloat(l.discountPercent) : undefined,
         })),
         shippingAddress: { ...address },
+        gstin: gstin.trim() || undefined,
         paymentMethod,
         discount: parseFloat(orderDiscount) || undefined,
         discountReason: discountReason || undefined,
@@ -258,13 +306,42 @@ const ManualOrderCreate: React.FC = () => {
             <CardHeader className="pb-3 border-b"><CardTitle className="text-lg">Customer</CardTitle></CardHeader>
             <CardContent className="pt-4 space-y-3">
               {customer ? (
-                <div className="flex items-center justify-between border rounded-md px-3 py-2 bg-muted/40">
-                  <div className="text-sm">
-                    <span className="font-semibold">{customer.name || 'Customer'}</span>
-                    <span className="text-muted-foreground ml-2">{customer.phone || customer.phoneNumber || customer.phone_number} {customer.email ? `· ${customer.email}` : ''}</span>
-                    {(customer.isB2b ?? customer.is_b2b) && <Badge className="ml-2 bg-blue-500/15 text-blue-700 border-blue-200">B2B{(customer.b2bTier ?? customer.b2b_tier) ? ` · ${customer.b2bTier ?? customer.b2b_tier}` : ''}</Badge>}
+                <div className="border rounded-md px-3 py-2 bg-muted/40 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-sm min-w-0">
+                      <span className="font-semibold">{customerDetail?.name || customer.name || 'Customer'}</span>
+                      <span className="text-muted-foreground ml-2">
+                        {customerDetail?.phone || customer.phone || customer.phoneNumber || customer.phone_number}
+                        {(customerDetail?.email || customer.email) ? ` · ${customerDetail?.email || customer.email}` : ''}
+                      </span>
+                      {(customer.isB2b ?? customer.is_b2b ?? customerDetail?.b2b?.is_b2b) && (
+                        <Badge className="ml-2 bg-blue-500/15 text-blue-700 border-blue-200">
+                          B2B{(customer.b2bTier ?? customer.b2b_tier ?? customerDetail?.b2b?.b2b_tier) ? ` · ${customer.b2bTier ?? customer.b2b_tier ?? customerDetail?.b2b?.b2b_tier}` : ''}
+                        </Badge>
+                      )}
+                      {prefilling && <span className="text-xs text-muted-foreground ml-2">loading details…</span>}
+                    </div>
+                    <Button size="sm" variant="ghost" onClick={() => { setCustomer(null); setCustomerDetail(null); }}>Change</Button>
                   </div>
-                  <Button size="sm" variant="ghost" onClick={() => setCustomer(null)}>Change</Button>
+                  {customerDetail && (
+                    <p className="text-xs text-muted-foreground">
+                      {customerDetail.order_count ?? 0} previous order(s)
+                      {customerDetail.gstin ? ` · GSTIN ${customerDetail.gstin}` : ''}
+                    </p>
+                  )}
+                  {/* Other saved addresses — one click to ship to a different one. */}
+                  {Array.isArray(customerDetail?.addresses) && customerDetail.addresses.length > 1 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      <span className="text-[11px] text-muted-foreground self-center">Saved addresses:</span>
+                      {customerDetail.addresses.map((a: any) => (
+                        <Button key={a.id} size="sm" variant="outline" className="h-7 text-xs"
+                          onClick={() => applySavedAddress(a)}>
+                          {a.label || a.district || a.pincode || 'Address'}
+                          {(a.is_default ?? a.isDefault) ? ' ★' : ''}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="relative">
@@ -299,6 +376,9 @@ const ManualOrderCreate: React.FC = () => {
                 <Input className="sm:col-span-2" placeholder="Address" value={address.address} onChange={(e) => setAddress(a => ({ ...a, address: e.target.value }))} />
                 <Input placeholder="City / District" value={address.district} onChange={(e) => setAddress(a => ({ ...a, district: e.target.value }))} />
                 <Input placeholder="State (drives CGST/SGST vs IGST)" value={address.state} onChange={(e) => setAddress(a => ({ ...a, state: e.target.value }))} />
+                {/* Prefilled from the customer's B2B profile; printed on the tax invoice. */}
+                <Input className="sm:col-span-2" placeholder="Customer GSTIN (optional)" value={gstin}
+                  onChange={(e) => setGstin(e.target.value.toUpperCase())} />
               </div>
             </CardContent>
           </Card>
@@ -310,50 +390,63 @@ const ManualOrderCreate: React.FC = () => {
               <div className="relative">
                 <div className="relative">
                   <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground h-3.5 w-3.5" />
-                  <Input className="pl-9" placeholder="Search products to add (min 3 chars)"
+                  <Input className="pl-9" placeholder="Search by SKU or full pack name — e.g. 641536, or “aspidosperma q 30 ml sbl” (min 3 chars)"
                     value={productSearch} onChange={(e) => setProductSearch(e.target.value)} />
                 </div>
-                {productResults.length > 0 && (
-                  <div className="absolute z-20 mt-1 w-full border rounded-md bg-background shadow-lg max-h-64 overflow-y-auto">
-                    {productResults.map((r: any) => (
-                      <button key={r.id} type="button" onClick={() => pickProduct(r)}
-                        className="w-full text-left px-3 py-2 hover:bg-muted text-sm">
-                        <span className="font-medium">{r.label}</span>
-                        {r.sublabel && <span className="text-muted-foreground text-xs ml-2">{r.sublabel}</span>}
-                      </button>
-                    ))}
+                {productSearch.trim().length >= 3 && (searching || productResults.length > 0) && (
+                  <div className="absolute z-20 mt-1 w-full border rounded-md bg-background shadow-lg max-h-72 overflow-y-auto">
+                    {searching && productResults.length === 0 && (
+                      <div className="px-3 py-2 text-sm text-muted-foreground">Searching…</div>
+                    )}
+                    {productResults.map((r: any) => {
+                      const price = Number(r.salePrice ?? r.sale_price ?? r.sellingPrice ?? r.selling_price ?? r.mrp ?? 0);
+                      const stock = r.stock != null ? Number(r.stock) : null;
+                      return (
+                        <button key={r.id} type="button" onClick={() => addLine(r)}
+                          className="w-full text-left px-3 py-2 hover:bg-muted text-sm border-b last:border-b-0">
+                          <div className="flex items-baseline justify-between gap-3">
+                            <span className="font-medium">{r.name ?? r.title}</span>
+                            <span className="text-xs whitespace-nowrap">{money(price)}</span>
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            <span className="font-mono">SKU {r.sku ?? '—'}</span>
+                            {stock != null && (
+                              <span className={stock > 0 ? ' ml-2 text-green-700' : ' ml-2 text-red-600'}>
+                                {stock > 0 ? `${stock} in stock` : 'Out of stock'}
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </div>
 
-              {/* Variation picker */}
-              {pickingProduct && (
-                <div className="border rounded-md p-3 bg-blue-50/50">
-                  <p className="text-sm font-semibold mb-2">Pick a variation of {pickingProduct.title ?? pickingProduct.name}:</p>
-                  <div className="flex flex-wrap gap-2">
-                    {(pickingProduct.variations ?? []).map((v: any) => (
-                      <Button key={v.id ?? v._id} size="sm" variant="outline" onClick={() => addLine(pickingProduct, v)}>
-                        {Object.values(v.attributes ?? {}).filter(Boolean).join(' · ') || v.sku || 'Variant'}
-                        <span className="ml-1.5 text-muted-foreground">{money(Number(v.salePrice ?? v.sale_price ?? v.sellingPrice ?? v.selling_price ?? v.mrp ?? 0))}</span>
-                      </Button>
-                    ))}
-                    <Button size="sm" variant="ghost" onClick={() => setPickingProduct(null)}>Cancel</Button>
-                  </div>
-                </div>
-              )}
-
               {lines.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-4 text-center">No items yet — search above to add products.</p>
+                <p className="text-sm text-muted-foreground py-4 text-center">No items yet — search above to add packs.</p>
               ) : (
                 <div className="space-y-2">
-                  {lines.map((l, idx) => (
+                  {lines.map((l, idx) => {
+                    const eff = lineEffective(l);
+                    const extraOff = l.price > 0 && eff < l.price ? l.price - eff : 0;
+                    return (
                     <div key={idx} className="border rounded-md p-3">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <p className="font-medium text-sm">{l.name}</p>
                           <p className="text-xs text-muted-foreground">
-                            {[l.variantLabel, l.sku ? `SKU ${l.sku}` : null, `Catalog ${money(l.price)}`].filter(Boolean).join(' · ')}
-                            {l.mrp && l.mrp > l.price ? ` · MRP ${money(l.mrp)}` : ''}
+                            <span className="font-mono">SKU {l.sku ?? '—'}</span>
+                            {l.variantLabel ? ` · ${l.variantLabel}` : ''}
+                            {l.stock != null ? ` · ${l.stock} in stock` : ''}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {l.mrp && l.mrp > l.price
+                              ? <>MRP <span className="line-through">{money(l.mrp)}</span> → catalog price {money(l.price)}</>
+                              : <>Catalog price {money(l.price)}</>}
+                            {extraOff > 0 && (
+                              <span className="text-green-700 font-medium"> → your price {money(eff)} (−{money(extraOff)}/unit)</span>
+                            )}
                           </p>
                         </div>
                         <Button size="icon" variant="ghost" className="text-red-500 h-7 w-7"
@@ -368,21 +461,28 @@ const ManualOrderCreate: React.FC = () => {
                             onChange={(e) => updateLine(idx, { quantity: Math.max(1, parseInt(e.target.value) || 1) })} />
                         </div>
                         <div>
-                          <label className="text-[11px] text-muted-foreground">Unit price override (₹)</label>
+                          <label className="text-[11px] text-muted-foreground">Set unit price (₹)</label>
                           <Input type="number" min={0} placeholder="auto" value={l.unitPrice ?? ''}
                             onChange={(e) => updateLine(idx, { unitPrice: e.target.value, discountPercent: '' })} />
                         </div>
                         <div>
-                          <label className="text-[11px] text-muted-foreground">Line discount %</label>
+                          <label className="text-[11px] text-muted-foreground">Extra discount %</label>
                           <Input type="number" min={0} max={100} placeholder="0" value={l.discountPercent ?? ''}
                             onChange={(e) => updateLine(idx, { discountPercent: e.target.value, unitPrice: '' })} />
                         </div>
                         <div className="flex items-end justify-end">
-                          <span className="font-bold text-sm">{money(lineEffective(l) * l.quantity)}</span>
+                          <span className="font-bold text-sm">{money(eff * l.quantity)}</span>
                         </div>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
+                  <p className="text-[11px] text-muted-foreground">
+                    The catalog price already includes any running offer or B2B tier price. To give
+                    MORE off, use <span className="font-medium">Extra discount %</span> (taken off the
+                    catalog price) or <span className="font-medium">Set unit price</span> to name the
+                    figure outright — either one is recorded on the order as a manual price.
+                  </p>
                 </div>
               )}
             </CardContent>
@@ -406,7 +506,7 @@ const ManualOrderCreate: React.FC = () => {
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-[11px] text-muted-foreground">Order discount (₹)</label>
+                  <label className="text-[11px] text-muted-foreground">Extra order discount (₹)</label>
                   <Input type="number" min={0} placeholder="0" value={orderDiscount} onChange={(e) => setOrderDiscount(e.target.value)} />
                 </div>
                 <div>

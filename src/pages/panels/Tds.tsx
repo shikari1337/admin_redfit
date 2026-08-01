@@ -5,8 +5,9 @@ import { payload } from '../../lib/unwrap';
 import {
   Page, PageHeader, Btn, StatCard, StatGrid, StatusChip, TabBar,
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow, inrMinor,
-  Field, TextInput, SelectInput,
+  Field, TextInput, SelectInput, ExportMenu, Pagination,
 } from '../../components/erp';
+import type { CsvColumn } from '../../components/erp';
 
 /**
  * TDS on vendor payments — plain language for a non-accountant owner:
@@ -95,11 +96,15 @@ const OwnerQueueNote: React.FC<{ children: React.ReactNode }> = ({ children }) =
 );
 
 // ── Register tab — the SAME register, filtered to 26Q or 27Q ──────────────────
+const REG_PAGE_SIZE = 50;
 const RegisterTab: React.FC<{ onError: (m: string) => void }> = ({ onError }) => {
+  const { hasPerm } = useAuth();
+  const canRead = hasPerm('accounting.read');
   const [form, setForm] = useState<FormKey>('26Q');
   const [fy, setFy] = useState(currentFy());
   const [quarter, setQuarter] = useState('');   // '' = whole FY
   const [reg, setReg] = useState<any>(null);
+  const [page, setPage] = useState(1);
 
   const periodParams = () => (quarter ? { quarter: `${fy}-${quarter}` } : { fy });
 
@@ -109,26 +114,29 @@ const RegisterTab: React.FC<{ onError: (m: string) => void }> = ({ onError }) =>
       setReg(payload<any>(res));
     } catch (e: any) { onError(e?.response?.data?.message ?? e.message); }
   };
-  useEffect(() => { setReg(null); load(); }, [fy, quarter, form]);
-
-  const downloadCsv = async () => {
-    try {
-      const res = await api.get('/tds/register', {
-        params: { ...periodParams(), form, format: 'csv' }, responseType: 'blob',
-      });
-      const url = URL.createObjectURL(res.data as Blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `tds-register-${form.toLowerCase()}-${quarter ? `${fy}-${quarter}` : fy}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (e: any) { onError(e?.response?.data?.message ?? e.message); }
-  };
+  useEffect(() => { setReg(null); setPage(1); load(); }, [fy, quarter, form]);
 
   const s = reg?.summary;
   const is27q = form === '27Q';
   const activeForm = FORM_TABS.find((t) => t.key === form)!;
   const byCountry: Array<[string, any]> = Object.entries(s?.by_country ?? {});
+
+  const allRows: any[] = reg?.rows ?? [];
+  const pagedRows = allRows.slice((page - 1) * REG_PAGE_SIZE, page * REG_PAGE_SIZE);
+
+  // base_minor / tds_minor are MINOR units → money:true.
+  const csvCols: CsvColumn<any>[] = [
+    { key: 'deducted_on', label: 'Date' },
+    { key: 'quarter', label: 'Quarter' },
+    { key: 'vendor_name', label: 'Vendor' },
+    { key: 'pan', label: 'PAN' },
+    { key: 'section_label', label: 'Section' },
+    { key: 'ref', label: 'Reference', format: (r) => r.bill_number ?? r.expense_number ?? '' },
+    ...(is27q ? [{ key: 'country', label: 'Country' } as CsvColumn<any>] : []),
+    { key: 'base_minor', label: 'Base', money: true },
+    { key: 'rate', label: 'Rate %', format: (r) => (Number(r.rate_milli_pct) / 1000).toFixed(2) },
+    { key: 'tds_minor', label: 'TDS', money: true },
+  ];
   return (
     <>
       <UnverifiedBanner />
@@ -167,9 +175,19 @@ const RegisterTab: React.FC<{ onError: (m: string) => void }> = ({ onError }) =>
           </select>
         </label>
         <Btn variant="outline" onClick={load}>Apply</Btn>
-        <Btn variant="outline" onClick={downloadCsv} disabled={!reg?.rows?.length}>
-          Download CSV (for {form})
-        </Btn>
+        <ExportMenu
+          filename={`tds-register-${form.toLowerCase()}-${quarter ? `${fy}-${quarter}` : fy}`}
+          columns={csvCols}
+          rows={allRows}
+          canExport={canRead}
+          disabled={!allRows.length}
+          serverExports={[{
+            label: `Server CSV (${form} layout)`,
+            path: '/tds/register',
+            params: { ...periodParams(), form, format: 'csv' },
+            filename: `tds-register-${form.toLowerCase()}-${quarter ? `${fy}-${quarter}` : fy}.csv`,
+          }]}
+        />
       </div>
 
       {s && (
@@ -206,14 +224,14 @@ const RegisterTab: React.FC<{ onError: (m: string) => void }> = ({ onError }) =>
             <Th num>Base</Th><Th num>Rate</Th><Th num>TDS</Th>
           </THead>
           <TBody>
-            {reg && reg.rows.length === 0 && (
+            {reg && allRows.length === 0 && (
               <EmptyRow colSpan={is27q ? 10 : 9}>
                 {is27q
                   ? 'No TDS deducted on payments to non-residents in this period — nothing to file on 27Q.'
                   : 'No TDS deducted in this period.'}
               </EmptyRow>
             )}
-            {reg && reg.rows.map((r: any) => (
+            {pagedRows.map((r: any) => (
               <Tr key={r.id}>
                 <Td>{r.deducted_on}</Td>
                 <Td className="font-mono text-xs">{r.quarter}</Td>
@@ -230,6 +248,7 @@ const RegisterTab: React.FC<{ onError: (m: string) => void }> = ({ onError }) =>
           </TBody>
         </table>
       </TableShell>
+      <Pagination page={page} pageSize={REG_PAGE_SIZE} total={allRows.length} onPage={setPage} />
       <p className="text-xs text-gray-400">
         Rows show actual deductions. Payments below the annual threshold are tracked silently until
         the vendor's yearly total crosses the limit, then TDS starts (catching up on the earlier amount).
@@ -410,7 +429,21 @@ const SetupTab: React.FC<{ canPost: boolean; onError: (m: string) => void }> = (
 const firstOfMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`; };
 const lastOfMonth = () => { const d = new Date(); const e = new Date(d.getFullYear(), d.getMonth() + 1, 0); return `${e.getFullYear()}-${String(e.getMonth() + 1).padStart(2, '0')}-${String(e.getDate()).padStart(2, '0')}`; };
 
+const CHALLAN_CSV_COLS: CsvColumn<any>[] = [
+  { key: 'challan_type', label: 'Type' },
+  { key: 'form', label: 'Form' },
+  { key: 'period', label: 'Period', format: (c) => `${c.period_from} → ${c.period_to}` },
+  { key: 'quarter', label: 'Quarter' },
+  { key: 'entry_count', label: 'Entries' },
+  { key: 'total_base_minor', label: 'Base', money: true },
+  { key: 'total_tax_minor', label: 'Tax', money: true },
+  { key: 'status', label: 'Status' },
+  { key: 'cin', label: 'CIN', format: (c) => (c.challan_serial ? `${c.bsr_code}/${c.challan_serial}` : 'not deposited') },
+];
+
 const ChallanTab: React.FC<{ canPost: boolean; onError: (m: string) => void }> = ({ canPost, onError }) => {
+  const { hasPerm } = useAuth();
+  const canRead = hasPerm('accounting.read');
   const [type, setType] = useState<'tds' | 'tcs'>('tds');
   const [from, setFrom] = useState(firstOfMonth());
   const [to, setTo] = useState(lastOfMonth());
@@ -461,6 +494,16 @@ const ChallanTab: React.FC<{ canPost: boolean; onError: (m: string) => void }> =
           </div>
         </div>
       )}
+
+      <div className="flex justify-end">
+        <ExportMenu
+          filename="tds-deposit-challans"
+          columns={CHALLAN_CSV_COLS}
+          rows={challans}
+          canExport={canRead}
+          disabled={challans.length === 0}
+        />
+      </div>
 
       <TableShell maxHeight="55vh">
         <table className="w-full text-sm">
@@ -526,7 +569,18 @@ const DepositModal: React.FC<{ challan: any; onClose: () => void; onSaved: () =>
 };
 
 // ── Form 16A tab — the quarterly TDS certificate per deductee ─────────────────
+const FORM16A_CSV_COLS: CsvColumn<any>[] = [
+  { key: 'vendor_name', label: 'Deductee' },
+  { key: 'pan', label: 'PAN' },
+  { key: 'return_form', label: 'Return' },
+  { key: 'deductions', label: 'Deductions' },
+  { key: 'base_minor', label: 'Base', money: true },
+  { key: 'tds_minor', label: 'TDS', money: true },
+];
+
 const Form16ATab: React.FC<{ canPost: boolean; onError: (m: string) => void }> = ({ canPost, onError }) => {
+  const { hasPerm } = useAuth();
+  const canRead = hasPerm('accounting.read');
   const [fy, setFy] = useState(currentFy());
   const [q, setQ] = useState('Q1');
   const [deductees, setDeductees] = useState<any[]>([]);
@@ -566,6 +620,13 @@ const Form16ATab: React.FC<{ canPost: boolean; onError: (m: string) => void }> =
           </SelectInput>
         </Field>
         <Btn variant="outline" onClick={load}>Apply</Btn>
+        <ExportMenu
+          filename={`form16a-deductees-${quarter}`}
+          columns={FORM16A_CSV_COLS}
+          rows={deductees}
+          canExport={canRead}
+          disabled={deductees.length === 0}
+        />
       </div>
 
       <TableShell maxHeight="55vh">

@@ -1,7 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { api } from '../../services/api';
 import { payload } from '../../lib/unwrap';
-import { Page, PageHeader, Btn, Field, SelectInput, TextInput, StatCard, StatGrid, StatusChip, EmptyState } from '../../components/erp';
+import { useAuth } from '../../contexts/AuthContext';
+import {
+  Page, PageHeader, Btn, Field, FilterBar, SelectInput, TextInput, StatCard, StatGrid, StatusChip, EmptyState, inr,
+  ExportMenu, Pagination, DrillLink, useListControls, type CsvColumn,
+} from '../../components/erp';
 
 /**
  * AR Dunning — "Politely chase unpaid invoices automatically."
@@ -16,8 +20,28 @@ import { Page, PageHeader, Btn, Field, SelectInput, TextInput, StatCard, StatGri
  * (never charged to your wallet). A step fires at most once per invoice.
  */
 
-const inr = (n: any) => '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const today = () => new Date().toISOString().slice(0, 10);
+
+// Client CSV columns for the "who's due now" list and the reminder history.
+const dueCsvCols: CsvColumn<any>[] = [
+  { key: 'customer', label: 'Customer', format: (i) => i.company || i.customer_name || '' },
+  { key: 'invoice', label: 'Invoice' },
+  { key: 'amount', label: 'Amount', format: (i) => (Number(i.amount) || 0).toFixed(2) },
+  { key: 'due_date', label: 'Due' },
+  { key: 'days_overdue', label: 'Days over' },
+  { key: 'channel', label: 'Channel' },
+  { key: 'template_key', label: 'Template' },
+  { key: 'contactable', label: 'Contactable', format: (i) => (i.contactable ? 'yes' : 'no') },
+];
+const historyCsvCols: CsvColumn<any>[] = [
+  { key: 'when', label: 'When', format: (r) => (r.sent_at || r.created_at || '').slice(0, 16).replace('T', ' ') },
+  { key: 'customer_name', label: 'Customer', format: (r) => r.customer_name || '' },
+  { key: 'invoice', label: 'Invoice', format: (r) => r.invoice || r.order_number || '' },
+  { key: 'step', label: 'Step', format: (r) => `Day ${r.offset_days ?? '?'} (#${r.step_index})` },
+  { key: 'channel', label: 'Channel' },
+  { key: 'status', label: 'Status' },
+  { key: 'detail', label: 'Detail', format: (r) => r.error || r.provider || '' },
+];
 
 interface Step { offset_days: number; channel: string; template_key: string; subject?: string | null; }
 interface Policy { id: string; name: string; active: boolean; steps: Step[]; send_after_hour: number; send_before_hour: number; note: string | null; }
@@ -30,6 +54,9 @@ const CHANNELS = [
 ];
 
 const Dunning: React.FC = () => {
+  const { hasPerm } = useAuth();
+  const canPost = hasPerm('accounting.post');
+
   const [tab, setTab] = useState<'schedule' | 'due' | 'history'>('schedule');
   const [templates, setTemplates] = useState<Tpl[]>([]);
   const [policy, setPolicy] = useState<Policy | null>(null);
@@ -74,9 +101,9 @@ const Dunning: React.FC = () => {
       </div>
 
       {tab === 'schedule' && (
-        <ScheduleEditor policy={policy} templates={templates} loading={loading} onSaved={(p) => { setPolicy(p); flash('Reminder schedule saved.'); }} onError={setError} />
+        <ScheduleEditor policy={policy} templates={templates} loading={loading} canPost={canPost} onSaved={(p) => { setPolicy(p); flash('Reminder schedule saved.'); }} onError={setError} />
       )}
-      {tab === 'due' && <DuePreview onFlash={flash} onError={setError} hasPolicy={!!policy?.active && (policy?.steps.length ?? 0) > 0} />}
+      {tab === 'due' && <DuePreview onFlash={flash} onError={setError} canPost={canPost} hasPolicy={!!policy?.active && (policy?.steps.length ?? 0) > 0} />}
       {tab === 'history' && <History onError={setError} />}
     </Page>
   );
@@ -86,9 +113,9 @@ const Dunning: React.FC = () => {
 const emptyStep = (): Step => ({ offset_days: 7, channel: 'whatsapp', template_key: 'polite', subject: '' });
 
 const ScheduleEditor: React.FC<{
-  policy: Policy | null; templates: Tpl[]; loading: boolean;
+  policy: Policy | null; templates: Tpl[]; loading: boolean; canPost: boolean;
   onSaved: (p: Policy) => void; onError: (m: string) => void;
-}> = ({ policy, templates, loading, onSaved, onError }) => {
+}> = ({ policy, templates, loading, canPost, onSaved, onError }) => {
   const [name, setName] = useState('Default reminder schedule');
   const [active, setActive] = useState(true);
   const [steps, setSteps] = useState<Step[]>([{ offset_days: 3, channel: 'whatsapp', template_key: 'polite', subject: '' }]);
@@ -178,21 +205,25 @@ const ScheduleEditor: React.FC<{
               <Field label="Email subject (optional)" className="min-w-[180px] flex-1">
                 <TextInput value={s.subject ?? ''} placeholder="leave blank for default" onChange={(e) => setStep(i, { subject: e.target.value })} />
               </Field>
-              <Btn variant="ghost" onClick={() => removeStep(i)} className="text-red-600">Remove</Btn>
+              {canPost && <Btn variant="ghost" onClick={() => removeStep(i)} className="text-red-600">Remove</Btn>}
             </div>
           ))}
         </div>
-        <div className="mt-3 flex items-center gap-2">
-          <Btn variant="outline" onClick={addStep}>+ Add a step</Btn>
-          <Btn onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save schedule'}</Btn>
-        </div>
+        {canPost ? (
+          <div className="mt-3 flex items-center gap-2">
+            <Btn variant="outline" onClick={addStep}>+ Add a step</Btn>
+            <Btn onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save schedule'}</Btn>
+          </div>
+        ) : (
+          <p className="mt-3 text-xs text-gray-500">You have read-only access to reminder settings.</p>
+        )}
       </div>
     </div>
   );
 };
 
 // ── Who's due now (dry-run preview) ──────────────────────────────────────────
-const DuePreview: React.FC<{ onFlash: (m: string) => void; onError: (m: string) => void; hasPolicy: boolean }> = ({ onFlash, onError, hasPolicy }) => {
+const DuePreview: React.FC<{ onFlash: (m: string) => void; onError: (m: string) => void; canPost: boolean; hasPolicy: boolean }> = ({ onFlash, onError, canPost, hasPolicy }) => {
   const [asOf, setAsOf] = useState(today());
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -225,7 +256,10 @@ const DuePreview: React.FC<{ onFlash: (m: string) => void; onError: (m: string) 
     <div className="space-y-4">
       <div className="flex items-end justify-between gap-3">
         <Field label="As of"><TextInput type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} /></Field>
-        <Btn variant="outline" onClick={load}>Refresh</Btn>
+        <div className="flex items-end gap-2">
+          <ExportMenu filename={`dunning-due-${asOf}`} columns={dueCsvCols} rows={items} />
+          <Btn variant="outline" onClick={load}>Refresh</Btn>
+        </div>
       </div>
 
       {!hasPolicy && (
@@ -263,7 +297,9 @@ const DuePreview: React.FC<{ onFlash: (m: string) => void; onError: (m: string) 
                   <div className="font-medium text-gray-900">{it.company || it.customer_name || 'Customer'}</div>
                   <div className="text-xs text-gray-500">{it.phone || it.email || 'no contact on file'}</div>
                 </td>
-                <td className="px-4 py-2 font-mono text-xs">{it.invoice}</td>
+                <td className="px-4 py-2 font-mono text-xs">
+                  {it.order_id ? <DrillLink to={`/orders/${it.order_id}`} title="Open this order">{it.invoice}</DrillLink> : it.invoice}
+                </td>
                 <td className="px-4 py-2 text-right font-mono font-semibold">{inr(it.amount)}</td>
                 <td className="px-4 py-2 text-xs">{it.due_date}</td>
                 <td className="px-4 py-2 text-right font-semibold text-red-700">{it.days_overdue}</td>
@@ -273,10 +309,12 @@ const DuePreview: React.FC<{ onFlash: (m: string) => void; onError: (m: string) 
                   {!it.contactable && <span className="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">no {it.channel === 'email' ? 'email' : 'phone'}</span>}
                 </td>
                 <td className="px-4 py-2 text-right">
-                  <Btn size="sm" variant="outline" disabled={!it.contactable || sendingId === it.order_id + it.step_index}
-                    onClick={() => sendNow(it)}>
-                    {sendingId === it.order_id + it.step_index ? 'Sending…' : 'Send now'}
-                  </Btn>
+                  {canPost ? (
+                    <Btn size="sm" variant="outline" disabled={!it.contactable || sendingId === it.order_id + it.step_index}
+                      onClick={() => sendNow(it)}>
+                      {sendingId === it.order_id + it.step_index ? 'Sending…' : 'Send now'}
+                    </Btn>
+                  ) : <span className="text-xs text-gray-400">—</span>}
                 </td>
               </tr>
             ))}
@@ -291,6 +329,10 @@ const DuePreview: React.FC<{ onFlash: (m: string) => void; onError: (m: string) 
 const History: React.FC<{ onError: (m: string) => void }> = ({ onError }) => {
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [channel, setChannel] = useState('');
+  // Channel/status filters and paging are client-side over the last 200 log rows
+  // (the /dunning/log endpoint only supports a row limit + orderId server-side).
+  const lc = useListControls({ pageSize: 25 });
 
   useEffect(() => {
     (async () => {
@@ -301,37 +343,71 @@ const History: React.FC<{ onError: (m: string) => void }> = ({ onError }) => {
     })();
   }, []);
 
+  const filtered = useMemo(() => rows.filter((r) => {
+    if (channel && (r.channel ?? '') !== channel) return false;
+    if (lc.status && (r.status ?? '') !== lc.status) return false;
+    return true;
+  }), [rows, channel, lc.status]);
+  const pageRows = filtered.slice((lc.page - 1) * lc.pageSize, lc.page * lc.pageSize);
+
   if (!loading && rows.length === 0) return <EmptyState title="No reminders sent yet" description="Once reminders go out, they'll be listed here with their status." />;
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
-      <table className="w-full text-sm">
-        <thead className="border-b border-gray-200 bg-gray-50 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-          <tr>
-            <th className="px-4 py-2">When</th>
-            <th className="px-4 py-2">Customer</th>
-            <th className="px-4 py-2">Invoice</th>
-            <th className="px-4 py-2">Step</th>
-            <th className="px-4 py-2">Channel</th>
-            <th className="px-4 py-2">Status</th>
-            <th className="px-4 py-2">Detail</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-100">
-          {loading && <tr><td colSpan={7} className="px-4 py-6 text-center text-gray-500">Loading…</td></tr>}
-          {rows.map((r) => (
-            <tr key={r.id}>
-              <td className="px-4 py-2 text-xs text-gray-600">{(r.sent_at || r.created_at || '').slice(0, 16).replace('T', ' ')}</td>
-              <td className="px-4 py-2">{r.customer_name || '—'}</td>
-              <td className="px-4 py-2 font-mono text-xs">{r.invoice || r.order_number || '—'}</td>
-              <td className="px-4 py-2 text-xs">Day {r.offset_days ?? '?'} <span className="text-gray-400">(#{r.step_index})</span></td>
-              <td className="px-4 py-2 capitalize">{r.channel}</td>
-              <td className="px-4 py-2"><StatusChip status={r.status} /></td>
-              <td className="px-4 py-2 text-xs text-gray-500">{r.error || r.provider || ''}</td>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <FilterBar>
+          <Field label="Channel">
+            <SelectInput value={channel} onChange={(e) => { setChannel(e.target.value); lc.setPage(1); }}>
+              <option value="">All channels</option>
+              {CHANNELS.map((c) => <option key={c.v} value={c.v}>{c.label}</option>)}
+            </SelectInput>
+          </Field>
+          <Field label="Status">
+            <SelectInput value={lc.status} onChange={(e) => lc.setStatus(e.target.value)}>
+              <option value="">All statuses</option>
+              <option value="sent">Sent</option>
+              <option value="failed">Failed</option>
+              <option value="skipped">Skipped</option>
+            </SelectInput>
+          </Field>
+        </FilterBar>
+        <ExportMenu filename="dunning-history" columns={historyCsvCols} rows={filtered} />
+      </div>
+
+      <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+        <table className="w-full text-sm">
+          <thead className="border-b border-gray-200 bg-gray-50 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+            <tr>
+              <th className="px-4 py-2">When</th>
+              <th className="px-4 py-2">Customer</th>
+              <th className="px-4 py-2">Invoice</th>
+              <th className="px-4 py-2">Step</th>
+              <th className="px-4 py-2">Channel</th>
+              <th className="px-4 py-2">Status</th>
+              <th className="px-4 py-2">Detail</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {loading && <tr><td colSpan={7} className="px-4 py-6 text-center text-gray-500">Loading…</td></tr>}
+            {!loading && filtered.length === 0 && <tr><td colSpan={7} className="px-4 py-6 text-center text-gray-500">No reminders match your filters.</td></tr>}
+            {pageRows.map((r) => (
+              <tr key={r.id}>
+                <td className="px-4 py-2 text-xs text-gray-600">{(r.sent_at || r.created_at || '').slice(0, 16).replace('T', ' ')}</td>
+                <td className="px-4 py-2">{r.customer_name || '—'}</td>
+                <td className="px-4 py-2 font-mono text-xs">
+                  {r.order_id ? <DrillLink to={`/orders/${r.order_id}`} title="Open this order">{r.invoice || r.order_number || '—'}</DrillLink> : (r.invoice || r.order_number || '—')}
+                </td>
+                <td className="px-4 py-2 text-xs">Day {r.offset_days ?? '?'} <span className="text-gray-400">(#{r.step_index})</span></td>
+                <td className="px-4 py-2 capitalize">{r.channel}</td>
+                <td className="px-4 py-2"><StatusChip status={r.status} /></td>
+                <td className="px-4 py-2 text-xs text-gray-500">{r.error || r.provider || ''}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <Pagination page={lc.page} pageSize={lc.pageSize} total={filtered.length} onPage={lc.setPage} onPageSize={lc.setPageSize} />
     </div>
   );
 };

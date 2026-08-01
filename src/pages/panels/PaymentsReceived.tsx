@@ -5,6 +5,8 @@ import { payload } from '../../lib/unwrap';
 import {
   Page, PageHeader, Btn, StatCard, StatGrid, StatusChip, Chip, TabBar,
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow, inrMinor,
+  FilterBar, Field, SelectInput, TextInput,
+  ExportMenu, Pagination, DrillLink, AttachmentPanel, useListControls, type CsvColumn,
 } from '../../components/erp';
 
 /**
@@ -29,6 +31,20 @@ const STATUS_TONE = { open: 'amber', partial: 'amber', allocated: 'green', void:
 const statusLabel = (s: string) =>
   s === 'open' ? 'Advance' : s === 'partial' ? 'Part-applied' : s === 'allocated' ? 'Applied' : s === 'void' ? 'Void' : s;
 
+// Client CSV of the visible receipts page. Money cells are minor units (→ inrMinor).
+const receiptCsvCols: CsvColumn<any>[] = [
+  { key: 'receipt_number', label: 'Receipt #' },
+  { key: 'receipt_date', label: 'Date' },
+  { key: 'customer_name', label: 'Customer', format: (r) => r.customer_name ?? '' },
+  { key: 'mode', label: 'Method' },
+  { key: 'reference', label: 'Reference', format: (r) => r.reference ?? '' },
+  { key: 'amount_minor', label: 'Amount', money: true },
+  { key: 'allocated_minor', label: 'Applied', money: true },
+  { key: 'unallocated_minor', label: 'Unapplied', money: true },
+  { key: 'status', label: 'Status' },
+  { key: 'journal_number', label: 'Journal #', format: (r) => r.journal_number ?? '' },
+];
+
 interface CustOpt { id: string; name: string | null; outstanding: number; }
 
 const blankForm = () => ({
@@ -45,28 +61,44 @@ const blankForm = () => ({
 const PaymentsReceived: React.FC = () => {
   const { hasPerm } = useAuth();
   const canPost = hasPerm('accounting.post');
+  const canRead = hasPerm('accounting.read');
 
   const [tab, setTab] = useState<'receipts' | 'advances'>('receipts');
   const [error, setError] = useState('');
 
   const [rows, setRows] = useState<any[]>([]);
   const [summary, setSummary] = useState<any>(null);
+  const [total, setTotal] = useState(0);
   const [custs, setCusts] = useState<CustOpt[]>([]);
   const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState(blankForm());
   const [saving, setSaving] = useState(false);
   const [allocFor, setAllocFor] = useState<any | null>(null);
 
+  // Server-side filters (date range + status via useListControls; mode + customer
+  // are separate state) and server pagination — all supported by listReceipts.
+  const lc = useListControls({ pageSize: 25 });
+  const [mode, setMode] = useState('');
+  const [custFilter, setCustFilter] = useState('');
+
   const load = async () => {
     try {
-      const res = await api.get('/receipts', { params: tab === 'advances' ? { advancesOnly: 'true' } : {} });
+      const params: Record<string, any> = { limit: lc.pageSize, offset: (lc.page - 1) * lc.pageSize };
+      if (tab === 'advances') params.advancesOnly = 'true';
+      if (lc.from) params.from = lc.from;
+      if (lc.to) params.to = lc.to;
+      if (lc.status) params.status = lc.status;
+      if (mode) params.mode = mode;
+      if (custFilter) params.customerId = custFilter;
+      const res = await api.get('/receipts', { params });
       const d = payload<any>(res);
       setRows(d.rows ?? []);
       setSummary(d.summary ?? null);
+      setTotal(Number(d.total ?? (d.rows?.length ?? 0)));
     } catch (e: any) { setError(e?.response?.data?.message ?? e.message); }
   };
 
-  useEffect(() => { load(); }, [tab]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [tab, lc.from, lc.to, lc.status, mode, custFilter, lc.page, lc.pageSize]);
   useEffect(() => {
     // Customers who owe money — the natural source for "record a payment".
     api.get('/ar/outstanding').then((r) => {
@@ -108,16 +140,45 @@ const PaymentsReceived: React.FC = () => {
       <PageHeader
         title="Payments Received"
         description="Record customer payments as receipts, apply them across open orders, or hold them as advances. Every receipt posts a balanced accounting journal (Dr Bank/Cash · Cr Accounts Receivable) automatically."
-        actions={canPost && (
-          <Btn onClick={() => setShowNew((s) => !s)}>{showNew ? 'Close' : '+ Record payment'}</Btn>
-        )}
+        actions={
+          <div className="flex items-end gap-2">
+            <ExportMenu filename="payments-received" columns={receiptCsvCols} rows={rows} canExport={canRead} />
+            {canPost && <Btn onClick={() => setShowNew((s) => !s)}>{showNew ? 'Close' : '+ Record payment'}</Btn>}
+          </div>
+        }
       />
 
       <TabBar
         tabs={[{ key: 'receipts', label: 'All receipts' }, { key: 'advances', label: 'Advances (unapplied)' }]}
         active={tab}
-        onChange={(k) => { setError(''); setAllocFor(null); setTab(k as any); }}
+        onChange={(k) => { setError(''); setAllocFor(null); lc.setPage(1); setTab(k as any); }}
       />
+
+      <FilterBar>
+        <Field label="From"><TextInput type="date" value={lc.from} onChange={(e) => lc.setFrom(e.target.value)} /></Field>
+        <Field label="To"><TextInput type="date" value={lc.to} onChange={(e) => lc.setTo(e.target.value)} /></Field>
+        <Field label="Customer">
+          <SelectInput value={custFilter} onChange={(e) => { setCustFilter(e.target.value); lc.setPage(1); }}>
+            <option value="">All customers</option>
+            {custs.map((c) => <option key={c.id} value={c.id}>{c.name || c.id.slice(0, 8)}</option>)}
+          </SelectInput>
+        </Field>
+        <Field label="Method">
+          <SelectInput value={mode} onChange={(e) => { setMode(e.target.value); lc.setPage(1); }}>
+            <option value="">Any method</option>
+            {MODES.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
+          </SelectInput>
+        </Field>
+        <Field label="Status">
+          <SelectInput value={lc.status} onChange={(e) => lc.setStatus(e.target.value)}>
+            <option value="">Any status</option>
+            <option value="open">Advance (unapplied)</option>
+            <option value="partial">Part-applied</option>
+            <option value="allocated">Applied</option>
+            <option value="void">Void</option>
+          </SelectInput>
+        </Field>
+      </FilterBar>
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
 
@@ -257,6 +318,8 @@ const PaymentsReceived: React.FC = () => {
         </table>
       </TableShell>
 
+      <Pagination page={lc.page} pageSize={lc.pageSize} total={total} onPage={lc.setPage} onPageSize={lc.setPageSize} />
+
       {allocFor && (
         <AllocatePanel receipt={allocFor} onDone={async () => { setAllocFor(null); await load(); }} onError={setError} />
       )}
@@ -356,7 +419,9 @@ const AllocatePanel: React.FC<{ receipt: any; onDone: () => void; onError: (m: s
               const over = toMinor(inputs[o.order_id] || 0) > o.maxMinor;
               return (
                 <Tr key={o.order_id}>
-                  <Td className="font-mono">{o.order_no ?? o.order_id.slice(0, 8)}</Td>
+                  <Td className="font-mono">
+                    <DrillLink to={`/orders/${o.order_id}`} title="Open this order">{o.order_no ?? o.order_id.slice(0, 8)}</DrillLink>
+                  </Td>
                   <Td>{o.order_date}</Td>
                   <Td num>{inrMinor(o.total_minor)}</Td>
                   <Td num>{inrMinor(String(o.maxMinor))}</Td>
@@ -385,6 +450,13 @@ const AllocatePanel: React.FC<{ receipt: any; onDone: () => void; onError: (m: s
           {saving ? 'Applying…' : 'Apply to orders'}
         </Btn>
       </div>
+
+      <AttachmentPanel
+        entityType="payment"
+        entityId={receipt.id}
+        title="Payment proof"
+        description="Attach the bank slip, cheque image or UTR screenshot for this receipt."
+      />
     </div>
   );
 };

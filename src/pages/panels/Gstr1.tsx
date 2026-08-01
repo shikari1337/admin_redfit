@@ -2,7 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../../services/api';
 import { fmtRupees } from '../../lib/money';
 import { payload } from '../../lib/unwrap';
-import { Page, PageHeader, Btn, TextInput } from '../../components/erp';
+import { useAuth } from '../../contexts/AuthContext';
+import { Page, PageHeader, Btn, TextInput, ExportMenu } from '../../components/erp';
+import type { CsvColumn } from '../../components/erp';
 import { useGstRegistrations, RegistrationSelect } from './gstinFilter';
 
 function monthRange(ym: string): { from: string; to: string } {
@@ -11,19 +13,78 @@ function monthRange(ym: string): { from: string; to: string } {
   return { from: `${ym}-01`, to: `${ym}-${String(last).padStart(2, '0')}` };
 }
 
+/** One flat CSV row spanning both the B2B (invoice-wise) and B2CS sections. */
+interface Gstr1CsvRow {
+  section: 'B2B' | 'B2CS';
+  gstin: string;
+  order: string;
+  date: string;
+  pos: string;
+  ratePct: number | string;
+  taxable: number;
+  cgst: number;
+  sgst: number;
+  igst: number;
+  invoiceValue: number | '';
+}
+
+// GSTR-1 amounts are already in RUPEE units (fmtRupees, no /100), so raw numbers
+// go into the CSV — NOT `money: true` (that would treat them as minor units).
+const CSV_COLS: CsvColumn<Gstr1CsvRow>[] = [
+  { key: 'section', label: 'Section' },
+  { key: 'gstin', label: 'GSTIN' },
+  { key: 'order', label: 'Order' },
+  { key: 'date', label: 'Date' },
+  { key: 'pos', label: 'Place of supply' },
+  { key: 'ratePct', label: 'Rate %' },
+  { key: 'taxable', label: 'Taxable value' },
+  { key: 'cgst', label: 'CGST' },
+  { key: 'sgst', label: 'SGST' },
+  { key: 'igst', label: 'IGST' },
+  { key: 'invoiceValue', label: 'Invoice value' },
+];
+
+function buildCsvRows(draft: any): Gstr1CsvRow[] {
+  if (!draft) return [];
+  const b2b: Gstr1CsvRow[] = (draft.b2b ?? []).flatMap((row: any) =>
+    (row.lines ?? []).map((l: any) => ({
+      section: 'B2B' as const,
+      gstin: row.customerGstin ?? '',
+      order: row.orderId ?? '',
+      date: row.documentDate ?? '',
+      pos: row.placeOfSupply ?? '',
+      ratePct: l.ratePct,
+      taxable: l.taxableValue, cgst: l.cgst, sgst: l.sgst, igst: l.igst,
+      invoiceValue: row.invoiceValue,
+    })));
+  const b2cs: Gstr1CsvRow[] = (draft.b2cs ?? []).map((r: any) => ({
+    section: 'B2CS' as const,
+    gstin: '', order: '', date: '',
+    pos: r.placeOfSupply ?? '',
+    ratePct: r.ratePct,
+    taxable: r.taxableValue, cgst: r.cgst, sgst: r.sgst, igst: r.igst,
+    invoiceValue: '' as const,
+  }));
+  return [...b2b, ...b2cs];
+}
+
 const Gstr1: React.FC = () => {
+  const { hasPerm } = useAuth();
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
   const [draft, setDraft] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const [gstin, setGstin] = useState('');
   const regs = useGstRegistrations();
 
   const load = async (ym: string, g: string = gstin) => {
-    setLoading(true);
+    setLoading(true); setError('');
     try {
       const { from, to } = monthRange(ym);
       const res = await api.get('/accounting/gst/gstr1-draft', { params: { from, to, ...(g ? { gstin: g } : {}) } });
       setDraft(payload(res));
+    } catch (e: any) {
+      setError(e?.response?.data?.message ?? e?.message ?? 'Could not build the GSTR-1 draft.');
     } finally { setLoading(false); }
   };
   useEffect(() => { load(month); }, []);
@@ -38,9 +99,20 @@ const Gstr1: React.FC = () => {
             <RegistrationSelect regs={regs} value={gstin} onChange={(g) => { setGstin(g); load(month, g); }} />
             <TextInput type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
             <Btn onClick={() => load(month)}>Build draft</Btn>
+            <ExportMenu
+              filename={`gstr1-${month}${gstin ? `-${gstin}` : ''}`}
+              columns={CSV_COLS}
+              rows={buildCsvRows(draft)}
+              canExport={hasPerm('gst.read')}
+              disabled={!draft}
+            />
           </div>
         }
       />
+
+      {error && (
+        <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
+      )}
 
       {loading && <div className="text-sm text-gray-500">Building…</div>}
 

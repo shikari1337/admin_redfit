@@ -5,6 +5,7 @@ import { payload } from '../../lib/unwrap';
 import {
   Page, PageHeader, SectionCard, Btn, StatCard, StatGrid, StatusChip, Chip,
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow, EmptyState, num,
+  FilterBar, Field, SelectInput, SearchInput, ExportMenu, type CsvColumn,
 } from '../../components/erp';
 
 /**
@@ -88,6 +89,28 @@ const human = (s: string) => {
   return t.charAt(0).toUpperCase() + t.slice(1);
 };
 
+// CSV of the on-screen series table (the register itself is the audit output).
+const seriesCols: CsvColumn<SeriesRow>[] = [
+  { key: 'docType', label: 'Document', format: (r) => human(r.docType) },
+  { key: 'seriesCode', label: 'Series' },
+  { key: 'fy', label: 'Year' },
+  { key: 'nextNumberFormatted', label: 'Next number' },
+  { key: 'issued', label: 'Issued' },
+  { key: 'totalGaps', label: 'Missing' },
+  { key: 'registeredGaps', label: 'Answered' },
+  { key: 'unregisteredGaps', label: 'Unexplained' },
+  { key: 'status', label: 'Status', format: (r) => STATUS_LABEL[r.status].label },
+];
+// CSV of one series' gap ledger (the assessment-pack detail).
+const gapCols: CsvColumn<GapRow>[] = [
+  { key: 'documentNumber', label: 'Missing number' },
+  { key: 'status', label: 'Status', format: (r) => (r.status === 'registered' ? 'Answered' : 'Unexplained') },
+  { key: 'reason', label: 'Recorded reason', format: (r) => r.reason ?? '' },
+  { key: 'approvedByName', label: 'Approved by', format: (r) => r.approvedByName ?? (r.approvedBy ? 'recorded' : '') },
+  { key: 'approvedAt', label: 'When', format: (r) => (r.approvedAt ? String(r.approvedAt).slice(0, 10) : '') },
+  { key: 'source', label: 'Entry', format: (r) => (r.source === 'auto' ? 'bulk' : r.source === 'manual' ? 'by hand' : '') },
+];
+
 const SeriesGaps: React.FC = () => {
   const { hasPerm } = useAuth();
   const canPost = hasPerm('accounting.post');
@@ -108,6 +131,10 @@ const SeriesGaps: React.FC = () => {
 
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkReason, setBulkReason] = useState('');
+
+  // Client-side filter/search over the detected series (one row per series).
+  const [seriesSearch, setSeriesSearch] = useState('');
+  const [seriesStatus, setSeriesStatus] = useState<'' | SeriesRow['status']>('');
 
   const loadSummary = useCallback(async () => {
     setLoading(true); setError('');
@@ -148,6 +175,15 @@ const SeriesGaps: React.FC = () => {
     () => (ledger?.rows ?? []).filter((r) => r.status === 'unadjudicated'),
     [ledger],
   );
+
+  const filteredSeries = useMemo(() => {
+    const q = seriesSearch.trim().toLowerCase();
+    return (summary?.rows ?? []).filter((s) => {
+      if (seriesStatus && s.status !== seriesStatus) return false;
+      if (q && !`${human(s.docType)} ${s.seriesCode} ${s.fy}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [summary, seriesSearch, seriesStatus]);
 
   const toggle = (n: number) =>
     setSelected((cur) => (cur.includes(n) ? cur.filter((x) => x !== n) : [...cur, n]));
@@ -198,6 +234,7 @@ const SeriesGaps: React.FC = () => {
         description="The GST officer will ask about every missing number — write the answer down now. Invoice, receipt and journal numbers must run without holes; where a hole exists, this is the register of why."
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <ExportMenu filename="number-series-gaps" columns={seriesCols} rows={filteredSeries} disabled={!filteredSeries.length} />
             <Btn variant="outline" onClick={loadSummary} disabled={loading}>
               {loading ? 'Checking…' : 'Re-check'}
             </Btn>
@@ -267,6 +304,23 @@ const SeriesGaps: React.FC = () => {
         </SectionCard>
       )}
 
+      {(summary?.rows.length ?? 0) > 0 && (
+        <FilterBar>
+          <Field label="Search">
+            <SearchInput placeholder="Document, series or year…" value={seriesSearch} onChange={(e) => setSeriesSearch(e.target.value)} />
+          </Field>
+          <Field label="Status">
+            <SelectInput value={seriesStatus} onChange={(e) => setSeriesStatus(e.target.value as any)}>
+              <option value="">All</option>
+              <option value="action_needed">Answer needed</option>
+              <option value="adjudicated">All answered</option>
+              <option value="clean">No gaps</option>
+              <option value="unverifiable">Cannot check</option>
+            </SelectInput>
+          </Field>
+        </FilterBar>
+      )}
+
       <SectionCard
         title="Your number series"
         description="One row per series. “Next number” is what the next document will carry; “Issued” is how many documents are actually in the books behind it."
@@ -285,8 +339,11 @@ const SeriesGaps: React.FC = () => {
                   No document numbers have been issued on this store yet.
                 </EmptyRow>
               )}
+              {!loading && (summary?.rows.length ?? 0) > 0 && filteredSeries.length === 0 && (
+                <EmptyRow colSpan={10}>No series match these filters.</EmptyRow>
+              )}
               {loading && <EmptyRow colSpan={10}>Checking every series…</EmptyRow>}
-              {(summary?.rows ?? []).map((s) => {
+              {filteredSeries.map((s) => {
                 const st = STATUS_LABEL[s.status];
                 return (
                   <Tr key={s.key} className={s.unregisteredGaps > 0 ? 'bg-red-50/40' : ''}>
@@ -362,6 +419,13 @@ const SeriesGaps: React.FC = () => {
                     {ledger.counts.unadjudicated} unexplained
                   </Chip>
                   {ledger.truncated && <Chip tone="amber">list shortened — narrow the filter</Chip>}
+                  <ExportMenu
+                    className="ml-auto"
+                    filename={`gaps-${openSeries.docType}-${openSeries.seriesCode}-${openSeries.fy}`}
+                    columns={gapCols}
+                    rows={ledger.rows}
+                    disabled={!ledger.rows.length}
+                  />
                 </div>
 
                 <TableShell maxHeight="26rem">

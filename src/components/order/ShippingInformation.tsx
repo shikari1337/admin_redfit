@@ -37,6 +37,9 @@ interface ShippingInformationProps {
   warehouseId?: Warehouse | string;
   gst?: GstInfo;
   onWhatsAppClick: (phoneNumber: string) => void;
+  /** Rendered next to the heading — the address Edit control lives here so this
+   *  component stays presentational and knows nothing about the orders API. */
+  headerAction?: React.ReactNode;
 }
 
 const ShippingInformation: React.FC<ShippingInformationProps> = ({
@@ -44,6 +47,7 @@ const ShippingInformation: React.FC<ShippingInformationProps> = ({
   warehouseId,
   gst,
   onWhatsAppClick,
+  headerAction,
 }) => {
   const warehouse = typeof warehouseId === 'object' ? warehouseId : null;
 
@@ -51,7 +55,10 @@ const ShippingInformation: React.FC<ShippingInformationProps> = ({
     <>
       {/* Shipping Address */}
       <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-xl font-bold mb-4">Shipping Address</h2>
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h2 className="text-xl font-bold">Shipping Address</h2>
+          {headerAction}
+        </div>
         <div className="space-y-2 text-gray-700">
           <p className="font-medium">{shippingAddress.fullName}</p>
           <p>{shippingAddress.address}</p>

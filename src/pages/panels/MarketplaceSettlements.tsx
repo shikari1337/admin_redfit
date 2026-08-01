@@ -2,9 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { Store, Plus, Loader2, CheckCircle2, X, RefreshCw, Trash2 } from 'lucide-react';
 import { api } from '../../services/api';
 import { payload } from '@/lib/unwrap';
+import { useAuth } from '../../contexts/AuthContext';
 import {
-  Page, PageHeader, Btn, FilterBar, Field, TextInput,
+  Page, PageHeader, Btn, FilterBar, Field, TextInput, SelectInput,
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow, EmptyState, Chip,
+  ExportMenu, Pagination, DrillLink, useListControls, type CsvColumn,
 } from '../../components/erp';
 
 /**
@@ -40,21 +42,49 @@ type Draft = { orderRef: string; gross: string; commission: string; fees: string
 const blankLine = (): Draft => ({ orderRef: '', gross: '', commission: '', fees: '', tcs: '', net: '' });
 const toMinor = (v: string) => Math.round((Number(v) || 0) * 100);
 
+// Client CSV of the payouts list. Money cells are minor units (→ inrMinor).
+const settlementCsvCols: CsvColumn<Settlement>[] = [
+  { key: 'channel', label: 'Marketplace', format: (r) => r.channel ?? '' },
+  { key: 'settlement_ref', label: 'Reference', format: (r) => r.settlement_ref ?? '' },
+  { key: 'net_minor', label: 'Net paid', money: true },
+  { key: 'matched_amount_minor', label: 'Matched', money: true },
+  { key: 'line_count', label: 'Orders', format: (r) => r.line_count ?? 0 },
+  { key: 'unmatched_count', label: 'Unmatched', format: (r) => r.unmatched_count ?? 0 },
+  { key: 'status', label: 'Status' },
+];
+
 const MarketplaceSettlements: React.FC = () => {
+  const { hasPerm } = useAuth();
+  const canPost = hasPerm('accounting.post');
+  const canRead = hasPerm('accounting.read');
+
   const [list, setList] = useState<Settlement[] | null>(null);
   const [detail, setDetail] = useState<Settlement | null>(null);
   const [tcs, setTcs] = useState<any | null>(null);
   const [msg, setMsg] = useState(''); const [ok, setOk] = useState('');
   const [busy, setBusy] = useState(false);
+  const [total, setTotal] = useState(0);
 
   const [creating, setCreating] = useState(false);
   const [channel, setChannel] = useState(''); const [ref, setRef] = useState('');
+  const [periodFrom, setPeriodFrom] = useState(''); const [periodTo, setPeriodTo] = useState(''); const [tds, setTds] = useState('');
   const [lines, setLines] = useState<Draft[]>([blankLine()]);
 
-  const loadList = () => api.get('/marketplace-settlements')
-    .then((r) => setList(payload<Settlement[]>(r) ?? [])).catch((e) => setMsg(e?.response?.data?.message ?? e.message));
+  // Server filters (status/channel) + server pagination (limit/offset) — all
+  // supported by listSettlements, which returns { rows, total }.
+  const lc = useListControls({ pageSize: 25 });
+  const [channelFilter, setChannelFilter] = useState('');
+
+  const loadList = () => {
+    const params: Record<string, any> = { limit: lc.pageSize, offset: (lc.page - 1) * lc.pageSize };
+    if (lc.status) params.status = lc.status;
+    if (channelFilter) params.channel = channelFilter;
+    return api.get('/marketplace-settlements', { params })
+      .then((r) => { const rows = payload<Settlement[]>(r) ?? []; setList(rows); setTotal(Number((rows as any).total ?? rows.length)); })
+      .catch((e) => setMsg(e?.response?.data?.message ?? e.message));
+  };
   const loadTcs = () => api.get('/marketplace-settlements/tcs-summary').then((r) => setTcs(payload<any>(r))).catch(() => {});
-  useEffect(() => { loadList(); loadTcs(); }, []);
+  useEffect(() => { loadList(); loadTcs(); /* eslint-disable-next-line */ }, [lc.status, channelFilter, lc.page, lc.pageSize]);
 
   const openDetail = async (id: string) => {
     setMsg(''); setOk('');
@@ -76,10 +106,13 @@ const MarketplaceSettlements: React.FC = () => {
     setBusy(true); setMsg(''); setOk('');
     try {
       const r = payload<Settlement>(await api.post('/marketplace-settlements', {
-        channel: channel.trim() || null, settlementRef: ref.trim() || null, lines: payoutLines,
+        channel: channel.trim() || null, settlementRef: ref.trim() || null,
+        periodFrom: periodFrom || null, periodTo: periodTo || null,
+        tdsMinor: tds ? toMinor(tds) : null,
+        lines: payoutLines,
       }));
       setOk('Payout entered and matched. Open it to see which orders tie out.');
-      setCreating(false); setChannel(''); setRef(''); setLines([blankLine()]);
+      setCreating(false); setChannel(''); setRef(''); setPeriodFrom(''); setPeriodTo(''); setTds(''); setLines([blankLine()]);
       loadList(); loadTcs(); if (r?.id) openDetail(r.id);
     } catch (e: any) { setMsg(e?.response?.data?.message ?? e.message); }
     finally { setBusy(false); }
@@ -104,7 +137,12 @@ const MarketplaceSettlements: React.FC = () => {
         title="Marketplace payouts — did they pay us right?"
         icon={Store}
         description="A marketplace sells your stock and pays you a lump sum after keeping its commission, fees and the GST TCS. Enter the payout and we match every order — flagging anything paid short, over, or with no matching order."
-        actions={<Btn variant={creating ? 'outline' : 'primary'} onClick={() => { setCreating((v) => !v); setDetail(null); setMsg(''); setOk(''); }}><Plus className="h-4 w-4" />{creating ? 'Cancel' : 'New payout'}</Btn>}
+        actions={
+          <div className="flex items-end gap-2">
+            <ExportMenu filename="marketplace-payouts" columns={settlementCsvCols} rows={list ?? []} canExport={canRead} />
+            {canPost && <Btn variant={creating ? 'outline' : 'primary'} onClick={() => { setCreating((v) => !v); setDetail(null); setMsg(''); setOk(''); }}><Plus className="h-4 w-4" />{creating ? 'Cancel' : 'New payout'}</Btn>}
+          </div>
+        }
       />
 
       {msg && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{msg}</div>}
@@ -112,9 +150,18 @@ const MarketplaceSettlements: React.FC = () => {
 
       {tcs && (
         <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm shadow-sm">
-          <span className="text-gray-500">GST TCS (s.52) collected by marketplaces on your behalf: </span>
-          <strong>{inr(tcs.tcsMinor)}</strong>
-          <span className="text-gray-400"> across {tcs.settlementCount} payout(s) — claimable in your GST return.</span>
+          <div>
+            <span className="text-gray-500">GST TCS (s.52) collected by marketplaces on your behalf: </span>
+            <strong>{inr(tcs.tcsMinor)}</strong>
+            <span className="text-gray-400"> across {tcs.settlementCount} payout(s) — claimable in your GST return.</span>
+          </div>
+          {Array.isArray(tcs.byChannel) && tcs.byChannel.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {tcs.byChannel.map((b: any, i: number) => (
+                <Chip key={b.channel ?? i} tone="neutral">{b.channel || 'unattributed'}: {inr(b.tcsMinor)}</Chip>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -126,6 +173,9 @@ const MarketplaceSettlements: React.FC = () => {
           <FilterBar>
             <Field label="Marketplace"><TextInput value={channel} onChange={(e) => setChannel(e.target.value)} placeholder="e.g. amazon_in, tata_1mg" /></Field>
             <Field label="Statement / UTR reference (optional)"><TextInput value={ref} onChange={(e) => setRef(e.target.value)} placeholder="reference on the payout" /></Field>
+            <Field label="Period from (optional)"><TextInput type="date" value={periodFrom} onChange={(e) => setPeriodFrom(e.target.value)} /></Field>
+            <Field label="Period to (optional)"><TextInput type="date" value={periodTo} onChange={(e) => setPeriodTo(e.target.value)} /></Field>
+            <Field label="TDS held (₹, optional)"><TextInput type="number" min={0} step="0.01" className="w-28 text-right" value={tds} onChange={(e) => setTds(e.target.value)} placeholder="0.00" /></Field>
           </FilterBar>
 
           <TableShell>
@@ -177,7 +227,7 @@ const MarketplaceSettlements: React.FC = () => {
             <div><span className="text-gray-500">TCS: </span>{inr(detail.tcs_minor)}</div>
           </div>
 
-          {detail.status === 'open' && (
+          {detail.status === 'open' && canPost && (
             <div className="flex flex-wrap gap-2">
               <Btn variant="outline" disabled={busy} onClick={() => doAct('match', 'Re-checked against your latest orders.')}><RefreshCw className="h-4 w-4" />Re-check matches</Btn>
               <Btn variant="success" disabled={busy || !ties} onClick={() => doAct('reconcile', 'Reconciled — this payout ties out.')}><CheckCircle2 className="h-4 w-4" />Mark reconciled</Btn>
@@ -194,7 +244,11 @@ const MarketplaceSettlements: React.FC = () => {
                   <EmptyRow colSpan={6}>No lines.</EmptyRow>
                 ) : (detail.lines ?? []).map((l) => (
                   <Tr key={l.id}>
-                    <Td className="font-mono text-xs">{l.matched_order_number || l.order_ref || '—'}</Td>
+                    <Td className="font-mono text-xs">
+                      {(l.our_order_id || l.matched_order_number)
+                        ? <DrillLink to={`/orders/${l.our_order_id || l.matched_order_number}`} title="Open this order">{l.matched_order_number || l.order_ref || '—'}</DrillLink>
+                        : (l.matched_order_number || l.order_ref || '—')}
+                    </Td>
                     <Td num>{inr(l.net_minor)}</Td>
                     <Td num muted>{l.expected_net_minor != null ? inr(l.expected_net_minor) : '—'}</Td>
                     <Td num muted>{inr(l.commission_minor)}</Td>
@@ -209,6 +263,20 @@ const MarketplaceSettlements: React.FC = () => {
       )}
 
       {/* LIST */}
+      <FilterBar>
+        <Field label="Marketplace">
+          <TextInput value={channelFilter} onChange={(e) => { setChannelFilter(e.target.value); lc.setPage(1); }} placeholder="e.g. amazon_in" />
+        </Field>
+        <Field label="Status">
+          <SelectInput value={lc.status} onChange={(e) => lc.setStatus(e.target.value)}>
+            <option value="">Any status</option>
+            <option value="open">Open</option>
+            <option value="reconciled">Reconciled</option>
+            <option value="cancelled">Cancelled</option>
+          </SelectInput>
+        </Field>
+      </FilterBar>
+
       <TableShell>
         <table className="w-full text-sm">
           <THead><Th>Marketplace / ref</Th><Th num>Net paid</Th><Th num>Matched</Th><Th num>Orders</Th><Th num>Unmatched</Th><Th>Status</Th></THead>
@@ -230,6 +298,8 @@ const MarketplaceSettlements: React.FC = () => {
           </TBody>
         </table>
       </TableShell>
+
+      <Pagination page={lc.page} pageSize={lc.pageSize} total={total} onPage={lc.setPage} onPageSize={lc.setPageSize} />
     </Page>
   );
 };

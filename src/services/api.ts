@@ -14,6 +14,10 @@ export function getTenantApiKey(): string | undefined {
   try {
     const fromStorage = localStorage.getItem(TENANT_API_KEY_STORAGE_KEY);
     if (fromStorage && fromStorage.trim()) return fromStorage.trim();
+    // On the CENTRAL console (app.growcord.com) the build-time VITE_API_KEY must
+    // NOT apply — it would silently pin every visitor to whichever store was
+    // baked into the bundle. Until the user picks a store there is no tenant.
+    if (localStorage.getItem(PLATFORM_DOMAIN_KEY) === window.location.hostname.toLowerCase()) return undefined;
   } catch (_) {}
   return API_KEY;
 }
@@ -27,8 +31,136 @@ export function setTenantApiKey(apiKey: string | null): void {
   }
 }
 
-// Get API base URL from environment or use production default
-let rawBaseUrl = import.meta.env.VITE_API_SERVER_URL;
+// ─── Domain-based tenant resolution ─────────────────────────────────────────
+// ONE deployed admin panel serves every store. On boot we resolve the domain
+// the panel is being served on (e.g. admin.ziptronbags.com) against the
+// super-admin-configured store domains (admin_domain / domain / subdomain) and
+// adopt that store's tenant key — the env VITE_API_KEY is only the fallback
+// for localhost/dev or unregistered domains.
+
+const RESOLVED_DOMAIN_KEY = 'admin_tenant_resolved_domain';
+/** Store identity resolved from the serving domain (for Login-page branding). */
+export const RESOLVED_STORE_KEY = 'admin_tenant_resolved_store';
+/** Set to the host when THIS domain is the central console (not a store's admin). */
+const PLATFORM_DOMAIN_KEY = 'admin_tenant_platform_domain';
+
+/** True on the central console (app.growcord.com): no store pin, picker shown. */
+export function isPlatformDomain(): boolean {
+  try { return localStorage.getItem(PLATFORM_DOMAIN_KEY) === window.location.hostname.toLowerCase(); }
+  catch { return false; }
+}
+
+export interface DomainStore { slug: string; name: string; apiKey: string; }
+
+/**
+ * The store THIS domain belongs to, or null when the panel is served from an
+ * unregistered domain / localhost (then the env key + store picker apply).
+ * When set, login is PINNED to this store: the panel never manages another
+ * tenant from this domain.
+ */
+export function getDomainStore(): DomainStore | null {
+  try {
+    const raw = localStorage.getItem(RESOLVED_STORE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    // Only trust it for the host it was resolved on.
+    if (localStorage.getItem(RESOLVED_DOMAIN_KEY) !== window.location.hostname.toLowerCase()) return null;
+    return parsed?.apiKey ? parsed as DomainStore : null;
+  } catch { return null; }
+}
+
+/**
+ * Resolve the serving domain → tenant key. Awaited in main.tsx BEFORE the app
+ * renders so every subsequent request carries the right x-api-key.
+ * Fail-open: any error keeps the existing (localStorage/env) behaviour.
+ */
+export async function resolveTenantFromDomain(): Promise<void> {
+  try {
+    const host = window.location.hostname.toLowerCase();
+    if (!host || host === 'localhost' || host === '127.0.0.1') return;
+
+    // Central console already identified for THIS host → nothing to pin. Leave
+    // any session key untouched (clearing it would log the user out on reload).
+    if (localStorage.getItem(PLATFORM_DOMAIN_KEY) === host) return;
+
+    // Already resolved for THIS host → re-assert the pinned key offline and skip
+    // the round-trip. Re-asserting (rather than just keeping whatever is in
+    // localStorage) is what makes the domain authoritative: a key left behind by
+    // a store switch or another tab can never be used on a store's own domain.
+    const cached = localStorage.getItem(RESOLVED_STORE_KEY);
+    if (localStorage.getItem(RESOLVED_DOMAIN_KEY) === host && cached) {
+      try {
+        const store = JSON.parse(cached);
+        if (store?.apiKey) { setTenantApiKey(store.apiKey); return; }
+      } catch { /* malformed → re-resolve below */ }
+    }
+
+    const res = await axios.get(`${API_URL}/auth/resolve-store`, { params: { domain: host }, timeout: 10000 });
+    const store = res.data?.data ?? null;
+
+    if (store?.platform) {
+      // Central console: no store pin, no env-key fallback (see getTenantApiKey),
+      // store picker + switcher available. An existing session survives.
+      localStorage.setItem(PLATFORM_DOMAIN_KEY, host);
+      localStorage.removeItem(RESOLVED_DOMAIN_KEY);
+      localStorage.removeItem(RESOLVED_STORE_KEY);
+      console.log(`🌐 Central admin console: ${host} — sign in to choose your store`);
+      return;
+    }
+    localStorage.removeItem(PLATFORM_DOMAIN_KEY);
+
+    if (store?.apiKey) {
+      const prev = localStorage.getItem(TENANT_API_KEY_STORAGE_KEY);
+      if (prev && prev !== store.apiKey) {
+        // Different store than the previous session on this browser — drop the
+        // old session so the user logs into THIS store (loadSession would
+        // reject the key mismatch anyway; this just makes it clean).
+        sessionStorage.clear();
+        localStorage.removeItem('admin_token');
+      }
+      setTenantApiKey(store.apiKey);
+      localStorage.setItem(RESOLVED_DOMAIN_KEY, host);
+      localStorage.setItem(RESOLVED_STORE_KEY, JSON.stringify({ slug: store.slug, name: store.name, apiKey: store.apiKey }));
+      console.log(`🌐 Tenant resolved from domain: ${host} → ${store.slug}`);
+    } else {
+      // Domain not registered to any store → fall back to env/localStorage.
+      // Clear a stale marker from a previously-resolved different host.
+      if (localStorage.getItem(RESOLVED_DOMAIN_KEY) && localStorage.getItem(RESOLVED_DOMAIN_KEY) !== host) {
+        localStorage.removeItem(RESOLVED_DOMAIN_KEY);
+        localStorage.removeItem(RESOLVED_STORE_KEY);
+      }
+    }
+  } catch {
+    // Backend unreachable or endpoint missing — existing behaviour applies.
+  }
+}
+
+/**
+ * localStorage key for a runtime API-server-URL override. It WINS over the
+ * build-time VITE_API_SERVER_URL, so a bad/misspelled deploy value can be fixed
+ * from the browser WITHOUT a rebuild:
+ *   localStorage.setItem('admin_api_server_url','https://api.homeomead.us'); location.reload()
+ */
+export const API_SERVER_URL_STORAGE_KEY = 'admin_api_server_url';
+
+/** Persist (or clear) the runtime API-server-URL override. */
+export function setApiServerUrl(url: string | null): void {
+  try {
+    if (!url || !url.trim()) localStorage.removeItem(API_SERVER_URL_STORAGE_KEY);
+    else localStorage.setItem(API_SERVER_URL_STORAGE_KEY, url.trim());
+  } catch (_) {}
+}
+
+function resolveApiServerUrl(): string {
+  try {
+    const override = localStorage.getItem(API_SERVER_URL_STORAGE_KEY);
+    if (override && override.trim()) return override.trim();
+  } catch (_) {}
+  return import.meta.env.VITE_API_SERVER_URL;
+}
+
+// Get API base URL: runtime override (localStorage) → build-time env → production default
+let rawBaseUrl = resolveApiServerUrl();
 
 // If not set, use production API URL
 if (!rawBaseUrl || rawBaseUrl.trim() === '') {
@@ -571,6 +703,30 @@ export const productsAPI = {
       return responseData.data;
     }
     return responseData?.data || responseData;
+  },
+  /**
+   * SKU-level search — one row per VARIATION (the sellable pack), through the
+   * shared variation listing (`?expand=variations`), so it resolves exactly what
+   * the storefront catalogue does: brand, potency, size, half-words and the
+   * store's own SKU, with the exact-SKU match ranked first.
+   *
+   * Use this wherever an order LINE is being built. `searchAPI.query('product')`
+   * resolves the parent product, which for a homeopathy remedy is a family of up
+   * to 50+ packs — a line bound to it carries the short family name and the
+   * generated `P-…` placeholder SKU instead of what the store stocks and ships.
+   *
+   * Rows carry `product_id` + `variation_id`, the FULL pack name, the real SKU,
+   * prices and stock — everything an order line needs, in one call.
+   */
+  searchVariations: async (q: string, limit = 10) => {
+    if (!q || q.trim().length < 3) return [];
+    const response = await api.get('/products', {
+      params: { expand: 'variations', group: 'none', search: q.trim(), limit },
+    });
+    // The interceptor unwraps {success,data} → response.data IS the array.
+    const d: any = response.data;
+    const rows = Array.isArray(d) ? d : (d?.data ?? []);
+    return Array.isArray(rows) ? rows : [];
   },
   getBySlug: async (slug: string) => {
     // Backend route: GET /api/v1/products/slug/:slug
@@ -1284,6 +1440,15 @@ export const ordersAPI = {
     discount?: number; discountReason?: string; shippingCost?: number;
   }) => {
     const response = await api.put(`/orders/${id}/items`, data);
+    return response.data;
+  },
+  /**
+   * Patch order columns directly (`PUT /orders/:id`). The server whitelists
+   * real columns, so send SNAKE_CASE column names — `shipping_address`,
+   * `billing_address`. Used by the order address editor.
+   */
+  update: async (id: string, data: Record<string, any>) => {
+    const response = await api.put(`/orders/${id}`, data);
     return response.data;
   },
   /** Shareable review-and-pay link for the order (Shopify-style). */
@@ -2149,6 +2314,18 @@ export const productQuantityBundlesAPI = {
 };
 
 export const cartsAPI = {
+  /** Store-configurable cart timings (abandonment threshold, nudge cadence). */
+  getSettings: async () => {
+    const response = await api.get('/carts/admin/settings');
+    return response.data?.data ?? response.data;
+  },
+  updateSettings: async (data: {
+    abandonmentMinutes?: number; recoveryDelayHours?: number;
+    maxRecoveryAttempts?: number; recoveryGapHours?: number;
+  }) => {
+    const response = await api.put('/carts/admin/settings', data);
+    return response.data?.data ?? response.data;
+  },
   listAdmin: async (params?: { status?: string; search?: string }) => {
     const response = await api.get('/carts/admin', { params });
     return response.data;

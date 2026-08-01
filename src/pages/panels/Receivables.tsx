@@ -1,9 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { api } from '../../services/api';
 import { payload } from '../../lib/unwrap';
+import { useAuth } from '../../contexts/AuthContext';
 import {
-  Page, PageHeader, Btn, Field, TextInput, Chip, StatCard, StatGrid,
+  Page, PageHeader, Field, TextInput, Chip, StatCard, StatGrid,
   TableShell, THead, Th, TBody, Tr, Td, inr,
+  FilterBar, SelectInput, SearchInput,
+  ExportMenu, Pagination, DrillLink, useListControls, type CsvColumn,
 } from '../../components/erp';
 
 /**
@@ -16,17 +19,6 @@ import {
  */
 
 const today = () => new Date().toISOString().slice(0, 10);
-
-// Download a blob response as a file.
-async function download(url: string, params: any, filename: string) {
-  const res = await api.get(url, { params, responseType: 'blob' });
-  const blob = res.data instanceof Blob ? res.data : new Blob([res.data]);
-  const href = window.URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = href; a.download = filename;
-  document.body.appendChild(a); a.click(); a.remove();
-  window.URL.revokeObjectURL(href);
-}
 
 interface Ageing { d0_30: number; d31_60: number; d61_90: number; d90_plus: number; }
 interface Customer {
@@ -52,13 +44,39 @@ const AgeChips: React.FC<{ a: Ageing }> = ({ a }) => {
   );
 };
 
+// Client-side CSV columns for the outstanding list (mirrors the server CSV).
+const listCsvCols: CsvColumn<Customer>[] = [
+  { key: 'name', label: 'Customer', format: (c) => c.name ?? '' },
+  { key: 'company', label: 'Company', format: (c) => c.company ?? '' },
+  { key: 'phone', label: 'Phone', format: (c) => c.phone ?? '' },
+  { key: 'gstin', label: 'GSTIN', format: (c) => c.gstin ?? '' },
+  { key: 'order_count', label: 'Orders' },
+  { key: 'unpaid_count', label: 'Unpaid' },
+  { key: 'total_billed', label: 'Total Billed', format: (c) => (c.total_billed ?? 0).toFixed(2) },
+  { key: 'total_collected', label: 'Total Collected', format: (c) => (c.total_collected ?? 0).toFixed(2) },
+  { key: 'outstanding', label: 'Outstanding', format: (c) => (c.outstanding ?? 0).toFixed(2) },
+  { key: 'oldest_unpaid_date', label: 'Oldest Unpaid', format: (c) => c.oldest_unpaid_date ?? '' },
+  { key: 'oldest_unpaid_age_days', label: 'Age (days)', format: (c) => c.oldest_unpaid_age_days ?? '' },
+  { key: 'd0_30', label: '0-30', format: (c) => c.ageing.d0_30.toFixed(2) },
+  { key: 'd31_60', label: '31-60', format: (c) => c.ageing.d31_60.toFixed(2) },
+  { key: 'd61_90', label: '61-90', format: (c) => c.ageing.d61_90.toFixed(2) },
+  { key: 'd90_plus', label: '90+', format: (c) => c.ageing.d90_plus.toFixed(2) },
+];
+
 const Receivables: React.FC = () => {
+  const { hasPerm } = useAuth();
+  const canRead = hasPerm('accounting.read');
+
   const [asOf, setAsOf] = useState(today());
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [summary, setSummary] = useState<any>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<Customer | null>(null);
+
+  // Search (customer name/company/GSTIN/phone), ageing filter and pagination are
+  // client-side — the /ar/outstanding endpoint returns every owing customer at once.
+  const lc = useListControls({ pageSize: 25 });
 
   const load = async () => {
     setLoading(true); setError('');
@@ -72,6 +90,17 @@ const Receivables: React.FC = () => {
   };
   useEffect(() => { if (!selected) load(); /* eslint-disable-next-line */ }, [asOf, selected]);
 
+  const filtered = useMemo(() => {
+    const q = lc.debouncedSearch.trim().toLowerCase();
+    return customers.filter((c) => {
+      if (lc.status === 'overdue90' && !((c.ageing?.d90_plus ?? 0) > 0.005)) return false;
+      if (!q) return true;
+      return [c.name, c.company, c.gstin, c.phone].some((v) => (v ?? '').toLowerCase().includes(q));
+    });
+  }, [customers, lc.debouncedSearch, lc.status]);
+
+  const pageRows = filtered.slice((lc.page - 1) * lc.pageSize, lc.page * lc.pageSize);
+
   if (selected) return <Statement customer={selected} onBack={() => setSelected(null)} />;
 
   return (
@@ -82,7 +111,13 @@ const Receivables: React.FC = () => {
         actions={
           <div className="flex items-end gap-2">
             <Field label="As of"><TextInput type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} /></Field>
-            <Btn variant="outline" onClick={() => download('/ar/outstanding', { asOf, format: 'csv' }, `receivables-${asOf}.csv`)}>Export CSV</Btn>
+            <ExportMenu
+              filename={`receivables-${asOf}`}
+              columns={listCsvCols}
+              rows={filtered}
+              canExport={canRead}
+              serverExports={[{ label: 'Server CSV (all customers)', path: '/ar/outstanding', params: { asOf, format: 'csv' }, filename: `receivables-${asOf}.csv` }]}
+            />
           </div>
         }
       />
@@ -98,6 +133,18 @@ const Receivables: React.FC = () => {
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
 
+      <FilterBar>
+        <Field label="Search customer" className="min-w-[220px] flex-1">
+          <SearchInput placeholder="Name, company, GSTIN or phone…" value={lc.search} onChange={(e) => lc.setSearch(e.target.value)} />
+        </Field>
+        <Field label="Ageing">
+          <SelectInput value={lc.status} onChange={(e) => lc.setStatus(e.target.value)}>
+            <option value="">All customers</option>
+            <option value="overdue90">Overdue 90+ only</option>
+          </SelectInput>
+        </Field>
+      </FilterBar>
+
       <TableShell>
         <table className="w-full text-sm">
           <THead>
@@ -109,13 +156,15 @@ const Receivables: React.FC = () => {
             <Th num>Outstanding</Th>
           </THead>
           <TBody>
-            {customers.length === 0 && !loading && (
-              <tr><td colSpan={6} className="px-4 py-6 text-center text-gray-500">Nothing outstanding — every customer is settled. 🎉</td></tr>
-            )}
             {loading && (
               <tr><td colSpan={6} className="px-4 py-6 text-center text-gray-500">Loading…</td></tr>
             )}
-            {customers.map((c) => (
+            {!loading && filtered.length === 0 && (
+              <tr><td colSpan={6} className="px-4 py-6 text-center text-gray-500">
+                {customers.length === 0 ? 'Nothing outstanding — every customer is settled. 🎉' : 'No customers match your filters.'}
+              </td></tr>
+            )}
+            {!loading && pageRows.map((c) => (
               <Tr key={c.customer_id} onClick={() => setSelected(c)} className="cursor-pointer">
                 <Td>
                   <div className="font-medium text-gray-900">{c.company || c.name || 'Customer'}</div>
@@ -142,12 +191,28 @@ const Receivables: React.FC = () => {
           </TBody>
         </table>
       </TableShell>
+
+      <Pagination page={lc.page} pageSize={lc.pageSize} total={filtered.length} onPage={lc.setPage} onPageSize={lc.setPageSize} />
     </Page>
   );
 };
 
+// Client-side CSV columns for a statement of account (mirrors the server CSV).
+const stmtCsvCols: CsvColumn<any>[] = [
+  { key: 'date', label: 'Date' },
+  { key: 'document', label: 'Document' },
+  { key: 'particulars', label: 'Particulars' },
+  { key: 'order_type', label: 'Order Type', format: (r) => r.order_type ?? '' },
+  { key: 'debit', label: 'Debit', format: (r) => (r.debit ? r.debit.toFixed(2) : '') },
+  { key: 'credit', label: 'Credit', format: (r) => (r.credit ? r.credit.toFixed(2) : '') },
+  { key: 'running_balance', label: 'Balance', format: (r) => (r.running_balance ?? 0).toFixed(2) },
+];
+
 // ── Statement of account view ────────────────────────────────────────────────
 const Statement: React.FC<{ customer: Customer; onBack: () => void }> = ({ customer, onBack }) => {
+  const { hasPerm } = useAuth();
+  const canRead = hasPerm('accounting.read');
+
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [stmt, setStmt] = useState<any>(null);
@@ -186,8 +251,17 @@ const Statement: React.FC<{ customer: Customer; onBack: () => void }> = ({ custo
           <div className="flex flex-wrap items-end gap-2">
             <Field label="From"><TextInput type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
             <Field label="To"><TextInput type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
-            <Btn onClick={() => download(`/ar/statement/${customer.customer_id}/pdf`, params(), `statement-${label}.pdf`)}>Download PDF</Btn>
-            <Btn variant="outline" onClick={() => download(`/ar/statement/${customer.customer_id}`, { ...params(), format: 'csv' }, `statement-${label}.csv`)}>CSV</Btn>
+            <ExportMenu
+              filename={`statement-${label}`}
+              columns={stmtCsvCols}
+              rows={stmt?.rows ?? []}
+              canExport={canRead}
+              disabled={!stmt}
+              serverExports={[
+                { label: 'Download PDF', path: `/ar/statement/${customer.customer_id}/pdf`, params: params(), filename: `statement-${label}.pdf` },
+                { label: 'Server CSV', path: `/ar/statement/${customer.customer_id}`, params: { ...params(), format: 'csv' }, filename: `statement-${label}.csv` },
+              ]}
+            />
           </div>
         }
       />
@@ -220,7 +294,9 @@ const Statement: React.FC<{ customer: Customer; onBack: () => void }> = ({ custo
                 {stmt.rows.map((r: any, i: number) => (
                   <Tr key={i}>
                     <Td>{r.date}</Td>
-                    <Td className="font-mono text-xs">{r.document}</Td>
+                    <Td className="font-mono text-xs">
+                      {r.order_id ? <DrillLink to={`/orders/${r.order_id}`} title="Open this order">{r.document}</DrillLink> : r.document}
+                    </Td>
                     <Td>{r.particulars}</Td>
                     <Td num className="font-mono">{r.debit ? inr(r.debit) : ''}</Td>
                     <Td num className="font-mono text-emerald-700">{r.credit ? inr(r.credit) : ''}</Td>

@@ -1,6 +1,7 @@
 ﻿import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { authAPI, getTenantApiKey, setTenantApiKey } from '../services/api';
+import { authAPI, getTenantApiKey, setTenantApiKey, getDomainStore, isPlatformDomain } from '../services/api';
+import { PRODUCT } from '../lib/product';
 import { useAuth } from '../contexts/AuthContext';
 import {
   Eye, EyeOff, Store, AlertCircle, Loader2, ChevronRight, CheckCircle2,
@@ -14,6 +15,9 @@ interface StoreOption {
   storeSlug?: string;
   role: 'admin' | 'staff';
   permissions: string[];
+  /** Per-tenant token for STORE users (their user id differs per store).
+   *  Absent for platform super admins → the central token is used. */
+  token?: string;
 }
 
 // ─── Step 1 — Credentials ────────────────────────────────────────────────────
@@ -34,7 +38,9 @@ const StepCredentials: React.FC<StepCredentialsProps> = ({ onSuccess }) => {
   const [manualKey, setManualKey]         = useState('');
   const [showManualKey, setShowManualKey] = useState(false);
 
-  const envKey = getTenantApiKey(); // set via VITE_API_KEY or from a previous session
+  // When this domain maps to a store, that store wins over env/manual keys.
+  const domainStore = getDomainStore();
+  const envKey = domainStore?.apiKey || getTenantApiKey(); // domain > VITE_API_KEY/previous session
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,8 +53,9 @@ const StepCredentials: React.FC<StepCredentialsProps> = ({ onSuccess }) => {
 
     setLoading(true);
     try {
-      // If a specific store key is provided (env or manual), use per-store login
-      const storeKey = (manualKey.trim() || envKey || '').trim();
+      // If a specific store key is provided, use per-store login.
+      // A domain-pinned store outranks any env/manual key.
+      const storeKey = (domainStore?.apiKey || manualKey.trim() || envKey || '').trim();
       if (storeKey) {
         setTenantApiKey(storeKey);
         const res = await authAPI.login(email, password);
@@ -60,8 +67,11 @@ const StepCredentials: React.FC<StepCredentialsProps> = ({ onSuccess }) => {
 
       // No API key in env — try per-store login via domain/DEFAULT_STORE_SLUG first.
       // This lets store admins log in from their store's domain without needing an API key.
+      // On the CENTRAL console there is no tenant to try, so go straight to
+      // central auth (which resolves the account across every store).
       let perStoreDone = false;
       try {
+        if (isPlatformDomain()) throw Object.assign(new Error('central console'), { response: { status: 404 } });
         const res = await authAPI.login(email, password);
         const token = res?.token || res?.data?.token;
         if (token) {
@@ -92,7 +102,8 @@ const StepCredentials: React.FC<StepCredentialsProps> = ({ onSuccess }) => {
         }
 
         if (stores.length === 1) {
-          onSuccess(token, stores, stores[0].apiKey);
+          // Single store → skip the picker, but use ITS token (store users).
+          onSuccess(stores[0].token || token, stores, stores[0].apiKey);
         } else {
           onSuccess(token, stores);
         }
@@ -164,9 +175,16 @@ const StepCredentials: React.FC<StepCredentialsProps> = ({ onSuccess }) => {
         {loading ? <><Loader2 className="h-4 w-4 animate-spin" /> Signing in…</> : 'Continue'}
       </button>
 
-      {/* Connect to a specific store (env key auto-shown; manual override collapsed) */}
+      {/* Connect to a specific store (env key auto-shown; manual override collapsed).
+          HIDDEN on a domain-pinned deployment: this domain manages exactly one
+          store, so pasting another store's key here must not be possible. */}
       <div className="pt-3 border-t border-gray-100">
-        {envKey && !manualKey ? (
+        {domainStore ? (
+          <div className="flex items-center gap-2 text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2">
+            <Store className="h-3 w-3 shrink-0" />
+            <span>Managing <b>{domainStore.name}</b> — determined by this domain.</span>
+          </div>
+        ) : envKey && !manualKey ? (
           <div className="flex items-center gap-2 text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
             <Store className="h-3 w-3 shrink-0" />
             <span>Store pre-configured — will connect automatically.</span>
@@ -181,7 +199,7 @@ const StepCredentials: React.FC<StepCredentialsProps> = ({ onSuccess }) => {
           </button>
         )}
 
-        {showKeyField && (
+        {showKeyField && !domainStore && (
           <div className="mt-3 space-y-1.5">
             <label className="text-xs font-medium text-gray-600">Store API Key</label>
             <div className="relative">
@@ -252,12 +270,18 @@ const Login: React.FC = () => {
   const [storeOptions, setStoreOptions] = useState<StoreOption[]>([]);
   const [finalError, setFinalError]     = useState('');
 
+  // ONE admin deployment serves many stores: when this DOMAIN maps to a store
+  // (super-admin adminDomain/domain), login is PINNED to it — no store picker,
+  // and no chance of managing another tenant from this domain.
+  const domainStore = getDomainStore();
+
   useEffect(() => {
-    if (isAuthenticated) navigate('/', { replace: true });
-    // Clear any stale store API key so login always starts with central auth.
-    // The correct store key is set after the user picks their store.
-    else setTenantApiKey(null);
-  }, [isAuthenticated, navigate]);
+    if (isAuthenticated) { navigate('/', { replace: true }); return; }
+    // On a domain-pinned deployment keep THIS store's key so the per-store
+    // login path authenticates against the right tenant. Otherwise clear any
+    // stale key so login starts with central auth + the store picker.
+    setTenantApiKey(domainStore ? domainStore.apiKey : null);
+  }, [isAuthenticated, navigate, domainStore?.apiKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Called by StepCredentials when auth succeeds
   const handleCredentialsSuccess = async (
@@ -265,6 +289,26 @@ const Login: React.FC = () => {
     stores: StoreOption[],
     immediateApiKey?: string,
   ) => {
+    // Domain-pinned: auto-select the store this domain belongs to instead of
+    // asking. An account with no access to it is rejected here rather than
+    // being silently dropped into a different store.
+    if (domainStore) {
+      if (stores.length > 0) {
+        const match = stores.find(
+          (s) => s.apiKey === domainStore.apiKey || (s.storeSlug && s.storeSlug === domainStore.slug),
+        );
+        if (!match) {
+          setFinalError(`This account doesn't have access to ${domainStore.name}.`);
+          setStep('credentials');
+          return;
+        }
+        await finalize(match.token || token, match.apiKey);
+        return;
+      }
+      await finalize(token, immediateApiKey || domainStore.apiKey);
+      return;
+    }
+
     if (immediateApiKey) {
       // Single store or per-store direct login — finalize immediately
       await finalize(token, immediateApiKey);
@@ -277,7 +321,9 @@ const Login: React.FC = () => {
   };
 
   const handleStorePicked = async (store: StoreOption) => {
-    await finalize(centralToken, store.apiKey);
+    // A store user gets a token scoped to THAT tenant; only super admins reuse
+    // the central token (their id isn't in any tenant users table).
+    await finalize(store.token || centralToken, store.apiKey);
   };
 
   const finalize = async (token: string, apiKey: string) => {
@@ -301,10 +347,14 @@ const Login: React.FC = () => {
         {/* Logo */}
         <div className="text-center">
           <div className="inline-flex w-14 h-14 rounded-2xl bg-primary items-center justify-center text-primary-foreground text-2xl font-bold shadow-lg mb-4">
-            G
+            {domainStore ? 'G' : PRODUCT.short}
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Growcord Admin</h1>
-          <p className="text-sm text-gray-500 mt-1">{stepLabel}</p>
+          <h1 className="text-2xl font-bold text-gray-900">
+            {domainStore ? domainStore.name : PRODUCT.name}
+          </h1>
+          <p className="text-sm text-gray-500 mt-1">
+            {domainStore ? `${stepLabel} · ${window.location.hostname}` : stepLabel}
+          </p>
         </div>
 
         {/* Card */}

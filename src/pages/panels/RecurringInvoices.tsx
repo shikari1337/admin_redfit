@@ -1,10 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../services/api';
 import { payload } from '../../lib/unwrap';
+import { useAuth } from '../../contexts/AuthContext';
 import {
   Page, PageHeader, SectionCard, Btn, StatusChip,
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow,
   FilterBar, Field, TextInput, SelectInput, SearchInput, inr,
+  ExportMenu, Pagination, DrillLink, useListControls, type CsvColumn,
 } from '../../components/erp';
 import type { Tone } from '../../components/erp';
 import { Repeat, Plus, ArrowLeft, Trash2, PlayCircle, Pause, Play, Ban } from 'lucide-react';
@@ -35,26 +37,58 @@ const niceDate = (d?: string | null) => {
 };
 const rupees = (minor?: string | number | null) => inr(Number(minor ?? 0) / 100);
 
+// Client CSV of the profiles list.
+const profileCsvCols: CsvColumn<any>[] = [
+  { key: 'profile_number', label: 'Profile #' },
+  { key: 'customer_name', label: 'Customer', format: (r) => r.customer_name || r.title || '' },
+  { key: 'cadence', label: 'Cadence', format: (r) => r.cadence_label ?? r.frequency_label ?? r.frequency ?? '' },
+  { key: 'next_run_date', label: 'Next run', format: (r) => (r.status === 'active' ? (r.next_run_date ?? '') : '') },
+  { key: 'generated_count', label: 'Generated', format: (r) => r.generated_count ?? 0 },
+  { key: 'status', label: 'Status' },
+];
+// Client CSV of a profile's generated invoices (runs). Total is minor units.
+const runCsvCols: CsvColumn<any>[] = [
+  { key: 'period_key', label: 'Period' },
+  { key: 'order_number', label: 'Order', format: (r) => r.order_number ?? '' },
+  { key: 'total_minor', label: 'Total', money: true },
+  { key: 'status', label: 'Status' },
+  { key: 'email_status', label: 'Email', format: (r) => r.email_status ?? '' },
+  { key: 'created_at', label: 'Created', format: (r) => r.created_at ?? '' },
+];
+
 const RecurringInvoices: React.FC = () => {
+  const { hasPerm } = useAuth();
+  const canManage = hasPerm('orders.manage');
+  const canRead = hasPerm('orders.read');
+
   const [view, setView] = useState<View>('list');
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
 
   // ── List ──
   const [rows, setRows] = useState<any[]>([]);
-  const [statusFilter, setStatusFilter] = useState('');
   const [loading, setLoading] = useState(false);
+  // Status is a real backend filter; search + pagination are client-side
+  // (listProfiles returns every profile for the chosen status at once).
+  const lc = useListControls({ pageSize: 25 });
 
   const loadList = async () => {
     setLoading(true);
     try {
-      const res = await api.get('/recurring-invoices', { params: statusFilter ? { status: statusFilter } : {} });
+      const res = await api.get('/recurring-invoices', { params: lc.status ? { status: lc.status } : {} });
       const data = payload<any>(res);
       setRows(Array.isArray(data) ? data : (data?.rows ?? []));
     } catch (e: any) { setErr(e?.response?.data?.message ?? e.message); }
     finally { setLoading(false); }
   };
-  useEffect(() => { if (view === 'list') loadList(); /* eslint-disable-next-line */ }, [view, statusFilter]);
+  useEffect(() => { if (view === 'list') loadList(); /* eslint-disable-next-line */ }, [view, lc.status]);
+
+  const filteredProfiles = useMemo(() => {
+    const q = lc.debouncedSearch.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r) => [r.profile_number, r.customer_name, r.title].some((v) => (v ?? '').toLowerCase().includes(q)));
+  }, [rows, lc.debouncedSearch]);
+  const pageProfiles = filteredProfiles.slice((lc.page - 1) * lc.pageSize, lc.page * lc.pageSize);
 
   // ── Detail ──
   const [detail, setDetail] = useState<any>(null);
@@ -352,7 +386,7 @@ const RecurringInvoices: React.FC = () => {
 
         <SectionCard
           title={<span className="flex items-center gap-2">Status <StatusPill status={p.status} /></span>}
-          action={
+          action={canManage ? (
             <div className="flex flex-wrap items-center gap-2">
               {p.status === 'active' && <Btn variant="success" onClick={() => act('generate', 'Generation run complete')} disabled={busy}><PlayCircle className="h-4 w-4" /> Generate now</Btn>}
               {p.status === 'active' && <Btn variant="outline" onClick={() => act('pause', 'Profile paused')} disabled={busy}><Pause className="h-4 w-4" /> Pause</Btn>}
@@ -360,7 +394,7 @@ const RecurringInvoices: React.FC = () => {
               {canToggle && <Btn variant="dangerOutline" onClick={() => act('cancel', 'Profile cancelled')} disabled={busy}><Ban className="h-4 w-4" /> Cancel</Btn>}
               <Btn variant="ghost" size="sm" onClick={() => { if (window.confirm('Delete this profile? Already-generated orders are kept.')) act('', 'Profile deleted', 'delete'); }} disabled={busy}><Trash2 className="h-4 w-4" /></Btn>
             </div>
-          }>
+          ) : undefined}>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 text-sm">
             <div><div className="text-xs text-gray-500">Customer</div><div className="font-medium">{p.customer_name || '—'}</div></div>
             <div><div className="text-xs text-gray-500">Cadence</div><div className="font-medium">{p.cadence_label ?? p.frequency_label ?? p.frequency}</div></div>
@@ -395,7 +429,8 @@ const RecurringInvoices: React.FC = () => {
           {p.notes && <div className="mt-3 text-sm text-gray-600"><span className="font-medium">Notes: </span>{p.notes}</div>}
         </SectionCard>
 
-        <SectionCard title="Generated invoices" description="Orders created by this profile. One row per billing period — a period is never billed twice.">
+        <SectionCard title="Generated invoices" description="Orders created by this profile. One row per billing period — a period is never billed twice."
+          action={<ExportMenu filename={`recurring-${p.profile_number || 'invoices'}`} columns={runCsvCols} rows={p.runs ?? []} canExport={canRead} />}>
           <TableShell>
             <table className="w-full text-sm">
               <THead>
@@ -406,7 +441,11 @@ const RecurringInvoices: React.FC = () => {
                 {(p.runs ?? []).map((r: any) => (
                   <Tr key={r.id}>
                     <Td>{niceDate(r.period_key)}</Td>
-                    <Td className="font-mono text-xs">{r.order_number || '—'}</Td>
+                    <Td className="font-mono text-xs">
+                      {r.order_number
+                        ? <DrillLink to={`/orders/${r.order_id || r.order_number}`} title="Open this order">{r.order_number}</DrillLink>
+                        : '—'}
+                    </Td>
                     <Td num>{rupees(r.total_minor)}</Td>
                     <Td><StatusChip status={r.status} tone={r.status === 'failed' ? 'red' : (r.status === 'pending' ? 'amber' : 'green')} /></Td>
                     <Td>{r.email_status || '—'}</Td>
@@ -426,14 +465,22 @@ const RecurringInvoices: React.FC = () => {
     <Page>
       <PageHeader icon={Repeat} title="Recurring Invoices"
         description="Bill customers automatically on a schedule — weekly, monthly, quarterly or yearly. Each due date creates a real order with authoritative pricing and GST."
-        actions={<Btn variant="primary" onClick={() => { resetForm(); setErr(''); setMsg(''); setView('create'); }}><Plus className="h-4 w-4" /> New recurring invoice</Btn>} />
+        actions={
+          <div className="flex items-end gap-2">
+            <ExportMenu filename="recurring-invoices" columns={profileCsvCols} rows={filteredProfiles} canExport={canRead} />
+            {canManage && <Btn variant="primary" onClick={() => { resetForm(); setErr(''); setMsg(''); setView('create'); }}><Plus className="h-4 w-4" /> New recurring invoice</Btn>}
+          </div>
+        } />
       {err && <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{err}</div>}
       {msg && <div className="rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{msg}</div>}
 
       <SectionCard title="All profiles" action={
         <FilterBar>
+          <Field label="Search">
+            <SearchInput placeholder="Profile #, customer or title…" value={lc.search} onChange={(e) => lc.setSearch(e.target.value)} />
+          </Field>
           <Field label="Status">
-            <SelectInput value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <SelectInput value={lc.status} onChange={(e) => lc.setStatus(e.target.value)}>
               <option value="">All</option>
               {['active', 'paused', 'expired', 'cancelled'].map((s) => <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>)}
             </SelectInput>
@@ -447,10 +494,10 @@ const RecurringInvoices: React.FC = () => {
             </THead>
             <TBody>
               {loading && <EmptyRow colSpan={7}>Loading…</EmptyRow>}
-              {!loading && rows.length === 0 && (
-                <EmptyRow colSpan={7}>No recurring invoices yet. Click "New recurring invoice" to set one up.</EmptyRow>
+              {!loading && filteredProfiles.length === 0 && (
+                <EmptyRow colSpan={7}>{rows.length === 0 ? 'No recurring invoices yet. Click "New recurring invoice" to set one up.' : 'No profiles match your search.'}</EmptyRow>
               )}
-              {!loading && rows.map((r: any) => (
+              {!loading && pageProfiles.map((r: any) => (
                 <Tr key={r.id}>
                   <Td className="font-mono text-xs">{r.profile_number}</Td>
                   <Td>{r.customer_name || r.title || <span className="text-gray-400">—</span>}</Td>
@@ -464,6 +511,7 @@ const RecurringInvoices: React.FC = () => {
             </TBody>
           </table>
         </TableShell>
+        <Pagination page={lc.page} pageSize={lc.pageSize} total={filteredProfiles.length} onPage={lc.setPage} onPageSize={lc.setPageSize} />
       </SectionCard>
     </Page>
   );

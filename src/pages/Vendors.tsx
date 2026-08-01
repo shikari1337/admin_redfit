@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { useAuth } from '../contexts/AuthContext';
+import { ExportMenu, Pagination, type CsvColumn } from '@/components/erp';
 
 const STATUS_COLORS: Record<string, string> = {
   pending:   'bg-yellow-50 text-yellow-700 border-yellow-200',
@@ -22,14 +23,35 @@ const STATUS_COLORS: Record<string, string> = {
   rejected:  'bg-red-50 text-red-700 border-red-200',
 };
 
+// Vendor master CSV — the row the page already holds (client-side export).
+const VENDOR_CSV_COLUMNS: CsvColumn<any>[] = [
+  { key: 'business_name', label: 'Vendor' },
+  { key: 'slug', label: 'Slug' },
+  { key: 'gst_number', label: 'GST' },
+  { key: 'pan_number', label: 'PAN' },
+  { key: 'commission_pct', label: 'Commission %' },
+  { key: 'status', label: 'Status' },
+  { key: 'is_active', label: 'Active', format: (v) => (v.is_active ? 'Active' : 'Inactive') },
+  { key: 'payment_terms_days', label: 'Terms (days)' },
+  { key: 'msme_classification', label: 'MSME class' },
+  { key: 'udyam_number', label: 'Udyam' },
+];
+
+const PAGE_SIZE = 20;
+
 const Vendors: React.FC = () => {
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  // DEFECT FIX: vendor writes were gated on `user.role === 'admin'`, so a
+  // purchasing_officer (who holds `purchasing.manage`, which the backend
+  // authorises) saw a read-only page. Gate on the actual permission instead.
+  const { hasPerm } = useAuth();
+  const canManage = hasPerm('purchasing.manage');
 
   const [vendors, setVendors] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [page, setPage] = useState(1);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   // Vendor-portal share link
@@ -47,7 +69,7 @@ const Vendors: React.FC = () => {
       setCopied(false);
       setPortalLink({ vendorName: vendor.business_name, url: `${window.location.origin}${path}` });
     } catch {
-      alert('Could not create a portal link. You need the "purchasing.manage" permission.');
+      alert('Could not create a portal link. You need the "Manage purchasing" permission.');
     } finally {
       setPortalLoadingId(null);
     }
@@ -64,11 +86,13 @@ const Vendors: React.FC = () => {
 
   const loadVendors = async () => {
     setLoading(true);
+    setError('');
     try {
       const res = await vendorsAPI.list();
       setVendors(Array.isArray(res) ? res : []);
-    } catch {
+    } catch (e: any) {
       setVendors([]);
+      setError(e?.response?.data?.message ?? e?.message ?? 'Failed to load vendors.');
     } finally {
       setLoading(false);
     }
@@ -101,6 +125,8 @@ const Vendors: React.FC = () => {
     const matchStatus = !statusFilter || v.status === statusFilter;
     return matchSearch && matchStatus;
   });
+  const pageStart = (page - 1) * PAGE_SIZE;
+  const paged = filtered.slice(pageStart, pageStart + PAGE_SIZE);
 
   if (loading) {
     return (
@@ -114,12 +140,21 @@ const Vendors: React.FC = () => {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold tracking-tight">Vendors</h1>
-        {isAdmin && (
-          <Button asChild className="bg-primary hover:bg-primary/90 text-primary-foreground">
-            <Link to="/vendors/new"><FaPlus className="mr-2" /> Add Vendor</Link>
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          <ExportMenu filename="vendors" columns={VENDOR_CSV_COLUMNS} rows={filtered} canExport={hasPerm('purchasing.read')} />
+          {canManage && (
+            <Button asChild className="bg-primary hover:bg-primary/90 text-primary-foreground">
+              <Link to="/vendors/new"><FaPlus className="mr-2" /> Add Vendor</Link>
+            </Button>
+          )}
+        </div>
       </div>
+
+      {error && (
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex items-center gap-3">
@@ -127,12 +162,12 @@ const Vendors: React.FC = () => {
           type="text"
           placeholder="Search vendors…"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           className="px-3 py-2 text-sm border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring w-60"
         />
         <select
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
+          onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
           className="px-3 py-2 text-sm border border-input rounded-md bg-background"
         >
           <option value="">All Statuses</option>
@@ -157,14 +192,14 @@ const Vendors: React.FC = () => {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filtered.length === 0 ? (
+            {paged.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
                   No vendors found.
                 </TableCell>
               </TableRow>
             ) : (
-              filtered.map((vendor) => {
+              paged.map((vendor) => {
                 const id = String(vendor.id || vendor._id || '');
                 return (
                   <TableRow key={id}>
@@ -191,7 +226,7 @@ const Vendors: React.FC = () => {
                       <span className="font-medium">{vendor.commission_pct ?? 0}%</span>
                     </TableCell>
                     <TableCell>
-                      {isAdmin ? (
+                      {canManage ? (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <button disabled={updatingId === id} className="focus:outline-none">
@@ -225,7 +260,7 @@ const Vendors: React.FC = () => {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center justify-end gap-1">
-                        {isAdmin && (
+                        {canManage && (
                           <>
                             <Button variant="outline" size="sm" asChild>
                               <Link to={`/vendors/${id}/edit`}><Pencil className="h-3.5 w-3.5 mr-1" /> Edit</Link>
@@ -260,6 +295,8 @@ const Vendors: React.FC = () => {
           </TableBody>
         </Table>
       </div>
+
+      <Pagination page={page} pageSize={PAGE_SIZE} total={filtered.length} onPage={setPage} />
 
       {/* Vendor-portal share link modal */}
       {portalLink && (

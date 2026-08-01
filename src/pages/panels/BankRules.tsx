@@ -5,7 +5,8 @@ import { payload } from '../../lib/unwrap';
 import {
   Page, PageHeader, SectionCard, Btn, StatCard, StatGrid, StatusChip, Chip,
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow,
-  FilterBar, Field, TextInput, SelectInput, TabBar, inrMinor,
+  FilterBar, Field, TextInput, SelectInput, SearchInput, TabBar, inrMinor,
+  ExportMenu, Pagination, useListControls, type CsvColumn,
 } from '../../components/erp';
 
 /**
@@ -112,6 +113,26 @@ const TABS = [
   { key: 'lines', label: 'Statement lines' },
 ] as const;
 
+interface TotalRow { category: string | null; mark_as: string | null; lines: number; in_minor: string; out_minor: string }
+
+// Client-side CSV exports. (humanish/categoryLabel referenced lazily in closures.)
+const RULE_COLS: CsvColumn<Rule>[] = [
+  { key: 'priority', label: 'Priority' },
+  { key: 'name', label: 'Rule' },
+  { key: 'summary', label: 'What it does' },
+  { key: 'hit_count', label: 'Times used' },
+  { key: 'last_hit_at', label: 'Last used', format: (r) => (r.last_hit_at ? r.last_hit_at.slice(0, 10) : 'never') },
+  { key: 'active', label: 'Status', format: (r) => (r.active ? 'Active' : 'Inactive') },
+];
+
+const TOTALS_COLS: CsvColumn<TotalRow>[] = [
+  { key: 'category', label: 'Category', format: (t) => t.category ?? '(uncategorised)' },
+  { key: 'mark_as', label: 'Marked as', format: (t) => (t.mark_as ? humanish(t.mark_as) : '') },
+  { key: 'lines', label: 'Lines' },
+  { key: 'in_minor', label: 'Money in', money: true },
+  { key: 'out_minor', label: 'Money out', money: true },
+];
+
 const BankRules: React.FC = () => {
   const { hasPerm } = useAuth();
   const canPost = hasPerm('accounting.post');
@@ -211,6 +232,7 @@ const BankRules: React.FC = () => {
             title="Your rules"
             description="Checked from the top down — the first rule that fits a line wins. A lower priority number is checked earlier."
             flush
+            action={<ExportMenu filename="bank-rules" columns={RULE_COLS} rows={rules} disabled={rules.length === 0} />}
           >
             <TableShell>
               <table className="w-full text-sm">
@@ -487,6 +509,28 @@ const LinesTab: React.FC<{
     } catch (e: any) { onError(e?.response?.data?.message ?? e.message); }
   };
 
+  // Client-side search + pagination over the current state's lines (server caps at 200).
+  const lc = useListControls({ pageSize: 25 });
+  const filtered = useMemo(() => {
+    const q = lc.debouncedSearch.trim().toLowerCase();
+    if (!q) return lines;
+    return lines.filter((l) => `${l.description ?? ''} ${l.ref_no ?? ''} ${l.file_name ?? ''}`.toLowerCase().includes(q));
+  }, [lines, lc.debouncedSearch]);
+  const pageLines = filtered.slice((lc.page - 1) * lc.pageSize, lc.page * lc.pageSize);
+
+  const lineCols = useMemo<CsvColumn<LineRow>[]>(() => [
+    { key: 'line_date', label: 'Date', format: (l) => l.line_date ?? '' },
+    { key: 'description', label: 'Details', format: (l) => l.description ?? '' },
+    { key: 'ref_no', label: 'Ref', format: (l) => l.ref_no ?? '' },
+    { key: 'account', label: 'Statement account' },
+    { key: 'credit_minor', label: 'Money in', money: true },
+    { key: 'debit_minor', label: 'Money out', money: true },
+    { key: 'category', label: 'Category', format: (l) => (l.auto_category ? categoryLabel(l.auto_category, options) : (l.auto_label ?? '')) },
+    { key: 'auto_mark_as', label: 'Marked as', format: (l) => (l.auto_mark_as ? humanish(l.auto_mark_as) : '') },
+    { key: 'category_confirmed', label: 'Status', format: (l) => (l.category_confirmed ? 'Confirmed' : (l.auto_category || l.auto_mark_as || l.auto_label) ? 'Suggested' : 'Not categorised') },
+    { key: 'rule_name', label: 'Rule', format: (l) => l.rule_name ?? '' },
+  ], [options]);
+
   return (
     <>
       <StatGrid cols={4}>
@@ -498,12 +542,21 @@ const LinesTab: React.FC<{
         <StatCard label="Confirmed" value={stats.confirmed} tone="good" sub="You agreed; rules leave these alone" />
       </StatGrid>
 
-      <TabBar tabs={STATE_TABS} active={state} onChange={setState} />
+      <CategoryTotals onError={onError} />
+
+      <TabBar tabs={STATE_TABS} active={state} onChange={(k) => { setState(k); lc.setPage(1); }} />
+
+      {lines.length > 0 && (
+        <FilterBar>
+          <Field label="Search"><SearchInput value={lc.search} placeholder="Description, ref or file…" onChange={(e) => lc.setSearch(e.target.value)} /></Field>
+        </FilterBar>
+      )}
 
       <SectionCard
         title={STATE_TABS.find((t) => t.key === state)?.label}
         description="A suggested category is a guess from one of your rules. Confirming it makes it yours — no rule will change it afterwards."
         flush
+        action={<ExportMenu filename={`bank-lines-${state}`} columns={lineCols} rows={filtered} disabled={filtered.length === 0} />}
       >
         <TableShell maxHeight="65vh">
           <table className="w-full text-sm">
@@ -514,15 +567,17 @@ const LinesTab: React.FC<{
               {canPost && <Th num>Action</Th>}
             </THead>
             <TBody>
-              {!loading && lines.length === 0 && (
+              {!loading && filtered.length === 0 && (
                 <EmptyRow colSpan={canPost ? 7 : 6}>
-                  {state === 'uncategorised'
-                    ? 'Nothing waiting — every imported line has a category.'
-                    : 'No lines here yet.'}
+                  {lc.debouncedSearch.trim()
+                    ? 'No lines match your search.'
+                    : state === 'uncategorised'
+                      ? 'Nothing waiting — every imported line has a category.'
+                      : 'No lines here yet.'}
                 </EmptyRow>
               )}
               {loading && <EmptyRow colSpan={canPost ? 7 : 6}>Loading…</EmptyRow>}
-              {lines.map((l) => {
+              {pageLines.map((l) => {
                 const labelled = !!(l.auto_category || l.auto_mark_as || l.auto_label);
                 return (
                   <Tr key={l.id}>
@@ -583,8 +638,95 @@ const LinesTab: React.FC<{
             </TBody>
           </table>
         </TableShell>
+        <Pagination page={lc.page} pageSize={lc.pageSize} total={filtered.length} onPage={lc.setPage} onPageSize={lc.setPageSize} />
       </SectionCard>
     </>
+  );
+};
+
+// ── Category totals ("spend by category" roll-up) — GET /bank-rules/lines/totals ─
+const CategoryTotals: React.FC<{ onError: (m: string) => void }> = ({ onError }) => {
+  const [open, setOpen] = useState(false);
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [confirmedOnly, setConfirmedOnly] = useState(false);
+  const [rows, setRows] = useState<TotalRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true); onError('');
+    try {
+      const params: Record<string, string> = {};
+      if (from) params.from = from;
+      if (to) params.to = to;
+      if (confirmedOnly) params.confirmedOnly = 'true';
+      const res = await api.get('/bank-rules/lines/totals', { params });
+      setRows(payload<TotalRow[]>(res) ?? []);
+      setLoaded(true);
+    } catch (e: any) { onError(e?.response?.data?.message ?? e.message); }
+    finally { setLoading(false); }
+  }, [from, to, confirmedOnly, onError]);
+
+  const totals = useMemo(() => rows.reduce(
+    (acc, r) => ({ inM: acc.inM + Number(r.in_minor || 0), outM: acc.outM + Number(r.out_minor || 0) }),
+    { inM: 0, outM: 0 },
+  ), [rows]);
+
+  return (
+    <SectionCard
+      title="Category totals"
+      description="Roll-up of categorised bank lines — money in and out per category, for a chosen period."
+      action={
+        open ? <ExportMenu filename="bank-category-totals" columns={TOTALS_COLS} rows={rows} disabled={rows.length === 0} />
+          : <Btn variant="outline" onClick={() => { setOpen(true); if (!loaded) load(); }}>Show category totals</Btn>
+      }
+    >
+      {open && (
+        <>
+          <FilterBar>
+            <Field label="From"><TextInput type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
+            <Field label="To"><TextInput type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
+            <Field label="Confirmed only">
+              <SelectInput value={confirmedOnly ? 'yes' : 'no'} onChange={(e) => setConfirmedOnly(e.target.value === 'yes')}>
+                <option value="no">All labelled lines</option>
+                <option value="yes">Confirmed only</option>
+              </SelectInput>
+            </Field>
+            <div className="flex items-end"><Btn onClick={load} disabled={loading}>{loading ? 'Loading…' : 'Apply'}</Btn></div>
+          </FilterBar>
+          <TableShell>
+            <table className="w-full text-sm">
+              <THead>
+                <Th>Category</Th><Th>Marked as</Th><Th num>Lines</Th><Th num>Money in</Th><Th num>Money out</Th>
+              </THead>
+              <TBody>
+                {loading && <EmptyRow colSpan={5}>Loading…</EmptyRow>}
+                {!loading && rows.length === 0 && <EmptyRow colSpan={5}>No categorised lines in this period yet.</EmptyRow>}
+                {rows.map((t, i) => (
+                  <Tr key={`${t.category ?? ''}-${t.mark_as ?? ''}-${i}`}>
+                    <Td className="font-medium text-gray-900">{t.category ?? '(uncategorised)'}</Td>
+                    <Td>{t.mark_as ? <Chip tone="blue">{humanish(t.mark_as)}</Chip> : '—'}</Td>
+                    <Td num className="tabular-nums">{t.lines}</Td>
+                    <Td num className="text-emerald-700">{Number(t.in_minor) ? rup(t.in_minor) : '—'}</Td>
+                    <Td num className="text-red-700">{Number(t.out_minor) ? rup(t.out_minor) : '—'}</Td>
+                  </Tr>
+                ))}
+                {!loading && rows.length > 0 && (
+                  <Tr className="border-t-2 border-gray-200 font-semibold">
+                    <Td className="text-gray-900">Total</Td>
+                    <Td />
+                    <Td num>{rows.reduce((n, r) => n + Number(r.lines || 0), 0)}</Td>
+                    <Td num className="text-emerald-700">{rup(String(totals.inM))}</Td>
+                    <Td num className="text-red-700">{rup(String(totals.outM))}</Td>
+                  </Tr>
+                )}
+              </TBody>
+            </table>
+          </TableShell>
+        </>
+      )}
+    </SectionCard>
   );
 };
 

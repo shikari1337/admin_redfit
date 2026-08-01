@@ -4,8 +4,9 @@ import { payload } from '../../lib/unwrap';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   Page, PageHeader, SectionCard, Btn, Chip,
-  TableShell, THead, Th, TBody, Tr, Td, EmptyRow, TextInput, SelectInput, Field,
+  TableShell, THead, Th, TBody, Tr, Td, EmptyRow, TextInput, SelectInput, Field, ExportMenu,
 } from '../../components/erp';
+import type { CsvColumn } from '../../components/erp';
 
 /**
  * STATUTORY RATE CODES — the owner/CA screen for date-effective GST.
@@ -35,6 +36,16 @@ interface CodeRow {
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
+
+// Rate-code mapping export (percentages, not currency) — Zoho-parity "export the mapping".
+const MAPPING_CSV_COLS: CsvColumn<TaxRuleRow>[] = [
+  { key: 'name', label: 'Tax rule' },
+  { key: 'staticRate', label: 'Rate typed in %' },
+  { key: 'ruleCode', label: 'Official rule linked', format: (r) => r.ruleCode ?? '(not linked)' },
+  { key: 'effectiveRate', label: 'Effective rate %' },
+  { key: 'rateSource', label: 'Rate source' },
+  { key: 'note', label: 'Why' },
+];
 
 /** Place-of-supply rule (IGST s.10) — see backend utils/placeOfSupply.ts. */
 type PosRule = 'ship_to' | 'bill_to_when_present';
@@ -204,6 +215,15 @@ const GstRateCodes: React.FC = () => {
       <SectionCard
         title="Your tax rules"
         description="Link a rule to the official rate it follows. Leave it unlinked and the rule keeps charging the rate you typed in — that is always the safe default."
+        action={
+          <ExportMenu
+            filename={`gst-rate-code-mapping-${data?.asOf ?? asOf}`}
+            columns={MAPPING_CSV_COLS}
+            rows={data?.taxRules ?? []}
+            canExport={hasPerm('gst.read')}
+            disabled={!data}
+          />
+        }
       >
         <TableShell>
           <table className="w-full text-sm">

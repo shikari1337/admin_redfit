@@ -2,9 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { payload } from '../../lib/unwrap';
+import { formatDate } from '../../utils/date';
 import {
   Page, PageHeader, Btn, StatCard, StatGrid, StatusChip, TabBar,
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow, inrMinor, AttachmentPanel,
+  FilterBar, Field, SelectInput, ExportMenu, Pagination, useListControls, type CsvColumn,
 } from '../../components/erp';
 
 /**
@@ -22,6 +24,19 @@ const monthLabel = (m: string) => {
 
 interface CatOpt { key: string; label: string; }
 
+// Client CSV of the expense rows the page already holds.
+const EXPENSE_CSV_COLUMNS: CsvColumn<any>[] = [
+  { key: 'expense_number', label: 'Number' },
+  { key: 'expense_date', label: 'Date' },
+  { key: 'category_label', label: 'Category' },
+  { key: 'vendor_name', label: 'Paid to' },
+  { key: 'description', label: 'Description' },
+  { key: 'amount_minor', label: 'Amount', money: true },
+  { key: 'gst_minor', label: 'GST', money: true },
+  { key: 'total_minor', label: 'Total', money: true },
+  { key: 'paid_from', label: 'Paid from' },
+];
+
 const blankForm = () => ({
   expenseDate: todayStr(),
   category: 'rent',
@@ -38,6 +53,7 @@ const blankForm = () => ({
 const Expenses: React.FC = () => {
   const { hasPerm } = useAuth();
   const canPost = hasPerm('accounting.post');
+  const canRead = hasPerm('accounting.read');
 
   const [tab, setTab] = useState<'expenses' | 'recurring' | 'bankbook'>('expenses');
   const [error, setError] = useState('');
@@ -45,6 +61,7 @@ const Expenses: React.FC = () => {
   // ── Expenses tab ──
   const [cats, setCats] = useState<CatOpt[]>([]);
   const [rows, setRows] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
   const [monthly, setMonthly] = useState<any[]>([]);
   const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState(blankForm());
@@ -52,19 +69,36 @@ const Expenses: React.FC = () => {
   // Which expense's attachments (receipts/PDFs) are open below the table.
   const [attachFor, setAttachFor] = useState<{ id: string; number: string } | null>(null);
 
+  // Server-side filters + pagination (the /expenses route supports
+  // from/to/category/paidFrom/limit/offset and returns a total).
+  const lc = useListControls({ pageSize: 25 });
+  const [category, setCategory] = useState('');
+  const [paidFrom, setPaidFrom] = useState('');
+
   const loadExpenses = async () => {
     try {
-      const res = await api.get('/expenses');
+      const params: Record<string, string | number> = {
+        limit: lc.pageSize, offset: (lc.page - 1) * lc.pageSize,
+      };
+      if (lc.from) params.from = lc.from;
+      if (lc.to) params.to = lc.to;
+      if (category) params.category = category;
+      if (paidFrom) params.paidFrom = paidFrom;
+      const res = await api.get('/expenses', { params });
       const d = payload<any>(res);
       setRows(d.rows ?? []);
+      setTotal(d.total ?? 0);
       setMonthly(d.monthly ?? []);
     } catch (e: any) { setError(e?.response?.data?.message ?? e.message); }
   };
 
   useEffect(() => {
     api.get('/expenses/categories').then((r) => setCats(payload<CatOpt[]>(r) ?? [])).catch(() => {});
-    loadExpenses();
   }, []);
+  useEffect(() => {
+    loadExpenses();
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [lc.from, lc.to, lc.page, lc.pageSize, category, paidFrom]);
 
   const submit = async () => {
     setError(''); setSaving(true);
@@ -102,8 +136,11 @@ const Expenses: React.FC = () => {
       <PageHeader
         title="Expenses & Bank Book"
         description="Record shop expenses with their GST, pay from Bank or Cash, and see a running bank book. Each entry posts a balanced accounting journal automatically."
-        actions={tab === 'expenses' && canPost && (
-          <Btn onClick={() => setShowNew((s) => !s)}>{showNew ? 'Close' : '+ Record expense'}</Btn>
+        actions={tab === 'expenses' && (
+          <div className="flex items-center gap-2">
+            <ExportMenu filename="expenses" columns={EXPENSE_CSV_COLUMNS} rows={rows} canExport={canRead} />
+            {canPost && <Btn onClick={() => setShowNew((s) => !s)}>{showNew ? 'Close' : '+ Record expense'}</Btn>}
+          </div>
         )}
       />
 
@@ -212,6 +249,25 @@ const Expenses: React.FC = () => {
             </div>
           )}
 
+          <FilterBar>
+            <Field label="Category">
+              <SelectInput value={category} onChange={(e) => { setCategory(e.target.value); lc.setPage(1); }}>
+                <option value="">All categories</option>
+                {cats.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+              </SelectInput>
+            </Field>
+            <Field label="Paid from">
+              <SelectInput value={paidFrom} onChange={(e) => { setPaidFrom(e.target.value); lc.setPage(1); }}>
+                <option value="">All</option>
+                <option value="bank">Bank</option>
+                <option value="cash">Cash</option>
+                <option value="unpaid">Unpaid (payable)</option>
+              </SelectInput>
+            </Field>
+            <Field label="From"><input type="date" value={lc.from} onChange={(e) => lc.setFrom(e.target.value)} className="rounded border px-2 py-1.5 text-sm" /></Field>
+            <Field label="To"><input type="date" value={lc.to} onChange={(e) => lc.setTo(e.target.value)} className="rounded border px-2 py-1.5 text-sm" /></Field>
+          </FilterBar>
+
           {monthly.length > 0 && (
             <StatGrid cols={4}>
               {monthly.slice(0, 4).map((m: any) => (
@@ -239,7 +295,7 @@ const Expenses: React.FC = () => {
                         title="View / add attachments"
                       >{e.expense_number}</button>
                     </Td>
-                    <Td>{e.expense_date}</Td>
+                    <Td>{formatDate(e.expense_date, 'dd MMM yyyy', e.expense_date ?? '—')}</Td>
                     <Td>{e.category_label}</Td>
                     <Td>{e.vendor_name ?? '—'}</Td>
                     <Td className="max-w-xs truncate" title={e.description}>{e.description}</Td>
@@ -263,6 +319,7 @@ const Expenses: React.FC = () => {
               </TBody>
             </table>
           </TableShell>
+          <Pagination page={lc.page} pageSize={lc.pageSize} total={total} onPage={lc.setPage} onPageSize={lc.setPageSize} />
           <p className="text-xs text-gray-400">
             * GST marked with an asterisk is being claimed as Input Tax Credit (ITC).
             {' '}Click an expense number to attach its receipt or supporting PDF.

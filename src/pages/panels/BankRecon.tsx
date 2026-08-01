@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { api } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { payload } from '../../lib/unwrap';
 import {
   Page, PageHeader, SectionCard, Btn, StatCard, StatGrid, StatusChip,
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow, Field, SelectInput, inrMinor,
+  FilterBar, SearchInput, ExportMenu, Pagination, useListControls, type CsvColumn,
 } from '../../components/erp';
 
 /**
@@ -28,6 +29,19 @@ interface StatementRow {
   matched_count: number; unmatched_count: number; ignored_count: number;
 }
 
+// Client-side CSV of the uploaded-statements list.
+const STATEMENT_COLS: CsvColumn<StatementRow>[] = [
+  { key: 'created_at', label: 'Uploaded', format: (s) => (s.created_at || '').slice(0, 10) },
+  { key: 'account', label: 'Account' },
+  { key: 'file_name', label: 'File', format: (s) => s.file_name ?? '' },
+  { key: 'period_from', label: 'Period from', format: (s) => s.period_from ?? '' },
+  { key: 'period_to', label: 'Period to', format: (s) => s.period_to ?? '' },
+  { key: 'row_count', label: 'Lines' },
+  { key: 'matched_count', label: 'Matched' },
+  { key: 'unmatched_count', label: 'To review' },
+  { key: 'ignored_count', label: 'Ignored' },
+];
+
 const BankRecon: React.FC = () => {
   const { hasPerm } = useAuth();
   const canPost = hasPerm('accounting.post');
@@ -37,13 +51,37 @@ const BankRecon: React.FC = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [banner, setBanner] = useState<string>('');
 
+  // Account filter is a real backend param (?account=bank|cash); search + paging client-side.
+  const [accountFilter, setAccountFilter] = useState('');
+  const lc = useListControls({ pageSize: 20 });
+
   const loadStatements = async () => {
     try {
-      const res = await api.get('/bank-recon/statements');
+      const res = await api.get('/bank-recon/statements', {
+        params: accountFilter ? { account: accountFilter } : {},
+      });
       setStatements(payload<StatementRow[]>(res) ?? []);
     } catch (e: any) { setError(e?.response?.data?.message ?? e.message); }
   };
-  useEffect(() => { loadStatements(); }, []);
+  useEffect(() => { loadStatements(); /* eslint-disable-next-line */ }, [accountFilter]);
+
+  const deleteStatement = async (id: string, name: string) => {
+    if (!window.confirm(`Delete the statement "${name || 'statement'}"? Its matches are released; the underlying journals are NOT deleted.`)) return;
+    setError('');
+    try {
+      await api.delete(`/bank-recon/statements/${id}`);
+      if (selectedId === id) setSelectedId(null);
+      setBanner('Statement deleted.');
+      loadStatements();
+    } catch (e: any) { setError(e?.response?.data?.message ?? e.message); }
+  };
+
+  const filteredStatements = useMemo(() => {
+    const q = lc.debouncedSearch.trim().toLowerCase();
+    if (!q) return statements;
+    return statements.filter((s) => `${s.file_name ?? ''} ${s.account}`.toLowerCase().includes(q));
+  }, [statements, lc.debouncedSearch]);
+  const pageStatements = filteredStatements.slice((lc.page - 1) * lc.pageSize, lc.page * lc.pageSize);
 
   return (
     <Page>
@@ -56,6 +94,8 @@ const BankRecon: React.FC = () => {
 
       {!selectedId ? (
         <>
+          {banner && <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{banner}</div>}
+
           {canPost && (
             <UploadCard
               onError={setError}
@@ -63,16 +103,38 @@ const BankRecon: React.FC = () => {
             />
           )}
 
-          <SectionCard title="Uploaded statements" flush>
+          {statements.length > 0 && (
+            <FilterBar>
+              <Field label="Search"><SearchInput value={lc.search} placeholder="File name…" onChange={(e) => lc.setSearch(e.target.value)} /></Field>
+              <Field label="Account">
+                <SelectInput value={accountFilter} onChange={(e) => { setAccountFilter(e.target.value); lc.setPage(1); }}>
+                  <option value="">All accounts</option>
+                  <option value="bank">Bank</option>
+                  <option value="cash">Cash</option>
+                </SelectInput>
+              </Field>
+            </FilterBar>
+          )}
+
+          <SectionCard
+            title="Uploaded statements"
+            flush
+            action={<ExportMenu filename="bank-statements" columns={STATEMENT_COLS} rows={filteredStatements} disabled={statements.length === 0} />}
+          >
             <TableShell>
               <table className="w-full text-sm">
                 <THead>
                   <Th>Uploaded</Th><Th>Account</Th><Th>File</Th><Th>Period</Th>
                   <Th num>Lines</Th><Th num>Matched</Th><Th num>To review</Th><Th></Th>
+                  {canPost && <Th></Th>}
                 </THead>
                 <TBody>
-                  {statements.length === 0 && <EmptyRow colSpan={8}>No statements uploaded yet. Upload one above to begin.</EmptyRow>}
-                  {statements.map((s) => (
+                  {filteredStatements.length === 0 && (
+                    <EmptyRow colSpan={canPost ? 9 : 8}>
+                      {statements.length === 0 ? 'No statements uploaded yet. Upload one above to begin.' : 'No statements match your filters.'}
+                    </EmptyRow>
+                  )}
+                  {pageStatements.map((s) => (
                     <Tr key={s.id} className="cursor-pointer" onClick={() => { setBanner(''); setSelectedId(s.id); }}>
                       <Td>{(s.created_at || '').slice(0, 10)}</Td>
                       <Td className="capitalize">{s.account}</Td>
@@ -84,11 +146,20 @@ const BankRecon: React.FC = () => {
                         ? <StatusChip status="unmatched" label={String(s.unmatched_count)} />
                         : <StatusChip status="matched" label="0" />}</Td>
                       <Td num><span className="font-medium text-gray-900 hover:underline">Open →</span></Td>
+                      {canPost && (
+                        <Td num>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); deleteStatement(s.id, s.file_name ?? ''); }}
+                            className="text-xs font-medium text-red-600 hover:underline"
+                          >Delete</button>
+                        </Td>
+                      )}
                     </Tr>
                   ))}
                 </TBody>
               </table>
             </TableShell>
+            <Pagination page={lc.page} pageSize={lc.pageSize} total={filteredStatements.length} onPage={lc.setPage} onPageSize={lc.setPageSize} />
           </SectionCard>
         </>
       ) : (
@@ -99,6 +170,7 @@ const BankRecon: React.FC = () => {
           canPost={canPost}
           onError={setError}
           onBack={() => { setSelectedId(null); setBanner(''); setError(''); loadStatements(); }}
+          onDeleted={() => { setSelectedId(null); setBanner('Statement deleted.'); setError(''); loadStatements(); }}
         />
       )}
     </Page>
@@ -186,10 +258,21 @@ const UploadCard: React.FC<{ onError: (m: string) => void; onDone: (id: string, 
 };
 
 // ── Statement detail ────────────────────────────────────────────────────────
+// Client-side CSV of the statement's lines.
+const LINE_COLS: CsvColumn<any>[] = [
+  { key: 'line_date', label: 'Date', format: (l) => l.line_date ?? '' },
+  { key: 'description', label: 'Details', format: (l) => l.description ?? '' },
+  { key: 'ref_no', label: 'Ref', format: (l) => l.ref_no ?? '' },
+  { key: 'credit_minor', label: 'Money in', money: true },
+  { key: 'debit_minor', label: 'Money out', money: true },
+  { key: 'match_status', label: 'Status' },
+  { key: 'matched_journal_number', label: 'Matched to', format: (l) => l.matched_journal_number ?? '' },
+];
+
 const StatementDetail: React.FC<{
   statementId: string; banner: string; canPost: boolean;
-  onError: (m: string) => void; onBack: () => void;
-}> = ({ statementId, banner, canPost, onError, onBack }) => {
+  onError: (m: string) => void; onBack: () => void; onDeleted: () => void;
+}> = ({ statementId, banner, canPost, onError, onBack, onDeleted }) => {
   const [summary, setSummary] = useState<any>(null);
   const [detail, setDetail] = useState<any>(null);
   const [unmatched, setUnmatched] = useState<{ statementLines: any[]; bookEntries: any[] } | null>(null);
@@ -198,6 +281,8 @@ const StatementDetail: React.FC<{
   const [working, setWorking] = useState(false);
   const [coa, setCoa] = useState<{ code: string; name: string; is_active: boolean }[]>([]);
   const [bookLineId, setBookLineId] = useState<string | null>(null);
+  const [note, setNote] = useState('');
+  const [busyAction, setBusyAction] = useState(false);
 
   const reload = async () => {
     try {
@@ -254,24 +339,59 @@ const StatementDetail: React.FC<{
     catch (e: any) { onError(e?.response?.data?.message ?? e.message); }
   };
 
+  // Re-run auto-match on the whole statement (POST /statements/:id/auto-match).
+  const rerunAutoMatch = async () => {
+    setBusyAction(true); onError(''); setNote('');
+    try {
+      const m = payload<any>(await api.post(`/bank-recon/statements/${statementId}/auto-match`, {}));
+      setNote(`Auto-match re-run: matched ${m?.matched ?? 0} of ${m?.total ?? 0} line${(m?.total ?? 0) === 1 ? '' : 's'}.`
+        + ((m?.remaining ?? 0) ? ` ${m.remaining} still need attention.` : ''));
+      await reload();
+    } catch (e: any) { onError(e?.response?.data?.message ?? e.message); }
+    finally { setBusyAction(false); }
+  };
+
+  // Delete the whole statement (DELETE /statements/:id).
+  const deleteThis = async () => {
+    if (!window.confirm('Delete this statement? Its matches are released; the underlying journals are NOT deleted.')) return;
+    setBusyAction(true); onError('');
+    try { await api.delete(`/bank-recon/statements/${statementId}`); onDeleted(); }
+    catch (e: any) { onError(e?.response?.data?.message ?? e.message); setBusyAction(false); }
+  };
+
   const diff = summary ? Number(summary.differenceMinor) : 0;
   const closing = summary?.closingCheck;
   const closingDiff = closing ? Number(closing.differenceMinor) : null;
 
   return (
     <>
-      <div className="flex items-center gap-3">
-        <Btn variant="ghost" onClick={onBack}>← All statements</Btn>
-        {detail?.header && (
-          <span className="text-sm text-gray-500">
-            {detail.header.file_name ?? 'statement'} · <span className="capitalize">{detail.header.account}</span>
-            {detail.header.period_from ? ` · ${detail.header.period_from} → ${detail.header.period_to}` : ''}
-          </span>
-        )}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <Btn variant="ghost" onClick={onBack}>← All statements</Btn>
+          {detail?.header && (
+            <span className="text-sm text-gray-500">
+              {detail.header.file_name ?? 'statement'} · <span className="capitalize">{detail.header.account}</span>
+              {detail.header.period_from ? ` · ${detail.header.period_from} → ${detail.header.period_to}` : ''}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <ExportMenu filename={`statement-${(detail?.header?.file_name ?? statementId).toString().replace(/\.[^.]+$/, '')}`}
+            columns={LINE_COLS} rows={detail?.lines ?? []} disabled={!detail?.lines?.length} />
+          {canPost && (
+            <>
+              <Btn variant="outline" onClick={rerunAutoMatch} disabled={busyAction}>{busyAction ? 'Working…' : 'Re-run auto-match'}</Btn>
+              <Btn variant="dangerOutline" onClick={deleteThis} disabled={busyAction}>Delete statement</Btn>
+            </>
+          )}
+        </div>
       </div>
 
       {banner && (
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{banner}</div>
+      )}
+      {note && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{note}</div>
       )}
 
       {/* Summary: book vs bank vs difference */}

@@ -7,6 +7,7 @@ import { payload } from '../../lib/unwrap';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   Page, PageHeader, Btn, SectionCard, TableShell, THead, Th, TBody, Tr, Td, EmptyRow,
+  ExportMenu, SearchInput, type CsvColumn,
 } from '../../components/erp';
 
 /**
@@ -30,13 +31,23 @@ const fmtBytes = (n: number): string => {
 };
 const fmtWhen = (d: string) => { try { return new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }); } catch { return d; } };
 
+const fileCols: CsvColumn<FileRow>[] = [
+  { key: 'fileName', label: 'Name' },
+  { key: 'contentType', label: 'Type' },
+  { key: 'sizeBytes', label: 'Size (bytes)' },
+  { key: 'notes', label: 'Notes' },
+  { key: 'createdAt', label: 'Added', format: (r) => fmtWhen(r.createdAt) },
+];
+
 const DocumentLibrary: React.FC = () => {
   const { hasPerm } = useAuth();
   const canManage = hasPerm('content.manage');
+  const canRead = hasPerm('content.read');
 
   const [folders, setFolders] = useState<FolderRow[]>([]);
   const [selected, setSelected] = useState<string | null>(null); // null = root ("All files")
   const [files, setFiles] = useState<FileRow[]>([]);
+  const [q, setQ] = useState('');
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
@@ -123,6 +134,10 @@ const DocumentLibrary: React.FC = () => {
   };
 
   const selectedName = selected ? (folders.find((f) => f.id === selected)?.name ?? 'Folder') : 'All files';
+  const query = q.trim().toLowerCase();
+  const visibleFiles = query
+    ? files.filter((f) => f.fileName.toLowerCase().includes(query) || (f.notes ?? '').toLowerCase().includes(query))
+    : files;
 
   // Recursive tree node.
   const TreeNode: React.FC<{ folder: FolderRow; depth: number }> = ({ folder, depth }) => {
@@ -155,17 +170,20 @@ const DocumentLibrary: React.FC = () => {
       <PageHeader
         title="Document Library"
         description="Your store's file cabinet — agreements, licences, certificates and scanned documents, organised in folders. Separate from generated invoices and record attachments."
-        actions={canManage && (
+        actions={
           <div className="flex gap-2">
-            <Btn variant="outline" onClick={newFolder}><FolderPlus className="mr-1 h-4 w-4" /> New folder</Btn>
-            <>
-              <input ref={fileRef} type="file" className="hidden" onChange={onPick} />
-              <Btn onClick={() => fileRef.current?.click()} disabled={uploading}>
-                {uploading ? <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> Uploading…</> : <><Upload className="mr-1 h-4 w-4" /> Upload file</>}
-              </Btn>
-            </>
+            <ExportMenu filename={`documents-${selectedName}`} columns={fileCols} rows={visibleFiles} canExport={canRead} disabled={loadingFiles} />
+            {canManage && (
+              <>
+                <Btn variant="outline" onClick={newFolder}><FolderPlus className="mr-1 h-4 w-4" /> New folder</Btn>
+                <input ref={fileRef} type="file" className="hidden" onChange={onPick} />
+                <Btn onClick={() => fileRef.current?.click()} disabled={uploading}>
+                  {uploading ? <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> Uploading…</> : <><Upload className="mr-1 h-4 w-4" /> Upload file</>}
+                </Btn>
+              </>
+            )}
           </div>
-        )}
+        }
       />
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
@@ -188,6 +206,7 @@ const DocumentLibrary: React.FC = () => {
         <SectionCard
           flush
           title={<span className="inline-flex items-center gap-1.5 text-sm text-gray-500"><Home className="h-4 w-4" /><ChevronRight className="h-3.5 w-3.5" /><span className="font-semibold text-gray-900">{selectedName}</span></span>}
+          action={<SearchInput value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search files…" className="w-56" />}
         >
           <TableShell maxHeight="60vh">
             <table className="w-full text-sm">
@@ -196,8 +215,8 @@ const DocumentLibrary: React.FC = () => {
               </THead>
               <TBody>
                 {loadingFiles && <EmptyRow colSpan={4}>Loading…</EmptyRow>}
-                {!loadingFiles && files.length === 0 && <EmptyRow colSpan={4}>No files in this folder yet.</EmptyRow>}
-                {!loadingFiles && files.map((f) => (
+                {!loadingFiles && visibleFiles.length === 0 && <EmptyRow colSpan={4}>{files.length === 0 ? 'No files in this folder yet.' : 'No files match your search.'}</EmptyRow>}
+                {!loadingFiles && visibleFiles.map((f) => (
                   <Tr key={f.id}>
                     <Td>
                       <div className="flex items-center gap-2">

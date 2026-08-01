@@ -2,9 +2,11 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FileText, Plus, Loader2, CheckCircle2, Star, RotateCcw, Trash2, Eye } from 'lucide-react';
 import { api } from '../../services/api';
 import { payload } from '@/lib/unwrap';
+import { useAuth } from '../../contexts/AuthContext';
 import {
   Page, PageHeader, Btn, Field, TextInput,
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow, EmptyState, Chip,
+  ExportMenu, type CsvColumn,
 } from '../../components/erp';
 
 /**
@@ -22,7 +24,15 @@ interface ShowFields { hsn: boolean; bankDetails: boolean; signature: boolean }
 interface TplConfig { logoUrl: string; headerHtml: string; footerHtml: string; termsText: string; accentColorHex: string; showFields: ShowFields }
 interface Tpl { id: string; doc_type: string; name: string; is_default: boolean; published: boolean; version: number; config: TplConfig }
 
+const listCols: CsvColumn<Tpl>[] = [
+  { key: 'name', label: 'Name' },
+  { key: 'doc_type', label: 'Document type' },
+  { key: 'version', label: 'Version' },
+  { key: 'is_default', label: 'State', format: (t) => (t.is_default ? 'Default' : !t.published ? 'Draft' : 'Published') },
+];
+
 const DocumentTemplates: React.FC = () => {
+  const { hasPerm } = useAuth();
   const [docTypes, setDocTypes] = useState<DocTypeOpt[]>([]);
   const [mergeFields, setMergeFields] = useState<MergeField[]>([]);
   const [defaultConfig, setDefaultConfig] = useState<TplConfig | null>(null);
@@ -113,7 +123,12 @@ const DocumentTemplates: React.FC = () => {
         title="Document Templates"
         icon={FileText}
         description="Design how your printed documents look — logo, header, footer, terms, accent colour. Use the merge-field chips to drop in live values like the customer's name. Publish a version, then make it the Default that prints."
-        actions={<Btn onClick={startNew}><Plus className="h-4 w-4" />New template</Btn>}
+        actions={
+          <div className="flex gap-2">
+            <ExportMenu filename={`document-templates-${docType}`} columns={listCols} rows={list ?? []} canExport={hasPerm('settings.manage')} disabled={list == null} />
+            <Btn onClick={startNew}><Plus className="h-4 w-4" />New template</Btn>
+          </div>
+        }
       />
       {msg && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{msg}</div>}
       {okMsg && <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{okMsg}</div>}

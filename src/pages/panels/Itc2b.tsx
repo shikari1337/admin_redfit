@@ -2,26 +2,17 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../../services/api';
 import { payload } from '../../lib/unwrap';
 import { fmtRupees } from '../../lib/money';
+import { useAuth } from '../../contexts/AuthContext';
 import {
   Page, PageHeader, Btn, TextInput, StatusChip, Chip, TabBar, StatCard, StatGrid,
-  TableShell, THead, Th, TBody, Tr, Td,
+  TableShell, THead, Th, TBody, Tr, Td, ExportMenu,
 } from '../../components/erp';
-import type { Tone } from '../../components/erp';
+import type { Tone, CsvColumn } from '../../components/erp';
 import { useGstRegistrations, RegistrationSelect } from './gstinFilter';
 
 function monthRange(ym: string): { from: string; to: string } {
   const [y, m] = ym.split('-').map(Number);
   return { from: `${ym}-01`, to: `${ym}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}` };
-}
-
-async function downloadCsv(path: string, params: Record<string, any>, filename: string) {
-  const res = await api.get(path, { params: { ...params, format: 'csv' }, responseType: 'blob' });
-  const blob = res.data instanceof Blob ? res.data : new Blob([res.data as any], { type: 'text/csv' });
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = filename;
-  document.body.appendChild(a); a.click(); a.remove();
-  window.URL.revokeObjectURL(url);
 }
 
 type Decision = 'accept' | 'reject' | 'pending';
@@ -54,8 +45,45 @@ const BUCKET_TONE: Record<string, Tone> = {
   emerald: 'green', amber: 'amber', blue: 'blue', red: 'red',
 };
 
+// IMS ITC amounts are in RUPEE units → raw numbers in the CSV (not minor units).
+const WORKLIST_CSV_COLS: CsvColumn<any>[] = [
+  { key: 'bucket', label: 'Bucket' },
+  { key: 'vendorName', label: 'Supplier / vendor' },
+  { key: 'gstin', label: 'GSTIN' },
+  { key: 'docNumber', label: 'Invoice / bill #' },
+  { key: 'docDate', label: 'Date' },
+  { key: 'twoBItc', label: '2B ITC' },
+  { key: 'booksItc', label: 'Books ITC' },
+  { key: 'itcAtRisk', label: 'ITC at risk' },
+  { key: 'reason', label: 'What to do' },
+  { key: 'decision', label: 'Decision' },
+  { key: 'portalDone', label: 'Done on portal' },
+];
+const REGISTER_CSV_COLS: CsvColumn<any>[] = [
+  { key: 'billNumber', label: 'Bill #' },
+  { key: 'vendorName', label: 'Vendor' },
+  { key: 'vendorGstin', label: 'GSTIN' },
+  { key: 'billDate', label: 'Date' },
+  { key: 'taxableValue', label: 'Taxable' },
+  { key: 'cgst', label: 'CGST' },
+  { key: 'sgst', label: 'SGST' },
+  { key: 'igst', label: 'IGST' },
+  { key: 'status', label: 'Status' },
+];
+
+/** Flatten the four IMS buckets into one CSV-friendly list. */
+function flattenWorklist(worklist: any): any[] {
+  if (!worklist?.buckets) return [];
+  return BUCKETS.flatMap((b) => (worklist.buckets[b.key] ?? []).map((r: any) => ({
+    ...r, bucket: b.key, decision: r.decision ?? r.recommendation, portalDone: r.portalDone ? 'yes' : 'no',
+  })));
+}
+
 /** Inward GST: IMS workbench + purchase register + report-only 2B recon. */
 const Itc2b: React.FC = () => {
+  const { hasPerm } = useAuth();
+  const canPost = hasPerm('accounting.post');
+  const canRead = hasPerm('gst.read');
   const [tab, setTab] = useState<'ims' | 'register'>('ims');
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
   const [error, setError] = useState('');
@@ -175,11 +203,20 @@ const Itc2b: React.FC = () => {
               {worklist?.hasImport && (
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-gray-500">Imported {worklist.importedAt?.slice(0, 10)}</span>
-                  <Btn variant="outline" onClick={reMatch} disabled={busy}>Re-match</Btn>
-                  <Btn variant="success"
-                    onClick={() => downloadCsv('/accounting/gst/ims/worklist', monthRange(month), `ims-worklist-${month}.csv`)}>
-                    Download CSV
-                  </Btn>
+                  {/* Re-match mutates the worklist → accounting.post only. */}
+                  {canPost && <Btn variant="outline" onClick={reMatch} disabled={busy}>Re-match</Btn>}
+                  <ExportMenu
+                    filename={`ims-worklist-${month}`}
+                    columns={WORKLIST_CSV_COLS}
+                    rows={flattenWorklist(worklist)}
+                    canExport={canRead}
+                    serverExports={[{
+                      label: 'Server CSV (full worklist)',
+                      path: '/accounting/gst/ims/worklist',
+                      params: { ...monthRange(month), format: 'csv' },
+                      filename: `ims-worklist-${month}.csv`,
+                    }]}
+                  />
                 </div>
               )}
             </div>
@@ -187,10 +224,19 @@ const Itc2b: React.FC = () => {
               Download GSTR-2B from the GST portal (JSON), or paste a simplified array of{' '}
               <code>{'{gstin, docNumber, cgst, sgst, igst}'}</code>. Re-importing replaces the month; your Accept/Reject/Pending decisions are kept.
             </p>
-            <textarea value={importJson} onChange={(e) => setImportJson(e.target.value)} rows={4}
-              placeholder='{"data":{"docdata":{"b2b":[{"ctin":"29ABC…","inv":[{"inum":"INV-1","itms":[…]}]}]}}}'
-              className="w-full rounded border px-3 py-2 font-mono text-xs" />
-            <Btn onClick={doImport} disabled={!importJson.trim() || busy}>Import &amp; match</Btn>
+            {canPost ? (
+              <>
+                <textarea value={importJson} onChange={(e) => setImportJson(e.target.value)} rows={4}
+                  placeholder='{"data":{"docdata":{"b2b":[{"ctin":"29ABC…","inv":[{"inum":"INV-1","itms":[…]}]}]}}}'
+                  className="w-full rounded border px-3 py-2 font-mono text-xs" />
+                <Btn onClick={doImport} disabled={!importJson.trim() || busy}>Import &amp; match</Btn>
+              </>
+            ) : (
+              <p className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+                Importing GSTR-2B and matching it needs the <strong>accounting.post</strong> permission. You can view the
+                worklist and export it, but not change it.
+              </p>
+            )}
           </div>
 
           {/* ITC at risk banner */}
@@ -265,25 +311,37 @@ const Itc2b: React.FC = () => {
                             <Td num className="align-top font-mono">{r.booksItc === null ? '—' : fmtRupees(r.booksItc)}</Td>
                             <Td className="align-top text-xs text-gray-600 max-w-sm">{r.reason}</Td>
                             <Td className="align-top">
-                              <div className="flex gap-1">
-                                {(['accept', 'pending', 'reject'] as Decision[]).map((d) => {
-                                  const active = current === d;
-                                  const st = DECISION_STYLE[d];
-                                  return (
-                                    <button key={d} onClick={() => saveDecision(r, { decision: d })}
-                                      title={!r.decision && r.recommendation === d ? 'Recommended' : ''}
-                                      className={`rounded border px-2 py-1 text-xs font-medium transition-colors ${active ? st.on : st.off}`}>
-                                      {st.label}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                              {!r.decision && <div className="mt-1 text-[10px] text-gray-400">Suggested: {DECISION_STYLE[r.recommendation].label}</div>}
+                              {canPost ? (
+                                <>
+                                  <div className="flex gap-1">
+                                    {(['accept', 'pending', 'reject'] as Decision[]).map((d) => {
+                                      const active = current === d;
+                                      const st = DECISION_STYLE[d];
+                                      return (
+                                        <button key={d} onClick={() => saveDecision(r, { decision: d })}
+                                          title={!r.decision && r.recommendation === d ? 'Recommended' : ''}
+                                          className={`rounded border px-2 py-1 text-xs font-medium transition-colors ${active ? st.on : st.off}`}>
+                                          {st.label}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                  {!r.decision && <div className="mt-1 text-[10px] text-gray-400">Suggested: {DECISION_STYLE[r.recommendation].label}</div>}
+                                </>
+                              ) : (
+                                <Chip tone={BUCKET_TONE[current === 'accept' ? 'emerald' : current === 'reject' ? 'red' : 'amber']}>
+                                  {DECISION_STYLE[current].label}{!r.decision ? ' (suggested)' : ''}
+                                </Chip>
+                              )}
                             </Td>
                             <Td className="text-center align-top">
-                              <input type="checkbox" checked={r.portalDone}
-                                onChange={(e) => saveDecision(r, { portalDone: e.target.checked })}
-                                className="h-4 w-4" />
+                              {canPost ? (
+                                <input type="checkbox" checked={r.portalDone}
+                                  onChange={(e) => saveDecision(r, { portalDone: e.target.checked })}
+                                  className="h-4 w-4" />
+                              ) : (
+                                <span className="text-xs text-gray-500">{r.portalDone ? 'Yes' : '—'}</span>
+                              )}
                             </Td>
                           </Tr>
                         );
@@ -333,6 +391,15 @@ const Itc2b: React.FC = () => {
                   <StatCard key={String(k)} label={k} value={v} />
                 ))}
               </StatGrid>
+              <div className="flex justify-end">
+                <ExportMenu
+                  filename={`itc-register-${month}`}
+                  columns={REGISTER_CSV_COLS}
+                  rows={register.rows ?? []}
+                  canExport={canRead}
+                  disabled={!register.rows?.length}
+                />
+              </div>
               <TableShell>
                 <table className="w-full text-sm">
                   <THead>

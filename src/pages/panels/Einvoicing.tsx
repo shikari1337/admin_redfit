@@ -1,10 +1,24 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../services/api';
 import { payload } from '../../lib/unwrap';
+import { useAuth } from '../../contexts/AuthContext';
 import {
   Page, PageHeader, SectionCard, Btn, Chip,
-  TableShell, THead, Th, TBody, Tr, Td, EmptyRow,
+  TableShell, THead, Th, TBody, Tr, Td, EmptyRow, ExportMenu,
 } from '../../components/erp';
+import type { CsvColumn } from '../../components/erp';
+
+// Worklist rows already held client-side → a simple client CSV (no server export).
+const WORKLIST_CSV_COLS: CsvColumn<any>[] = [
+  { key: 'document_type', label: 'Type' },
+  { key: 'document_number', label: 'Number' },
+  { key: 'document_date', label: 'Date' },
+  { key: 'state', label: 'State' },
+  { key: 'irn', label: 'IRN' },
+  { key: 'ack_no', label: 'Ack No.' },
+  { key: 'days_remaining', label: 'Days left' },
+  { key: 'escalation_level', label: 'Escalation' },
+];
 
 /**
  * E-invoicing (IRP) — credentials + 30-day countdown worklist + generate-IRN.
@@ -34,7 +48,7 @@ interface CredStatus {
 const inputCls = 'w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500';
 const labelCls = 'block text-xs font-medium text-gray-600 mb-1';
 
-const CredentialsCard: React.FC = () => {
+const CredentialsCard: React.FC<{ canWrite: boolean }> = ({ canWrite }) => {
   const [status, setStatus] = useState<CredStatus | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
   const [enabled, setEnabled] = useState(true);
@@ -94,6 +108,15 @@ const CredentialsCard: React.FC = () => {
         </Chip>
       )}
     >
+      {status && !status.configured && (
+        <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <strong>Awaiting credentials — live IRN reporting is not active yet.</strong> Save valid IRP/GSP credentials
+          below and generation goes live immediately. Until then a “Generate IRN” still enqueues the submission and the
+          document parks in the worklist as <code>awaiting_credentials</code> — it is <em>never</em> fake-acked.
+        </div>
+      )}
+
+      {canWrite && (
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
           <label className={labelCls}>GSTIN</label>
@@ -135,6 +158,7 @@ const CredentialsCard: React.FC = () => {
           <textarea className={`${inputCls} font-mono h-20`} value={form.publicKey ?? ''} onChange={set('publicKey')} placeholder="-----BEGIN PUBLIC KEY----- …" />
         </div>
       </div>
+      )}
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         {status && secretBadge('Password', status.passwordSet)}
@@ -145,22 +169,31 @@ const CredentialsCard: React.FC = () => {
         )}
       </div>
 
-      <label className="mt-4 flex items-center gap-2 text-sm text-gray-700">
-        <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
-        Enable e-invoicing for this store
-      </label>
+      {canWrite ? (
+        <>
+          <label className="mt-4 flex items-center gap-2 text-sm text-gray-700">
+            <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+            Enable e-invoicing for this store
+          </label>
 
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        <Btn variant="primary" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save credentials'}</Btn>
-        <Btn variant="outline" onClick={runTest} disabled={testing}>{testing ? 'Testing…' : 'Test connection'}</Btn>
-        {msg && <span className="text-sm text-gray-600">{msg}</span>}
-        {test && (
-          <Chip tone={test.status === 'connected' ? 'green' : test.status === 'awaiting_credentials' ? 'amber' : 'red'}>
-            {test.status === 'connected' ? 'Connected' : test.status === 'awaiting_credentials' ? 'Awaiting credentials' : 'Error'}
-            {test.message ? ` — ${test.message}` : ''}
-          </Chip>
-        )}
-      </div>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <Btn variant="primary" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save credentials'}</Btn>
+            <Btn variant="outline" onClick={runTest} disabled={testing}>{testing ? 'Testing…' : 'Test connection'}</Btn>
+            {msg && <span className="text-sm text-gray-600">{msg}</span>}
+            {test && (
+              <Chip tone={test.status === 'connected' ? 'green' : test.status === 'awaiting_credentials' ? 'amber' : 'red'}>
+                {test.status === 'connected' ? 'Connected' : test.status === 'awaiting_credentials' ? 'Awaiting credentials' : 'Error'}
+                {test.message ? ` — ${test.message}` : ''}
+              </Chip>
+            )}
+          </div>
+        </>
+      ) : (
+        <p className="mt-4 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+          You can view credential status but not change it. Saving or testing IRP/GSP credentials needs the
+          <strong> accounting.post</strong> or <strong>settings.manage</strong> permission.
+        </p>
+      )}
     </SectionCard>
   );
 };
@@ -198,6 +231,10 @@ const GenerateCard: React.FC<{ onDone: () => void }> = ({ onDone }) => {
 };
 
 const Einvoicing: React.FC = () => {
+  const { hasPerm } = useAuth();
+  // Writes require accounting.post OR settings.manage (einvoice.ts requireAny).
+  const canWrite = hasPerm('accounting.post') || hasPerm('settings.manage');
+  const canRead = hasPerm('gst.read') || hasPerm('accounting.read');
   const [rows, setRows] = useState<any[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -226,10 +263,24 @@ const Einvoicing: React.FC = () => {
         description="Government IRP reporting — signed IRN + QR on every B2B tax invoice, exactly like the compliance leaders. Configure credentials, then generate. Documents past the 30-day window are permanently invalid for the buyer's ITC."
       />
 
-      <CredentialsCard />
-      <GenerateCard onDone={load} />
+      <CredentialsCard canWrite={canWrite} />
+      {/* Enqueuing an IRN mutates → accounting.post|settings.manage only. */}
+      {canWrite && <GenerateCard onDone={load} />}
 
-      <SectionCard title="Worklist" description="Pending documents (with their countdown) and generated IRNs." flush>
+      <SectionCard
+        title="Worklist"
+        description="Pending documents (with their countdown) and generated IRNs."
+        flush
+        action={
+          <ExportMenu
+            filename="einvoice-worklist"
+            columns={WORKLIST_CSV_COLS}
+            rows={rows}
+            canExport={canRead}
+            disabled={rows.length === 0}
+          />
+        }
+      >
         {error && <div className="m-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{error}</div>}
         <TableShell>
           <table className="w-full text-sm">
@@ -259,7 +310,7 @@ const Einvoicing: React.FC = () => {
                     )}
                   </Td>
                   <Td>
-                    {r.state !== 'irn_received' && r.state !== 'report_not_required' && (
+                    {canWrite && r.state !== 'irn_received' && r.state !== 'report_not_required' && (
                       <button
                         className="rounded-md border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50 disabled:opacity-50"
                         onClick={() => retry(r.document_id)}

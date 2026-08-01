@@ -5,8 +5,9 @@ import { payload } from '../../lib/unwrap';
 import {
   Page, PageHeader, Btn, StatCard, StatGrid, StatusChip, TabBar,
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow, inrMinor,
-  Field, TextInput, SelectInput,
+  Field, TextInput, SelectInput, ExportMenu, Pagination,
 } from '../../components/erp';
+import type { CsvColumn } from '../../components/erp';
 
 /**
  * TCS — Tax Collected at Source (s.206C) — the SELLER side, plain language:
@@ -62,10 +63,28 @@ const TcsRegisterPage: React.FC = () => {
 };
 
 // ── Collection register ───────────────────────────────────────────────────────
+const REG_PAGE_SIZE = 50;
+const TCS_CSV_COLS: CsvColumn<any>[] = [
+  { key: 'collected_on', label: 'Date' },
+  { key: 'quarter', label: 'Quarter' },
+  { key: 'section_code', label: 'Section' },
+  { key: 'nature_label', label: 'Nature' },
+  { key: 'collectee_name', label: 'Buyer' },
+  { key: 'collectee_pan', label: 'PAN' },
+  { key: 'invoice_ref', label: 'Reference' },
+  { key: 'base_minor', label: 'Sale value', money: true },
+  { key: 'rate', label: 'Rate %', format: (r) => (Number(r.tcs_rate_milli_pct) / 1000).toFixed(2) },
+  { key: 'tcs_minor', label: 'TCS', money: true },
+  { key: 'deposited', label: 'Deposited', format: (r) => (r.challan_id ? 'on challan' : 'pending') },
+];
+
 const RegisterTab: React.FC<{ canPost: boolean; onError: (m: string) => void }> = ({ canPost, onError }) => {
+  const { hasPerm } = useAuth();
+  const canRead = hasPerm('accounting.read');
   const [fy, setFy] = useState(currentFy());
   const [quarter, setQuarter] = useState('');
   const [reg, setReg] = useState<any>(null);
+  const [page, setPage] = useState(1);
 
   const periodParams = () => (quarter ? { quarter: `${fy}-${quarter}` } : { fy });
 
@@ -73,20 +92,12 @@ const RegisterTab: React.FC<{ canPost: boolean; onError: (m: string) => void }> 
     try { setReg(payload<any>(await api.get('/direct-taxes/tcs/register', { params: periodParams() }))); }
     catch (e: any) { onError(e?.response?.data?.message ?? e.message); }
   };
-  useEffect(() => { setReg(null); load(); }, [fy, quarter]);
-
-  const downloadCsv = async () => {
-    try {
-      const res = await api.get('/direct-taxes/tcs/register', { params: { ...periodParams(), format: 'csv' }, responseType: 'blob' });
-      const url = URL.createObjectURL(res.data as Blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = `tcs-register-${quarter ? `${fy}-${quarter}` : fy}.csv`; a.click();
-      URL.revokeObjectURL(url);
-    } catch (e: any) { onError(e?.response?.data?.message ?? e.message); }
-  };
+  useEffect(() => { setReg(null); setPage(1); load(); }, [fy, quarter]);
 
   const s = reg?.summary;
   const bySection: Array<[string, any]> = Object.entries(s?.by_section ?? {});
+  const allRows: any[] = reg?.rows ?? [];
+  const pagedRows = allRows.slice((page - 1) * REG_PAGE_SIZE, page * REG_PAGE_SIZE);
   return (
     <>
       <UnverifiedBanner />
@@ -100,7 +111,19 @@ const RegisterTab: React.FC<{ canPost: boolean; onError: (m: string) => void }> 
           </SelectInput>
         </Field>
         <Btn variant="outline" onClick={load}>Apply</Btn>
-        <Btn variant="outline" onClick={downloadCsv} disabled={!reg?.rows?.length}>Download CSV</Btn>
+        <ExportMenu
+          filename={`tcs-register-${quarter ? `${fy}-${quarter}` : fy}`}
+          columns={TCS_CSV_COLS}
+          rows={allRows}
+          canExport={canRead}
+          disabled={!allRows.length}
+          serverExports={[{
+            label: 'Server CSV (27EQ layout)',
+            path: '/direct-taxes/tcs/register',
+            params: { ...periodParams(), format: 'csv' },
+            filename: `tcs-register-${quarter ? `${fy}-${quarter}` : fy}.csv`,
+          }]}
+        />
       </div>
 
       {s && (
@@ -136,8 +159,8 @@ const RegisterTab: React.FC<{ canPost: boolean; onError: (m: string) => void }> 
             <Th num>Sale value</Th><Th num>Rate</Th><Th num>TCS</Th><Th>Deposited</Th>
           </THead>
           <TBody>
-            {reg && reg.rows.length === 0 && <EmptyRow colSpan={11}>No TCS collected in this period.</EmptyRow>}
-            {reg && reg.rows.map((r: any) => (
+            {reg && allRows.length === 0 && <EmptyRow colSpan={11}>No TCS collected in this period.</EmptyRow>}
+            {pagedRows.map((r: any) => (
               <Tr key={r.id}>
                 <Td>{r.collected_on}</Td>
                 <Td className="font-mono text-xs">{r.quarter}</Td>
@@ -155,6 +178,7 @@ const RegisterTab: React.FC<{ canPost: boolean; onError: (m: string) => void }> 
           </TBody>
         </table>
       </TableShell>
+      <Pagination page={page} pageSize={REG_PAGE_SIZE} total={allRows.length} onPage={setPage} />
       <p className="text-xs text-gray-400">
         {canPost
           ? 'TCS is collected automatically on eligible sales. Use the calculator tab to check a figure before invoicing.'

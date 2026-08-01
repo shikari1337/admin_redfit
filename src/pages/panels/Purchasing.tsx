@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { api } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { fmtMinor } from '../../lib/money';
@@ -6,7 +6,26 @@ import { payload } from '../../lib/unwrap';
 import {
   Page, PageHeader, Btn, StatusChip, TabBar, TextInput, SelectInput,
   THead, Th, TBody, Tr, Td,
+  FilterBar, Field, SearchInput, ExportMenu, Pagination, useListControls, type CsvColumn,
 } from '../../components/erp';
+
+// Client CSV of the loaded PO / return rows.
+const PO_CSV_COLUMNS: CsvColumn<any>[] = [
+  { key: 'po_number', label: 'PO number' },
+  { key: 'vendor_name', label: 'Vendor' },
+  { key: 'status', label: 'Status' },
+  { key: 'subtotal_minor', label: 'Subtotal', money: true },
+  { key: 'qty_ordered', label: 'Qty ordered' },
+  { key: 'qty_received', label: 'Qty received' },
+];
+const RETURN_CSV_COLUMNS: CsvColumn<any>[] = [
+  { key: 'return_number', label: 'Return number' },
+  { key: 'vendor_name', label: 'Vendor' },
+  { key: 'reason', label: 'Reason' },
+  { key: 'total_minor', label: 'Total', money: true },
+  { key: 'qty', label: 'Units' },
+  { key: 'status', label: 'Status' },
+];
 
 /**
  * Purchasing (Phase 6): PO list, draft creation, issue, and goods receipt.
@@ -16,7 +35,13 @@ import {
 const Purchasing: React.FC = () => {
   const { hasPerm } = useAuth();
   const [pos, setPos] = useState<any[]>([]);
+  const [poTotal, setPoTotal] = useState(0);
+  const [retTotal, setRetTotal] = useState(0);
   const [vendors, setVendors] = useState<any[]>([]);
+  // Server pagination for the PO + returns lists; search/status narrow the
+  // loaded page (the /purchasing routes take limit/offset only — see report).
+  const poLc = useListControls({ pageSize: 25 });
+  const retLc = useListControls({ pageSize: 25 });
   const [detail, setDetail] = useState<any>(null);
   const [showNew, setShowNew] = useState(false);
   const [vendorId, setVendorId] = useState('');
@@ -61,11 +86,13 @@ const Purchasing: React.FC = () => {
     (text || '').split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
 
   const load = async () => {
-    const res = await api.get('/purchasing/pos');
+    const res = await api.get('/purchasing/pos', {
+      params: { limit: poLc.pageSize, offset: (poLc.page - 1) * poLc.pageSize },
+    });
     setPos(res.data.rows ?? []);
+    setPoTotal(res.data.total ?? 0);
   };
   useEffect(() => {
-    load();
     api.get('/vendors', { params: { limit: 100 } })
       .then((r) => {
         const v = payload<any>(r);
@@ -73,6 +100,17 @@ const Purchasing: React.FC = () => {
       })
       .catch(() => {});
   }, []);
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [poLc.page, poLc.pageSize]);
+
+  // Within-page filters (server exposes no PO/return filters yet).
+  const filteredPos = useMemo(() => {
+    const q = poLc.search.trim().toLowerCase();
+    return pos.filter((p) => {
+      const okQ = !q || [p.po_number, p.vendor_name].some((v) => String(v ?? '').toLowerCase().includes(q));
+      const okS = !poLc.status || p.status === poLc.status;
+      return okQ && okS;
+    });
+  }, [pos, poLc.search, poLc.status]);
 
   const searchSkus = async (q: string) => {
     setSkuSearch(q);
@@ -161,11 +199,23 @@ const Purchasing: React.FC = () => {
   // ── Purchase returns / debit notes ─────────────────────────────────────────
   const loadReturns = async () => {
     try {
-      const res = await api.get('/purchasing/returns');
+      const res = await api.get('/purchasing/returns', {
+        params: { limit: retLc.pageSize, offset: (retLc.page - 1) * retLc.pageSize },
+      });
       setReturns(res.data.rows ?? []);
+      setRetTotal(res.data.total ?? 0);
     } catch { setReturns([]); }
   };
-  useEffect(() => { if (tab === 'returns') loadReturns(); }, [tab]);
+  useEffect(() => { if (tab === 'returns') loadReturns(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tab, retLc.page, retLc.pageSize]);
+
+  const filteredReturns = useMemo(() => {
+    const q = retLc.search.trim().toLowerCase();
+    return returns.filter((r) => {
+      const okQ = !q || [r.return_number, r.vendor_name, r.reason].some((v) => String(v ?? '').toLowerCase().includes(q));
+      const okS = !retLc.status || r.status === retLc.status;
+      return okQ && okS;
+    });
+  }, [returns, retLc.search, retLc.status]);
 
   const searchRetSkus = async (q: string) => {
     setRetSkuSearch(q);
@@ -278,9 +328,16 @@ const Purchasing: React.FC = () => {
       <PageHeader
         title="Purchasing"
         description="Purchase orders, goods receipts (with quality checks), landed cost, and vendor returns."
-        actions={tab === 'orders' && hasPerm('purchasing.manage') && (
-          <Btn onClick={() => setShowNew((s) => !s)}>{showNew ? 'Close' : '+ Purchase order'}</Btn>
-        )}
+        actions={
+          <div className="flex items-center gap-2">
+            {tab === 'orders'
+              ? <ExportMenu filename="purchase-orders" columns={PO_CSV_COLUMNS} rows={filteredPos} canExport={hasPerm('purchasing.read')} />
+              : <ExportMenu filename="purchase-returns" columns={RETURN_CSV_COLUMNS} rows={filteredReturns} canExport={hasPerm('purchasing.read')} />}
+            {tab === 'orders' && hasPerm('purchasing.manage') && (
+              <Btn onClick={() => setShowNew((s) => !s)}>{showNew ? 'Close' : '+ Purchase order'}</Btn>
+            )}
+          </div>
+        }
       />
       <TabBar
         tabs={[{ key: 'orders', label: 'Purchase orders' }, { key: 'returns', label: 'Returns / debit notes' }]}
@@ -331,9 +388,25 @@ const Purchasing: React.FC = () => {
         </div>
       )}
 
+      <FilterBar>
+        <Field label="Search">
+          <SearchInput placeholder="PO number or vendor…" value={poLc.search} onChange={(e) => poLc.setSearch(e.target.value)} />
+        </Field>
+        <Field label="Status">
+          <SelectInput value={poLc.status} onChange={(e) => poLc.setStatus(e.target.value)}>
+            <option value="">All statuses</option>
+            <option value="draft">Draft</option>
+            <option value="issued">Issued</option>
+            <option value="partially_received">Partially received</option>
+            <option value="received">Received</option>
+            <option value="cancelled">Cancelled</option>
+          </SelectInput>
+        </Field>
+      </FilterBar>
+
       <div className="divide-y divide-gray-100 rounded-xl border border-gray-200 bg-white shadow-sm">
-        {pos.length === 0 && <div className="p-6 text-center text-sm text-gray-500">No purchase orders yet.</div>}
-        {pos.map((po: any) => (
+        {filteredPos.length === 0 && <div className="p-6 text-center text-sm text-gray-500">No purchase orders yet.</div>}
+        {filteredPos.map((po: any) => (
           <button key={po.id} onClick={() => openDetail(po.id)}
             className="flex w-full items-center justify-between px-4 py-2.5 text-left text-sm hover:bg-gray-50/70">
             <div>
@@ -348,6 +421,8 @@ const Purchasing: React.FC = () => {
           </button>
         ))}
       </div>
+
+      <Pagination page={poLc.page} pageSize={poLc.pageSize} total={poTotal} onPage={poLc.setPage} onPageSize={poLc.setPageSize} />
 
       {detail && (
         <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm space-y-3">
@@ -632,9 +707,22 @@ const Purchasing: React.FC = () => {
             </div>
           )}
 
+          <FilterBar>
+            <Field label="Search">
+              <SearchInput placeholder="Return number, vendor, reason…" value={retLc.search} onChange={(e) => retLc.setSearch(e.target.value)} />
+            </Field>
+            <Field label="Status">
+              <SelectInput value={retLc.status} onChange={(e) => retLc.setStatus(e.target.value)}>
+                <option value="">All statuses</option>
+                <option value="draft">Draft</option>
+                <option value="posted">Posted</option>
+              </SelectInput>
+            </Field>
+          </FilterBar>
+
           <div className="divide-y divide-gray-100 rounded-xl border border-gray-200 bg-white shadow-sm">
-            {returns.length === 0 && <div className="p-6 text-center text-sm text-gray-500">No purchase returns yet.</div>}
-            {returns.map((r: any) => (
+            {filteredReturns.length === 0 && <div className="p-6 text-center text-sm text-gray-500">No purchase returns yet.</div>}
+            {filteredReturns.map((r: any) => (
               <div key={r.id} className="flex items-center justify-between px-4 py-2.5 text-sm">
                 <button onClick={() => openRetDetail(r.id)} className="flex-1 text-left hover:opacity-70">
                   <span className="font-mono font-medium">{r.return_number ?? '(draft)'}</span>
@@ -652,6 +740,8 @@ const Purchasing: React.FC = () => {
               </div>
             ))}
           </div>
+
+          <Pagination page={retLc.page} pageSize={retLc.pageSize} total={retTotal} onPage={retLc.setPage} onPageSize={retLc.setPageSize} />
 
           {retDetail && (
             <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm space-y-2">

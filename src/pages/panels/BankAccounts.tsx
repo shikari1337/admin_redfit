@@ -5,6 +5,7 @@ import { payload } from '../../lib/unwrap';
 import {
   Page, PageHeader, SectionCard, Btn, StatCard, StatGrid, StatusChip,
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow, Field, TextInput, SelectInput, inrMinor,
+  FilterBar, SearchInput, ExportMenu, Pagination, useListControls, type CsvColumn,
 } from '../../components/erp';
 
 /**
@@ -27,10 +28,29 @@ interface BankAccountRow {
   balance_minor: string; txn_count: number;
 }
 interface CoaRow { code: string; name: string; account_type: string; is_active: boolean; }
+interface BankTxnRow {
+  id: string; txn_type: string; amount_minor: string; txn_date: string;
+  contra_account_code: string | null; contra_account_name: string | null;
+  counterparty_name: string | null; reference: string | null; narration: string | null;
+  journal_number: string | null; direction: 'in' | 'out';
+}
 
 const TYPE_LABEL: Record<BankAccountRow['account_type'], string> = {
   bank: 'Bank', cash: 'Cash', credit_card: 'Credit card',
 };
+
+// Client-side CSV of the accounts list (money columns as ₹ from minor units).
+const ACCOUNT_COLS: CsvColumn<BankAccountRow>[] = [
+  { key: 'name', label: 'Account' },
+  { key: 'account_type', label: 'Type', format: (a) => TYPE_LABEL[a.account_type] },
+  { key: 'gl_account_code', label: 'Ledger code' },
+  { key: 'gl_account_name', label: 'Ledger name' },
+  { key: 'account_number', label: 'Number', format: (a) => a.account_number ?? '' },
+  { key: 'ifsc', label: 'IFSC', format: (a) => a.ifsc ?? '' },
+  { key: 'currency', label: 'Currency' },
+  { key: 'balance_minor', label: 'Balance', money: true },
+  { key: 'is_active', label: 'Status', format: (a) => (a.is_active ? 'Active' : 'Inactive') },
+];
 
 type Action =
   | { kind: 'deposit' | 'withdraw' | 'card_payment'; account: BankAccountRow }
@@ -47,6 +67,12 @@ const BankAccounts: React.FC = () => {
   const [banner, setBanner] = useState('');
   const [showAdd, setShowAdd] = useState(false);
   const [action, setAction] = useState<Action>(null);
+  const [register, setRegister] = useState<BankAccountRow | null>(null);
+  const [editing, setEditing] = useState<BankAccountRow | null>(null);
+
+  // Filters + pagination (client-side: GET /bank-accounts returns the full set).
+  const lc = useListControls({ pageSize: 20 });
+  const [typeFilter, setTypeFilter] = useState('');
 
   const load = async () => {
     try {
@@ -69,12 +95,29 @@ const BankAccounts: React.FC = () => {
     return { liquid, cardOwed };
   }, [accounts]);
 
+  const filtered = useMemo(() => {
+    const q = lc.debouncedSearch.trim().toLowerCase();
+    return accounts.filter((a) => {
+      if (typeFilter && a.account_type !== typeFilter) return false;
+      if (lc.status === 'active' && !a.is_active) return false;
+      if (lc.status === 'inactive' && a.is_active) return false;
+      if (q && !`${a.name} ${a.account_number ?? ''} ${a.gl_account_code}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [accounts, typeFilter, lc.status, lc.debouncedSearch]);
+  const pageRows = filtered.slice((lc.page - 1) * lc.pageSize, lc.page * lc.pageSize);
+
   return (
     <Page>
       <PageHeader
         title="Bank Accounts"
         description="Every bank account, cash drawer and credit card in one place — with live balances. Record money in, money out, card charges and transfers; each posts to your books automatically."
-        actions={canPost && <Btn onClick={() => { setShowAdd((s) => !s); setBanner(''); }}>{showAdd ? 'Close' : '+ Add account'}</Btn>}
+        actions={
+          <>
+            <ExportMenu filename="bank-accounts" columns={ACCOUNT_COLS} rows={filtered} disabled={accounts.length === 0} />
+            {canPost && <Btn onClick={() => { setShowAdd((s) => !s); setBanner(''); }}>{showAdd ? 'Close' : '+ Add account'}</Btn>}
+          </>
+        }
       />
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
@@ -93,16 +136,41 @@ const BankAccounts: React.FC = () => {
         />
       )}
 
+      {accounts.length > 0 && (
+        <FilterBar>
+          <Field label="Search"><SearchInput value={lc.search} placeholder="Name, number or ledger…" onChange={(e) => lc.setSearch(e.target.value)} /></Field>
+          <Field label="Type">
+            <SelectInput value={typeFilter} onChange={(e) => { setTypeFilter(e.target.value); lc.setPage(1); }}>
+              <option value="">All types</option>
+              <option value="bank">Bank</option>
+              <option value="cash">Cash</option>
+              <option value="credit_card">Credit card</option>
+            </SelectInput>
+          </Field>
+          <Field label="Status">
+            <SelectInput value={lc.status} onChange={(e) => lc.setStatus(e.target.value)}>
+              <option value="">All</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </SelectInput>
+          </Field>
+        </FilterBar>
+      )}
+
       <SectionCard title="Your accounts" flush>
         <TableShell>
           <table className="w-full text-sm">
             <THead>
               <Th>Account</Th><Th>Type</Th><Th>Ledger</Th><Th>Number</Th>
-              <Th num>Balance</Th><Th>Status</Th>{canPost && <Th>Actions</Th>}
+              <Th num>Balance</Th><Th>Status</Th><Th>Actions</Th>
             </THead>
             <TBody>
-              {accounts.length === 0 && <EmptyRow colSpan={canPost ? 7 : 6}>No accounts yet. Add your first bank account above.</EmptyRow>}
-              {accounts.map((a) => (
+              {filtered.length === 0 && (
+                <EmptyRow colSpan={7}>
+                  {accounts.length === 0 ? 'No accounts yet. Add your first bank account above.' : 'No accounts match your filters.'}
+                </EmptyRow>
+              )}
+              {pageRows.map((a) => (
                 <Tr key={a.id}>
                   <Td className="font-medium text-gray-900">{a.name}</Td>
                   <Td>{TYPE_LABEL[a.account_type]}</Td>
@@ -110,26 +178,31 @@ const BankAccounts: React.FC = () => {
                   <Td className="font-mono text-xs">{a.account_number || '—'}</Td>
                   <Td num className={Number(a.balance_minor) < 0 ? 'text-red-700' : 'text-gray-900'}>{rup(a.balance_minor)}</Td>
                   <Td>{a.is_active ? <StatusChip status="matched" label="Active" /> : <StatusChip status="unmatched" label="Inactive" />}</Td>
-                  {canPost && (
-                    <Td>
-                      <div className="flex flex-wrap gap-1.5">
-                        {a.account_type === 'credit_card' ? (
-                          <Btn size="sm" variant="outline" onClick={() => setAction({ kind: 'card_payment', account: a })}>Charge</Btn>
-                        ) : (
-                          <>
-                            <Btn size="sm" variant="success" onClick={() => setAction({ kind: 'deposit', account: a })}>Money in</Btn>
-                            <Btn size="sm" variant="dangerOutline" onClick={() => setAction({ kind: 'withdraw', account: a })}>Money out</Btn>
-                          </>
-                        )}
-                        <Btn size="sm" variant="outline" onClick={() => setAction({ kind: 'transfer', account: a })}>Transfer</Btn>
-                      </div>
-                    </Td>
-                  )}
+                  <Td>
+                    <div className="flex flex-wrap gap-1.5">
+                      <Btn size="sm" variant="ghost" onClick={() => setRegister(a)}>Register</Btn>
+                      {canPost && (
+                        <>
+                          {a.account_type === 'credit_card' ? (
+                            <Btn size="sm" variant="outline" onClick={() => setAction({ kind: 'card_payment', account: a })}>Charge</Btn>
+                          ) : (
+                            <>
+                              <Btn size="sm" variant="success" onClick={() => setAction({ kind: 'deposit', account: a })}>Money in</Btn>
+                              <Btn size="sm" variant="dangerOutline" onClick={() => setAction({ kind: 'withdraw', account: a })}>Money out</Btn>
+                            </>
+                          )}
+                          <Btn size="sm" variant="outline" onClick={() => setAction({ kind: 'transfer', account: a })}>Transfer</Btn>
+                          <Btn size="sm" variant="ghost" onClick={() => setEditing(a)}>Edit</Btn>
+                        </>
+                      )}
+                    </div>
+                  </Td>
                 </Tr>
               ))}
             </TBody>
           </table>
         </TableShell>
+        <Pagination page={lc.page} pageSize={lc.pageSize} total={filtered.length} onPage={lc.setPage} onPageSize={lc.setPageSize} />
       </SectionCard>
 
       {action && (
@@ -142,7 +215,146 @@ const BankAccounts: React.FC = () => {
           onDone={(msg) => { setAction(null); setBanner(msg); load(); }}
         />
       )}
+
+      {register && <TransactionRegisterModal account={register} onClose={() => setRegister(null)} />}
+
+      {editing && canPost && (
+        <EditAccountModal
+          account={editing}
+          onClose={() => setEditing(null)}
+          onError={setError}
+          onDone={(msg) => { setEditing(null); setBanner(msg); load(); }}
+        />
+      )}
     </Page>
+  );
+};
+
+// ── Per-account transaction register (GET /bank-accounts/:id/transactions) ──────
+const REGISTER_COLS: CsvColumn<BankTxnRow>[] = [
+  { key: 'txn_date', label: 'Date' },
+  { key: 'txn_type', label: 'Type' },
+  { key: 'direction', label: 'Direction' },
+  { key: 'narration', label: 'Details', format: (r) => r.narration ?? '' },
+  { key: 'contra_account_name', label: 'Category', format: (r) => r.contra_account_name ?? r.contra_account_code ?? '' },
+  { key: 'counterparty_name', label: 'Counterparty', format: (r) => r.counterparty_name ?? '' },
+  { key: 'reference', label: 'Reference', format: (r) => r.reference ?? '' },
+  { key: 'journal_number', label: 'Journal', format: (r) => r.journal_number ?? '' },
+  { key: 'amount_minor', label: 'Amount', money: true },
+];
+
+const TransactionRegisterModal: React.FC<{ account: BankAccountRow; onClose: () => void }> = ({ account, onClose }) => {
+  const [rows, setRows] = useState<BankTxnRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await api.get(`/bank-accounts/${account.id}/transactions`);
+        if (alive) setRows(payload<BankTxnRow[]>(res) ?? []);
+      } catch (e: any) { if (alive) setError(e?.response?.data?.message ?? e.message); }
+      finally { if (alive) setLoading(false); }
+    })();
+    return () => { alive = false; };
+  }, [account.id]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="flex max-h-[85vh] w-full max-w-3xl flex-col rounded-xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-base font-semibold text-gray-900">{account.name} — transaction register</h3>
+            <p className="text-xs text-gray-500">Ledger {account.gl_account_code} · balance {rup(account.balance_minor)}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <ExportMenu filename={`register-${account.gl_account_code}`} columns={REGISTER_COLS} rows={rows} disabled={rows.length === 0} />
+            <Btn size="sm" variant="ghost" onClick={onClose}>Close</Btn>
+          </div>
+        </div>
+        {error && <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+        <div className="min-h-0 flex-1 overflow-auto">
+          <TableShell>
+            <table className="w-full text-sm">
+              <THead>
+                <Th>Date</Th><Th>Details</Th><Th>Category</Th><Th>Ref</Th><Th>Journal</Th><Th num>Amount</Th>
+              </THead>
+              <TBody>
+                {loading && <EmptyRow colSpan={6}>Loading…</EmptyRow>}
+                {!loading && rows.length === 0 && <EmptyRow colSpan={6}>No movements recorded on this account yet.</EmptyRow>}
+                {rows.map((t) => (
+                  <Tr key={t.id}>
+                    <Td>{t.txn_date}</Td>
+                    <Td className="max-w-xs truncate" title={t.narration ?? ''}>{t.narration || '—'}</Td>
+                    <Td className="text-xs text-gray-600">{t.contra_account_name || t.counterparty_name || t.contra_account_code || '—'}</Td>
+                    <Td className="font-mono text-xs">{t.reference || '—'}</Td>
+                    <Td className="font-mono text-xs text-gray-500">{t.journal_number || '—'}</Td>
+                    <Td num className={t.direction === 'in' ? 'text-emerald-700' : 'text-red-700'}>
+                      {t.direction === 'in' ? '+' : '-'}{rup(t.amount_minor)}
+                    </Td>
+                  </Tr>
+                ))}
+              </TBody>
+            </table>
+          </TableShell>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── Edit account (PATCH /bank-accounts/:id) ────────────────────────────────────
+const EditAccountModal: React.FC<{
+  account: BankAccountRow;
+  onClose: () => void;
+  onError: (m: string) => void;
+  onDone: (msg: string) => void;
+}> = ({ account, onClose, onError, onDone }) => {
+  const [name, setName] = useState(account.name);
+  const [accountNumber, setAccountNumber] = useState(account.account_number ?? '');
+  const [ifsc, setIfsc] = useState(account.ifsc ?? '');
+  const [isActive, setIsActive] = useState(account.is_active);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    if (!name.trim()) { onError('Enter an account name'); return; }
+    setBusy(true); onError('');
+    try {
+      await api.patch(`/bank-accounts/${account.id}`, {
+        name: name.trim(),
+        accountNumber: accountNumber.trim() || null,
+        ifsc: ifsc.trim() || null,
+        isActive,
+      });
+      onDone(`Updated ${name.trim()}.`);
+    } catch (e: any) { onError(e?.response?.data?.message ?? e.message); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <h3 className="mb-4 text-base font-semibold text-gray-900">Edit {TYPE_LABEL[account.account_type].toLowerCase()} account</h3>
+        <div className="space-y-3">
+          <Field label="Name"><TextInput value={name} onChange={(e) => setName(e.target.value)} className="w-full" /></Field>
+          <Field label="Account number (optional)"><TextInput value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} className="w-full" /></Field>
+          {account.account_type === 'bank' && (
+            <Field label="IFSC (optional)"><TextInput value={ifsc} onChange={(e) => setIfsc(e.target.value)} className="w-full" /></Field>
+          )}
+          <Field label="Status">
+            <SelectInput value={isActive ? 'active' : 'inactive'} onChange={(e) => setIsActive(e.target.value === 'active')} className="w-full">
+              <option value="active">Active</option>
+              <option value="inactive">Inactive (hidden from money actions)</option>
+            </SelectInput>
+          </Field>
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+          <Btn onClick={submit} disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</Btn>
+        </div>
+      </div>
+    </div>
   );
 };
 

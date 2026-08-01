@@ -4,7 +4,16 @@ import { useAuth } from '../../contexts/AuthContext';
 import { payload } from '../../lib/unwrap';
 import {
   Page, PageHeader, Btn, Card, SectionCard, Field, TextInput, SelectInput,
+  ExportMenu, DrillLink, type CsvColumn,
 } from '../../components/erp';
+
+const obCols: CsvColumn<any>[] = [
+  { key: 'section', label: 'Section' },
+  { key: 'ref', label: 'Account / Party' },
+  { key: 'name', label: 'Name' },
+  { key: 'debitMinor', label: 'Debit', money: true },
+  { key: 'creditMinor', label: 'Credit', money: true },
+];
 
 interface Account { code: string; name: string; account_type: string; is_active: boolean; }
 interface AccRow { code: string; debit: string; credit: string; }
@@ -92,16 +101,32 @@ const OpeningBalances: React.FC = () => {
 
   const nothingEntered = totalDr === 0 && totalCr === 0;
 
+  const exportRows = [
+    ...accRows.filter((r) => r.code && (Number(r.debit) > 0 || Number(r.credit) > 0)).map((r) => ({
+      section: 'Account', ref: r.code, name: accounts.find((a) => a.code === r.code)?.name ?? '',
+      debitMinor: String(minor(r.debit || '0')), creditMinor: String(minor(r.credit || '0')),
+    })),
+    ...custRows.filter((r) => r.label && Number(r.amount) > 0).map((r) => ({
+      section: 'Customer (AR 1100)', ref: '1100', name: r.label, debitMinor: String(minor(r.amount)), creditMinor: '0',
+    })),
+    ...venRows.filter((r) => r.label && Number(r.amount) > 0).map((r) => ({
+      section: 'Vendor (AP 2100)', ref: '2100', name: r.label, debitMinor: '0', creditMinor: String(minor(r.amount)),
+    })),
+  ];
+
   return (
     <Page>
       <PageHeader
         title="Opening Balances"
         description="Enter balances as of your books opening date. One balanced journal is posted; everything nets against 3900 Opening Balance Equity. Re-posting replaces the last entry (reverses + re-posts) — it never duplicates."
+        actions={
+          <ExportMenu filename={`opening-balances-${openingDate}`} columns={obCols} rows={exportRows} disabled={!exportRows.length} />
+        }
       />
 
       {existingJournal && (
         <div className="mb-3 rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-700 ring-1 ring-inset ring-blue-600/20">
-          An opening journal already exists ({existingJournal}). Posting again will reverse it and re-post the values below.
+          An opening journal already exists (<DrillLink to={`/panel/accounting/journals?q=${encodeURIComponent(existingJournal)}`} title="Find this journal">{existingJournal}</DrillLink>). Posting again will reverse it and re-post the values below.
         </div>
       )}
 
@@ -184,7 +209,7 @@ const OpeningBalances: React.FC = () => {
         {error && <div className="mt-2 text-sm text-red-700">{error}</div>}
         {result && (
           <div className="mt-3 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800 ring-1 ring-inset ring-emerald-600/20">
-            Posted <b>{result.journalNumber}</b> as of {result.openingDate} —
+            Posted <b><DrillLink to={`/panel/accounting/journals?q=${encodeURIComponent(result.journalNumber)}`} title="Find this journal">{result.journalNumber}</DrillLink></b> as of {result.openingDate} —
             Dr {inr(rup(result.totalDebitMinor))} / Cr {inr(rup(result.totalCreditMinor))}
             {result.balanced ? ' · balanced ✔' : ' · NOT balanced ✖'}
             {result.reversedPrior?.length ? ` (replaced ${result.reversedPrior.join(', ')})` : ''}

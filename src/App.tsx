@@ -183,6 +183,7 @@ import MarketingPerformance from './pages/panels/marketing/MarketingPerformance'
 import GrowthAnalytics from './pages/panels/marketing/GrowthAnalytics';
 import { useAuth } from './contexts/AuthContext';
 import { WORKSPACES, WorkspaceKey, ROLE_SURFACE, ErpRole } from './lib/rbac';
+import { PRODUCT, IS_SUITE } from './lib/product';
 import RouteGuard from './components/RouteGuard';
 
 /** Lands every user on THEIR surface: worker → scanner, cashier → POS,
@@ -191,6 +192,8 @@ function RoleHome() {
   const { workspaces, user } = useAuth();
   const surface = ROLE_SURFACE[user?.role as ErpRole];
   if (surface) return <Navigate to={surface} replace />;
+  // Single-product build (VITE_PRODUCT) lands on that product's home.
+  if (!IS_SUITE) return <Navigate to={PRODUCT.home} replace />;
   const first = (workspaces[0] ?? 'commerce') as WorkspaceKey;
   return <Navigate to={WORKSPACES[first]?.home ?? '/dashboard'} replace />;
 }

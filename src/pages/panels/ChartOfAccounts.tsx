@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { api } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { payload } from '../../lib/unwrap';
 import {
-  Page, PageHeader, Btn, Card, SectionCard, FilterBar, Field, TextInput, SelectInput,
+  Page, PageHeader, Btn, Card, SectionCard, FilterBar, Field, TextInput, SelectInput, SearchInput,
   StatusChip, TableShell, THead, Th, TBody, Tr, Td,
+  ExportMenu, Pagination, DrillLink, useListControls, type CsvColumn,
 } from '../../components/erp';
 
 interface Account {
@@ -20,6 +21,15 @@ interface Account {
 
 const TYPES = ['asset', 'liability', 'equity', 'income', 'expense'];
 
+const coaCols: CsvColumn<Account>[] = [
+  { key: 'code', label: 'Code' },
+  { key: 'name', label: 'Name' },
+  { key: 'account_type', label: 'Type' },
+  { key: 'parent_code', label: 'Parent' },
+  { key: 'is_active', label: 'Status', format: (a) => (a.is_system ? 'system' : a.is_active ? 'active' : 'inactive') },
+  { key: 'has_entries', label: 'Has entries', format: (a) => (a.has_entries ? 'yes' : 'no') },
+];
+
 const ChartOfAccounts: React.FC = () => {
   const { hasPerm } = useAuth();
   const canPost = hasPerm('accounting.post');
@@ -27,6 +37,10 @@ const ChartOfAccounts: React.FC = () => {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Client-side filter/search + pagination over the full account list (server returns all).
+  const lc = useListControls({ pageSize: 25 });
+  const [activeOnly, setActiveOnly] = useState(false);
 
   // add form
   const [showNew, setShowNew] = useState(false);
@@ -91,14 +105,31 @@ const ChartOfAccounts: React.FC = () => {
     } catch (e: any) { setError(e?.response?.data?.message ?? e.message); }
   };
 
+  const filtered = useMemo(() => {
+    const q = lc.debouncedSearch.trim().toLowerCase();
+    return accounts.filter((a) => {
+      if (q && !`${a.code} ${a.name}`.toLowerCase().includes(q)) return false;
+      if (lc.status && a.account_type !== lc.status) return false;
+      if (activeOnly && !a.is_active) return false;
+      return true;
+    });
+  }, [accounts, lc.debouncedSearch, lc.status, activeOnly]);
+
+  const paged = filtered.slice((lc.page - 1) * lc.pageSize, lc.page * lc.pageSize);
+
   return (
     <Page>
       <PageHeader
         title="Chart of Accounts"
         description="The seeded double-entry spine is locked; add, rename or retire your own accounts. Deactivated accounts keep their history but take no new posts."
-        actions={canPost && (
-          <Btn onClick={() => setShowNew((s) => !s)}>{showNew ? 'Close' : '+ Add account'}</Btn>
-        )}
+        actions={
+          <div className="flex items-center gap-2">
+            <ExportMenu filename="chart-of-accounts" columns={coaCols} rows={filtered} disabled={!filtered.length} />
+            {canPost && (
+              <Btn onClick={() => setShowNew((s) => !s)}>{showNew ? 'Close' : '+ Add account'}</Btn>
+            )}
+          </div>
+        }
       />
 
       {showNew && canPost && (
@@ -128,6 +159,24 @@ const ChartOfAccounts: React.FC = () => {
 
       {error && <div className="mb-3 text-sm text-red-700">{error}</div>}
 
+      <FilterBar>
+        <Field label="Search">
+          <SearchInput placeholder="Code or name…" value={lc.search} onChange={(e) => lc.setSearch(e.target.value)} />
+        </Field>
+        <Field label="Type">
+          <SelectInput value={lc.status} onChange={(e) => lc.setStatus(e.target.value)}>
+            <option value="">All types</option>
+            {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+          </SelectInput>
+        </Field>
+        <Field label="&nbsp;">
+          <label className="flex h-9 items-center gap-2 text-sm text-gray-700">
+            <input type="checkbox" className="h-4 w-4 rounded border-gray-300" checked={activeOnly} onChange={(e) => { setActiveOnly(e.target.checked); lc.setPage(1); }} />
+            Active only
+          </label>
+        </Field>
+      </FilterBar>
+
       <Card className="overflow-hidden">
         <TableShell>
           <table className="w-full text-sm">
@@ -137,9 +186,12 @@ const ChartOfAccounts: React.FC = () => {
             <TBody>
               {loading && <Tr><Td className="text-gray-500">Loading…</Td></Tr>}
               {!loading && accounts.length === 0 && <Tr><Td className="text-gray-500">No accounts.</Td></Tr>}
-              {accounts.map((a) => (
+              {!loading && accounts.length > 0 && filtered.length === 0 && <Tr><Td className="text-gray-500">No accounts match these filters.</Td></Tr>}
+              {paged.map((a) => (
                 <Tr key={a.id} className={a.is_active ? '' : 'opacity-60'}>
-                  <Td className="font-mono font-medium">{a.code}</Td>
+                  <Td className="font-mono font-medium">
+                    <DrillLink to={`/panel/accounting/general-ledger?account=${a.code}`} title="View this account's ledger">{a.code}</DrillLink>
+                  </Td>
                   <Td>
                     {editCode === a.code ? (
                       <TextInput className="w-56" value={editName} onChange={(e) => setEditName(e.target.value)} />
@@ -180,6 +232,8 @@ const ChartOfAccounts: React.FC = () => {
           </table>
         </TableShell>
       </Card>
+
+      <Pagination page={lc.page} pageSize={lc.pageSize} total={filtered.length} onPage={lc.setPage} onPageSize={lc.setPageSize} />
     </Page>
   );
 };
