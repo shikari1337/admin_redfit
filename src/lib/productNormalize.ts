@@ -91,9 +91,16 @@ export function normalizeContentBlocks(raw: any): any[] {
             items: itemsOf(b).map((i: any) => ({ icon: String(i.icon ?? i.imageUrl ?? ''), title: String(i.title ?? i.label ?? ''), desc: String(i.desc ?? i.text ?? '') })),
           };
         case 'highlight_strip':
+          // Items carry BOTH a title and body text ("Water-Resistant" /
+          // "1200D coated polyester…"). Collapsing them to one field silently
+          // deleted every heading on save.
           return {
             type: 'highlight_strip',
-            items: itemsOf(b).map((i: any) => ({ icon: String(i.icon ?? i.imageUrl ?? ''), text: String(i.text ?? i.title ?? '') })),
+            items: itemsOf(b).map((i: any) => ({
+              icon: String(i.icon ?? i.imageUrl ?? ''),
+              title: String(i.title ?? i.label ?? ''),
+              text: String(i.text ?? ''),
+            })),
           };
         case 'faq':
           return {
@@ -102,6 +109,29 @@ export function normalizeContentBlocks(raw: any): any[] {
           };
         case 'video':
           return { type: 'video', url: String(b.url ?? d.url ?? ''), caption: String(b.caption ?? d.caption ?? '') };
+        // Full-width image / banner — stored flat as {type,title,imageUrl}.
+        case 'image':
+        case 'banner':
+          return {
+            type: b.type,
+            data: {
+              heading: String(d.heading ?? b.title ?? b.heading ?? ''),
+              imageUrl: String(d.imageUrl ?? b.imageUrl ?? b.image ?? b.url ?? ''),
+              alt: String(d.alt ?? b.alt ?? ''),
+            },
+          };
+        // Comparison table — stored flat as {type,headers,rows}.
+        case 'comparison_table':
+          return {
+            type: 'comparison_table',
+            data: {
+              heading: String(d.heading ?? b.title ?? b.heading ?? ''),
+              headers: Array.isArray(d.headers ?? b.headers) ? (d.headers ?? b.headers).map((h: any) => String(h ?? '')) : [],
+              rows: Array.isArray(d.rows ?? b.rows)
+                ? (d.rows ?? b.rows).map((r: any) => (Array.isArray(r) ? r.map((cell: any) => String(cell ?? '')) : [String(r ?? '')]))
+                : [],
+            },
+          };
         default:
           return b; // unknown types pass through untouched (editor shows a label only)
       }
@@ -116,26 +146,58 @@ const itemsOf = (b: any): any[] =>
  *  ({type,title,html}, {type:'video',url}, …) the PDP's AplusContent renders. */
 export function serializeContentBlocks(blocks: any[]): any[] {
   const stripHtml = (s: string) => String(s ?? '').replace(/<[^>]*>/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  /**
+   * Body copy is written back in the shape the renderers read (`d.html || d.text`).
+   * Plain text stays PLAIN so an untouched imported block round-trips byte-for-
+   * byte; once it actually contains markup we emit `html` plus a `text` fallback
+   * for renderers that only read `text`.
+   */
+  const bodyOut = (body: any): Record<string, string> => {
+    const s = String(body ?? '');
+    return /<[a-z][\s\S]*>/i.test(s) ? { html: s, text: stripHtml(s) } : { text: s };
+  };
   return (blocks || []).map((b: any) => {
     const d = b?.data || {};
     switch (b?.type) {
       case 'text':
-        return { type: 'text', title: d.heading || '', html: d.body || '' };
+        return { type: 'text', title: d.heading || '', ...bodyOut(d.body) };
       case 'image_text':
         return {
           type: 'image_text', title: d.heading || '',
-          text: stripHtml(d.body), html: d.body || '',
-          imageUrl: d.imageUrl || '', imagePosition: d.imagePosition || 'left',
-          reverse: d.imagePosition === 'right',
+          ...bodyOut(d.body),
+          imageUrl: d.imageUrl || '',
+          // `reverse` is what the renderers actually read; only emit it when true
+          // so a left-aligned block keeps the exact shape it was imported with.
+          ...(d.imagePosition === 'right' ? { reverse: true } : {}),
         };
       case 'icon_box':
         return { type: 'icon_box', items: (b.items || []).map((i: any) => ({ icon: i.icon || '', title: i.title || '', desc: i.desc || '', text: i.desc || '' })) };
       case 'highlight_strip':
-        return { type: 'highlight_strip', items: (b.items || []).map((i: any) => ({ icon: i.icon || '', text: i.text || '' })) };
+        // Omit empty optional keys so an untouched block is written back byte-
+        // for-byte as it was (no cosmetic churn in the stored JSONB).
+        return {
+          type: 'highlight_strip',
+          items: (b.items || []).map((i: any) => ({
+            ...(i.icon ? { icon: i.icon } : {}),
+            ...(i.title ? { title: i.title } : {}),
+            text: i.text || '',
+          })),
+        };
       case 'faq':
         return { type: 'faq', items: (b.items || []).map((i: any) => ({ q: i.q || '', a: i.a || '', question: i.q || '', answer: i.a || '' })) };
       case 'video':
         return { type: 'video', url: b.url || '', caption: b.caption || '' };
+      // Written back FLAT, matching how the storefront/ecom renderers read them
+      // (`d = b.data || b` → d.title / d.imageUrl / d.headers / d.rows).
+      case 'image':
+      case 'banner':
+        return { type: b.type, title: d.heading || '', imageUrl: d.imageUrl || '', alt: d.alt || '' };
+      case 'comparison_table':
+        return {
+          type: 'comparison_table', title: d.heading || '',
+          headers: Array.isArray(d.headers) ? d.headers : [],
+          rows: Array.isArray(d.rows) ? d.rows : [],
+        };
       default:
         return b;
     }
@@ -144,6 +206,8 @@ export function serializeContentBlocks(blocks: any[]): any[] {
     if (b.type === 'text') return !!(b.title || b.html);
     if (b.type === 'image_text') return !!(b.title || b.html || b.imageUrl);
     if (b.type === 'video') return !!b.url;
+    if (b.type === 'image' || b.type === 'banner') return !!b.imageUrl;
+    if (b.type === 'comparison_table') return (b.rows?.length ?? 0) > 0 || (b.headers?.length ?? 0) > 0;
     if (Array.isArray(b.items)) return b.items.length > 0;
     return true;
   });

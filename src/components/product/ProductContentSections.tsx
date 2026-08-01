@@ -39,7 +39,7 @@ export type ContentBlock =
   | { type: 'icon_box'; items: Array<{ icon: string; title: string; desc: string }> }
   | { type: 'faq'; items: Array<{ q: string; a: string }> }
   | { type: 'video'; url: string; caption?: string }
-  | { type: 'highlight_strip'; items: Array<{ icon: string; text: string }> };
+  | { type: 'highlight_strip'; items: Array<{ icon: string; title?: string; text: string }> };
 
 interface ProductContentSectionsProps {
   blocks: ContentBlock[];
@@ -50,20 +50,27 @@ interface ProductContentSectionsProps {
 
 const blockLabels: Record<string, string> = {
   text: 'Text Block',
+  image: 'Full-width Image / Banner',
   image_text: 'Image + Text',
   icon_box: 'Icon Feature Box',
+  highlight_strip: 'Highlight Strip',
+  comparison_table: 'Comparison Table',
   faq: 'FAQ Accordion',
   video: 'Embedded Video',
-  highlight_strip: 'Highlight Strip',
 };
 
 const blockDefaults: Record<string, ContentBlock> = {
   text: { type: 'text', data: { heading: '', body: '' } },
+  // `image` (and its `banner` alias) is what imported/seeded A+ content uses for
+  // a full-width lifestyle shot. It had no editor, so those blocks showed as
+  // "Unknown block type" and could not be edited even though they were live.
+  image: { type: 'image', data: { heading: '', imageUrl: '', alt: '' } } as any,
   image_text: { type: 'image_text', data: { heading: '', body: '', imageUrl: '', imagePosition: 'left' } },
   icon_box: { type: 'icon_box', items: [{ icon: 'lucide:Check', title: '', desc: '' }] },
+  highlight_strip: { type: 'highlight_strip', items: [{ icon: 'lucide:Star', text: '' }] },
+  comparison_table: { type: 'comparison_table', data: { heading: '', headers: ['', ''], rows: [['', '']] } } as any,
   faq: { type: 'faq', items: [{ q: '', a: '' }] },
   video: { type: 'video', url: '', caption: '' },
-  highlight_strip: { type: 'highlight_strip', items: [{ icon: 'lucide:Star', text: '' }] },
 };
 
 const inputCls = 'w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-red-400';
@@ -177,21 +184,115 @@ const VideoEditor: React.FC<{ block: Extract<ContentBlock, { type: 'video' }>; o
 const HighlightEditor: React.FC<{ block: Extract<ContentBlock, { type: 'highlight_strip' }>; onChange: (b: ContentBlock) => void }> = ({ block, onChange }) => (
   <div className="space-y-2">
     {block.items.map((item, i) => (
-      <div key={i} className="flex gap-2 items-center">
+      <div key={i} className="flex gap-2 items-start p-2 bg-gray-50 rounded border">
         <div className="shrink-0">
           <IconPicker value={item.icon} label=""
             onChange={icon => { const items = [...block.items]; items[i] = { ...item, icon }; onChange({ ...block, items }); }} />
         </div>
-        <input className={inputCls + ' flex-1'} value={item.text} placeholder="Highlight text"
-          onChange={e => { const items = [...block.items]; items[i] = { ...item, text: e.target.value }; onChange({ ...block, items }); }} />
+        {/* Each highlight has a HEADING and body text — editing only the text
+            silently dropped every heading on save. */}
+        <div className="flex-1 space-y-1">
+          <input className={inputCls} value={item.title ?? ''} placeholder="Heading (e.g. Water-Resistant)"
+            onChange={e => { const items = [...block.items]; items[i] = { ...item, title: e.target.value }; onChange({ ...block, items }); }} />
+          <input className={inputCls} value={item.text} placeholder="Supporting text"
+            onChange={e => { const items = [...block.items]; items[i] = { ...item, text: e.target.value }; onChange({ ...block, items }); }} />
+        </div>
         <button type="button" onClick={() => onChange({ ...block, items: block.items.filter((_, j) => j !== i) })}
-          className="text-red-400 hover:text-red-600 text-sm">✕</button>
+          className="text-red-400 hover:text-red-600 text-sm mt-1">✕</button>
       </div>
     ))}
-    <button type="button" onClick={() => onChange({ ...block, items: [...block.items, { icon: 'lucide:Star', text: '' }] })}
+    <button type="button" onClick={() => onChange({ ...block, items: [...block.items, { icon: 'lucide:Star', title: '', text: '' }] })}
       className="text-xs text-blue-600 hover:text-blue-800">+ Add Item</button>
   </div>
 );
+
+/** Full-width image / banner (`image`, and the `banner` alias). */
+const ImageOnlyEditor: React.FC<{ block: any; onChange: (b: ContentBlock) => void }> = ({ block, onChange }) => (
+  <div className="space-y-2">
+    <div><label className={labelCls}>Heading (optional)</label>
+      <input className={inputCls} value={block.data.heading || ''} placeholder="Shown above the image"
+        onChange={e => onChange({ ...block, data: { ...block.data, heading: e.target.value } })} /></div>
+    <div><label className={labelCls}>Image</label>
+      <ImageField value={block.data.imageUrl} folder="products/aplus"
+        aiPrompt={block.data.heading ? `Product A+ banner for "${block.data.heading}"` : 'Product A+ banner image'}
+        onChange={url => onChange({ ...block, data: { ...block.data, imageUrl: url } })} /></div>
+    <div><label className={labelCls}>Alt text</label>
+      <input className={inputCls} value={block.data.alt || ''} placeholder="Describes the image for accessibility/SEO"
+        onChange={e => onChange({ ...block, data: { ...block.data, alt: e.target.value } })} /></div>
+  </div>
+);
+
+/** Comparison table — headers + a grid of rows, both fully editable. */
+const ComparisonTableEditor: React.FC<{ block: any; onChange: (b: ContentBlock) => void }> = ({ block, onChange }) => {
+  const headers: string[] = Array.isArray(block.data.headers) ? block.data.headers : [];
+  const rows: string[][] = Array.isArray(block.data.rows) ? block.data.rows.map((r: any) => Array.isArray(r) ? r : [r]) : [];
+  const cols = Math.max(headers.length, ...rows.map(r => r.length), 1);
+  const patch = (d: any) => onChange({ ...block, data: { ...block.data, ...d } });
+  const setHeader = (i: number, v: string) => { const h = [...headers]; h[i] = v; patch({ headers: h }); };
+  const setCell = (r: number, c: number, v: string) => {
+    const next = rows.map(row => [...row]);
+    while (next[r].length < cols) next[r].push('');
+    next[r][c] = v; patch({ rows: next });
+  };
+  const addColumn = () => patch({
+    headers: [...Array.from({ length: cols }, (_, i) => headers[i] ?? ''), ''],
+    rows: rows.map(r => [...Array.from({ length: cols }, (_, i) => r[i] ?? ''), '']),
+  });
+  const removeColumn = (c: number) => patch({
+    headers: headers.filter((_, i) => i !== c),
+    rows: rows.map(r => r.filter((_, i) => i !== c)),
+  });
+
+  return (
+    <div className="space-y-2">
+      <div><label className={labelCls}>Heading (optional)</label>
+        <input className={inputCls} value={block.data.heading || ''} placeholder="e.g. How we compare"
+          onChange={e => patch({ heading: e.target.value })} /></div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm border border-gray-200 rounded">
+          <thead>
+            <tr className="bg-gray-50">
+              {Array.from({ length: cols }, (_, c) => (
+                <th key={c} className="p-1 border-b border-gray-200">
+                  <div className="flex gap-1 items-center">
+                    <input className={inputCls} value={headers[c] ?? ''} placeholder={`Column ${c + 1}`}
+                      onChange={e => setHeader(c, e.target.value)} />
+                    {cols > 1 && (
+                      <button type="button" onClick={() => removeColumn(c)} title="Remove column"
+                        className="text-red-400 hover:text-red-600 text-xs shrink-0">✕</button>
+                    )}
+                  </div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, r) => (
+              <tr key={r}>
+                {Array.from({ length: cols }, (_, c) => (
+                  <td key={c} className="p-1 border-b border-gray-100">
+                    <input className={inputCls} value={row[c] ?? ''} placeholder="—"
+                      onChange={e => setCell(r, c, e.target.value)} />
+                  </td>
+                ))}
+                <td className="p-1 w-8">
+                  <button type="button" onClick={() => patch({ rows: rows.filter((_, i) => i !== r) })}
+                    className="text-red-400 hover:text-red-600 text-sm" title="Remove row">✕</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="flex gap-3">
+        <button type="button" onClick={() => patch({ rows: [...rows, Array.from({ length: cols }, () => '')] })}
+          className="text-xs text-blue-600 hover:text-blue-800">+ Add Row</button>
+        <button type="button" onClick={addColumn}
+          className="text-xs text-blue-600 hover:text-blue-800">+ Add Column</button>
+      </div>
+    </div>
+  );
+};
 
 const BlockEditor: React.FC<{ block: ContentBlock; onChange: (b: ContentBlock) => void }> = ({ block, onChange }) => {
   // Blocks arrive from imports/older schemas that may omit `data`/`items` —
@@ -210,7 +311,18 @@ const BlockEditor: React.FC<{ block: ContentBlock; onChange: (b: ContentBlock) =
       return <VideoEditor block={{ ...b, url: b.url ?? '', caption: b.caption ?? '' }} onChange={onChange} />;
     case 'highlight_strip':
       return <HighlightEditor block={{ ...b, items: Array.isArray(b.items) ? b.items : [] }} onChange={onChange} />;
-    default: return <p className="text-xs text-gray-400">Unknown block type</p>;
+    case 'image':
+    case 'banner':
+      return <ImageOnlyEditor block={{ ...b, data: { heading: '', imageUrl: '', alt: '', ...(b.data || {}) } }} onChange={onChange} />;
+    case 'comparison_table':
+      return <ComparisonTableEditor block={{ ...b, data: { heading: '', headers: [], rows: [], ...(b.data || {}) } }} onChange={onChange} />;
+    default:
+      return (
+        <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded p-2">
+          This block type (<b>{String(b.type ?? 'unknown')}</b>) has no editor yet. It stays on the
+          product exactly as it is — nothing is lost when you save.
+        </p>
+      );
   }
 };
 
