@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import {
   productsAPI, uploadAPI, categoriesAPI, sizeChartsAPI, specificationsAPI,
-  tagsAPI, taxRulesAPI, brandsAPI, manufacturersAPI, returnPoliciesAPI, productConfigAPI,
+  tagsAPI, taxRulesAPI, brandsAPI, manufacturersAPI, returnPoliciesAPI, faqGroupsAPI, productConfigAPI,
 } from '../services/api';
 import ProductComplianceSections, { ProductConfig, SpecSectionValue } from '../components/product/ProductComplianceSections';
 import api from '../services/api';
@@ -212,7 +212,7 @@ const ProductForm: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const { canAccess } = useAuth();
+  const { canAccess, storeModules } = useAuth();
   const id = rawId ? String(rawId).trim() : undefined;
   const isEdit = !!id;
   const isSlugParam = !!id && !/^[0-9a-fA-F]{24}$/.test(id) && !/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/i.test(id);
@@ -225,7 +225,7 @@ const ProductForm: React.FC = () => {
     description: '', richDescription: '', descriptionImage: '',
     images: [] as string[], videos: [] as string[],
     stock: undefined as number | undefined,
-    brandId: '', manufacturerId: '', returnPolicyId: '',
+    brandId: '', manufacturerId: '', returnPolicyId: '', faqGroupId: '',
     categories: [] as string[], featuredCategory: '',
     tags: [] as Array<string | { _id: string; name: string }>,
     weight: '0.5', length: '10', breadth: '10', height: '5',
@@ -256,6 +256,9 @@ const ProductForm: React.FC = () => {
   // operator actually changed it — re-sending the loaded value on every save
   // used to clobber sales/receipts that happened while the form was open.
   const initialStockRef = useRef<{ product?: number; variations: Record<string, number> }>({ variations: {} });
+  // The REAL product UUID (the URL param can be a slug — feeding a slug into
+  // uuid-keyed endpoints like /b2b/contracts/product/:id 500s on the PG cast).
+  const [resolvedProductId, setResolvedProductId] = useState<string>('');
 
   const [slug, setSlug] = useState('');
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
@@ -273,6 +276,7 @@ const ProductForm: React.FC = () => {
   const [availableBrands, setAvailableBrands] = useState<Array<{ _id: string; name: string }>>([]);
   const [availableManufacturers, setAvailableManufacturers] = useState<Array<{ _id: string; name: string }>>([]);
   const [availableReturnPolicies, setAvailableReturnPolicies] = useState<Array<{ _id: string; name: string }>>([]);
+  const [availableFaqGroups, setAvailableFaqGroups] = useState<Array<{ _id: string; name: string }>>([]);
   const [productConfig, setProductConfig] = useState<ProductConfig | null>(null);
   const [lookupsLoading, setLookupsLoading] = useState(false);
 
@@ -297,20 +301,24 @@ const ProductForm: React.FC = () => {
     setLookupsLoading(true);
     try {
       // allSettled — one failing endpoint must NOT blank every dropdown.
+      // Module-gated lookups are skipped when their module is off: the request
+      // would 403 and surface a "Feature not enabled" toast on PAGE LOAD for a
+      // feature the merchant never touched.
       const settled = await Promise.allSettled([
         categoriesAPI.list(),
-        sizeChartsAPI.list(),
-        specificationsAPI.getAll({ active: true }),
+        canAccess('size_charts') ? sizeChartsAPI.list() : Promise.resolve([]),
+        canAccess('product_specifications') ? specificationsAPI.getAll({ active: true }) : Promise.resolve([]),
         tagsAPI.getAll({ active: true }),
-        taxRulesAPI.getAll(),
+        canAccess('gst_tax') ? taxRulesAPI.getAll() : Promise.resolve([]),
         brandsAPI.list({ active: true }),
         manufacturersAPI.getAll({ active: true }),
         returnPoliciesAPI.getAll({ active: true }),
+        canAccess('faqs') ? faqGroupsAPI.getAll({ active: true }) : Promise.resolve([]),
       ]);
       const val = (i: number) => (settled[i].status === 'fulfilled' ? (settled[i] as PromiseFulfilledResult<any>).value : undefined);
       settled.forEach((s, i) => { if (s.status === 'rejected') console.error(`Lookup ${i} failed`, s.reason); });
-      const [catRes, chartRes, specRes, tagsRes, taxRes, brandsRes, mfgRes, rpRes] =
-        [val(0), val(1), val(2), val(3), val(4), val(5), val(6), val(7)];
+      const [catRes, chartRes, specRes, tagsRes, taxRes, brandsRes, mfgRes, rpRes, faqGrpRes] =
+        [val(0), val(1), val(2), val(3), val(4), val(5), val(6), val(7), val(8)];
 
       const normList = (raw: any[], extra?: (item: any) => any): any[] =>
         extractList(raw).map((c: any) => {
@@ -338,6 +346,7 @@ const ProductForm: React.FC = () => {
       setAvailableBrands(normList(brandsRes, b => ({ _id: b._id, name: b.name })));
       setAvailableManufacturers(normList(mfgRes, m => ({ _id: m._id, name: m.name })));
       setAvailableReturnPolicies(normList(rpRes, r => ({ _id: r._id, name: r.name })));
+      setAvailableFaqGroups(normList(faqGrpRes, g => ({ _id: g._id, name: g.name || g.title || 'FAQ group' })));
     } catch (e) {
       console.error('Lookups failed', e);
     } finally {
@@ -345,7 +354,25 @@ const ProductForm: React.FC = () => {
     }
   };
 
-  useEffect(() => { loadLookups(); fetchWebsiteUrl(); }, []);
+  // Wait for the modules map before firing the module-gated lookups: on direct
+  // navigation canAccess fails OPEN while /modules is in flight, so gated calls
+  // (size-charts etc.) fired anyway, 403'd, and toasted "Feature not enabled"
+  // on page load. Fallback: if modules never arrive (endpoint down), load after
+  // 4s so the form still works.
+  const lookupsFiredRef = useRef(false);
+  useEffect(() => {
+    if (lookupsFiredRef.current) return;
+    if (Object.keys(storeModules).length > 0) {
+      lookupsFiredRef.current = true;
+      loadLookups();
+      return;
+    }
+    const t = setTimeout(() => {
+      if (!lookupsFiredRef.current) { lookupsFiredRef.current = true; loadLookups(); }
+    }, 4000);
+    return () => clearTimeout(t);
+  }, [storeModules]);
+  useEffect(() => { fetchWebsiteUrl(); }, []);
   useEffect(() => { productConfigAPI.get().then(cfg => { if (cfg) setProductConfig(cfg); }); }, []);
 
   const fetchWebsiteUrl = async () => {
@@ -430,6 +457,7 @@ const ProductForm: React.FC = () => {
         brandId: p.brandId || p.brand_id || p.brand?._id || p.brand?.id || '',
         manufacturerId: p.manufacturerId || p.manufacturer_id || p.manufacturer?._id || p.manufacturer?.id || '',
         returnPolicyId: p.returnPolicyId || p.return_policy_id || p.returnPolicy?._id || '',
+        faqGroupId: p.faqGroupId || p.faq_group_id || '',
         categories: cats,
         featuredCategory: p.featuredCategory ? String(p.featuredCategory) : p.featured_category_id || '',
         tags: normTags(p.tags || []),
@@ -449,7 +477,11 @@ const ProductForm: React.FC = () => {
         requiresPrescription: !!(p.requiresPrescription || p.requires_prescription),
         disableVariants: !!(p.disableVariants || p.disable_variants),
         showOutOfStockVariants: p.showOutOfStockVariants !== false && p.show_oos_variants !== false,
-        productType: (p.productType || p.product_type || ((p.variations?.length || p.attributeIds?.length) ? 'variation' : 'single')) as 'single' | 'variation',
+        // Trust the stored product_type; only REAL variation rows imply
+        // 'variation' as a fallback. attributeIds must NOT — simple products
+        // legitimately carry filter attributes (Woo model), and inferring
+        // 'variation' from them re-typed every attributed single product.
+        productType: (p.productType || p.product_type || (p.variations?.length ? 'variation' : 'single')) as 'single' | 'variation',
         attributeIds: p.attributeIds?.length ? p.attributeIds : (p.attributes || []).map((a: any) => a._id).filter(Boolean),
         // The detail API now returns which catalogue values each attribute uses
         // (from product_attributes + the variation JSONB) so the editor loads
@@ -540,6 +572,7 @@ const ProductForm: React.FC = () => {
       const { data, scMode, scId, seo } = mapProductToForm(product);
       setFormData(data);
       captureInitialStock(product);
+      setResolvedProductId(String(product.id || product._id || ''));
       setSlug(product.slug ? String(product.slug) : slugifyValue(product.name || ''));
       setSlugManuallyEdited(true);
       setSeoData(seo);
@@ -749,9 +782,12 @@ const ProductForm: React.FC = () => {
         cleanedVariations = [];
       }
 
+      // Only REAL variation rows force 'variation'. Filter attributes do NOT —
+      // a simple product with attributeIds stays simple (the old
+      // `attributeIds → variation` line silently converted every attributed
+      // single product on save). With no variation rows, the user's explicit
+      // radio choice stands (a mid-setup Variable product isn't flipped back).
       if (cleanedVariations?.length) productType = 'variation';
-      else if (cleanedAttributeIds.length) productType = 'variation';
-      else if (!cleanedVariations?.length && !cleanedAttributeIds.length) productType = 'single';
 
       const ns = slugifyValue(slug); setSlug(ns);
 
@@ -808,6 +844,7 @@ const ProductForm: React.FC = () => {
         images: fd.images, videos: fd.videos.filter(v => v.trim()),
         brandId: fd.brandId || null, manufacturerId: fd.manufacturerId || null,
         returnPolicyId: fd.returnPolicyId || null,
+        faqGroupId: fd.faqGroupId || null,
         taxRuleId: fd.taxRuleId?.trim() || null, hsnCode: fd.hsnCode || undefined,
         stock: stockData,
         weight: parseFloat(fd.weight) || 0.5, length: parseFloat(fd.length) || 10,
@@ -1288,6 +1325,20 @@ const ProductForm: React.FC = () => {
               {!availableReturnPolicies.length && <p className="text-xs text-gray-400 mt-1">Add in Settings → Return Policies</p>}
             </div>
 
+            {/* FAQ Group — products.faq_group_id had NO form input anywhere
+                (only the CSV import wrote it). Reusable FAQ sets attach here. */}
+            {canAccess('faqs') && (
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <h3 className="text-sm font-semibold text-gray-900 mb-2">FAQ Group</h3>
+              <select value={formData.faqGroupId} onChange={e => setFormData(p => ({ ...p, faqGroupId: e.target.value }))}
+                className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-red-400">
+                <option value="">None</option>
+                {availableFaqGroups.map(g => <option key={g._id} value={g._id}>{g.name}</option>)}
+              </select>
+              {!availableFaqGroups.length && <p className="text-xs text-gray-400 mt-1">Create groups in Content → FAQs</p>}
+            </div>
+            )}
+
             {/* Shelf Life (kept here; full compliance fields are in the config-driven section) */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
               <label className="text-xs font-medium text-gray-600 block mb-0.5">Shelf Life (months)</label>
@@ -1369,7 +1420,7 @@ const ProductForm: React.FC = () => {
               <ProductB2BPricing
                 tiers={formData.b2bPricing}
                 onChange={tiers => setFormData(p => ({ ...p, b2bPricing: tiers }))}
-                productId={id}
+                productId={resolvedProductId || id}
                 variations={formData.variations}
               />
             )}

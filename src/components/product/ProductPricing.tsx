@@ -177,9 +177,14 @@ const ProductPricing: React.FC<ProductPricingProps> = ({
             <Label htmlFor="sku" className="text-xs">SKU</Label>
             <Input id="sku" type="text" value={sku || ''}
               onChange={e => { const v = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 48); onSkuChange(v); }}
-              className={`h-8 text-sm font-mono ${errors.sku ? 'border-destructive' : ''} ${sku ? 'bg-muted/50' : ''}`}
+              className={`h-8 text-sm font-mono ${errors.sku ? 'border-destructive' : ''}`}
               placeholder="AUTO-GENERATED" />
             {errors.sku && <p className="text-xs text-destructive">{errors.sku}</p>}
+            {/* P-… is the auto-generated placeholder series — merchants kept
+                reading the muted styling as "not editable" and shipping with it. */}
+            {sku?.startsWith('P-') && (
+              <p className="text-xs text-amber-600">Auto-generated placeholder — type your real SKU (this is the sellable SKU for simple products).</p>
+            )}
           </div>
           {showTaxFields && (
             <div className="space-y-1.5">
