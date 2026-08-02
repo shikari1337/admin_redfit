@@ -348,6 +348,20 @@ const ProductForm: React.FC = () => {
     if (!visible[activeTab]) setActiveTab('general');
   }, [activeTab, formData.productType, variantGroup, storeModules]); // eslint-disable-line
 
+  // Variable products price per-VARIANT — summarize the range for the Pricing
+  // tab's info panel (min/max across variations that have a price set).
+  const variationPriceSummary = useMemo(() => {
+    if (formData.productType !== 'variation' || formData.variations.length === 0) return null;
+    const prices = formData.variations
+      .map(v => (typeof v.price === 'number' ? v.price : parseFloat(String(v.price ?? ''))))
+      .filter(n => Number.isFinite(n) && n > 0);
+    return {
+      min: prices.length ? Math.min(...prices) : 0,
+      max: prices.length ? Math.max(...prices) : 0,
+      count: formData.variations.length,
+    };
+  }, [formData.productType, formData.variations]);
+
   // ── lookups ────────────────────────────────────────────────────────────────
 
   const loadLookups = async () => {
@@ -1418,6 +1432,9 @@ const ProductForm: React.FC = () => {
                 salePrice={formData.salePrice} saleStartsAt={formData.saleStartsAt} saleEndsAt={formData.saleEndsAt}
                 sku={formData.sku} hsnCode={formData.hsnCode} taxRuleId={formData.taxRuleId} taxRules={availableTaxRules}
                 showTaxFields={canAccess('gst_tax')}
+                isVariableProduct={formData.productType === 'variation'}
+                variationPriceSummary={variationPriceSummary}
+                onGoToVariants={() => setActiveTab('variants')}
                 stock={formData.stock} showStock={formData.productType === 'single'}
                 weight={formData.weight} length={formData.length} breadth={formData.breadth} height={formData.height}
                 onPriceChange={v => { setFormData(p => ({ ...p, price: v })); setErrors(prev => ({ ...prev, price: '' })); }}

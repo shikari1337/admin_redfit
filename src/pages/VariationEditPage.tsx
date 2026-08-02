@@ -8,6 +8,28 @@ import ProductInventoryPanel from '../components/product/ProductInventoryPanel';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** product_b2b_pricing rows arrive snake_case from the admin GET — normalize to
+ *  the camelCase keys the backend PUT setter accepts (it takes both; we send
+ *  camelCase). PUT /products/:id `b2bPricing` REPLACES the full slab set. */
+const normalizeSlab = (s: any) => ({
+  id: s.id,
+  variationId: s.variation_id ?? s.variationId ?? null,
+  tierName: s.tier_name ?? s.tierName ?? '',
+  minQty: Number(s.min_qty ?? s.minQty ?? 1),
+  maxQty: s.max_qty ?? s.maxQty ?? undefined,
+  priceType: s.price_type ?? s.priceType ?? 'fixed',
+  priceValue: Number(s.price_value ?? s.priceValue ?? 0),
+  isActive: (s.is_active ?? s.isActive) !== false,
+  validFrom: (s.valid_from ?? s.validFrom)?.slice?.(0, 10) || undefined,
+  validUntil: (s.valid_until ?? s.validUntil)?.slice?.(0, 10) || undefined,
+});
+type Slab = ReturnType<typeof normalizeSlab>;
+
+/** This variation's FLAT wholesale row: generic (no tier), from qty 1, fixed price —
+ *  the single "wholesale price" the input on this page binds to. */
+const isFlatWholesaleRow = (s: Slab, variationUuid: string) =>
+  s.variationId === variationUuid && !s.tierName && Number(s.minQty) === 1 && s.priceType === 'fixed';
+
 const VariationEditPage: React.FC = () => {
   const { productSlug, variationIndex } = useParams<{ productSlug: string; variationIndex: string }>();
   const navigate = useNavigate();
@@ -20,6 +42,8 @@ const VariationEditPage: React.FC = () => {
   const [uploading, setUploading] = useState(false);
   const [taxRules, setTaxRules] = useState<Array<{ _id: string; id?: string; name: string; rate?: number }>>([]);
   const [brands, setBrands] = useState<Array<{ _id?: string; id?: string; name: string }>>([]);
+  // Flat B2B wholesale price for THIS variation (empty string = no flat slab).
+  const [b2bFlatPrice, setB2bFlatPrice] = useState<string>('');
 
   const idx = variationIndex !== undefined ? parseInt(variationIndex, 10) : -1;
 
@@ -47,6 +71,11 @@ const VariationEditPage: React.FC = () => {
         ...v,
         id: v.id || `var-loaded-${idx}`,
       });
+      // Seed the flat wholesale input from this variation's generic slab
+      // (variation-scoped, no tier, min_qty 1, fixed) — first match wins.
+      const slabRows: Slab[] = (prod?.b2bPricing ?? prod?.b2b_pricing ?? []).map(normalizeSlab);
+      const flat = slabRows.find(s => isFlatWholesaleRow(s, String(v.id || '')));
+      setB2bFlatPrice(flat ? String(flat.priceValue) : '');
     } catch {
       alert('Failed to load product');
       navigate('/products');
@@ -83,7 +112,24 @@ const VariationEditPage: React.FC = () => {
         ...updatedVariations[idx],
         ...variation,
       };
-      await productsAPI.update(product._id, { variations: updatedVariations });
+      const payload: any = { variations: updatedVariations };
+      // Per-variant flat wholesale price → product_b2b_pricing. `b2bPricing`
+      // REPLACES the full slab set server-side (and needs b2b.manage), so only
+      // send it when the b2b module is on AND the slabs came back on load —
+      // otherwise omit the key entirely so nothing we never saw gets wiped.
+      const rawSlabs = product?.b2bPricing ?? product?.b2b_pricing;
+      const varUuid = String(variation.id || '');
+      if (canAccess('b2b') && Array.isArray(rawSlabs) && UUID_RE.test(varUuid)) {
+        // Keep every existing row EXCEPT this variation's flat generic row(s);
+        // re-add the flat row only when the input is non-empty (empty = remove).
+        const kept: any[] = rawSlabs.map(normalizeSlab).filter((s: Slab) => !isFlatWholesaleRow(s, varUuid));
+        const flatVal = parseFloat(b2bFlatPrice);
+        if (b2bFlatPrice.trim() !== '' && Number.isFinite(flatVal) && flatVal > 0) {
+          kept.push({ variationId: varUuid, tierName: '', minQty: 1, priceType: 'fixed', priceValue: flatVal, isActive: true });
+        }
+        payload.b2bPricing = kept;
+      }
+      await productsAPI.update(product._id, payload);
       navigate(`/products/${productSlug}/edit`);
     } catch {
       alert('Failed to save variation');
@@ -355,6 +401,49 @@ const VariationEditPage: React.FC = () => {
         </div>
         )}
       </div>
+
+      {/* B2B / wholesale — ONE flat per-variant price (a generic qty-1 fixed slab
+          in product_b2b_pricing). Gated on the b2b module; hidden when the admin
+          GET didn't include slabs (saving would then replace rows we never saw)
+          or when the variation has no real UUID yet (nothing to bind a slab to). */}
+      {canAccess('b2b') && Array.isArray(product?.b2bPricing ?? product?.b2b_pricing) && UUID_RE.test(String(v.id || '')) && (() => {
+        const varUuid = String(v.id);
+        const slabRows: Slab[] = (product?.b2bPricing ?? product?.b2b_pricing ?? []).map(normalizeSlab);
+        // Everything else targeting this variant (tiers / qty slabs) is read-only here.
+        const otherSlabs = slabRows.filter(s => s.variationId === varUuid && !isFlatWholesaleRow(s, varUuid));
+        return (
+          <div className="bg-white rounded-lg border border-gray-200 p-5 space-y-4">
+            <h2 className="text-sm font-semibold text-gray-900">B2B / wholesale price (this variant)</h2>
+            <div className="max-w-sm">
+              <label className="block text-xs font-medium text-gray-700 mb-1">Wholesale price (₹)</label>
+              <input
+                type="number" step="0.01" min="0"
+                value={b2bFlatPrice}
+                onChange={e => setB2bFlatPrice(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="No wholesale price"
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                Buyers with a wholesale account see this instead of the retail price.
+                Requires the B2B permission to save. Leave empty to remove it.
+              </p>
+            </div>
+            {otherSlabs.length > 0 && (
+              <div className="pt-3 border-t border-gray-100 space-y-1.5">
+                <p className="text-xs font-medium text-gray-600">Other B2B slabs on this variant</p>
+                {otherSlabs.map((s, si) => (
+                  <p key={s.id || si} className="text-xs text-gray-600">
+                    {s.tierName ? `tier ${s.tierName}` : 'any tier'} · {s.minQty}{s.maxQty ? `–${s.maxQty}` : '+'} →{' '}
+                    {s.priceType === 'fixed' ? `₹${s.priceValue}` : `${s.priceValue}% off`}
+                    {!s.isActive && <span className="text-gray-400"> · inactive</span>}
+                  </p>
+                ))}
+                <p className="text-[11px] text-gray-400">Manage tiers &amp; quantity slabs on the product's B2B tab.</p>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Inventory & ERP — live balances, batches, incoming POs, ledger history */}
       {UUID_RE.test(String(v.id || '')) && (

@@ -2,7 +2,7 @@ import React from 'react';
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { CalendarClock } from "lucide-react";
+import { CalendarClock, ChevronRight, Layers } from "lucide-react";
 import { FieldGroup, Field } from './FormField';
 
 const toLocalInputValue = (d: Date): string => {
@@ -44,6 +44,14 @@ interface ProductPricingProps {
   onLengthChange: (length: string) => void;
   onBreadthChange: (breadth: string) => void;
   onHeightChange: (height: string) => void;
+  /** Variable products price per-VARIANT — when true the MRP/selling/sale
+   *  inputs collapse into a "default / fallback" section and an info panel
+   *  points at the Variants tab instead. Presentation only. */
+  isVariableProduct?: boolean;
+  /** min/max across variations that have a price set + total variant count. */
+  variationPriceSummary?: { min: number; max: number; count: number } | null;
+  /** Jump to the Variants tab (where per-variant prices live). */
+  onGoToVariants?: () => void;
   errors: {
     price?: string;
     originalPrice?: string;
@@ -66,15 +74,17 @@ const ProductPricing: React.FC<ProductPricingProps> = ({
   onPriceChange, onOriginalPriceChange, onSalePriceChange, onSaleStartsAtChange, onSaleEndsAtChange,
   onSkuChange, onHsnCodeChange, onTaxRuleIdChange, onStockChange,
   onWeightChange, onLengthChange, onBreadthChange, onHeightChange,
+  isVariableProduct = false, variationPriceSummary = null, onGoToVariants,
   errors,
 }) => {
   const [showSale, setShowSale] = React.useState(!!salePrice);
+  // Variable products: product-level prices are only a fallback — collapsed by default.
+  const [showFallbackPrices, setShowFallbackPrices] = React.useState(false);
 
-  return (
-    <div className="space-y-5">
-
-      {/* ── Prices ─────────────────────────────────────────────────────────── */}
-      <FieldGroup title="Prices" description="What is printed on the pack and what the customer pays.">
+  // The MRP / selling / sale inputs — identical markup whether rendered directly
+  // (simple product) or inside the collapsed fallback section (variable product).
+  const priceFields = (
+    <>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Field label="MRP (₹)" htmlFor="originalPrice" required error={errors.originalPrice}
             help="Printed pack price — shown struck-through next to your price.">
@@ -159,6 +169,58 @@ const ProductPricing: React.FC<ProductPricingProps> = ({
             </div>
           )}
         </div>
+    </>
+  );
+
+  return (
+    <div className="space-y-5">
+
+      {/* ── Prices ─────────────────────────────────────────────────────────── */}
+      <FieldGroup title="Prices" description="What is printed on the pack and what the customer pays.">
+        {isVariableProduct ? (
+          <>
+            {/* Each variant prices itself — the inputs below are only a fallback. */}
+            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <div className="flex items-start gap-2.5">
+                <Layers className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" aria-hidden="true" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-blue-900">
+                    {variationPriceSummary && variationPriceSummary.count > 0
+                      ? `This product has ${variationPriceSummary.count} variant${variationPriceSummary.count === 1 ? '' : 's'} — each variant sets its own price.`
+                      : 'This is a variable product — each variant sets its own price.'}
+                  </p>
+                  {variationPriceSummary && variationPriceSummary.max > 0 && (
+                    <p className="text-xs text-blue-700 mt-1">
+                      Current price range:{' '}
+                      <span className="font-semibold">
+                        {variationPriceSummary.min === variationPriceSummary.max
+                          ? `₹${variationPriceSummary.min}`
+                          : `₹${variationPriceSummary.min} – ₹${variationPriceSummary.max}`}
+                      </span>
+                    </p>
+                  )}
+                  {onGoToVariants && (
+                    <button type="button" onClick={onGoToVariants}
+                      className="mt-2.5 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-white border border-blue-300 text-blue-700 rounded-md hover:bg-blue-100 transition-colors">
+                      Edit prices per variant
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Collapsed fallback — same inputs, unchanged, hidden by default. */}
+            <div className="mt-4">
+              <button type="button" onClick={() => setShowFallbackPrices(open => !open)}
+                aria-expanded={showFallbackPrices}
+                className="flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors">
+                <ChevronRight className={`h-3.5 w-3.5 transition-transform ${showFallbackPrices ? 'rotate-90' : ''}`} aria-hidden="true" />
+                Default / fallback price (used only when a variant doesn't set its own)
+              </button>
+              {showFallbackPrices && <div className="mt-3">{priceFields}</div>}
+            </div>
+          </>
+        ) : priceFields}
       </FieldGroup>
 
       {/* ── Codes & tax ────────────────────────────────────────────────────── */}

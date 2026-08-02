@@ -10,14 +10,20 @@ const VALUE_PICKER_THRESHOLD = 12;
 // Client-side page size for the generated-variations table.
 const VARIATIONS_PER_PAGE = 50;
 
-// DEDUPE: the dedicated "Brand axis" block owns brand as a variation dimension.
-// The store attribute catalogue can ALSO contain a literal "Brand" attribute
-// (homeomead does — slug `brand`, flagged as a storefront card axis), which used to
-// render a SECOND brand picker in the attribute list below. Such attributes are
-// excluded from the selectable list whenever the brand axis is available; legacy
-// products that already selected one keep seeing it so they can manage/deselect it.
+// ONE brand control: brand renders as a single "Brand" row inside the attribute
+// list (checkbox + collapsible searchable picker) backed by the store BRANDS list,
+// and generated variations carry brandId → primary_brand_id. The store attribute
+// catalogue can ALSO contain a literal "Brand" attribute (homeomead does — slug
+// `brand`, flagged as a storefront card axis); it NEVER renders here (even when a
+// legacy product has it selected — two brand pickers for one concept was redundant).
+// Its id stays in selectedAttributeIds and its selectedAttributeValues entry is
+// never touched, so saving keeps the product's brand attribute links intact; its
+// previously selected values are MERGED into the brand selection on load (by
+// case-insensitive name match) so nothing silently disappears from the editor.
+const isBrandAttributeKey = (key: string) =>
+  ['brand', 'brands'].includes((key || '').toLowerCase().trim());
 const isBrandAttribute = (a: AttributeOption) =>
-  ['brand', 'brands'].includes((a.slug || a.name || '').toLowerCase().trim());
+  isBrandAttributeKey(a.slug || a.name || '');
 
 interface ProductAttributeVariationsProps {
   selectedAttributeIds: string[];
@@ -62,6 +68,7 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
   );
   const toggleBrand = (id: string) =>
     setSelectedBrandIds(prev => prev.includes(id) ? prev.filter(b => b !== id) : [...prev, id]);
+  const hasSelectedBrands = selectedBrandIds.length > 0;
   const [availableAttributes, setAvailableAttributes] = useState<AttributeOption[]>([]);
   const [attributeValuesMap, setAttributeValuesMap] = useState<Record<string, AttributeValueOption[]>>({});
   const [loadingAttributes, setLoadingAttributes] = useState(false);
@@ -87,10 +94,12 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
   const [newAttrName, setNewAttrName] = useState('');
   const [creatingAttr, setCreatingAttr] = useState(false);
   // ── Presentation-only UX state (no contract change) ────────────────────────
-  // Brand axis: collapsed summary of SELECTED brands + inline searchable picker.
-  const [brandPickerOpen, setBrandPickerOpen] = useState(false);
+  // Brand renders as ONE attribute-style row: checkbox to enable, collapsible
+  // searchable picker. "Enabled" is implied by having selected brands; the extra
+  // flag lets a freshly ticked row stay open before any brand is picked.
+  const [brandRowChecked, setBrandRowChecked] = useState(false);
+  const [brandExpanded, setBrandExpanded] = useState(false);
   const [brandSearch, setBrandSearch] = useState('');
-  const brandPickerRef = useRef<HTMLDivElement>(null);
   // Per-attribute value search text (used only above VALUE_PICKER_THRESHOLD).
   const [valueSearch, setValueSearch] = useState<Record<string, string>>({});
   // Variation table: text filter + client-side pagination.
@@ -154,7 +163,12 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
 
   // Generate variations from selected attribute values
   const generateVariations = () => {
-    const selectedAttrs = availableAttributes.filter(a => selectedAttributeIds.includes(a._id));
+    // Brand is crossed EXACTLY ONCE — via the brand axis below. A selected
+    // brand-named catalogue attribute (legacy products) must NOT also enter the
+    // attribute cross: it used to multiply brand twice (brand-values × brands),
+    // and with 0 values selected it would even cross ALL catalogue brand values.
+    const selectedAttrs = availableAttributes.filter(a =>
+      selectedAttributeIds.includes(a._id) && !(availableBrands.length > 0 && isBrandAttribute(a)));
     if (selectedAttrs.length === 0 && selectedBrandIds.length === 0) {
       onVariationsChange([]);
       return;
@@ -210,15 +224,26 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
       : [{ id: undefined as string | undefined, name: '' }];
 
     // Dedup key includes brand so the same attributes under two brands are distinct.
+    // Key is ORDER-INSENSITIVE and ignores legacy `brand`/`brands` attribute-map
+    // entries (generation no longer emits them; existing rows that carry one plus
+    // a brandId must still match their brand-free regenerated combo and survive).
+    const variationKey = (attrs: Record<string, string>, brandId?: string) => {
+      const parts = Object.keys(attrs || {})
+        .filter(k => !isBrandAttributeKey(k))
+        .sort()
+        .map(k => `${k.toLowerCase().trim()}=${String(attrs[k]).toLowerCase().trim()}`);
+      parts.push(`__brand=${brandId || ''}`);
+      return parts.join('|');
+    };
     const existingVariationsMap = new Map(
-      variations.map(v => [JSON.stringify({ ...v.attributes, __brand: v.brandId || '' }), v])
+      variations.map(v => [variationKey(v.attributes, v.brandId), v])
     );
 
     const newVariations: ProductVariation[] = [];
     let index = 0;
     for (const brand of brandAxis) {
       for (const attrs of valueCombinations) {
-        const key = JSON.stringify({ ...attrs, __brand: brand.id || '' });
+        const key = variationKey(attrs, brand.id);
         const existing = existingVariationsMap.get(key);
         if (existing) { newVariations.push(existing); index++; continue; }
 
@@ -250,13 +275,14 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
     onVariationsChange(newVariations);
   };
 
-  // Clear variations when no attributes are selected
+  // Clear variations when neither attributes nor brands are selected (brand is
+  // an axis like any attribute — a brand-only variant set must not be wiped).
   useEffect(() => {
-    if (selectedAttributeIds.length === 0) {
+    if (selectedAttributeIds.length === 0 && selectedBrandIds.length === 0) {
       onVariationsChange([]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAttributeIds]);
+  }, [selectedAttributeIds, selectedBrandIds]);
 
   // Pre-expand selected attributes that already HAVE chosen values (edit mode) so
   // they are visible; attributes with no selected values stay collapsed by default.
@@ -268,17 +294,60 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [availableAttributes.length]);
 
-  // Close the brand picker on outside click (Done button also closes it).
+  // MIGRATION SAFETY: legacy products carry a SELECTED brand-named attribute whose
+  // values used to render as their own row. That row no longer exists, so its
+  // selected values are merged into the brand selection here (case-insensitive
+  // name match against the store brand list; unmatched names are ignored) — nothing
+  // silently disappears from the editor. Each value id is processed AT MOST ONCE
+  // per mount, so deliberately removing a brand afterwards is never undone, and
+  // late-arriving product/catalogue data is still picked up. The attribute's id in
+  // selectedAttributeIds and its selectedAttributeValues entry are left untouched,
+  // so saving keeps the product's brand attribute links exactly as before.
+  const mergedLegacyBrandValueIds = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (!brandPickerOpen) return;
-    const onMouseDown = (e: MouseEvent) => {
-      if (brandPickerRef.current && !brandPickerRef.current.contains(e.target as Node)) {
-        setBrandPickerOpen(false);
+    if (availableBrands.length === 0 || availableAttributes.length === 0) return;
+    const brandAttrs = availableAttributes.filter(a =>
+      isBrandAttribute(a) && selectedAttributeIds.includes(a._id));
+    if (brandAttrs.length === 0) return;
+    const idsToAdd: string[] = [];
+    for (const attr of brandAttrs) {
+      const values = attributeValuesMap[attr._id];
+      if (!values) continue; // values not loaded yet — re-run when the map fills
+      for (const valueId of selectedAttributeValues[attr._id] || []) {
+        if (mergedLegacyBrandValueIds.current.has(valueId)) continue;
+        mergedLegacyBrandValueIds.current.add(valueId);
+        const val = values.find(v => v._id === valueId);
+        const nm = (val?.name || val?.slug || '').trim().toLowerCase();
+        if (!nm) continue;
+        const brand = availableBrands.find(b => (b.name || '').trim().toLowerCase() === nm);
+        if (brand) idsToAdd.push(brand._id);
       }
-    };
-    document.addEventListener('mousedown', onMouseDown);
-    return () => document.removeEventListener('mousedown', onMouseDown);
-  }, [brandPickerOpen]);
+    }
+    if (idsToAdd.length) {
+      setSelectedBrandIds(prev => Array.from(new Set([...prev, ...idsToAdd])));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availableBrands, availableAttributes, attributeValuesMap, selectedAttributeIds, selectedAttributeValues]);
+
+  // Pre-expand the Brand row when brands are already selected (edit mode) —
+  // mirrors the pre-expansion of attribute rows that already have values.
+  useEffect(() => {
+    if (hasSelectedBrands) setBrandExpanded(true);
+  }, [hasSelectedBrands]);
+
+  // Checkbox on the Brand row — behaves like deselecting an attribute row:
+  // unticking clears the selected brands (the row's "values").
+  const handleBrandRowToggle = () => {
+    if (brandRowChecked || hasSelectedBrands) {
+      setBrandRowChecked(false);
+      setSelectedBrandIds([]);
+      setBrandExpanded(false);
+      setBrandSearch('');
+    } else {
+      setBrandRowChecked(true);
+      setBrandExpanded(true);
+    }
+  };
 
   const handleAttributeToggle = (attributeId: string) => {
     const selecting = !selectedAttributeIds.includes(attributeId);
@@ -554,122 +623,166 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
       </div>
 
       <div className="p-6 space-y-6">
-        {/* Brand axis — collapsed summary (selected brands only) + inline searchable
-            picker. The full brand list is NEVER rendered as an unbounded chip wall.
-            Potency/size below are shared across brands (defined once). */}
-        {availableBrands.length > 0 && (
-          <div ref={brandPickerRef}>
-            <label className="block text-xs font-medium text-gray-700 uppercase tracking-wide mb-1">
-              Brand axis <span className="normal-case text-gray-400 font-normal">(optional) — for multi-brand products</span>
-            </label>
-            <p className="text-xs text-gray-400 mb-2">
-              Add brands only when this product is sold under more than one brand — each brand then gets its own set of variations.
-            </p>
-            <div className="flex flex-wrap items-center gap-1.5">
-              {selectedBrandIds.map(id => {
-                const brand = availableBrands.find(b => b._id === id);
-                return (
-                  <span key={id} className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 text-xs font-medium bg-purple-600 text-white rounded-md">
-                    {brand?.name || 'Brand'}
-                    <button
-                      type="button"
-                      onClick={() => toggleBrand(id)}
-                      className="p-0.5 rounded hover:bg-purple-500 transition-colors"
-                      title="Remove brand"
-                    >
-                      <FaTimes size={9} />
-                    </button>
-                  </span>
-                );
-              })}
-              <button
-                type="button"
-                onClick={() => { setBrandPickerOpen(o => !o); setBrandSearch(''); }}
-                className="px-3 py-1.5 text-xs font-medium rounded-md border border-dashed border-gray-300 text-gray-600 bg-white hover:border-purple-400 hover:text-purple-600 transition-colors"
-              >
-                + Add brands
-              </button>
-            </div>
-            {selectedBrandIds.length === 0 && !brandPickerOpen && (
-              <p className="text-xs text-gray-400 mt-1.5">No brand axis — variations won&rsquo;t be split per brand.</p>
-            )}
-
-            {/* Inline searchable brand picker (bounded + filterable; closes on outside click or Done) */}
-            {brandPickerOpen && (
-              <div className="mt-2 w-full max-w-md bg-white border border-gray-200 rounded-lg shadow-sm">
-                <div className="p-2 border-b border-gray-100 flex items-center gap-2">
-                  <input
-                    autoFocus
-                    value={brandSearch}
-                    onChange={e => setBrandSearch(e.target.value)}
-                    placeholder={`Search ${availableBrands.length} brands…`}
-                    className="flex-1 px-2.5 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-400"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => { setBrandPickerOpen(false); setBrandSearch(''); }}
-                    className="px-3 py-1.5 text-xs font-medium bg-gray-800 text-white rounded hover:bg-gray-700 transition-colors"
-                  >
-                    Done
-                  </button>
-                </div>
-                <div className="max-h-56 overflow-y-auto p-1">
-                  {(() => {
-                    const q = brandSearch.trim().toLowerCase();
-                    const shownBrands = q ? availableBrands.filter(b => b.name.toLowerCase().includes(q)) : availableBrands;
-                    if (shownBrands.length === 0) {
-                      return <div className="px-2.5 py-3 text-xs text-gray-400">No brands match your search.</div>;
-                    }
-                    return shownBrands.map(b => {
-                      const on = selectedBrandIds.includes(b._id);
-                      return (
-                        <button
-                          key={b._id}
-                          type="button"
-                          onClick={() => toggleBrand(b._id)}
-                          className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-left rounded transition-colors ${on ? 'bg-purple-50 text-purple-700 font-medium' : 'text-gray-700 hover:bg-gray-50'}`}
-                        >
-                          <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center flex-shrink-0 ${on ? 'bg-purple-600 border-purple-600 text-white' : 'border-gray-300 bg-white'}`}>
-                            {on && <FaCheck size={8} />}
-                          </span>
-                          {b.name}
-                        </button>
-                      );
-                    });
-                  })()}
-                </div>
-              </div>
-            )}
-
-            {selectedBrandIds.length > 0 && (
-              <p className="text-xs text-gray-400 mt-1.5">
-                Each selected brand × potency × size becomes its own variation with independent price, stock, images &amp; content.
-              </p>
-            )}
-          </div>
-        )}
-
-        {/* Attribute Selection Section */}
+        {/* Attribute Selection Section — Brand renders as the FIRST row (it is
+            one of the attributes; its picker is backed by the store brand list
+            and generated variations carry brandId → primary_brand_id). */}
         <div>
           <label className="block text-xs font-medium text-gray-700 uppercase tracking-wide mb-3">
-            Attributes <span className="normal-case text-gray-400 font-normal">— potency, size (shared across brands)</span>
+            Attributes <span className="normal-case text-gray-400 font-normal">— brand, potency, size</span>
           </label>
           {loadingAttributes ? (
             <div className="text-sm text-gray-500">Loading attributes...</div>
-          ) : availableAttributes.length === 0 ? (
+          ) : availableAttributes.length === 0 && availableBrands.length === 0 ? (
             <div className="text-sm text-gray-500 p-4 bg-gray-50 rounded-lg border border-dashed border-gray-300">
               No attributes available. <a href="/admin/attributes" className="text-blue-600 hover:underline">Create attributes first</a>
             </div>
           ) : (
             <div className="space-y-2">
+              {/* Brand — THE single brand control, styled as an attribute row.
+                  Checkbox enables it, the collapsible body is a searchable picker
+                  over the store BRAND list (not attribute values). Selected brands
+                  cross the other attributes once at generation; each variation
+                  carries brandId → primary_brand_id. */}
+              {availableBrands.length > 0 && (() => {
+                const brandRowSelected = brandRowChecked || hasSelectedBrands;
+                const q = brandSearch.trim().toLowerCase();
+                const shownBrands = q
+                  ? availableBrands.filter(b => (b.name || '').toLowerCase().includes(q))
+                  : availableBrands;
+                const selectShownBrands = () =>
+                  setSelectedBrandIds(prev => Array.from(new Set([...prev, ...shownBrands.map(b => b._id)])));
+                const clearBrands = () => setSelectedBrandIds([]);
+                return (
+                  <div className={`rounded-lg border transition-colors ${brandRowSelected ? 'border-blue-200 bg-blue-50/40' : 'border-gray-200 bg-white'}`}>
+                    <div className="px-3 py-2.5 flex items-center justify-between">
+                      <label className="flex items-center gap-3 cursor-pointer flex-1">
+                        <input
+                          type="checkbox"
+                          checked={brandRowSelected}
+                          onChange={handleBrandRowToggle}
+                          className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                        />
+                        <span className="text-sm font-medium text-gray-900">Brand</span>
+                        <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">brand</span>
+                        {brandRowSelected && selectedBrandIds.length > 0 && (
+                          <span className="text-xs text-blue-600 font-medium">{selectedBrandIds.length} selected</span>
+                        )}
+                      </label>
+                      {brandRowSelected && (
+                        <button
+                          type="button"
+                          onClick={() => setBrandExpanded(e => !e)}
+                          className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
+                        >
+                          {brandExpanded ? <FaChevronDown size={12} /> : <FaChevronRight size={12} />}
+                        </button>
+                      )}
+                    </div>
+
+                    {brandRowSelected && brandExpanded && (
+                      <div className="px-3 pb-3 border-t border-blue-100">
+                        {availableBrands.length > VALUE_PICKER_THRESHOLD ? (
+                          <div className="mt-2">
+                            <div className="flex items-center gap-2 mb-2">
+                              <input
+                                value={brandSearch}
+                                onChange={e => setBrandSearch(e.target.value)}
+                                placeholder={`Search ${availableBrands.length} brands…`}
+                                className="flex-1 px-2.5 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-400"
+                              />
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 whitespace-nowrap">
+                                {selectedBrandIds.length} selected
+                              </span>
+                              <button
+                                type="button"
+                                onClick={selectShownBrands}
+                                disabled={shownBrands.length === 0}
+                                className="px-2.5 py-1.5 text-xs font-medium border border-gray-300 text-gray-600 rounded hover:bg-gray-50 disabled:opacity-40 whitespace-nowrap"
+                              >
+                                Select shown
+                              </button>
+                              <button
+                                type="button"
+                                onClick={clearBrands}
+                                disabled={selectedBrandIds.length === 0}
+                                className="px-2.5 py-1.5 text-xs font-medium border border-gray-300 text-gray-600 rounded hover:bg-gray-50 disabled:opacity-40"
+                              >
+                                Clear
+                              </button>
+                            </div>
+                            <div className="max-h-56 overflow-y-auto border border-gray-200 rounded-md bg-white divide-y divide-gray-50">
+                              {shownBrands.length === 0 ? (
+                                <div className="px-2.5 py-3 text-xs text-gray-400">No brands match your search.</div>
+                              ) : (
+                                shownBrands.map(b => {
+                                  const on = selectedBrandIds.includes(b._id);
+                                  return (
+                                    <label
+                                      key={b._id}
+                                      className="flex items-center gap-2 px-2.5 py-1.5 text-xs cursor-pointer hover:bg-gray-50"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={on}
+                                        onChange={() => toggleBrand(b._id)}
+                                        className="w-3.5 h-3.5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                      />
+                                      <span className={on ? 'font-medium text-gray-900' : 'text-gray-600'}>{b.name}</span>
+                                    </label>
+                                  );
+                                })
+                              )}
+                            </div>
+                            {q !== '' && (
+                              <div className="text-xs text-gray-400 mt-1">Showing {shownBrands.length} of {availableBrands.length} brands</div>
+                            )}
+                          </div>
+                        ) : (
+                          <>
+                            <div className="text-xs text-gray-500 mb-2 mt-2">
+                              {availableBrands.length > 0 ? `${selectedBrandIds.length} of ${availableBrands.length} selected` : 'No brands yet'}
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {availableBrands.map(b => {
+                                const on = selectedBrandIds.includes(b._id);
+                                return (
+                                  <button
+                                    key={b._id}
+                                    type="button"
+                                    onClick={() => toggleBrand(b._id)}
+                                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border transition-all ${
+                                      on
+                                        ? 'bg-blue-600 text-white border-blue-600'
+                                        : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400 hover:text-blue-600'
+                                    }`}
+                                  >
+                                    {b.name}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </>
+                        )}
+                        <p className="text-xs text-gray-400 mt-2">
+                          Pick more than one brand only when this product is sold under multiple brands — each brand gets its own set of variations (the other attribute values are shared).
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+              {availableAttributes.length === 0 && (
+                <div className="text-sm text-gray-500 p-4 bg-gray-50 rounded-lg border border-dashed border-gray-300">
+                  No attributes available. <a href="/admin/attributes" className="text-blue-600 hover:underline">Create attributes first</a>
+                </div>
+              )}
               {availableAttributes
-                // DEDUPE (#brand): the Brand axis block above owns brand. homeomead's
-                // attribute catalogue carries a literal "Brand" attribute (card axis) —
-                // hide it here so a second brand picker never renders. Legacy products
-                // that already selected it keep it visible so it stays manageable.
-                .filter(attr =>
-                  !(availableBrands.length > 0 && isBrandAttribute(attr) && !selectedAttributeIds.includes(attr._id))
-                )
+                // ONE brand control (#brand): the Brand row above owns brand. A
+                // literal "Brand"/"Brands" catalogue attribute NEVER renders here —
+                // even when a legacy product has it selected (its id + values stay
+                // in the form state untouched and keep round-tripping on save; its
+                // values were merged into the Brand row's selection on load).
+                .filter(attr => !(availableBrands.length > 0 && isBrandAttribute(attr)))
                 .map(attr => {
                 const isSelected = selectedAttributeIds.includes(attr._id);
                 const isExpanded = expandedAttributes.has(attr._id);
@@ -874,7 +987,10 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
               type="button"
               onClick={generateVariations}
               disabled={(() => {
-                const selectedAttrs = availableAttributes.filter(a => selectedAttributeIds.includes(a._id));
+                // Brand-named attributes are excluded from generation (brand
+                // crosses via the Brand row) — they must not gate the button.
+                const selectedAttrs = availableAttributes.filter(a =>
+                  selectedAttributeIds.includes(a._id) && !(availableBrands.length > 0 && isBrandAttribute(a)));
                 return !selectedAttrs.every(attr => (selectedAttributeValues[attr._id] || []).length > 0) || loadingAttributes;
               })()}
               className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
@@ -1061,6 +1177,9 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
                                 </span>
                               )}
                               {Object.entries(variation.attributes).map(([attrSlug, valueSlug]) => {
+                                // Legacy rows can carry brand in the attributes map too —
+                                // the purple brand chip above already shows it once.
+                                if (isBrandAttributeKey(attrSlug) && (variation.brandName || variation.brandId)) return null;
                                 const attr = availableAttributes.find(a => a.slug === attrSlug);
                                 if (!attr) return null;
                                 const value = attributeValuesMap[attr._id]?.find(v =>
@@ -1424,7 +1543,7 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
         )}
 
         {/* Empty State */}
-        {variations.length === 0 && selectedAttributeIds.length > 0 && !loadingAttributes && (
+        {variations.length === 0 && (selectedAttributeIds.length > 0 || hasSelectedBrands) && !loadingAttributes && (
           <div className="text-center py-10 text-gray-400 border border-dashed border-gray-200 rounded-lg">
             <FaMagic size={24} className="mx-auto mb-2 opacity-30" />
             <p className="text-sm">Select attribute values and click Generate Variants</p>
