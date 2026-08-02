@@ -237,8 +237,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Keep the module map fresh: re-fetch when the admin returns to the tab, so a
   // module enabled elsewhere (super-admin) unblocks its page without a re-login.
+  // Gated on being signed in — this used to fire on the LOGIN page too, putting
+  // a meaningless 401 on GET /modules in the console every time the tab
+  // regained focus (which reads as "the backend is rejecting me").
+  const isAuthedRef = useRef(false);
+  useEffect(() => { isAuthedRef.current = state.isAuthenticated; }, [state.isAuthenticated]);
   useEffect(() => {
-    const onFocus = () => { if (document.visibilityState === 'visible') refreshModules(); };
+    const onFocus = () => {
+      if (document.visibilityState === 'visible' && isAuthedRef.current) refreshModules();
+    };
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onFocus);
     return () => {
