@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FaArrowLeft, FaSave, FaPlus, FaTrash } from 'react-icons/fa';
-import { productsAPI, uploadAPI, taxRulesAPI, brandsAPI } from '../services/api';
+import { productsAPI, uploadAPI, taxRulesAPI, brandsAPI, categoriesAPI } from '../services/api';
 import type { ProductVariation } from '../types/productForm';
 import { useAuth } from '../contexts/AuthContext';
 import ProductInventoryPanel from '../components/product/ProductInventoryPanel';
@@ -115,6 +115,24 @@ const VariationEditPage: React.FC = () => {
   const [brands, setBrands] = useState<Array<{ _id?: string; id?: string; name: string }>>([]);
   // Flat B2B wholesale price for THIS variation (empty string = no flat slab).
   const [b2bFlatPrice, setB2bFlatPrice] = useState<string>('');
+  // Per-variation categories (independent of the product's). DIRTY-tracKED:
+  // the `categories` key is sent ONLY when the user touched the selection —
+  // an absent key leaves the links untouched (inherit semantics preserved).
+  const [catSelection, setCatSelection] = useState<Array<{ id: string; name: string }>>([]);
+  const [catDirty, setCatDirty] = useState(false);
+  const [catSearch, setCatSearch] = useState('');
+  const [allCategories, setAllCategories] = useState<Array<{ id: string; name: string }> | null>(null);
+
+  const loadAllCategories = async () => {
+    if (allCategories) return;
+    try {
+      const r: any = await categoriesAPI.list();
+      const list = Array.isArray(r) ? r : r?.data ?? r?.categories ?? [];
+      setAllCategories((Array.isArray(list) ? list : [])
+        .map((c: any) => ({ id: String(c.id ?? c._id ?? ''), name: String(c.name ?? c.slug ?? '') }))
+        .filter((c: any) => c.id && c.name));
+    } catch { setAllCategories([]); }
+  };
 
   const idx = variationIndex !== undefined ? parseInt(variationIndex, 10) : -1;
 
@@ -146,6 +164,13 @@ const VariationEditPage: React.FC = () => {
       const slabRows: Slab[] = (prod?.b2bPricing ?? prod?.b2b_pricing ?? []).map(normalizeSlab);
       const flat = slabRows.find(s => isFlatWholesaleRow(s, String(v.id || '')));
       setB2bFlatPrice(flat ? String(flat.priceValue) : '');
+      // Seed this variant's own category links (objects from the admin GET).
+      setCatSelection(((v as any).categories ?? [])
+        .map((c: any) => (typeof c === 'object'
+          ? { id: String(c.id ?? c._id ?? ''), name: String(c.name ?? c.slug ?? c.id ?? '') }
+          : { id: String(c), name: String(c) }))
+        .filter((c: any) => c.id));
+      setCatDirty(false);
     } catch {
       alert('Failed to load product');
       navigate('/products');
@@ -178,10 +203,16 @@ const VariationEditPage: React.FC = () => {
     setSaving(true);
     try {
       const updatedVariations = [...(product.variations || [])];
-      updatedVariations[idx] = {
+      const merged: any = {
         ...updatedVariations[idx],
         ...variation,
       };
+      // Per-variation categories: send the key ONLY when the user touched the
+      // selection — put.ts REPLACES links when the array is present, so an
+      // untouched variant must omit it entirely (keeps inherit-from-product).
+      if (catDirty) merged.categories = catSelection.map(c => c.id);
+      else delete merged.categories;
+      updatedVariations[idx] = merged;
       const payload: any = { variations: updatedVariations };
       // Per-variant flat wholesale price → product_b2b_pricing. `b2bPricing`
       // REPLACES the full slab set server-side (and needs b2b.manage), so only
@@ -752,21 +783,63 @@ const VariationEditPage: React.FC = () => {
         )}
       </FieldGroup>
 
-      {/* ══ Categories (read-only chips) ════════════════════════════════════ */}
-      {Array.isArray(v.categories) && v.categories.length > 0 && (
-        <FieldGroup title="Categories" description="Set via CSV import or the product's variation editor.">
-          <div className="flex flex-wrap gap-1.5">
-            {v.categories.map((cat: any, ci: number) => {
-              const label = typeof cat === 'object' ? (cat.name || cat.slug || String(cat._id)) : String(cat);
-              return (
-                <span key={ci} className="inline-flex items-center px-2.5 py-1 rounded-full text-xs bg-blue-50 text-blue-700 border border-blue-200">
-                  {label}
+      {/* ══ Categories (this variant) — EDITABLE, independent of the product ══ */}
+      <FieldGroup
+        title="Categories (this variant)"
+        description="Overrides which categories this variant appears in. No selection = inherits the product's categories."
+      >
+        <div className="space-y-3">
+          {catSelection.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {catSelection.map((cat) => (
+                <span key={cat.id} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs bg-blue-50 text-blue-700 border border-blue-200">
+                  {cat.name}
+                  <button
+                    type="button"
+                    aria-label={`Remove ${cat.name}`}
+                    onClick={() => { setCatSelection(prev => prev.filter(c => c.id !== cat.id)); setCatDirty(true); }}
+                    className="text-blue-400 hover:text-red-500 font-bold leading-none"
+                  >×</button>
                 </span>
-              );
-            })}
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-gray-400">No own categories — this variant inherits the product's categories.</p>
+          )}
+          <div className="relative">
+            <input
+              type="text"
+              value={catSearch}
+              onFocus={loadAllCategories}
+              onChange={e => { setCatSearch(e.target.value); loadAllCategories(); }}
+              placeholder="Search categories to add (e.g. Dilutions)…"
+              className={fieldInputCls}
+            />
+            {catSearch.trim().length >= 2 && (
+              <div className="absolute z-10 mt-1 w-full max-h-56 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg">
+                {allCategories === null ? (
+                  <p className="px-3 py-2 text-xs text-gray-400">Loading categories…</p>
+                ) : (() => {
+                  const q = catSearch.trim().toLowerCase();
+                  const selected = new Set(catSelection.map(c => c.id));
+                  const matches = allCategories.filter(c => !selected.has(c.id) && c.name.toLowerCase().includes(q)).slice(0, 8);
+                  return matches.length ? matches.map(c => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => { setCatSelection(prev => [...prev, c]); setCatDirty(true); setCatSearch(''); }}
+                      className="block w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-blue-50"
+                    >{c.name}</button>
+                  )) : <p className="px-3 py-2 text-xs text-gray-400">No matching categories.</p>;
+                })()}
+              </div>
+            )}
           </div>
-        </FieldGroup>
-      )}
+          {catDirty && (
+            <p className="text-xs text-amber-600">Category changes save with the variation (Save button above).</p>
+          )}
+        </div>
+      </FieldGroup>
 
       {/* ══ Attributes (read-only chips) ════════════════════════════════════ */}
       {Object.keys(v.attributes || {}).length > 0 && (

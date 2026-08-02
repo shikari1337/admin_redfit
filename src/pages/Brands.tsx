@@ -29,6 +29,8 @@ interface Brand {
   metaDesc?: string;
   ogImageUrl?: string;
   displayOrder?: number;
+  /** Listing preference (mig 110): 1 = this brand's products lead category pages. */
+  preferenceRank?: number | null;
   isActive?: boolean;
   isFeatured?: boolean;
 }
@@ -46,6 +48,7 @@ const emptyForm = {
   metaDesc: '',
   ogImageUrl: '',
   displayOrder: '',
+  preferenceRank: '',
   isActive: true,
   isFeatured: false,
 };
@@ -105,6 +108,7 @@ const Brands: React.FC = () => {
       metaDesc: b.metaDesc || b.meta_desc || '',
       ogImageUrl: b.ogImageUrl || b.og_image_url || '',
       displayOrder: brand.displayOrder !== undefined && brand.displayOrder !== null ? String(brand.displayOrder) : '',
+      preferenceRank: (brand.preferenceRank ?? b.preference_rank) != null ? String(brand.preferenceRank ?? b.preference_rank) : '',
       isActive: brand.isActive !== false,
       isFeatured: brand.isFeatured === true,
     });
@@ -137,6 +141,8 @@ const Brands: React.FC = () => {
       metaDesc: orNull(formState.metaDesc),
       ogImageUrl: orNull(formState.ogImageUrl),
       displayOrder: formState.displayOrder ? Number(formState.displayOrder) : undefined,
+      // null (not undefined) so CLEARING the rank actually clears the column.
+      preferenceRank: formState.preferenceRank ? Number(formState.preferenceRank) : null,
       isActive: formState.isActive,
       isFeatured: formState.isFeatured,
     };
@@ -235,6 +241,11 @@ const Brands: React.FC = () => {
                           )}
                           {brand.isFeatured && (
                             <Badge variant="default" className="text-xs bg-yellow-500 hover:bg-yellow-600">Featured</Badge>
+                          )}
+                          {(brand.preferenceRank ?? (brand as any).preference_rank) != null && (
+                            <Badge variant="default" className="text-xs bg-emerald-600 hover:bg-emerald-700">
+                              #{brand.preferenceRank ?? (brand as any).preference_rank} preferred
+                            </Badge>
                           )}
                         </div>
                         <div className="text-xs text-muted-foreground flex items-center flex-wrap gap-x-3 gap-y-1">
@@ -393,15 +404,33 @@ const Brands: React.FC = () => {
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="displayOrder">Display Order</Label>
-                <Input
-                  id="displayOrder"
-                  type="number"
-                  value={formState.displayOrder}
-                  onChange={e => setFormState({ ...formState, displayOrder: e.target.value })}
-                  placeholder="0"
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="displayOrder">Display Order</Label>
+                  <Input
+                    id="displayOrder"
+                    type="number"
+                    value={formState.displayOrder}
+                    onChange={e => setFormState({ ...formState, displayOrder: e.target.value })}
+                    placeholder="0"
+                  />
+                  <p className="text-xs text-muted-foreground">Orders brand tiles on brand listing pages.</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="preferenceRank">Listing preference</Label>
+                  <Input
+                    id="preferenceRank"
+                    type="number"
+                    min="1"
+                    value={formState.preferenceRank}
+                    onChange={e => setFormState({ ...formState, preferenceRank: e.target.value })}
+                    placeholder="No preference"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    1 = this brand's products show first on category pages; 2 next, and so on.
+                    Leave empty for no preference.
+                  </p>
+                </div>
               </div>
 
               <div className="flex items-center space-x-2 pt-2">
