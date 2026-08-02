@@ -6,6 +6,7 @@ import type { ProductVariation } from '../types/productForm';
 import { useAuth } from '../contexts/AuthContext';
 import ProductInventoryPanel from '../components/product/ProductInventoryPanel';
 import { FieldGroup, Field, SwitchRow, fieldInputCls, fieldTextareaCls } from '../components/product/FormField';
+import RichTextEditor from '../components/common/RichTextEditor';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -673,35 +674,32 @@ const VariationEditPage: React.FC = () => {
               placeholder="Brief variation description shown in product listing"
             />
           </Field>
-          <Field label="Description" htmlFor="vDesc" help="Full description for this variant. Overrides the product description.">
-            <textarea
-              id="vDesc"
+          {/* These three are RICH-TEXT columns (backend decodeEntities set) and
+              render as HTML on the PDP — bare textareas were wrong twice over:
+              ugly AND unable to author the formatting the storefront shows. */}
+          <Field label="Description" help="Full description for this variant. Overrides the product description — use the toolbar for headings, lists, bold.">
+            <RichTextEditor
               value={v.description || ''}
-              onChange={e => handleChange('description', e.target.value)}
-              rows={5}
-              className={fieldTextareaCls}
-              placeholder="Variation-specific description (overrides product description when this variant is selected)"
+              onChange={(html: string) => handleChange('description', html)}
+              placeholder="Variant-specific description (shown instead of the product description when this variant is selected)"
+              minHeight={180}
             />
           </Field>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Field label="Dosage" htmlFor="vDosage" help="Dosage instructions for this variant.">
-              <textarea
-                id="vDosage"
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <Field label="Dosage" help="Dosage instructions for this variant — rendered in the Dosage tab on the product page.">
+              <RichTextEditor
                 value={v.dosage || ''}
-                onChange={e => handleChange('dosage', e.target.value)}
-                rows={4}
-                className={fieldTextareaCls}
-                placeholder="Dosage instructions for this variation"
+                onChange={(html: string) => handleChange('dosage', html)}
+                placeholder="e.g. Ten to fifteen drops in some water, three times daily…"
+                minHeight={140}
               />
             </Field>
-            <Field label="Important info" htmlFor="vImportantInfo" help="Manufacturer info, warnings, regulatory details.">
-              <textarea
-                id="vImportantInfo"
+            <Field label="Important info" help="Manufacturer info, warnings, regulatory details — rendered in its own tab.">
+              <RichTextEditor
                 value={v.importantInfo || ''}
-                onChange={e => handleChange('importantInfo', e.target.value)}
-                rows={4}
-                className={fieldTextareaCls}
-                placeholder="Manufacturer info, warnings, regulatory details"
+                onChange={(html: string) => handleChange('importantInfo', html)}
+                placeholder="Manufacturer, marketer, warnings, storage…"
+                minHeight={140}
               />
             </Field>
           </div>
