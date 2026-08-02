@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { FaPlus, FaTimes } from 'react-icons/fa';
+import { fieldInputCls } from './FormField';
 
 interface TagOption {
   _id: string;
@@ -147,61 +148,63 @@ const ProductTags: React.FC<ProductTagsProps> = ({
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-2">
-        <label className="block text-sm font-medium text-gray-700">
-          Tags (Optional)
-        </label>
+      <div className="flex items-center justify-end mb-2">
         <button
           type="button"
           onClick={onRefresh}
-          className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded hover:bg-gray-200"
+          className="text-xs px-2.5 py-1 bg-gray-100 text-gray-600 rounded-md hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
         >
           {loading ? 'Refreshing…' : 'Refresh'}
         </button>
       </div>
 
       {/* Add New Tag by Name */}
-      <div className="mb-4 flex gap-2">
-        <input
-          type="text"
-          value={newTagName}
-          onChange={(e) => setNewTagName(e.target.value)}
-          onKeyPress={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              addTagByName();
-            }
-          }}
-          placeholder="Enter tag name and press Enter"
-          className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-        />
-        <button
-          type="button"
-          onClick={addTagByName}
-          className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-1"
-        >
-          <FaPlus size={12} />
-          Add
-        </button>
+      <div className="mb-4">
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={newTagName}
+            onChange={(e) => setNewTagName(e.target.value)}
+            onKeyPress={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                addTagByName();
+              }
+            }}
+            placeholder="Type a tag and press Enter"
+            aria-label="New tag name"
+            className={`${fieldInputCls} flex-1 !w-auto`}
+          />
+          <button
+            type="button"
+            onClick={addTagByName}
+            className="h-9 px-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+          >
+            <FaPlus size={11} />
+            Add
+          </button>
+        </div>
+        <p className="mt-1 text-xs text-gray-400">New names are created automatically — no setup needed.</p>
       </div>
 
       {/* Selected Tags */}
       {tags.length > 0 && (
         <div className="mb-4">
-          <p className="text-xs text-gray-500 mb-2">Selected Tags:</p>
+          <p className="text-xs text-gray-500 mb-1.5 font-medium uppercase tracking-wide">On this product</p>
           <div className="flex flex-wrap gap-2">
             {tags.map((tag, index) => {
               const tagName = getTagName(tag);
               return (
                 <span
                   key={index}
-                  className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-800 rounded-md text-sm"
+                  className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 border border-blue-200 text-blue-800 rounded-md text-sm"
                 >
                   {tagName}
                   <button
                     type="button"
                     onClick={() => removeTag(index)}
-                    className="text-blue-600 hover:text-blue-800"
+                    aria-label={`Remove tag ${tagName}`}
+                    className="text-blue-500 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 rounded"
                   >
                     <FaTimes size={10} />
                   </button>
@@ -219,7 +222,7 @@ const ProductTags: React.FC<ProductTagsProps> = ({
         </p>
       ) : (
         <div>
-          <p className="text-xs text-gray-500 mb-2">Available Tags:</p>
+          <p className="text-xs text-gray-500 mb-1.5 font-medium uppercase tracking-wide">Pick from existing</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto">
             {availableTags.map((tag) => {
               const tagId = normalizeTagId(tag._id);
@@ -227,25 +230,25 @@ const ProductTags: React.FC<ProductTagsProps> = ({
                 console.warn('⚠️ Invalid tag ID, skipping:', tag);
                 return null;
               }
-              
+
               const selected = isTagSelected(tagId, tag.name);
-              
+
               return (
                 <label
                   key={tagId}
                   className={`flex items-center gap-2 px-3 py-2 border rounded-md transition-colors cursor-pointer ${
                     selected
                       ? 'bg-blue-50 border-blue-300'
-                      : 'bg-white border-gray-200 hover:border-blue-300'
+                      : 'bg-white border-gray-200 hover:border-blue-300 hover:bg-gray-50'
                   }`}
                 >
                   <input
                     type="checkbox"
-                    className="text-blue-600 focus:ring-blue-500 rounded"
+                    className="text-blue-600 focus:ring-blue-400 rounded border-gray-300"
                     checked={selected}
                     onChange={() => toggleTag(tagId, tag.name)}
                   />
-                  <span className="text-sm text-gray-700">
+                  <span className="text-sm text-gray-700 min-w-0 truncate">
                     {tag.name}
                     {!tag.isActive && (
                       <span className="ml-2 text-xs text-gray-400">(inactive)</span>
@@ -257,10 +260,10 @@ const ProductTags: React.FC<ProductTagsProps> = ({
           </div>
         </div>
       )}
-      
-      {error && <p className="mt-1 text-sm text-red-500">{error}</p>}
-      <p className="mt-1 text-xs text-gray-500">
-        Tags help customers find products. You can select existing tags or create new ones by name (WordPress style).
+
+      {error && <p className="mt-1 text-xs text-red-500">{error}</p>}
+      <p className="mt-2 text-xs text-gray-400">
+        Tags help customers find products — pick existing ones or type a new name above.
       </p>
     </div>
   );

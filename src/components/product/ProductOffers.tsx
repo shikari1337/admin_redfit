@@ -1,4 +1,6 @@
 import React from 'react';
+import { FieldGroup, Field, fieldInputCls } from './FormField';
+import { Switch } from '@/components/ui/switch';
 
 export interface ProductOffer {
   id?: string;
@@ -24,8 +26,6 @@ interface ProductOffersProps {
 const newId = () => `offer-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 const defaultOffer = (): ProductOffer => ({ id: newId(), type: 'custom', label: '', discountType: 'none', stackable: false, details: '' });
 
-const inputCls = 'px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-red-400 w-full';
-
 const offerTypeLabels: Record<ProductOffer['type'], string> = {
   free_shipping: 'Free Shipping',
   bank_offer: 'Bank / Card Offer',
@@ -44,93 +44,93 @@ const ProductOffers: React.FC<ProductOffersProps> = ({ offers, onChange }) => {
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div>
-          <h3 className="text-sm font-semibold text-gray-900">Product Offers</h3>
-          <p className="text-xs text-gray-500 mt-0.5">Badge offers shown on product page (e.g. free shipping, bank deal)</p>
-        </div>
+    <FieldGroup title="Offers"
+      description="Deal badges shown on the product page — e.g. free shipping or a bank discount."
+      actions={
         <button type="button" onClick={add}
-          className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700">
-          + Add Offer
+          className="px-3 h-8 text-[13px] bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400">
+          + Add offer
         </button>
-      </div>
+      }>
 
       {offers.length === 0 && (
-        <p className="text-xs text-gray-400 py-3 text-center">No offers configured.</p>
+        <button type="button" onClick={add}
+          className="w-full py-3 border-2 border-dashed border-gray-200 rounded-lg text-xs text-gray-400 hover:border-red-300 hover:text-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400">
+          + Add your first offer
+        </button>
       )}
 
-      <div className="space-y-2">
+      <div className="space-y-3">
         {offers.map((offer, idx) => (
-          <div key={idx} className="border border-gray-200 rounded-lg p-3 space-y-2 relative">
-            <button type="button" onClick={() => remove(idx)}
-              className="absolute top-2 right-2 text-gray-300 hover:text-red-500 text-sm">✕</button>
+          <div key={idx} className="border border-gray-200 rounded-lg p-4 space-y-3 relative bg-gray-50/50">
+            <button type="button" onClick={() => remove(idx)} aria-label={`Remove offer ${idx + 1}`}
+              className="absolute top-3 right-3 text-gray-300 hover:text-red-600 text-sm p-1 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400">✕</button>
 
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-xs text-gray-500 block mb-0.5">Offer Type</label>
-                <select className={inputCls} value={offer.type}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Field label="Offer type" htmlFor={`offerType${idx}`} help="What kind of deal this is.">
+                <select id={`offerType${idx}`} className={fieldInputCls} value={offer.type}
                   onChange={e => update(idx, { type: e.target.value as ProductOffer['type'] })}>
                   {Object.entries(offerTypeLabels).map(([v, l]) => (
                     <option key={v} value={v}>{l}</option>
                   ))}
                 </select>
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 block mb-0.5">Label (shown to customers)</label>
-                <input className={inputCls} value={offer.label} placeholder="e.g. Free delivery above ₹499"
+              </Field>
+              <Field label="Badge text" htmlFor={`offerLabel${idx}`} help="Exactly what the customer reads on the badge.">
+                <input id={`offerLabel${idx}`} className={fieldInputCls} value={offer.label} placeholder="e.g. Free delivery above ₹499"
                   onChange={e => update(idx, { label: e.target.value })} />
-              </div>
+              </Field>
             </div>
 
             {offer.type !== 'free_shipping' && (
-              <div className="grid grid-cols-3 gap-2">
-                <div>
-                  <label className="text-xs text-gray-500 block mb-0.5">Discount</label>
-                  <select className={inputCls} value={offer.discountType || 'none'}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Field label="Discount" htmlFor={`offerDiscount${idx}`} help="Pick None for a purely informational badge.">
+                  <select id={`offerDiscount${idx}`} className={fieldInputCls} value={offer.discountType || 'none'}
                     onChange={e => update(idx, { discountType: e.target.value as ProductOffer['discountType'] })}>
                     <option value="none">None (informational)</option>
                     <option value="percentage">Percentage %</option>
                     <option value="fixed">Fixed ₹</option>
                   </select>
-                </div>
+                </Field>
                 {offer.discountType && offer.discountType !== 'none' && (
-                  <div>
-                    <label className="text-xs text-gray-500 block mb-0.5">{offer.discountType === 'percentage' ? 'Value %' : 'Value ₹'}</label>
-                    <input type="number" min="0" step="0.5" className={inputCls} value={offer.value ?? ''}
+                  <Field label={offer.discountType === 'percentage' ? 'Value (%)' : 'Value (₹)'} htmlFor={`offerValue${idx}`}
+                    help="How much comes off.">
+                    <input id={`offerValue${idx}`} type="number" min="0" step="0.5" className={fieldInputCls} value={offer.value ?? ''}
                       onChange={e => update(idx, { value: parseFloat(e.target.value) || undefined })} placeholder={offer.discountType === 'percentage' ? '10' : '50'} />
-                  </div>
+                  </Field>
                 )}
-                <div>
-                  <label className="text-xs text-gray-500 block mb-0.5">Min. order ₹</label>
-                  <input type="number" min="0" className={inputCls} value={offer.minSubtotal ?? ''}
+                <Field label="Minimum order (₹)" htmlFor={`offerMin${idx}`} help="Cart total needed before the offer applies.">
+                  <input id={`offerMin${idx}`} type="number" min="0" className={fieldInputCls} value={offer.minSubtotal ?? ''}
                     onChange={e => update(idx, { minSubtotal: parseFloat(e.target.value) || undefined })} placeholder="0" />
-                </div>
+                </Field>
               </div>
             )}
 
             {offer.type === 'combo' && (
-              <div>
-                <label className="text-xs text-gray-500 block mb-0.5">Coupon Code</label>
-                <input className={inputCls + ' w-40'} value={offer.coupon || ''} placeholder="B2G1"
+              <Field label="Coupon code" htmlFor={`offerCoupon${idx}`} help="The code the customer enters at checkout.">
+                <input id={`offerCoupon${idx}`} className={`${fieldInputCls} !w-44 font-mono`} value={offer.coupon || ''} placeholder="B2G1"
                   onChange={e => update(idx, { coupon: e.target.value })} />
-              </div>
+              </Field>
             )}
 
-            <div className="flex items-center justify-between gap-2">
-              <input className={inputCls} value={offer.details || ''} placeholder="Additional details (tooltip)"
+            <Field label="Extra details (optional)" htmlFor={`offerDetails${idx}`} help="Shown as a tooltip when the customer hovers the badge.">
+              <input id={`offerDetails${idx}`} className={fieldInputCls} value={offer.details || ''} placeholder="Additional details (tooltip)"
                 onChange={e => update(idx, { details: e.target.value })} />
-              <label className="flex items-center gap-1.5 text-xs text-gray-600 whitespace-nowrap"
-                title="If enabled, this offer can be combined (clubbed) with other stackable offers and clubbable coupons. If disabled, it's applied exclusively (best single offer wins).">
-                <input type="checkbox" checked={!!offer.stackable}
-                  onChange={e => update(idx, { stackable: e.target.checked })} />
-                Clubbable
+            </Field>
+
+            <div className="flex items-center justify-between gap-4 pt-1 border-t border-gray-100">
+              <label htmlFor={`offerStackable${idx}`} className="min-w-0 cursor-pointer select-none">
+                <span className="block text-[13px] font-medium text-gray-700">Can combine with other offers</span>
+                <span className="block text-xs text-gray-400 mt-0.5">Off = applied exclusively; the best single offer wins.</span>
               </label>
+              <Switch id={`offerStackable${idx}`} checked={!!offer.stackable}
+                onCheckedChange={v => update(idx, { stackable: v })}
+                aria-label="Can combine with other offers"
+                className="shrink-0 data-[state=checked]:bg-red-600" />
             </div>
           </div>
         ))}
       </div>
-    </div>
+    </FieldGroup>
   );
 };
 

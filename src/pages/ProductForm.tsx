@@ -6,7 +6,10 @@ import {
 } from '../services/api';
 import ProductComplianceSections, { ProductConfig, SpecSectionValue } from '../components/product/ProductComplianceSections';
 import api from '../services/api';
-import { FaArrowLeft, FaCopy, FaDownload } from 'react-icons/fa';
+import {
+  FaArrowLeft, FaCopy, FaDownload, FaInfoCircle, FaRupeeSign, FaImages, FaAlignLeft,
+  FaLayerGroup, FaLink, FaHandshake, FaBriefcaseMedical, FaSearch, FaCog,
+} from 'react-icons/fa';
 import {
   ProductBasicInfo,
   ProductPricing,
@@ -27,6 +30,8 @@ import ProductAttributes from '../components/product/ProductAttributes';
 import ProductMedicalPanel from '../components/product/ProductMedicalPanel';
 import ProductVariantGroupPanel from '../components/product/ProductVariantGroupPanel';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Switch } from '@/components/ui/switch';
+import { FieldGroup, Field, SwitchRow, fieldInputCls } from '../components/product/FormField';
 import type { ContentBlock } from '../components/product/ProductContentSections';
 import type { B2BPricingTier } from '../components/product/ProductB2BPricing';
 import type { ProductOffer } from '../components/product/ProductOffers';
@@ -1014,42 +1019,54 @@ const ProductForm: React.FC = () => {
 
   const showContentTab = canAccess('product_specifications') || canAccess('aplus_content') || canAccess('wash_care');
   const showVariantsTab = formData.productType === 'variation' || !!variantGroup;
-  const visibleTabs: Array<{ id: TabId; label: string }> = [
-    { id: 'general', label: 'General' },
-    { id: 'pricing', label: 'Pricing & Tax' },
-    { id: 'media', label: 'Media' },
-    ...(showContentTab ? [{ id: 'content' as TabId, label: 'Content' }] : []),
-    ...(showVariantsTab ? [{ id: 'variants' as TabId, label: 'Variants' }] : []),
-    { id: 'related', label: 'Related' },
-    ...(canAccess('b2b') ? [{ id: 'b2b' as TabId, label: 'B2B' }] : []),
-    ...(canAccess('pharmacy_fields') ? [{ id: 'medical' as TabId, label: 'Medical' }] : []),
-    { id: 'seo', label: 'SEO' },
-    { id: 'settings', label: 'Settings' },
+  const visibleTabs: Array<{ id: TabId; label: string; icon: React.ComponentType<{ className?: string }> }> = [
+    { id: 'general', label: 'General', icon: FaInfoCircle },
+    { id: 'pricing', label: 'Pricing & Tax', icon: FaRupeeSign },
+    { id: 'media', label: 'Media', icon: FaImages },
+    ...(showContentTab ? [{ id: 'content' as TabId, label: 'Content', icon: FaAlignLeft }] : []),
+    ...(showVariantsTab ? [{ id: 'variants' as TabId, label: 'Variants', icon: FaLayerGroup }] : []),
+    { id: 'related', label: 'Related', icon: FaLink },
+    ...(canAccess('b2b') ? [{ id: 'b2b' as TabId, label: 'B2B', icon: FaHandshake }] : []),
+    ...(canAccess('pharmacy_fields') ? [{ id: 'medical' as TabId, label: 'Medical', icon: FaBriefcaseMedical }] : []),
+    { id: 'seo', label: 'SEO', icon: FaSearch },
+    { id: 'settings', label: 'Settings', icon: FaCog },
   ];
+
+  // Tabs that currently hold a failed validation — drives the red dot on the
+  // xl sidebar rail (derived from the SAME errors + ERROR_TAB_MAP the save
+  // navigation uses; cleared entries are '' and filtered out).
+  const errorTabs = new Set<TabId>(
+    Object.entries(errors).filter(([, msg]) => !!msg).map(([key]) => ERROR_TAB_MAP[key] || 'general')
+  );
 
   // Product type selector — the FIRST control of General for new products.
   const productTypeCard = (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-5">
-      <h2 className="text-base font-semibold text-gray-900 mb-3">Product Type</h2>
-      <div className="flex gap-3">
-        {(['single', 'variation'] as const).map(type => (
-          <label key={type} className="flex items-center p-3 border-2 rounded-lg cursor-pointer hover:bg-gray-50 flex-1 gap-3"
-            style={{ borderColor: formData.productType === type ? '#EF4444' : '#E5E7EB' }}>
-            <input type="radio" name="productType" value={type} checked={formData.productType === type}
-              onChange={() => setFormData(p => ({ ...p, productType: type, ...(type === 'single' ? { variations: [], attributeIds: [], selectedAttributeValues: {} } : {}) }))}
-              className="w-4 h-4 text-red-600" />
-            <div>
-              <p className="text-sm font-medium text-gray-800">{type === 'single' ? 'Simple Product' : 'Variable Product'}</p>
-              <p className="text-xs text-gray-400">
-                {type === 'single'
-                  ? 'One sellable SKU — single price & stock'
-                  : formData.variations.length > 0
-                    ? 'Variants in the legacy per-row matrix (Variants tab)'
-                    : 'Variants managed as linked full products (Variants tab)'}
-              </p>
-            </div>
-          </label>
-        ))}
+      <h3 className="text-sm font-semibold text-gray-900">Product type</h3>
+      <p className="text-xs text-gray-500 mt-0.5 mb-3">Does this product come in options (potency, size…) or is it just one item?</p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {(['single', 'variation'] as const).map(type => {
+          const selected = formData.productType === type;
+          return (
+            <label key={type}
+              className={`flex items-start gap-3 p-3.5 rounded-lg cursor-pointer border transition-colors ${
+                selected ? 'border-red-400 bg-red-50/50 ring-1 ring-red-400' : 'border-gray-200 hover:bg-gray-50 hover:border-gray-300'}`}>
+              <input type="radio" name="productType" value={type} checked={formData.productType === type}
+                onChange={() => setFormData(p => ({ ...p, productType: type, ...(type === 'single' ? { variations: [], attributeIds: [], selectedAttributeValues: {} } : {}) }))}
+                className="w-4 h-4 mt-0.5 text-red-600 focus:ring-red-400" />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-gray-800">{type === 'single' ? 'Simple product' : 'Product with options'}</span>
+                <span className="block text-xs text-gray-500 mt-0.5">
+                  {type === 'single'
+                    ? 'One item, one price, one stock count'
+                    : formData.variations.length > 0
+                      ? 'Options in the per-row matrix (Variants tab)'
+                      : 'Options managed as linked full products (Variants tab)'}
+                </span>
+              </span>
+            </label>
+          );
+        })}
       </div>
     </div>
   );
@@ -1170,15 +1187,54 @@ const ProductForm: React.FC = () => {
               </div>
             </div>
 
-            <TabsList className="h-auto w-full justify-start flex-wrap gap-1 bg-transparent p-0 pb-2 rounded-none">
+            {/* Horizontal tab bar — below xl only; the xl+ sidebar rail replaces it. */}
+            <TabsList className="xl:hidden h-auto w-full justify-start flex-wrap gap-1 bg-transparent p-0 pb-2 rounded-none">
               {visibleTabs.map(t => (
                 <TabsTrigger key={t.id} value={t.id} type="button"
                   className="rounded-md border border-transparent px-3 py-1.5 text-sm text-gray-600 data-[state=active]:border-gray-200 data-[state=active]:bg-white data-[state=active]:text-gray-900 data-[state=active]:shadow-sm">
                   {t.label}
+                  {errorTabs.has(t.id) && (
+                    <span className="ml-1.5 inline-block w-1.5 h-1.5 rounded-full bg-red-500 align-middle" aria-label="This section has an error" />
+                  )}
                 </TabsTrigger>
               ))}
             </TabsList>
+            {/* xl+: keep a little breathing room under the action bar (TabsList is hidden). */}
+            <div className="hidden xl:block pb-1" />
           </div>
+
+          {/* ══ Sidebar rail (xl+) + content column ══════════════════════════ */}
+          <div className="xl:flex xl:items-start xl:gap-6">
+
+            <aside className="hidden xl:block w-52 shrink-0 sticky top-32">
+              <nav aria-label="Product form sections" className="space-y-1">
+                {visibleTabs.map(t => {
+                  const active = activeTab === t.id;
+                  const hasError = errorTabs.has(t.id);
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => setActiveTab(t.id)}
+                      aria-current={active ? 'true' : undefined}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 ${
+                        active
+                          ? 'bg-gray-900 text-white font-medium shadow-sm'
+                          : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                      }`}
+                    >
+                      <t.icon className={`text-sm shrink-0 ${active ? 'text-white' : 'text-gray-400'}`} />
+                      <span className="flex-1 truncate">{t.label}</span>
+                      {hasError && (
+                        <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" title="This section has an error" />
+                      )}
+                    </button>
+                  );
+                })}
+              </nav>
+            </aside>
+
+            <div className="flex-1 min-w-0 max-w-5xl">
 
           {/* ══ GENERAL ══════════════════════════════════════════════════════ */}
           <TabsContent value="general" forceMount className={tabContentCls}>
@@ -1213,56 +1269,56 @@ const ProductForm: React.FC = () => {
 
                 {/* Product identifiers — License Number moved to the Medical tab
                     (pharmacy_fields); model number + country of origin stay. */}
-                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 space-y-3">
-                  <h3 className="text-sm font-semibold text-gray-900">Product Identifiers</h3>
-                  <div>
-                    <label className="text-xs font-medium text-gray-600 block mb-1">Model Number</label>
-                    <input type="text" value={formData.modelNumber || ''}
-                      onChange={e => setFormData(p => ({ ...p, modelNumber: e.target.value }))}
-                      className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-red-400" />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-gray-600 block mb-1">Country of Origin</label>
-                    <input type="text" value={formData.countryOfOrigin || ''}
-                      onChange={e => setFormData(p => ({ ...p, countryOfOrigin: e.target.value }))}
-                      placeholder="India"
-                      className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-red-400" />
-                    <p className="text-xs text-gray-400 mt-0.5">A Compliance-section country (if filled there) overrides this on save.</p>
+                <FieldGroup title="Product identifiers" description="Optional codes printed on the product or its box.">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Field label="Model number" htmlFor="pfModelNumber" help="The maker's model or article number, if it has one.">
+                      <input id="pfModelNumber" type="text" value={formData.modelNumber || ''}
+                        onChange={e => setFormData(p => ({ ...p, modelNumber: e.target.value }))}
+                        className={fieldInputCls} />
+                    </Field>
+                    <Field label="Country of origin" htmlFor="pfCountryOfOrigin"
+                      help="Where it is made. A Compliance-section country (if filled there) overrides this on save.">
+                      <input id="pfCountryOfOrigin" type="text" value={formData.countryOfOrigin || ''}
+                        onChange={e => setFormData(p => ({ ...p, countryOfOrigin: e.target.value }))}
+                        placeholder="India"
+                        className={fieldInputCls} />
+                    </Field>
                   </div>
                   {canAccess('pharmacy_fields') && (
-                    <p className="text-xs text-gray-400">License number lives on the <span className="font-medium text-gray-600">Medical</span> tab.</p>
+                    <p className="text-xs text-gray-400 mt-3">License number lives on the <span className="font-medium text-gray-600">Medical</span> tab.</p>
                   )}
-                </div>
+                </FieldGroup>
 
                 {/* Pack sizing — units per sales pack. When "sold only in packs" is on,
                     the storefront steps quantity by the pack size and orders are
                     enforced to pack multiples (B2B MOQ increments can require more). */}
-                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 space-y-2">
-                  <label className="text-xs font-medium text-gray-600 block">Pack / Case size</label>
-                  <div className="flex items-center gap-2">
-                    <input type="number" min="1" value={formData.packSize || 1}
-                      onChange={e => setFormData(p => ({ ...p, packSize: Math.max(1, parseInt(e.target.value) || 1) }))}
-                      className="w-24 px-2.5 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-red-400" />
-                    <span className="text-xs text-gray-500">units per pack</span>
+                <FieldGroup title="Pack size" description="Leave at 1 if this product is sold as a single unit.">
+                  <Field label="Units per pack / case" htmlFor="pfPackSize" help="How many units one pack contains.">
+                    <div className="flex items-center gap-2">
+                      <input id="pfPackSize" type="number" min="1" value={formData.packSize || 1}
+                        onChange={e => setFormData(p => ({ ...p, packSize: Math.max(1, parseInt(e.target.value) || 1) }))}
+                        className={`${fieldInputCls} !w-28`} />
+                      <span className="text-xs text-gray-500">units per pack</span>
+                    </div>
+                  </Field>
+                  <div className="mt-2">
+                    <SwitchRow id="pfSoldAsPack"
+                      label="Sold only in full packs"
+                      help={`Customers must buy in multiples of ${formData.packSize || 1}.`}
+                      checked={formData.soldAsPack}
+                      onCheckedChange={v => setFormData(p => ({ ...p, soldAsPack: v }))} />
                   </div>
-                  <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
-                    <input type="checkbox" checked={formData.soldAsPack}
-                      onChange={e => setFormData(p => ({ ...p, soldAsPack: e.target.checked }))}
-                      className="rounded border-gray-300 text-red-500 focus:ring-red-400" />
-                    Sold only in packs (buy in multiples of {formData.packSize || 1})
-                  </label>
-                  <p className="text-xs text-gray-400">Leave pack size 1 for products sold as singles.</p>
-                </div>
+                </FieldGroup>
               </div>
 
               <div className="col-span-12 lg:col-span-4 space-y-4">
                 {/* Categories */}
-                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-sm font-semibold text-gray-900">Categories</h3>
+                <FieldGroup title="Categories"
+                  description="The shelves this product appears on."
+                  actions={
                     <button type="button" onClick={() => setShowCreateCategory(true)}
                       className="text-xs text-blue-600 hover:text-blue-800 font-medium">+ New</button>
-                  </div>
+                  }>
                   <ProductCategories
                     categories={formData.categories}
                     featuredCategory={formData.featuredCategory}
@@ -1275,15 +1331,15 @@ const ProductForm: React.FC = () => {
                     loading={lookupsLoading}
                     error={errors.categories}
                   />
-                </div>
+                </FieldGroup>
 
                 {/* Tags */}
-                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-sm font-semibold text-gray-900">Tags</h3>
+                <FieldGroup title="Tags"
+                  description="Keywords that help customers find this product."
+                  actions={
                     <button type="button" onClick={() => setShowCreateTag(true)}
                       className="text-xs text-blue-600 hover:text-blue-800 font-medium">+ New Tag</button>
-                  </div>
+                  }>
                   <ProductTags
                     tags={formData.tags}
                     availableTags={availableTags}
@@ -1292,62 +1348,63 @@ const ProductForm: React.FC = () => {
                     loading={lookupsLoading}
                     error={errors.tags}
                   />
-                </div>
+                </FieldGroup>
 
                 {/* Brand & Manufacturer */}
-                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 space-y-3">
-                  <h3 className="text-sm font-semibold text-gray-900">Brand & Manufacturer</h3>
-                  {/* Brand is a per-product field only for simple products. For variable
-                      products each variation carries its own brand (set in the Variations
-                      editor), so a single product-level brand would be misleading. */}
-                  {formData.productType === 'single' ? (
-                    <div>
-                      <label className="text-xs font-medium text-gray-600 block mb-1">Brand</label>
-                      <select value={formData.brandId} onChange={e => setFormData(p => ({ ...p, brandId: e.target.value }))}
-                        className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-red-400">
+                <FieldGroup title="Brand & manufacturer" description="Who makes and sells this product.">
+                  <div className="space-y-4">
+                    {/* Brand is a per-product field only for simple products. For variable
+                        products each variation carries its own brand (set in the Variations
+                        editor), so a single product-level brand would be misleading. */}
+                    {formData.productType === 'single' ? (
+                      <Field label="Brand" htmlFor="pfBrand" help="The brand name shown on the product page.">
+                        <select id="pfBrand" value={formData.brandId} onChange={e => setFormData(p => ({ ...p, brandId: e.target.value }))}
+                          className={fieldInputCls}>
+                          <option value="">None</option>
+                          {availableBrands.map(b => <option key={b._id} value={b._id}>{b.name}</option>)}
+                        </select>
+                      </Field>
+                    ) : (
+                      <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-md px-3 py-2">
+                        Brand is set <span className="font-medium text-gray-700">per variation</span> for variable products — choose it in the Variations editor.
+                      </div>
+                    )}
+                    <Field label="Manufacturer" htmlFor="pfManufacturer"
+                      help={!availableManufacturers.length ? 'Add manufacturers in Settings → Manufacturers.' : undefined}>
+                      <select id="pfManufacturer" value={formData.manufacturerId} onChange={e => setFormData(p => ({ ...p, manufacturerId: e.target.value }))}
+                        className={fieldInputCls}>
                         <option value="">None</option>
-                        {availableBrands.map(b => <option key={b._id} value={b._id}>{b.name}</option>)}
+                        {availableManufacturers.map(m => <option key={m._id} value={m._id}>{m.name}</option>)}
                       </select>
-                    </div>
-                  ) : (
-                    <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded px-2.5 py-2">
-                      Brand is set <span className="font-medium text-gray-700">per variation</span> for variable products — choose it in the Variations editor.
-                    </div>
-                  )}
-                  <div>
-                    <label className="text-xs font-medium text-gray-600 block mb-1">Manufacturer</label>
-                    <select value={formData.manufacturerId} onChange={e => setFormData(p => ({ ...p, manufacturerId: e.target.value }))}
-                      className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-red-400">
-                      <option value="">None</option>
-                      {availableManufacturers.map(m => <option key={m._id} value={m._id}>{m.name}</option>)}
-                    </select>
-                    {!availableManufacturers.length && <p className="text-xs text-gray-400 mt-0.5">Add in Settings → Manufacturers</p>}
+                    </Field>
                   </div>
-                </div>
+                </FieldGroup>
 
                 {/* Return Policy */}
-                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-                  <h3 className="text-sm font-semibold text-gray-900 mb-2">Return Policy</h3>
-                  <select value={formData.returnPolicyId} onChange={e => setFormData(p => ({ ...p, returnPolicyId: e.target.value }))}
-                    className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-red-400">
-                    <option value="">Default (store policy)</option>
-                    {availableReturnPolicies.map(r => <option key={r._id} value={r._id}>{r.name}</option>)}
-                  </select>
-                  {!availableReturnPolicies.length && <p className="text-xs text-gray-400 mt-1">Add in Settings → Return Policies</p>}
-                </div>
+                <FieldGroup title="Return policy" description="Which return rules apply to this product.">
+                  <Field label="Policy" htmlFor="pfReturnPolicy"
+                    help={!availableReturnPolicies.length ? 'Add policies in Settings → Return Policies.' : 'Leave on Default to use your store-wide policy.'}>
+                    <select id="pfReturnPolicy" value={formData.returnPolicyId} onChange={e => setFormData(p => ({ ...p, returnPolicyId: e.target.value }))}
+                      className={fieldInputCls}>
+                      <option value="">Default (store policy)</option>
+                      {availableReturnPolicies.map(r => <option key={r._id} value={r._id}>{r.name}</option>)}
+                    </select>
+                  </Field>
+                </FieldGroup>
 
                 {/* FAQ Group — products.faq_group_id had NO form input anywhere
                     (only the CSV import wrote it). Reusable FAQ sets attach here. */}
                 {canAccess('faqs') && (
-                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-                  <h3 className="text-sm font-semibold text-gray-900 mb-2">FAQ Group</h3>
-                  <select value={formData.faqGroupId} onChange={e => setFormData(p => ({ ...p, faqGroupId: e.target.value }))}
-                    className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-red-400">
-                    <option value="">None</option>
-                    {availableFaqGroups.map(g => <option key={g._id} value={g._id}>{g.name}</option>)}
-                  </select>
-                  {!availableFaqGroups.length && <p className="text-xs text-gray-400 mt-1">Create groups in Content → FAQs</p>}
-                </div>
+                <FieldGroup title="FAQ group" description="A reusable set of questions & answers shown on the product page.">
+                  <Field label="Group" htmlFor="pfFaqGroup"
+                    help={!availableFaqGroups.length ? 'Create groups in Content → FAQs.' : undefined}>
+                    <select id="pfFaqGroup" value={formData.faqGroupId} onChange={e => setFormData(p => ({ ...p, faqGroupId: e.target.value }))}
+                      className={fieldInputCls}>
+                      <option value="">None</option>
+                      {availableFaqGroups.map(g => <option key={g._id} value={g._id}>{g.name}</option>)}
+                    </select>
+                  </Field>
+                </FieldGroup>
                 )}
               </div>
             </div>
@@ -1421,37 +1478,36 @@ const ProductForm: React.FC = () => {
               />
 
               {/* Additional Specifications (free-form) */}
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-5">
-                <h2 className="text-base font-semibold text-gray-900 mb-3">Additional Specifications</h2>
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-xs font-medium text-gray-700 block mb-1">Linked Template</label>
-                    <select value={formData.specificationId || ''} onChange={e => setFormData(p => ({ ...p, specificationId: e.target.value || undefined }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-red-400">
+              <FieldGroup title="Additional specifications" description="Extra spec tables shown on the product page (e.g. Composition, Directions).">
+                <div className="space-y-4">
+                  <Field label="Linked template" htmlFor="pfSpecTemplate" help="Reuse a saved specification set instead of typing it here.">
+                    <select id="pfSpecTemplate" value={formData.specificationId || ''} onChange={e => setFormData(p => ({ ...p, specificationId: e.target.value || undefined }))}
+                      className={fieldInputCls}>
                       <option value="">None</option>
                       {availableSpecifications.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}
                     </select>
-                  </div>
+                  </Field>
                   <div>
-                    <div className="flex justify-between mb-1">
-                      <label className="text-xs font-medium text-gray-700">Inline Specs</label>
+                    <div className="flex items-baseline justify-between mb-1">
+                      <label className="text-[13px] font-medium text-gray-700">Inline specs</label>
                       <button type="button" onClick={() => setFormData(p => ({ ...p, specifications: [...(p.specifications || []), { heading: '', items: [{ key: '', value: '' }] }] }))}
-                        className="text-xs text-blue-600 hover:text-blue-800">+ Add Section</button>
+                        className="text-xs text-blue-600 hover:text-blue-800 font-medium">+ Add Section</button>
                     </div>
+                    <p className="text-xs text-gray-400 mb-2">One-off spec rows typed just for this product.</p>
                     {(formData.specifications || []).map((sec, si) => (
                       <div key={si} className="mb-3 p-3 border border-gray-200 rounded-lg bg-gray-50">
                         <div className="flex gap-2 mb-2">
                           <input value={sec.heading} onChange={e => { const s = [...(formData.specifications || [])]; s[si] = { ...sec, heading: e.target.value }; setFormData(p => ({ ...p, specifications: s })); }}
-                            placeholder="Section heading" className="flex-1 px-2 py-1.5 border border-gray-300 rounded text-sm" />
+                            placeholder="Section heading" aria-label="Section heading" className={`${fieldInputCls} flex-1 !w-auto`} />
                           <button type="button" onClick={() => { const s = [...(formData.specifications || [])]; s.splice(si, 1); setFormData(p => ({ ...p, specifications: s.length ? s : undefined })); }}
                             className="text-xs text-red-500">Remove</button>
                         </div>
                         {(sec.items || []).map((item, ii) => (
                           <div key={ii} className="flex gap-2 mb-1.5">
                             <input value={item.key} onChange={e => { const s = [...(formData.specifications || [])]; const items = [...(sec.items || [])]; items[ii] = { ...item, key: e.target.value }; s[si] = { ...sec, items }; setFormData(p => ({ ...p, specifications: s })); }}
-                              placeholder="Key" className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm" />
+                              placeholder="Label (e.g. Weight)" aria-label="Specification label" className={`${fieldInputCls} flex-1 !w-auto !h-8`} />
                             <input value={item.value} onChange={e => { const s = [...(formData.specifications || [])]; const items = [...(sec.items || [])]; items[ii] = { ...item, value: e.target.value }; s[si] = { ...sec, items }; setFormData(p => ({ ...p, specifications: s })); }}
-                              placeholder="Value" className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm" />
+                              placeholder="Value (e.g. 30 g)" aria-label="Specification value" className={`${fieldInputCls} flex-1 !w-auto !h-8`} />
                             <button type="button" onClick={() => { const s = [...(formData.specifications || [])]; const items = (sec.items || []).filter((_, j) => j !== ii); s[si] = { ...sec, items: items.length ? items : [{ key: '', value: '' }] }; setFormData(p => ({ ...p, specifications: s })); }}
                               disabled={(sec.items || []).length === 1} className="text-xs text-red-400 disabled:opacity-30">✕</button>
                           </div>
@@ -1472,7 +1528,7 @@ const ProductForm: React.FC = () => {
                     )}
                   </div>
                 </div>
-              </div>
+              </FieldGroup>
               </>)}
 
               {/* A+ Content */}
@@ -1631,17 +1687,20 @@ const ProductForm: React.FC = () => {
           <TabsContent value="settings" forceMount className={tabContentCls}>
             <div className="max-w-3xl space-y-4">
               {/* Publish */}
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-semibold text-gray-800">Status</span>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" checked={formData.isActive} onChange={e => setFormData(p => ({ ...p, isActive: e.target.checked }))} className="sr-only peer" />
-                    <div className="w-11 h-6 bg-gray-200 peer-focus:ring-2 peer-focus:ring-red-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500"></div>
-                  </label>
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-5">
+                <div className="flex items-center justify-between gap-4 mb-1">
+                  <h3 className="text-sm font-semibold text-gray-900">Visible in your store</h3>
+                  <Switch
+                    id="pfStatusActive"
+                    checked={formData.isActive}
+                    onCheckedChange={v => setFormData(p => ({ ...p, isActive: v }))}
+                    aria-label="Visible in your store"
+                    className="shrink-0 data-[state=checked]:bg-green-500"
+                  />
                 </div>
-                <p className="text-xs text-gray-400 mb-3">{formData.isActive ? 'Active — visible on storefront' : 'Draft — hidden from customers'}</p>
+                <p className="text-xs text-gray-500 mb-4">{formData.isActive ? 'Active — customers can see and buy this product.' : 'Draft — hidden from customers until you switch it on.'}</p>
                 <button type="submit" disabled={saving}
-                  className="w-full py-2 bg-red-600 text-white rounded font-medium text-sm hover:bg-red-700 disabled:opacity-50">
+                  className="w-full py-2 bg-red-600 text-white rounded-md font-medium text-sm hover:bg-red-700 disabled:opacity-50">
                   {saving ? 'Saving…' : isEdit ? 'Update Product' : 'Create Product'}
                 </button>
               </div>
@@ -1664,6 +1723,9 @@ const ProductForm: React.FC = () => {
               />
             </div>
           </TabsContent>
+
+            </div>
+          </div>
 
         </Tabs>
       </form>

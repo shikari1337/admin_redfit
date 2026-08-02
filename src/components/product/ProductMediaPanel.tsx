@@ -1,5 +1,6 @@
 import React, { useRef } from 'react';
 import ProductImageUpload from './ProductImageUpload';
+import { FieldGroup } from './FormField';
 
 interface ProductMediaPanelProps {
   images: string[];
@@ -22,13 +23,6 @@ interface ProductMediaPanelProps {
   errors?: { images?: string };
 }
 
-const SectionHeader: React.FC<{ title: string; subtitle?: string }> = ({ title, subtitle }) => (
-  <div className="flex items-baseline gap-1 mb-2">
-    <h3 className="text-sm font-semibold text-gray-800">{title}</h3>
-    {subtitle && <span className="text-xs text-gray-400">{subtitle}</span>}
-  </div>
-);
-
 const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
   images, descriptionImage, videos, customerOrderImages,
   uploading, uploadingBanner, uploadingCustomer, uploadingVideo,
@@ -50,11 +44,11 @@ const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
 
       {/* Product Images */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-        <SectionHeader title="Product Images" subtitle="(main gallery)" />
+      <FieldGroup title="Product photos"
+        description="The main gallery customers flip through. The first photo is the cover — drag to reorder.">
         <ProductImageUpload
           images={images}
           onImagesChange={onImagesChange}
@@ -64,12 +58,11 @@ const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
           multiple={true}
           label="Drop images or click to upload"
         />
-        <p className="mt-2 text-xs text-gray-400">First image is the primary thumbnail. Drag to reorder.</p>
-      </div>
+      </FieldGroup>
 
       {/* Description Banner Image */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-        <SectionHeader title="Description Banner" subtitle="(100% width)" />
+      <FieldGroup title="Description banner"
+        description="One wide image shown full-width near the product description (optional).">
         <ProductImageUpload
           images={descriptionImage ? [descriptionImage] : []}
           onImagesChange={imgs => onDescriptionImageChange(imgs[0] || '')}
@@ -79,17 +72,16 @@ const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
           label="Upload banner image"
           maxImages={1}
         />
-        <p className="mt-2 text-xs text-gray-400">Wide image shown above/below product description.</p>
-      </div>
+      </FieldGroup>
 
       {/* Videos */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-        <SectionHeader title="Videos" />
+      <FieldGroup title="Videos"
+        description="Upload a video file or paste a YouTube / Vimeo link.">
         <div className="space-y-2">
           {videos.map((url, idx) => {
             const thumb = getVideoThumb(url);
             return (
-              <div key={idx} className="flex items-center gap-2 p-2 bg-gray-50 rounded border border-gray-200">
+              <div key={idx} className="flex items-center gap-3 p-2 bg-gray-50 rounded-md border border-gray-200">
                 {thumb ? (
                   <img src={thumb} alt="video" className="w-14 h-10 object-cover rounded shrink-0" />
                 ) : (
@@ -98,8 +90,8 @@ const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
                   </div>
                 )}
                 <p className="text-xs text-gray-600 truncate flex-1">{url}</p>
-                <button type="button" onClick={() => removeVideo(idx)}
-                  className="text-red-400 hover:text-red-600 text-sm shrink-0">✕</button>
+                <button type="button" onClick={() => removeVideo(idx)} aria-label="Remove video"
+                  className="text-gray-400 hover:text-red-600 text-sm shrink-0 px-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 rounded">✕</button>
               </div>
             );
           })}
@@ -114,20 +106,20 @@ const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
             />
             <button type="button" onClick={() => videoInputRef.current?.click()}
               disabled={uploadingVideo}
-              className="flex-1 px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50">
+              className="flex-1 h-9 px-3 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400">
               {uploadingVideo ? 'Uploading…' : '+ Upload Video'}
             </button>
             <button type="button" onClick={onAddVideoUrl}
-              className="flex-1 px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50">
+              className="flex-1 h-9 px-3 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400">
               + Paste URL
             </button>
           </div>
         </div>
-      </div>
+      </FieldGroup>
 
       {/* Customer Order Photos */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-        <SectionHeader title="Customer Photos" subtitle="(social proof)" />
+      <FieldGroup title="Customer photos"
+        description="Real customer photos shown in the reviews section (social proof).">
         <ProductImageUpload
           images={customerOrderImages}
           onImagesChange={onCustomerOrderImagesChange}
@@ -136,8 +128,7 @@ const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
           multiple={true}
           label="Upload customer photos"
         />
-        <p className="mt-2 text-xs text-gray-400">Real customer photos shown in the reviews section.</p>
-      </div>
+      </FieldGroup>
 
     </div>
   );

@@ -1,4 +1,5 @@
 import React from 'react';
+import { FieldGroup, SwitchRow } from './FormField';
 
 interface ProductDisplayOptionsProps {
   disableVariants: boolean;
@@ -18,23 +19,6 @@ interface ProductDisplayOptionsProps {
   onRequiresPrescriptionChange?: (value: boolean) => void;
 }
 
-const Toggle: React.FC<{ checked: boolean; onChange: (v: boolean) => void; id?: string }> = ({ checked, onChange, id }) => (
-  <label htmlFor={id} className="relative inline-flex items-center cursor-pointer shrink-0">
-    <input id={id} type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} className="sr-only peer" />
-    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-red-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600"></div>
-  </label>
-);
-
-const Row: React.FC<{ id: string; label: string; desc: string; checked: boolean; onChange: (v: boolean) => void }> = ({ id, label, desc, checked, onChange }) => (
-  <div className="flex items-center justify-between py-2">
-    <div className="flex-1 min-w-0 pr-3">
-      <p className="text-sm font-medium text-gray-700">{label}</p>
-      <p className="text-xs text-gray-500 mt-0.5">{desc}</p>
-    </div>
-    <Toggle id={id} checked={checked} onChange={onChange} />
-  </div>
-);
-
 const ProductDisplayOptions: React.FC<ProductDisplayOptionsProps> = ({
   disableVariants, showOutOfStockVariants, isActive,
   isFeatured = false, isDigital = false, requiresPrescription = false,
@@ -43,38 +27,37 @@ const ProductDisplayOptions: React.FC<ProductDisplayOptionsProps> = ({
   onIsFeaturedChange, onIsDigitalChange, onRequiresPrescriptionChange,
 }) => {
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-      <h2 className="text-sm font-semibold text-gray-900 mb-1">Product Status & Display</h2>
+    <FieldGroup title="Display options" description="Switch things on or off — changes apply after you save.">
       <div className="divide-y divide-gray-100">
 
-        <Row id="isActive" label="Active / Published"
-          desc="Visible to customers when active"
-          checked={isActive} onChange={onIsActiveChange} />
+        <SwitchRow id="isActive" label="Show in store"
+          help="Customers can see and buy this product."
+          checked={isActive} onCheckedChange={onIsActiveChange} />
 
-        <Row id="isFeatured" label="Featured Product"
-          desc="Show in featured sections and homepage"
-          checked={isFeatured} onChange={v => onIsFeaturedChange && onIsFeaturedChange(v)} />
+        <SwitchRow id="isFeatured" label="Feature this product"
+          help="Give it a spot in featured sections and on the homepage."
+          checked={isFeatured} onCheckedChange={v => onIsFeaturedChange && onIsFeaturedChange(v)} />
 
-        <Row id="isDigital" label="Digital Product"
-          desc="No shipping required; deliver via download/email"
-          checked={isDigital} onChange={v => onIsDigitalChange && onIsDigitalChange(v)} />
+        <SwitchRow id="isDigital" label="Digital product"
+          help="Nothing to ship — delivered by download or email."
+          checked={isDigital} onCheckedChange={v => onIsDigitalChange && onIsDigitalChange(v)} />
 
         {showRequiresPrescription && (
-        <Row id="requiresPrescription" label="Requires Prescription"
-          desc="Customer must upload a valid prescription"
-          checked={requiresPrescription} onChange={v => onRequiresPrescriptionChange && onRequiresPrescriptionChange(v)} />
+        <SwitchRow id="requiresPrescription" label="Needs a prescription"
+          help="Customer must upload a valid prescription before buying."
+          checked={requiresPrescription} onCheckedChange={v => onRequiresPrescriptionChange && onRequiresPrescriptionChange(v)} />
         )}
 
-        <Row id="disableVariants" label="Disable Variant Picker"
-          desc="Hide variant selection on product page"
-          checked={disableVariants} onChange={onDisableVariantsChange} />
+        <SwitchRow id="disableVariants" label="Hide the option picker"
+          help="Don't show variant choices (size, potency…) on the product page."
+          checked={disableVariants} onCheckedChange={onDisableVariantsChange} />
 
-        <Row id="showOosVariants" label="Show Out-of-Stock Variants"
-          desc="Display unavailable variants as disabled swatches"
-          checked={showOutOfStockVariants} onChange={onShowOutOfStockVariantsChange} />
+        <SwitchRow id="showOosVariants" label="Show sold-out options"
+          help="Sold-out variants appear greyed-out instead of disappearing."
+          checked={showOutOfStockVariants} onCheckedChange={onShowOutOfStockVariantsChange} />
 
       </div>
-    </div>
+    </FieldGroup>
   );
 };
 

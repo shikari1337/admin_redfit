@@ -1,6 +1,6 @@
 ﻿import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { authAPI, getTenantApiKey, setTenantApiKey, getDomainStore, isPlatformDomain } from '../services/api';
+import { api, authAPI, getTenantApiKey, setTenantApiKey, getDomainStore, isPlatformDomain } from '../services/api';
 import { PRODUCT } from '../lib/product';
 import { useAuth } from '../contexts/AuthContext';
 import {
@@ -41,6 +41,53 @@ const StepCredentials: React.FC<StepCredentialsProps> = ({ onSuccess }) => {
   // When this domain maps to a store, that store wins over env/manual keys.
   const domainStore = getDomainStore();
   const envKey = domainStore?.apiKey || getTenantApiKey(); // domain > VITE_API_KEY/previous session
+
+  // Validate the ambient key BEFORE the user types a password: a stale/rotated
+  // key (from a months-old session) makes every login fail with a misleading
+  // "Invalid email or password" — the account is fine, the TENANT is wrong.
+  // Telling the user which store they're about to sign into (or that the saved
+  // key is dead) turns that dead-end into a self-service fix.
+  const [storeCheck, setStoreCheck] = useState<{ status: 'idle' | 'checking' | 'ok' | 'dead'; name?: string }>({ status: 'idle' });
+  useEffect(() => {
+    let alive = true;
+    if (!envKey || domainStore) { setStoreCheck({ status: 'idle' }); return; }
+    setStoreCheck({ status: 'checking' });
+    const base = (api as any).defaults?.baseURL ?? '/api/v1';
+    // /modules/public is the validity probe: dead/rotated key → 401, live key →
+    // 200 for ANY store. The name (best-effort) comes from the public
+    // storeConfig settings key (business.name — the Store Configuration wizard).
+    fetch(`${base}/modules/public`, { headers: { 'x-api-key': envKey } })
+      .then(async (r) => {
+        if (!alive) return;
+        if (r.status === 401 || r.status === 403 || r.status === 404) {
+          setStoreCheck({ status: 'dead' }); setShowKeyField(true); return;
+        }
+        if (!r.ok) { setStoreCheck({ status: 'idle' }); return; } // backend hiccup — don't scare the user
+        let name: string | undefined;
+        try {
+          const cfg = await (await fetch(`${base}/settings/storeConfig`, { headers: { 'x-api-key': envKey } })).json();
+          const d = cfg?.data ?? cfg;
+          name = d?.business?.name || d?.general?.siteName || d?.name || undefined;
+        } catch { /* name is a nicety */ }
+        setStoreCheck({ status: 'ok', name });
+      })
+      .catch(async () => {
+        // A dead key can't resolve a tenant, so its 401 carries no CORS headers
+        // and the browser surfaces a thrown fetch, not a status. Disambiguate
+        // from "backend down" via the public health endpoint: reachable backend
+        // + throwing keyed probe ⇒ the key is dead.
+        if (!alive) return;
+        try {
+          const healthBase = String(base).replace(/\/api\/v\d+\/?$/, '');
+          const h = await fetch(`${healthBase}/health`);
+          if (alive) {
+            if (h.ok) { setStoreCheck({ status: 'dead' }); setShowKeyField(true); }
+            else setStoreCheck({ status: 'idle' });
+          }
+        } catch { if (alive) setStoreCheck({ status: 'idle' }); }
+      });
+    return () => { alive = false; };
+  }, [envKey, domainStore]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -195,12 +242,31 @@ const StepCredentials: React.FC<StepCredentialsProps> = ({ onSuccess }) => {
             <span>Managing <b>{domainStore.name}</b> — determined by this domain.</span>
           </div>
         ) : envKey && !manualKey ? (
-          <div className="flex items-center gap-2 text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
-            <Store className="h-3 w-3 shrink-0" />
-            <span>Store pre-configured — will connect automatically.</span>
-            <button type="button" onClick={() => { setShowKeyField(true); }}
-              className="ml-auto underline hover:no-underline shrink-0">Change</button>
-          </div>
+          storeCheck.status === 'dead' ? (
+            <div className="flex items-center gap-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              <AlertCircle className="h-3 w-3 shrink-0" />
+              <span>
+                The saved store key doesn't work (the store may have rotated it).
+                Paste the store's current API key below — logins will fail until then.
+              </span>
+              <button type="button"
+                onClick={() => { setTenantApiKey(null); setShowKeyField(true); }}
+                className="ml-auto underline hover:no-underline shrink-0">Clear it</button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+              <Store className="h-3 w-3 shrink-0" />
+              <span>
+                {storeCheck.status === 'ok' && storeCheck.name
+                  ? <>Signing in to <b>{storeCheck.name}</b>.</>
+                  : storeCheck.status === 'checking'
+                    ? 'Checking the configured store…'
+                    : 'Store pre-configured — will connect automatically.'}
+              </span>
+              <button type="button" onClick={() => { setShowKeyField(true); }}
+                className="ml-auto underline hover:no-underline shrink-0">Change</button>
+            </div>
+          )
         ) : (
           <button type="button" onClick={() => setShowKeyField(v => !v)}
             className="text-xs text-gray-500 hover:text-gray-700 transition-colors flex items-center gap-1">

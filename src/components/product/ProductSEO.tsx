@@ -3,6 +3,7 @@ import { FaExternalLinkAlt } from 'react-icons/fa';
 import { SeoFormState, SLUG_MAX_LENGTH, META_TITLE_LIMIT, META_DESCRIPTION_LIMIT } from '../../types/productForm';
 import { slugifyValue } from '../../utils/slugify';
 import ImageInputWithActions from '../common/ImageInputWithActions';
+import { FieldGroup, Field, fieldInputCls, fieldTextareaCls, fieldInputErrorCls } from './FormField';
 
 interface ProductSEOProps {
   sku: string;
@@ -57,83 +58,58 @@ const ProductSEO: React.FC<ProductSEOProps> = ({
   const productUrl = getProductUrl();
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
-        <div>
-          <h2 className="text-lg font-semibold text-gray-900">SEO Settings</h2>
-          <p className="text-sm text-gray-600 mt-1">
-            Control the product URL slug and metadata used for search engines and social sharing.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={onShowAdvancedSeoToggle}
-          className="self-start md:self-center text-sm text-red-600 hover:text-red-700"
-        >
-          {showAdvancedSeo ? 'Hide advanced SEO fields' : 'Show advanced SEO fields'}
-        </button>
-      </div>
+    <div className="space-y-5">
 
-      <div className="space-y-5">
-        {showSku && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Base SKU</label>
-            <input
-              type="text"
-              value={sku || ''}
-              onChange={(e) => {
-                const skuValue = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 48);
-                onSkuChange(skuValue);
-              }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 font-mono text-sm"
-              placeholder="Auto-generated from product name"
-            />
-            <p className="mt-1 text-xs text-gray-500">
-              Base SKU for the product. Variant SKUs will be generated as: BASE-COLOR-SIZE. Leave empty for auto-generation.
-            </p>
-          </div>
-        )}
+      {/* ── Web address ──────────────────────────────────────────────────── */}
+      <FieldGroup title="Web address" description="Where this product lives on your website.">
+        <div className="space-y-5">
+          {showSku && (
+            <Field label="Base SKU" htmlFor="seoBaseSku"
+              help="Base code for this product — variant SKUs build on it (BASE-COLOR-SIZE). Leave empty to auto-generate.">
+              <input
+                id="seoBaseSku"
+                type="text"
+                value={sku || ''}
+                onChange={(e) => {
+                  const skuValue = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 48);
+                  onSkuChange(skuValue);
+                }}
+                className={`${fieldInputCls} font-mono`}
+                placeholder="Auto-generated from product name"
+              />
+            </Field>
+          )}
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Product Slug <span className="text-red-500">*</span>
-          </label>
-          <div className="flex flex-col md:flex-row md:items-center gap-3">
-            <input
-              type="text"
-              value={slug}
-              maxLength={SLUG_MAX_LENGTH}
-              onChange={(e) => {
-                const sanitized = slugifyValue(e.target.value);
-                onSlugChange(sanitized);
-              }}
-              className={`flex-1 px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
-                errors.slug ? 'border-red-500' : 'border-gray-300'
-              }`}
-              placeholder="e.g., premium-tshirt"
-            />
-            <button
-              type="button"
-              onClick={onSlugReset}
-              className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-            >
-              Reset from name
-            </button>
-          </div>
-          <div className="flex justify-between text-xs text-gray-500 mt-1">
-            <span>Lowercase letters, numbers, and hyphens only.</span>
-            <span>
-              {slug.length}/{SLUG_MAX_LENGTH}
-            </span>
-          </div>
-          {errors.slug && <p className="mt-1 text-sm text-red-500">{errors.slug}</p>}
-          
+          <Field label="Product slug" htmlFor="seoSlug" required error={errors.slug}
+            help="The web address part — lowercase letters, numbers and hyphens only."
+            labelRight={<span className="text-xs text-gray-400">{slug.length}/{SLUG_MAX_LENGTH}</span>}>
+            <div className="flex flex-col md:flex-row md:items-center gap-3">
+              <input
+                id="seoSlug"
+                type="text"
+                value={slug}
+                maxLength={SLUG_MAX_LENGTH}
+                onChange={(e) => {
+                  const sanitized = slugifyValue(e.target.value);
+                  onSlugChange(sanitized);
+                }}
+                className={`flex-1 !w-auto ${errors.slug ? fieldInputErrorCls : fieldInputCls}`}
+                placeholder="e.g., premium-tshirt"
+              />
+              <button
+                type="button"
+                onClick={onSlugReset}
+                className="h-9 px-3 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+              >
+                Reset from name
+              </button>
+            </div>
+          </Field>
+
           {/* Live Product Link */}
           {slug && (
-            <div className="mt-3 p-3 bg-gray-50 rounded-md border border-gray-200">
-              <label className="block text-xs font-medium text-gray-700 mb-1">
-                Live Product Link
-              </label>
+            <div className="p-3 bg-gray-50 rounded-md border border-gray-200">
+              <p className="text-[13px] font-medium text-gray-700 mb-1">Live product link</p>
               <div className="flex items-center gap-2">
                 <a
                   href={productUrl}
@@ -154,141 +130,139 @@ const ProductSEO: React.FC<ProductSEOProps> = ({
                   <FaExternalLinkAlt className="w-4 h-4" />
                 </a>
               </div>
-              <p className="mt-1 text-xs text-gray-500">
-                {websiteUrl ? 'Click to view product on your website' : 'Website URL not configured. Set it in Settings → General Settings'}
+              <p className="mt-1 text-xs text-gray-400">
+                {websiteUrl ? 'Click to view the product on your website.' : 'Website URL not configured. Set it in Settings → General Settings.'}
               </p>
             </div>
           )}
         </div>
+      </FieldGroup>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Meta Title</label>
-          <input
-            type="text"
-            value={seoData.title}
-            onChange={(e) => {
-              const value = e.target.value.slice(0, META_TITLE_LIMIT);
-              updateSeoField('title', value);
-            }}
-            className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
-              errors.metaTitle ? 'border-red-500' : 'border-gray-300'
-            }`}
-            placeholder="Meta title shown in search results"
-          />
-          <div className="flex justify-between text-xs text-gray-500 mt-1">
-            <span>Recommended up to {META_TITLE_LIMIT} characters.</span>
-            <span>
-              {seoData.title.length}/{META_TITLE_LIMIT}
-            </span>
-          </div>
-          {errors.metaTitle && <p className="mt-1 text-sm text-red-500">{errors.metaTitle}</p>}
-        </div>
+      {/* ── Search listing ───────────────────────────────────────────────── */}
+      <FieldGroup title="Google listing"
+        description="How this product looks in search results. Leave blank to auto-fill from the product name."
+        actions={
+          <button
+            type="button"
+            onClick={onShowAdvancedSeoToggle}
+            className="text-xs text-red-600 hover:text-red-700 font-medium"
+          >
+            {showAdvancedSeo ? 'Hide advanced fields' : 'Show advanced fields'}
+          </button>
+        }>
+        <div className="space-y-5">
+          <Field label="Meta title" htmlFor="seoMetaTitle" error={errors.metaTitle}
+            help={`The clickable headline in Google — keep it under ${META_TITLE_LIMIT} characters.`}
+            labelRight={<span className="text-xs text-gray-400">{seoData.title.length}/{META_TITLE_LIMIT}</span>}>
+            <input
+              id="seoMetaTitle"
+              type="text"
+              value={seoData.title}
+              onChange={(e) => {
+                const value = e.target.value.slice(0, META_TITLE_LIMIT);
+                updateSeoField('title', value);
+              }}
+              className={errors.metaTitle ? fieldInputErrorCls : fieldInputCls}
+              placeholder="Meta title shown in search results"
+            />
+          </Field>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Meta Description</label>
-          <textarea
-            rows={3}
-            value={seoData.description}
-            onChange={(e) => {
-              const value = e.target.value.slice(0, META_DESCRIPTION_LIMIT);
-              updateSeoField('description', value);
-            }}
-            className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
-              errors.metaDescription ? 'border-red-500' : 'border-gray-300'
-            }`}
-            placeholder="Short summary that appears below the title in search results"
-          />
-          <div className="flex justify-between text-xs text-gray-500 mt-1">
-            <span>Recommended up to {META_DESCRIPTION_LIMIT} characters.</span>
-            <span>
-              {seoData.description.length}/{META_DESCRIPTION_LIMIT}
-            </span>
-          </div>
-          {errors.metaDescription && <p className="mt-1 text-sm text-red-500">{errors.metaDescription}</p>}
-        </div>
+          <Field label="Meta description" htmlFor="seoMetaDescription" error={errors.metaDescription}
+            help={`The short blurb under the title in Google — up to ${META_DESCRIPTION_LIMIT} characters.`}
+            labelRight={<span className="text-xs text-gray-400">{seoData.description.length}/{META_DESCRIPTION_LIMIT}</span>}>
+            <textarea
+              id="seoMetaDescription"
+              rows={3}
+              value={seoData.description}
+              onChange={(e) => {
+                const value = e.target.value.slice(0, META_DESCRIPTION_LIMIT);
+                updateSeoField('description', value);
+              }}
+              className={errors.metaDescription ? `${fieldTextareaCls} !border-red-400` : fieldTextareaCls}
+              placeholder="Short summary that appears below the title in search results"
+            />
+          </Field>
 
-        {showAdvancedSeo && (
-          <div className="space-y-4 border-t border-gray-200 pt-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Canonical URL</label>
-                <input
-                  type="url"
-                  value={seoData.canonicalUrl}
-                  onChange={(e) => updateSeoField('canonicalUrl', e.target.value)}
-                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
-                    errors.canonicalUrl ? 'border-red-500' : 'border-gray-300'
-                  }`}
-                  placeholder="https://yourstore.com/products/premium-tshirt"
-                />
-                {errors.canonicalUrl && <p className="mt-1 text-sm text-red-500">{errors.canonicalUrl}</p>}
+          {showAdvancedSeo && (
+            <div className="space-y-5 border-t border-gray-100 pt-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field label="Canonical URL" htmlFor="seoCanonicalUrl" error={errors.canonicalUrl}
+                  help="Only needed if this product also lives at another address.">
+                  <input
+                    id="seoCanonicalUrl"
+                    type="url"
+                    value={seoData.canonicalUrl}
+                    onChange={(e) => updateSeoField('canonicalUrl', e.target.value)}
+                    className={errors.canonicalUrl ? fieldInputErrorCls : fieldInputCls}
+                    placeholder="https://yourstore.com/products/premium-tshirt"
+                  />
+                </Field>
+                <Field label="Meta robots" htmlFor="seoMetaRobots"
+                  help="Optional. Common values: `index, follow`, `noindex, follow`.">
+                  <input
+                    id="seoMetaRobots"
+                    type="text"
+                    value={seoData.metaRobots}
+                    onChange={(e) => updateSeoField('metaRobots', e.target.value)}
+                    className={fieldInputCls}
+                    placeholder="index, follow"
+                  />
+                </Field>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Meta Robots</label>
+
+              <Field label="Meta keywords" htmlFor="seoMetaKeywords"
+                help="Comma-separated keywords (optional — most search engines ignore these).">
                 <input
+                  id="seoMetaKeywords"
                   type="text"
-                  value={seoData.metaRobots}
-                  onChange={(e) => updateSeoField('metaRobots', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                  placeholder="index, follow"
+                  value={seoData.keywords}
+                  onChange={(e) => updateSeoField('keywords', e.target.value)}
+                  className={fieldInputCls}
+                  placeholder="performance t-shirt, gym wear, sportswear"
                 />
-                <p className="mt-1 text-xs text-gray-500">
-                  Optional. Common values: `index, follow`, `noindex, follow`.
-                </p>
-              </div>
-            </div>
+              </Field>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Meta Keywords</label>
-              <input
-                type="text"
-                value={seoData.keywords}
-                onChange={(e) => updateSeoField('keywords', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                placeholder="performance t-shirt, gym wear, sportswear"
-              />
-              <p className="mt-1 text-xs text-gray-500">Comma-separated keywords (optional).</p>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Open Graph Title</label>
-                <input
-                  type="text"
-                  value={seoData.ogTitle}
-                  onChange={(e) => updateSeoField('ogTitle', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                  placeholder="Title used when sharing on social platforms"
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field label="Social share title" htmlFor="seoOgTitle"
+                  help="Title used when the link is shared on WhatsApp, Facebook etc.">
+                  <input
+                    id="seoOgTitle"
+                    type="text"
+                    value={seoData.ogTitle}
+                    onChange={(e) => updateSeoField('ogTitle', e.target.value)}
+                    className={fieldInputCls}
+                    placeholder="Title used when sharing on social platforms"
+                  />
+                </Field>
+                <ImageInputWithActions
+                  value={seoData.ogImage || ''}
+                  onChange={(url) => updateSeoField('ogImage', url)}
+                  label="Social share image URL"
+                  placeholder="https://example.com/og-image.jpg"
+                  productId={productId}
+                  sectionId="seo"
+                  fieldPath="ogImage"
+                  contextData={productName ? { productName } : undefined}
                 />
               </div>
-              <ImageInputWithActions
-                value={seoData.ogImage || ''}
-                onChange={(url) => updateSeoField('ogImage', url)}
-                label="Open Graph Image URL"
-                placeholder="https://example.com/og-image.jpg"
-                productId={productId}
-                sectionId="seo"
-                fieldPath="ogImage"
-                contextData={productName ? { productName } : undefined}
-              />
-            </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Open Graph Description</label>
-              <textarea
-                rows={2}
-                value={seoData.ogDescription}
-                onChange={(e) => updateSeoField('ogDescription', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                placeholder="Description shown when sharing on social platforms"
-              />
+              <Field label="Social share description" htmlFor="seoOgDescription"
+                help="Description shown under the title when the link is shared.">
+                <textarea
+                  id="seoOgDescription"
+                  rows={2}
+                  value={seoData.ogDescription}
+                  onChange={(e) => updateSeoField('ogDescription', e.target.value)}
+                  className={fieldTextareaCls}
+                  placeholder="Description shown when sharing on social platforms"
+                />
+              </Field>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      </FieldGroup>
     </div>
   );
 };
 
 export default ProductSEO;
-

@@ -1112,17 +1112,20 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
                                     ? 'bg-blue-600 text-white'
                                     : 'text-gray-400 hover:text-gray-700 hover:bg-gray-100'
                                 }`}
-                                title={isEditing ? 'Close' : 'Quick edit'}
+                                title={isEditing ? 'Close quick edit' : 'Quick edit price/stock inline'}
                               >
                                 {isEditing ? <FaChevronDown size={11} /> : <FaChevronRight size={11} />}
                               </button>
+                              {/* The FULL editor was a 10px icon nobody could find —
+                                  "where do I edit this variant?" was the #1 complaint.
+                                  A labeled button is the primary action now. */}
                               {productSlug && (
                                 <Link
                                   to={`/products/${productSlug}/variations/${variations.indexOf(variation)}/edit`}
-                                  title="Full edit in new page"
-                                  className="p-1.5 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                  title="Open the full variant editor (price, sale, images, content, inventory)"
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-blue-200 bg-blue-50 text-blue-700 text-xs font-semibold hover:bg-blue-100 transition-colors whitespace-nowrap"
                                 >
-                                  <FaExternalLinkAlt size={10} />
+                                  <FaExternalLinkAlt size={10} /> Edit variant
                                 </Link>
                               )}
                               <button

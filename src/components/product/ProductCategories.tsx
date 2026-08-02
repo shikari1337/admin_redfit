@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { CategoryOption } from '../../types/productForm';
 import { filterBySearch, MIN_SEARCH_LENGTH } from '../../utils/search';
+import { fieldInputCls } from './FormField';
 
 interface ProductCategoriesProps {
   categories: string[];
@@ -107,15 +108,18 @@ const ProductCategories: React.FC<ProductCategoriesProps> = ({
     return (
       <label
         key={categoryId}
-        className={`flex items-center gap-2 px-3 py-2 border rounded-md bg-white hover:border-red-300 transition-colors cursor-pointer ${isFeatured ? 'border-yellow-400 bg-yellow-50' : 'border-gray-200'}`}
+        className={`flex items-center gap-2 px-3 py-2 border rounded-md transition-colors cursor-pointer ${
+          isFeatured ? 'border-yellow-400 bg-yellow-50'
+          : isChecked ? 'border-red-300 bg-red-50/40'
+          : 'bg-white border-gray-200 hover:border-red-300 hover:bg-gray-50'}`}
       >
         <input
           type="checkbox"
-          className="text-red-600 focus:ring-red-500 rounded"
+          className="text-red-600 focus:ring-red-400 rounded border-gray-300"
           checked={isChecked}
           onChange={() => toggleCategory(categoryId)}
         />
-        <span className="text-sm text-gray-700 flex-1">
+        <span className="text-sm text-gray-700 flex-1 min-w-0 truncate">
           {category.name}
           {!category.isActive && (
             <span className="ml-2 text-xs text-gray-400">(inactive)</span>
@@ -125,8 +129,9 @@ const ProductCategories: React.FC<ProductCategoriesProps> = ({
           <button
             type="button"
             title={isFeatured ? 'Remove featured' : 'Mark as featured category'}
+            aria-label={isFeatured ? `Remove ${category.name} as featured category` : `Mark ${category.name} as featured category`}
             onClick={(e) => toggleFeatured(e, categoryId)}
-            className={`text-base leading-none transition-colors ${isFeatured ? 'text-yellow-500 hover:text-gray-400' : 'text-gray-300 hover:text-yellow-400'}`}
+            className={`text-base leading-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 rounded ${isFeatured ? 'text-yellow-500 hover:text-gray-400' : 'text-gray-300 hover:text-yellow-400'}`}
           >
             ★
           </button>
@@ -137,14 +142,11 @@ const ProductCategories: React.FC<ProductCategoriesProps> = ({
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-2">
-        <label className="block text-sm font-medium text-gray-700">
-          Categories <span className="text-red-500">*</span>
-        </label>
+      <div className="flex items-center justify-end mb-2">
         <button
           type="button"
           onClick={onRefresh}
-          className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded hover:bg-gray-200"
+          className="text-xs px-2.5 py-1 bg-gray-100 text-gray-600 rounded-md hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
         >
           {loading ? 'Refreshing…' : 'Refresh'}
         </button>
@@ -159,18 +161,19 @@ const ProductCategories: React.FC<ProductCategoriesProps> = ({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={`Search ${availableCategories.length} categories (min ${MIN_SEARCH_LENGTH} letters)…`}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-red-400"
+            aria-label="Search categories"
+            className={fieldInputCls}
           />
           {selectedCats.length > 0 && (
             <div>
-              <p className="text-xs text-gray-500 mb-1 font-medium uppercase tracking-wide">Selected</p>
+              <p className="text-xs text-gray-500 mb-1.5 font-medium uppercase tracking-wide">Selected</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {selectedCats.map(renderCategory)}
               </div>
             </div>
           )}
           <div>
-            <p className="text-xs text-gray-500 mb-1 font-medium uppercase tracking-wide">
+            <p className="text-xs text-gray-500 mb-1.5 font-medium uppercase tracking-wide">
               {search.trim().length >= MIN_SEARCH_LENGTH ? `Results (max 10)` : `Suggestions (top 10 — search for more)`}
             </p>
             {results.length > 0 ? (
@@ -188,9 +191,9 @@ const ProductCategories: React.FC<ProductCategoriesProps> = ({
           ★ Featured category will be highlighted on the product listing page.
         </p>
       )}
-      {error && <p className="mt-1 text-sm text-red-500">{error}</p>}
-      <p className="mt-1 text-xs text-gray-500">
-        Assign the product to at least one category. Star a category to feature it.
+      {error && <p className="mt-1 text-xs text-red-500">{error}</p>}
+      <p className="mt-2 text-xs text-gray-400">
+        Tick at least one category. Click the ★ to make one the featured category.
       </p>
     </div>
   );

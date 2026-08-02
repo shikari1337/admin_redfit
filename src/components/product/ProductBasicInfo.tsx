@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import RichTextEditor from '../common/RichTextEditor';
+import { FieldGroup, Field, fieldInputCls, fieldTextareaCls, fieldInputErrorCls } from './FormField';
 
 interface ProductBasicInfoProps {
   name: string;
@@ -22,77 +23,66 @@ const ProductBasicInfo: React.FC<ProductBasicInfoProps> = ({
 }) => {
   const [showTitle, setShowTitle] = useState(!!title);
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-5">
-      <h2 className="text-base font-semibold text-gray-900 mb-4">Product Information</h2>
-      <div className="space-y-4">
+    <FieldGroup title="Product details" description="The name and descriptions customers read.">
+      <div className="space-y-5">
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">
-            Product Name <span className="text-red-500">*</span>
-            <span className="ml-1 text-xs font-normal text-gray-400">(used on storefront &amp; for the URL slug)</span>
-          </label>
+        <Field label="Product name" htmlFor="pfName" required error={errors.name}
+          help="The name customers see — it also builds the web address.">
           <input
+            id="pfName"
             type="text"
             required
-            className={`w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-red-500 ${errors.name ? 'border-red-500' : 'border-gray-300'}`}
+            className={errors.name ? fieldInputErrorCls : fieldInputCls}
             value={name}
             onChange={e => onNameChange(e.target.value)}
             placeholder="e.g., Arnica Montana 30CH 30ml"
           />
-          {errors.name && <p className="mt-1 text-xs text-red-500">{errors.name}</p>}
-        </div>
+        </Field>
 
         {onTitleChange !== undefined && !showTitle && (
           <button type="button" onClick={() => setShowTitle(true)}
             className="text-xs text-blue-600 hover:text-blue-800 font-medium">
-            + Add a separate display title (optional)
+            + Show a different title on the storefront (optional)
           </button>
         )}
         {onTitleChange !== undefined && showTitle && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              Display Title
-              <span className="ml-1 text-xs font-normal text-gray-400">(overrides Product Name on the storefront — leave blank to just use the name)</span>
-            </label>
+          <Field label="Storefront title (optional)" htmlFor="pfDisplayTitle"
+            help="Shown instead of the product name on your store — leave blank to just use the name.">
             <input
+              id="pfDisplayTitle"
               type="text"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+              className={fieldInputCls}
               value={title}
               onChange={e => onTitleChange(e.target.value)}
               placeholder="Override name shown on storefront and listings"
             />
-          </div>
+          </Field>
         )}
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">
-            Short Description
-            <span className="ml-1 text-xs font-normal text-gray-400">(shown in product cards)</span>
-          </label>
+        <Field label="Short description" htmlFor="pfShortDesc"
+          help="1–2 sentences shown on product cards and in search results.">
           <textarea
+            id="pfShortDesc"
             rows={3}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+            className={fieldTextareaCls}
             value={description}
             onChange={e => onDescriptionChange(e.target.value)}
             placeholder="1–2 sentence summary shown in search results and category grids…"
           />
-        </div>
+        </Field>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">
-            Full Description
-            <span className="ml-1 text-xs font-normal text-gray-400">(rich formatting)</span>
-          </label>
+        <Field label="Full description"
+          help="The long description on the product page — use the toolbar for headings, lists and links.">
           <RichTextEditor
             value={richDescription}
             onChange={onRichDescriptionChange}
             placeholder="Detailed product description — use the toolbar to format headings, lists, links…"
             minHeight={220}
           />
-        </div>
+        </Field>
 
       </div>
-    </div>
+    </FieldGroup>
   );
 };
 

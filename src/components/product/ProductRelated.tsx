@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { productsAPI } from '../../services/api';
+import { FieldGroup, fieldInputCls } from './FormField';
 
 interface RelatedProduct { id: string; _id?: string; name: string; slug?: string; images?: string[] }
 
@@ -60,16 +61,17 @@ const ProductSearchPicker: React.FC<{
   return (
     <div className="space-y-2">
       <div>
-        <p className="text-xs font-medium text-gray-700">{label}</p>
-        <p className="text-xs text-gray-400">{description}</p>
+        <p className="text-[13px] font-medium text-gray-700">{label}</p>
+        <p className="text-xs text-gray-400 mt-0.5">{description}</p>
       </div>
 
       {selectedIds.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {selectedIds.map(id => (
-            <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800">
+            <span key={id} className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 border border-blue-200 rounded-md text-xs text-blue-800">
               <span className="font-mono text-blue-500">{id.slice(0, 8)}…</span>
-              <button type="button" onClick={() => onRemove(id)} className="text-blue-400 hover:text-red-500 ml-0.5">✕</button>
+              <button type="button" onClick={() => onRemove(id)} aria-label="Remove linked product"
+                className="text-blue-400 hover:text-red-500 ml-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 rounded">✕</button>
             </span>
           ))}
         </div>
@@ -81,8 +83,9 @@ const ProductSearchPicker: React.FC<{
           value={query}
           onChange={e => { setQuery(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
-          placeholder="Search products to add…"
-          className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
+          placeholder="Type a product name to add it…"
+          aria-label={`Search products to add as ${label}`}
+          className={fieldInputCls}
         />
         {open && (query || loading) && (
           <div className="absolute z-30 left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-52 overflow-y-auto">
@@ -94,7 +97,7 @@ const ProductSearchPicker: React.FC<{
               <button key={product.id} type="button"
                 onMouseDown={e => e.preventDefault()}
                 onClick={() => { onAdd(product.id); setQuery(''); setOpen(false); }}
-                className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-50 text-left">
+                className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-50 text-left focus-visible:outline-none focus-visible:bg-gray-50">
                 {product.images?.[0] ? (
                   <img src={product.images[0]} alt="" className="w-8 h-8 object-cover rounded shrink-0" />
                 ) : (
@@ -116,15 +119,13 @@ const ProductRelated: React.FC<ProductRelatedProps> = ({
   currentProductId,
 }) => {
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-5">
-      <h2 className="text-base font-semibold text-gray-900 mb-1">Related Products</h2>
-      <p className="text-xs text-gray-500 mb-4">Boost AOV by linking related products. Search by name.</p>
-
+    <FieldGroup title="Related products"
+      description="Link other products to show alongside this one — search by name and click to add.">
       <div className="divide-y divide-gray-100">
         <div className="pb-4">
           <ProductSearchPicker
-            label="Cross-sells"
-            description="Suggested on cart page as complementary purchases"
+            label="Goes well with (cross-sells)"
+            description="Suggested on the cart page as add-ons."
             selectedIds={crossSellIds}
             onAdd={id => onCrossSellChange([...crossSellIds, id])}
             onRemove={id => onCrossSellChange(crossSellIds.filter(x => x !== id))}
@@ -133,8 +134,8 @@ const ProductRelated: React.FC<ProductRelatedProps> = ({
         </div>
         <div className="py-4">
           <ProductSearchPicker
-            label="Upsells"
-            description="Suggested on product page as premium alternatives"
+            label="Better versions (upsells)"
+            description="Suggested on the product page as premium alternatives."
             selectedIds={upsellIds}
             onAdd={id => onUpsellChange([...upsellIds, id])}
             onRemove={id => onUpsellChange(upsellIds.filter(x => x !== id))}
@@ -143,8 +144,8 @@ const ProductRelated: React.FC<ProductRelatedProps> = ({
         </div>
         <div className="pt-4">
           <ProductSearchPicker
-            label="Frequently Bought Together"
-            description="Shown as a bundle recommendation on the product page"
+            label="Frequently bought together"
+            description="Shown as a bundle suggestion on the product page."
             selectedIds={fbtIds}
             onAdd={id => onFbtChange([...fbtIds, id])}
             onRemove={id => onFbtChange(fbtIds.filter(x => x !== id))}
@@ -152,7 +153,7 @@ const ProductRelated: React.FC<ProductRelatedProps> = ({
           />
         </div>
       </div>
-    </div>
+    </FieldGroup>
   );
 };
 

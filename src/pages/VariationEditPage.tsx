@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FaArrowLeft, FaSave, FaPlus, FaTrash } from 'react-icons/fa';
-import { productsAPI, uploadAPI, taxRulesAPI } from '../services/api';
+import { productsAPI, uploadAPI, taxRulesAPI, brandsAPI } from '../services/api';
 import type { ProductVariation } from '../types/productForm';
 import { useAuth } from '../contexts/AuthContext';
 import ProductInventoryPanel from '../components/product/ProductInventoryPanel';
@@ -19,12 +19,17 @@ const VariationEditPage: React.FC = () => {
   const [saving, setSaving]     = useState(false);
   const [uploading, setUploading] = useState(false);
   const [taxRules, setTaxRules] = useState<Array<{ _id: string; id?: string; name: string; rate?: number }>>([]);
+  const [brands, setBrands] = useState<Array<{ _id?: string; id?: string; name: string }>>([]);
 
   const idx = variationIndex !== undefined ? parseInt(variationIndex, 10) : -1;
 
   useEffect(() => {
     if (productSlug) loadProduct();
     taxRulesAPI.getAll().then(setTaxRules).catch(() => {});
+    brandsAPI.list({ active: true }).then((r: any) => {
+      const list = Array.isArray(r) ? r : r?.data ?? r?.brands ?? [];
+      setBrands(Array.isArray(list) ? list : []);
+    }).catch(() => {});
   }, [productSlug]);
 
   const loadProduct = async () => {
@@ -235,6 +240,78 @@ const VariationEditPage: React.FC = () => {
               </button>
               <span className="text-sm text-gray-700">{v.isActive !== false ? 'Active' : 'Draft'}</span>
             </label>
+          </div>
+        </div>
+
+        {/* Sale price + window — a sale outside its window never applies (canonical
+            price resolver). Left empty = no sale for this variant. */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 border-t">
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Sale price (₹)</label>
+            <input
+              type="number" step="0.01" min="0"
+              value={v.salePrice ?? v.sale_price ?? ''}
+              onChange={e => handleChange('salePrice', e.target.value !== '' ? parseFloat(e.target.value) : null)}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="No sale"
+            />
+            <p className="text-xs text-gray-400 mt-1">Must be lower than the price to count as a sale.</p>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Sale starts</label>
+            <input
+              type="datetime-local"
+              value={(v.saleStartsAt ?? v.sale_starts_at ?? '').toString().slice(0, 16)}
+              onChange={e => handleChange('saleStartsAt', e.target.value || null)}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Sale ends</label>
+            <input
+              type="datetime-local"
+              value={(v.saleEndsAt ?? v.sale_ends_at ?? '').toString().slice(0, 16)}
+              onChange={e => handleChange('saleEndsAt', e.target.value || null)}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p className="text-xs text-gray-400 mt-1">Empty = open-ended. The storefront shows a countdown.</p>
+          </div>
+        </div>
+
+        {/* Brand (this variant) + shipping dimensions — variant-level overrides. */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t">
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Brand (this variant)</label>
+            <select
+              value={v.brandId || v.primary_brand_id || ''}
+              onChange={e => handleChange('brandId', e.target.value || null)}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            >
+              <option value="">Inherit from product</option>
+              {brands.map((b: any) => {
+                const bid = b._id || b.id;
+                return <option key={bid} value={bid}>{b.name}</option>;
+              })}
+            </select>
+            <p className="text-xs text-gray-400 mt-1">Multi-brand products: each variant can carry its own brand.</p>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Shipping size (this variant)</label>
+            <div className="grid grid-cols-4 gap-2">
+              {([['weight', 'Wt kg'], ['length', 'L cm'], ['breadth', 'B cm'], ['height', 'H cm']] as const).map(([key, label]) => (
+                <div key={key}>
+                  <input
+                    type="number" step="0.01" min="0"
+                    value={v[key] ?? ''}
+                    onChange={e => handleChange(key, e.target.value !== '' ? parseFloat(e.target.value) : null)}
+                    className="w-full px-2 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder={label}
+                    title={label}
+                  />
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-gray-400 mt-1">Empty = use the product's dimensions.</p>
           </div>
         </div>
 
