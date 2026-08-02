@@ -1,12 +1,82 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FaArrowLeft, FaSave, FaPlus, FaTrash } from 'react-icons/fa';
 import { productsAPI, uploadAPI, taxRulesAPI, brandsAPI } from '../services/api';
 import type { ProductVariation } from '../types/productForm';
 import { useAuth } from '../contexts/AuthContext';
 import ProductInventoryPanel from '../components/product/ProductInventoryPanel';
+import { FieldGroup, Field, SwitchRow, fieldInputCls, fieldTextareaCls } from '../components/product/FormField';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Coerce PG NUMERIC (the API returns it as a string) / mixed input to a finite number, else null. */
+const num = (v: any): number | null => {
+  if (v === null || v === undefined || v === '') return null;
+  const n = typeof v === 'number' ? v : parseFloat(String(v));
+  return Number.isFinite(n) ? n : null;
+};
+
+const formatINR = (n: number): string =>
+  `₹${Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+
+const formatDay = (v: any): string => {
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? String(v) : d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+};
+
+// Convert an ISO timestamp / Date to the `YYYY-MM-DDTHH:mm` format an
+// <input type="datetime-local"> requires (local time). Returns '' when empty/invalid.
+const toDatetimeLocal = (v: any): string => {
+  if (!v) return '';
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return typeof v === 'string' ? v.slice(0, 16) : '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+/**
+ * The admin GET returns variation rows RAW from PG (snake_case: selling_price,
+ * mrp, sale_price, short_desc, important_info, hsn_code, tax_rule_id,
+ * primary_brand_id, …) while this page binds camelCase keys. Without this map
+ * every saved value rendered EMPTY. Normalize on load into the camel keys the
+ * page binds — the same names ProductForm's variation payload uses (price,
+ * originalPrice, salePrice, brandId, …), which the backend's
+ * normalizeVariationBody maps back to snake_case on save.
+ *
+ * The camel keys are appended AFTER the raw spread, so in the merged save
+ * payload they sit LATER in key order and win over their stale snake twins
+ * inside normalizeVariationBody (last write to the same column wins).
+ */
+const normalizeVariationRow = (v: any, idx: number): any => ({
+  ...v,
+  id: v.id || `var-loaded-${idx}`,
+  // pricing — null/undefined = "no own value" (inherits from the product)
+  price: num(v.selling_price ?? v.sellingPrice ?? v.price) ?? undefined,
+  originalPrice: num(v.mrp ?? v.originalPrice) ?? undefined,
+  salePrice: num(v.sale_price ?? v.salePrice) ?? undefined,
+  saleStartsAt: toDatetimeLocal(v.sale_starts_at ?? v.saleStartsAt ?? ''),
+  saleEndsAt: toDatetimeLocal(v.sale_ends_at ?? v.saleEndsAt ?? ''),
+  // content
+  shortDescription: v.short_desc ?? v.shortDescription ?? '',
+  importantInfo: v.important_info ?? v.importantInfo ?? '',
+  description: v.description ?? '',
+  dosage: v.dosage ?? '',
+  // organization
+  hsnCode: v.hsn_code ?? v.hsnCode ?? '',
+  taxRuleId: v.tax_rule_id ?? v.taxRuleId ?? '',
+  brandId: v.primary_brand_id ?? v.primaryBrandId ?? v.brandId ?? '',
+  // shipping dimensions — undefined = inherit the product's numbers
+  weight: num(v.weight) ?? undefined,
+  length: num(v.length) ?? undefined,
+  breadth: num(v.breadth) ?? undefined,
+  height: num(v.height) ?? undefined,
+  // identity / rest
+  stock: v.stock != null ? Number(v.stock) || 0 : 0,
+  faqs: Array.isArray(v.faqs) ? v.faqs : [],
+  images: Array.isArray(v.images) ? v.images : [],
+  attributes: v.attributes || {},
+  isActive: (v.is_active ?? v.isActive) !== false,
+});
 
 /** product_b2b_pricing rows arrive snake_case from the admin GET — normalize to
  *  the camelCase keys the backend PUT setter accepts (it takes both; we send
@@ -67,10 +137,9 @@ const VariationEditPage: React.FC = () => {
         navigate(`/products/${productSlug}/edit`);
         return;
       }
-      setVariation({
-        ...v,
-        id: v.id || `var-loaded-${idx}`,
-      });
+      // P1: the raw row is snake_case — normalize into the camel keys the page
+      // binds so saved values actually display (price, originalPrice, …).
+      setVariation(normalizeVariationRow(v, idx) as ProductVariation);
       // Seed the flat wholesale input from this variation's generic slab
       // (variation-scoped, no tier, min_qty 1, fixed) — first match wins.
       const slabRows: Slab[] = (prod?.b2bPricing ?? prod?.b2b_pricing ?? []).map(normalizeSlab);
@@ -138,6 +207,25 @@ const VariationEditPage: React.FC = () => {
     }
   };
 
+  // Ctrl/Cmd+S saves from anywhere on the page — same shortcut as the product
+  // form (the browser's save-page dialog is suppressed). Latest handler via ref.
+  const saveShortcutRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    saveShortcutRef.current = () => {
+      if (!saving && !loading && variation) handleSave();
+    };
+  });
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault();
+        saveShortcutRef.current();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const handleFaqChange = (faqIdx: number, field: 'question' | 'answer', value: string) => {
     const faqs = [...((variation as any)?.faqs || [])];
     faqs[faqIdx] = { ...faqs[faqIdx], [field]: value };
@@ -167,240 +255,346 @@ const VariationEditPage: React.FC = () => {
 
   const v = variation as any;
 
+  // ── Effective values (variation-first, then product) ────────────────────────
+  // Per-field inheritance, mirroring the canonical price resolver: a NULL
+  // variation field falls back to the product's value at read/checkout time,
+  // field by field — never record-by-record.
+  const prod = product || {};
+  const prodPrice = num(prod.price ?? prod.sellingPrice ?? prod.selling_price);
+  const prodMrp = num(prod.originalPrice ?? prod.mrp);
+  const prodSalePrice = num(prod.salePrice ?? prod.sale_price);
+  const prodSaleStartsAt = prod.saleStartsAt ?? prod.sale_starts_at ?? null;
+  const prodSaleEndsAt = prod.saleEndsAt ?? prod.sale_ends_at ?? null;
+  const prodHsn = String(prod.hsnCode ?? prod.hsn_code ?? '');
+  const prodDims: Record<'weight' | 'length' | 'breadth' | 'height', number | null> = {
+    weight: num(prod.weight), length: num(prod.length), breadth: num(prod.breadth), height: num(prod.height),
+  };
+
+  const effPrice = num(v.price) ?? prodPrice;
+  const effMrp = num(v.originalPrice) ?? prodMrp;
+  const effSalePrice = num(v.salePrice) ?? prodSalePrice;
+  const effSaleStartsAt = v.saleStartsAt ? v.saleStartsAt : prodSaleStartsAt;
+  const effSaleEndsAt = v.saleEndsAt ? v.saleEndsAt : prodSaleEndsAt;
+
+  // Sale applies only when > 0, below the base price, and now inside the window
+  // (missing start = already started, missing end = open-ended).
+  const now = new Date();
+  const basePrice = (effPrice ?? 0) > 0 ? (effPrice as number) : (effMrp ?? 0);
+  const inSaleWindow =
+    (!effSaleStartsAt || now >= new Date(effSaleStartsAt)) &&
+    (!effSaleEndsAt || now <= new Date(effSaleEndsAt));
+  const saleActive = effSalePrice != null && effSalePrice > 0 && effSalePrice < basePrice && inSaleWindow;
+  const sellsAt = saleActive ? (effSalePrice as number) : basePrice;
+  const showStruckMrp = effMrp != null && effMrp > sellsAt;
+
+  // Product-LEVEL generic flat wholesale slab (variation_id NULL, no tier,
+  // min_qty 1, fixed) — what a wholesale buyer pays for this variant when it
+  // has no flat slab of its own.
+  const allSlabs: Slab[] = (product?.b2bPricing ?? product?.b2b_pricing ?? []).map(normalizeSlab);
+  const productFlatSlab = allSlabs.find(
+    s => s.variationId == null && !s.tierName && Number(s.minQty) === 1 && s.priceType === 'fixed' && s.isActive
+  );
+
+  const hasOwnPrice = num(v.price) != null;
+  const hasOwnMrp = num(v.originalPrice) != null;
+  const hasOwnSalePrice = num(v.salePrice) != null;
+
   return (
-    <div className="max-w-4xl mx-auto p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+    <div className="max-w-4xl mx-auto p-6 space-y-5">
+      {/* ══ Sticky header: back · name · SKU · effective price · Save ═══════ */}
+      <div className="sticky top-14 z-20 -mx-6 -mt-6 px-6 py-3 bg-gray-50/95 backdrop-blur supports-[backdrop-filter]:bg-gray-50/80 border-b border-gray-200">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <button
+              type="button"
+              onClick={() => navigate(`/products/${productSlug}/edit`)}
+              className="text-gray-500 hover:text-gray-800 shrink-0"
+              title="Back to product"
+            >
+              <FaArrowLeft />
+            </button>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <h1 className="text-lg font-bold text-gray-900 truncate">
+                  {v.name || `${product?.name || 'Product'} — Variant ${idx + 1}`}
+                </h1>
+                {v.sku && (
+                  <span className="shrink-0 px-2 py-0.5 bg-gray-100 text-gray-500 text-xs rounded-full font-mono">{v.sku}</span>
+                )}
+                <span className={`shrink-0 px-2 py-0.5 rounded-full text-[11px] font-semibold ${v.isActive !== false ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'}`}>
+                  {v.isActive !== false ? 'Active' : 'Draft'}
+                </span>
+              </div>
+              {/* Effective price line — what the storefront actually charges,
+                  computed variation-first-then-product incl. the sale window. */}
+              <p className="text-xs text-gray-600 mt-0.5 truncate">
+                {sellsAt > 0 ? (
+                  <>
+                    Sells at <span className="font-semibold text-gray-900">{formatINR(sellsAt)}</span>
+                    {saleActive && (
+                      <span className="text-green-700"> · on sale{effSaleEndsAt ? ` until ${formatDay(effSaleEndsAt)}` : ''}</span>
+                    )}
+                    {showStruckMrp && <> · <s className="text-gray-400">{formatINR(effMrp as number)}</s></>}
+                  </>
+                ) : (
+                  'No price yet — set one below or on the product.'
+                )}
+              </p>
+            </div>
+          </div>
           <button
             type="button"
-            onClick={() => navigate(`/products/${productSlug}/edit`)}
-            className="p-2 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+            onClick={handleSave}
+            disabled={saving}
+            title="Save (Ctrl+S)"
+            className="shrink-0 px-5 py-1.5 bg-red-600 text-white rounded font-medium text-sm hover:bg-red-700 disabled:opacity-50 whitespace-nowrap"
           >
-            <FaArrowLeft size={14} />
+            {saving ? 'Saving…' : 'Save Variation'}
+            <span className="ml-1.5 hidden md:inline text-[10px] font-normal text-red-200">Ctrl+S</span>
           </button>
-          <div>
-            <h1 className="text-lg font-semibold text-gray-900">Edit Variation</h1>
-            <p className="text-xs text-gray-500 mt-0.5">
-              {product?.name} — Variant {idx + 1}
-              {v.sku && <span className="ml-2 font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-600">{v.sku}</span>}
-            </p>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saving}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
-        >
-          <FaSave size={13} />
-          {saving ? 'Saving…' : 'Save Variation'}
-        </button>
-      </div>
-
-      {/* Identity */}
-      <div className="bg-white rounded-lg border border-gray-200 p-5 space-y-4">
-        <h2 className="text-sm font-semibold text-gray-900">Identity</h2>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Variation name</label>
-            <input
-              type="text"
-              value={v.name || ''}
-              onChange={e => handleChange('name', e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="e.g. Abies canadensis CH 30C 30ml"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Slug</label>
-            <input
-              type="text"
-              value={v.slug || ''}
-              onChange={e => handleChange('slug', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-'))}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="e.g. abies-canadensis-ch-30c-30ml"
-            />
-          </div>
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">SKU</label>
-          <input
-            type="text"
-            value={v.sku || ''}
-            onChange={e => handleChange('sku', e.target.value.toUpperCase().slice(0, 48))}
-            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="SKU"
-          />
         </div>
       </div>
 
-      {/* Pricing & Stock */}
-      <div className="bg-white rounded-lg border border-gray-200 p-5 space-y-4">
-        <h2 className="text-sm font-semibold text-gray-900">Pricing &amp; Stock</h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Price (₹)</label>
-            <input
-              type="number" step="0.01" min="0"
-              value={v.price ?? ''}
-              onChange={e => handleChange('price', e.target.value !== '' ? parseFloat(e.target.value) : undefined)}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="0.00"
+      {/* ══ Identity ════════════════════════════════════════════════════════ */}
+      <FieldGroup title="Identity" description="How this variant is named and addressed.">
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Field label="Variation name" htmlFor="vName" help="Shown wherever this variant is listed and on its page.">
+              <input
+                id="vName" type="text"
+                value={v.name || ''}
+                onChange={e => handleChange('name', e.target.value)}
+                className={fieldInputCls}
+                placeholder="e.g. Abies canadensis CH 30C 30ml"
+              />
+            </Field>
+            <Field label="Slug" htmlFor="vSlug" help="The URL piece for this variant — lowercase letters, numbers and dashes.">
+              <input
+                id="vSlug" type="text"
+                value={v.slug || ''}
+                onChange={e => handleChange('slug', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-'))}
+                className={`${fieldInputCls} font-mono`}
+                placeholder="e.g. abies-canadensis-ch-30c-30ml"
+              />
+            </Field>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Field label="SKU" htmlFor="vSku" help="Your unique stock code for this variant.">
+              <input
+                id="vSku" type="text"
+                value={v.sku || ''}
+                onChange={e => handleChange('sku', e.target.value.toUpperCase().slice(0, 48))}
+                className={`${fieldInputCls} font-mono`}
+                placeholder="SKU"
+              />
+            </Field>
+          </div>
+          <div className="border-t border-gray-100 pt-1">
+            <SwitchRow
+              id="vActive"
+              label="Active"
+              help="Draft variants are hidden from the storefront but keep all their data."
+              checked={v.isActive !== false}
+              onCheckedChange={val => handleChange('isActive', val)}
             />
           </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Compare at (₹)</label>
-            <input
-              type="number" step="0.01" min="0"
-              value={v.originalPrice ?? ''}
-              onChange={e => handleChange('originalPrice', e.target.value !== '' ? parseFloat(e.target.value) : undefined)}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="0.00"
-            />
+        </div>
+      </FieldGroup>
+
+      {/* ══ Pricing — empty fields INHERIT the product's values per field ═══ */}
+      <FieldGroup
+        title="Pricing"
+        description="Each empty field falls back to the product's value on its own — this variant only overrides what you type here."
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+            <Field
+              label="Price (₹)"
+              htmlFor="vPrice"
+              help={!hasOwnPrice && prodPrice != null
+                ? `Leave empty to use the product price (${formatINR(prodPrice)}). Type to set this variant's own price.`
+                : prodPrice != null
+                  ? `This variant's own price. Clear it to fall back to the product price (${formatINR(prodPrice)}).`
+                  : "This variant's own selling price."}
+            >
+              <input
+                id="vPrice" type="number" step="0.01" min="0"
+                value={v.price ?? ''}
+                onChange={e => handleChange('price', e.target.value !== '' ? parseFloat(e.target.value) : null)}
+                className={fieldInputCls}
+                placeholder={!hasOwnPrice && prodPrice != null ? `Inherits ${formatINR(prodPrice)}` : '0.00'}
+              />
+            </Field>
+            <Field
+              label="Compare-at / MRP (₹)"
+              htmlFor="vMrp"
+              help={!hasOwnMrp && prodMrp != null
+                ? `Leave empty to use the product MRP (${formatINR(prodMrp)}). Type to set this variant's own.`
+                : 'Shown struck through when higher than the selling price.'}
+            >
+              <input
+                id="vMrp" type="number" step="0.01" min="0"
+                value={v.originalPrice ?? ''}
+                onChange={e => handleChange('originalPrice', e.target.value !== '' ? parseFloat(e.target.value) : null)}
+                className={fieldInputCls}
+                placeholder={!hasOwnMrp && prodMrp != null ? `Inherits ${formatINR(prodMrp)}` : '0.00'}
+              />
+            </Field>
+            <Field
+              label="Stock"
+              htmlFor="vStock"
+              help="Changes book a ledgered adjustment (see Inventory & ERP below); unchanged values are ignored."
+            >
+              <input
+                id="vStock" type="number" min="0"
+                value={v.stock ?? 0}
+                onChange={e => handleChange('stock', Math.max(0, parseInt(e.target.value) || 0))}
+                className={fieldInputCls}
+                placeholder="0"
+              />
+            </Field>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Stock</label>
-            <input
-              type="number" min="0"
-              value={v.stock ?? 0}
-              onChange={e => handleChange('stock', Math.max(0, parseInt(e.target.value) || 0))}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="0"
-            />
-            <p className="text-[11px] text-gray-400 mt-1">Changes book a ledgered adjustment (see Inventory &amp; ERP below); unchanged values are ignored.</p>
-          </div>
-          <div className="flex flex-col justify-center">
-            <label className="block text-xs font-medium text-gray-700 mb-2">Status</label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <button
-                type="button"
-                onClick={() => handleChange('isActive', !(v.isActive !== false))}
-                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                  v.isActive !== false ? 'bg-blue-600' : 'bg-gray-200'
-                }`}
+
+          {/* Sale block — a sale outside its window never applies (canonical
+              price resolver: sale > 0, below price, now within window). */}
+          <div className="pt-3 border-t border-gray-100">
+            <p className="text-xs font-medium text-gray-600 mb-3">Sale (optional)</p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Field
+                label="Sale price (₹)"
+                htmlFor="vSalePrice"
+                help={!hasOwnSalePrice && prodSalePrice != null
+                  ? `Leave empty to use the product sale price (${formatINR(prodSalePrice)}). Type to set this variant's own.`
+                  : 'Counts only while below the price and inside the window.'}
               >
-                <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${
-                  v.isActive !== false ? 'translate-x-4' : 'translate-x-0.5'
-                }`} />
-              </button>
-              <span className="text-sm text-gray-700">{v.isActive !== false ? 'Active' : 'Draft'}</span>
-            </label>
-          </div>
-        </div>
-
-        {/* Sale price + window — a sale outside its window never applies (canonical
-            price resolver). Left empty = no sale for this variant. */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 border-t">
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Sale price (₹)</label>
-            <input
-              type="number" step="0.01" min="0"
-              value={v.salePrice ?? v.sale_price ?? ''}
-              onChange={e => handleChange('salePrice', e.target.value !== '' ? parseFloat(e.target.value) : null)}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="No sale"
-            />
-            <p className="text-xs text-gray-400 mt-1">Must be lower than the price to count as a sale.</p>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Sale starts</label>
-            <input
-              type="datetime-local"
-              value={(v.saleStartsAt ?? v.sale_starts_at ?? '').toString().slice(0, 16)}
-              onChange={e => handleChange('saleStartsAt', e.target.value || null)}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Sale ends</label>
-            <input
-              type="datetime-local"
-              value={(v.saleEndsAt ?? v.sale_ends_at ?? '').toString().slice(0, 16)}
-              onChange={e => handleChange('saleEndsAt', e.target.value || null)}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <p className="text-xs text-gray-400 mt-1">Empty = open-ended. The storefront shows a countdown.</p>
-          </div>
-        </div>
-
-        {/* Brand (this variant) + shipping dimensions — variant-level overrides. */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t">
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Brand (this variant)</label>
-            <select
-              value={v.brandId || v.primary_brand_id || ''}
-              onChange={e => handleChange('brandId', e.target.value || null)}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-            >
-              <option value="">Inherit from product</option>
-              {brands.map((b: any) => {
-                const bid = b._id || b.id;
-                return <option key={bid} value={bid}>{b.name}</option>;
-              })}
-            </select>
-            <p className="text-xs text-gray-400 mt-1">Multi-brand products: each variant can carry its own brand.</p>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Shipping size (this variant)</label>
-            <div className="grid grid-cols-4 gap-2">
-              {([['weight', 'Wt kg'], ['length', 'L cm'], ['breadth', 'B cm'], ['height', 'H cm']] as const).map(([key, label]) => (
-                <div key={key}>
-                  <input
-                    type="number" step="0.01" min="0"
-                    value={v[key] ?? ''}
-                    onChange={e => handleChange(key, e.target.value !== '' ? parseFloat(e.target.value) : null)}
-                    className="w-full px-2 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder={label}
-                    title={label}
-                  />
-                </div>
-              ))}
+                <input
+                  id="vSalePrice" type="number" step="0.01" min="0"
+                  value={v.salePrice ?? ''}
+                  onChange={e => handleChange('salePrice', e.target.value !== '' ? parseFloat(e.target.value) : null)}
+                  className={fieldInputCls}
+                  placeholder={!hasOwnSalePrice && prodSalePrice != null ? `Inherits ${formatINR(prodSalePrice)}` : 'No sale'}
+                />
+              </Field>
+              <Field
+                label="Sale starts"
+                htmlFor="vSaleStarts"
+                help={!v.saleStartsAt && prodSaleStartsAt
+                  ? `Empty = inherits the product's start (${formatDay(prodSaleStartsAt)}).`
+                  : 'Empty = the sale starts immediately.'}
+              >
+                <input
+                  id="vSaleStarts" type="datetime-local"
+                  value={v.saleStartsAt || ''}
+                  onChange={e => handleChange('saleStartsAt', e.target.value || null)}
+                  className={fieldInputCls}
+                />
+              </Field>
+              <Field
+                label="Sale ends"
+                htmlFor="vSaleEnds"
+                help={!v.saleEndsAt && prodSaleEndsAt
+                  ? `Empty = inherits the product's end (${formatDay(prodSaleEndsAt)}).`
+                  : 'Empty = open-ended. The storefront shows a countdown.'}
+              >
+                <input
+                  id="vSaleEnds" type="datetime-local"
+                  value={v.saleEndsAt || ''}
+                  onChange={e => handleChange('saleEndsAt', e.target.value || null)}
+                  className={fieldInputCls}
+                />
+              </Field>
             </div>
-            <p className="text-xs text-gray-400 mt-1">Empty = use the product's dimensions.</p>
           </div>
         </div>
+      </FieldGroup>
 
-        {/* HSN + Tax Rule — gst_tax module only; with the module off the backend
-            strips these fields, so showing the inputs would silently lie. */}
-        {canAccess('gst_tax') && (
-        <div className="grid grid-cols-2 gap-4 pt-2 border-t">
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">HSN Code</label>
-            <input
-              type="text"
-              value={v.hsnCode || v.hsn_code || ''}
-              onChange={e => handleChange('hsnCode', e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="e.g. 3004"
-            />
-            <p className="text-xs text-gray-400 mt-1">For GST compliance. Overrides product-level HSN.</p>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Tax Rule</label>
-            <select
-              value={v.taxRuleId || v.tax_rule_id || ''}
-              onChange={e => handleChange('taxRuleId', e.target.value || null)}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+      {/* ══ Organization — brand, shipping size, HSN + tax rule ═════════════ */}
+      <FieldGroup
+        title="Organization"
+        description="Brand, tax and shipping details. Empty fields are inherited from the product."
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Field label="Brand (this variant)" htmlFor="vBrand" help="Multi-brand products: each variant can carry its own brand.">
+              <select
+                id="vBrand"
+                value={v.brandId || ''}
+                onChange={e => handleChange('brandId', e.target.value || null)}
+                className={fieldInputCls}
+              >
+                <option value="">Inherit from product</option>
+                {brands.map((b: any) => {
+                  const bid = b._id || b.id;
+                  return <option key={bid} value={bid}>{b.name}</option>;
+                })}
+              </select>
+            </Field>
+            <Field
+              label="Shipping size (this variant)"
+              help="Empty boxes use the product's numbers — shown as the placeholders."
             >
-              <option value="">Inherit from product</option>
-              {taxRules.map(rule => {
-                const key = rule._id || rule.id || '';
-                return (
-                  <option key={key} value={key}>
-                    {rule.name}{rule.rate !== undefined ? ` — ${rule.rate}%` : ''}
-                  </option>
-                );
-              })}
-              {taxRules.length === 0 && (
-                <option disabled>No rules yet — add in Settings → Tax Rules</option>
-              )}
-            </select>
-            <p className="text-xs text-gray-400 mt-1">GST vs IGST auto-determined from delivery address.</p>
+              <div className="grid grid-cols-4 gap-2">
+                {([['weight', 'Wt kg'], ['length', 'L cm'], ['breadth', 'B cm'], ['height', 'H cm']] as const).map(([key, label]) => (
+                  <div key={key}>
+                    <span className="block text-[10px] text-gray-400 mb-0.5">{label}</span>
+                    <input
+                      type="number" step="0.01" min="0"
+                      value={v[key] ?? ''}
+                      onChange={e => handleChange(key, e.target.value !== '' ? parseFloat(e.target.value) : null)}
+                      className={`${fieldInputCls} !px-2`}
+                      placeholder={prodDims[key] != null ? String(prodDims[key]) : label}
+                      title={label}
+                    />
+                  </div>
+                ))}
+              </div>
+            </Field>
           </div>
+
+          {/* HSN + Tax Rule — gst_tax module only; with the module off the backend
+              strips these fields, so showing the inputs would silently lie. */}
+          {canAccess('gst_tax') && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t border-gray-100">
+              <Field
+                label="HSN code"
+                htmlFor="vHsn"
+                help={!v.hsnCode && prodHsn
+                  ? `Leave empty to use the product HSN (${prodHsn}). Type to override for this variant.`
+                  : 'For GST compliance. Overrides the product-level HSN.'}
+              >
+                <input
+                  id="vHsn" type="text"
+                  value={v.hsnCode || ''}
+                  onChange={e => handleChange('hsnCode', e.target.value)}
+                  className={`${fieldInputCls} font-mono`}
+                  placeholder={prodHsn ? `Inherits ${prodHsn}` : 'e.g. 3004'}
+                />
+              </Field>
+              <Field label="Tax rule" htmlFor="vTaxRule" help="GST vs IGST is auto-determined from the delivery address.">
+                <select
+                  id="vTaxRule"
+                  value={v.taxRuleId || ''}
+                  onChange={e => handleChange('taxRuleId', e.target.value || null)}
+                  className={fieldInputCls}
+                >
+                  <option value="">Inherit from product</option>
+                  {taxRules.map(rule => {
+                    const key = rule._id || rule.id || '';
+                    return (
+                      <option key={key} value={key}>
+                        {rule.name}{rule.rate !== undefined ? ` — ${rule.rate}%` : ''}
+                      </option>
+                    );
+                  })}
+                  {taxRules.length === 0 && (
+                    <option disabled>No rules yet — add in Settings → Tax Rules</option>
+                  )}
+                </select>
+              </Field>
+            </div>
+          )}
         </div>
-        )}
-      </div>
+      </FieldGroup>
 
       {/* B2B / wholesale — ONE flat per-variant price (a generic qty-1 fixed slab
           in product_b2b_pricing). Gated on the b2b module; hidden when the admin
@@ -408,40 +602,49 @@ const VariationEditPage: React.FC = () => {
           or when the variation has no real UUID yet (nothing to bind a slab to). */}
       {canAccess('b2b') && Array.isArray(product?.b2bPricing ?? product?.b2b_pricing) && UUID_RE.test(String(v.id || '')) && (() => {
         const varUuid = String(v.id);
-        const slabRows: Slab[] = (product?.b2bPricing ?? product?.b2b_pricing ?? []).map(normalizeSlab);
         // Everything else targeting this variant (tiers / qty slabs) is read-only here.
-        const otherSlabs = slabRows.filter(s => s.variationId === varUuid && !isFlatWholesaleRow(s, varUuid));
+        const otherSlabs = allSlabs.filter(s => s.variationId === varUuid && !isFlatWholesaleRow(s, varUuid));
+        // No flat slab typed for THIS variant → the product-level generic flat
+        // slab (if any) is what wholesale buyers actually pay. Show it.
+        const inheritsProductFlat = b2bFlatPrice.trim() === '' && !!productFlatSlab;
         return (
-          <div className="bg-white rounded-lg border border-gray-200 p-5 space-y-4">
-            <h2 className="text-sm font-semibold text-gray-900">B2B / wholesale price (this variant)</h2>
-            <div className="max-w-sm">
-              <label className="block text-xs font-medium text-gray-700 mb-1">Wholesale price (₹)</label>
-              <input
-                type="number" step="0.01" min="0"
-                value={b2bFlatPrice}
-                onChange={e => setB2bFlatPrice(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="No wholesale price"
-              />
-              <p className="text-xs text-gray-400 mt-1">
-                Buyers with a wholesale account see this instead of the retail price.
-                Requires the B2B permission to save. Leave empty to remove it.
-              </p>
-            </div>
-            {otherSlabs.length > 0 && (
-              <div className="pt-3 border-t border-gray-100 space-y-1.5">
-                <p className="text-xs font-medium text-gray-600">Other B2B slabs on this variant</p>
-                {otherSlabs.map((s, si) => (
-                  <p key={s.id || si} className="text-xs text-gray-600">
-                    {s.tierName ? `tier ${s.tierName}` : 'any tier'} · {s.minQty}{s.maxQty ? `–${s.maxQty}` : '+'} →{' '}
-                    {s.priceType === 'fixed' ? `₹${s.priceValue}` : `${s.priceValue}% off`}
-                    {!s.isActive && <span className="text-gray-400"> · inactive</span>}
-                  </p>
-                ))}
-                <p className="text-[11px] text-gray-400">Manage tiers &amp; quantity slabs on the product's B2B tab.</p>
+          <FieldGroup
+            title="B2B / wholesale price (this variant)"
+            description="One flat wholesale price. Tiers and quantity slabs live on the product's B2B tab."
+          >
+            <div className="space-y-4">
+              <div className="max-w-sm">
+                <Field
+                  label="Wholesale price (₹)"
+                  htmlFor="vB2bFlat"
+                  help={inheritsProductFlat
+                    ? `Inherits the product wholesale price (${formatINR(productFlatSlab!.priceValue)}). Type to override for this variant.`
+                    : 'Buyers with a wholesale account see this instead of the retail price. Requires the B2B permission to save. Leave empty to remove it.'}
+                >
+                  <input
+                    id="vB2bFlat" type="number" step="0.01" min="0"
+                    value={b2bFlatPrice}
+                    onChange={e => setB2bFlatPrice(e.target.value)}
+                    className={fieldInputCls}
+                    placeholder={inheritsProductFlat ? `Inherits ${formatINR(productFlatSlab!.priceValue)}` : 'No wholesale price'}
+                  />
+                </Field>
               </div>
-            )}
-          </div>
+              {otherSlabs.length > 0 && (
+                <div className="pt-3 border-t border-gray-100 space-y-1.5">
+                  <p className="text-xs font-medium text-gray-600">Other B2B slabs on this variant</p>
+                  {otherSlabs.map((s, si) => (
+                    <p key={s.id || si} className="text-xs text-gray-600">
+                      {s.tierName ? `tier ${s.tierName}` : 'any tier'} · {s.minQty}{s.maxQty ? `–${s.maxQty}` : '+'} →{' '}
+                      {s.priceType === 'fixed' ? `₹${s.priceValue}` : `${s.priceValue}% off`}
+                      {!s.isActive && <span className="text-gray-400"> · inactive</span>}
+                    </p>
+                  ))}
+                  <p className="text-[11px] text-gray-400">Manage tiers &amp; quantity slabs on the product's B2B tab.</p>
+                </div>
+              )}
+            </div>
+          </FieldGroup>
         );
       })()}
 
@@ -454,57 +657,62 @@ const VariationEditPage: React.FC = () => {
         />
       )}
 
-      {/* Content */}
-      <div className="bg-white rounded-lg border border-gray-200 p-5 space-y-4">
-        <h2 className="text-sm font-semibold text-gray-900">Content</h2>
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Short description</label>
-          <textarea
-            value={v.shortDescription || ''}
-            onChange={e => handleChange('shortDescription', e.target.value)}
-            rows={2}
-            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="Brief variation description shown in product listing"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Description</label>
-          <textarea
-            value={v.description || ''}
-            onChange={e => handleChange('description', e.target.value)}
-            rows={5}
-            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="Variation-specific description (overrides product description when this variant is selected)"
-          />
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Dosage</label>
+      {/* ══ Content ═════════════════════════════════════════════════════════ */}
+      <FieldGroup
+        title="Content"
+        description="Variant-specific copy — shown instead of the product's when this variant is selected."
+      >
+        <div className="space-y-4">
+          <Field label="Short description" htmlFor="vShortDesc" help="One or two lines shown on listing cards.">
             <textarea
-              value={v.dosage || ''}
-              onChange={e => handleChange('dosage', e.target.value)}
-              rows={4}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Dosage instructions for this variation"
+              id="vShortDesc"
+              value={v.shortDescription || ''}
+              onChange={e => handleChange('shortDescription', e.target.value)}
+              rows={2}
+              className={fieldTextareaCls}
+              placeholder="Brief variation description shown in product listing"
             />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Important info</label>
+          </Field>
+          <Field label="Description" htmlFor="vDesc" help="Full description for this variant. Overrides the product description.">
             <textarea
-              value={v.importantInfo || ''}
-              onChange={e => handleChange('importantInfo', e.target.value)}
-              rows={4}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Manufacturer info, warnings, regulatory details"
+              id="vDesc"
+              value={v.description || ''}
+              onChange={e => handleChange('description', e.target.value)}
+              rows={5}
+              className={fieldTextareaCls}
+              placeholder="Variation-specific description (overrides product description when this variant is selected)"
             />
+          </Field>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Field label="Dosage" htmlFor="vDosage" help="Dosage instructions for this variant.">
+              <textarea
+                id="vDosage"
+                value={v.dosage || ''}
+                onChange={e => handleChange('dosage', e.target.value)}
+                rows={4}
+                className={fieldTextareaCls}
+                placeholder="Dosage instructions for this variation"
+              />
+            </Field>
+            <Field label="Important info" htmlFor="vImportantInfo" help="Manufacturer info, warnings, regulatory details.">
+              <textarea
+                id="vImportantInfo"
+                value={v.importantInfo || ''}
+                onChange={e => handleChange('importantInfo', e.target.value)}
+                rows={4}
+                className={fieldTextareaCls}
+                placeholder="Manufacturer info, warnings, regulatory details"
+              />
+            </Field>
           </div>
         </div>
-      </div>
+      </FieldGroup>
 
-      {/* FAQs */}
-      <div className="bg-white rounded-lg border border-gray-200 p-5 space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-gray-900">FAQs</h2>
+      {/* ══ FAQs ════════════════════════════════════════════════════════════ */}
+      <FieldGroup
+        title="FAQs"
+        description="Questions and answers shown on this variant's page."
+        actions={
           <button
             type="button"
             onClick={addFaq}
@@ -512,7 +720,8 @@ const VariationEditPage: React.FC = () => {
           >
             <FaPlus size={10} /> Add FAQ
           </button>
-        </div>
+        }
+      >
         {(!v.faqs || v.faqs.length === 0) ? (
           <p className="text-xs text-gray-400">No FAQs added yet. Click "Add FAQ" to create one.</p>
         ) : (
@@ -529,26 +738,25 @@ const VariationEditPage: React.FC = () => {
                   type="text"
                   value={faq.question || ''}
                   onChange={e => handleFaqChange(fi, 'question', e.target.value)}
-                  className="w-full px-3 py-2 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  className={fieldInputCls}
                   placeholder="Question"
                 />
                 <textarea
                   value={faq.answer || ''}
                   onChange={e => handleFaqChange(fi, 'answer', e.target.value)}
                   rows={3}
-                  className="w-full px-3 py-2 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  className={fieldTextareaCls}
                   placeholder="Answer"
                 />
               </div>
             ))}
           </div>
         )}
-      </div>
+      </FieldGroup>
 
-      {/* Categories (read-only) */}
+      {/* ══ Categories (read-only chips) ════════════════════════════════════ */}
       {Array.isArray(v.categories) && v.categories.length > 0 && (
-        <div className="bg-white rounded-lg border border-gray-200 p-5 space-y-3">
-          <h2 className="text-sm font-semibold text-gray-900">Categories <span className="text-xs font-normal text-gray-400">(set via CSV import)</span></h2>
+        <FieldGroup title="Categories" description="Set via CSV import or the product's variation editor.">
           <div className="flex flex-wrap gap-1.5">
             {v.categories.map((cat: any, ci: number) => {
               const label = typeof cat === 'object' ? (cat.name || cat.slug || String(cat._id)) : String(cat);
@@ -559,13 +767,12 @@ const VariationEditPage: React.FC = () => {
               );
             })}
           </div>
-        </div>
+        </FieldGroup>
       )}
 
-      {/* Attributes (read-only) */}
+      {/* ══ Attributes (read-only chips) ════════════════════════════════════ */}
       {Object.keys(v.attributes || {}).length > 0 && (
-        <div className="bg-white rounded-lg border border-gray-200 p-5 space-y-3">
-          <h2 className="text-sm font-semibold text-gray-900">Attributes</h2>
+        <FieldGroup title="Attributes" description="What makes this variant this variant — edit them on the product's Variations tab.">
           <div className="flex flex-wrap gap-2">
             {Object.entries(v.attributes).map(([k, val]) => (
               <span key={k} className="inline-flex items-center gap-1 px-2.5 py-1 text-xs bg-gray-100 text-gray-700 rounded-md font-medium">
@@ -573,14 +780,13 @@ const VariationEditPage: React.FC = () => {
               </span>
             ))}
           </div>
-        </div>
+        </FieldGroup>
       )}
 
-      {/* Images */}
-      <div className="bg-white rounded-lg border border-gray-200 p-5 space-y-4">
-        <h2 className="text-sm font-semibold text-gray-900">Images</h2>
+      {/* ══ Images ══════════════════════════════════════════════════════════ */}
+      <FieldGroup title="Images" description="Shown when this variant is selected. The first image leads.">
         <div className="flex items-start gap-3 flex-wrap">
-          <label className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-dashed border-gray-300 rounded-md text-gray-600 hover:border-blue-400 hover:text-blue-600 cursor-pointer transition-colors">
+          <label className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-dashed border-gray-300 rounded-md text-gray-600 hover:border-red-400 hover:text-red-600 cursor-pointer transition-colors">
             {uploading ? 'Uploading…' : '+ Add images'}
             <input
               type="file" accept="image/*" multiple className="hidden"
@@ -599,7 +805,7 @@ const VariationEditPage: React.FC = () => {
             </div>
           ))}
         </div>
-      </div>
+      </FieldGroup>
 
       {/* Footer save */}
       <div className="flex justify-end pb-6">
@@ -607,7 +813,8 @@ const VariationEditPage: React.FC = () => {
           type="button"
           onClick={handleSave}
           disabled={saving}
-          className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+          title="Save (Ctrl+S)"
+          className="flex items-center gap-2 px-5 py-2.5 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
         >
           <FaSave size={13} />
           {saving ? 'Saving…' : 'Save Variation'}
