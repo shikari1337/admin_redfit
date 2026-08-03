@@ -7,3 +7,8 @@ dist
 .DS_Store
 *.log
 
+
+# tsc must never shadow vite.config.ts (vite prefers .js over .ts)
+vite.config.js
+vite.config.d.ts
+*.tsbuildinfo

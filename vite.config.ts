@@ -22,10 +22,19 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       output: {
-        manualChunks: {
-          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          'chart-vendor': ['recharts'],
-          'utils-vendor': ['axios', 'date-fns'],
+        // Function form so PACKAGE SUBPATHS split too: the icon-picker imports
+        // 10 FULL react-icons libraries (~10 MB minified) which used to sit in
+        // the main chunk — rendering one 15 MB chunk is what OOM-kills builds
+        // in memory-capped CI containers. Order matters: react-icons must be
+        // claimed before the bare "react" match.
+        manualChunks(id: string) {
+          if (!id.includes('node_modules')) return undefined;
+          if (id.includes('react-icons') || id.includes('lucide-react')) return 'icons-vendor';
+          if (id.includes('recharts') || id.includes('/d3-')) return 'chart-vendor';
+          if (id.includes('react-router')) return 'react-vendor';
+          if (id.includes('/react-dom/') || id.includes('/react/') || id.includes('/scheduler/')) return 'react-vendor';
+          if (id.includes('axios') || id.includes('date-fns')) return 'utils-vendor';
+          return undefined;
         },
       },
     },
