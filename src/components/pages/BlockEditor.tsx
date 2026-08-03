@@ -23,6 +23,7 @@ import {
   PricingBlockEditor,
   ContactFormBlockEditor,
 } from './BlockEditorsExtra';
+import HomepageBlockEditor, { isHomepageBlockType } from './HomepageBlockEditors';
 
 interface BlockEditorProps {
   block: {
@@ -117,6 +118,12 @@ const BlockEditor: React.FC<BlockEditorProps> = ({ block, onChange, onGenerateAI
       case 'contact-form':
         return <ContactFormBlockEditor {...editorProps} />;
       default:
+        // Storefront HOME PAGE sections (hero-carousel, product-row, brand-grid,
+        // category-grid, health-concerns-grid, banners, google-reviews…) — each
+        // gets a proper field editor instead of the raw-JSON fallback.
+        if (isHomepageBlockType(block.blockType)) {
+          return <HomepageBlockEditor blockType={block.blockType} data={block.data || {}} onChange={(d) => onChange(d)} />;
+        }
         return (
           <div className="space-y-4">
             <label className="block text-sm font-medium text-gray-700 mb-2">Block Data (JSON)</label>

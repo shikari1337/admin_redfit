@@ -24,6 +24,7 @@ const STATUS_TONE: Record<string, Tone> = {
   active: 'green', delivered: 'green', received: 'green', approved: 'green', generated: 'green',
   api_generated: 'green', in_stock: 'green', ok: 'green', balanced: 'green', synced: 'green',
   success: 'green', done: 'green', confirmed: 'green', picked: 'green', acknowledged: 'green',
+  published: 'green',   // Q&A / CMS canonical "live on the storefront"
   // in progress / attention
   open: 'amber', draft: 'amber', pending: 'amber', recorded: 'amber', counting: 'amber',
   review: 'amber', quarantine: 'amber', unpaid: 'amber', processing: 'amber', partial: 'amber',

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { FaPlus, FaEdit, FaTrash, FaEye, FaEyeSlash } from 'react-icons/fa';
+import { FaPlus, FaEdit, FaTrash, FaEye, FaEyeSlash, FaMagic } from 'react-icons/fa';
 import api, { pagesAPI } from '../services/api';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { Card, CardContent } from '@/components/ui/card';
@@ -242,6 +242,7 @@ const Pages: React.FC = () => {
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
                           {getPageId(page) && (
+                            <>
                             <Button
                               variant="ghost"
                               size="icon"
@@ -253,6 +254,18 @@ const Pages: React.FC = () => {
                                 <FaEdit className="h-4 w-4" />
                               </Link>
                             </Button>
+                            <Button
+                              asChild
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-muted-foreground hover:text-violet-600"
+                              title="Visual Builder (drag & drop)"
+                            >
+                              <Link to={`/pages/${getPageId(page)}/builder`}>
+                                <FaMagic className="h-4 w-4" />
+                              </Link>
+                            </Button>
+                            </>
                           )}
                           <Button
                             variant="ghost"

@@ -499,8 +499,11 @@ const Products: React.FC = () => {
   const [topCategories, setTopCategories] = useState<Array<{ _id: string; name: string; slug: string }>>([]);
 
   // Search — debounced, 3-char minimum (matches the project's search convention elsewhere).
-  const [searchInput, setSearchInput] = useState('');
-  const [search, setSearch] = useState('');
+  // Seeded from `?search=` so other screens can drill through to a specific SKU
+  // (Wishlist demand, the Q&A inbox) instead of making the user retype it.
+  const initialSearch = new URLSearchParams(window.location.search).get('search') ?? '';
+  const [searchInput, setSearchInput] = useState(initialSearch);
+  const [search, setSearch] = useState(initialSearch.trim().length >= 3 ? initialSearch.trim() : '');
   useEffect(() => {
     const t = setTimeout(() => {
       const q = searchInput.trim();
@@ -617,8 +620,11 @@ const Products: React.FC = () => {
       const date = new Date().toISOString().split('T')[0];
 
       if (scope === 'all') {
-        // Server-side streaming export — download handled inside exportAll()
-        await productsAPI.exportAll();
+        // Full catalog → the complete linked workbook: products + variations
+        // (with b2b_price), categories, tags, attributes, A+ content, brands and
+        // cross-sell/upsell links — and it re-imports. The old flat CSV only had
+        // 12 product columns and dropped variations, B2B, categories and links.
+        await productsAPI.downloadWorkbook('export');
         return;
       }
 
@@ -959,7 +965,7 @@ const Products: React.FC = () => {
                 Selected ({selectedIds.size})
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => handleExport('all')}>
-                All products
+                All products — full workbook (.xlsx)
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

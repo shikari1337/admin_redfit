@@ -14,7 +14,7 @@ import {
   BookOpen, RotateCcw, Store, Plug,
   Rss, PackageSearch, Scale, FileSpreadsheet, ArrowLeftRight, Wallet, Boxes, Hammer, Bell,
   Handshake, SlidersHorizontal, Undo2, Network, CalendarClock, Coins, Mail,
-  FolderArchive, Repeat,
+  FolderArchive, Repeat, Sparkles, MessageCircleQuestion, Heart,
 } from 'lucide-react';
 import { SetupBanner } from './SetupBanner';
 import RouteGuard from './RouteGuard';
@@ -194,7 +194,13 @@ const Layout: React.FC = () => {
         ...(canAccess('coupons') && hasPerm('marketing.read') ? [{ title: 'Coupons', url: '/coupons', icon: Ticket }] : []),
         ...(canAccess('ads_management') && hasPerm('ads.read') ? [
           { title: 'Ads Manager', url: '/panel/marketing/ads', icon: LineChart },
+          { title: 'AI Ads Studio', url: '/panel/marketing/ads/ai-studio', icon: Sparkles },
           { title: 'Custom Audiences', url: '/panel/marketing/ads/audiences', icon: Users },
+        ] : []),
+        // Connector platform: one Google/Meta identity unlocking many services.
+        ...(canAccess('connectors') && hasPerm('settings.read') ? [
+          { title: 'Platform Connections', url: '/panel/marketing/connections', icon: Plug },
+          { title: 'Search & Analytics', url: '/panel/marketing/connections/insights', icon: LineChart },
         ] : []),
         { title: 'Analytics', url: '/panel/marketing/analytics', icon: LineChart },
         { title: 'Compliance & Consent', url: '/panel/marketing/compliance', icon: ShieldCheck },
@@ -376,6 +382,8 @@ const Layout: React.FC = () => {
         }] : []),
         ...(canAccess('faqs') && hasPerm('content.read') ? [{ title: 'FAQs',        url: '/faqs',    icon: HelpCircle }] : []),
         ...(canAccess('reviews') && hasPerm('content.read') ? [{ title: 'Reviews',     url: '/reviews', icon: Star }] : []),
+        ...(canAccess('product_qa') && hasPerm('content.read') ? [{ title: 'Questions & Answers', url: '/questions', icon: MessageCircleQuestion }] : []),
+        ...(canAccess('wishlist') && hasPerm('reports.read') ? [{ title: 'Wishlists', url: '/wishlists', icon: Heart }] : []),
         ...(canAccess('blog') && hasPerm('content.read') ? [{ title: 'Blog Posts',   url: '/blogs',   icon: BookOpen }] : []),
         { title: 'SEO', url: '/seo', icon: Rss },
       ],

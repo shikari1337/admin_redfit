@@ -52,6 +52,10 @@ export const ROUTE_PERMISSIONS: Record<string, string> = {
   '/blogs': 'content.read',
   '/faqs': 'content.read',
   '/reviews': 'content.read',
+  '/questions': 'content.read',
+  // Wishlists are a merchandising REPORT (demand), not content — same permission
+  // the /wishlist/admin/* endpoints enforce.
+  '/wishlists': 'reports.read',
   '/seo': 'content.read',
   '/gallery': 'content.read',
   '/appearance': 'content.manage',
@@ -179,6 +183,8 @@ export const ROUTE_MODULES: Record<string, string> = {
   '/b2b': 'b2b',
   '/blogs': 'blog',
   '/reviews': 'reviews',
+  '/questions': 'product_qa',
+  '/wishlists': 'wishlist',
   '/shipments': 'shipping',
   '/returns': 'returns',
   '/inventory': 'inventory',

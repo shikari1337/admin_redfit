@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, Save, Plus, Trash2, RefreshCw, Copy, Check, BarChart3, CircleCheck, CircleDashed } from 'lucide-react';
+import { ArrowLeft, Loader2, Save, Plus, Trash2, RefreshCw, Copy, Check, BarChart3, CircleCheck, CircleDashed, Star } from 'lucide-react';
 import api, { seoAPI } from '../services/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -71,6 +71,10 @@ const Seo: React.FC = () => {
   const [settings, setSettings] = useState<Record<string, any>>({});
   const [tracking, setTracking] = useState<TrackingIds>(EMPTY_TRACKING);
   const [savingTracking, setSavingTracking] = useState(false);
+  const [googleReviews, setGoogleReviews] = useState<{ enabled: boolean; title: string; subtitle: string; embedCode: string }>({
+    enabled: false, title: 'Loved by customers on Google', subtitle: '', embedCode: '',
+  });
+  const [savingReviews, setSavingReviews] = useState(false);
   const [robotsTxt, setRobotsTxt] = useState('');
   const [redirects, setRedirects] = useState<Redirect[]>([]);
   const [newFrom, setNewFrom] = useState('');
@@ -104,6 +108,13 @@ const Seo: React.FC = () => {
         clarityId: t.clarityId || '',
         hotjarId: t.hotjarId || '',
       });
+      const gr = (settingsRes?.googleReviews ?? {}) as Partial<typeof googleReviews>;
+      setGoogleReviews({
+        enabled: gr.enabled ?? false,
+        title: gr.title ?? 'Loved by customers on Google',
+        subtitle: gr.subtitle ?? '',
+        embedCode: gr.embedCode ?? '',
+      });
     } catch (err: any) {
       setError(err?.response?.data?.message || 'Failed to load SEO settings');
     } finally {
@@ -136,6 +147,29 @@ const Seo: React.FC = () => {
 
   const setTrackingField = (key: keyof TrackingIds, val: string) =>
     setTracking((prev) => ({ ...prev, [key]: val }));
+
+  const handleSaveGoogleReviews = async () => {
+    setSavingReviews(true);
+    setError(null);
+    try {
+      const value = {
+        enabled: googleReviews.enabled,
+        title: googleReviews.title.trim(),
+        subtitle: googleReviews.subtitle.trim(),
+        embedCode: googleReviews.embedCode.trim(),
+      };
+      // Stored PUBLIC so the storefront's GET /settings returns it. The embed may
+      // contain a <script>; it runs only inside the homepage Google Reviews section.
+      await api.put('/settings/googleReviews', { value, is_public: true, group_name: 'analytics' });
+      setGoogleReviews(value);
+      setSuccess('Google Reviews widget saved. It appears on the homepage within a minute.');
+      setTimeout(() => setSuccess(null), 4000);
+    } catch (err: any) {
+      setError(err?.response?.data?.message || 'Failed to save Google Reviews');
+    } finally {
+      setSavingReviews(false);
+    }
+  };
 
   const loadPreviews = async () => {
     setPreviewLoading(true);
@@ -269,6 +303,73 @@ const Seo: React.FC = () => {
             <Button onClick={handleSaveTracking} disabled={savingTracking}>
               {savingTracking ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
               Save tracking IDs
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Google Reviews widget */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Star className="h-4 w-4 text-muted-foreground" /> Google Reviews
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-[12px] text-muted-foreground leading-snug">
+            Show your Google (Business Profile) reviews on the homepage. Create a free reviews widget
+            connected to your Google Business Profile (e.g. Elfsight, Trustindex, or Google&apos;s own
+            widget), then paste its embed snippet below. The homepage&apos;s Google Reviews section renders it live.
+          </p>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={googleReviews.enabled}
+              onChange={(e) => setGoogleReviews((p) => ({ ...p, enabled: e.target.checked }))}
+              className="h-4 w-4"
+            />
+            <span className="text-xs">Show the Google Reviews section on the homepage</span>
+          </label>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Section heading</Label>
+            <Input
+              value={googleReviews.title}
+              onChange={(e) => setGoogleReviews((p) => ({ ...p, title: e.target.value }))}
+              placeholder="Loved by customers on Google"
+              className="h-9 text-sm"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Sub-heading (optional)</Label>
+            <Input
+              value={googleReviews.subtitle}
+              onChange={(e) => setGoogleReviews((p) => ({ ...p, subtitle: e.target.value }))}
+              placeholder="Real reviews from our Google Business profile"
+              className="h-9 text-sm"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs">Widget embed code</Label>
+              <span className={`inline-flex items-center gap-1 text-[11px] font-medium ${googleReviews.embedCode.trim() ? 'text-green-600' : 'text-muted-foreground'}`}>
+                {googleReviews.embedCode.trim() ? <CircleCheck className="h-3 w-3" /> : <CircleDashed className="h-3 w-3" />}
+                {googleReviews.embedCode.trim() ? 'Configured' : 'Not set'}
+              </span>
+            </div>
+            <Textarea
+              value={googleReviews.embedCode}
+              onChange={(e) => setGoogleReviews((p) => ({ ...p, embedCode: e.target.value }))}
+              placeholder={'<script src="https://static.elfsight.com/platform/platform.js" async></script>\n<div class="elfsight-app-XXXXXXXX"></div>'}
+              className="font-mono text-xs min-h-[120px]"
+            />
+            <p className="text-[11px] text-muted-foreground leading-snug">
+              Paste the full snippet (it may include a &lt;script&gt; tag). It runs on the storefront homepage only.
+            </p>
+          </div>
+          <div className="pt-1">
+            <Button onClick={handleSaveGoogleReviews} disabled={savingReviews}>
+              {savingReviews ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+              Save Google Reviews
             </Button>
           </div>
         </CardContent>

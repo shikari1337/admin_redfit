@@ -4,6 +4,7 @@ import { FaArrowLeft, FaSave, FaPlus, FaTrash, FaArrowUp, FaArrowDown, FaEye, Fa
 import { pagesAPI } from '../services/api';
 import LoadingSpinner from '../components/LoadingSpinner';
 import BlockEditor from '../components/pages/BlockEditor';
+import { HOMEPAGE_BLOCK_TYPES, homepageBlockDefault, isHomepageBlockType } from '../components/pages/HomepageBlockEditors';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -237,9 +238,17 @@ const PageForm: React.FC = () => {
       case 'product-best-sellers':
         return { title: 'Best Sellers', limit: 8, tagSlug: 'bestseller', layout: 'grid' };
       default:
+        // Storefront home-page sections carry their own starter data.
+        if (isHomepageBlockType(blockType)) return homepageBlockDefault(blockType);
         return {};
     }
   };
+
+  // The home page renders storefront-specific sections (hero-carousel, product-row,
+  // brand-grid…) via app/page.tsx; every other page uses the CMS block types. Offer
+  // the right palette so added sections actually render.
+  const isHomePage = formData.pageType === 'homepage' || formData.slug === 'home';
+  const availableBlockTypes = isHomePage ? HOMEPAGE_BLOCK_TYPES : blockTypes;
 
   const addBlock = (blockType: string = 'text') => {
     const newBlock: ContentBlock = {
@@ -349,10 +358,24 @@ const PageForm: React.FC = () => {
           <FaArrowLeft className="mr-2" />
           Back to Pages
         </button>
-        <h1 className="text-3xl font-bold tracking-tight">
-          {id ? 'Edit Page' : 'Create Page'}
-        </h1>
-        <p className="text-muted-foreground text-sm mt-1">Configure your page with content blocks</p>
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">
+              {id ? 'Edit Page' : 'Create Page'}
+            </h1>
+            <p className="text-muted-foreground text-sm mt-1">Configure your page with content blocks</p>
+          </div>
+          {id && (
+            <button
+              type="button"
+              onClick={() => navigate(`/pages/${id}/builder`)}
+              className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold rounded-lg transition-colors"
+              title="Open the full-screen drag & drop visual builder (replaces classic blocks on save; they are kept as a backup)"
+            >
+              ✨ Visual Builder
+            </button>
+          )}
+        </div>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -406,6 +429,7 @@ const PageForm: React.FC = () => {
                   className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <option value="custom">Custom</option>
+                  <option value="homepage">Home Page</option>
                   <option value="about">About</option>
                   <option value="contact">Contact</option>
                   <option value="faq">FAQ</option>
@@ -477,7 +501,7 @@ const PageForm: React.FC = () => {
                 className="flex h-9 w-[200px] items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <option value="">Select block type...</option>
-                {blockTypes.map(type => (
+                {availableBlockTypes.map(type => (
                   <option key={type} value={type}>{type}</option>
                 ))}
               </select>
@@ -580,7 +604,7 @@ const PageForm: React.FC = () => {
                                 }}
                                 className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                               >
-                                {blockTypes.map(type => (
+                                {availableBlockTypes.map(type => (
                                   <option key={type} value={type}>{type}</option>
                                 ))}
                               </select>

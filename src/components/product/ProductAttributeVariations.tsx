@@ -1240,7 +1240,7 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
                                   A labeled button is the primary action now. */}
                               {productSlug && (
                                 <Link
-                                  to={`/products/${productSlug}/variations/${variations.indexOf(variation)}/edit`}
+                                  to={`/products/${productSlug}/variations/${encodeURIComponent((variation as any).sku || (variation as any).id || variations.indexOf(variation))}/edit`}
                                   title="Open the full variant editor (price, sale, images, content, inventory)"
                                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-blue-200 bg-blue-50 text-blue-700 text-xs font-semibold hover:bg-blue-100 transition-colors whitespace-nowrap"
                                 >

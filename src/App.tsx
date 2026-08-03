@@ -1,3 +1,4 @@
+import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -22,6 +23,8 @@ import OrderDetail from './pages/OrderDetail';
 import ManualOrderCreate from './pages/ManualOrderCreate';
 import FAQs from './pages/FAQs';
 import Reviews from './pages/Reviews';
+import ProductQA from './pages/ProductQA';
+import Wishlist from './pages/Wishlist';
 import Coupons from './pages/Coupons';
 import CouponForm from './pages/CouponForm';
 import ProductSectionsManager from './pages/ProductSectionsManager';
@@ -44,6 +47,8 @@ import Gallery from './pages/Gallery';
 import Logs from './pages/Logs';
 import Pages from './pages/Pages';
 import PageForm from './pages/PageForm';
+// Lazy: GrapesJS is ~1 MB gzip and only this route needs it.
+const PageBuilder = React.lazy(() => import('./pages/PageBuilder'));
 import AppearanceMenus from './pages/AppearanceMenus';
 import AppearanceStyle from './pages/AppearanceStyle';
 import Themes from './pages/Themes';
@@ -175,6 +180,10 @@ import MarketingAudiences from './pages/panels/marketing/MarketingAudiences';
 import MarketingAutomation from './pages/panels/marketing/MarketingAutomation';
 import AdsManager from './pages/panels/marketing/AdsManager';
 import AdsAudiences from './pages/panels/marketing/AdsAudiences';
+import Connections from './pages/panels/marketing/Connections';
+import ConnectorCallback from './pages/panels/marketing/ConnectorCallback';
+import ConnectorInsights from './pages/panels/marketing/ConnectorInsights';
+import AdsAiStudio from './pages/panels/marketing/AdsAiStudio';
 import MarketingAnalyticsHub from './pages/panels/marketing/MarketingAnalyticsHub';
 import MarketingCompliance from './pages/panels/marketing/MarketingCompliance';
 import MarketingSettings from './pages/panels/marketing/MarketingSettings';
@@ -220,6 +229,19 @@ function App() {
           element={
             <ProtectedRoute>
               <ThemeCustomizer />
+            </ProtectedRoute>
+          }
+        />
+        {/* Page visual builder — full-screen Elementor-style editor (GrapesJS) */}
+        <Route
+          path="/pages/:id/builder"
+          element={
+            <ProtectedRoute>
+              <RouteGuard>
+                <React.Suspense fallback={<div className="h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-500" /></div>}>
+                  <PageBuilder />
+                </React.Suspense>
+              </RouteGuard>
             </ProtectedRoute>
           }
         />
@@ -345,6 +367,11 @@ function App() {
           <Route path="panel/marketing/ads" element={<ProtectedModuleRoute module="ads_management"><AdsManager /></ProtectedModuleRoute>} />
           <Route path="panel/marketing/ads/audiences" element={<ProtectedModuleRoute module="ads_management"><AdsAudiences /></ProtectedModuleRoute>} />
           <Route path="panel/marketing/ads/oauth/callback" element={<ProtectedModuleRoute module="ads_management"><AdsOAuthCallback /></ProtectedModuleRoute>} />
+          {/* Connector platform (migration 114) — one identity per provider, many services. */}
+          <Route path="panel/marketing/connections" element={<ProtectedModuleRoute module="connectors"><Connections /></ProtectedModuleRoute>} />
+          <Route path="panel/marketing/connections/callback" element={<ProtectedModuleRoute module="connectors"><ConnectorCallback /></ProtectedModuleRoute>} />
+          <Route path="panel/marketing/connections/insights" element={<ProtectedModuleRoute module="connectors"><ConnectorInsights /></ProtectedModuleRoute>} />
+          <Route path="panel/marketing/ads/ai-studio" element={<ProtectedModuleRoute module="ads_management"><AdsAiStudio /></ProtectedModuleRoute>} />
           <Route path="panel/marketing/analytics" element={<ProtectedModuleRoute module="marketing"><MarketingAnalyticsHub /></ProtectedModuleRoute>} />
           <Route path="panel/marketing/compliance" element={<ProtectedModuleRoute module="marketing"><MarketingCompliance /></ProtectedModuleRoute>} />
           <Route path="panel/marketing/settings" element={<ProtectedModuleRoute module="marketing"><MarketingSettings /></ProtectedModuleRoute>} />
@@ -360,7 +387,7 @@ function App() {
           <Route path="products/new" element={<ProductForm />} />
           <Route path="products/:id/edit" element={<ProductForm />} />
           <Route path="products/:id/sections" element={<ProductSectionsManager />} />
-          <Route path="products/:productSlug/variations/:variationIndex/edit" element={<VariationEditPage />} />
+          <Route path="products/:productSlug/variations/:variationKey/edit" element={<VariationEditPage />} />
           <Route path="products/bundles" element={<ProtectedModuleRoute module="bundles"><Bundles /></ProtectedModuleRoute>} />
           <Route path="products/bundles/new" element={<ProtectedModuleRoute module="bundles"><BundleForm /></ProtectedModuleRoute>} />
           <Route path="products/bundles/:id/edit" element={<ProtectedModuleRoute module="bundles"><BundleForm /></ProtectedModuleRoute>} />
@@ -387,6 +414,8 @@ function App() {
           <Route path="logs" element={<Logs />} />
           <Route path="faqs" element={<FAQs />} />
           <Route path="reviews" element={<ProtectedModuleRoute module="reviews"><Reviews /></ProtectedModuleRoute>} />
+          <Route path="questions" element={<ProtectedModuleRoute module="product_qa"><ProductQA /></ProtectedModuleRoute>} />
+          <Route path="wishlists" element={<ProtectedModuleRoute module="wishlist"><Wishlist /></ProtectedModuleRoute>} />
           <Route path="coupons" element={<ProtectedModuleRoute module="coupons"><Coupons /></ProtectedModuleRoute>} />
           <Route path="coupons/new" element={<ProtectedModuleRoute module="coupons"><CouponForm /></ProtectedModuleRoute>} />
           <Route path="coupons/:id/edit" element={<ProtectedModuleRoute module="coupons"><CouponForm /></ProtectedModuleRoute>} />

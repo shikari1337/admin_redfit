@@ -198,8 +198,12 @@ export const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  // Add timeout to prevent hanging requests
-  timeout: 30000, // 30 seconds
+  // Saving a product that has many variations (a consolidated multi-brand remedy
+  // can have 80+) re-processes the whole array against a remote DB, which used to
+  // blow the old 30s cap — the row DID save but the client showed a bogus
+  // "Network Error", so B2B/field edits looked like they failed. 120s is the
+  // safety net; VariationEditPage additionally saves just the one variation.
+  timeout: 120000,
 });
 
 /**
@@ -745,6 +749,13 @@ export const productsAPI = {
   update: async (id: string, data: any) => {
     const response = await api.put(`/products/${id}`, data);
     return response.data;
+  },
+  // Update ONE variation without re-sending (and re-processing/deleting) the whole
+  // variations array — the product-level PUT deletes any variation not in the body,
+  // so editing one variant otherwise means posting all 80+, which timed out.
+  updateVariation: async (productId: string, variationId: string, data: any) => {
+    const response = await api.put(`/products/${productId}/variations/${variationId}`, data);
+    return response.data?.data ?? response.data;
   },
   delete: async (id: string) => {
     const response = await api.delete(`/products/${id}`);
@@ -1843,6 +1854,159 @@ export const reviewsAPI = {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
     return (r.data?.data ?? r.data) as ReviewMedia;
+  },
+};
+
+// ─── Product Q&A ─────────────────────────────────────────────────────────────
+// Backend: routes/productQuestions.ts (module `product_qa`). Reading the inbox
+// needs content.read, acting needs content.manage, deleting content.delete.
+
+export type QuestionStatus = 'pending' | 'published' | 'rejected';
+
+export interface AdminQuestion {
+  id: string;
+  product_id: string;
+  variation_id?: string | null;
+  customer_id?: string | null;
+  asker_name: string;
+  asker_email?: string | null;
+  question: string;
+  answer?: string | null;
+  answered_by?: string | null;
+  answered_at?: string | null;
+  status: QuestionStatus;
+  is_published: boolean;
+  auto_flags?: string[];
+  helpful_count: number;
+  verified_buyer?: boolean;
+  product_name?: string;
+  product_slug?: string;
+  variation_name?: string | null;
+  variation_sku?: string | null;
+  created_at: string;
+}
+
+export interface QuestionCounts {
+  total: number; pending: number; published: number; rejected: number; unanswered: number;
+}
+
+export interface QuestionListParams {
+  status?: QuestionStatus;
+  product_id?: string;
+  unanswered?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export const productQuestionsAPI = {
+  /** Moderation inbox — rows + an accurate total for real pagination. */
+  list: async (params: QuestionListParams = {}): Promise<{ rows: AdminQuestion[]; total: number }> => {
+    const r = await api.get('/product-questions/admin', {
+      // The API reads `unanswered=true` as a string flag; sending false would
+      // still be truthy server-side, so omit it entirely when off.
+      params: { ...params, unanswered: params.unanswered ? 'true' : undefined },
+    });
+    return { rows: rows<AdminQuestion>(r), total: Number(r.data?.total ?? 0) };
+  },
+
+  counts: async (): Promise<QuestionCounts> => {
+    const r = await api.get('/product-questions/admin/counts');
+    return (r.data?.data ?? r.data ?? {}) as QuestionCounts;
+  },
+
+  /** Answer publishes by default — answering IS the moderation act. */
+  answer: async (id: string, answer: string, opts: { answeredBy?: string; publish?: boolean } = {}) =>
+    (await api.post(`/product-questions/${id}/answer`, {
+      answer, answered_by: opts.answeredBy, publish: opts.publish !== false,
+    })).data,
+
+  publish: async (id: string, published = true) =>
+    (await api.put(`/product-questions/${id}/publish`, { published })).data,
+
+  reject: async (id: string) => (await api.put(`/product-questions/${id}/reject`, {})).data,
+
+  /** Bulk moderation: one request for N questions. */
+  bulk: async (ids: string[], action: 'publish' | 'reject' | 'pending' | 'delete') =>
+    (await api.post('/product-questions/admin/bulk', { ids, action })).data,
+
+  delete: async (id: string) => (await api.delete(`/product-questions/${id}`)).data,
+};
+
+// ─── Wishlist (merchandising) ────────────────────────────────────────────────
+// Backend: routes/wishlist.ts /admin/* (module `wishlist`, permission reports.read).
+// A wishlist is the CUSTOMER's own list — the panel reads demand, it never edits
+// someone's saved items.
+
+export interface WishlistSummary {
+  saves: number; customers: number; products: number; skus: number;
+  saves_7d: number; saves_30d: number; out_of_stock_saves: number;
+}
+
+export interface WishlistDemandRow {
+  product_id: string;
+  variation_id: string | null;
+  name: string;
+  sku: string | null;
+  image?: string | null;
+  stock: number;
+  selling_price: number | null;
+  mrp: number | null;
+  product_name: string;
+  product_slug: string;
+  wish_count: number;
+  customers: number;
+  first_added: string;
+  last_added: string;
+}
+
+export interface WishlistSaverRow {
+  customer_id: string;
+  items: number;
+  products: number;
+  saved_value: number;
+  out_of_stock: number;
+  first_added: string;
+  last_added: string;
+  /** Attached only when the caller ALSO holds customers.read — see the route. */
+  name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+}
+
+export interface WishlistDemandParams {
+  grain?: 'sku' | 'product';
+  stock?: 'all' | 'out' | 'low' | 'in';
+  days?: number;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export const wishlistAdminAPI = {
+  summary: async (): Promise<WishlistSummary> => {
+    const r = await api.get('/wishlist/admin/summary');
+    return (r.data?.data ?? r.data ?? {}) as WishlistSummary;
+  },
+
+  demand: async (params: WishlistDemandParams = {}): Promise<{ rows: WishlistDemandRow[]; total: number }> => {
+    const r = await api.get('/wishlist/admin/demand', { params });
+    return { rows: rows<WishlistDemandRow>(r), total: Number(r.data?.total ?? 0) };
+  },
+
+  savers: async (limit = 25): Promise<WishlistSaverRow[]> => {
+    const r = await api.get('/wishlist/admin/customers', { params: { limit } });
+    return rows<WishlistSaverRow>(r);
+  },
+
+  /** The CURRENT filter as CSV — a restock or win-back list, not just this page. */
+  exportCsv: async (params: WishlistDemandParams = {}) => {
+    const r = await api.get('/wishlist/admin/export', { params, responseType: 'blob' });
+    const url = URL.createObjectURL(new Blob([r.data as any], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `wishlist-demand-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   },
 };
 

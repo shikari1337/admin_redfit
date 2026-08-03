@@ -98,11 +98,16 @@ type Slab = ReturnType<typeof normalizeSlab>;
 
 /** This variation's FLAT wholesale row: generic (no tier), from qty 1, fixed price —
  *  the single "wholesale price" the input on this page binds to. */
+// The generic flat wholesale slab: this variation, qty-1, fixed, and NO real
+// tier. Importers write the 'default' sentinel while the editor writes ''; both
+// mean "the generic flat price", so match either — otherwise editing spawned a
+// second slab and the resolver kept the old one.
 const isFlatWholesaleRow = (s: Slab, variationUuid: string) =>
-  s.variationId === variationUuid && !s.tierName && Number(s.minQty) === 1 && s.priceType === 'fixed';
+  s.variationId === variationUuid && Number(s.minQty) === 1 && s.priceType === 'fixed'
+  && ['', 'default'].includes(String(s.tierName ?? '').toLowerCase());
 
 const VariationEditPage: React.FC = () => {
-  const { productSlug, variationIndex } = useParams<{ productSlug: string; variationIndex: string }>();
+  const { productSlug, variationKey } = useParams<{ productSlug: string; variationKey: string }>();
   const navigate = useNavigate();
   const { canAccess } = useAuth();
 
@@ -134,7 +139,17 @@ const VariationEditPage: React.FC = () => {
     } catch { setAllCategories([]); }
   };
 
-  const idx = variationIndex !== undefined ? parseInt(variationIndex, 10) : -1;
+  // URL carries the variation's SKU (or id) — a stable, human-readable key —
+  // resolved to the array index after the product loads. A bare number is still
+  // accepted so old /variations/0/edit links keep working.
+  const resolvedIdx = useRef<number>(-1);
+  const resolveIdx = (vars: any[]): number => {
+    const key = decodeURIComponent(variationKey ?? '');
+    let i = vars.findIndex((x: any) =>
+      String(x.sku ?? '').toUpperCase() === key.toUpperCase() || String(x.id ?? '') === key);
+    if (i < 0 && /^\d+$/.test(key)) i = parseInt(key, 10);
+    return i;
+  };
 
   useEffect(() => {
     if (productSlug) loadProduct();
@@ -150,7 +165,9 @@ const VariationEditPage: React.FC = () => {
       setLoading(true);
       const prod = await productsAPI.getBySlug(productSlug!);
       setProduct(prod);
-      const v = prod?.variations?.[idx];
+      const idx = resolveIdx(prod?.variations ?? []);
+      resolvedIdx.current = idx;
+      const v = idx >= 0 ? prod?.variations?.[idx] : undefined;
       if (!v) {
         alert('Variation not found');
         navigate(`/products/${productSlug}/edit`);
@@ -202,35 +219,40 @@ const VariationEditPage: React.FC = () => {
     if (!product || !variation) return;
     setSaving(true);
     try {
-      const updatedVariations = [...(product.variations || [])];
-      const merged: any = {
-        ...updatedVariations[idx],
-        ...variation,
-      };
-      // Per-variation categories: send the key ONLY when the user touched the
-      // selection — put.ts REPLACES links when the array is present, so an
-      // untouched variant must omit it entirely (keeps inherit-from-product).
-      if (catDirty) merged.categories = catSelection.map(c => c.id);
-      else delete merged.categories;
-      updatedVariations[idx] = merged;
-      const payload: any = { variations: updatedVariations };
-      // Per-variant flat wholesale price → product_b2b_pricing. `b2bPricing`
-      // REPLACES the full slab set server-side (and needs b2b.manage), so only
-      // send it when the b2b module is on AND the slabs came back on load —
-      // otherwise omit the key entirely so nothing we never saw gets wiped.
-      const rawSlabs = product?.b2bPricing ?? product?.b2b_pricing;
+      const idx = resolvedIdx.current;
       const varUuid = String(variation.id || '');
+      // Body = the existing row merged with the edited fields. Per-variation
+      // categories only when the user touched them (server REPLACES on presence).
+      const varBody: any = { ...((product.variations || [])[idx] || {}), ...variation };
+      if (catDirty) varBody.categories = catSelection.map(c => c.id);
+      else delete varBody.categories;
+
+      // Save THIS variation via the single-variation endpoint — it updates one
+      // row (and its categories) and never touches the siblings, so it returns in
+      // ~1s instead of the whole-product PUT re-processing 80+ variations (which
+      // blew the request timeout and surfaced a bogus "save failed"). Fall back to
+      // the whole-product PUT only when the row has no UUID yet (unsaved).
+      if (UUID_RE.test(varUuid)) {
+        await productsAPI.updateVariation(product._id, varUuid, varBody);
+      } else {
+        const updatedVariations = [...(product.variations || [])];
+        updatedVariations[idx] = varBody;
+        await productsAPI.update(product._id, { variations: updatedVariations });
+      }
+
+      // Per-variant flat wholesale price → product_b2b_pricing. Sent WITHOUT a
+      // `variations` key so the product PUT skips the slow variation loop.
+      // b2bPricing REPLACES the full slab set (needs b2b.manage), so keep every
+      // other row and swap just this variant's flat row.
+      const rawSlabs = product?.b2bPricing ?? product?.b2b_pricing;
       if (canAccess('b2b') && Array.isArray(rawSlabs) && UUID_RE.test(varUuid)) {
-        // Keep every existing row EXCEPT this variation's flat generic row(s);
-        // re-add the flat row only when the input is non-empty (empty = remove).
         const kept: any[] = rawSlabs.map(normalizeSlab).filter((s: Slab) => !isFlatWholesaleRow(s, varUuid));
         const flatVal = parseFloat(b2bFlatPrice);
         if (b2bFlatPrice.trim() !== '' && Number.isFinite(flatVal) && flatVal > 0) {
           kept.push({ variationId: varUuid, tierName: '', minQty: 1, priceType: 'fixed', priceValue: flatVal, isActive: true });
         }
-        payload.b2bPricing = kept;
+        await productsAPI.update(product._id, { b2bPricing: kept });
       }
-      await productsAPI.update(product._id, payload);
       navigate(`/products/${productSlug}/edit`);
     } catch {
       alert('Failed to save variation');
@@ -348,7 +370,7 @@ const VariationEditPage: React.FC = () => {
             <div className="min-w-0">
               <div className="flex items-center gap-2 min-w-0">
                 <h1 className="text-lg font-bold text-gray-900 truncate">
-                  {v.name || `${product?.name || 'Product'} — Variant ${idx + 1}`}
+                  {v.name || v.sku || `${product?.name || 'Product'} — Variant ${resolvedIdx.current + 1}`}
                 </h1>
                 {v.sku && (
                   <span className="shrink-0 px-2 py-0.5 bg-gray-100 text-gray-500 text-xs rounded-full font-mono">{v.sku}</span>
