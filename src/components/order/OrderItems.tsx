@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -10,6 +11,8 @@ interface OrderItem {
   // skips camelCase-aliasing it, by design, to protect other JSONB payloads
   // elsewhere) — so real order_items rows only ever carry their snake_case
   // column names. Read those directly rather than relying on aliasing.
+  product_id?: string;
+  productId?: string;
   product_name?: string;
   productName?: string;
   sku?: string;
@@ -155,7 +158,17 @@ const OrderItems: React.FC<OrderItemsProps> = ({ items, b2bTier, orderDiscount =
                             </div>
                           )}
                           <div className="min-w-0">
-                            <p className="font-medium text-foreground leading-snug line-clamp-2">{r.name}</p>
+                            {(r.item.product_id || r.item.productId) ? (
+                              <Link
+                                to={`/products/${r.item.product_id || r.item.productId}/edit`}
+                                className="font-medium text-foreground leading-snug line-clamp-2 hover:text-primary hover:underline"
+                                title="Open product"
+                              >
+                                {r.name}
+                              </Link>
+                            ) : (
+                              <p className="font-medium text-foreground leading-snug line-clamp-2">{r.name}</p>
+                            )}
                             {r.item.variant?.colorName && (
                               <p className="text-xs text-muted-foreground">Color: {r.item.variant.colorName}</p>
                             )}

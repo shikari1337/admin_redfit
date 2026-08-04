@@ -19,13 +19,13 @@ interface PaymentRule {
   id: string;
   name: string;
   method: string;
-  conditions: { minOrderValue?: number; maxOrderValue?: number; excludePincodes?: string[] };
+  conditions: { minOrderValue?: number; maxOrderValue?: number; excludePincodes?: string[]; customerSegment?: string };
   is_active: boolean;
   sort_order: number;
 }
 
 const PAYMENT_METHODS = ['cod', 'prepaid', 'upi', 'card', 'netbanking', 'wallet'];
-const emptyRuleForm = { id: '', name: '', method: 'cod', minOrderValue: '', maxOrderValue: '', excludePincodes: '', is_active: true };
+const emptyRuleForm = { id: '', name: '', method: 'cod', minOrderValue: '', maxOrderValue: '', excludePincodes: '', customerSegment: 'all', is_active: true };
 
 const PaymentDiscountSettings: React.FC = () => {
   const navigate = useNavigate();
@@ -35,6 +35,11 @@ const PaymentDiscountSettings: React.FC = () => {
     razorpayDiscountPercent: 2,
     quantityDiscounts: [] as QuantityDiscount[],
     excludeBundledProductsFromQuantityDiscount: false,
+    // B2B customers: inherit the general % / use a custom % / no gateway discount.
+    // Applies only while the b2b module is enabled; otherwise everyone gets the
+    // general settings.
+    b2bGatewayDiscountMode: 'inherit' as 'inherit' | 'custom' | 'off',
+    b2bRazorpayDiscountPercent: 0,
   });
 
   // ── Payment method rules (restrict a method under given conditions) ────────
@@ -61,6 +66,7 @@ const PaymentDiscountSettings: React.FC = () => {
       minOrderValue: r.conditions?.minOrderValue != null ? String(r.conditions.minOrderValue) : '',
       maxOrderValue: r.conditions?.maxOrderValue != null ? String(r.conditions.maxOrderValue) : '',
       excludePincodes: (r.conditions?.excludePincodes || []).join(', '),
+      customerSegment: r.conditions?.customerSegment || 'all',
       is_active: r.is_active,
     });
     setShowRuleForm(true);
@@ -76,6 +82,7 @@ const PaymentDiscountSettings: React.FC = () => {
       if (ruleForm.maxOrderValue) conditions.maxOrderValue = parseFloat(ruleForm.maxOrderValue);
       const pins = ruleForm.excludePincodes.split(',').map(p => p.trim()).filter(Boolean);
       if (pins.length) conditions.excludePincodes = pins;
+      if (ruleForm.customerSegment && ruleForm.customerSegment !== 'all') conditions.customerSegment = ruleForm.customerSegment;
       const payload = { name: ruleForm.name.trim(), method: ruleForm.method, conditions, is_active: ruleForm.is_active };
       if (ruleForm.id) {
         const updated = await paymentRulesAPI.update(ruleForm.id, payload);
@@ -125,6 +132,8 @@ const PaymentDiscountSettings: React.FC = () => {
             { minQuantity: 20, discountPercent: 15 },
           ],
           excludeBundledProductsFromQuantityDiscount: settings.excludeBundledProductsFromQuantityDiscount || false,
+          b2bGatewayDiscountMode: settings.b2bGatewayDiscountMode || 'inherit',
+          b2bRazorpayDiscountPercent: settings.b2bRazorpayDiscountPercent || 0,
         });
       }
     } catch (error: any) {
@@ -137,6 +146,8 @@ const PaymentDiscountSettings: React.FC = () => {
           { minQuantity: 20, discountPercent: 15 },
         ],
         excludeBundledProductsFromQuantityDiscount: false,
+        b2bGatewayDiscountMode: 'inherit',
+        b2bRazorpayDiscountPercent: 0,
       });
     } finally {
       setLoading(false);
@@ -221,11 +232,50 @@ const PaymentDiscountSettings: React.FC = () => {
               </p>
             </div>
 
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <p className="text-sm text-blue-800">
-                <strong>Note:</strong> This setting controls the discount percentage shown in the checkout page. 
-                Make sure the backend also uses the same percentage for consistency.
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+              <p className="text-sm text-green-800">
+                <strong>Server-enforced:</strong> checkout shows this discount AND the backend
+                applies the same percentage when charging the order — shown always equals charged.
+                COD orders never get the gateway discount.
               </p>
+            </div>
+
+            {/* B2B customers */}
+            <div className="pt-5 border-t space-y-3">
+              <div>
+                <p className="text-sm font-semibold text-foreground">B2B customers</p>
+                <p className="text-xs text-muted-foreground">
+                  What gateway discount approved B2B accounts get. Applies only while the B2B
+                  module is enabled — otherwise every customer gets the general settings above.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-end gap-4">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">B2B gateway discount</Label>
+                  <select
+                    value={formData.b2bGatewayDiscountMode}
+                    onChange={(e) => setFormData(prev => ({ ...prev, b2bGatewayDiscountMode: e.target.value as any }))}
+                    className="h-9 w-56 px-3 border border-input rounded-md bg-background text-sm"
+                  >
+                    <option value="inherit">Same as general ({formData.razorpayDiscountPercent}%)</option>
+                    <option value="custom">Custom percentage for B2B</option>
+                    <option value="off">No gateway discount for B2B</option>
+                  </select>
+                </div>
+                {formData.b2bGatewayDiscountMode === 'custom' && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">B2B discount %</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number" min="0" max="100" step="0.1" className="w-28 h-9"
+                        value={formData.b2bRazorpayDiscountPercent}
+                        onChange={(e) => setFormData(prev => ({ ...prev, b2bRazorpayDiscountPercent: parseFloat(e.target.value) || 0 }))}
+                      />
+                      <span className="text-foreground font-medium">%</span>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -408,6 +458,18 @@ const PaymentDiscountSettings: React.FC = () => {
                   </select>
                 </div>
                 <div className="space-y-1.5">
+                  <Label className="text-xs">Applies to</Label>
+                  <select
+                    value={ruleForm.customerSegment} onChange={e => setRuleForm(f => ({ ...f, customerSegment: e.target.value }))}
+                    className="w-full h-9 px-3 border border-input rounded-md bg-background text-sm"
+                  >
+                    <option value="all">All customers</option>
+                    <option value="retail">Retail (non-B2B) only</option>
+                    <option value="b2b">B2B accounts only</option>
+                  </select>
+                  <p className="text-[10px] text-muted-foreground">B2B-only rules are ignored while the B2B module is disabled.</p>
+                </div>
+                <div className="space-y-1.5">
                   <Label className="text-xs">Min order value ₹ (optional)</Label>
                   <Input type="number" min="0" value={ruleForm.minOrderValue} onChange={e => setRuleForm(f => ({ ...f, minOrderValue: e.target.value }))} className="h-9" />
                 </div>
@@ -449,10 +511,15 @@ const PaymentDiscountSettings: React.FC = () => {
                     <TableCell className="font-medium">{r.name}</TableCell>
                     <TableCell><Badge variant="outline">{r.method.toUpperCase()}</Badge></TableCell>
                     <TableCell className="text-xs text-muted-foreground">
+                      {r.conditions?.customerSegment && r.conditions.customerSegment !== 'all' && (
+                        <Badge variant="outline" className={`mr-1.5 text-[10px] ${r.conditions.customerSegment === 'b2b' ? 'bg-violet-50 text-violet-700 border-violet-200' : 'bg-sky-50 text-sky-700 border-sky-200'}`}>
+                          {r.conditions.customerSegment.toUpperCase()}
+                        </Badge>
+                      )}
                       {r.conditions?.minOrderValue != null && <span>Min ₹{r.conditions.minOrderValue} </span>}
                       {r.conditions?.maxOrderValue != null && <span>Max ₹{r.conditions.maxOrderValue} </span>}
                       {r.conditions?.excludePincodes?.length ? <span>Excl. {r.conditions.excludePincodes.length} pincode(s)</span> : null}
-                      {!r.conditions?.minOrderValue && !r.conditions?.maxOrderValue && !r.conditions?.excludePincodes?.length && '—'}
+                      {!r.conditions?.minOrderValue && !r.conditions?.maxOrderValue && !r.conditions?.excludePincodes?.length && (!r.conditions?.customerSegment || r.conditions.customerSegment === 'all') && '—'}
                     </TableCell>
                     <TableCell>
                       <Badge variant={r.is_active ? 'default' : 'secondary'} className={r.is_active ? 'bg-green-500/15 text-green-700 border-green-200 hover:bg-green-500/25' : ''}>
@@ -469,9 +536,11 @@ const PaymentDiscountSettings: React.FC = () => {
             </Table>
           )}
 
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-            <p className="text-xs text-yellow-800">
-              <strong>Note:</strong> These rules are stored and manageable here, but checkout doesn't evaluate them yet — enforcing them at checkout is a separate backend change.
+          <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+            <p className="text-xs text-green-800">
+              <strong>Enforced at checkout:</strong> active rules block the restricted method at
+              order placement (COD/prepaid), matching on order value, pincode and customer
+              segment. B2B-only rules apply only while the B2B module is enabled.
             </p>
           </div>
         </CardContent>
