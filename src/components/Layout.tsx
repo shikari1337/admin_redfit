@@ -190,7 +190,7 @@ const Layout: React.FC = () => {
         { title: 'Templates', url: '/panel/marketing/templates', icon: FileText },
         { title: 'Audiences & Lists', url: '/panel/marketing/audiences', icon: Users },
         { title: 'Automation', url: '/panel/marketing/automation', icon: ArrowLeftRight },
-        ...(canAccess('crm') && hasPerm('marketing.read') ? [{ title: 'Leads (CRM)', url: '/leads', icon: UserCheck }] : []),
+        ...(canAccess('crm') && hasPerm('marketing.read') ? [{ title: 'CRM', url: '/leads', icon: UserCheck }] : []),
         ...(canAccess('coupons') && hasPerm('marketing.read') ? [{ title: 'Coupons', url: '/coupons', icon: Ticket }] : []),
         ...(canAccess('ads_management') && hasPerm('ads.read') ? [
           { title: 'Ads Manager', url: '/panel/marketing/ads', icon: LineChart },
@@ -360,7 +360,7 @@ const Layout: React.FC = () => {
       title: 'Store Customers',
       items: [
         ...(canAccess('customers') && hasPerm('customers.read') ? [{ title: 'All Customers',  url: '/customers',  icon: Users }] : []),
-        ...(canAccess('crm') && hasPerm('marketing.read') ? [{ title: 'Leads (CRM)',    url: '/leads',  icon: UserCheck }] : []),
+        ...(canAccess('crm') && hasPerm('marketing.read') ? [{ title: 'CRM',    url: '/leads',  icon: UserCheck }] : []),
         // Single entry — B2B covers accounts, quotes and price lists together (was duplicated under Catalog before).
         ...(canAccess('b2b')        ? [{ title: 'B2B',            url: '/b2b',    icon: Building2 }] : []),
         ...(hasPerm('customers.read') ? [{ title: 'Credit Control', url: '/panel/customers/credit', icon: ShieldCheck }] : []),

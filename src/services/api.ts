@@ -622,20 +622,36 @@ export const authAPI = {
 
 // Leads API (CRM module - requires leads_manager permission)
 export const leadsAPI = {
-  getAll: async (params?: { page?: number; limit?: number; status?: string }) => {
+  getAll: async (params?: { page?: number; limit?: number; offset?: number; status?: string; source?: string }) => {
     const response = await api.get('/leads', { params });
     const data = response.data;
     if (Array.isArray(data)) return data;
     if (data?.data) return data.data;
     return [];
   },
+  getStats: async () => {
+    const response = await api.get('/leads/stats');
+    return response.data?.data ?? response.data ?? null;
+  },
   getById: async (id: string) => {
     const response = await api.get(`/leads/${id}`);
+    return response.data?.data ?? response.data;
+  },
+  create: async (data: Record<string, unknown>) => {
+    const response = await api.post('/leads', data);
     return response.data?.data ?? response.data;
   },
   update: async (id: string, updates: Record<string, unknown>) => {
     const response = await api.put(`/leads/${id}`, updates);
     return response.data?.data ?? response.data;
+  },
+  convert: async (id: string, customer_id: string) => {
+    const response = await api.post(`/leads/${id}/convert`, { customer_id });
+    return response.data?.data ?? response.data;
+  },
+  delete: async (id: string) => {
+    const response = await api.delete(`/leads/${id}`);
+    return response.data;
   },
 };
 
@@ -3568,6 +3584,10 @@ export const contactsAPI = {
   getAll: async (params?: { status?: string; is_read?: boolean; limit?: number; offset?: number }) => {
     const response = await api.get('/contact', { params });
     return response.data;
+  },
+  getStats: async () => {
+    const response = await api.get('/contact/stats');
+    return response.data?.data ?? response.data ?? null;
   },
   getById: async (id: string) => {
     const response = await api.get(`/contact/${id}`);
