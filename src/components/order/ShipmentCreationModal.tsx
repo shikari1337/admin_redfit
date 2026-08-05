@@ -48,6 +48,11 @@ interface OrderItem {
   // rows (product_name/sku/attributes) — read both shapes.
   productName?: string;
   product_name?: string;
+  /** Resolved pack label/SKU (backend CATALOG_LABEL_SQL) — DISPLAY only. */
+  catalog_name?: string;
+  catalogName?: string;
+  catalog_sku?: string;
+  catalogSku?: string;
   name?: string;
   sku?: string;
   size?: string;
@@ -785,11 +790,16 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
                         />
                         <div className="flex-1">
                           <p className="font-medium text-sm text-gray-900">
-                            {item.productName || item.product_name || item.name || 'Item'}
+                            {/* DISPLAY uses the resolved pack (catalog_*), same as
+                                Order Items, the invoice and the packing slip. The
+                                line KEY above deliberately does NOT — it must keep
+                                mirroring the backend's snapshot-based lineKey. */}
+                            {item.catalog_name || item.catalogName || item.productName || item.product_name || item.name || 'Item'}
                           </p>
                           <p className="text-xs text-gray-500">
                             {[
-                              item.sku ? `SKU: ${item.sku}` : null,
+                              (item.catalog_sku || item.catalogSku || item.sku)
+                                ? `SKU: ${item.catalog_sku || item.catalogSku || item.sku}` : null,
                               item.size || (item.attributes && Object.values(item.attributes).filter(Boolean).join(' · ')) || null,
                               remainingByKey && max < ordered
                                 ? `Remaining: ${max} of ${ordered}`
