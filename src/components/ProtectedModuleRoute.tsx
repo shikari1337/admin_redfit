@@ -5,6 +5,12 @@
  * focus). If access looks denied, it re-fetches the module map ONCE before
  * showing the gate — so a module enabled elsewhere (super-admin) doesn't stay
  * blocked by a stale cache until a full re-login.
+ *
+ * IMPORTANT: it waits for `modulesLoaded` before deciding. `canAccess()` fails
+ * OPEN for a module key it hasn't heard of, so rendering before the map arrives
+ * mounted disabled pages for a frame — long enough for them to fire their
+ * requests and log a 403 MODULE_DISABLED. Waiting removes that whole class of
+ * console error (it was the cause on Size Charts, among others).
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -17,7 +23,7 @@ interface Props {
 }
 
 export const ProtectedModuleRoute: React.FC<Props> = ({ children, module }) => {
-  const { isLoaded, canAccess, refreshModules } = useAuth();
+  const { isLoaded, modulesLoaded, canAccess, refreshModules } = useAuth();
   const [rechecking, setRechecking] = useState(false);
   const recheckedFor = useRef<string | null>(null);
 
@@ -25,15 +31,24 @@ export const ProtectedModuleRoute: React.FC<Props> = ({ children, module }) => {
 
   // Self-heal a stale cache: if it looks denied, refresh the module map once.
   useEffect(() => {
-    if (!isLoaded || allowed) return;
+    if (!isLoaded || !modulesLoaded || allowed) return;
     if (recheckedFor.current === module) return; // only one recheck per module
     recheckedFor.current = module;
     setRechecking(true);
     refreshModules().finally(() => setRechecking(false));
-  }, [isLoaded, allowed, module, refreshModules]);
+  }, [isLoaded, modulesLoaded, allowed, module, refreshModules]);
 
   // While auth state is loading show nothing (parent ProtectedRoute shows spinner)
   if (!isLoaded) return null;
+
+  // Don't decide until the module map has actually arrived — see header note.
+  if (!modulesLoaded) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="h-8 w-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+      </div>
+    );
+  }
 
   if (allowed) return <>{children}</>;
 

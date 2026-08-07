@@ -318,7 +318,7 @@ function App() {
           <Route path="panel/accounting/bank-accounts" element={<BankAccounts />} />
           <Route path="panel/accounting/bank-recon" element={<BankRecon />} />
           <Route path="panel/accounting/bank-rules" element={<BankRules />} />
-          <Route path="panel/accounting/einvoicing" element={<Einvoicing />} />
+          <Route path="panel/accounting/einvoicing" element={<ProtectedModuleRoute module="einvoicing"><Einvoicing /></ProtectedModuleRoute>} />
           <Route path="panel/accounting/audit" element={<AuditTrail />} />
           <Route path="panel/accounting/settings" element={<AccountingSettings />} />
           <Route path="panel/accounting/documents" element={<DocumentLibrary />} />
@@ -410,6 +410,10 @@ function App() {
           <Route path="shipments" element={<ProtectedModuleRoute module="shipping"><Shipments /></ProtectedModuleRoute>} />
           <Route path="customers" element={<Customers />} />
           <Route path="users" element={<Users />} />
+          {/* UserDetail is a CUSTOMER profile (orders, addresses, lifetime
+              value) — it reads /customers/:id. Served at both paths so old
+              links keep working; /customers/:id is the one the UI links to. */}
+          <Route path="customers/:id" element={<UserDetail />} />
           <Route path="users/:id" element={<UserDetail />} />
           <Route path="logs" element={<Logs />} />
           <Route path="faqs" element={<FAQs />} />

@@ -132,16 +132,21 @@ const Bundles: React.FC = () => {
   const fetchQuantityBasedBundles = async () => {
     try {
       setLoading(true);
-      const params: Record<string, any> = {};
+      // Ask the DB for products that HAVE an offer instead of downloading the
+      // catalogue and filtering here: the old code fetched one default-sized
+      // page (20 of 7,500+ products) and filtered that, so a product with a
+      // bundle simply never appeared unless it happened to be on page one.
+      // limit is capped at 100 by the route validator — anything higher is a 400.
+      const params: Record<string, any> = { hasBundles: true, limit: 100 };
       if (showActiveOnly) {
         params.active = true;
       }
+      if (search.trim()) params.search = search.trim();
       const response = await productsAPI.getAll(params);
-      const products = (response?.data || response || []) as any[];
-      
-      // Filter products that have quantity-based bundles
+      const products = (response?.data?.products || response?.data || response || []) as any[];
+
       const productsWithBundles = products
-        .filter((product) => product.bundles && Array.isArray(product.bundles) && product.bundles.length > 0)
+        .filter((product) => Array.isArray(product.bundles) && product.bundles.length > 0)
         .map((product) => ({
           _id: product._id,
           name: product.name,

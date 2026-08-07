@@ -393,17 +393,12 @@ api.interceptors.response.use(
 
       // Provide specific error messages
       if (error.code === 'ERR_NETWORK' || error.code === 'ECONNREFUSED' || error.message?.includes('Connection refused')) {
-        console.error('❌ CONNECTION REFUSED - Server is not reachable');
-        console.error('   Possible causes:');
-        console.error('   1. Backend server is not running');
-        console.error('   2. Backend is running on a different port');
-        console.error('   3. Firewall is blocking the connection');
-        console.error('   4. Wrong URL in configuration');
-        console.error('   Check backend server at:', error.config?.baseURL);
-        console.error('   Try: http://localhost:3000/health');
-
-        // Show user-friendly error
-        alert(`Cannot connect to backend server.\n\nURL: ${fullURL}\n\nPlease check:\n1. Backend server is running\n2. Correct URL in .env file\n3. Firewall settings`);
+        // No alert(): a single flaky request must not throw a blocking modal in
+        // the operator's face — it interrupts whatever they were doing and says
+        // nothing they can act on. Callers surface their own inline error state.
+        console.error(
+          `❌ Cannot reach the API at ${error.config?.baseURL} — check the backend is running and NEXT/VITE API URL is correct.`
+        );
       } else if (error.code === 'ETIMEDOUT') {
         console.error('❌ Connection timeout - Server did not respond in time');
       } else if (error.code === 'ENOTFOUND') {
@@ -417,10 +412,12 @@ api.interceptors.response.use(
        * Without this the user just saw a page that silently failed to save.
        * `AccessNotice` listens for this event and renders the explanation.
        */
+      let isExpectedAccessRefusal = false;
       if (error.response?.status === 403) {
         const d: any = error.response?.data ?? {};
         const code = d?.error?.code ?? d?.code;
         if (['MODULE_DISABLED', 'MODULE_NOT_IN_PLAN', 'MODULE_VIEW_ONLY', 'PERMISSION_DENIED'].includes(code)) {
+          isExpectedAccessRefusal = true;
           window.dispatchEvent(new CustomEvent('admin:access-denied', {
             detail: {
               code,
@@ -434,22 +431,37 @@ api.interceptors.response.use(
 
       // HTTP errors (server responded with error status)
       const errorData = error.response?.data;
-      console.error('❌ Response Error:', {
-        status: error.response?.status,
-        statusText: error.response?.statusText,
-        url: error.config?.url,
-        baseURL: error.config?.baseURL,
-        fullURL: error.config?.baseURL + error.config?.url,
-        data: errorData,
-        errorCode: errorData?.code,
-        errorMessage: errorData?.message,
-        message: error.message,
-        authorizationHeader: error.config?.headers?.Authorization ? 'Present' : 'Missing'
-      });
 
-      // Log full error data for 401 errors to help debug
-      if (error.response?.status === 401) {
-        console.error('❌ 401 Full Error Details:', JSON.stringify(errorData, null, 2));
+      /**
+       * A module/permission refusal is the system WORKING, not a fault: the
+       * store simply doesn't have that module. It's already reported in-UI by
+       * `AccessNotice`, so logging it as ❌ only trained everyone to ignore a
+       * console full of red. Keep it at debug level; log real failures loudly.
+       */
+      if (isExpectedAccessRefusal) {
+        console.debug('🔒 Access refused (expected):', {
+          url: error.config?.url,
+          code: errorData?.error?.code ?? errorData?.code,
+          message: errorData?.error?.message ?? errorData?.message,
+        });
+      } else {
+        console.error('❌ Response Error:', {
+          status: error.response?.status,
+          statusText: error.response?.statusText,
+          url: error.config?.url,
+          baseURL: error.config?.baseURL,
+          fullURL: error.config?.baseURL + error.config?.url,
+          data: errorData,
+          errorCode: errorData?.code,
+          errorMessage: errorData?.message,
+          message: error.message,
+          authorizationHeader: error.config?.headers?.Authorization ? 'Present' : 'Missing'
+        });
+
+        // Log full error data for 401 errors to help debug
+        if (error.response?.status === 401) {
+          console.error('❌ 401 Full Error Details:', JSON.stringify(errorData, null, 2));
+        }
       }
     }
 
@@ -877,17 +889,29 @@ export const productsAPI = {
   },
 
   // ── Multi-sheet linked workbook (Products/Variations/A+/Specs/Brands/…) ──
-  downloadWorkbook: async (kind: 'export' | 'template' = 'export'): Promise<void> => {
-    const path = kind === 'template' ? '/products/workbook/template' : '/products/workbook/export';
+  // `entity` chooses the file: 'catalog' = Products + Variations (+A+/Content Boxes)
+  // as ONE file; 'brands' | 'categories' | 'attributes' | 'tags' | 'specgroups'
+  // each export their own schema separately; 'all' = one combined workbook.
+  downloadWorkbook: async (
+    kind: 'export' | 'template' = 'export',
+    entity: 'all' | 'catalog' | 'brands' | 'categories' | 'attributes' | 'tags' | 'specgroups' = 'all'
+  ): Promise<void> => {
+    const path = kind === 'template'
+      ? '/products/workbook/template'
+      : `/products/workbook/export?entity=${encodeURIComponent(entity)}`;
     const response = await api.get(path, { responseType: 'blob' });
     const blob = new Blob([response.data], {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     });
     const date = new Date().toISOString().split('T')[0];
+    const stem: Record<string, string> = {
+      all: 'catalog', catalog: 'products-and-variations', brands: 'brands',
+      categories: 'categories', attributes: 'attributes', tags: 'tags', specgroups: 'spec-groups',
+    };
     const objUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = objUrl;
-    a.download = kind === 'template' ? 'catalog-import-template.xlsx' : `catalog-${date}.xlsx`;
+    a.download = kind === 'template' ? 'catalog-import-template.xlsx' : `${stem[entity] ?? 'catalog'}-${date}.xlsx`;
     a.click();
     URL.revokeObjectURL(objUrl);
   },
@@ -920,12 +944,19 @@ const safeError = (error: any) => {
     throw error;
   }
   const { status, data } = error.response;
+
+  // `data.error` is a STRING on some endpoints but a structured object
+  // ({ code, message, moduleKey, … }) on module/permission refusals. Using it
+  // blindly stringified the object, so users were shown the literal text
+  // "[object Object]" instead of the reason. Unwrap the object form first.
+  const structured = data?.error && typeof data.error === 'object' ? data.error : null;
   const message =
     data?.message ||
-    data?.error ||
+    structured?.message ||
+    (typeof data?.error === 'string' ? data.error : null) ||
     data?.errors?.[0]?.msg ||
     'Something went wrong. Please try again.';
-  const code = data?.code || data?.errorCode;
+  const code = data?.code || structured?.code || data?.errorCode;
 
   const wrapped = new Error(message) as Error & { status?: number; code?: string };
   wrapped.status = status;
@@ -2711,22 +2742,13 @@ export const usersAPI = {
     const response = await api.get(`/users/${id}`);
     return response.data;
   },
-  getOrders: async (id: string, params?: { page?: number; limit?: number }) => {
-    const response = await api.get(`/users/${id}/orders`, { params });
-    return response.data;
-  },
-  getAddresses: async (id: string) => {
-    const response = await api.get(`/users/${id}/addresses`);
-    return response.data;
-  },
-  getBrowsedProducts: async (id: string) => {
-    const response = await api.get(`/users/${id}/browsed-products`);
-    return response.data;
-  },
-  resetPassword: async (id: string, newPassword: string) => {
-    const response = await api.post(`/users/${id}/reset-password`, { newPassword });
-    return response.data;
-  },
+  // NOTE: /users is the STAFF collection (backend guards it with
+  // staff.read/manage/delete) and exposes only list/get/create/update/delete.
+  // The `/users/:id/orders`, `/addresses`, `/browsed-products` and
+  // `/reset-password` methods that used to live here called routes that have
+  // never existed — every one 404'd. Customer-shaped data comes from
+  // `customersAPI.getById`, which returns profile + orders + addresses + totals
+  // in a single request.
 };
 
 // Logs API

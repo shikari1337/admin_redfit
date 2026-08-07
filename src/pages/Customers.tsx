@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { customersAPI } from '../services/api';
 import { User, Phone, Mail, Search, ShoppingBag, Building2, Link2, Copy, Check, Loader2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -154,7 +155,12 @@ const Customers: React.FC = () => {
                           <User className="h-4 w-4 text-muted-foreground" />
                         </div>
                         <div className="flex flex-col">
-                          <span className="font-medium">{c.name || 'Guest / unnamed'}</span>
+                          <Link
+                            to={`/customers/${c.customer_id}`}
+                            className="font-medium text-primary hover:underline"
+                          >
+                            {c.name || 'Guest / unnamed'}
+                          </Link>
                           <span className="text-xs text-muted-foreground">ID: {String(c.customer_id).slice(-8)}</span>
                         </div>
                       </div>

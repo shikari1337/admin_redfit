@@ -33,16 +33,26 @@ const ProductImportExport: React.FC = () => {
   // mappings[sheetKey][canonicalColumn] = sourceHeader | SKIP
   const [mappings, setMappings] = useState<Record<string, Record<string, string>>>({});
   const [mode, setMode] = useState<'upsert' | 'create_only'>('upsert');
-  const [busy, setBusy] = useState<'preview' | 'validate' | 'import' | 'export' | 'template' | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
   const [result, setResult] = useState<ImportResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const download = async (kind: 'export' | 'template') => {
-    setBusy(kind); setError(null);
-    try { await productsAPI.downloadWorkbook(kind); }
+  type Entity = 'catalog' | 'brands' | 'categories' | 'attributes' | 'tags' | 'specgroups' | 'all';
+  const download = async (kind: 'export' | 'template', entity: Entity = 'all') => {
+    setBusy(kind === 'template' ? 'template' : `export:${entity}`); setError(null);
+    try { await productsAPI.downloadWorkbook(kind, entity); }
     catch (e: any) { setError(e?.response?.data?.message || e?.message || 'Download failed'); }
     finally { setBusy(null); }
   };
+  // Separate files per entity: products + their variations together; every other
+  // schema (brands, categories, attributes, tags) as its own downloadable file.
+  const ENTITY_EXPORTS: Array<{ entity: Entity; label: string }> = [
+    { entity: 'brands', label: 'Brands' },
+    { entity: 'categories', label: 'Categories' },
+    { entity: 'attributes', label: 'Attributes' },
+    { entity: 'tags', label: 'Tags' },
+    { entity: 'specgroups', label: 'Spec Groups' },
+  ];
 
   const onFile = async (f: File | null) => {
     setFile(f); setPreview(null); setResult(null); setError(null);
@@ -101,21 +111,41 @@ const ProductImportExport: React.FC = () => {
         </div>
       </div>
 
-      {/* Export row */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5 flex flex-wrap items-center gap-3">
-        <FileSpreadsheet className="h-5 w-5 text-red-600" />
-        <div className="flex-1 min-w-[220px]">
-          <p className="font-medium text-gray-900">Export</p>
-          <p className="text-sm text-gray-500">Download your whole catalog, or a blank template to fill in.</p>
+      {/* Export */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+        <div className="flex items-center gap-3">
+          <FileSpreadsheet className="h-5 w-5 text-red-600" />
+          <div className="flex-1 min-w-[220px]">
+            <p className="font-medium text-gray-900">Export</p>
+            <p className="text-sm text-gray-500">
+              Products &amp; their variations download as one file (each attribute gets its own column);
+              every other schema exports separately.
+            </p>
+          </div>
+          <Button variant="outline" onClick={() => download('template')} disabled={busy === 'template'}>
+            {busy === 'template' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+            Blank template
+          </Button>
         </div>
-        <Button variant="outline" onClick={() => download('template')} disabled={busy === 'template'}>
-          {busy === 'template' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-          Blank template
-        </Button>
-        <Button onClick={() => download('export')} disabled={busy === 'export'} className="bg-red-600 hover:bg-red-700">
-          {busy === 'export' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-          Export full catalog
-        </Button>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button onClick={() => download('export', 'catalog')} disabled={busy === 'export:catalog'} className="bg-red-600 hover:bg-red-700">
+            {busy === 'export:catalog' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+            Products &amp; Variations
+          </Button>
+          <span className="text-xs text-gray-400 px-1">or a single schema:</span>
+          {ENTITY_EXPORTS.map(({ entity, label }) => (
+            <Button key={entity} variant="outline" size="sm" onClick={() => download('export', entity)} disabled={busy === `export:${entity}`}>
+              {busy === `export:${entity}` ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Download className="mr-2 h-3.5 w-3.5" />}
+              {label}
+            </Button>
+          ))}
+          <div className="flex-1" />
+          <Button variant="ghost" size="sm" onClick={() => download('export', 'all')} disabled={busy === 'export:all'} className="text-gray-500">
+            {busy === 'export:all' ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+            Everything in one file
+          </Button>
+        </div>
       </div>
 
       {/* Import: file picker */}

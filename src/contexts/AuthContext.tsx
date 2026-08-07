@@ -37,12 +37,21 @@ export interface AuthState {
   storeApiKey: string | null;
   isLoaded: boolean;       // initial auth check complete
   isAuthenticated: boolean;
+  /**
+   * Set when the session could NOT be verified for a reason that is not a
+   * rejection — the server was unreachable, rate-limited us, or errored. The
+   * stored session is deliberately left intact in this state; the UI offers a
+   * retry instead of bouncing to /login (see `retryVerify`).
+   */
+  authUnreachable: boolean;
 }
 
 interface AuthContextValue extends AuthState {
   login: (token: string, storeApiKey: string) => Promise<void>;
   logout: (all?: boolean) => Promise<void>;
   refreshUser: () => Promise<void>;
+  /** Re-run the session check after an `authUnreachable` failure. */
+  retryVerify: () => Promise<void>;
   refreshModules: () => Promise<void>;
   canAccess: (module: string) => boolean;
   /** ERP permission check ('accounting.read', 'inventory.adjust', …). */
@@ -50,6 +59,15 @@ interface AuthContextValue extends AuthState {
   /** Panels available to this user, in preference order. */
   workspaces: string[];
   storeModules: Record<string, boolean>;
+  /**
+   * Has the store's module map been fetched at least once (success OR failure)?
+   *
+   * `canAccess()` deliberately fails OPEN for an unknown module key, so before
+   * the map arrives every module looks enabled. Gates must wait on this instead
+   * of rendering optimistically — otherwise a disabled module's page mounts for
+   * a frame, fires its request, and eats a 403 MODULE_DISABLED in the console.
+   */
+  modulesLoaded: boolean;
 }
 
 // ─── Session storage helpers ──────────────────────────────────────────────────
@@ -95,6 +113,23 @@ function isTokenExpired(token: string): boolean {
   const exp = decodeJwtExpiry(token);
   if (!exp) return false; // no expiry → assume valid
   return Date.now() > exp - 60_000; // 1-min buffer
+}
+
+/**
+ * Did GET /auth/me actually REJECT this session, or did it just fail to answer?
+ *
+ * Only 401/403 mean "this token is no good". Everything else — no response at
+ * all (server down, DNS, CORS, offline), 408/425/429, or any 5xx — says nothing
+ * about the token's validity, and must NOT destroy the session.
+ *
+ * This mattered in practice: /auth/me is mounted under the backend's blanket
+ * `/auth/` brute-force limiter (40 req / 15 min, keyed by IP), so a handful of
+ * hard refreshes — or several staff sharing one office IP — returned 429 and
+ * silently logged everyone out of the admin panel.
+ */
+function isSessionRejection(err: unknown): boolean {
+  const status = (err as { response?: { status?: number } })?.response?.status;
+  return status === 401 || status === 403;
 }
 
 export function saveSession(token: string, storeApiKey: string): void {
@@ -177,8 +212,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     storeApiKey: null,
     isLoaded: false,
     isAuthenticated: false,
+    authUnreachable: false,
   });
   const [storeModules, setStoreModules] = useState<Record<string, boolean>>({});
+  const [modulesLoaded, setModulesLoaded] = useState(false);
   const initRan = useRef(false);
 
   // Reloads the store's module map. Kept separate so it can also run on window
@@ -193,32 +230,82 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const modMap: Record<string, boolean> = {};
       for (const m of modsList) modMap[m.key] = m.enabled !== false;
       setStoreModules(modMap);
-    } catch { /* modules not critical */ }
+    } catch {
+      // Modules aren't critical: on failure we keep the empty map, which makes
+      // canAccess() fail OPEN. Better a visible page that 403s server-side than
+      // locking an admin out of their own store over a flaky request.
+    } finally {
+      // Either way the gates may now stop waiting.
+      setModulesLoaded(true);
+    }
   }, []);
 
   const fetchAndSetUser = useCallback(async (token: string, storeApiKey: string): Promise<boolean> => {
-    try {
-      const userData = await authAPI.me();
-      const user: AdminUser = userData?.data ?? userData;
-      if (!user?._id && !user?.email) throw new Error('Invalid user response');
+    // Transient failures get a few short retries before we give up — a 429 from
+    // the auth limiter or a backend restart shouldn't cost the admin their session.
+    const BACKOFF_MS = [400, 1200, 3000];
 
-      setState({
-        user,
-        token,
-        storeApiKey,
-        isLoaded: true,
-        isAuthenticated: true,
-      });
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const userData = await authAPI.me();
+        const user: AdminUser = userData?.data ?? userData;
+        // A 200 with an unrecognisable body is a server-side problem, not a
+        // rejection — treat it as transient rather than shredding the session.
+        if (!user?._id && !user?.email) throw new Error('Invalid user response');
 
-      // Load store modules in background (fresh from the platform toggles).
-      refreshModules();
-      return true;
-    } catch {
-      clearSession();
-      setState({ user: null, token: null, storeApiKey: null, isLoaded: true, isAuthenticated: false });
-      return false;
+        setState({
+          user,
+          token,
+          storeApiKey,
+          isLoaded: true,
+          isAuthenticated: true,
+          authUnreachable: false,
+        });
+
+        // Load store modules in background (fresh from the platform toggles).
+        refreshModules();
+        return true;
+      } catch (err) {
+        if (isSessionRejection(err)) {
+          // The server explicitly refused this token — the session really is dead.
+          clearSession();
+          setState({
+            user: null, token: null, storeApiKey: null,
+            isLoaded: true, isAuthenticated: false, authUnreachable: false,
+          });
+          return false;
+        }
+
+        if (attempt < BACKOFF_MS.length) {
+          await new Promise(r => setTimeout(r, BACKOFF_MS[attempt]));
+          continue;
+        }
+
+        // Couldn't reach a verdict. KEEP the stored session — the token may well
+        // be fine — and let the UI offer a retry instead of a silent logout.
+        setState({
+          user: null, token, storeApiKey,
+          isLoaded: true, isAuthenticated: false, authUnreachable: true,
+        });
+        return false;
+      }
     }
   }, [refreshModules]);
+
+  // Re-run the session check after an "unreachable" failure (retry button).
+  const retryVerify = useCallback(async () => {
+    const session = loadSession();
+    if (!session) {
+      setState({
+        user: null, token: null, storeApiKey: null,
+        isLoaded: true, isAuthenticated: false, authUnreachable: false,
+      });
+      return;
+    }
+    setState(s => ({ ...s, isLoaded: false, authUnreachable: false }));
+    setTenantApiKey(session.storeApiKey);
+    await fetchAndSetUser(session.token, session.storeApiKey);
+  }, [fetchAndSetUser]);
 
   // Bootstrap: restore session on mount
   useEffect(() => {
@@ -268,8 +355,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch { /* ignore */ }
     clearSession();
     setTenantApiKey(null);
-    setState({ user: null, token: null, storeApiKey: null, isLoaded: true, isAuthenticated: false });
+    setState({
+      user: null, token: null, storeApiKey: null,
+      isLoaded: true, isAuthenticated: false, authUnreachable: false,
+    });
     setStoreModules({});
+    setModulesLoaded(false);
   }, []);
 
   const refreshUser = useCallback(async () => {
@@ -309,7 +400,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     : [];
 
   return (
-    <AuthContext.Provider value={{ ...state, login, logout, refreshUser, refreshModules, canAccess, hasPerm, workspaces, storeModules }}>
+    <AuthContext.Provider value={{ ...state, login, logout, refreshUser, retryVerify, refreshModules, canAccess, hasPerm, workspaces, storeModules, modulesLoaded }}>
       {children}
     </AuthContext.Provider>
   );
