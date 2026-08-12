@@ -2590,6 +2590,33 @@ export const invoicesAPI = {
     const response = await api.post(`/invoices/order/${orderId}/send`, opts);
     return response.data;
   },
+
+  /**
+   * Record the billing details the store produced OUTSIDE this software: the
+   * invoice number its own accounting package issued, the invoice date, and who
+   * sold the order. Sending `invoiceNumber: ''` clears it and hands numbering
+   * back to the system series.
+   */
+  saveDetails: async (orderId: string, body: { invoiceNumber?: string; invoiceDate?: string; salesperson?: string }) => {
+    const response = await api.put(`/invoices/order/${orderId}/details`, body);
+    return response.data;
+  },
+
+  /** Upload the store's OWN invoice PDF — it replaces the generated one. */
+  uploadManual: async (orderId: string, file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    const response = await api.post(`/invoices/order/${orderId}/manual`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+
+  /** Remove the uploaded PDF; the generated invoice applies again. */
+  removeManual: async (orderId: string) => {
+    const response = await api.delete(`/invoices/order/${orderId}/manual`);
+    return response.data;
+  },
 };
 
 export const orderNumberingAPI = {

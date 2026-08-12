@@ -85,7 +85,24 @@ const OrderItems: React.FC<OrderItemsProps> = ({ items, b2bTier, orderDiscount =
     const orderShare = itemsValue > 0 ? (orderDiscount * lineTotal) / itemsValue : 0;
     const discAmt = mrpDiscount + orderShare;
     const baseValue = (mrp !== undefined && mrp > 0 ? mrp : price) * qty;
-    const discPct = baseValue > 0 ? (discAmt / baseValue) * 100 : 0;
+    /**
+     * The PERCENTAGE describes THIS LINE's own price cut (MRP → charged) and
+     * nothing else. It used to be `(mrpDiscount + orderShare) / baseValue`,
+     * which folded a pro-rated share of the ORDER-level discount (coupon,
+     * online-payment discount) into the same figure and still labelled it
+     * "off MRP" — so a line genuinely sold at the 30% B2B rate displayed
+     * "31.4% off MRP" once a 2% payment discount existed on the order. Two
+     * different discounts, one number, wrong label (COMMON_MISTAKES #91).
+     * The order-level share is still shown — as its own rupee line below.
+     */
+    const discPct = baseValue > 0 ? (mrpDiscount / baseValue) * 100 : 0;
+    // What the B2B agreement is actually written against: the cut off RETAIL.
+    // Only meaningful when the line carries a retail snapshot above the charged
+    // price (i.e. it really was B2B-priced).
+    const retailNum = Number(item.retailPrice ?? item.retail_price ?? NaN);
+    const offRetailPct = Number.isFinite(retailNum) && retailNum > price && retailNum > 0
+      ? ((retailNum - price) / retailNum) * 100
+      : null;
     return {
       item,
       name: item.catalog_name || item.catalogName || item.product_name || item.productName || 'Unnamed product',
@@ -99,6 +116,7 @@ const OrderItems: React.FC<OrderItemsProps> = ({ items, b2bTier, orderDiscount =
       orderShare,
       discAmt,
       discPct,
+      offRetailPct,
       retail: item.retailPrice ?? item.retail_price,
       source: item.priceSource ?? item.price_source,
       bundle: item.bundle_applied || item.bundleApplied,
@@ -197,10 +215,20 @@ const OrderItems: React.FC<OrderItemsProps> = ({ items, b2bTier, orderDiscount =
                         {r.discAmt > 0.009 ? (
                           <>
                             <span className="font-medium text-green-700">{money(r.discAmt)}</span>
-                            <div className="text-xs text-green-700">({r.discPct.toFixed(1)}% off{r.mrp !== undefined && r.mrp > r.price ? ' MRP' : ''})</div>
-                            {r.orderShare > 0.009 && r.mrpDiscount > 0.009 && (
+                            {/* The % describes THIS LINE's own cut only. The
+                                order-level share is a separate rupee line — it
+                                is a different discount and must not inflate the
+                                per-line percentage. */}
+                            {r.mrpDiscount > 0.009 && (
+                              <div className="text-xs text-green-700">
+                                ({r.discPct.toFixed(1)}% off{r.mrp !== undefined && r.mrp > r.price ? ' MRP' : ''}
+                                {r.offRetailPct != null && ` · ${r.offRetailPct.toFixed(1)}% off retail`})
+                              </div>
+                            )}
+                            {r.orderShare > 0.009 && (
                               <div className="text-[10px] text-muted-foreground">
-                                {money(r.mrpDiscount)} price + {money(r.orderShare)} order disc.
+                                {r.mrpDiscount > 0.009 ? `${money(r.mrpDiscount)} line + ` : ''}
+                                {money(r.orderShare)} order discount
                               </div>
                             )}
                           </>

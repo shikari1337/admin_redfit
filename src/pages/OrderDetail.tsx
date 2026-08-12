@@ -24,6 +24,7 @@ import {
   OrderFulfillmentCard,
   OrderJourneyCard,
   OrderItemsEditModal,
+  OrderBillingCard,
   OrderAddressEditor,
 } from '../components/order';
 import { PickupModal } from '../components/shipments';
@@ -74,7 +75,7 @@ const OrderDetail: React.FC = () => {
     navigate('/orders');
     return null;
   }
-  const { canAccess } = useAuth();
+  const { canAccess, hasPerm } = useAuth();
   const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
@@ -1056,6 +1057,21 @@ const OrderDetail: React.FC = () => {
           })()}
 
           <OrderJourneyCard attribution={order.attribution} />
+
+          {/* Invoice number from the store's own billing software, salesperson,
+              and an uploaded invoice PDF that replaces the generated one. */}
+          <OrderBillingCard
+            orderId={id!}
+            invoiceNumber={order.invoiceNumber ?? order.invoice_number}
+            invoiceDate={order.invoiceDate ?? order.invoice_date}
+            invoiceNumberSource={order.invoiceNumberSource ?? order.invoice_number_source}
+            salesperson={order.salesperson}
+            manualInvoiceUrl={order.manualInvoiceUrl ?? order.manual_invoice_url}
+            manualInvoiceFilename={order.manualInvoiceFilename ?? order.manual_invoice_filename}
+            manualInvoiceUploadedBy={order.manualInvoiceUploadedBy ?? order.manual_invoice_uploaded_by}
+            canManage={hasPerm('orders.manage')}
+            onSaved={fetchOrder}
+          />
 
           <Card className="shadow-sm">
             <CardContent className="p-0">

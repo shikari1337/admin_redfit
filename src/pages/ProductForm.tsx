@@ -60,6 +60,7 @@ type TabId = 'general' | 'pricing' | 'media' | 'content' | 'variants' | 'related
  *  save NAVIGATES to the right tab before scrolling. */
 const ERROR_TAB_MAP: Record<string, TabId> = {
   name: 'general', categories: 'general', tags: 'general',
+  variations: 'variants',
   price: 'pricing', originalPrice: 'pricing', salePrice: 'pricing',
   saleStartsAt: 'pricing', saleEndsAt: 'pricing',
   weight: 'pricing', length: 'pricing', breadth: 'pricing', height: 'pricing',
@@ -794,9 +795,41 @@ const ProductForm: React.FC = () => {
   const validateForm = (): boolean => {
     const e: Record<string, string> = {};
     if (!formData.name.trim()) e.name = 'Product name is required';
-    if (!formData.price || parseFloat(formData.price) <= 0) e.price = 'Valid price is required';
-    if (!formData.originalPrice || parseFloat(formData.originalPrice) <= 0) e.originalPrice = 'Valid MRP is required';
-    if (parseFloat(formData.originalPrice) < parseFloat(formData.price)) e.originalPrice = 'MRP must be ≥ selling price';
+    /**
+     * Pricing rules follow the product TYPE. A variable product prices per
+     * VARIANT — its parent-level price is only a fallback (the Pricing tab even
+     * hides those inputs behind a collapsed section). Demanding a parent price
+     * here while the inputs were hidden was the trap that made creating a new
+     * variable product impossible: the Variants tab said "save first" and this
+     * validator made saving fail (COMMON_MISTAKES #90 / docs/PRODUCT_FORM_PLAN.md D1+D2).
+     */
+    const isVariable = formData.productType === 'variation';
+    if (!isVariable) {
+      if (!formData.price || parseFloat(formData.price) <= 0) e.price = 'Valid price is required';
+      if (!formData.originalPrice || parseFloat(formData.originalPrice) <= 0) e.originalPrice = 'Valid MRP is required';
+      if (parseFloat(formData.originalPrice) < parseFloat(formData.price)) e.originalPrice = 'MRP must be ≥ selling price';
+    } else {
+      // The variants carry the prices — validate THEM, on their own tab.
+      const rows = formData.variations || [];
+      const active = rows.filter(v => v.isActive !== false);
+      if (!rows.length) {
+        e.variations = 'This is a variable product — generate at least one variant on the Variants tab before saving.';
+      } else if (!active.length) {
+        e.variations = 'Every variant is inactive. Activate at least one, or switch the product type to Simple.';
+      } else {
+        const noPrice = active.filter(v => !(Number(v.price) > 0)).length;
+        const badMrp = active.filter(v => Number(v.price) > 0 && v.originalPrice != null
+          && Number(v.originalPrice) > 0 && Number(v.originalPrice) < Number(v.price)).length;
+        if (noPrice) e.variations = `${noPrice} active variant${noPrice === 1 ? ' has' : 's have'} no price — fill it in or deactivate ${noPrice === 1 ? 'it' : 'them'}.`;
+        else if (badMrp) e.variations = `${badMrp} variant${badMrp === 1 ? ' has' : 's have'} MRP below the selling price.`;
+      }
+      // The optional parent FALLBACK price only needs to be self-consistent.
+      if (formData.price && formData.originalPrice
+        && parseFloat(formData.originalPrice) > 0
+        && parseFloat(formData.originalPrice) < parseFloat(formData.price)) {
+        e.originalPrice = 'Fallback MRP must be ≥ the fallback selling price';
+      }
+    }
     // Sale price rules: needs a start date/time, must be below selling price, end after start.
     if (formData.salePrice && parseFloat(formData.salePrice) > 0) {
       if (parseFloat(formData.salePrice) >= parseFloat(formData.price)) e.salePrice = 'Sale price must be below the selling price';
@@ -937,7 +970,10 @@ const ProductForm: React.FC = () => {
       const payload: Record<string, any> = {
         name: fd.name, title: fd.title || undefined, slug: ns,
         sku: fd.sku?.trim().toUpperCase() || undefined,
-        price: parseFloat(fd.price), originalPrice: parseFloat(fd.originalPrice),
+        // NaN-safe: a variable product may legitimately leave the parent
+        // fallback price empty (variants price themselves; DB default is 0 and
+        // every price read COALESCEs variant → product around a 0).
+        price: parseFloat(fd.price) || 0, originalPrice: parseFloat(fd.originalPrice) || 0,
         salePrice: fd.salePrice ? parseFloat(fd.salePrice) : null,
         saleStartsAt: fd.saleStartsAt || null, saleEndsAt: fd.saleEndsAt || null,
         // Short Description → short_desc; Full Description → long_desc AND rich_desc
@@ -970,6 +1006,12 @@ const ProductForm: React.FC = () => {
         // the array so single-product assignments persist; the backend sets
         // product_attributes from any array it receives (put.ts).
         attributeIds: cleanedAttributeIds,
+        // …and WHICH VALUES were ticked. This was collected in state and shown as
+        // "(1 selected)" but never sent, so every selection was discarded on save
+        // and the storefront had nothing to show. Sent as `{attributeId: [valueId]}`
+        // and stored in product_attribute_values (migration 117) — the only home a
+        // SIMPLE product has for them, since it has no variations to imply them.
+        selectedAttributeValues: fd.selectedAttributeValues || {},
         variations: productType === 'variation' ? (cleanedVariations ?? []) : undefined,
         categories: sanitizedCategories, featuredCategory: fd.featuredCategory || null,
         tags: fd.tags.map(t => (typeof t === 'object' && t._id ? t._id : t)).filter(Boolean),
@@ -1588,14 +1630,40 @@ const ProductForm: React.FC = () => {
           {/* ══ VARIANTS ═════════════════════════════════════════════════════ */}
           {showVariantsTab && (
           <TabsContent value="variants" forceMount className={tabContentCls}>
-            <div className="max-w-5xl">
-              <ProductVariantGroupPanel
-                productId={resolvedProductId}
-                productName={formData.name}
-                hasLegacyVariations={formData.variations.length > 0}
-                initialGroup={variantGroup}
-                legacyEditor={legacyVariationsEditor}
-              />
+            <div className="max-w-5xl space-y-4">
+              {errors.variations && (
+                <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3.5 py-2.5 font-medium">
+                  {errors.variations}
+                </p>
+              )}
+              {formData.productType === 'variation' ? (
+                <>
+                  {/* The matrix editor renders IMMEDIATELY — including for a
+                      brand-new unsaved product. It used to hide behind
+                      "variations.length > 0", which for a new product meant the
+                      tab showed only the group panel's "Save the product first"
+                      dead-end: no path to the first variant existed at all
+                      (docs/PRODUCT_FORM_PLAN.md, defect D1). */}
+                  {legacyVariationsEditor}
+                  {variantGroup && (
+                    <ProductVariantGroupPanel
+                      productId={resolvedProductId}
+                      productName={formData.name}
+                      hasLegacyVariations={false}
+                      initialGroup={variantGroup}
+                    />
+                  )}
+                </>
+              ) : (
+                /* Simple product that is a member of a variant-link group
+                   (mig 109): manage the group membership here, unchanged. */
+                <ProductVariantGroupPanel
+                  productId={resolvedProductId}
+                  productName={formData.name}
+                  hasLegacyVariations={false}
+                  initialGroup={variantGroup}
+                />
+              )}
             </div>
           </TabsContent>
           )}

@@ -618,7 +618,9 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
       <div className="px-6 py-4 border-b border-gray-200">
         <h2 className="text-sm font-semibold text-gray-900">Variants</h2>
         <p className="text-xs text-gray-500 mt-0.5">
-          Select attributes, choose values, then generate variant combinations
+          <span className="font-medium text-gray-700">1</span> Tick what varies&ensp;·&ensp;
+          <span className="font-medium text-gray-700">2</span> Tick the values of each&ensp;·&ensp;
+          <span className="font-medium text-gray-700">3</span> Generate, then set prices &amp; stock per pack
         </p>
       </div>
 
@@ -628,7 +630,7 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
             and generated variations carry brandId → primary_brand_id). */}
         <div>
           <label className="block text-xs font-medium text-gray-700 uppercase tracking-wide mb-3">
-            Attributes <span className="normal-case text-gray-400 font-normal">— brand, potency, size</span>
+            What varies? <span className="normal-case text-gray-400 font-normal">— tick an attribute, then tick its values (e.g. Brand, Potency, Volume)</span>
           </label>
           {loadingAttributes ? (
             <div className="text-sm text-gray-500">Loading attributes...</div>
@@ -980,24 +982,63 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
           )}
         </div>
 
-        {/* Generate Button */}
-        {(selectedAttributeIds.length > 0 || selectedBrandIds.length > 0) && (
-          <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={generateVariations}
-              disabled={(() => {
-                // Brand-named attributes are excluded from generation (brand
-                // crosses via the Brand row) — they must not gate the button.
-                const selectedAttrs = availableAttributes.filter(a =>
-                  selectedAttributeIds.includes(a._id) && !(availableBrands.length > 0 && isBrandAttribute(a)));
-                return !selectedAttrs.every(attr => (selectedAttributeValues[attr._id] || []).length > 0) || loadingAttributes;
-              })()}
-              className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-            >
-              <FaMagic size={13} />
-              Generate Variants
-            </button>
+        {/* Generate — with a live preview of what will be created, so the
+            merchant sees "12 variants (2 brands × 3 potencies × 2 sizes)"
+            BEFORE committing instead of discovering the count afterwards. */}
+        {(selectedAttributeIds.length > 0 || selectedBrandIds.length > 0) && (() => {
+          // Brand-named attributes are excluded from generation (brand crosses
+          // via the Brand row) — they must not gate the button or the count.
+          const crossAttrs = availableAttributes.filter(a =>
+            selectedAttributeIds.includes(a._id) && !(availableBrands.length > 0 && isBrandAttribute(a)));
+          const missingValues = crossAttrs.filter(attr => (selectedAttributeValues[attr._id] || []).length === 0);
+          const parts: string[] = [];
+          let count = 1;
+          if (selectedBrandIds.length > 0) {
+            count *= selectedBrandIds.length;
+            parts.push(`${selectedBrandIds.length} brand${selectedBrandIds.length === 1 ? '' : 's'}`);
+          }
+          for (const attr of crossAttrs) {
+            const n = (selectedAttributeValues[attr._id] || []).length;
+            if (n > 0) { count *= n; parts.push(`${n} ${attr.name.toLowerCase()}${n === 1 ? '' : 's'}`); }
+          }
+          const ready = missingValues.length === 0 && !loadingAttributes;
+          return (
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 justify-between border-t border-dashed border-gray-200 pt-4">
+              <p className="text-xs text-gray-500 min-w-0">
+                {!ready ? (
+                  <>Tick at least one value for{' '}
+                    <span className="font-medium text-amber-700">
+                      {missingValues.map(a => a.name).join(', ')}
+                    </span>{' '}to enable generation.</>
+                ) : (
+                  <>Will create <span className="font-semibold text-gray-900">{count} variant{count === 1 ? '' : 's'}</span>
+                    {parts.length > 1 && <span className="text-gray-400"> ({parts.join(' × ')})</span>}.
+                    Existing rows with the same combination are kept, not duplicated.</>
+                )}
+              </p>
+              <button
+                type="button"
+                onClick={generateVariations}
+                disabled={!ready}
+                className="shrink-0 px-5 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+              >
+                <FaMagic size={13} />
+                {ready ? `Generate ${count} variant${count === 1 ? '' : 's'}` : 'Generate variants'}
+              </button>
+            </div>
+          );
+        })()}
+
+        {/* First-run guidance — a new variable product starts here. */}
+        {variations.length === 0 && selectedAttributeIds.length === 0 && selectedBrandIds.length === 0 && (
+          <div className="text-center py-8 border-2 border-dashed border-gray-200 rounded-lg">
+            <p className="text-sm font-medium text-gray-700">No variants yet</p>
+            <p className="text-xs text-gray-500 mt-1 max-w-md mx-auto">
+              Tick what varies above — for example <span className="font-medium">Brand</span>,{' '}
+              <span className="font-medium">Potency</span> and <span className="font-medium">Volume</span> —
+              tick the values of each, then press Generate. Every combination becomes one sellable pack
+              with its own SKU, price and stock.
+            </p>
           </div>
         )}
 
