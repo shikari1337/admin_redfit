@@ -57,6 +57,16 @@ const ApiIntegrationSettings: React.FC = () => {
       isEnabled: false,
       useMetaApi: true,
     },
+    // In-house Growcord gateway — saved under the `whatsapp_settings` key that
+    // services/messaging/whatsapp actually reads (separate from `whatsapp`).
+    whatsapp_settings: {
+      apiUrl: '',
+      apiKey: '',
+      apiKeySet: false,
+      phoneNumberId: '',
+      isEnabled: true,
+      channelPriority: 'whatsapp_first',
+    },
     gemini: {
       useEnvVars: false,
       apiKey: '',
@@ -141,6 +151,20 @@ const ApiIntegrationSettings: React.FC = () => {
           }));
         }
 
+        if (settings.whatsapp_settings) {
+          setFormData(prev => ({
+            ...prev,
+            whatsapp_settings: {
+              ...prev.whatsapp_settings,
+              ...settings.whatsapp_settings,
+              // The server never returns the key itself, only `apiKeySet`.
+              apiKey: settings.whatsapp_settings.apiKeySet ? '••••••••' : '',
+              isEnabled: settings.whatsapp_settings.isEnabled !== false,
+              channelPriority: settings.whatsapp_settings.channelPriority || 'whatsapp_first',
+            },
+          }));
+        }
+
         if (settings.gemini) {
           setFormData(prev => ({
             ...prev,
@@ -188,6 +212,14 @@ const ApiIntegrationSettings: React.FC = () => {
           accessToken: formData.whatsapp.accessToken && !formData.whatsapp.accessToken.startsWith('••••') ? formData.whatsapp.accessToken : undefined,
           authToken: formData.whatsapp.authToken && !formData.whatsapp.authToken.startsWith('••••') ? formData.whatsapp.authToken : undefined,
         },
+        whatsapp_settings: (() => {
+          // `apiKeySet` is a server-side read flag, never sent back.
+          const { apiKeySet, apiKey, ...rest } = formData.whatsapp_settings;
+          return {
+            ...rest,
+            apiKey: apiKey && !apiKey.startsWith('••••') ? apiKey : undefined,
+          };
+        })(),
         gemini: {
           ...formData.gemini,
           apiKey: formData.gemini.apiKey && !formData.gemini.apiKey.startsWith('••••') ? formData.gemini.apiKey : undefined,
@@ -578,6 +610,83 @@ const ApiIntegrationSettings: React.FC = () => {
                 </p>
               </div>
             )}
+
+            {/*
+              Growcord gateway (wa.growcord.in) — the IN-HOUSE provider the
+              backend actually uses by default (services/messaging/whatsapp).
+              It reads apiUrl/apiKey/phoneNumberId from the `whatsapp_settings`
+              key, which NOTHING in the admin used to write: a store could not
+              point the gateway at its own number and silently fell back to the
+              platform's env credentials. The Meta/Twilio fields below are a
+              separate (`whatsapp`) key and are unaffected.
+            */}
+            <div className="rounded-lg border p-4 space-y-4 bg-muted/30">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold">Growcord WhatsApp Gateway (in-house)</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Used first for order updates, OTPs and cart recovery. Leave blank to use the
+                    platform's shared account.
+                  </p>
+                </div>
+                <label className="flex items-center gap-2 cursor-pointer shrink-0">
+                  <Checkbox
+                    checked={formData.whatsapp_settings.isEnabled}
+                    onCheckedChange={(c) => handleChange('whatsapp_settings', 'isEnabled', c as boolean)}
+                  />
+                  <span className="text-sm">Enabled</span>
+                </label>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">API URL</label>
+                  <Input
+                    type="text"
+                    value={formData.whatsapp_settings.apiUrl}
+                    onChange={(e) => handleChange('whatsapp_settings', 'apiUrl', e.target.value)}
+                    placeholder="https://wa.growcord.in/api"
+                  />
+                  <p className="text-[11px] text-muted-foreground">Base URL without the trailing /v1.</p>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">API Key</label>
+                  <Input
+                    type="password"
+                    value={formData.whatsapp_settings.apiKey}
+                    onChange={(e) => handleChange('whatsapp_settings', 'apiKey', e.target.value)}
+                    placeholder={formData.whatsapp_settings.apiKeySet ? 'Leave blank to keep current' : 'sk_live_…'}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    {formData.whatsapp_settings.apiKeySet ? 'A key is saved and encrypted.' : 'Stored encrypted.'}
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">Phone Number ID</label>
+                  <Input
+                    type="text"
+                    value={formData.whatsapp_settings.phoneNumberId}
+                    onChange={(e) => handleChange('whatsapp_settings', 'phoneNumberId', e.target.value)}
+                    placeholder="WhatsApp phone number ID"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">Channel priority</label>
+                  <select
+                    className="w-full h-10 rounded-md border bg-background px-3 text-sm"
+                    value={formData.whatsapp_settings.channelPriority}
+                    onChange={(e) => handleChange('whatsapp_settings', 'channelPriority', e.target.value)}
+                  >
+                    <option value="whatsapp_first">WhatsApp first, SMS if it fails (recommended)</option>
+                    <option value="sms_first">SMS first, WhatsApp if it fails</option>
+                    <option value="both">Send both every time</option>
+                  </select>
+                  <p className="text-[11px] text-muted-foreground">
+                    Applies to order updates, OTP and cart recovery.
+                  </p>
+                </div>
+              </div>
+            </div>
 
             <div className={`flex flex-col gap-3 ${formData.whatsapp.useEnvVars ? 'opacity-50 pointer-events-none' : ''}`}>
               <label className="flex items-center gap-2 cursor-pointer">

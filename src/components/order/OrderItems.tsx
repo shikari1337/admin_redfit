@@ -38,6 +38,8 @@ interface OrderItem {
   price_source?: string | null;
   priceSource?: string | null;
   image?: string;
+  /** Resolved variation photo from the backend — prefer this over `image`. */
+  catalog_image?: string | null;
   attributes?: Record<string, string>;
   variant?: {
     colorName: string;
@@ -164,9 +166,14 @@ const OrderItems: React.FC<OrderItemsProps> = ({ items, b2bTier, orderDiscount =
                     <TableRow key={index}>
                       <TableCell>
                         <div className="flex items-center gap-3">
-                          {r.item.image ? (
+                          {/* `catalog_image` is the resolved VARIATION photo
+                              (db/queries/orders.ts). `item.image` is the
+                              cart-time snapshot, which can hold the PARENT
+                              product's photo even on a line that has a
+                              variation — staff then pick the wrong pack. */}
+                          {(r.item.catalog_image || r.item.image) ? (
                             <img
-                              src={r.item.image}
+                              src={r.item.catalog_image || r.item.image}
                               alt={r.name}
                               className="w-12 h-12 rounded-md object-cover border bg-muted flex-shrink-0"
                             />
