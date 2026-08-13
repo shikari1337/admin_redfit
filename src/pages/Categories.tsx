@@ -1,16 +1,30 @@
+/**
+ * Categories — hierarchy manager for the storefront.
+ *
+ * Layout: a searchable parent/child TREE on the left, a TABBED editor on the
+ * right (Basics · SEO · Filter · Featured). The page previously listed every
+ * category flat — with 560+ of them the hierarchy was invisible — and stacked
+ * every field into one long scroll, so the attribute filter and SEO fields sat
+ * below the fold and were routinely missed.
+ */
 import React, { useEffect, useMemo, useState } from 'react';
-import { FaPlus, FaSave, FaUndo, FaTrash } from 'react-icons/fa';
+import {
+  Plus, Save, RotateCcw, Trash2, Search, ChevronRight, ChevronDown,
+  Star, EyeOff, FolderTree,
+} from 'lucide-react';
 import { categoriesAPI, attributesAPI } from '../services/api';
 import ImageInputWithActions from '../components/common/ImageInputWithActions';
 import IconPicker, { getIconComponent } from '../components/IconPicker';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
-import { Badge } from "@/components/ui/badge";
+import CategoryFeaturedPicker, { FeaturedMode, FeaturedValue } from '../components/category/CategoryFeaturedPicker';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 interface Category {
   _id: string;
@@ -23,8 +37,56 @@ interface Category {
   isActive?: boolean;
   isPublic?: boolean;
   parent?: string | null;
+  featuredMode?: FeaturedMode;
+  featuredProductIds?: string[];
+  featuredBrandIds?: string[];
+  featuredLimit?: number;
   createdAt?: string;
   updatedAt?: string;
+}
+
+/**
+ * GET /categories returns RAW snake_case rows — `id`, `parent_id`, `is_active`,
+ * `image_url`, `display_order`, `meta_*` — with no camelCase transform in
+ * `categoriesAPI`. Reading `_id` / `parent` / `isActive` therefore silently
+ * yielded undefined, which had a nasty consequence: because `parent` was always
+ * undefined, the edit form fell back to "none" and every save posted
+ * `parent: null`, DETACHING the category from its parent. 536 of the 566
+ * categories here have a parent, so editing any of them quietly flattened the
+ * tree.
+ *
+ * Normalising once, on fetch, is the fix: everything below this line works with
+ * one predictable shape. Both spellings are accepted so the page keeps working
+ * if a camelCase transform is ever added upstream.
+ */
+function normalizeCategory(raw: any): Category {
+  const g = (camel: string, snake: string, fallback: any = undefined) =>
+    raw?.[camel] ?? raw?.[snake] ?? fallback;
+  const parent = g('parent', 'parent_id', null);
+  return {
+    _id: String(raw?._id ?? raw?.id ?? ''),
+    name: raw?.name ?? '',
+    slug: raw?.slug ?? '',
+    description: raw?.description ?? '',
+    imageUrl: g('imageUrl', 'image_url', '') ?? '',
+    icon: raw?.icon ?? '',
+    displayOrder: Number(g('displayOrder', 'display_order', 0)) || 0,
+    isActive: g('isActive', 'is_active', true) !== false,
+    isPublic: g('isPublic', 'is_public', true) !== false,
+    parent: parent ? String(parent) : null,
+    featuredMode: (g('featuredMode', 'featured_mode', 'off') || 'off') as FeaturedMode,
+    featuredProductIds: g('featuredProductIds', 'featured_product_ids', []) ?? [],
+    featuredBrandIds: g('featuredBrandIds', 'featured_brand_ids', []) ?? [],
+    featuredLimit: Number(g('featuredLimit', 'featured_limit', 10)) || 10,
+    // Carried through for the editor (SEO + attribute filter tabs).
+    ...{
+      metaTitle: g('metaTitle', 'meta_title', ''),
+      metaDesc: g('metaDesc', 'meta_desc', ''),
+      ogImageUrl: g('ogImageUrl', 'og_image_url', ''),
+      filterAttributeSlug: g('filterAttributeSlug', 'filter_attribute_slug', ''),
+      filterAttributeValue: g('filterAttributeValue', 'filter_attribute_value', ''),
+    } as any,
+  };
 }
 
 const emptyForm = {
@@ -46,22 +108,29 @@ const emptyForm = {
   filterAttributeMode: 'only', // 'only' (show only matching) | 'exclude' (hide matching)
 };
 
+const emptyFeatured: FeaturedValue = { mode: 'off', productIds: [], brandIds: [], limit: 10 };
+
+/** Read a field that may arrive camelCase (admin transform) or snake_case (raw row). */
+const pick = (o: any, camel: string, snake: string, fallback: any = undefined) =>
+  o?.[camel] ?? o?.[snake] ?? fallback;
+
 const Categories: React.FC = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [attributes, setAttributes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [formState, setFormState] = useState({
-    ...emptyForm,
-  });
+  const [formState, setFormState] = useState({ ...emptyForm });
+  const [featured, setFeatured] = useState<FeaturedValue>({ ...emptyFeatured });
   const [error, setError] = useState<string | null>(null);
   const [imageUploading, setImageUploading] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
+  const [tab, setTab] = useState('basics');
+  const [search, setSearch] = useState('');
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     fetchCategories();
-    // Attributes (+ their values) power the "prioritise attribute" picker below.
     attributesAPI.list({ isActive: true })
       .then((a: any) => setAttributes(Array.isArray(a) ? a : []))
       .catch(() => setAttributes([]));
@@ -71,15 +140,11 @@ const Categories: React.FC = () => {
     setLoading(true);
     try {
       const response = await categoriesAPI.list();
-      let categories: any[] = [];
-      if (Array.isArray(response)) {
-        categories = response;
-      } else if (Array.isArray(response?.data)) {
-        categories = response.data;
-      } else if (Array.isArray(response?.data?.data)) {
-        categories = response.data.data;
-      }
-      setCategories(categories);
+      let rows: any[] = [];
+      if (Array.isArray(response)) rows = response;
+      else if (Array.isArray(response?.data)) rows = response.data;
+      else if (Array.isArray(response?.data?.data)) rows = response.data.data;
+      setCategories(rows.map(normalizeCategory).filter((c) => c._id));
       setError(null);
     } catch (err: any) {
       console.error('Failed to fetch categories', err);
@@ -93,13 +158,16 @@ const Categories: React.FC = () => {
   const resetForm = () => {
     setSelectedId(null);
     setFormState({ ...emptyForm });
+    setFeatured({ ...emptyFeatured });
     setError(null);
     setImageError(null);
     setImageUploading(false);
+    setTab('basics');
   };
 
-  const handleEdit = (category: Category) => {
+  const handleEdit = (category: any) => {
     setSelectedId(category._id);
+    const rawFilterValue = String(pick(category, 'filterAttributeValue', 'filter_attribute_value', '') ?? '');
     setFormState({
       name: category.name || '',
       slug: category.slug || '',
@@ -108,22 +176,28 @@ const Categories: React.FC = () => {
       icon: category.icon || '',
       displayOrder:
         category.displayOrder !== undefined && category.displayOrder !== null
-          ? String(category.displayOrder)
-          : '',
+          ? String(category.displayOrder) : '',
       parent: category.parent ? String(category.parent) : 'none',
       isActive: category.isActive !== false,
       isPublic: category.isPublic !== false,
-      metaTitle: (category as any).metaTitle ?? (category as any).meta_title ?? '',
-      metaDesc: (category as any).metaDesc ?? (category as any).meta_desc ?? '',
-      ogImageUrl: (category as any).ogImageUrl ?? (category as any).og_image_url ?? '',
-      filterAttributeSlug: (category as any).filter_attribute_slug ?? (category as any).filterAttributeSlug ?? '',
+      metaTitle: pick(category, 'metaTitle', 'meta_title', '') ?? '',
+      metaDesc: pick(category, 'metaDesc', 'meta_desc', '') ?? '',
+      ogImageUrl: pick(category, 'ogImageUrl', 'og_image_url', '') ?? '',
+      filterAttributeSlug: pick(category, 'filterAttributeSlug', 'filter_attribute_slug', '') ?? '',
       // A leading "!" in the stored value means EXCLUDE (hide matching); else INCLUDE.
-      filterAttributeValue: String((category as any).filter_attribute_value ?? (category as any).filterAttributeValue ?? '').replace(/^!/, ''),
-      filterAttributeMode: String((category as any).filter_attribute_value ?? (category as any).filterAttributeValue ?? '').startsWith('!') ? 'exclude' : 'only',
+      filterAttributeValue: rawFilterValue.replace(/^!/, ''),
+      filterAttributeMode: rawFilterValue.startsWith('!') ? 'exclude' : 'only',
+    });
+    setFeatured({
+      mode: (category.featuredMode || 'off') as FeaturedMode,
+      productIds: category.featuredProductIds ?? [],
+      brandIds: category.featuredBrandIds ?? [],
+      limit: Number(category.featuredLimit) || 10,
     });
     setError(null);
     setImageError(null);
     setImageUploading(false);
+    setTab('basics');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -131,16 +205,27 @@ const Categories: React.FC = () => {
 
     if (!formState.name.trim()) {
       setError('Category name is required');
+      setTab('basics');
       return;
     }
-
     if (imageUploading) {
       setError('Please wait for the image upload to finish before saving.');
       return;
     }
-
     if (imageError) {
       setError(imageError);
+      return;
+    }
+    // Catch a half-configured shelf here rather than letting it save as a
+    // silently-inactive setting the merchant thinks is live.
+    if (featured.mode === 'manual' && featured.productIds.length === 0) {
+      setError('Pick at least one product for the featured shelf, or switch it back to Default order.');
+      setTab('featured');
+      return;
+    }
+    if (featured.mode === 'brand' && featured.brandIds.length === 0) {
+      setError('Pick at least one brand for the featured shelf, or switch it back to Default order.');
+      setTab('featured');
       return;
     }
 
@@ -168,18 +253,19 @@ const Categories: React.FC = () => {
         if (!slug || !val) return null;
         return formState.filterAttributeMode === 'exclude' ? `!${val}` : val;
       })(),
+      // Featured shelf — always sent, so switching back to "Default order"
+      // actually clears it instead of leaving the old pins in the database.
+      featuredMode: featured.mode,
+      featuredProductIds: featured.mode === 'manual' ? featured.productIds : [],
+      featuredBrandIds: featured.mode === 'brand' ? featured.brandIds : [],
+      featuredLimit: featured.limit,
     };
 
-    if (formState.slug?.trim()) {
-      payload.slug = formState.slug.trim();
-    }
+    if (formState.slug?.trim()) payload.slug = formState.slug.trim();
 
     try {
-      if (selectedId) {
-        await categoriesAPI.update(selectedId, payload);
-      } else {
-        await categoriesAPI.create(payload);
-      }
+      if (selectedId) await categoriesAPI.update(selectedId, payload);
+      else await categoriesAPI.create(payload);
       await fetchCategories();
       resetForm();
     } catch (err: any) {
@@ -196,29 +282,125 @@ const Categories: React.FC = () => {
     try {
       await categoriesAPI.delete(category._id);
       await fetchCategories();
-      if (selectedId === category._id) {
-        resetForm();
-      }
+      if (selectedId === category._id) resetForm();
     } catch (err: any) {
       console.error('Failed to delete category', err);
       setError(err?.message || 'Failed to delete category');
     }
   };
 
-  const parentOptions = useMemo(() => {
-    return categories.filter(cat => cat._id !== selectedId);
-  }, [categories, selectedId]);
+  const parentOptions = useMemo(
+    () => categories.filter((cat) => cat._id !== selectedId),
+    [categories, selectedId],
+  );
+
+  const byId = useMemo(() => {
+    const m = new Map<string, Category>();
+    categories.forEach((c) => m.set(c._id, c));
+    return m;
+  }, [categories]);
+
+  /**
+   * Build the tree. A category whose parent is missing (deleted, or simply not
+   * returned) is treated as a root so it can never become unreachable — with
+   * 560+ categories an orphan would otherwise be invisible AND uneditable.
+   */
+  const { roots, childrenOf } = useMemo(() => {
+    const kids = new Map<string, Category[]>();
+    const tops: Category[] = [];
+    for (const c of categories) {
+      const parentId = c.parent ? String(c.parent) : null;
+      if (parentId && byId.has(parentId)) {
+        if (!kids.has(parentId)) kids.set(parentId, []);
+        kids.get(parentId)!.push(c);
+      } else {
+        tops.push(c);
+      }
+    }
+    const sort = (a: Category, b: Category) =>
+      (a.displayOrder ?? 0) - (b.displayOrder ?? 0) || a.name.localeCompare(b.name);
+    tops.sort(sort);
+    kids.forEach((v) => v.sort(sort));
+    return { roots: tops, childrenOf: kids };
+  }, [categories, byId]);
+
+  // Searching flattens the tree — matches are what matter, not their depth.
+  const matches = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return null;
+    return categories.filter(
+      (c) => c.name.toLowerCase().includes(q) || (c.slug || '').toLowerCase().includes(q),
+    );
+  }, [search, categories]);
+
+  const isFeatured = (c: Category) => (c.featuredMode || 'off') !== 'off';
+
+  const Row: React.FC<{ c: Category; depth: number }> = ({ c, depth }) => {
+    const kids = childrenOf.get(c._id) ?? [];
+    const open = expanded[c._id] ?? false;
+    const selected = selectedId === c._id;
+    return (
+      <>
+        <div
+          className={`group flex items-center gap-1 px-2 py-1.5 border-b last:border-b-0 transition-colors ${
+            selected ? 'bg-primary/10' : 'hover:bg-muted/50'
+          }`}
+          style={{ paddingLeft: 8 + depth * 16 }}
+        >
+          {kids.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => setExpanded((s) => ({ ...s, [c._id]: !open }))}
+              className="h-5 w-5 shrink-0 grid place-items-center text-muted-foreground hover:text-foreground"
+              aria-label={open ? 'Collapse' : 'Expand'}
+            >
+              {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+            </button>
+          ) : (
+            <span className="h-5 w-5 shrink-0" />
+          )}
+
+          <button
+            type="button"
+            onClick={() => handleEdit(c)}
+            className="flex-1 min-w-0 text-left flex items-center gap-2 py-0.5"
+          >
+            <span className={`truncate text-sm ${selected ? 'font-semibold' : ''}`}>{c.name}</span>
+            {isFeatured(c) && (
+              <Star className="h-3.5 w-3.5 shrink-0 fill-amber-400 text-amber-500" aria-label="Has a featured shelf" />
+            )}
+            {c.isActive === false && <Badge variant="secondary" className="text-[10px] shrink-0">Inactive</Badge>}
+            {c.isPublic === false && <EyeOff className="h-3.5 w-3.5 shrink-0 text-orange-500" aria-label="Hidden from storefront" />}
+            {kids.length > 0 && (
+              <span className="text-[11px] text-muted-foreground shrink-0">{kids.length}</span>
+            )}
+          </button>
+
+          <Button
+            variant="ghost" size="sm"
+            className="h-6 w-6 p-0 text-destructive opacity-0 group-hover:opacity-100 focus:opacity-100"
+            onClick={() => handleDelete(c)}
+            aria-label={`Delete ${c.name}`}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+        {open && kids.map((k) => <Row key={k._id} c={k} depth={depth + 1} />)}
+      </>
+    );
+  };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
-      <div className="flex justify-between items-center mb-6">
+    <div className="space-y-6">
+      <div className="flex flex-wrap justify-between items-center gap-3">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Categories</h1>
-          <p className="text-muted-foreground">Manage category hierarchy for the storefront.</p>
+          <p className="text-muted-foreground">
+            Manage the storefront hierarchy, filters and featured products.
+          </p>
         </div>
-        <Button onClick={resetForm} variant="outline" className="flex items-center gap-2">
-          <FaPlus className="h-4 w-4" />
-          New Category
+        <Button onClick={resetForm} className="flex items-center gap-2">
+          <Plus className="h-4 w-4" /> New Category
         </Button>
       </div>
 
@@ -228,337 +410,287 @@ const Categories: React.FC = () => {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        {/* Left Column: Category List (Span 3) */}
-        <Card className="lg:col-span-3 shadow-sm h-fit">
-          <CardHeader className="pb-4 border-b flex flex-row items-center justify-between space-y-0">
-            <div>
-              <CardTitle>Category List</CardTitle>
-              <CardDescription>{categories.length} total categories</CardDescription>
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
+        {/* ── Tree ─────────────────────────────────────────────────────────── */}
+        <Card className="lg:col-span-2 shadow-sm">
+          <CardHeader className="pb-3 border-b space-y-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <FolderTree className="h-4 w-4" /> Hierarchy
+              </CardTitle>
+              <span className="text-xs text-muted-foreground">{categories.length} total</span>
+            </div>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search name or slug…"
+                className="pl-9 h-9"
+              />
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            <div className="divide-y max-h-[700px] overflow-y-auto">
+            <div className="max-h-[640px] overflow-y-auto">
               {loading ? (
                 <div className="flex items-center justify-center p-12">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
                 </div>
               ) : categories.length === 0 ? (
-                <div className="p-12 text-center text-muted-foreground transition-all">
-                  No categories found. Create one.
+                <div className="p-12 text-center text-sm text-muted-foreground">
+                  No categories yet — create one.
                 </div>
-              ) : (
-                categories.map(category => (
-                  <div
-                    key={category._id}
-                    className={`flex items-start justify-between p-4 transition-colors hover:bg-muted/50 ${
-                      selectedId === category._id ? 'bg-muted/80' : ''
-                    }`}
-                  >
-                    <div className="flex-1 min-w-0 pr-4">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-semibold text-foreground truncate">{category.name}</span>
-                        {!category.isActive && (
-                          <Badge variant="secondary" className="text-xs">Inactive</Badge>
-                        )}
-                        {category.isPublic === false && (
-                          <Badge variant="outline" className="text-xs text-orange-600 border-orange-300">Hidden</Badge>
-                        )}
-                        {category.parent && (
-                          <Badge variant="outline" className="text-xs">
-                            Parent: {categories.find(cat => cat._id === category.parent)?.name || 'Unknown'}
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="text-xs text-muted-foreground flex items-center flex-wrap gap-x-3 gap-y-1">
-                        <span className="font-mono bg-muted px-1.5 py-0.5 rounded">{category.slug}</span>
-                        {category.displayOrder !== undefined && (
-                          <span>Order: {category.displayOrder}</span>
-                        )}
-                      </div>
-                      {category.description && (
-                        <p className="text-sm text-muted-foreground mt-2 line-clamp-1">
-                          {category.description}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex gap-2 isolate">
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => handleEdit(category)}
-                      >
-                        Edit
-                      </Button>
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        onClick={() => handleDelete(category)}
-                      >
-                        <FaTrash className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
+              ) : matches ? (
+                matches.length === 0 ? (
+                  <div className="p-8 text-center text-sm text-muted-foreground">
+                    Nothing matches “{search}”.
                   </div>
-                ))
+                ) : (
+                  matches.map((c) => <Row key={c._id} c={c} depth={0} />)
+                )
+              ) : (
+                roots.map((c) => <Row key={c._id} c={c} depth={0} />)
               )}
             </div>
           </CardContent>
         </Card>
 
-        {/* Right Column: Create/Edit Form (Span 2) */}
-        <Card className="lg:col-span-2 shadow-sm h-fit sticky top-6">
-          <CardHeader className="pb-4 border-b">
+        {/* ── Editor ───────────────────────────────────────────────────────── */}
+        <Card className="lg:col-span-3 shadow-sm">
+          <CardHeader className="pb-3 border-b">
             <div className="flex items-center justify-between">
-              <CardTitle>{selectedId ? 'Edit Category' : 'Create Category'}</CardTitle>
+              <CardTitle className="text-base">
+                {selectedId ? `Edit — ${formState.name || 'category'}` : 'Create Category'}
+              </CardTitle>
               {selectedId && (
                 <Button variant="ghost" size="sm" onClick={resetForm} className="h-8 px-2 text-muted-foreground">
-                  <FaUndo className="mr-2 h-3.5 w-3.5" /> Reset
+                  <RotateCcw className="mr-2 h-3.5 w-3.5" /> New
                 </Button>
               )}
             </div>
           </CardHeader>
-          <CardContent className="pt-6">
+          <CardContent className="pt-5">
             <form onSubmit={handleSubmit} className="space-y-5">
-              <div className="space-y-2">
-                <Label htmlFor="name">Name <span className="text-destructive">*</span></Label>
-                <Input
-                  id="name"
-                  value={formState.name}
-                  onChange={e => setFormState({ ...formState, name: e.target.value })}
-                  placeholder="Category name"
-                  required
-                />
-              </div>
+              <Tabs value={tab} onValueChange={setTab}>
+                <TabsList className="mb-4 flex-wrap h-auto">
+                  <TabsTrigger value="basics">Basics</TabsTrigger>
+                  <TabsTrigger value="seo">SEO</TabsTrigger>
+                  <TabsTrigger value="filter">Filter</TabsTrigger>
+                  <TabsTrigger value="featured" className="gap-1.5">
+                    Featured
+                    {featured.mode !== 'off' && (
+                      <Star className="h-3 w-3 fill-amber-400 text-amber-500" />
+                    )}
+                  </TabsTrigger>
+                </TabsList>
 
-              <div className="space-y-2">
-                <Label htmlFor="slug">Slug</Label>
-                <Input
-                  id="slug"
-                  value={formState.slug}
-                  onChange={e => setFormState({ ...formState, slug: e.target.value })}
-                  placeholder="Optional custom slug"
-                />
-              </div>
+                {/* Basics */}
+                <TabsContent value="basics" className="m-0 space-y-5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="name">Name <span className="text-destructive">*</span></Label>
+                      <Input id="name" value={formState.name} required
+                        onChange={(e) => setFormState({ ...formState, name: e.target.value })}
+                        placeholder="Category name" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="slug">Slug</Label>
+                      <Input id="slug" value={formState.slug}
+                        onChange={(e) => setFormState({ ...formState, slug: e.target.value })}
+                        placeholder="Auto-generated if blank" />
+                    </div>
+                  </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="description">Description</Label>
-                <Textarea
-                  id="description"
-                  rows={3}
-                  value={formState.description}
-                  onChange={e => setFormState({ ...formState, description: e.target.value })}
-                  placeholder="Optional description"
-                  className="resize-y"
-                />
-              </div>
-
-              <div className="space-y-3 border-t border-gray-100 pt-4">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">SEO (search engines &amp; social)</p>
-                <div className="space-y-2">
-                  <Label htmlFor="metaTitle">Meta Title</Label>
-                  <Input
-                    id="metaTitle"
-                    value={formState.metaTitle}
-                    onChange={e => setFormState({ ...formState, metaTitle: e.target.value })}
-                    placeholder="Defaults to the category name"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="metaDesc">Meta Description</Label>
-                  <Textarea
-                    id="metaDesc"
-                    rows={2}
-                    value={formState.metaDesc}
-                    onChange={e => setFormState({ ...formState, metaDesc: e.target.value })}
-                    placeholder="Shown in search results (~160 characters)"
-                    className="resize-y"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Social Share Image (Open Graph)</Label>
-                  <ImageInputWithActions
-                    value={formState.ogImageUrl || ''}
-                    onChange={(url: string) => setFormState({ ...formState, ogImageUrl: url })}
-                    label=""
-                    placeholder="OG image URL (https://...)"
-                  />
-                </div>
-              </div>
-
-              {/* Category → attribute filter */}
-              <div className="space-y-3 border-t border-gray-100 pt-4">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Filter by a product attribute</p>
-                <p className="-mt-1 text-[11px] text-gray-400">
-                  Show <strong>only</strong> — or <strong>hide</strong> — variations whose attribute value matches. E.g. a
-                  &ldquo;Dilutions&rdquo; category with <em>Potency · Hide · Q</em> hides mother tinctures (potency&nbsp;Q);
-                  &ldquo;Mother Tinctures&rdquo; with <em>Potency · Only show · Q</em> shows only them. Leave blank = show everything.
-                </p>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <div className="space-y-2">
-                    <Label>Attribute</Label>
-                    <Select
-                      value={formState.filterAttributeSlug || 'none'}
-                      onValueChange={v => setFormState({ ...formState, filterAttributeSlug: v === 'none' ? '' : v, filterAttributeValue: '' })}
-                    >
-                      <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">None</SelectItem>
-                        {attributes.map((a: any) => (
-                          <SelectItem key={a.slug ?? a._id} value={a.slug}>{a.name ?? a.slug}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Label htmlFor="description">Description</Label>
+                    <Textarea id="description" rows={3} value={formState.description}
+                      onChange={(e) => setFormState({ ...formState, description: e.target.value })}
+                      placeholder="Optional description" className="resize-y" />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="parent">Parent Category</Label>
+                      <Select value={formState.parent}
+                        onValueChange={(val) => setFormState({ ...formState, parent: val })}>
+                        <SelectTrigger id="parent"><SelectValue placeholder="No Parent" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No parent (top-level)</SelectItem>
+                          {parentOptions.map((p) => (
+                            <SelectItem key={p._id} value={p._id}>{p.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="displayOrder">Display Order</Label>
+                      <Input id="displayOrder" type="number" value={formState.displayOrder}
+                        onChange={(e) => setFormState({ ...formState, displayOrder: e.target.value })}
+                        placeholder="0" />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Category Image</Label>
+                    <ImageInputWithActions
+                      value={formState.imageUrl || ''}
+                      onChange={(url: string) => setFormState({ ...formState, imageUrl: url })}
+                      label="" placeholder="Image URL (https://...)" />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label>Icon (optional)</Label>
+                    <div className="flex items-center gap-2">
+                      {formState.icon && (
+                        <>
+                          {(() => {
+                            const IC = getIconComponent(formState.icon);
+                            return IC ? <IC size={18} className="text-gray-600 flex-shrink-0" /> : null;
+                          })()}
+                          <code className="text-xs text-muted-foreground truncate max-w-[140px]">{formState.icon}</code>
+                        </>
+                      )}
+                      <IconPicker value={formState.icon || ''}
+                        onChange={(id: string) => setFormState({ ...formState, icon: id })} />
+                      {formState.icon && (
+                        <Button type="button" variant="ghost" size="sm"
+                          className="h-7 px-2 text-xs text-destructive"
+                          onClick={() => setFormState({ ...formState, icon: '' })}>Remove</Button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 pt-2">
+                    <div className="flex items-center space-x-2">
+                      <Switch id="isActive" checked={formState.isActive}
+                        onCheckedChange={(c) => setFormState({ ...formState, isActive: c })} />
+                      <Label htmlFor="isActive" className="cursor-pointer">Category is active</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Switch id="isPublic" checked={formState.isPublic}
+                        onCheckedChange={(c) => setFormState({ ...formState, isPublic: c })} />
+                      <div>
+                        <Label htmlFor="isPublic" className="cursor-pointer">Show in storefront</Label>
+                        <p className="text-xs text-muted-foreground">Visible in navigation menus and category listings</p>
+                      </div>
+                    </div>
+                  </div>
+                </TabsContent>
+
+                {/* SEO */}
+                <TabsContent value="seo" className="m-0 space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="metaTitle">Meta Title</Label>
+                    <Input id="metaTitle" value={formState.metaTitle}
+                      onChange={(e) => setFormState({ ...formState, metaTitle: e.target.value })}
+                      placeholder="Defaults to the category name" />
                   </div>
                   <div className="space-y-2">
-                    <Label>Mode</Label>
-                    <Select
-                      value={formState.filterAttributeMode}
-                      onValueChange={v => setFormState({ ...formState, filterAttributeMode: v })}
-                    >
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="only">Only show</SelectItem>
-                        <SelectItem value="exclude">Hide</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Label htmlFor="metaDesc">Meta Description</Label>
+                    <Textarea id="metaDesc" rows={3} value={formState.metaDesc}
+                      onChange={(e) => setFormState({ ...formState, metaDesc: e.target.value })}
+                      placeholder="Shown in search results (~160 characters)" className="resize-y" />
                   </div>
                   <div className="space-y-2">
-                    <Label>Value</Label>
-                    {(() => {
-                      const attr = attributes.find((a: any) => a.slug === formState.filterAttributeSlug);
-                      const values: any[] = Array.isArray(attr?.values) ? attr.values : [];
-                      if (!formState.filterAttributeSlug) {
-                        return <Input disabled placeholder="Pick an attribute first" />;
-                      }
-                      if (values.length) {
+                    <Label>Social Share Image (Open Graph)</Label>
+                    <ImageInputWithActions
+                      value={formState.ogImageUrl || ''}
+                      onChange={(url: string) => setFormState({ ...formState, ogImageUrl: url })}
+                      label="" placeholder="OG image URL (https://...)" />
+                  </div>
+                </TabsContent>
+
+                {/* Filter */}
+                <TabsContent value="filter" className="m-0 space-y-3">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                    Filter by a product attribute
+                  </p>
+                  <p className="-mt-1 text-[11px] text-muted-foreground">
+                    Show <strong>only</strong> — or <strong>hide</strong> — variations whose attribute value matches.
+                    E.g. a “Dilutions” category with <em>Potency · Hide · Q</em> hides mother tinctures;
+                    “Mother Tinctures” with <em>Potency · Only show · Q</em> shows only them. Leave blank to show everything.
+                  </p>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div className="space-y-2">
+                      <Label>Attribute</Label>
+                      <Select
+                        value={formState.filterAttributeSlug || 'none'}
+                        onValueChange={(v) =>
+                          setFormState({ ...formState, filterAttributeSlug: v === 'none' ? '' : v, filterAttributeValue: '' })}
+                      >
+                        <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">None</SelectItem>
+                          {attributes.map((a: any) => (
+                            <SelectItem key={a.slug ?? a._id} value={a.slug}>{a.name ?? a.slug}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Mode</Label>
+                      <Select value={formState.filterAttributeMode}
+                        onValueChange={(v) => setFormState({ ...formState, filterAttributeMode: v })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="only">Only show</SelectItem>
+                          <SelectItem value="exclude">Hide</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Value</Label>
+                      {(() => {
+                        const attr = attributes.find((a: any) => a.slug === formState.filterAttributeSlug);
+                        const values: any[] = Array.isArray(attr?.values) ? attr.values : [];
+                        if (!formState.filterAttributeSlug) {
+                          return <Input disabled placeholder="Pick an attribute first" />;
+                        }
+                        if (values.length) {
+                          return (
+                            <Select
+                              value={formState.filterAttributeValue || 'none'}
+                              onValueChange={(v) =>
+                                setFormState({ ...formState, filterAttributeValue: v === 'none' ? '' : v })}
+                            >
+                              <SelectTrigger><SelectValue placeholder="Any" /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">Any</SelectItem>
+                                {values.map((val: any, i: number) => {
+                                  const slug = val.slug ?? val.value ?? String(val);
+                                  return <SelectItem key={`${slug}-${i}`} value={slug}>{val.name ?? val.label ?? slug}</SelectItem>;
+                                })}
+                              </SelectContent>
+                            </Select>
+                          );
+                        }
                         return (
-                          <Select
-                            value={formState.filterAttributeValue || 'none'}
-                            onValueChange={v => setFormState({ ...formState, filterAttributeValue: v === 'none' ? '' : v })}
-                          >
-                            <SelectTrigger><SelectValue placeholder="Any" /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="none">Any</SelectItem>
-                              {values.map((val: any, i: number) => {
-                                const slug = val.slug ?? val.value ?? String(val);
-                                return <SelectItem key={`${slug}-${i}`} value={slug}>{val.name ?? val.label ?? slug}</SelectItem>;
-                              })}
-                            </SelectContent>
-                          </Select>
+                          <Input value={formState.filterAttributeValue}
+                            onChange={(e) => setFormState({ ...formState, filterAttributeValue: e.target.value })}
+                            placeholder="Attribute value slug (e.g. dilution)" />
                         );
-                      }
-                      return (
-                        <Input
-                          value={formState.filterAttributeValue}
-                          onChange={e => setFormState({ ...formState, filterAttributeValue: e.target.value })}
-                          placeholder="Attribute value slug (e.g. dilution)"
-                        />
-                      );
-                    })()}
+                      })()}
+                    </div>
                   </div>
-                </div>
-              </div>
+                </TabsContent>
 
-              <div className="space-y-2">
-                <Label>Category Image</Label>
-                <ImageInputWithActions
-                  value={formState.imageUrl || ''}
-                  onChange={(url: string) => setFormState({ ...formState, imageUrl: url })}
-                  label=""
-                  placeholder="Image URL (https://...)"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label>Icon (optional)</Label>
-                <div className="flex items-center gap-2">
-                  {formState.icon && (
-                    <>
-                      {(() => { const IC = getIconComponent(formState.icon); return IC ? <IC size={18} className="text-gray-600 flex-shrink-0" /> : null; })()}
-                      <code className="text-xs text-muted-foreground truncate max-w-[140px]">{formState.icon}</code>
-                    </>
-                  )}
-                  <IconPicker
-                    value={formState.icon || ''}
-                    onChange={(id: string) => setFormState({ ...formState, icon: id })}
+                {/* Featured */}
+                <TabsContent value="featured" className="m-0">
+                  <CategoryFeaturedPicker
+                    value={featured}
+                    onChange={setFeatured}
+                    categoryName={formState.name || undefined}
                   />
-                  {formState.icon && (
-                    <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs text-destructive" onClick={() => setFormState({ ...formState, icon: '' })}>Remove</Button>
-                  )}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="displayOrder">Display Order</Label>
-                  <Input
-                    id="displayOrder"
-                    type="number"
-                    value={formState.displayOrder}
-                    onChange={e => setFormState({ ...formState, displayOrder: e.target.value })}
-                    placeholder="0"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="parent">Parent Category</Label>
-                  <Select 
-                    value={formState.parent} 
-                    onValueChange={(val) => setFormState({ ...formState, parent: val })}
-                  >
-                    <SelectTrigger id="parent">
-                      <SelectValue placeholder="No Parent" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">No parent (top-level)</SelectItem>
-                      {parentOptions.map(parent => (
-                        <SelectItem key={parent._id} value={parent._id}>
-                          {parent.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="flex items-center space-x-2 pt-2">
-                <Switch
-                  id="isActive"
-                  checked={formState.isActive}
-                  onCheckedChange={(checked) => setFormState({ ...formState, isActive: checked })}
-                />
-                <Label htmlFor="isActive" className="cursor-pointer">Category is active</Label>
-              </div>
-
-              <div className="flex items-center space-x-2">
-                <Switch
-                  id="isPublic"
-                  checked={formState.isPublic}
-                  onCheckedChange={(checked) => setFormState({ ...formState, isPublic: checked })}
-                />
-                <div>
-                  <Label htmlFor="isPublic" className="cursor-pointer">Show in storefront</Label>
-                  <p className="text-xs text-muted-foreground">Visible in navigation menus and category listings</p>
-                </div>
-              </div>
+                </TabsContent>
+              </Tabs>
 
               <div className="pt-4 border-t flex gap-3">
-                <Button
-                  type="submit"
-                  disabled={saving}
-                  className="flex-1"
-                >
-                  <FaSave className="mr-2" />
-                  {saving ? 'Saving...' : selectedId ? 'Update Category' : 'Create Category'}
+                <Button type="submit" disabled={saving} className="flex-1">
+                  <Save className="mr-2 h-4 w-4" />
+                  {saving ? 'Saving…' : selectedId ? 'Update Category' : 'Create Category'}
                 </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={resetForm}
-                  className="flex-none"
-                >
-                  <FaUndo className="mr-2" />
-                  Clear
+                <Button type="button" variant="outline" onClick={resetForm} className="flex-none">
+                  <RotateCcw className="mr-2 h-4 w-4" /> Clear
                 </Button>
               </div>
             </form>
