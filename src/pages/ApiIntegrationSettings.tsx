@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, Mail, Facebook, CreditCard, MessageCircle, Bot, Loader2 } from 'lucide-react';
+import { ArrowLeft, Save, Mail, Facebook, CreditCard, MessageCircle, Bot, Loader2, BarChart3 } from 'lucide-react';
 
 import api from '../services/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -31,6 +31,11 @@ const ApiIntegrationSettings: React.FC = () => {
       pixelId: '',
       accessToken: '',
       apiVersion: 'v18.0',
+      isEnabled: false,
+    },
+    ga4: {
+      useEnvVars: false,
+      apiSecret: '',
       isEnabled: false,
     },
     razorpay: {
@@ -98,6 +103,18 @@ const ApiIntegrationSettings: React.FC = () => {
           }));
         }
 
+        if (settings.ga4) {
+          setFormData(prev => ({
+            ...prev,
+            ga4: {
+              ...prev.ga4,
+              useEnvVars: settings.ga4.useEnvVars || false,
+              ...settings.ga4,
+              apiSecret: settings.ga4.apiSecretSet ? '••••••••' : '',
+            },
+          }));
+        }
+
         if (settings.razorpay) {
           setFormData(prev => ({
             ...prev,
@@ -156,6 +173,10 @@ const ApiIntegrationSettings: React.FC = () => {
         metaPixel: {
           ...formData.metaPixel,
           accessToken: formData.metaPixel.accessToken && !formData.metaPixel.accessToken.startsWith('••••') ? formData.metaPixel.accessToken : undefined,
+        },
+        ga4: {
+          ...formData.ga4,
+          apiSecret: formData.ga4.apiSecret && !formData.ga4.apiSecret.startsWith('••••') ? formData.ga4.apiSecret : undefined,
         },
         razorpay: {
           ...formData.razorpay,
@@ -396,6 +417,63 @@ const ApiIntegrationSettings: React.FC = () => {
                   value={formData.metaPixel.apiVersion}
                   onChange={(e) => handleChange('metaPixel', 'apiVersion', e.target.value)}
                   placeholder="v18.0"
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* GA4 Server-Side Settings */}
+        <Card>
+          <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="flex-shrink-0 w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center">
+                <BarChart3 className="w-6 h-6 text-amber-600" />
+              </div>
+              <div>
+                <CardTitle>Google Analytics 4 (Server-Side)</CardTitle>
+                <CardDescription>Measurement Protocol — server-confirmed purchase events, ad-blocker resistant</CardDescription>
+              </div>
+            </div>
+            <div className="flex items-center gap-6">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox
+                  checked={formData.ga4.useEnvVars}
+                  onCheckedChange={(checked) => handleChange('ga4', 'useEnvVars', checked as boolean)}
+                />
+                <span className="text-sm font-medium">Use Env Vars</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox
+                  checked={formData.ga4.isEnabled}
+                  onCheckedChange={(checked) => handleChange('ga4', 'isEnabled', checked as boolean)}
+                />
+                <span className="text-sm font-medium">Enabled</span>
+              </label>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {formData.ga4.useEnvVars && (
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg mb-4">
+                <p className="text-sm text-blue-800">
+                  <strong>Using Environment Variables:</strong> GA4 Measurement Protocol will be read from .env file (GA4_MEASUREMENT_ID, GA4_API_SECRET)
+                </p>
+              </div>
+            )}
+            <div className={`p-4 bg-muted/50 border border-border rounded-lg mb-2 ${formData.ga4.useEnvVars ? 'opacity-50 pointer-events-none' : ''}`}>
+              <p className="text-sm text-muted-foreground">
+                The Measurement ID is the same <code>G-XXXXXXXXXX</code> configured under
+                SEO &amp; Analytics — only the API Secret (server-only) lives here.
+              </p>
+            </div>
+            <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${formData.ga4.useEnvVars ? 'opacity-50 pointer-events-none' : ''}`}>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">API Secret</label>
+                <Input
+                  type="password"
+                  value={formData.ga4.apiSecret}
+                  onChange={(e) => handleChange('ga4', 'apiSecret', e.target.value)}
+                  placeholder={formData.ga4.apiSecret.startsWith('••••') ? 'Leave blank to keep current' : 'Analytics ▸ Admin ▸ Data Streams ▸ Measurement Protocol API secrets'}
                 />
               </div>
             </div>

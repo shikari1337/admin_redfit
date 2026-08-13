@@ -22,9 +22,14 @@ interface TrackingIds {
   metaPixelId: string;
   clarityId: string;
   hotjarId: string;
+  googleAdsConversionId: string;
+  googleAdsConversionLabel: string;
 }
 
-const EMPTY_TRACKING: TrackingIds = { ga4Id: '', gtmId: '', metaPixelId: '', clarityId: '', hotjarId: '' };
+const EMPTY_TRACKING: TrackingIds = {
+  ga4Id: '', gtmId: '', metaPixelId: '', clarityId: '', hotjarId: '',
+  googleAdsConversionId: '', googleAdsConversionLabel: '',
+};
 
 const TRACKING_FIELDS: Array<{
   key: keyof TrackingIds; label: string; placeholder: string; help: React.ReactNode;
@@ -48,6 +53,16 @@ const TRACKING_FIELDS: Array<{
   {
     key: 'hotjarId', label: 'Hotjar — Site ID', placeholder: '3123456',
     help: <>Optional second heatmap tool. Numeric Site ID from your Hotjar dashboard.</>,
+  },
+  {
+    key: 'googleAdsConversionId', label: 'Google Ads — Conversion ID', placeholder: 'AW-XXXXXXXXX',
+    help: <>Google Ads ▸ Tools ▸ Conversions ▸ your conversion action ▸ Tag setup. Separate from
+      the Ads campaign manager under Marketing — this is only the on-site conversion tag.</>,
+  },
+  {
+    key: 'googleAdsConversionLabel', label: 'Google Ads — Conversion Label', placeholder: 'AbC-D3fGhiJ4kLm5nOp',
+    help: <>Same Conversion ID screen, just below the ID. Required for the purchase conversion to
+      report correctly.</>,
   },
 ];
 
@@ -107,6 +122,8 @@ const Seo: React.FC = () => {
         metaPixelId: t.metaPixelId || settingsRes?.metaPixel?.pixelId || '',
         clarityId: t.clarityId || '',
         hotjarId: t.hotjarId || '',
+        googleAdsConversionId: t.googleAdsConversionId || '',
+        googleAdsConversionLabel: t.googleAdsConversionLabel || '',
       });
       const gr = (settingsRes?.googleReviews ?? {}) as Partial<typeof googleReviews>;
       setGoogleReviews({
@@ -132,6 +149,8 @@ const Seo: React.FC = () => {
         metaPixelId: tracking.metaPixelId.trim(),
         clarityId: tracking.clarityId.trim(),
         hotjarId: tracking.hotjarId.trim(),
+        googleAdsConversionId: tracking.googleAdsConversionId.trim(),
+        googleAdsConversionLabel: tracking.googleAdsConversionLabel.trim(),
       };
       // Stored PUBLIC so the storefront's GET /settings returns it (non-secret IDs).
       await api.put('/settings/tracking', { value, is_public: true, group_name: 'analytics' });
