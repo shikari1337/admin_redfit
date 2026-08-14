@@ -17,6 +17,7 @@ import {
   FolderArchive, Repeat, Sparkles, MessageCircleQuestion, Heart,
 } from 'lucide-react';
 import { SetupBanner } from './SetupBanner';
+import { TestModeBanner } from './TestModeBanner';
 import RouteGuard from './RouteGuard';
 import AccessNotice from './AccessNotice';
 import { WORKSPACES, WorkspaceKey, workspaceFromPath } from '../lib/rbac';
@@ -500,6 +501,7 @@ const Layout: React.FC = () => {
           </div>
         </header>
 
+        <TestModeBanner />
         <SetupBanner />
 
         <div className="flex-1 overflow-x-hidden p-4 md:p-6 lg:p-8">
