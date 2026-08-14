@@ -201,6 +201,13 @@ const PaymentGatewaySettings: React.FC = () => {
                   value={formData.razorpay.keyId}
                   onChange={(e) => handleChange('razorpay', 'keyId', e.target.value)}
                   placeholder="Enter Razorpay Key ID"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  data-1p-ignore
+                  data-lpignore="true"
+                  name="razorpay-key-id-no-autofill"
                 />
               </div>
               <div className="space-y-2">
@@ -210,6 +217,13 @@ const PaymentGatewaySettings: React.FC = () => {
                   value={formData.razorpay.keySecret}
                   onChange={(e) => handleChange('razorpay', 'keySecret', e.target.value)}
                   placeholder="Enter Razorpay Key Secret"
+                  autoComplete="new-password"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  data-1p-ignore
+                  data-lpignore="true"
+                  name="razorpay-key-secret-no-autofill"
                 />
               </div>
               <div className="flex items-center gap-2 pt-2">

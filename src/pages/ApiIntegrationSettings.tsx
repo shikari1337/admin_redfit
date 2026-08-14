@@ -336,6 +336,10 @@ const ApiIntegrationSettings: React.FC = () => {
                   value={formData.smtp.user}
                   onChange={(e) => handleChange('smtp', 'user', e.target.value)}
                   placeholder="your-email@gmail.com"
+                  autoComplete="off"
+                  data-1p-ignore
+                  data-lpignore="true"
+                  name="smtp-user-no-autofill"
                 />
               </div>
               <div className="space-y-2">
@@ -558,6 +562,13 @@ const ApiIntegrationSettings: React.FC = () => {
                   value={formData.razorpay.keyId}
                   onChange={(e) => handleChange('razorpay', 'keyId', e.target.value)}
                   placeholder={formData.razorpay.keyId.startsWith('••••') ? 'Leave blank to keep current' : 'Enter Razorpay Key ID'}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  data-1p-ignore
+                  data-lpignore="true"
+                  name="razorpay-key-id-no-autofill"
                 />
               </div>
               <div className="space-y-2">
