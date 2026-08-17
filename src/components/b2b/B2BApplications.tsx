@@ -172,6 +172,13 @@ export default function B2BApplications() {
                         <Button size="sm" onClick={() => openApprove(a)}><Check className="h-3.5 w-3.5 mr-1" />Approve</Button>
                         <Button size="sm" variant="outline" onClick={() => doReject(a)}><X className="h-3.5 w-3.5" /></Button>
                       </>
+                    ) : a.status === 'rejected' ? (
+                      // A reject can be reconsidered — approving here flips the SAME
+                      // application row back to approved (backend has no status guard,
+                      // same call as a fresh pending approval).
+                      <Button size="sm" variant="outline" onClick={() => openApprove(a)}>
+                        <Check className="h-3.5 w-3.5 mr-1" />Approve anyway
+                      </Button>
                     ) : (
                       <span className="text-xs text-muted-foreground">{a.is_b2b ? 'B2B active' : '—'}</span>
                     )}
