@@ -4,10 +4,12 @@ import { useAuth } from '../contexts/AuthContext';
 import { ordersAPI, shippingAPI } from '../services/api';
 import { formatDate } from '../utils/date';
 import { FaTruck, FaWhatsapp, FaEye, FaDownload, FaPlus } from 'react-icons/fa';
+import { Search } from 'lucide-react';
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast"; // Assuming useToast is available, fallback to alert if not
@@ -20,6 +22,10 @@ const Orders: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState('all');
   // Retail vs B2B tab — only meaningful (and only shown) when the B2B module is on.
   const [typeFilter, setTypeFilter] = useState<'all' | 'retail' | 'b2b'>('all');
+  // Free-text search (order #, SKU, name, email, phone) — debounced the same
+  // way Customers.tsx does (plain useState + setTimeout), not useListControls.
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const b2bEnabled = canAccess('b2b');
   const [sendingToShiprocket, setSendingToShiprocket] = useState<string | null>(null);
   const [confirmingOrder, setConfirmingOrder] = useState<string | null>(null);
@@ -36,8 +42,13 @@ const Orders: React.FC = () => {
   }
 
   useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  useEffect(() => {
     fetchOrders();
-  }, [statusFilter, typeFilter]);
+  }, [statusFilter, typeFilter, debouncedSearch]);
 
   const fetchOrders = async () => {
     try {
@@ -45,6 +56,7 @@ const Orders: React.FC = () => {
       const params: any = {};
       if (statusFilter !== 'all') params.status = statusFilter;
       if (typeFilter !== 'all') params.order_type = typeFilter;
+      if (debouncedSearch) params.search = debouncedSearch;
       const response = await ordersAPI.getAll({ ...params, limit: 100 });
       
       let fetchedOrders: any[] = [];
@@ -173,6 +185,15 @@ const Orders: React.FC = () => {
             <FaDownload className="mr-1.5 h-3 w-3" />
             {exporting ? 'Exporting…' : 'Export all'}
           </Button>
+          <div className="relative w-full sm:w-72">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by order #, SKU, name, email, or phone…"
+              className="h-9 pl-8"
+            />
+          </div>
           <Select
             value={statusFilter}
             onValueChange={setStatusFilter}

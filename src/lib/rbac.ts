@@ -37,8 +37,11 @@ export const ASSIGNABLE_ROLES: ErpRole[] = [
  */
 const ROLE_PERMISSIONS: Record<ErpRole, string[]> = {
   admin: ['*'],
+  // Staff may export/import the Inventory tab (stock, MRP, selling/sale
+  // price, flat B2B price) — 2026-08-17 owner decision. `inventory.adjust`
+  // implies `inventory.read` (see withImpliedReads below).
   staff: ['orders.manage', 'products.read', 'customers.read', 'content.read',
-          'inventory.read', 'shipments.read', 'returns.read'],
+          'inventory.adjust', 'shipments.read', 'returns.read'],
   accountant: ['accounting.post', 'gst.read', 'audit.read', 'orders.read',
                'customers.read', 'reports.read', 'billing.read',
                'purchasing.read', 'inventory.read', 'settings.read'],

@@ -2721,6 +2721,20 @@ export const cartsAPI = {
     const response = await api.post(`/carts/admin/${cartId}/notes`, { text });
     return response.data;
   },
+  /** Attach an existing active coupon, or mint a one-off `RECOVER-XXXXXX` code. */
+  applyDiscount: async (
+    cartId: string,
+    body:
+      | { mode: 'existing'; couponCode: string }
+      | { mode: 'generate'; type: 'percentage' | 'fixed'; value: number; maxDiscount?: number; expiresInDays?: number }
+  ) => {
+    const response = await api.post(`/carts/admin/${cartId}/discount`, body);
+    return response.data;
+  },
+  removeDiscount: async (cartId: string) => {
+    const response = await api.delete(`/carts/admin/${cartId}/discount`);
+    return response.data;
+  },
 };
 
 // Cross-store customer journey/behaviour (public.customer_activity, store-scoped
@@ -3148,9 +3162,37 @@ export const b2bAPI = {
     const response = await api.get('/b2b/customers');
     return response.data;
   },
+  getCustomer: async (customerId: string) => {
+    const response = await api.get(`/b2b/customers/${customerId}`);
+    return response.data;
+  },
+  updateCustomer: async (customerId: string, data: {
+    is_b2b?: boolean; b2b_tier?: string | null; gstin?: string | null;
+    credit_limit?: number; credit_days?: number; price_list_id?: string | null;
+  }) => {
+    const response = await api.put(`/b2b/customers/${customerId}`, data);
+    return response.data;
+  },
+  // Staff-initiated onboarding — no storefront application needed. Either
+  // promotes an existing customer (customerId, or found by phone) or creates a
+  // brand-new one for a phone-order lead. See POST /b2b/customers.
+  createCustomer: async (data: {
+    customerId?: string;
+    phone?: string; dialCode?: string; email?: string; name?: string;
+    companyName?: string; gstin?: string;
+    tier?: string; credit_limit?: number; credit_days?: number; price_list_id?: string;
+  }) => {
+    const response = await api.post('/b2b/customers', data);
+    return response.data;
+  },
   // ── Negotiated per-account contracts (pricing P1 — highest) ──
   getProductContracts: async (productId: string) => {
     const response = await api.get(`/b2b/contracts/product/${productId}`);
+    return response.data;
+  },
+  // Contracts negotiated for ONE customer, across products.
+  getContracts: async (customerId: string) => {
+    const response = await api.get(`/b2b/contracts/${customerId}`);
     return response.data;
   },
   createContract: async (data: {

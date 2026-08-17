@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { FaArrowLeft, FaCopy, FaExternalLinkAlt, FaSms } from 'react-icons/fa';
-import { cartsAPI, journeyAPI } from '../services/api';
+import { cartsAPI, journeyAPI, couponsAPI } from '../services/api';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ButtonLoader from '../components/ButtonLoader';
 
@@ -27,6 +27,22 @@ interface JourneyEvent {
   created_at?: string;
 }
 
+interface CheckoutAttempt {
+  id: string;
+  paymentMethod?: string;
+  payment_method?: string;
+  paymentGateway?: string | null;
+  payment_gateway?: string | null;
+  status: string;
+  failureReason?: string | null;
+  failure_reason?: string | null;
+  couponCode?: string | null;
+  coupon_code?: string | null;
+  total?: number;
+  createdAt?: string;
+  created_at?: string;
+}
+
 interface CartDetail {
   _id: string;
   cartId?: string;
@@ -46,6 +62,7 @@ interface CartDetail {
   createdAt?: string;
   updatedAt?: string;
   user?: { name?: string; email?: string; phoneNumber?: string } | null;
+  checkoutAttempts?: CheckoutAttempt[];
 }
 
 const formatDate = (value?: string | null) => (value ? new Date(value).toLocaleString() : '—');
@@ -62,6 +79,21 @@ const statusBadge = (status: string) => {
   return styles[status] || 'bg-gray-100 text-gray-600';
 };
 
+/** cart_checkout_attempts.status → badge tone (same tailwind vocabulary as statusBadge above). */
+const attemptStatusBadge = (status: string) => {
+  const styles: Record<string, string> = {
+    succeeded: 'bg-green-100 text-green-800',
+    failed: 'bg-red-100 text-red-800',
+    cancelled: 'bg-amber-100 text-amber-800',
+    expired: 'bg-gray-100 text-gray-600',
+    created: 'bg-blue-100 text-blue-800',
+    otp_sent: 'bg-blue-100 text-blue-800',
+    otp_verified: 'bg-blue-100 text-blue-800',
+    payment_created: 'bg-blue-100 text-blue-800',
+  };
+  return styles[status] || 'bg-gray-100 text-gray-600';
+};
+
 const AbandonedCartDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -73,6 +105,23 @@ const AbandonedCartDetail: React.FC = () => {
   const [journey, setJourney] = useState<JourneyEvent[] | null>(null);
   const [noteText, setNoteText] = useState('');
   const [savingNote, setSavingNote] = useState(false);
+
+  // Apply Discount panel
+  const [coupons, setCoupons] = useState<any[]>([]);
+  const [discountMode, setDiscountMode] = useState<'existing' | 'generate'>('existing');
+  const [selectedCoupon, setSelectedCoupon] = useState('');
+  const [genType, setGenType] = useState<'percentage' | 'fixed'>('percentage');
+  const [genValue, setGenValue] = useState('');
+  const [genMaxDiscount, setGenMaxDiscount] = useState('');
+  const [genExpiresInDays, setGenExpiresInDays] = useState('7');
+  const [applyingDiscount, setApplyingDiscount] = useState(false);
+  const [removingDiscount, setRemovingDiscount] = useState(false);
+
+  useEffect(() => {
+    couponsAPI.getAll()
+      .then((res: any) => setCoupons(Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : [])))
+      .catch(() => setCoupons([]));
+  }, []);
 
   const handleAddNote = async () => {
     if (!noteText.trim() || !cart) return;
@@ -142,6 +191,65 @@ const AbandonedCartDetail: React.FC = () => {
     }
   };
 
+  const handleApplyDiscount = async () => {
+    if (!cart) return;
+    if (discountMode === 'existing' && !selectedCoupon) {
+      alert('Choose a coupon first');
+      return;
+    }
+    if (discountMode === 'generate') {
+      const value = parseFloat(genValue);
+      if (!Number.isFinite(value) || value <= 0) {
+        alert('Enter a valid discount value');
+        return;
+      }
+    }
+    if (cart.appliedCouponCode) {
+      const ok = window.confirm(
+        `This cart already has "${cart.appliedCouponCode}" applied. Replace it with the new discount?`
+      );
+      if (!ok) return;
+    }
+
+    setApplyingDiscount(true);
+    try {
+      const body: any =
+        discountMode === 'existing'
+          ? { mode: 'existing', couponCode: selectedCoupon }
+          : {
+              mode: 'generate',
+              type: genType,
+              value: parseFloat(genValue),
+              ...(genMaxDiscount ? { maxDiscount: parseFloat(genMaxDiscount) } : {}),
+              ...(genExpiresInDays ? { expiresInDays: parseInt(genExpiresInDays, 10) } : {}),
+            };
+      await cartsAPI.applyDiscount(String(cart._id), body);
+      setSelectedCoupon('');
+      setGenValue('');
+      setGenMaxDiscount('');
+      fetchCart();
+    } catch (err: any) {
+      alert(err.response?.data?.message || err.message || 'Failed to apply discount');
+    } finally {
+      setApplyingDiscount(false);
+    }
+  };
+
+  const handleRemoveDiscount = async () => {
+    if (!cart) return;
+    const ok = window.confirm('Remove the applied discount from this cart?');
+    if (!ok) return;
+    setRemovingDiscount(true);
+    try {
+      await cartsAPI.removeDiscount(String(cart._id));
+      fetchCart();
+    } catch (err: any) {
+      alert(err.response?.data?.message || err.message || 'Failed to remove discount');
+    } finally {
+      setRemovingDiscount(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -173,6 +281,8 @@ const AbandonedCartDetail: React.FC = () => {
       .map(([k, v]) => `${k}: ${v}`);
     return parts.length ? parts.join(' · ') : null;
   };
+
+  const activeCoupons = coupons.filter((c: any) => c.isActive ?? c.is_active);
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -318,6 +428,117 @@ const AbandonedCartDetail: React.FC = () => {
             )}
           </div>
 
+          {/* Apply Discount — attach an existing coupon or mint a one-off code to win this cart back */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-3">Apply Discount</h2>
+
+            {cart.appliedCouponCode && (
+              <div className="flex items-center justify-between mb-3 px-3 py-2 bg-green-50 border border-green-200 rounded-md text-sm">
+                <span className="text-green-800">
+                  Applied: <span className="font-semibold">{cart.appliedCouponCode}</span>
+                </span>
+                <button
+                  onClick={handleRemoveDiscount}
+                  disabled={removingDiscount}
+                  className="text-xs text-red-600 hover:text-red-800 disabled:opacity-50"
+                >
+                  {removingDiscount ? '…' : 'Remove'}
+                </button>
+              </div>
+            )}
+
+            <div className="flex gap-2 mb-3 text-xs">
+              <button
+                onClick={() => setDiscountMode('existing')}
+                className={`flex-1 px-2 py-1.5 rounded-md border ${
+                  discountMode === 'existing' ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                Existing coupon
+              </button>
+              <button
+                onClick={() => setDiscountMode('generate')}
+                className={`flex-1 px-2 py-1.5 rounded-md border ${
+                  discountMode === 'generate' ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                Generate one-off
+              </button>
+            </div>
+
+            {discountMode === 'existing' ? (
+              <div className="space-y-2">
+                <select
+                  value={selectedCoupon}
+                  onChange={(e) => setSelectedCoupon(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                >
+                  <option value="">Select an active coupon…</option>
+                  {activeCoupons.map((c: any) => (
+                    <option key={c._id ?? c.id} value={c.code}>
+                      {c.code} — {c.type === 'percentage' ? `${c.value}% off` : c.type === 'fixed' ? `₹${c.value} off` : c.type}
+                    </option>
+                  ))}
+                </select>
+                {activeCoupons.length === 0 && (
+                  <p className="text-xs text-gray-400">No active coupons found.</p>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <select
+                    value={genType}
+                    onChange={(e) => setGenType(e.target.value as 'percentage' | 'fixed')}
+                    className="px-2 py-2 border border-gray-300 rounded-md text-sm"
+                  >
+                    <option value="percentage">% off</option>
+                    <option value="fixed">₹ off</option>
+                  </select>
+                  <input
+                    type="number"
+                    min="0"
+                    value={genValue}
+                    onChange={(e) => setGenValue(e.target.value)}
+                    placeholder={genType === 'percentage' ? 'e.g. 15' : 'e.g. 100'}
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  {genType === 'percentage' && (
+                    <input
+                      type="number"
+                      min="0"
+                      value={genMaxDiscount}
+                      onChange={(e) => setGenMaxDiscount(e.target.value)}
+                      placeholder="Max discount ₹ (optional)"
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    />
+                  )}
+                  <input
+                    type="number"
+                    min="1"
+                    value={genExpiresInDays}
+                    onChange={(e) => setGenExpiresInDays(e.target.value)}
+                    placeholder="Expires in days"
+                    className="w-32 px-3 py-2 border border-gray-300 rounded-md text-sm"
+                  />
+                </div>
+                <p className="text-xs text-gray-400">
+                  Generates a single-use RECOVER-XXXXXX code sent only to this shopper.
+                </p>
+              </div>
+            )}
+
+            <button
+              onClick={handleApplyDiscount}
+              disabled={applyingDiscount}
+              className="mt-3 w-full px-3 py-2 text-sm bg-gray-900 text-white rounded-md hover:bg-gray-700 disabled:opacity-50"
+            >
+              {applyingDiscount ? 'Applying…' : 'Apply Discount'}
+            </button>
+          </div>
+
           {/* Staff notes — follow-up outcomes, call summaries */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-3">Notes</h2>
@@ -388,6 +609,47 @@ const AbandonedCartDetail: React.FC = () => {
                           {ev.ipAddress ? ` · ${ev.ipAddress}` : ''}
                         </div>
                       </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Checkout Attempts — every "Place Order" submission logged before a real order exists (migration 126) */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-3">Checkout Attempts</h2>
+            {(cart.checkoutAttempts ?? []).length === 0 ? (
+              <div className="text-sm text-gray-500">No checkout attempts yet.</div>
+            ) : (
+              <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
+                {(cart.checkoutAttempts ?? []).map((a) => {
+                  const method = a.paymentMethod ?? a.payment_method;
+                  const gateway = a.paymentGateway ?? a.payment_gateway;
+                  const failureReason = a.failureReason ?? a.failure_reason;
+                  const couponCode = a.couponCode ?? a.coupon_code;
+                  const createdAt = a.createdAt ?? a.created_at;
+                  return (
+                    <div key={a.id} className="text-sm border-l-2 border-gray-200 pl-2.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium capitalize ${attemptStatusBadge(a.status)}`}>
+                          {a.status.replace(/_/g, ' ')}
+                        </span>
+                        <span className="text-gray-800">
+                          {method === 'cod' ? 'Cash on Delivery' : 'Prepaid'}{gateway ? ` · ${gateway}` : ''}
+                        </span>
+                      </div>
+                      {failureReason && (
+                        <p className="text-xs text-red-600 mt-1">{failureReason}</p>
+                      )}
+                      {couponCode && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          Coupon: <span className="font-medium text-gray-700">{couponCode}</span>
+                        </p>
+                      )}
+                      <p className="text-xs text-gray-400 mt-1">
+                        {formatMoney(a.total)} · {formatDate(createdAt)}
+                      </p>
                     </div>
                   );
                 })}
