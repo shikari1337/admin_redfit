@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { FaArrowLeft, FaCopy, FaExternalLinkAlt, FaSms } from 'react-icons/fa';
+import { FaArrowLeft, FaCopy, FaExternalLinkAlt, FaSms, FaWhatsapp, FaEnvelope } from 'react-icons/fa';
 import { cartsAPI, journeyAPI, couponsAPI } from '../services/api';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ButtonLoader from '../components/ButtonLoader';
@@ -100,8 +100,10 @@ const AbandonedCartDetail: React.FC = () => {
   const [cart, setCart] = useState<CartDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [sendingRecovery, setSendingRecovery] = useState(false);
-  const [recoveryChannel, setRecoveryChannel] = useState<'whatsapp' | 'sms' | 'email'>('whatsapp');
+  // Which channel is currently sending (null = none in flight) — drives each
+  // button's own loading state independently, and disables the other two
+  // while one is in flight so a double-click can't fire two channels at once.
+  const [sendingChannel, setSendingChannel] = useState<'whatsapp' | 'sms' | 'email' | null>(null);
   const [recoveryResult, setRecoveryResult] = useState<{ ok: boolean; channel: string; reason?: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [journey, setJourney] = useState<JourneyEvent[] | null>(null);
@@ -168,13 +170,13 @@ const AbandonedCartDetail: React.FC = () => {
     fetchCart();
   }, [fetchCart]);
 
-  const handleSendRecovery = async () => {
+  const handleSendRecovery = async (channel: 'whatsapp' | 'sms' | 'email') => {
     if (!cart) return;
-    setSendingRecovery(true);
+    setSendingChannel(channel);
     setRecoveryResult(null);
     try {
-      const res = await cartsAPI.sendRecovery(String(cart._id), { channel: recoveryChannel });
-      setRecoveryResult(res?.data ?? { ok: true, channel: recoveryChannel });
+      const res = await cartsAPI.sendRecovery(String(cart._id), { channel });
+      setRecoveryResult(res?.data ?? { ok: true, channel });
       fetchCart();
     } catch (err: any) {
       const payload = err.response?.data;
@@ -183,10 +185,10 @@ const AbandonedCartDetail: React.FC = () => {
       // a generic message only for something that never reached that logic (network
       // error, 400 validation, etc).
       setRecoveryResult(
-        payload?.data ?? { ok: false, channel: recoveryChannel, reason: payload?.message || err.message || 'Failed to send recovery message' }
+        payload?.data ?? { ok: false, channel, reason: payload?.message || err.message || 'Failed to send recovery message' }
       );
     } finally {
-      setSendingRecovery(false);
+      setSendingChannel(null);
     }
   };
 
@@ -318,32 +320,31 @@ const AbandonedCartDetail: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-2 self-start">
-          <select
-            value={recoveryChannel}
-            onChange={(e) => setRecoveryChannel(e.target.value as 'whatsapp' | 'sms' | 'email')}
-            disabled={sendingRecovery}
-            className="px-2 py-2 text-sm border border-gray-300 rounded-md text-gray-700 focus:outline-none focus:ring-2 focus:ring-red-500 disabled:opacity-50"
-          >
-            <option value="whatsapp">WhatsApp</option>
-            <option value="sms">SMS</option>
-            <option value="email">Email</option>
-          </select>
-          <button
-            onClick={handleSendRecovery}
-            disabled={sendingRecovery}
-            className="inline-flex items-center px-4 py-2 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-400"
-          >
-            {sendingRecovery ? (
-              <>
-                <ButtonLoader size="sm" color="current" />
-                <span className="ml-2">Sending...</span>
-              </>
-            ) : (
-              <>
-                <FaSms className="mr-2" /> Send Recovery
-              </>
-            )}
-          </button>
+          {(
+            [
+              { channel: 'whatsapp' as const, label: 'WhatsApp', Icon: FaWhatsapp, className: 'bg-green-600 hover:bg-green-700 disabled:bg-green-400' },
+              { channel: 'sms' as const, label: 'SMS', Icon: FaSms, className: 'bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400' },
+              { channel: 'email' as const, label: 'Email', Icon: FaEnvelope, className: 'bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400' },
+            ]
+          ).map(({ channel, label, Icon, className }) => (
+            <button
+              key={channel}
+              onClick={() => handleSendRecovery(channel)}
+              disabled={sendingChannel !== null}
+              className={`inline-flex items-center px-3 py-2 text-sm text-white rounded-md ${className}`}
+            >
+              {sendingChannel === channel ? (
+                <>
+                  <ButtonLoader size="sm" color="current" />
+                  <span className="ml-2">Sending...</span>
+                </>
+              ) : (
+                <>
+                  <Icon className="mr-2" /> {label}
+                </>
+              )}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -651,9 +652,10 @@ const AbandonedCartDetail: React.FC = () => {
 
           {/* Checkout Attempts — every "Place Order" submission logged before a real order exists (migration 126) */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-3">Checkout Attempts</h2>
+            <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Payment Attempts &amp; Failure Reasons</h2>
+            <p className="text-xs text-gray-500 mb-3">Every payment method this shopper tried on this cart, and why it didn't go through.</p>
             {(cart.checkoutAttempts ?? []).length === 0 ? (
-              <div className="text-sm text-gray-500">No checkout attempts yet.</div>
+              <div className="text-sm text-gray-500">No payment attempts yet — this shopper added items but never reached checkout.</div>
             ) : (
               <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
                 {(cart.checkoutAttempts ?? []).map((a) => {
