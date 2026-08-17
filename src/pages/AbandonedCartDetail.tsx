@@ -100,7 +100,9 @@ const AbandonedCartDetail: React.FC = () => {
   const [cart, setCart] = useState<CartDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [sendingSms, setSendingSms] = useState(false);
+  const [sendingRecovery, setSendingRecovery] = useState(false);
+  const [recoveryChannel, setRecoveryChannel] = useState<'whatsapp' | 'sms' | 'email'>('whatsapp');
+  const [recoveryResult, setRecoveryResult] = useState<{ ok: boolean; channel: string; reason?: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [journey, setJourney] = useState<JourneyEvent[] | null>(null);
   const [noteText, setNoteText] = useState('');
@@ -168,15 +170,23 @@ const AbandonedCartDetail: React.FC = () => {
 
   const handleSendRecovery = async () => {
     if (!cart) return;
+    setSendingRecovery(true);
+    setRecoveryResult(null);
     try {
-      setSendingSms(true);
-      await cartsAPI.sendRecovery(String(cart._id));
-      alert('Recovery message sent');
+      const res = await cartsAPI.sendRecovery(String(cart._id), { channel: recoveryChannel });
+      setRecoveryResult(res?.data ?? { ok: true, channel: recoveryChannel });
       fetchCart();
     } catch (err: any) {
-      alert(err.response?.data?.message || err.message || 'Failed to send recovery message');
+      const payload = err.response?.data;
+      // The route returns the real per-channel failure reason as `data` even on a
+      // non-2xx response (422 = channel accepted but not delivered); fall back to
+      // a generic message only for something that never reached that logic (network
+      // error, 400 validation, etc).
+      setRecoveryResult(
+        payload?.data ?? { ok: false, channel: recoveryChannel, reason: payload?.message || err.message || 'Failed to send recovery message' }
+      );
     } finally {
-      setSendingSms(false);
+      setSendingRecovery(false);
     }
   };
 
@@ -307,22 +317,34 @@ const AbandonedCartDetail: React.FC = () => {
             </span>
           </div>
         </div>
-        <button
-          onClick={handleSendRecovery}
-          disabled={sendingSms}
-          className="inline-flex items-center px-4 py-2 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-400 self-start"
-        >
-          {sendingSms ? (
-            <>
-              <ButtonLoader size="sm" color="current" />
-              <span className="ml-2">Sending...</span>
-            </>
-          ) : (
-            <>
-              <FaSms className="mr-2" /> Send Recovery
-            </>
-          )}
-        </button>
+        <div className="flex items-center gap-2 self-start">
+          <select
+            value={recoveryChannel}
+            onChange={(e) => setRecoveryChannel(e.target.value as 'whatsapp' | 'sms' | 'email')}
+            disabled={sendingRecovery}
+            className="px-2 py-2 text-sm border border-gray-300 rounded-md text-gray-700 focus:outline-none focus:ring-2 focus:ring-red-500 disabled:opacity-50"
+          >
+            <option value="whatsapp">WhatsApp</option>
+            <option value="sms">SMS</option>
+            <option value="email">Email</option>
+          </select>
+          <button
+            onClick={handleSendRecovery}
+            disabled={sendingRecovery}
+            className="inline-flex items-center px-4 py-2 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-400"
+          >
+            {sendingRecovery ? (
+              <>
+                <ButtonLoader size="sm" color="current" />
+                <span className="ml-2">Sending...</span>
+              </>
+            ) : (
+              <>
+                <FaSms className="mr-2" /> Send Recovery
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -398,30 +420,41 @@ const AbandonedCartDetail: React.FC = () => {
           {/* Recovery */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-3">Recovery</h2>
-            {cart.recoveryToken ? (
+
+            {recoveryResult && (
+              <div
+                className={`mb-3 px-3 py-2 rounded-md text-sm border ${
+                  recoveryResult.ok ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-700'
+                }`}
+              >
+                {recoveryResult.ok
+                  ? `Sent via ${recoveryResult.channel === 'whatsapp' ? 'WhatsApp' : recoveryResult.channel === 'sms' ? 'SMS' : recoveryResult.channel === 'email' ? 'Email' : recoveryResult.channel}.`
+                  : recoveryResult.reason || 'Could not send the recovery message.'}
+              </div>
+            )}
+
+            {cart.recoveryUrl ? (
               <div className="space-y-3 text-sm">
                 <div>
                   <div className="text-xs text-gray-500">Token</div>
-                  <div className="font-mono text-xs text-gray-700 break-all">{cart.recoveryToken}</div>
+                  <div className="font-mono text-xs text-gray-700 break-all">{cart.recoveryUrl.split('/').pop()}</div>
                 </div>
-                {cart.recoveryUrl && (
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={handleCopyLink}
-                      className="inline-flex items-center px-3 py-1.5 text-xs border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-                    >
-                      <FaCopy className="mr-1.5" /> {copied ? 'Copied!' : 'Copy link'}
-                    </button>
-                    <a
-                      href={cart.recoveryUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center px-3 py-1.5 text-xs border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-                    >
-                      <FaExternalLinkAlt className="mr-1.5" /> Open
-                    </a>
-                  </div>
-                )}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleCopyLink}
+                    className="inline-flex items-center px-3 py-1.5 text-xs border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                  >
+                    <FaCopy className="mr-1.5" /> {copied ? 'Copied!' : 'Copy link'}
+                  </button>
+                  <a
+                    href={cart.recoveryUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center px-3 py-1.5 text-xs border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                  >
+                    <FaExternalLinkAlt className="mr-1.5" /> Open
+                  </a>
+                </div>
               </div>
             ) : (
               <div className="text-sm text-gray-500">No recovery link generated yet.</div>

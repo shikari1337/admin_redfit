@@ -2713,8 +2713,14 @@ export const cartsAPI = {
     const response = await api.get(`/carts/admin/${cartId}`);
     return response.data;
   },
-  sendRecovery: async (cartId: string) => {
-    const response = await api.post(`/carts/${cartId}/send-recovery`);
+  /**
+   * `channel` is optional — omit it (as the Abandoned Carts LIST page's quick
+   * action still does) for the original auto-priority (WhatsApp-first, SMS
+   * fallback) behaviour. The cart DETAIL page always passes one explicitly so
+   * staff can pick WhatsApp/SMS/Email. Response `data` is `{ok, channel, reason?}`.
+   */
+  sendRecovery: async (cartId: string, body?: { channel: 'whatsapp' | 'sms' | 'email' }) => {
+    const response = await api.post(`/carts/${cartId}/send-recovery`, body);
     return response.data;
   },
   addNote: async (cartId: string, text: string) => {
