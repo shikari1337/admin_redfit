@@ -62,8 +62,6 @@ const SetupWizard: React.FC = () => {
   const [codEnabled,       setCodEnabled]       = useState(true);
   const [codChargePay,     setCodChargePay]     = useState('');
   const [razorpayEnabled,  setRazorpayEnabled]  = useState(false);
-  const [razorpayKeyId,    setRazorpayKeyId]    = useState('');
-  const [razorpaySecret,   setRazorpaySecret]   = useState('');
   const [upiEnabled,       setUpiEnabled]       = useState(false);
   const [upiId,            setUpiId]            = useState('');
   const [upiPayeeName,     setUpiPayeeName]     = useState('');
@@ -97,8 +95,6 @@ const SetupWizard: React.FC = () => {
         if (s.cod?.isEnabled != null)           setCodEnabled(s.cod.isEnabled);
         if (s.cod?.charge != null)              setCodChargePay(String(s.cod.charge));
         if (s.razorpay?.isEnabled != null)      setRazorpayEnabled(s.razorpay.isEnabled);
-        if (s.razorpay?.keyId)                  setRazorpayKeyId(s.razorpay.keyId);
-        if (s.razorpay?.keySecret)              setRazorpaySecret(s.razorpay.keySecret);
         if (s.upi?.isEnabled != null)           setUpiEnabled(s.upi.isEnabled);
         if (s.upi?.upiId)                       setUpiId(s.upi.upiId);
         if (s.upi?.payeeName)                   setUpiPayeeName(s.upi.payeeName);
@@ -146,7 +142,11 @@ const SetupWizard: React.FC = () => {
         await api.post('/settings/bulk', {
           settings: [
             { key: 'cod',      value: { isEnabled: codEnabled, charge: parseFloat(codChargePay) || 0 }, grp: 'payment', is_public: false },
-            { key: 'razorpay', value: { isEnabled: razorpayEnabled, keyId: razorpayKeyId, keySecret: razorpaySecret }, grp: 'payment', is_public: false },
+            // Keys/webhook are entered on API & Integrations — this step only
+            // ever toggles isEnabled. normalizeSecretSections (routes/settings.ts)
+            // merges rather than overwrites, so omitting keyId/keySecret here
+            // leaves whatever is already saved untouched.
+            { key: 'razorpay', value: { isEnabled: razorpayEnabled }, grp: 'payment', is_public: false },
             { key: 'upi',      value: { isEnabled: upiEnabled, upiId, payeeName: upiPayeeName }, grp: 'payment', is_public: false },
           ],
         });
@@ -553,9 +553,11 @@ const SetupWizard: React.FC = () => {
                   </CardContent>
                 </Card>
 
-                {/* Razorpay */}
+                {/* Razorpay — keys/webhook are configured on Settings → API &
+                    Integrations (the ONE place for Razorpay); this step only
+                    toggles whether it's enabled. */}
                 <Card>
-                  <CardContent className="p-5 space-y-4">
+                  <CardContent className="p-5 space-y-3">
                     <div className="flex items-center justify-between">
                       <div>
                         <div className="font-semibold">Razorpay</div>
@@ -564,15 +566,11 @@ const SetupWizard: React.FC = () => {
                       <Switch checked={razorpayEnabled} onCheckedChange={setRazorpayEnabled} />
                     </div>
                     {razorpayEnabled && (
-                      <div className="grid grid-cols-1 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="w-rpKeyId">Key ID</Label>
-                          <Input id="w-rpKeyId" value={razorpayKeyId} onChange={e => setRazorpayKeyId(e.target.value)} placeholder="rzp_live_..." />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="w-rpSecret">Key Secret</Label>
-                          <Input id="w-rpSecret" type="password" value={razorpaySecret} onChange={e => setRazorpaySecret(e.target.value)} placeholder="••••••••••••••••••••" />
-                        </div>
+                      <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+                        <p className="text-xs text-muted-foreground">Key ID, Key Secret and webhook are set up on API &amp; Integrations</p>
+                        <Button type="button" variant="outline" size="sm" onClick={() => navigate('/settings/api-integrations')}>
+                          Configure Razorpay
+                        </Button>
                       </div>
                     )}
                   </CardContent>
