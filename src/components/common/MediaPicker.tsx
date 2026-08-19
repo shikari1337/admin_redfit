@@ -26,13 +26,14 @@ interface LibItem { key: string; url: string; size?: number }
 const IMG_RE = /\.(jpe?g|png|gif|webp|svg|avif|bmp)$/i;
 
 const MediaPicker: React.FC<MediaPickerProps> = ({ open, onClose, onSelect, folder = 'products/gallery' }) => {
-  const [tab, setTab] = useState<'library' | 'upload'>('library');
+  const [tab, setTab] = useState<'library' | 'upload' | 'url'>('library');
   const [library, setLibrary] = useState<LibItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<string>('');
   const [uploading, setUploading] = useState(false);
   const [editing, setEditing] = useState<string | null>(null); // image url being customized
+  const [urlValue, setUrlValue] = useState('');
 
   const loadLibrary = useCallback(async () => {
     setLoading(true);
@@ -47,7 +48,7 @@ const MediaPicker: React.FC<MediaPickerProps> = ({ open, onClose, onSelect, fold
     finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { if (open) { loadLibrary(); setSelected(''); setTab('library'); } }, [open, loadLibrary]);
+  useEffect(() => { if (open) { loadLibrary(); setSelected(''); setUrlValue(''); setTab('library'); } }, [open, loadLibrary]);
 
   const handleUpload = async (files: FileList | File[]) => {
     const imgs = Array.from(files).filter(f => f.type.startsWith('image/'));
@@ -87,10 +88,10 @@ const MediaPicker: React.FC<MediaPickerProps> = ({ open, onClose, onSelect, fold
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200">
           <div className="flex items-center gap-1">
-            {(['library', 'upload'] as const).map(t => (
+            {(['library', 'upload', 'url'] as const).map(t => (
               <button key={t} type="button" onClick={() => setTab(t)}
                 className={`px-3 py-1.5 text-sm font-medium rounded-md ${tab === t ? 'bg-gray-900 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
-                {t === 'library' ? 'Media Library' : 'Upload New'}
+                {t === 'library' ? 'Media Library' : t === 'upload' ? 'Upload New' : 'From URL'}
               </button>
             ))}
           </div>
@@ -99,7 +100,33 @@ const MediaPicker: React.FC<MediaPickerProps> = ({ open, onClose, onSelect, fold
 
         {/* Body */}
         <div className="flex-1 overflow-auto p-5">
-          {tab === 'upload' ? (
+          {tab === 'url' ? (
+            <div className="max-w-md mx-auto mt-10">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Image URL</label>
+              <input
+                type="text"
+                value={urlValue}
+                onChange={e => setUrlValue(e.target.value)}
+                placeholder="https://example.com/image.jpg"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-red-400"
+                autoFocus
+              />
+              <p className="text-xs text-gray-400 mt-1.5">Paste a direct link to an image hosted elsewhere.</p>
+              {urlValue.trim() && (
+                <div className="mt-4 rounded-lg overflow-hidden border border-gray-200 bg-gray-50 aspect-video flex items-center justify-center">
+                  <img src={urlValue.trim()} alt="" className="max-h-full max-w-full object-contain" onError={e => (e.currentTarget.style.display = 'none')} />
+                </div>
+              )}
+              <button
+                type="button"
+                disabled={!urlValue.trim()}
+                onClick={() => { const u = urlValue.trim(); if (u) { onSelect(u); onClose(); } }}
+                className="mt-4 w-full px-4 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-40"
+              >
+                Use this URL
+              </button>
+            </div>
+          ) : tab === 'upload' ? (
             <label
               onDragOver={e => e.preventDefault()}
               onDrop={e => { e.preventDefault(); if (e.dataTransfer.files?.length) handleUpload(e.dataTransfer.files); }}

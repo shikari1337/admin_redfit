@@ -1,0 +1,290 @@
+/**
+ * Elementor/WP-Bakery-style chrome for the GrapesJS visual page builder.
+ * Scoped under `.pb-shell` (the sidebar + canvas row) so it never leaks
+ * outside PageBuilder.tsx. Reskins GrapesJS's own CSS-variable theme
+ * (dark, indigo accent) and restyles blocks/layers/style/trait rows into
+ * card-like, icon-led rows instead of the stock dense list UI.
+ */
+
+.pb-shell {
+  --gjs-main-color: #181b27;
+  --gjs-primary-color: #181b27;
+  --gjs-secondary-color: #2b2f42;
+  --gjs-font-color: #b6bccb;
+  --gjs-font-color-active: #ffffff;
+  --gjs-main-dark-color: rgba(0, 0, 0, 0.28);
+  --gjs-secondary-dark-color: rgba(0, 0, 0, 0.18);
+  --gjs-main-light-color: rgba(255, 255, 255, 0.06);
+  --gjs-secondary-light-color: rgba(255, 255, 255, 0.55);
+  --gjs-color-blue: #6366f1;
+  --gjs-color-highlight: #818cf8;
+  --gjs-tertiary-color: #6366f1;
+  --gjs-quaternary-color: #a5b4fc;
+  --gjs-main-font: inherit;
+  /* No stock panel row/left panel remain (fully custom top bar + sidebar) —
+     stop .gjs-cv-canvas reserving space for them. */
+  --gjs-canvas-top: 0px;
+  --gjs-left-width: 0%;
+}
+
+/* ── Sidebar shell ─────────────────────────────────────────────────────── */
+.pb-sidebar {
+  background: #181b27;
+  color: #b6bccb;
+  font-family: inherit;
+}
+.pb-sidebar-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 10px 0;
+  border-bottom: 1px solid #2b2f42;
+  flex-shrink: 0;
+}
+.pb-sidebar-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #7c8296;
+  border-radius: 8px 8px 0 0;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, background 0.15s;
+}
+.pb-sidebar-tab:hover { color: #dfe2ea; background: rgba(255, 255, 255, 0.04); }
+.pb-sidebar-tab.active { color: #fff; border-bottom-color: #6366f1; background: rgba(99, 102, 241, 0.12); }
+
+.pb-panel { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.pb-hidden { display: none !important; }
+
+.pb-panel-search {
+  padding: 10px 12px;
+  border-bottom: 1px solid #2b2f42;
+  flex-shrink: 0;
+}
+.pb-panel-search input {
+  width: 100%;
+  background: #22263a;
+  border: 1px solid #323752;
+  color: #e5e7eb;
+  border-radius: 7px;
+  padding: 7px 10px;
+  font-size: 12px;
+  outline: none;
+}
+.pb-panel-search input::placeholder { color: #6b7182; }
+.pb-panel-search input:focus { border-color: #6366f1; box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25); }
+
+.pb-panel-scroll { flex: 1; overflow-y: auto; min-height: 0; }
+
+.pb-edit-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #2b2f42;
+  flex-shrink: 0;
+}
+.pb-edit-header button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  color: #b6bccb;
+  flex-shrink: 0;
+}
+.pb-edit-header button:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
+.pb-edit-header span {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pb-edit-tabs { display: flex; gap: 2px; padding: 8px 10px 0; flex-shrink: 0; }
+.pb-edit-tab {
+  padding: 7px 14px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #7c8296;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  border-radius: 6px 6px 0 0;
+}
+.pb-edit-tab:hover { color: #dfe2ea; }
+.pb-edit-tab.active { color: #fff; border-bottom-color: #6366f1; background: rgba(99, 102, 241, 0.12); }
+.pb-empty-hint {
+  padding: 28px 16px;
+  text-align: center;
+  font-size: 12px;
+  color: #6b7182;
+  line-height: 1.6;
+}
+
+/* ── Blocks grid (Elementor "Elements" panel feel) ───────────────────── */
+.pb-shell .gjs-block-category { border-bottom: 1px solid #2b2f42; }
+.pb-shell .gjs-title {
+  padding: 10px 12px !important;
+  font-size: 10.5px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #7c8296 !important;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent !important;
+}
+.pb-shell .gjs-caret-icon { margin-left: auto; }
+.pb-shell .gjs-blocks-c {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  padding: 4px 10px 12px;
+}
+.pb-shell .gjs-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 74px;
+  padding: 12px 6px;
+  border: 1px solid #2b2f42;
+  border-radius: 10px;
+  background: #1f2334;
+  cursor: grab;
+  text-align: center;
+  transition: border-color 0.15s, transform 0.15s, background 0.15s;
+}
+.pb-shell .gjs-block:hover {
+  border-color: #6366f1;
+  background: #262b42;
+  transform: translateY(-1px);
+}
+.pb-shell .gjs-block-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #cdd1dd;
+  line-height: 1.25;
+}
+.pb-shell .gjs-block svg { width: 20px; height: 20px; color: #a5b4fc; }
+.pb-shell .gjs-block__media { display: flex; align-items: center; justify-content: center; }
+
+/* ── Layer manager ────────────────────────────────────────────────────── */
+.pb-shell .gjs-layer-title { padding: 6px 8px !important; }
+.pb-shell .gjs-layer-title:hover { background: rgba(255, 255, 255, 0.05) !important; }
+.pb-shell .gjs-layer-name { font-size: 11.5px; }
+.pb-shell .gjs-layer-count {
+  background: #2b2f42;
+  color: #a5b4fc;
+  border-radius: 999px;
+  font-size: 10px;
+  padding: 0 6px;
+}
+
+/* ── Style manager (Style tab) ───────────────────────────────────────── */
+.pb-shell .gjs-sm-sector { border-bottom: 1px solid #2b2f42 !important; }
+.pb-shell .gjs-sm-sector-title {
+  padding: 10px 12px !important;
+  font-size: 10.5px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #9ca3af !important;
+  background: rgba(255, 255, 255, 0.02) !important;
+}
+.pb-shell .gjs-sm-properties { padding: 8px 12px 12px !important; }
+.pb-shell .gjs-sm-property { margin-bottom: 10px !important; }
+.pb-shell .gjs-sm-label { font-size: 10.5px !important; color: #8b91a3 !important; }
+.pb-shell .gjs-field {
+  border-radius: 6px !important;
+  border: 1px solid #323752 !important;
+  background: #22263a !important;
+}
+.pb-shell .gjs-field input, .pb-shell .gjs-field select { color: #e5e7eb !important; }
+.pb-shell .gjs-field:focus-within {
+  border-color: #6366f1 !important;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
+}
+.pb-shell .gjs-clm-tags { padding: 10px 12px !important; border-bottom: 1px solid #2b2f42 !important; }
+.pb-shell .gjs-clm-tag { background: #2b2f42 !important; color: #cdd1dd !important; border-radius: 999px !important; }
+/* SelectorManager renders its "Classes" header twice into the same appendTo
+   target (a GrapesJS internal quirk, not ours to fix) — both instances are
+   true DOM siblings, so hide any repeat via the general sibling combinator. */
+#pb-style-mount .gjs-clm-tags ~ .gjs-clm-tags { display: none !important; }
+
+/* ── Trait manager (Content tab) ─────────────────────────────────────── */
+.pb-shell .gjs-trt-traits { padding: 6px 4px; }
+.pb-shell .gjs-trt-trait {
+  padding: 8px 12px !important;
+  border-bottom: 1px solid #22263a;
+}
+.pb-shell .gjs-trt-trait .gjs-label { font-size: 10.5px !important; color: #8b91a3 !important; flex-basis: 40%; }
+.pb-shell .gjs-trt-trait .gjs-field {
+  border-radius: 6px !important;
+  border: 1px solid #323752 !important;
+  background: #22263a !important;
+}
+.pb-shell .gjs-trt-trait .gjs-field input,
+.pb-shell .gjs-trt-trait .gjs-field select,
+.pb-shell .gjs-trt-trait .gjs-field textarea { color: #e5e7eb !important; }
+
+/* ── Floating component toolbar + name badge (Elementor-style pill) ──── */
+.pb-shell .gjs-toolbar {
+  background: #4338ca !important;
+  border-radius: 7px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+  overflow: hidden;
+}
+.pb-shell .gjs-toolbar-item { width: 24px !important; padding: 5px !important; }
+.pb-shell .gjs-toolbar-item:hover { background: rgba(255, 255, 255, 0.18); }
+.pb-shell .gjs-badge {
+  background: #4338ca !important;
+  border-radius: 4px;
+  font-size: 11px !important;
+  font-weight: 600;
+}
+
+/* GrapesJS's own panel row/flyout strip (commands/devices-c/options/views/
+   views-container) still gets vivified by plugin addButton() calls even with
+   `panels: { defaults: [] }` — our custom top bar + sidebar fully replace it. */
+.gjs-pn-panel { display: none !important; }
+
+/* assetManager.custom:true still opens GrapesJS's own (otherwise-empty)
+   modal + backdrop — `.gjs-am-custom-wrp` marks that host. The backdrop
+   container sits at a higher z-index than our MediaPicker overlay and was
+   silently swallowing every click on it, so it must be fully hidden (not
+   just its dialog) — pointer-events would still block underneath.
+   Import/Export-code modals don't carry this marker, so they're untouched. */
+.gjs-mdl-container:has(.gjs-am-custom-wrp) { display: none !important; }
+
+/* ── Canvas area ──────────────────────────────────────────────────────── */
+.pb-canvas-wrap { background: #eef0f4; }
+.pb-shell .gjs-cv-canvas { background: transparent; }
+
+/* ── Modals GrapesJS still opens natively (import / export code) ────── */
+.pb-shell .gjs-mdl-dialog { border-radius: 10px; overflow: hidden; }
+.pb-shell .gjs-mdl-header { background: #181b27; color: #fff; }
+.pb-shell .gjs-mdl-title { color: #fff; }
+
+/* ── Top toolbar buttons (rendered outside .pb-shell, in the 52px bar) ── */
+.pb-topbtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: #b6bccb;
+  transition: background 0.15s, color 0.15s;
+}
+.pb-topbtn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+.pb-topbtn.active { background: rgba(99, 102, 241, 0.35); color: #fff; }
+.pb-topdivider { width: 1px; align-self: stretch; margin: 10px 2px; background: rgba(255, 255, 255, 0.1); }

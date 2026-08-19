@@ -22,16 +22,9 @@ const ApiIntegrationSettings: React.FC = () => {
   const [formData, setFormData] = useState({
     smtp: {
       useEnvVars: false,
-      host: '',
-      port: 587,
-      user: '',
-      password: '',
-      secure: false,
-      requireTls: true,
-      ignoreTls: false,
-      fromEmail: '',
-      adminEmail: '',
       isEnabled: false,
+      test: { host: '', port: 587, user: '', password: '', secure: false, requireTls: true, ignoreTls: false, fromEmail: '', adminEmail: '', passwordSet: false },
+      live: { host: '', port: 587, user: '', password: '', secure: false, requireTls: true, ignoreTls: false, fromEmail: '', adminEmail: '', passwordSet: false },
     },
     metaPixel: {
       useEnvVars: false,
@@ -66,13 +59,12 @@ const ApiIntegrationSettings: React.FC = () => {
     },
     // In-house Growcord gateway — saved under the `whatsapp_settings` key that
     // services/messaging/whatsapp actually reads (separate from `whatsapp`).
+    // TEST/LIVE pair, same convention as razorpay/smtp above.
     whatsapp_settings: {
-      apiUrl: '',
-      apiKey: '',
-      apiKeySet: false,
-      phoneNumberId: '',
       isEnabled: true,
       channelPriority: 'whatsapp_first',
+      test: { apiUrl: '', apiKey: '', apiKeySet: false, phoneNumberId: '' },
+      live: { apiUrl: '', apiKey: '', apiKeySet: false, phoneNumberId: '' },
     },
     gemini: {
       useEnvVars: false,
@@ -97,13 +89,19 @@ const ApiIntegrationSettings: React.FC = () => {
       
       if (settings) {
         if (settings.smtp) {
+          const modeView = (m: any) => ({
+            host: m?.host || '', port: m?.port || 587, user: m?.user || '',
+            secure: !!m?.secure, requireTls: m?.requireTls !== false, ignoreTls: !!m?.ignoreTls,
+            fromEmail: m?.fromEmail || '', adminEmail: m?.adminEmail || '',
+            password: m?.passwordSet ? '••••••••' : '', passwordSet: !!m?.passwordSet,
+          });
           setFormData(prev => ({
             ...prev,
             smtp: {
-              ...prev.smtp,
               useEnvVars: settings.smtp.useEnvVars || false,
-              ...settings.smtp,
-              password: settings.smtp.passwordSet ? '••••••••' : '',
+              isEnabled: settings.smtp.isEnabled || false,
+              test: modeView(settings.smtp.test),
+              live: modeView(settings.smtp.live),
             },
           }));
         }
@@ -170,15 +168,19 @@ const ApiIntegrationSettings: React.FC = () => {
         }
 
         if (settings.whatsapp_settings) {
+          const w = settings.whatsapp_settings;
+          const modeView = (m: any) => ({
+            apiUrl: m?.apiUrl || '', phoneNumberId: m?.phoneNumberId || '',
+            // The server never returns the key itself, only `apiKeySet`.
+            apiKey: m?.apiKeySet ? '••••••••' : '', apiKeySet: !!m?.apiKeySet,
+          });
           setFormData(prev => ({
             ...prev,
             whatsapp_settings: {
-              ...prev.whatsapp_settings,
-              ...settings.whatsapp_settings,
-              // The server never returns the key itself, only `apiKeySet`.
-              apiKey: settings.whatsapp_settings.apiKeySet ? '••••••••' : '',
-              isEnabled: settings.whatsapp_settings.isEnabled !== false,
-              channelPriority: settings.whatsapp_settings.channelPriority || 'whatsapp_first',
+              isEnabled: w.isEnabled !== false,
+              channelPriority: w.channelPriority || 'whatsapp_first',
+              test: modeView(w.test),
+              live: modeView(w.live),
             },
           }));
         }
@@ -207,10 +209,17 @@ const ApiIntegrationSettings: React.FC = () => {
     e.preventDefault();
     setSaving(true);
     try {
+      const modeOut = (m: any) => ({
+        host: m.host, port: m.port, user: m.user, secure: m.secure,
+        requireTls: m.requireTls, ignoreTls: m.ignoreTls, fromEmail: m.fromEmail, adminEmail: m.adminEmail,
+        password: m.password && !m.password.startsWith('••••') ? m.password : undefined,
+      });
       const submitData: any = {
         smtp: {
-          ...formData.smtp,
-          password: formData.smtp.password && !formData.smtp.password.startsWith('••••') ? formData.smtp.password : undefined,
+          isEnabled: formData.smtp.isEnabled,
+          useEnvVars: formData.smtp.useEnvVars,
+          test: modeOut(formData.smtp.test),
+          live: modeOut(formData.smtp.live),
         },
         metaPixel: {
           ...formData.metaPixel,
@@ -239,14 +248,20 @@ const ApiIntegrationSettings: React.FC = () => {
           accessToken: formData.whatsapp.accessToken && !formData.whatsapp.accessToken.startsWith('••••') ? formData.whatsapp.accessToken : undefined,
           authToken: formData.whatsapp.authToken && !formData.whatsapp.authToken.startsWith('••••') ? formData.whatsapp.authToken : undefined,
         },
-        whatsapp_settings: (() => {
-          // `apiKeySet` is a server-side read flag, never sent back.
-          const { apiKeySet, apiKey, ...rest } = formData.whatsapp_settings;
-          return {
-            ...rest,
-            apiKey: apiKey && !apiKey.startsWith('••••') ? apiKey : undefined,
-          };
-        })(),
+        whatsapp_settings: {
+          isEnabled: formData.whatsapp_settings.isEnabled,
+          channelPriority: formData.whatsapp_settings.channelPriority,
+          test: {
+            apiUrl: formData.whatsapp_settings.test.apiUrl,
+            phoneNumberId: formData.whatsapp_settings.test.phoneNumberId,
+            apiKey: formData.whatsapp_settings.test.apiKey && !formData.whatsapp_settings.test.apiKey.startsWith('••••') ? formData.whatsapp_settings.test.apiKey : undefined,
+          },
+          live: {
+            apiUrl: formData.whatsapp_settings.live.apiUrl,
+            phoneNumberId: formData.whatsapp_settings.live.phoneNumberId,
+            apiKey: formData.whatsapp_settings.live.apiKey && !formData.whatsapp_settings.live.apiKey.startsWith('••••') ? formData.whatsapp_settings.live.apiKey : undefined,
+          },
+        },
         gemini: {
           ...formData.gemini,
           apiKey: formData.gemini.apiKey && !formData.gemini.apiKey.startsWith('••••') ? formData.gemini.apiKey : undefined,
@@ -280,6 +295,26 @@ const ApiIntegrationSettings: React.FC = () => {
       razorpay: {
         ...prev.razorpay,
         [mode]: { ...prev.razorpay[mode], [field]: value },
+      },
+    }));
+  };
+
+  const handleSmtpModeChange = (mode: 'test' | 'live', field: string, value: any) => {
+    setFormData(prev => ({
+      ...prev,
+      smtp: {
+        ...prev.smtp,
+        [mode]: { ...prev.smtp[mode], [field]: value },
+      },
+    }));
+  };
+
+  const handleWhatsappSettingsModeChange = (mode: 'test' | 'live', field: string, value: any) => {
+    setFormData(prev => ({
+      ...prev,
+      whatsapp_settings: {
+        ...prev.whatsapp_settings,
+        [mode]: { ...prev.whatsapp_settings[mode], [field]: value },
       },
     }));
   };
@@ -338,6 +373,9 @@ const ApiIntegrationSettings: React.FC = () => {
               </div>
             </div>
             <div className="flex items-center gap-6">
+              <span className={`text-xs font-semibold px-2 py-1 rounded-full ${environment === 'live' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`}>
+                Store is in {environment === 'live' ? 'LIVE' : 'TEST'} mode
+              </span>
               <label className="flex items-center gap-2 cursor-pointer">
                 <Checkbox
                   checked={formData.smtp.useEnvVars}
@@ -363,81 +401,104 @@ const ApiIntegrationSettings: React.FC = () => {
               </div>
             )}
 
-            <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${formData.smtp.useEnvVars ? 'opacity-50 pointer-events-none' : ''}`}>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">SMTP Host</label>
-                <Input
-                  type="text"
-                  value={formData.smtp.host}
-                  onChange={(e) => handleChange('smtp', 'host', e.target.value)}
-                  placeholder="smtp.gmail.com"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">SMTP Port</label>
-                <Input
-                  type="number"
-                  value={formData.smtp.port}
-                  onChange={(e) => handleChange('smtp', 'port', parseInt(e.target.value))}
-                  placeholder="587"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">SMTP User</label>
-                <Input
-                  type="text"
-                  value={formData.smtp.user}
-                  onChange={(e) => handleChange('smtp', 'user', e.target.value)}
-                  placeholder="your-email@gmail.com"
-                  autoComplete="off"
-                  data-1p-ignore
-                  data-lpignore="true"
-                  name="smtp-user-no-autofill"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">SMTP Password</label>
-                <Input
-                  type="password"
-                  value={formData.smtp.password}
-                  onChange={(e) => handleChange('smtp', 'password', e.target.value)}
-                  placeholder={formData.smtp.password.startsWith('••••') ? 'Leave blank to keep current' : 'Enter password'}
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">From Email</label>
-                <Input
-                  type="email"
-                  value={formData.smtp.fromEmail}
-                  onChange={(e) => handleChange('smtp', 'fromEmail', e.target.value)}
-                  placeholder="noreply@yourstore.com"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Admin Email</label>
-                <Input
-                  type="email"
-                  value={formData.smtp.adminEmail}
-                  onChange={(e) => handleChange('smtp', 'adminEmail', e.target.value)}
-                  placeholder="admin@yourstore.com"
-                />
-              </div>
-            </div>
-            <div className={`flex flex-col sm:flex-row gap-6 pt-4 ${formData.smtp.useEnvVars ? 'opacity-50 pointer-events-none' : ''}`}>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <Checkbox
-                  checked={formData.smtp.secure}
-                  onCheckedChange={(checked) => handleChange('smtp', 'secure', checked as boolean)}
-                />
-                <span className="text-sm font-medium">Use SSL/TLS (Port 465)</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <Checkbox
-                  checked={formData.smtp.requireTls}
-                  onCheckedChange={(checked) => handleChange('smtp', 'requireTls', checked as boolean)}
-                />
-                <span className="text-sm font-medium">Require TLS (Port 587)</span>
-              </label>
+            <p className="text-xs text-muted-foreground">
+              The mode above is set by the platform (super admin), not here. Fill in whichever
+              pair matches it — the other stays saved and ready for when the platform switches
+              your store's mode.
+            </p>
+
+            <div className={formData.smtp.useEnvVars ? 'opacity-50 pointer-events-none' : ''}>
+              {(['live', 'test'] as const).map((mode) => (
+                <div key={mode} className="rounded-lg border p-4 space-y-4 bg-muted/30 mb-4 last:mb-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold uppercase tracking-wide">{mode}</p>
+                    {mode === environment && (
+                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-primary/10 text-primary">ACTIVE MODE</span>
+                    )}
+                    {formData.smtp[mode].host && formData.smtp[mode].passwordSet ? (
+                      <span className="flex items-center gap-1 text-[11px] text-green-700"><CheckCircle2 className="h-3.5 w-3.5" /> Configured</span>
+                    ) : (
+                      <span className="text-[11px] text-muted-foreground">Not configured</span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-foreground">SMTP Host</label>
+                      <Input
+                        type="text"
+                        value={formData.smtp[mode].host}
+                        onChange={(e) => handleSmtpModeChange(mode, 'host', e.target.value)}
+                        placeholder="smtp.gmail.com"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-foreground">SMTP Port</label>
+                      <Input
+                        type="number"
+                        value={formData.smtp[mode].port}
+                        onChange={(e) => handleSmtpModeChange(mode, 'port', parseInt(e.target.value))}
+                        placeholder="587"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-foreground">SMTP User</label>
+                      <Input
+                        type="text"
+                        value={formData.smtp[mode].user}
+                        onChange={(e) => handleSmtpModeChange(mode, 'user', e.target.value)}
+                        placeholder="your-email@gmail.com"
+                        autoComplete="off"
+                        data-1p-ignore
+                        data-lpignore="true"
+                        name={`smtp-${mode}-user-no-autofill`}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-foreground">SMTP Password</label>
+                      <Input
+                        type="password"
+                        value={formData.smtp[mode].password}
+                        onChange={(e) => handleSmtpModeChange(mode, 'password', e.target.value)}
+                        placeholder={formData.smtp[mode].password.startsWith('••••') ? 'Leave blank to keep current' : 'Enter password'}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-foreground">From Email</label>
+                      <Input
+                        type="email"
+                        value={formData.smtp[mode].fromEmail}
+                        onChange={(e) => handleSmtpModeChange(mode, 'fromEmail', e.target.value)}
+                        placeholder="noreply@yourstore.com"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-foreground">Admin Email</label>
+                      <Input
+                        type="email"
+                        value={formData.smtp[mode].adminEmail}
+                        onChange={(e) => handleSmtpModeChange(mode, 'adminEmail', e.target.value)}
+                        placeholder="admin@yourstore.com"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-6">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <Checkbox
+                        checked={formData.smtp[mode].secure}
+                        onCheckedChange={(checked) => handleSmtpModeChange(mode, 'secure', checked as boolean)}
+                      />
+                      <span className="text-sm font-medium">Use SSL/TLS (Port 465)</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <Checkbox
+                        checked={formData.smtp[mode].requireTls}
+                        onCheckedChange={(checked) => handleSmtpModeChange(mode, 'requireTls', checked as boolean)}
+                      />
+                      <span className="text-sm font-medium">Require TLS (Port 587)</span>
+                    </label>
+                  </div>
+                </div>
+              ))}
             </div>
           </CardContent>
         </Card>
@@ -758,7 +819,7 @@ const ApiIntegrationSettings: React.FC = () => {
               separate (`whatsapp`) key and are unaffected.
             */}
             <div className="rounded-lg border p-4 space-y-4 bg-muted/30">
-              <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start justify-between gap-4 flex-wrap">
                 <div>
                   <p className="text-sm font-semibold">Growcord WhatsApp Gateway (in-house)</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
@@ -766,63 +827,90 @@ const ApiIntegrationSettings: React.FC = () => {
                     platform's shared account.
                   </p>
                 </div>
-                <label className="flex items-center gap-2 cursor-pointer shrink-0">
-                  <Checkbox
-                    checked={formData.whatsapp_settings.isEnabled}
-                    onCheckedChange={(c) => handleChange('whatsapp_settings', 'isEnabled', c as boolean)}
-                  />
-                  <span className="text-sm">Enabled</span>
-                </label>
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className={`text-xs font-semibold px-2 py-1 rounded-full ${environment === 'live' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`}>
+                    Store is in {environment === 'live' ? 'LIVE' : 'TEST'} mode
+                  </span>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <Checkbox
+                      checked={formData.whatsapp_settings.isEnabled}
+                      onCheckedChange={(c) => handleChange('whatsapp_settings', 'isEnabled', c as boolean)}
+                    />
+                    <span className="text-sm">Enabled</span>
+                  </label>
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">API URL</label>
-                  <Input
-                    type="text"
-                    value={formData.whatsapp_settings.apiUrl}
-                    onChange={(e) => handleChange('whatsapp_settings', 'apiUrl', e.target.value)}
-                    placeholder="https://wa.growcord.in/api"
-                  />
-                  <p className="text-[11px] text-muted-foreground">Base URL without the trailing /v1.</p>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">API Key</label>
-                  <Input
-                    type="password"
-                    value={formData.whatsapp_settings.apiKey}
-                    onChange={(e) => handleChange('whatsapp_settings', 'apiKey', e.target.value)}
-                    placeholder={formData.whatsapp_settings.apiKeySet ? 'Leave blank to keep current' : 'sk_live_…'}
-                  />
-                  <p className="text-[11px] text-muted-foreground">
-                    {formData.whatsapp_settings.apiKeySet ? 'A key is saved and encrypted.' : 'Stored encrypted.'}
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">Phone Number ID</label>
-                  <Input
-                    type="text"
-                    value={formData.whatsapp_settings.phoneNumberId}
-                    onChange={(e) => handleChange('whatsapp_settings', 'phoneNumberId', e.target.value)}
-                    placeholder="WhatsApp phone number ID"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">Channel priority</label>
-                  <select
-                    className="w-full h-10 rounded-md border bg-background px-3 text-sm"
-                    value={formData.whatsapp_settings.channelPriority}
-                    onChange={(e) => handleChange('whatsapp_settings', 'channelPriority', e.target.value)}
-                  >
-                    <option value="whatsapp_first">WhatsApp first, SMS if it fails (recommended)</option>
-                    <option value="sms_first">SMS first, WhatsApp if it fails</option>
-                    <option value="both">Send both every time</option>
-                  </select>
-                  <p className="text-[11px] text-muted-foreground">
-                    Applies to order updates, OTP and cart recovery.
-                  </p>
-                </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Channel priority</label>
+                <select
+                  className="w-full h-10 rounded-md border bg-background px-3 text-sm"
+                  value={formData.whatsapp_settings.channelPriority}
+                  onChange={(e) => handleChange('whatsapp_settings', 'channelPriority', e.target.value)}
+                >
+                  <option value="whatsapp_first">WhatsApp first, SMS if it fails (recommended)</option>
+                  <option value="sms_first">SMS first, WhatsApp if it fails</option>
+                  <option value="both">Send both every time</option>
+                </select>
+                <p className="text-[11px] text-muted-foreground">
+                  Applies to order updates, OTP and cart recovery — one shared setting for both modes.
+                </p>
               </div>
+
+              <p className="text-xs text-muted-foreground">
+                The mode above is set by the platform (super admin), not here. Fill in whichever
+                pair matches it — the other stays saved and ready for when the platform switches
+                your store's mode.
+              </p>
+
+              {(['live', 'test'] as const).map((mode) => (
+                <div key={mode} className="rounded-lg border p-3 space-y-3 bg-background">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold uppercase tracking-wide">{mode}</p>
+                    {mode === environment && (
+                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-primary/10 text-primary">ACTIVE MODE</span>
+                    )}
+                    {formData.whatsapp_settings[mode].phoneNumberId && formData.whatsapp_settings[mode].apiKeySet ? (
+                      <span className="flex items-center gap-1 text-[11px] text-green-700"><CheckCircle2 className="h-3.5 w-3.5" /> Configured</span>
+                    ) : (
+                      <span className="text-[11px] text-muted-foreground">Not configured</span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-foreground">API URL</label>
+                      <Input
+                        type="text"
+                        value={formData.whatsapp_settings[mode].apiUrl}
+                        onChange={(e) => handleWhatsappSettingsModeChange(mode, 'apiUrl', e.target.value)}
+                        placeholder="https://wa.growcord.in/api"
+                      />
+                      <p className="text-[11px] text-muted-foreground">Base URL without the trailing /v1.</p>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-foreground">API Key</label>
+                      <Input
+                        type="password"
+                        value={formData.whatsapp_settings[mode].apiKey}
+                        onChange={(e) => handleWhatsappSettingsModeChange(mode, 'apiKey', e.target.value)}
+                        placeholder={formData.whatsapp_settings[mode].apiKeySet ? 'Leave blank to keep current' : 'sk_live_…'}
+                      />
+                      <p className="text-[11px] text-muted-foreground">
+                        {formData.whatsapp_settings[mode].apiKeySet ? 'A key is saved and encrypted.' : 'Stored encrypted.'}
+                      </p>
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <label className="text-sm font-medium text-foreground">Phone Number ID</label>
+                      <Input
+                        type="text"
+                        value={formData.whatsapp_settings[mode].phoneNumberId}
+                        onChange={(e) => handleWhatsappSettingsModeChange(mode, 'phoneNumberId', e.target.value)}
+                        placeholder="WhatsApp phone number ID"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
 
             <div className={`flex flex-col gap-3 ${formData.whatsapp.useEnvVars ? 'opacity-50 pointer-events-none' : ''}`}>

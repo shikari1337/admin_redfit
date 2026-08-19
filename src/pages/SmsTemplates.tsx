@@ -35,14 +35,21 @@ interface ProviderTemplate {
   active?: boolean;
 }
 
-interface SmsConfigForm {
+interface SmsConfigMode {
   baseUrl: string;
   route: string;
   senderId: string;
-  isEnabled: boolean;
   apiKey: string;
   apiKeySet: boolean;
 }
+
+interface SmsConfigForm {
+  isEnabled: boolean;
+  test: SmsConfigMode;
+  live: SmsConfigMode;
+}
+
+const EMPTY_SMS_MODE: SmsConfigMode = { baseUrl: '', route: 'transactional', senderId: '', apiKey: '', apiKeySet: false };
 
 interface ConnStatus {
   state: 'unknown' | 'testing' | 'ok' | 'fail';
@@ -91,10 +98,11 @@ const SmsTemplates: React.FC = () => {
   const [testPhone, setTestPhone] = useState('');
   const [autoMapping, setAutoMapping] = useState(false);
   const [config, setConfig] = useState<SmsConfigForm>({
-    baseUrl: '', route: '', senderId: '', isEnabled: false, apiKey: '', apiKeySet: false,
+    isEnabled: false, test: { ...EMPTY_SMS_MODE }, live: { ...EMPTY_SMS_MODE },
   });
   const [originalConfig, setOriginalConfig] = useState<SmsConfigForm | null>(null);
   const [configSaving, setConfigSaving] = useState(false);
+  const [environment, setEnvironment] = useState<'test' | 'live'>('test');
 
   const keyOf = (t: { event: string; channel: Channel }) => `${t.channel}:${t.event}`;
 
@@ -138,17 +146,19 @@ const SmsTemplates: React.FC = () => {
         setError(null);
         const [, configData] = await Promise.all([loadTemplates(channel), smsConfigAPI.get()]);
         const c = configData?.data || configData || {};
+        const modeView = (m: any): SmsConfigMode => ({
+          baseUrl: m?.baseUrl || '', route: m?.route || 'transactional', senderId: m?.senderId || '',
+          apiKey: '', apiKeySet: Boolean(m?.apiKeySet),
+        });
         const next: SmsConfigForm = {
-          baseUrl: c?.baseUrl || '',
-          route: c?.route || 'transactional',
-          senderId: c?.senderId || '',
           isEnabled: Boolean(c?.isEnabled),
-          apiKey: '',
-          apiKeySet: Boolean(c?.apiKeySet),
+          test: modeView(c?.test),
+          live: modeView(c?.live),
         };
         setConfig(next);
         setOriginalConfig({ ...next });
-        if (next.apiKeySet) { testConnection(); }
+        setEnvironment(c?.environment === 'live' ? 'live' : 'test');
+        if (next.live.apiKeySet || next.test.apiKeySet) { testConnection(); }
       } catch (err: any) {
         setError(err.message || 'Failed to load templates');
       } finally {
@@ -258,13 +268,19 @@ const SmsTemplates: React.FC = () => {
     try {
       setConfigSaving(true);
       setError(null);
-      const payload: any = { baseUrl: config.baseUrl, route: config.route, senderId: config.senderId, isEnabled: config.isEnabled };
-      if (config.apiKey.trim()) payload.apiKey = config.apiKey.trim();
+      const modeOut = (m: SmsConfigMode) => ({
+        baseUrl: m.baseUrl, route: m.route, senderId: m.senderId,
+        apiKey: m.apiKey.trim() ? m.apiKey.trim() : undefined,
+      });
+      const payload: any = { isEnabled: config.isEnabled, test: modeOut(config.test), live: modeOut(config.live) };
       const res = await smsConfigAPI.update(payload);
       const updated = res?.data || res;
+      const modeView = (m: any): SmsConfigMode => ({
+        baseUrl: m?.baseUrl || '', route: m?.route || 'transactional', senderId: m?.senderId || '',
+        apiKey: '', apiKeySet: Boolean(m?.apiKeySet),
+      });
       const next: SmsConfigForm = {
-        baseUrl: updated.baseUrl, route: updated.route, senderId: updated.senderId,
-        isEnabled: updated.isEnabled, apiKey: '', apiKeySet: Boolean(updated.apiKeySet),
+        isEnabled: Boolean(updated.isEnabled), test: modeView(updated.test), live: modeView(updated.live),
       };
       setConfig(next);
       setOriginalConfig({ ...next });
@@ -276,11 +292,17 @@ const SmsTemplates: React.FC = () => {
     }
   };
 
+  const modeChanged = (a: SmsConfigMode, b: SmsConfigMode) =>
+    a.baseUrl !== b.baseUrl || a.route !== b.route || a.senderId !== b.senderId || Boolean(b.apiKey.trim());
+
   const configHasChanges = !!originalConfig && (
-    originalConfig.baseUrl !== config.baseUrl || originalConfig.route !== config.route ||
-    originalConfig.senderId !== config.senderId || originalConfig.isEnabled !== config.isEnabled ||
-    Boolean(config.apiKey.trim())
+    originalConfig.isEnabled !== config.isEnabled ||
+    modeChanged(originalConfig.test, config.test) || modeChanged(originalConfig.live, config.live)
   );
+
+  const handleSmsConfigModeChange = (mode: 'test' | 'live', field: keyof SmsConfigMode, value: any) => {
+    setConfig((p) => ({ ...p, [mode]: { ...p[mode], [field]: value } }));
+  };
 
   const ChannelTab: React.FC<{ id: Channel; icon: React.ReactNode; label: string }> = ({ id, icon, label }) => (
     <button type="button" onClick={() => switchChannel(id)}
@@ -328,6 +350,9 @@ const SmsTemplates: React.FC = () => {
                   <CardDescription>Credentials are stored encrypted. Test to confirm they work.</CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
+                  <span className={`text-xs font-semibold px-2 py-1 rounded-full ${environment === 'live' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`}>
+                    Store is in {environment === 'live' ? 'LIVE' : 'TEST'} mode
+                  </span>
                   <Button type="button" variant="outline" size="sm" onClick={testConnection} disabled={conn.state === 'testing'}>
                     {conn.state === 'testing' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plug className="mr-2 h-4 w-4" />}
                     Test connection
@@ -336,12 +361,6 @@ const SmsTemplates: React.FC = () => {
               </div>
 
               <div className="mt-3 flex flex-wrap items-center gap-2">
-                <Badge variant="outline" className={config.apiKeySet ? 'border-emerald-300 text-emerald-700 bg-emerald-50' : 'border-amber-300 text-amber-700 bg-amber-50'}>
-                  {config.apiKeySet ? 'API key saved' : 'No API key saved'}
-                </Badge>
-                <Badge variant="outline" className={config.senderId ? 'border-emerald-300 text-emerald-700 bg-emerald-50' : 'border-amber-300 text-amber-700 bg-amber-50'}>
-                  Sender: {config.senderId || 'not set'}
-                </Badge>
                 <Badge variant="outline" className={config.isEnabled ? 'border-emerald-300 text-emerald-700 bg-emerald-50' : 'border-gray-300 text-gray-600'}>
                   {config.isEnabled ? 'Sending enabled' : 'Sending disabled'}
                 </Badge>
@@ -359,33 +378,54 @@ const SmsTemplates: React.FC = () => {
             </CardHeader>
 
             <CardContent className="space-y-5">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">API Base URL</label>
-                  <Input type="url" value={config.baseUrl} placeholder="https://www.smsalert.co.in/api"
-                    onChange={(e) => setConfig((p) => ({ ...p, baseUrl: e.target.value }))} />
-                  <p className="text-[10px] text-muted-foreground">
-                    Base only — don&apos;t include <span className="font-mono">/push.json</span>. We add the endpoint.
-                  </p>
+              <p className="text-xs text-muted-foreground">
+                The mode above is set by the platform (super admin), not here. Fill in whichever
+                pair matches it — the other stays saved and ready for when the platform switches
+                your store's mode. "Test connection" checks the ACTIVE mode's credentials.
+              </p>
+
+              {(['live', 'test'] as const).map((mode) => (
+                <div key={mode} className="rounded-lg border p-4 space-y-4 bg-muted/30">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold uppercase tracking-wide">{mode}</p>
+                    {mode === environment && (
+                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-primary/10 text-primary">ACTIVE MODE</span>
+                    )}
+                    {config[mode].apiKeySet && config[mode].senderId ? (
+                      <span className="flex items-center gap-1 text-[11px] text-green-700"><CheckCircle2 className="h-3.5 w-3.5" /> Configured</span>
+                    ) : (
+                      <span className="text-[11px] text-muted-foreground">Not configured</span>
+                    )}
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">API Base URL</label>
+                      <Input type="url" value={config[mode].baseUrl} placeholder="https://www.smsalert.co.in/api"
+                        onChange={(e) => handleSmsConfigModeChange(mode, 'baseUrl', e.target.value)} />
+                      <p className="text-[10px] text-muted-foreground">
+                        Base only — don&apos;t include <span className="font-mono">/push.json</span>. We add the endpoint.
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Route</label>
+                      <Input type="text" value={config[mode].route} placeholder="transactional"
+                        onChange={(e) => handleSmsConfigModeChange(mode, 'route', e.target.value)} />
+                      <p className="text-[10px] text-muted-foreground">Lowercase, e.g. <span className="font-mono">transactional</span>.</p>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Sender ID</label>
+                      <Input type="text" value={config[mode].senderId} maxLength={6} className="uppercase" placeholder="RDFTIN"
+                        onChange={(e) => handleSmsConfigModeChange(mode, 'senderId', e.target.value.toUpperCase())} />
+                      <p className="text-[10px] text-muted-foreground">Must be an approved sender on your gateway account.</p>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">API Key {config[mode].apiKeySet && <span className="text-muted-foreground">(leave blank to keep current)</span>}</label>
+                      <Input type="password" value={config[mode].apiKey} placeholder={config[mode].apiKeySet ? '•••••••••• saved' : 'Enter API key'}
+                        onChange={(e) => handleSmsConfigModeChange(mode, 'apiKey', e.target.value)} />
+                    </div>
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Route</label>
-                  <Input type="text" value={config.route} placeholder="transactional"
-                    onChange={(e) => setConfig((p) => ({ ...p, route: e.target.value }))} />
-                  <p className="text-[10px] text-muted-foreground">Lowercase, e.g. <span className="font-mono">transactional</span>.</p>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Sender ID</label>
-                  <Input type="text" value={config.senderId} maxLength={6} className="uppercase" placeholder="RDFTIN"
-                    onChange={(e) => setConfig((p) => ({ ...p, senderId: e.target.value.toUpperCase() }))} />
-                  <p className="text-[10px] text-muted-foreground">Must be an approved sender on your gateway account.</p>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">API Key {config.apiKeySet && <span className="text-muted-foreground">(leave blank to keep current)</span>}</label>
-                  <Input type="password" value={config.apiKey} placeholder={config.apiKeySet ? '•••••••••• saved' : 'Enter API key'}
-                    onChange={(e) => setConfig((p) => ({ ...p, apiKey: e.target.value }))} />
-                </div>
-              </div>
+              ))}
 
               <div className="flex items-center justify-between gap-4 flex-wrap">
                 <label className="flex items-center gap-2 cursor-pointer">
@@ -394,7 +434,7 @@ const SmsTemplates: React.FC = () => {
                 </label>
                 <div className="flex gap-3">
                   <Button type="button" variant="outline" disabled={!configHasChanges}
-                    onClick={() => originalConfig && setConfig({ ...originalConfig, apiKey: '' })}>
+                    onClick={() => originalConfig && setConfig({ ...originalConfig, test: { ...originalConfig.test, apiKey: '' }, live: { ...originalConfig.live, apiKey: '' } })}>
                     <FaUndo className="mr-2 h-4 w-4" /> Reset
                   </Button>
                   <Button type="button" onClick={handleConfigSave} disabled={!configHasChanges || configSaving} className="bg-blue-600 hover:bg-blue-700">
