@@ -7,6 +7,7 @@ import { useAuth } from '../contexts/AuthContext';
 import ProductInventoryPanel from '../components/product/ProductInventoryPanel';
 import { FieldGroup, Field, SwitchRow, fieldInputCls, fieldTextareaCls } from '../components/product/FormField';
 import RichTextEditor from '../components/common/RichTextEditor';
+import ProductImageUpload from '../components/product/ProductImageUpload';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -876,28 +877,19 @@ const VariationEditPage: React.FC = () => {
         </FieldGroup>
       )}
 
-      {/* ══ Images ══════════════════════════════════════════════════════════ */}
+      {/* ══ Images — same upload+library-picker+reorder component as the main
+          product gallery, so a variant gets the same "choose from media
+          library" option instead of file-upload-only. ══════════════════════ */}
       <FieldGroup title="Images" description="Shown when this variant is selected. The first image leads.">
-        <div className="flex items-start gap-3 flex-wrap">
-          <label className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-dashed border-gray-300 rounded-md text-gray-600 hover:border-red-400 hover:text-red-600 cursor-pointer transition-colors">
-            {uploading ? 'Uploading…' : '+ Add images'}
-            <input
-              type="file" accept="image/*" multiple className="hidden"
-              disabled={uploading}
-              onChange={e => { if (e.target.files) { handleImageUpload(e.target.files); e.target.value = ''; } }}
-            />
-          </label>
-          {(v.images || []).map((url: string, imgIdx: number) => (
-            <div key={imgIdx} className="relative group w-20 h-20 flex-shrink-0">
-              <img src={url} alt={`img-${imgIdx}`} className="w-full h-full object-cover rounded-md border border-gray-200" />
-              <button
-                type="button"
-                onClick={() => handleChange('images', (v.images || []).filter((_: any, i: number) => i !== imgIdx))}
-                className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-xs"
-              >×</button>
-            </div>
-          ))}
-        </div>
+        <ProductImageUpload
+          images={v.images || []}
+          onImagesChange={imgs => handleChange('images', imgs)}
+          onUpload={handleImageUpload}
+          uploading={uploading}
+          multiple
+          label="Variant images"
+          folder="products"
+        />
       </FieldGroup>
 
       {/* Footer save */}

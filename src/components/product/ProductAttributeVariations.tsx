@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { FaTrash, FaCog, FaChevronDown, FaChevronRight, FaCheck, FaTimes, FaMagic, FaUpload, FaExternalLinkAlt } from 'react-icons/fa';
+import { FaTrash, FaCog, FaChevronDown, FaChevronRight, FaCheck, FaTimes, FaMagic, FaExternalLinkAlt } from 'react-icons/fa';
 import { attributesAPI, attributeValuesAPI, uploadAPI, categoriesAPI } from '../../services/api';
 import type { AttributeOption, AttributeValueOption, ProductVariation } from '../../types/productForm';
+import ProductImageUpload from './ProductImageUpload';
 
 // UI-only tuning: attributes with more values than this render a searchable checkbox
 // picker instead of a chip cloud (homeomead potency/volume carry 40–150+ values).
@@ -471,14 +472,6 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
     }
   };
 
-  // Handle image removal
-  const handleRemoveImage = (variationId: string, imageIndex: number) => {
-    const variation = variations.find(v => v.id === variationId);
-    if (variation && variation.images) {
-      const newImages = variation.images.filter((_, idx) => idx !== imageIndex);
-      handleVariationChange(variationId, 'images', newImages);
-    }
-  };
 
   // Close edit mode when clicking outside - but NOT when clicking inside the edit form
   useEffect(() => {
@@ -1508,40 +1501,19 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
                                   </div>
                                 )}
 
-                                {/* Images */}
+                                {/* Images — same upload+library-picker+reorder component as the
+                                    main product gallery, so variants get the exact same "choose
+                                    from media library" option instead of file-upload-only. */}
                                 <div>
-                                  <label className="block text-xs font-medium text-gray-700 mb-2">Variant images</label>
-                                  <div className="flex items-start gap-3 flex-wrap">
-                                    <label className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-dashed border-gray-300 rounded-md text-gray-600 hover:border-blue-400 hover:text-blue-600 cursor-pointer bg-white transition-colors">
-                                      <FaUpload size={12} />
-                                      {uploadingImages[variation.id] ? 'Uploading…' : 'Add images'}
-                                      <input
-                                        type="file"
-                                        accept="image/*"
-                                        multiple
-                                        className="hidden"
-                                        disabled={uploadingImages[variation.id]}
-                                        onChange={e => {
-                                          if (e.target.files) {
-                                            handleImageUpload(variation.id, e.target.files);
-                                            e.target.value = '';
-                                          }
-                                        }}
-                                      />
-                                    </label>
-                                    {variation.images?.map((url, idx) => (
-                                      <div key={idx} className="relative group w-16 h-16 flex-shrink-0">
-                                        <img src={url} alt={`v${idx + 1}`} className="w-full h-full object-cover rounded-md border border-gray-200" />
-                                        <button
-                                          type="button"
-                                          onClick={() => handleRemoveImage(variation.id, idx)}
-                                          className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                                        >
-                                          <FaTimes size={8} />
-                                        </button>
-                                      </div>
-                                    ))}
-                                  </div>
+                                  <ProductImageUpload
+                                    images={variation.images || []}
+                                    onImagesChange={imgs => handleVariationChange(variation.id, 'images', imgs)}
+                                    onUpload={files => handleImageUpload(variation.id, files)}
+                                    uploading={!!uploadingImages[variation.id]}
+                                    multiple
+                                    label="Variant images"
+                                    folder="products"
+                                  />
                                 </div>
                               </div>
                             </td>

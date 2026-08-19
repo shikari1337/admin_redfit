@@ -902,7 +902,11 @@ const ProductForm: React.FC = () => {
             if (v.brandId) pld.brandId = v.brandId;   // → primary_brand_id via backend mapper
             if (v.price != null) pld.price = Math.max(0, v.price);
             if (v.originalPrice != null) pld.originalPrice = Math.max(0, v.originalPrice);
-            if (v.images?.length) pld.images = v.images;
+            // Always send the array (even empty) — same fix as `categories` below.
+            // A truthy-length check here meant removing every image from a variant
+            // and saving silently kept the OLD images on the backend, since an
+            // empty array is falsy and the field was never included in the payload.
+            if (Array.isArray(v.images)) pld.images = v.images;
             if (v.shortDescription?.trim()) pld.shortDescription = v.shortDescription.trim();
             // Per-variation content typed in the inline editor — these columns
             // exist and VariationEditPage saves them; the inline editor's values
