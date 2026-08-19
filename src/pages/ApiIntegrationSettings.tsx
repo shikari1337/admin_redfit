@@ -15,6 +15,10 @@ const ApiIntegrationSettings: React.FC = () => {
   const [storeSlug, setStoreSlug] = useState<string | null>(null);
   const [environment, setEnvironment] = useState<'test' | 'live'>('test');
   const [copied, setCopied] = useState<string | null>(null);
+  // True when nothing below is saved but the server's own RAZORPAY_KEY_ID/
+  // SECRET env vars are still quietly taking real payments — see the
+  // `envFallbackActive` doc comment in routes/settings.ts GET /admin.
+  const [razorpayEnvFallback, setRazorpayEnvFallback] = useState(false);
   const [formData, setFormData] = useState({
     smtp: {
       useEnvVars: false,
@@ -147,6 +151,7 @@ const ApiIntegrationSettings: React.FC = () => {
               live: modeView(rp.live),
             },
           }));
+          setRazorpayEnvFallback(!!rp.envFallbackActive);
         }
         setStoreSlug(settings.slug ?? null);
         setEnvironment(settings.environment === 'live' ? 'live' : 'test');
@@ -603,6 +608,21 @@ const ApiIntegrationSettings: React.FC = () => {
               <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
                 <p className="text-sm text-blue-800">
                   <strong>Using Environment Variables:</strong> Razorpay configuration will be read from .env file (RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET)
+                </p>
+              </div>
+            )}
+
+            {!formData.razorpay.useEnvVars && razorpayEnvFallback && (
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                <p className="text-sm text-amber-900">
+                  <strong>Nothing below is saved, but checkout is working.</strong> Razorpay is
+                  currently taking real payments through the server's own default account
+                  (its RAZORPAY_KEY_ID/SECRET), because nothing store-specific is saved here yet
+                  and "Enabled" above is off. That's not a bug — it's just invisible from this
+                  page. Save your OWN Live Key ID/Secret below and turn "Enabled" on to switch
+                  checkout to your store's Razorpay account instead of the shared default.
+                  The Webhook Secret field below works independently of this — save it any time
+                  to start verifying webhook deliveries, even before you move off the default key.
                 </p>
               </div>
             )}
