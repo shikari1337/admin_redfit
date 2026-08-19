@@ -130,6 +130,10 @@ const AbandonedCarts: React.FC = () => {
       const rows = await cartsAPI.exportAdmin();
       const header = [
         'Cart ID',
+        'Type',
+        'Customer Name',
+        'Phone',
+        'Email',
         'Recovery Token',
         'Status',
         'Last Active',
@@ -146,6 +150,9 @@ const AbandonedCarts: React.FC = () => {
           return [
             cartIdStr,
             row.isGuest ? 'Guest' : 'Logged In',
+            row.user?.name || '',
+            row.user?.phoneNumber || '',
+            row.user?.email || '',
             row.recoveryToken || '',
             row.status || '',
             row.lastActiveAt || '',

@@ -47,6 +47,11 @@ interface OrderSummaryProps {
   discount: number;
   total: number;
   gst?: GstInfo;
+  /** Shown as a "Remove" action next to the row, only while the order is still
+   *  editable (same gate as "Edit items" — caller decides whether to pass these). */
+  onRemoveShipping?: () => void;
+  onRemoveCod?: () => void;
+  removingCharge?: 'shipping' | 'cod' | null;
 }
 
 const money = (n: number | undefined) =>
@@ -74,6 +79,9 @@ const OrderSummary: React.FC<OrderSummaryProps> = ({
   discount,
   total,
   gst,
+  onRemoveShipping,
+  onRemoveCod,
+  removingCharge,
 }) => {
   const groups = gst?.breakdown?.length
     ? gst.breakdown
@@ -123,14 +131,30 @@ const OrderSummary: React.FC<OrderSummaryProps> = ({
           </div>
         )}
         {shipping > 0 && (
-          <div className="flex justify-between">
-            <span>Shipping</span>
+          <div className="flex justify-between items-center">
+            <span className="flex items-center gap-2">
+              Shipping
+              {onRemoveShipping && (
+                <button type="button" onClick={onRemoveShipping} disabled={removingCharge === 'shipping'}
+                  className="text-xs text-red-600 hover:underline disabled:opacity-50 disabled:no-underline">
+                  {removingCharge === 'shipping' ? 'Removing…' : 'Remove'}
+                </button>
+              )}
+            </span>
             <span>₹{money(shipping)}</span>
           </div>
         )}
         {codFee > 0 && (
-          <div className="flex justify-between">
-            <span>COD handling fee</span>
+          <div className="flex justify-between items-center">
+            <span className="flex items-center gap-2">
+              COD handling fee
+              {onRemoveCod && (
+                <button type="button" onClick={onRemoveCod} disabled={removingCharge === 'cod'}
+                  className="text-xs text-red-600 hover:underline disabled:opacity-50 disabled:no-underline">
+                  {removingCharge === 'cod' ? 'Removing…' : 'Remove'}
+                </button>
+              )}
+            </span>
             <span>₹{money(codFee)}</span>
           </div>
         )}

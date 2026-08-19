@@ -12,6 +12,10 @@ interface StatusHistoryEntry {
     name?: string;
     email?: string;
   } | string;
+  /** The raw field the backend actually writes (`status_history` is JSONB and
+   *  deliberately never camelCased by the API layer's response normalizer —
+   *  see OPAQUE_VALUE_KEYS in services/api.ts — so this is what's really here). */
+  changed_by?: string;
   notes?: string;
   location?: string;
 }
@@ -35,9 +39,9 @@ const OrderStatusHistory: React.FC<OrderStatusHistoryProps> = ({ statusHistory }
               return db - da;
             })
             .map((entry, index) => {
-              const changedBy = typeof entry.changedBy === 'string'
+              const changedBy = (typeof entry.changedBy === 'string'
                 ? entry.changedBy
-                : entry.changedBy?.name || entry.changedBy?.email;
+                : entry.changedBy?.name || entry.changedBy?.email) || entry.changed_by;
               return (
                 <div key={index} className="border-l-4 border-red-500 pl-4 pb-3">
                   <div className="flex items-center justify-between">

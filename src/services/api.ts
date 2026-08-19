@@ -1513,6 +1513,12 @@ export const ordersAPI = {
     const response = await api.put(`/orders/${id}/items`, data);
     return response.data;
   },
+  /** Waive the shipping fee or COD handling fee on an unpaid order (a retention
+   *  lever — "we'll waive delivery if you complete this"). Doesn't touch items. */
+  waiveCharge: async (id: string, charge: 'shipping' | 'cod', reason?: string) => {
+    const response = await api.post(`/orders/${id}/waive-charge`, { charge, reason });
+    return response.data;
+  },
   /**
    * Patch order columns directly (`PUT /orders/:id`). The server whitelists
    * real columns, so send SNAKE_CASE column names — `shipping_address`,
@@ -3394,7 +3400,14 @@ export const inventoryAPI = {
   importExcel: async (file: File) => {
     const form = new FormData();
     form.append('file', file);
-    const response = await api.post('/inventory/import', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+    // A full-catalog re-import (this endpoint's own GET /export round-trip)
+    // measured ~350s for 44,130 rows against the real cluster (backend/db/
+    // queries/inventory.ts applyInventoryImport) — the instance default 120s
+    // would spuriously time out a legitimate full-catalog import that the
+    // server is still correctly completing in the background.
+    const response = await api.post('/inventory/import', form, {
+      headers: { 'Content-Type': 'multipart/form-data' }, timeout: 600000,
+    });
     return response.data;
   },
 };

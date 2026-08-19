@@ -41,6 +41,11 @@ interface CheckoutAttempt {
   total?: number;
   createdAt?: string;
   created_at?: string;
+  /** Set once this attempt actually confirmed into a real order. */
+  orderId?: string | null;
+  order_id?: string | null;
+  orderNumber?: string | null;
+  order_number?: string | null;
 }
 
 interface CartDetail {
@@ -664,6 +669,8 @@ const AbandonedCartDetail: React.FC = () => {
                   const failureReason = a.failureReason ?? a.failure_reason;
                   const couponCode = a.couponCode ?? a.coupon_code;
                   const createdAt = a.createdAt ?? a.created_at;
+                  const orderId = a.orderId ?? a.order_id;
+                  const orderNumber = a.orderNumber ?? a.order_number;
                   return (
                     <div key={a.id} className="text-sm border-l-2 border-gray-200 pl-2.5">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -673,6 +680,11 @@ const AbandonedCartDetail: React.FC = () => {
                         <span className="text-gray-800">
                           {method === 'cod' ? 'Cash on Delivery' : 'Prepaid'}{gateway ? ` · ${gateway}` : ''}
                         </span>
+                        {orderId && (
+                          <Link to={`/orders/${orderId}`} className="text-xs text-blue-600 hover:underline font-medium">
+                            → Order {orderNumber ?? ''} (remove shipping/COD charge here)
+                          </Link>
+                        )}
                       </div>
                       {failureReason && (
                         <p className="text-xs text-red-600 mt-1">{failureReason}</p>

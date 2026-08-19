@@ -100,6 +100,7 @@ const OrderDetail: React.FC = () => {
   // Which invoice action is running: 'download' | 'email' | 'whatsapp' | 'sms' | null.
   const [invoiceBusy, setInvoiceBusy] = useState<string | null>(null);
   const [showEditItems, setShowEditItems] = useState(false);
+  const [removingCharge, setRemovingCharge] = useState<'shipping' | 'cod' | null>(null);
   const [payLink, setPayLink] = useState<string | null>(null);
   const [showUpdateEmailModal, setShowUpdateEmailModal] = useState(false);
   const [updateEmailSubject, setUpdateEmailSubject] = useState('');
@@ -326,6 +327,22 @@ const OrderDetail: React.FC = () => {
       toast({ variant: "destructive", title: "Error", description: error.response?.data?.message || 'Failed to finish order.' });
     } finally {
       setUpdating(false);
+    }
+  };
+
+  const handleRemoveCharge = async (charge: 'shipping' | 'cod') => {
+    const label = charge === 'shipping' ? 'shipping' : 'COD handling';
+    if (!confirm(`Remove the ${label} charge from this order? This reduces the order total and cannot be undone from here.`)) return;
+
+    setRemovingCharge(charge);
+    try {
+      const res = await ordersAPI.waiveCharge(id!, charge);
+      toast({ title: 'Removed', description: res?.message || `${label} charge removed.` });
+      fetchOrder();
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Error", description: error.response?.data?.message || `Failed to remove the ${label} charge.` });
+    } finally {
+      setRemovingCharge(null);
     }
   };
 
@@ -580,6 +597,11 @@ const OrderDetail: React.FC = () => {
   const statusOptions = [order.orderStatus, ...(ALLOWED_TRANSITIONS[order.orderStatus] ?? [])]
     .filter((s, i, a) => s && a.indexOf(s) === i);
   const discountBreakdown = order.discountReason ? order.discountReason.split(',').map((d: string) => d.trim()) : [];
+  // Same gate as "Edit items" — charges can only be waived while the order is
+  // still unpaid, unshipped, and in an editable status.
+  const isOrderEditable = order.paymentStatus !== 'completed'
+    && ['pending', 'confirmed', 'on_hold', 'processing'].includes(order.orderStatus)
+    && !(order.shipments?.length);
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -718,9 +740,7 @@ const OrderDetail: React.FC = () => {
               orderDiscount={Number(order.discount) || 0}
             />
             {/* Items are editable only while unpaid and unshipped. */}
-            {order.paymentStatus !== 'completed'
-              && ['pending', 'confirmed', 'on_hold', 'processing'].includes(order.orderStatus)
-              && !(order.shipments?.length) && (
+            {isOrderEditable && (
               <Button size="sm" variant="outline" className="absolute top-4 right-4"
                 onClick={() => setShowEditItems(true)}>
                 Edit items
@@ -767,6 +787,9 @@ const OrderDetail: React.FC = () => {
                 discount={order.discount || 0}
                 total={order.total || 0}
                 gst={order.gst}
+                onRemoveShipping={isOrderEditable ? () => handleRemoveCharge('shipping') : undefined}
+                onRemoveCod={isOrderEditable ? () => handleRemoveCharge('cod') : undefined}
+                removingCharge={removingCharge}
               />
             </CardContent>
           </Card>

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, CreditCard, Smartphone, HandCoins, Loader2 } from 'lucide-react';
+import { useNavigate, Link } from 'react-router-dom';
+import { ArrowLeft, Save, CreditCard, Smartphone, HandCoins, Loader2, ArrowUpRight } from 'lucide-react';
 import api from '../services/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -12,13 +12,8 @@ const PaymentGatewaySettings: React.FC = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [razorpayEnabled, setRazorpayEnabled] = useState(false);
   const [formData, setFormData] = useState({
-    razorpay: {
-      useEnvVars: false,
-      keyId: '',
-      keySecret: '',
-      isEnabled: false,
-    },
     upi: {
       isEnabled: false,
       upiId: '',
@@ -53,18 +48,11 @@ const PaymentGatewaySettings: React.FC = () => {
         : response.data;
       
       if (settings) {
-        if (settings.razorpay) {
-          setFormData(prev => ({
-            ...prev,
-            razorpay: {
-              ...prev.razorpay,
-              useEnvVars: settings.razorpay.useEnvVars || false,
-              keyId: settings.razorpay.keyIdSet ? '••••••••' : '',
-              keySecret: settings.razorpay.keySecretSet ? '••••••••' : '',
-              isEnabled: settings.razorpay.isEnabled || false,
-            },
-          }));
-        }
+        // Razorpay keys/webhook are configured on the API & Integrations page now
+        // (used to be duplicated here too — same setting, two forms, no way to
+        // tell from either one whether a key was actually saved). This page just
+        // shows whether it's currently on, with a link to the real form.
+        setRazorpayEnabled(!!settings.razorpay?.isEnabled);
 
         if (settings.upi) {
           setFormData(prev => ({
@@ -171,72 +159,30 @@ const PaymentGatewaySettings: React.FC = () => {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6 pb-12">
-        {/* Razorpay Settings */}
+        {/* Razorpay — keys/webhook live on API & Integrations now (this page used
+            to have its own duplicate copy of the same fields). */}
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-4">
+          <CardContent className="py-4 flex items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               <div className="flex-shrink-0 w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
                 <CreditCard className="w-6 h-6 text-blue-600" />
               </div>
               <div>
-                <CardTitle>Razorpay</CardTitle>
-                <CardDescription>Online payment gateway</CardDescription>
+                <div className="flex items-center gap-2">
+                  <p className="font-semibold text-foreground">Razorpay</p>
+                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${razorpayEnabled ? 'bg-green-100 text-green-800' : 'bg-muted text-muted-foreground'}`}>
+                    {razorpayEnabled ? 'Enabled' : 'Disabled'}
+                  </span>
+                </div>
+                <p className="text-sm text-muted-foreground">Keys, webhook and enable/disable are configured on API &amp; Integrations</p>
               </div>
             </div>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <Checkbox
-                checked={formData.razorpay.isEnabled}
-                onCheckedChange={(checked) => handleChange('razorpay', 'isEnabled', checked as boolean)}
-              />
-              <span className="text-sm font-medium">Enabled</span>
-            </label>
-          </CardHeader>
-
-          {formData.razorpay.isEnabled && (
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Key ID</label>
-                <Input
-                  type="text"
-                  value={formData.razorpay.keyId}
-                  onChange={(e) => handleChange('razorpay', 'keyId', e.target.value)}
-                  placeholder="Enter Razorpay Key ID"
-                  autoComplete="off"
-                  autoCorrect="off"
-                  autoCapitalize="off"
-                  spellCheck={false}
-                  data-1p-ignore
-                  data-lpignore="true"
-                  name="razorpay-key-id-no-autofill"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Key Secret</label>
-                <Input
-                  type="password"
-                  value={formData.razorpay.keySecret}
-                  onChange={(e) => handleChange('razorpay', 'keySecret', e.target.value)}
-                  placeholder="Enter Razorpay Key Secret"
-                  autoComplete="new-password"
-                  autoCorrect="off"
-                  autoCapitalize="off"
-                  spellCheck={false}
-                  data-1p-ignore
-                  data-lpignore="true"
-                  name="razorpay-key-secret-no-autofill"
-                />
-              </div>
-              <div className="flex items-center gap-2 pt-2">
-                <Checkbox
-                  checked={formData.razorpay.useEnvVars}
-                  onCheckedChange={(checked) => handleChange('razorpay', 'useEnvVars', checked as boolean)}
-                />
-                <label className="text-sm text-foreground cursor-pointer" onClick={() => handleChange('razorpay', 'useEnvVars', !formData.razorpay.useEnvVars)}>
-                  Use environment variables instead
-                </label>
-              </div>
-            </CardContent>
-          )}
+            <Link to="/settings/api-integrations">
+              <Button type="button" variant="outline" size="sm">
+                Configure Razorpay <ArrowUpRight className="ml-2 h-4 w-4" />
+              </Button>
+            </Link>
+          </CardContent>
         </Card>
 
         {/* UPI Settings */}

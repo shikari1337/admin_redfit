@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, Mail, Facebook, CreditCard, MessageCircle, Bot, Loader2, BarChart3 } from 'lucide-react';
+import { ArrowLeft, Save, Mail, Facebook, CreditCard, MessageCircle, Bot, Loader2, BarChart3, Copy, Check, CheckCircle2 } from 'lucide-react';
 
 import api from '../services/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -12,6 +12,9 @@ const ApiIntegrationSettings: React.FC = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [storeSlug, setStoreSlug] = useState<string | null>(null);
+  const [environment, setEnvironment] = useState<'test' | 'live'>('test');
+  const [copied, setCopied] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     smtp: {
       useEnvVars: false,
@@ -40,9 +43,9 @@ const ApiIntegrationSettings: React.FC = () => {
     },
     razorpay: {
       useEnvVars: false,
-      keyId: '',
-      keySecret: '',
       isEnabled: false,
+      test: { keyId: '', keySecret: '', webhookSecret: '', keyIdSet: false, keySecretSet: false, webhookSecretSet: false },
+      live: { keyId: '', keySecret: '', webhookSecret: '', keyIdSet: false, keySecretSet: false, webhookSecretSet: false },
     },
     whatsapp: {
       useEnvVars: false,
@@ -126,17 +129,27 @@ const ApiIntegrationSettings: React.FC = () => {
         }
 
         if (settings.razorpay) {
+          const rp = settings.razorpay;
+          const modeView = (m: any) => ({
+            keyId: m?.keyIdSet ? '••••••••' : '',
+            keySecret: m?.keySecretSet ? '••••••••' : '',
+            webhookSecret: m?.webhookSecretSet ? '••••••••' : '',
+            keyIdSet: !!m?.keyIdSet,
+            keySecretSet: !!m?.keySecretSet,
+            webhookSecretSet: !!m?.webhookSecretSet,
+          });
           setFormData(prev => ({
             ...prev,
             razorpay: {
-              ...prev.razorpay,
-              useEnvVars: settings.razorpay.useEnvVars || false,
-              keyId: settings.razorpay.keyIdSet ? '••••••••' : '',
-              keySecret: settings.razorpay.keySecretSet ? '••••••••' : '',
-              isEnabled: settings.razorpay.isEnabled || false,
+              useEnvVars: rp.useEnvVars || false,
+              isEnabled: rp.isEnabled || false,
+              test: modeView(rp.test),
+              live: modeView(rp.live),
             },
           }));
         }
+        setStoreSlug(settings.slug ?? null);
+        setEnvironment(settings.environment === 'live' ? 'live' : 'test');
 
         if (settings.whatsapp) {
           setFormData(prev => ({
@@ -203,9 +216,18 @@ const ApiIntegrationSettings: React.FC = () => {
           apiSecret: formData.ga4.apiSecret && !formData.ga4.apiSecret.startsWith('••••') ? formData.ga4.apiSecret : undefined,
         },
         razorpay: {
-          ...formData.razorpay,
-          keyId: formData.razorpay.keyId && !formData.razorpay.keyId.startsWith('••••') ? formData.razorpay.keyId : undefined,
-          keySecret: formData.razorpay.keySecret && !formData.razorpay.keySecret.startsWith('••••') ? formData.razorpay.keySecret : undefined,
+          isEnabled: formData.razorpay.isEnabled,
+          useEnvVars: formData.razorpay.useEnvVars,
+          test: {
+            keyId: formData.razorpay.test.keyId && !formData.razorpay.test.keyId.startsWith('••••') ? formData.razorpay.test.keyId : undefined,
+            keySecret: formData.razorpay.test.keySecret && !formData.razorpay.test.keySecret.startsWith('••••') ? formData.razorpay.test.keySecret : undefined,
+            webhookSecret: formData.razorpay.test.webhookSecret && !formData.razorpay.test.webhookSecret.startsWith('••••') ? formData.razorpay.test.webhookSecret : undefined,
+          },
+          live: {
+            keyId: formData.razorpay.live.keyId && !formData.razorpay.live.keyId.startsWith('••••') ? formData.razorpay.live.keyId : undefined,
+            keySecret: formData.razorpay.live.keySecret && !formData.razorpay.live.keySecret.startsWith('••••') ? formData.razorpay.live.keySecret : undefined,
+            webhookSecret: formData.razorpay.live.webhookSecret && !formData.razorpay.live.webhookSecret.startsWith('••••') ? formData.razorpay.live.webhookSecret : undefined,
+          },
         },
         whatsapp: {
           ...formData.whatsapp,
@@ -245,6 +267,32 @@ const ApiIntegrationSettings: React.FC = () => {
         [field]: value,
       },
     }));
+  };
+
+  const handleRazorpayModeChange = (mode: 'test' | 'live', field: string, value: any) => {
+    setFormData(prev => ({
+      ...prev,
+      razorpay: {
+        ...prev.razorpay,
+        [mode]: { ...prev.razorpay[mode], [field]: value },
+      },
+    }));
+  };
+
+  // Same construction as ShippingSettings.tsx's Shiprocket webhook URL:
+  // api.defaults.baseURL already carries `/api/v{N}` — the webhook router is
+  // mounted alongside `/products`, `/orders`, etc, just under `/webhooks/payments`.
+  const apiBase = (api.defaults.baseURL || '').replace(/\/$/, '');
+  const razorpayWebhookUrl = storeSlug
+    ? `${apiBase.startsWith('http') ? apiBase : window.location.origin + apiBase}/webhooks/payments/razorpay/${storeSlug}`
+    : '';
+
+  const copyToClipboard = async (text: string, tag: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(tag);
+      setTimeout(() => setCopied((c) => (c === tag ? null : c)), 1500);
+    } catch { /* clipboard blocked — the value is still visible to select manually */ }
   };
 
   if (loading) {
@@ -516,7 +564,9 @@ const ApiIntegrationSettings: React.FC = () => {
           </CardContent>
         </Card>
 
-        {/* Razorpay API Settings */}
+        {/* Razorpay API Settings — the ONLY place Razorpay is configured now
+            (moved off Payment Gateway Settings, which used to have its own
+            duplicate copy of these same two fields — see that page). */}
         <Card>
           <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="flex items-center gap-4">
@@ -524,11 +574,14 @@ const ApiIntegrationSettings: React.FC = () => {
                 <CreditCard className="w-6 h-6 text-indigo-600" />
               </div>
               <div>
-                <CardTitle>Razorpay API Integration</CardTitle>
-                <CardDescription>Configure Razorpay payment keys</CardDescription>
+                <CardTitle>Razorpay</CardTitle>
+                <CardDescription>Payment keys, webhook, enable/disable — the ONE place for Razorpay</CardDescription>
               </div>
             </div>
             <div className="flex items-center gap-6">
+              <span className={`text-xs font-semibold px-2 py-1 rounded-full ${environment === 'live' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`}>
+                Store is in {environment === 'live' ? 'LIVE' : 'TEST'} mode
+              </span>
               <label className="flex items-center gap-2 cursor-pointer">
                 <Checkbox
                   checked={formData.razorpay.useEnvVars}
@@ -545,40 +598,93 @@ const ApiIntegrationSettings: React.FC = () => {
               </label>
             </div>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-6">
             {formData.razorpay.useEnvVars && (
-              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg mb-4">
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
                 <p className="text-sm text-blue-800">
                   <strong>Using Environment Variables:</strong> Razorpay configuration will be read from .env file (RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET)
                 </p>
               </div>
             )}
 
-            <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${formData.razorpay.useEnvVars ? 'opacity-50 pointer-events-none' : ''}`}>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Key ID</label>
+            <p className="text-xs text-muted-foreground">
+              The mode above is set by the platform (super admin), not here. Fill in whichever
+              pair matches it — the other stays saved and ready for when the platform switches
+              your store's mode, so you never have to re-enter keys.
+            </p>
+
+            <div className={formData.razorpay.useEnvVars ? 'opacity-50 pointer-events-none' : ''}>
+              {(['live', 'test'] as const).map((mode) => (
+                <div key={mode} className="rounded-lg border p-4 space-y-4 bg-muted/30 mb-4 last:mb-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold uppercase tracking-wide">{mode} keys</p>
+                    {mode === environment && (
+                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-primary/10 text-primary">ACTIVE MODE</span>
+                    )}
+                    {formData.razorpay[mode].keyIdSet && formData.razorpay[mode].keySecretSet ? (
+                      <span className="flex items-center gap-1 text-[11px] text-green-700"><CheckCircle2 className="h-3.5 w-3.5" /> Key configured</span>
+                    ) : (
+                      <span className="text-[11px] text-muted-foreground">Not configured</span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-foreground">Key ID</label>
+                      <Input
+                        type="text"
+                        value={formData.razorpay[mode].keyId}
+                        onChange={(e) => handleRazorpayModeChange(mode, 'keyId', e.target.value)}
+                        placeholder={formData.razorpay[mode].keyId.startsWith('••••') ? 'Leave blank to keep current' : `Enter ${mode} Key ID`}
+                        autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+                        data-1p-ignore data-lpignore="true" name={`razorpay-${mode}-key-id-no-autofill`}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-foreground">Key Secret</label>
+                      <Input
+                        type="password"
+                        value={formData.razorpay[mode].keySecret}
+                        onChange={(e) => handleRazorpayModeChange(mode, 'keySecret', e.target.value)}
+                        placeholder={formData.razorpay[mode].keySecret.startsWith('••••') ? 'Leave blank to keep current' : `Enter ${mode} Key Secret`}
+                      />
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <label className="text-sm font-medium text-foreground">Webhook Secret</label>
+                      <Input
+                        type="password"
+                        value={formData.razorpay[mode].webhookSecret}
+                        onChange={(e) => handleRazorpayModeChange(mode, 'webhookSecret', e.target.value)}
+                        placeholder={formData.razorpay[mode].webhookSecret.startsWith('••••') ? 'Leave blank to keep current' : 'From Razorpay Dashboard ▸ Settings ▸ Webhooks'}
+                      />
+                      <p className="text-[11px] text-muted-foreground">
+                        {formData.razorpay[mode].webhookSecretSet
+                          ? 'A webhook secret is saved for this mode — Razorpay pushes (payment success, failure, refunds) are verified against it.'
+                          : `Not set — payments will only update your order after the customer's browser calls back. If they close the tab before that, the order can be stuck as unpaid until you set this.`}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="rounded-lg border p-4 space-y-2 bg-muted/30">
+              <p className="text-sm font-semibold">Webhook URL — register in Razorpay Dashboard ▸ Settings ▸ Webhooks</p>
+              <p className="text-[11px] text-muted-foreground">
+                Same URL for both modes — Razorpay Dashboard has its own Test/Live toggle; switch it there,
+                paste this URL, and set the matching Webhook Secret above. Subscribe to at least: <code>payment.captured</code>,
+                {' '}<code>order.paid</code>, <code>payment.failed</code>, <code>refund.processed</code>.
+              </p>
+              <div className="flex gap-2">
                 <Input
-                  type="text"
-                  value={formData.razorpay.keyId}
-                  onChange={(e) => handleChange('razorpay', 'keyId', e.target.value)}
-                  placeholder={formData.razorpay.keyId.startsWith('••••') ? 'Leave blank to keep current' : 'Enter Razorpay Key ID'}
-                  autoComplete="off"
-                  autoCorrect="off"
-                  autoCapitalize="off"
-                  spellCheck={false}
-                  data-1p-ignore
-                  data-lpignore="true"
-                  name="razorpay-key-id-no-autofill"
+                  readOnly
+                  value={razorpayWebhookUrl || 'Save your store once to reveal your webhook URL'}
+                  className="font-mono text-xs"
+                  onFocus={(e) => e.currentTarget.select()}
                 />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Key Secret</label>
-                <Input
-                  type="password"
-                  value={formData.razorpay.keySecret}
-                  onChange={(e) => handleChange('razorpay', 'keySecret', e.target.value)}
-                  placeholder={formData.razorpay.keySecret.startsWith('••••') ? 'Leave blank to keep current' : 'Enter Razorpay Key Secret'}
-                />
+                <Button type="button" variant="outline" size="sm" disabled={!razorpayWebhookUrl} onClick={() => copyToClipboard(razorpayWebhookUrl, 'razorpay-webhook-url')}>
+                  {copied === 'razorpay-webhook-url' ? <Check className="h-3.5 w-3.5 mr-1" /> : <Copy className="h-3.5 w-3.5 mr-1" />}
+                  {copied === 'razorpay-webhook-url' ? 'Copied' : 'Copy'}
+                </Button>
               </div>
             </div>
           </CardContent>
