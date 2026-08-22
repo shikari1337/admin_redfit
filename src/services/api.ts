@@ -1613,6 +1613,13 @@ export const paymentsAPI = {
     const response = await api.post('/payments/manual/verify', { orderId, notes });
     return response.data;
   },
+  // Recovers a stuck Razorpay payment: identifier is the order id/order_id,
+  // a checkout attempt id, or a Razorpay order_xxx id; transactionId is the
+  // pay_xxx payment id, verified live against Razorpay before anything saves.
+  markPaid: async (identifier: string, transactionId: string, notes?: string) => {
+    const response = await api.post('/payments/mark-paid', { identifier, transactionId, notes });
+    return response.data;
+  },
 };
 
 // Upload API (tenant-specific, images optimized server-side)

@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ordersAPI, shippingAPI } from '../services/api';
 import { formatDate } from '../utils/date';
-import { FaTruck, FaWhatsapp, FaEye, FaDownload, FaPlus } from 'react-icons/fa';
+import { FaTruck, FaWhatsapp, FaEye, FaDownload, FaPlus, FaSearchDollar } from 'react-icons/fa';
+import RecoverPaymentModal from '../components/order/RecoverPaymentModal';
 import { Search } from 'lucide-react';
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -31,6 +32,7 @@ const Orders: React.FC = () => {
   const [confirmingOrder, setConfirmingOrder] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [exporting, setExporting] = useState(false);
+  const [showRecoverPayment, setShowRecoverPayment] = useState(false);
   
   // Try to use toast, fallback to window.alert if not available
   let toast: any;
@@ -184,6 +186,11 @@ const Orders: React.FC = () => {
           <Button variant="outline" size="sm" className="h-9" onClick={() => handleExport(false)} disabled={exporting}>
             <FaDownload className="mr-1.5 h-3 w-3" />
             {exporting ? 'Exporting…' : 'Export all'}
+          </Button>
+          <Button variant="outline" size="sm" className="h-9" onClick={() => setShowRecoverPayment(true)}
+            title="Recover a payment Razorpay shows as paid that never turned into an order">
+            <FaSearchDollar className="mr-1.5 h-3 w-3" />
+            Recover Payment
           </Button>
           <div className="relative w-full sm:w-72">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -385,6 +392,12 @@ const Orders: React.FC = () => {
           </div>
         </CardContent>
       </Card>
+
+      <RecoverPaymentModal
+        isOpen={showRecoverPayment}
+        onClose={() => setShowRecoverPayment(false)}
+        onRecovered={fetchOrders}
+      />
     </div>
   );
 };
