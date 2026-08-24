@@ -1519,6 +1519,13 @@ export const ordersAPI = {
     const response = await api.post(`/orders/${id}/waive-charge`, { charge, reason });
     return response.data;
   },
+  /** Record a COD order settled outside the gateway (UPI/bank transfer/cash) —
+   *  full or partial. Partial reduces what the courier collects on delivery;
+   *  full flips payment_status to completed with no COD collection at all. */
+  recordPayment: async (id: string, data: { amount: number; method: 'upi' | 'bank_transfer' | 'cash' | 'other'; reference?: string; notes?: string }) => {
+    const response = await api.post(`/orders/${id}/record-payment`, data);
+    return response.data;
+  },
   /**
    * Patch order columns directly (`PUT /orders/:id`). The server whitelists
    * real columns, so send SNAKE_CASE column names — `shipping_address`,
@@ -2319,6 +2326,14 @@ export const shipmentsAPI = {
   },
   fetchStatusUpdates: async () => {
     const response = await api.post('/shipments/fetch-status-updates');
+    return response.data;
+  },
+  reconcile: async (provider: 'shiprocket' | 'delhivery', days?: number) => {
+    const response = await api.post('/shipments/reconcile', { provider, days });
+    return response.data;
+  },
+  attachAwb: async (orderId: string, awb: string, provider: 'shiprocket' | 'delhivery') => {
+    const response = await api.post('/shipments/attach-awb', { orderId, awb, provider });
     return response.data;
   },
   ndrReattempt: async (id: string) => {

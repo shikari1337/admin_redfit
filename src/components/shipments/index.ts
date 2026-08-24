@@ -5,5 +5,7 @@ export { default as PendingOrdersTable } from './PendingOrdersTable';
 export { default as PickupModal } from './PickupModal';
 export { default as BulkActionsBar } from './BulkActionsBar';
 export { default as CreateShipmentModal } from './CreateShipmentModal';
+export { default as ReconcileModal } from './ReconcileModal';
 export type { TabType, StatusCounts } from './ShipmentTabs';
+export type { ReconcileResultData, ReconcileUnmatched } from './ReconcileModal';
 

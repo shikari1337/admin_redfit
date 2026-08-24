@@ -43,6 +43,9 @@ interface Shipment {
     shiprocketAWB?: string;
     delhiveryWaybill?: string;
   };
+  awb?: string;
+  courierName?: string;
+  expectedDelivery?: Date | string;
   trackingUrl?: string;
   createdAt: Date | string;
 }
@@ -150,6 +153,8 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
             <TableHead>Status</TableHead>
             <TableHead>Pickup Date</TableHead>
             <TableHead>AWB/Tracking</TableHead>
+            <TableHead>Courier</TableHead>
+            <TableHead>Est. Delivery</TableHead>
             <TableHead>Created</TableHead>
             <TableHead className="text-right">Actions</TableHead>
           </TableRow>
@@ -157,7 +162,7 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
         <TableBody>
           {shipments.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={9} className="h-24 text-center">
+              <TableCell colSpan={11} className="h-24 text-center">
                 No shipments found.
               </TableCell>
             </TableRow>
@@ -218,27 +223,23 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
                   )}
                 </TableCell>
                 <TableCell>
-                  {shipment.providerData?.shiprocketAWB ? (
-                    <a
-                      href={shipment.trackingUrl || `https://shiprocket.co/tracking/${shipment.providerData.shiprocketAWB}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm text-blue-600 hover:underline"
-                    >
-                      {shipment.providerData.shiprocketAWB}
-                    </a>
-                  ) : shipment.providerData?.delhiveryWaybill ? (
-                    <a
-                      href={shipment.trackingUrl || '#'}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm text-blue-600 hover:underline"
-                    >
-                      {shipment.providerData.delhiveryWaybill}
-                    </a>
-                  ) : (
-                    <span className="text-sm text-muted-foreground">No AWB</span>
-                  )}
+                  {(() => {
+                    const awb = shipment.awb || shipment.providerData?.shiprocketAWB || shipment.providerData?.delhiveryWaybill;
+                    if (!awb) return <span className="text-sm text-muted-foreground">No AWB</span>;
+                    const href = shipment.trackingUrl
+                      || (shipment.providerData?.shiprocketAWB ? `https://shiprocket.co/tracking/${awb}` : '#');
+                    return (
+                      <a href={href} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline">
+                        {awb}
+                      </a>
+                    );
+                  })()}
+                </TableCell>
+                <TableCell className="text-sm">
+                  {shipment.courierName || <span className="text-muted-foreground">—</span>}
+                </TableCell>
+                <TableCell className="text-sm">
+                  {shipment.expectedDelivery ? safeFormatDate(shipment.expectedDelivery, 'MMM dd, yyyy') : <span className="text-muted-foreground">—</span>}
                 </TableCell>
                 <TableCell className="text-sm text-muted-foreground">
                   {safeFormatDate(shipment.createdAt, 'MMM dd, yyyy HH:mm')}

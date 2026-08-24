@@ -14,6 +14,7 @@ export { default as OrderFulfillmentCard } from './OrderFulfillmentCard';
 export { default as OrderItemsEditModal } from './OrderItemsEditModal';
 export { default as OrderJourneyCard } from './OrderJourneyCard';
 export { default as PaymentVerificationModal } from './PaymentVerificationModal';
+export { default as RecordCodPaymentModal } from './RecordCodPaymentModal';
 export { default as UpdateEmailModal } from './UpdateEmailModal';
  export { default as OrderAddressEditor } from './OrderAddressEditor';
 

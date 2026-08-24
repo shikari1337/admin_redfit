@@ -26,6 +26,7 @@ import {
   OrderItemsEditModal,
   OrderBillingCard,
   OrderAddressEditor,
+  RecordCodPaymentModal,
 } from '../components/order';
 import { PickupModal } from '../components/shipments';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -93,6 +94,7 @@ const OrderDetail: React.FC = () => {
   const [manualTrackingUrl, setManualTrackingUrl] = useState('');
   const [verifyingPayment, setVerifyingPayment] = useState(false);
   const [showPaymentVerifyModal, setShowPaymentVerifyModal] = useState(false);
+  const [showRecordCodPayment, setShowRecordCodPayment] = useState(false);
   const [razorpayPaymentId, setRazorpayPaymentId] = useState('');
   const [upiPaymentId, setUpiPaymentId] = useState('');
   const [paymentVerificationNotes, setPaymentVerificationNotes] = useState('');
@@ -113,6 +115,7 @@ const OrderDetail: React.FC = () => {
   const [pickupNotes, setPickupNotes] = useState('');
   const [schedulingPickup, setSchedulingPickup] = useState(false);
   const [assigningAwb, setAssigningAwb] = useState(false);
+  const [attachingAwb, setAttachingAwb] = useState(false);
 
   let toast: any;
   try {
@@ -172,6 +175,31 @@ const OrderDetail: React.FC = () => {
       });
     } finally {
       setAssigningAwb(false);
+    }
+  };
+
+  /**
+   * Link a shipment that was booked straight in the carrier's own dashboard
+   * (Shiprocket panel) instead of through this app — those never get an AWB
+   * here, so nothing about them was ever visible on the order or the board.
+   */
+  const handleAttachAwb = async () => {
+    const awb = window.prompt('Paste the AWB / waybill number from the carrier:');
+    if (!awb || !awb.trim()) return;
+    const provider = order?.shippingProvider === 'delhivery' ? 'delhivery' : 'shiprocket';
+    setAttachingAwb(true);
+    try {
+      await shipmentsAPI.attachAwb(String(order._id || order.id), awb.trim(), provider);
+      toast({ title: 'Shipment attached', description: `AWB ${awb.trim()} linked to this order.` });
+      await fetchOrder();
+    } catch (e: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Could not attach AWB',
+        description: e?.response?.data?.message || e?.message || 'Attach failed',
+      });
+    } finally {
+      setAttachingAwb(false);
     }
   };
 
@@ -693,6 +721,17 @@ const OrderDetail: React.FC = () => {
               </Button>
             )}
 
+            {/* COD settled directly with the customer (UPI/bank transfer/cash) before
+                delivery — full or partial. Available any time it isn't already fully
+                paid or in a terminal state, not just while order_status is pending. */}
+            {order.paymentMethod === 'cod' && order.paymentStatus !== 'completed'
+              && !['cancelled', 'returned'].includes(order.orderStatus) && (
+              <Button variant="secondary" size="sm" className="h-10 bg-green-100 text-green-800 hover:bg-green-200 mr-2"
+                onClick={() => setShowRecordCodPayment(true)}>
+                <FaCreditCard className="mr-2 h-3.5 w-3.5" /> Record Payment
+              </Button>
+            )}
+
             {order.orderStatus === 'pending' && (
               <Button variant="default" size="sm" className="h-10 bg-green-600 hover:bg-green-700 mr-2"
                 onClick={handleConfirmOrder} disabled={confirmingOrder || (order.paymentMethod === 'prepaid' && order.paymentStatus !== 'completed')}>
@@ -790,6 +829,7 @@ const OrderDetail: React.FC = () => {
                 onRemoveShipping={isOrderEditable ? () => handleRemoveCharge('shipping') : undefined}
                 onRemoveCod={isOrderEditable ? () => handleRemoveCharge('cod') : undefined}
                 removingCharge={removingCharge}
+                amountReceived={order.amountReceived}
               />
             </CardContent>
           </Card>
@@ -948,6 +988,18 @@ const OrderDetail: React.FC = () => {
                     <p className="font-medium text-foreground capitalize">{order.shippingProvider}</p>
                   </div>
                 )}
+                {order.courierName && (
+                  <div className="pt-2 border-t">
+                    <p className="text-muted-foreground mb-1">Courier</p>
+                    <p className="font-medium text-foreground">{order.courierName}</p>
+                  </div>
+                )}
+                {order.expectedDelivery && (
+                  <div className="pt-2 border-t">
+                    <p className="text-muted-foreground mb-1">Estimated Delivery</p>
+                    <p className="font-medium text-foreground">{formatDate(order.expectedDelivery, 'MMM dd, yyyy', 'N/A')}</p>
+                  </div>
+                )}
                 {shiprocketAwb && (
                   <div className="pt-2 border-t">
                     <p className="text-muted-foreground mb-1">Shiprocket AWB</p>
@@ -1005,6 +1057,19 @@ const OrderDetail: React.FC = () => {
                   <div className="pt-2 border-t">
                     <p className="text-muted-foreground mb-1">Assigned Warehouse</p>
                     <p className="font-medium text-foreground">{(order.warehouseId as any)?.name || 'N/A'}</p>
+                  </div>
+                )}
+                {/* No shipment on this order at all — the case where a carrier
+                    dashboard (e.g. Shiprocket panel) was used directly instead of
+                    this app, so nothing here ever learned an AWB exists. */}
+                {!order.shipmentId && !(order.shiprocketShipmentId ?? order.shiprocket_shipment_id) && (
+                  <div className="pt-4 mt-2 border-t">
+                    <p className="text-xs text-muted-foreground mb-2">
+                      Shipped straight from the carrier&apos;s own dashboard? Paste the AWB to link it here.
+                    </p>
+                    <Button variant="outline" size="sm" className="h-9" onClick={handleAttachAwb} disabled={attachingAwb}>
+                      {attachingAwb ? 'Attaching…' : 'Attach AWB (booked elsewhere)'}
+                    </Button>
                   </div>
                 )}
               </div>
@@ -1153,6 +1218,15 @@ const OrderDetail: React.FC = () => {
         onRazorpayPaymentIdChange={setRazorpayPaymentId}
         onUpiPaymentIdChange={setUpiPaymentId}
         onPaymentVerificationNotesChange={setPaymentVerificationNotes}
+      />
+
+      <RecordCodPaymentModal
+        isOpen={showRecordCodPayment}
+        onClose={() => setShowRecordCodPayment(false)}
+        orderId={id!}
+        total={Number(order.total) || 0}
+        amountReceived={Number(order.amountReceived) || 0}
+        onRecorded={() => { toast({ title: 'Payment recorded', description: 'The order has been updated.' }); fetchOrder(); }}
       />
 
       <UpdateEmailModal

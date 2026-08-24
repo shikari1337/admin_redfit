@@ -52,6 +52,9 @@ interface OrderSummaryProps {
   onRemoveShipping?: () => void;
   onRemoveCod?: () => void;
   removingCharge?: 'shipping' | 'cod' | null;
+  /** Money collected on a COD order OUTSIDE the gateway (UPI/bank transfer/
+   *  cash) before delivery — migration 131. Only shown when > 0. */
+  amountReceived?: number;
 }
 
 const money = (n: number | undefined) =>
@@ -82,6 +85,7 @@ const OrderSummary: React.FC<OrderSummaryProps> = ({
   onRemoveShipping,
   onRemoveCod,
   removingCharge,
+  amountReceived,
 }) => {
   const groups = gst?.breakdown?.length
     ? gst.breakdown
@@ -174,6 +178,18 @@ const OrderSummary: React.FC<OrderSummaryProps> = ({
           <span>Total</span>
           <span>₹{money(total)}</span>
         </div>
+        {!!amountReceived && amountReceived > 0 && (
+          <>
+            <div className="flex justify-between text-green-700">
+              <span>Amount received (before delivery)</span>
+              <span>−₹{money(amountReceived)}</span>
+            </div>
+            <div className="flex justify-between font-semibold">
+              <span>Balance due on delivery</span>
+              <span>₹{money(Math.max(0, total - amountReceived))}</span>
+            </div>
+          </>
+        )}
       </div>
 
       {/* ── GST breakdown — the tax already inside the amounts above ── */}

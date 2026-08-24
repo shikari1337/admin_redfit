@@ -5,9 +5,9 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { shipmentsAPI, warehousesAPI } from '../services/api';
-import { FaSync, FaSpinner } from 'react-icons/fa';
-import { ShipmentTabs, ShipmentFilters, ShipmentTable, PendingOrdersTable, PickupModal, BulkActionsBar } from '../components/shipments';
-import type { TabType, StatusCounts } from '../components/shipments';
+import { FaSync, FaSpinner, FaLink } from 'react-icons/fa';
+import { ShipmentTabs, ShipmentFilters, ShipmentTable, PendingOrdersTable, PickupModal, BulkActionsBar, ReconcileModal } from '../components/shipments';
+import type { TabType, StatusCounts, ReconcileResultData } from '../components/shipments';
 import ShipmentCreationModal from '../components/order/ShipmentCreationModal';
 
 const Shipments: React.FC = () => {
@@ -31,6 +31,9 @@ const Shipments: React.FC = () => {
   const [schedulingPickup, setSchedulingPickup] = useState(false);
   const [schedulingBulkPickup, setSchedulingBulkPickup] = useState(false);
   const [fetchingStatus, setFetchingStatus] = useState(false);
+  const [showReconcileModal, setShowReconcileModal] = useState(false);
+  const [reconciling, setReconciling] = useState(false);
+  const [reconcileResult, setReconcileResult] = useState<ReconcileResultData | null>(null);
   const [showCreateShipmentModal, setShowCreateShipmentModal] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [creatingShipment, setCreatingShipment] = useState(false);
@@ -188,6 +191,41 @@ const Shipments: React.FC = () => {
       console.error('Failed to fetch shipments:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  /**
+   * Pulls the carrier's own order list and links back any shipment booked
+   * straight in its dashboard instead of through this app — the actual fix
+   * for "orders are being shipped from the Shiprocket panel" going invisible
+   * to the board.
+   */
+  const handleReconcile = async (provider: 'shiprocket' | 'delhivery' = 'shiprocket') => {
+    setShowReconcileModal(true);
+    setReconciling(true);
+    setReconcileResult(null);
+    try {
+      const response = await shipmentsAPI.reconcile(provider, 14);
+      const data = response?.scanned !== undefined ? response : response?.data;
+      setReconcileResult(data || { scanned: 0, linked: 0, alreadyLinked: 0, unmatched: [] });
+      fetchShipments();
+    } catch (error: any) {
+      console.error('Failed to reconcile shipments:', error);
+      alert(error.response?.data?.message || 'Failed to reconcile shipments');
+      setShowReconcileModal(false);
+    } finally {
+      setReconciling(false);
+    }
+  };
+
+  const handleAttachAwb = async (orderId: string, awb: string, provider: 'shiprocket' | 'delhivery' = 'shiprocket') => {
+    try {
+      await shipmentsAPI.attachAwb(orderId, awb, provider);
+      fetchShipments();
+    } catch (error: any) {
+      console.error('Failed to attach AWB:', error);
+      alert(error.response?.data?.message || `Failed to attach AWB ${awb} to order ${orderId}`);
+      throw error;
     }
   };
 
@@ -484,6 +522,15 @@ const Shipments: React.FC = () => {
             {fetchingStatus ? <FaSpinner className="animate-spin" size={14} /> : <FaSync size={14} />}
             {fetchingStatus ? 'Fetching...' : 'Sync Status'}
           </button>
+          <button
+            onClick={() => handleReconcile('shiprocket')}
+            disabled={reconciling}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
+            title="Pull in shipments booked straight in the Shiprocket dashboard"
+          >
+            {reconciling ? <FaSpinner className="animate-spin" size={14} /> : <FaLink size={14} />}
+            {reconciling ? 'Reconciling...' : 'Reconcile with Shiprocket'}
+          </button>
         </div>
       </div>
 
@@ -702,6 +749,15 @@ const Shipments: React.FC = () => {
         onTimeSlotChange={setPickupTimeSlot}
         onNotesChange={setPickupNotes}
         isSubmitting={schedulingPickup}
+      />
+
+      <ReconcileModal
+        isOpen={showReconcileModal}
+        onClose={() => setShowReconcileModal(false)}
+        loading={reconciling}
+        result={reconcileResult}
+        provider="shiprocket"
+        onAttach={(orderId, awb) => handleAttachAwb(orderId, awb, 'shiprocket')}
       />
     </div>
   );
