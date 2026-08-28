@@ -11,6 +11,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { FaArrowLeft, FaPlus, FaTrash, FaSearch, FaCopy, FaUser } from 'react-icons/fa';
 import { ordersAPI, customersAPI, productsAPI } from '../services/api';
+import { usePincodeLookup } from '../hooks/usePincodeLookup';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,6 +53,26 @@ const ManualOrderCreate: React.FC = () => {
   const [prefilling, setPrefilling] = useState(false);
   const [gstin, setGstin] = useState('');
   const [address, setAddress] = useState({ fullName: '', mobileNumber: '', email: '', address: '', district: '', state: '', pincode: '' });
+  // Auto-fill City/District + State from the pincode — same India Post lookup
+  // the storefront's checkout uses. Tracks the exact values WE last filled so
+  // correcting a mistyped pincode re-fills correctly, but a value the staff
+  // member actually edited by hand (no longer matching our last autofill) is
+  // never overwritten.
+  const { result: pincodeResult, loading: pincodeLoading } = usePincodeLookup(address.pincode);
+  const lastAutofillRef = useRef<{ district: string; state: string } | null>(null);
+  useEffect(() => {
+    if (!pincodeResult) return;
+    setAddress((a) => {
+      const last = lastAutofillRef.current;
+      const districtIsOurs = !a.district || a.district === last?.district;
+      const stateIsOurs = !a.state || a.state === last?.state;
+      const nextDistrict = districtIsOurs ? pincodeResult.district : a.district;
+      const nextState = stateIsOurs ? pincodeResult.state : a.state;
+      lastAutofillRef.current = { district: pincodeResult.district, state: pincodeResult.state };
+      if (nextDistrict === a.district && nextState === a.state) return a;
+      return { ...a, district: nextDistrict, state: nextState };
+    });
+  }, [pincodeResult]);
 
   // Products — searched at SKU (variation) level, see productsAPI.searchVariations
   const [productSearch, setProductSearch] = useState('');
@@ -372,10 +393,18 @@ const ManualOrderCreate: React.FC = () => {
                 <Input placeholder="Full name *" value={address.fullName} onChange={(e) => setAddress(a => ({ ...a, fullName: e.target.value }))} />
                 <Input placeholder="Phone *" value={address.mobileNumber} onChange={(e) => setAddress(a => ({ ...a, mobileNumber: e.target.value }))} />
                 <Input placeholder="Email" value={address.email} onChange={(e) => setAddress(a => ({ ...a, email: e.target.value }))} />
-                <Input placeholder="Pincode" value={address.pincode} onChange={(e) => setAddress(a => ({ ...a, pincode: e.target.value }))} />
+                <div className="relative">
+                  <Input placeholder="Pincode" value={address.pincode}
+                    onChange={(e) => setAddress(a => ({ ...a, pincode: e.target.value.replace(/\D/g, '').slice(0, 6) }))} />
+                  {pincodeLoading && (
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
+                      Looking up…
+                    </span>
+                  )}
+                </div>
                 <Input className="sm:col-span-2" placeholder="Address" value={address.address} onChange={(e) => setAddress(a => ({ ...a, address: e.target.value }))} />
-                <Input placeholder="City / District" value={address.district} onChange={(e) => setAddress(a => ({ ...a, district: e.target.value }))} />
-                <Input placeholder="State (drives CGST/SGST vs IGST)" value={address.state} onChange={(e) => setAddress(a => ({ ...a, state: e.target.value }))} />
+                <Input placeholder="City / District (auto-fills from pincode)" value={address.district} onChange={(e) => setAddress(a => ({ ...a, district: e.target.value }))} />
+                <Input placeholder="State — drives CGST/SGST vs IGST (auto-fills from pincode)" value={address.state} onChange={(e) => setAddress(a => ({ ...a, state: e.target.value }))} />
                 {/* Prefilled from the customer's B2B profile; printed on the tax invoice. */}
                 <Input className="sm:col-span-2" placeholder="Customer GSTIN (optional)" value={gstin}
                   onChange={(e) => setGstin(e.target.value.toUpperCase())} />

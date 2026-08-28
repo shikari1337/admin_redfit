@@ -3594,6 +3594,18 @@ export const shippingZonesAPI = {
   },
 };
 
+// ─── PINCODE LOOKUP (India Post, proxied by the backend to avoid browser CORS) ─
+// Mirrors the storefront checkout's primary shipping-address lookup
+// (useCheckoutAddress.ts) — same `GET /pincode/:pincode` route, same raw
+// India Post response shape (an array, `data[0].PostOffice[]`), NOT the
+// `{success,data}` envelope every other admin endpoint uses.
+export const pincodeLookupAPI = {
+  lookup: async (pincode: string) => {
+    const response = await api.get(`/pincode/${pincode}`);
+    return response.data;
+  },
+};
+
 // ─── PINCODE ZONES API ───────────────────────────────────────────────────────
 export const pincodeZonesAPI = {
   getAll: async (params?: { page?: number; per_page?: number }) => {
