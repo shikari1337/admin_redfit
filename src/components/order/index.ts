@@ -18,4 +18,6 @@ export { default as RecordCodPaymentModal } from './RecordCodPaymentModal';
 export { default as UpdateEmailModal } from './UpdateEmailModal';
  export { default as OrderAddressEditor } from './OrderAddressEditor';
 export { default as DeliveryStatusModal } from './DeliveryStatusModal';
+export { default as MarkAsPaidModal } from './MarkAsPaidModal';
+export { default as OrderProgressStepper } from './OrderProgressStepper';
 

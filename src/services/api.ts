@@ -1616,8 +1616,10 @@ export const paymentsAPI = {
     const response = await api.post('/payments/upi/verify', { orderId, upiPaymentId, notes });
     return response.data;
   },
-  verifyManual: async (orderId: string, notes?: string) => {
-    const response = await api.post('/payments/manual/verify', { orderId, notes });
+  // transactionId is optional (a genuine cash payment has none) — new 3rd
+  // param, additive; every existing 2-arg call site keeps working unchanged.
+  verifyManual: async (orderId: string, notes?: string, transactionId?: string) => {
+    const response = await api.post('/payments/manual/verify', { orderId, notes, transactionId });
     return response.data;
   },
   // Recovers a stuck Razorpay payment: identifier is the order id/order_id,

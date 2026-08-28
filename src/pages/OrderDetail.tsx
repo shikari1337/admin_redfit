@@ -8,7 +8,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ordersAPI, shippingAPI, paymentsAPI, shipmentsAPI, invoicesAPI } from '../services/api';
 import { formatDate } from '../utils/date';
-import { FaCheckCircle, FaEnvelope, FaFileInvoice, FaCreditCard, FaTruck, FaArrowLeft, FaDownload, FaWhatsapp, FaSms, FaChevronDown } from 'react-icons/fa';
+import { FaCheckCircle, FaEnvelope, FaFileInvoice, FaCreditCard, FaTruck, FaArrowLeft, FaDownload, FaWhatsapp, FaSms, FaChevronDown, FaMoneyCheckAlt } from 'react-icons/fa';
 import {
   StatusBadge,
   OrderItems,
@@ -28,6 +28,8 @@ import {
   OrderAddressEditor,
   RecordCodPaymentModal,
   DeliveryStatusModal,
+  MarkAsPaidModal,
+  OrderProgressStepper,
 } from '../components/order';
 import { PickupModal } from '../components/shipments';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -114,6 +116,10 @@ const OrderDetail: React.FC = () => {
   const [updateEmailContent, setUpdateEmailContent] = useState('');
   // 'delivered' | 'rto' picks which action opened the modal; null = closed.
   const [deliveryModalMode, setDeliveryModalMode] = useState<'delivered' | 'rto' | null>(null);
+  // Manual "Mark as Paid" — for a payment that settled outside any gateway
+  // this system can verify (bank transfer, cash, cheque), distinct from the
+  // gateway-specific "Verify Payment" flow above.
+  const [showMarkAsPaidModal, setShowMarkAsPaidModal] = useState(false);
 
   // Shipment actions state
   const [showPickupModal, setShowPickupModal] = useState(false);
@@ -662,7 +668,7 @@ const OrderDetail: React.FC = () => {
               onChange={(e) => setStatusNotes(e.target.value)}
               className="h-9 w-40 sm:w-48 bg-background border-none shadow-none"
             />
-            <Select value={order.orderStatus} onValueChange={handleStatusUpdate} disabled={updating}>
+            <Select value={order.orderStatus} onValueChange={handleStatusUpdate} disabled={updating || !hasPerm('orders.manage')}>
               <SelectTrigger className="h-9 w-[130px] border-none bg-background shadow-none font-medium capitalize">
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
@@ -726,17 +732,33 @@ const OrderDetail: React.FC = () => {
               </DropdownMenuContent>
             </DropdownMenu>
 
-            {order.orderStatus === 'pending' && order.paymentMethod === 'prepaid' && order.paymentStatus !== 'completed' && (
+            {hasPerm('orders.manage') && order.orderStatus === 'pending' && order.paymentMethod === 'prepaid' && order.paymentStatus !== 'completed' && (
               <Button variant="secondary" size="sm" className="h-10 bg-yellow-100 text-yellow-800 hover:bg-yellow-200 mr-2"
                 onClick={() => setShowPaymentVerifyModal(true)}>
                 <FaCreditCard className="mr-2 h-3.5 w-3.5" /> Verify Payment
               </Button>
             )}
 
+            {/* Payment settled OUTSIDE any gateway this system can check
+                against (bank transfer, cash, cheque) — no transaction id to
+                verify, staff assertion IS the record. Prepaid only: COD's
+                equivalent is "Record Payment" below (COD's own money-in-hand
+                flow — offering both here would just be confusing). Not
+                limited to order_status='pending' like "Verify Payment" above,
+                since an order can end up confirmed/on_hold while still
+                genuinely unpaid. */}
+            {hasPerm('orders.manage') && order.paymentMethod === 'prepaid' && order.paymentStatus !== 'completed'
+              && !['cancelled', 'returned'].includes(order.orderStatus) && (
+              <Button variant="secondary" size="sm" className="h-10 bg-emerald-100 text-emerald-800 hover:bg-emerald-200 mr-2"
+                onClick={() => setShowMarkAsPaidModal(true)}>
+                <FaMoneyCheckAlt className="mr-2 h-3.5 w-3.5" /> Mark as Paid
+              </Button>
+            )}
+
             {/* COD settled directly with the customer (UPI/bank transfer/cash) before
                 delivery — full or partial. Available any time it isn't already fully
                 paid or in a terminal state, not just while order_status is pending. */}
-            {order.paymentMethod === 'cod' && order.paymentStatus !== 'completed'
+            {hasPerm('orders.manage') && order.paymentMethod === 'cod' && order.paymentStatus !== 'completed'
               && !['cancelled', 'returned'].includes(order.orderStatus) && (
               <Button variant="secondary" size="sm" className="h-10 bg-green-100 text-green-800 hover:bg-green-200 mr-2"
                 onClick={() => setShowRecordCodPayment(true)}>
@@ -744,7 +766,7 @@ const OrderDetail: React.FC = () => {
               </Button>
             )}
 
-            {order.orderStatus === 'pending' && (
+            {hasPerm('orders.manage') && order.orderStatus === 'pending' && (
               <Button variant="default" size="sm" className="h-10 bg-green-600 hover:bg-green-700 mr-2"
                 onClick={handleConfirmOrder} disabled={confirmingOrder || (order.paymentMethod === 'prepaid' && order.paymentStatus !== 'completed')}>
                 <FaCheckCircle className="mr-2 h-3.5 w-3.5" /> {confirmingOrder ? 'Confirming...' : 'Confirm Order'}
@@ -752,27 +774,27 @@ const OrderDetail: React.FC = () => {
             )}
 
             {/* Hold / release — parks an order (stock query, address doubt) without cancelling. */}
-            {['pending', 'confirmed', 'processing'].includes(order.orderStatus) && (
+            {hasPerm('orders.manage') && ['pending', 'confirmed', 'processing'].includes(order.orderStatus) && (
               <Button variant="secondary" size="sm" className="h-10 bg-orange-100 text-orange-800 hover:bg-orange-200 mr-2"
                 onClick={() => handleStatusUpdate('on_hold')} disabled={updating}>
                 Put on Hold
               </Button>
             )}
-            {order.orderStatus === 'on_hold' && (
+            {hasPerm('orders.manage') && order.orderStatus === 'on_hold' && (
               <Button variant="secondary" size="sm" className="h-10 bg-blue-100 text-blue-800 hover:bg-blue-200 mr-2"
                 onClick={() => handleStatusUpdate('confirmed')} disabled={updating}>
                 Release Hold
               </Button>
             )}
 
-            {canAccess('shipping') && ['confirmed', 'processing', 'shipped'].includes(order.orderStatus) && (
+            {canAccess('shipping') && hasPerm('shipments.manage') && ['confirmed', 'processing', 'shipped'].includes(order.orderStatus) && (
               <Button variant="default" size="sm" className="h-10 bg-blue-600 hover:bg-blue-700"
                 onClick={() => setShowShipmentModal(true)} disabled={sendingToShiprocket}>
                 <FaTruck className="mr-2 h-3.5 w-3.5" /> {sendingToShiprocket ? 'Creating...' : order.shippingProvider ? 'Reship Order' : 'Create Shipment'}
               </Button>
             )}
 
-            {order.orderStatus === 'delivered' && (
+            {hasPerm('orders.manage') && order.orderStatus === 'delivered' && (
               <Button variant="default" size="sm" className="h-10 bg-indigo-600 hover:bg-indigo-700 ml-2"
                 onClick={handleMarkCompleted} disabled={updating}>
                 <FaCheckCircle className="mr-2 h-3.5 w-3.5" /> {updating ? 'Updating...' : 'Mark as Completed'}
@@ -785,7 +807,7 @@ const OrderDetail: React.FC = () => {
                 the SHIPMENT grain so a multi-shipment order rolls up
                 correctly instead of being wrongly marked fully delivered
                 the instant one parcel arrives. */}
-            {canAccess('shipping') && actionableShipments.length > 0 && (
+            {canAccess('shipping') && hasPerm('shipments.manage') && actionableShipments.length > 0 && (
               <>
                 <Button variant="outline" size="sm" className="h-10 border-green-300 text-green-700 hover:bg-green-50 ml-2"
                   onClick={() => setDeliveryModalMode('delivered')}>
@@ -800,6 +822,12 @@ const OrderDetail: React.FC = () => {
           </div>
         </div>
       </div>
+
+      <OrderProgressStepper
+        orderStatus={order.orderStatus}
+        paymentStatus={order.paymentStatus}
+        paymentMethod={order.paymentMethod}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
@@ -1275,6 +1303,14 @@ const OrderDetail: React.FC = () => {
         total={Number(order.total) || 0}
         amountReceived={Number(order.amountReceived) || 0}
         onRecorded={() => { toast({ title: 'Payment recorded', description: 'The order has been updated.' }); fetchOrder(); }}
+      />
+
+      <MarkAsPaidModal
+        isOpen={showMarkAsPaidModal}
+        onClose={() => setShowMarkAsPaidModal(false)}
+        orderId={id!}
+        total={Number(order.total) || 0}
+        onMarked={() => { toast({ title: 'Payment recorded', description: 'Order marked as paid.' }); fetchOrder(); }}
       />
 
       <UpdateEmailModal
