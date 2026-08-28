@@ -43,6 +43,7 @@ import Shipments from './pages/Shipments';
 import Users from './pages/Users';
 import UserDetail from './pages/UserDetail';
 import Customers from './pages/Customers';
+import CustomerDuplicates from './pages/CustomerDuplicates';
 import Gallery from './pages/Gallery';
 import Logs from './pages/Logs';
 import Pages from './pages/Pages';
@@ -409,6 +410,7 @@ function App() {
           <Route path="orders/:id" element={<OrderDetail />} />
           <Route path="shipments" element={<ProtectedModuleRoute module="shipping"><Shipments /></ProtectedModuleRoute>} />
           <Route path="customers" element={<Customers />} />
+          <Route path="customers/duplicates" element={<CustomerDuplicates />} />
           <Route path="users" element={<Users />} />
           {/* UserDetail is a CUSTOMER profile (orders, addresses, lifetime
               value) — it reads /customers/:id. Served at both paths so old

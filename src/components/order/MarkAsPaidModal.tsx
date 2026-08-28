@@ -47,15 +47,13 @@ const MarkAsPaidModal: React.FC<MarkAsPaidModalProps> = ({
 
   const handleClose = () => { if (!loading) onClose(); };
 
-  const methodLabel = METHODS.find((m) => m.value === method)?.label || method;
   const isValid = notes.trim().length > 0 || transactionId.trim().length > 0;
 
   const handleSubmit = async () => {
     if (!isValid) { setError('Add a reference or a short description of how this was paid.'); return; }
     setLoading(true); setError(null);
     try {
-      const description = `${methodLabel}${notes.trim() ? ` — ${notes.trim()}` : ''}`;
-      await paymentsAPI.verifyManual(orderId, description, transactionId.trim() || undefined);
+      await paymentsAPI.verifyManual(orderId, notes.trim() || undefined, transactionId.trim() || undefined, method);
       onMarked();
       onClose();
     } catch (e: any) {

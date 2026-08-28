@@ -6,7 +6,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { shipmentsAPI, warehousesAPI } from '../services/api';
 import { FaSync, FaSpinner, FaLink } from 'react-icons/fa';
-import { ShipmentTabs, ShipmentFilters, ShipmentTable, PendingOrdersTable, PickupModal, BulkActionsBar, ReconcileModal } from '../components/shipments';
+import { ShipmentTabs, ShipmentFilters, ShipmentTable, PendingOrdersTable, PickupModal, BulkActionsBar, ReconcileModal, ShipmentDetailDrawer } from '../components/shipments';
 import type { TabType, StatusCounts, ReconcileResultData } from '../components/shipments';
 import ShipmentCreationModal from '../components/order/ShipmentCreationModal';
 
@@ -34,6 +34,7 @@ const Shipments: React.FC = () => {
   const [showReconcileModal, setShowReconcileModal] = useState(false);
   const [reconciling, setReconciling] = useState(false);
   const [reconcileResult, setReconcileResult] = useState<ReconcileResultData | null>(null);
+  const [detailShipmentId, setDetailShipmentId] = useState<string | null>(null);
   const [showCreateShipmentModal, setShowCreateShipmentModal] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [creatingShipment, setCreatingShipment] = useState(false);
@@ -396,6 +397,17 @@ const Shipments: React.FC = () => {
     }
   };
 
+  const handleNdrRequestRto = async (shipmentId: string) => {
+    try {
+      await shipmentsAPI.ndrRequestRto(shipmentId);
+      alert('RTO requested — the courier will return this shipment instead of re-attempting delivery.');
+      fetchShipments();
+    } catch (error: any) {
+      console.error('Failed to request RTO:', error);
+      alert(error.response?.data?.message || 'Failed to request RTO');
+    }
+  };
+
   const handleCreateShipment = async (modalData?: any) => {
     if (!selectedOrder || !selectedWarehouseId) {
       alert('Please select a warehouse');
@@ -640,6 +652,8 @@ const Shipments: React.FC = () => {
             }}
             onNdrReattempt={handleNdrReattempt}
             onNdrUpdatePhone={handleNdrUpdatePhone}
+            onNdrRequestRto={handleNdrRequestRto}
+            onViewDetails={setDetailShipmentId}
           />
         </>
       )}
@@ -758,6 +772,11 @@ const Shipments: React.FC = () => {
         result={reconcileResult}
         provider="shiprocket"
         onAttach={(orderId, awb) => handleAttachAwb(orderId, awb, 'shiprocket')}
+      />
+
+      <ShipmentDetailDrawer
+        shipmentId={detailShipmentId}
+        onClose={() => setDetailShipmentId(null)}
       />
     </div>
   );

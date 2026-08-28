@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, Mail, Facebook, CreditCard, MessageCircle, Bot, Loader2, BarChart3, Copy, Check, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Save, Mail, Facebook, CreditCard, MessageCircle, Bot, Loader2, BarChart3, Copy, Check, CheckCircle2, AlertTriangle, XCircle, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
 
-import api from '../services/api';
+import api, { smsTemplatesAPI } from '../services/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,6 +19,13 @@ const ApiIntegrationSettings: React.FC = () => {
   // SECRET env vars are still quietly taking real payments — see the
   // `envFallbackActive` doc comment in routes/settings.ts GET /admin.
   const [razorpayEnvFallback, setRazorpayEnvFallback] = useState(false);
+  // Live WhatsApp notification status — fetched directly from the Growcord
+  // platform (not derived from what's typed in the form below), so this
+  // reflects what will actually happen on the next real send.
+  const [waStatus, setWaStatus] = useState<any | null>(null);
+  const [waStatusLoading, setWaStatusLoading] = useState(false);
+  const [waStatusError, setWaStatusError] = useState<string | null>(null);
+  const [waEventsOpen, setWaEventsOpen] = useState(false);
   const [formData, setFormData] = useState({
     smtp: {
       useEnvVars: false,
@@ -75,7 +82,21 @@ const ApiIntegrationSettings: React.FC = () => {
 
   useEffect(() => {
     fetchSettings();
+    loadWaStatus();
   }, []);
+
+  const loadWaStatus = async (refresh = false) => {
+    try {
+      setWaStatusLoading(true);
+      setWaStatusError(null);
+      const res: any = await smsTemplatesAPI.whatsappLiveStatus(refresh);
+      setWaStatus(res?.data ?? res);
+    } catch (err: any) {
+      setWaStatusError(err?.response?.data?.message || err?.message || 'Failed to check WhatsApp status');
+    } finally {
+      setWaStatusLoading(false);
+    }
+  };
 
   const fetchSettings = async () => {
     try {
@@ -911,6 +932,124 @@ const ApiIntegrationSettings: React.FC = () => {
                   </div>
                 </div>
               ))}
+            </div>
+
+            {/*
+              Live status, fetched from the WhatsApp platform itself — not the
+              form above. Every event's template is fixed 1:1 by the platform
+              (whatsappapidocs/PUBLIC_API.md §6b); there is no per-event
+              template to "pick" here, only whether it is APPROVED and the
+              number can actually send right now. This is what would have
+              caught the 2026-08-28 incident immediately instead of a shopper
+              silently never getting a WhatsApp OTP.
+            */}
+            <div className="rounded-lg border p-4 space-y-4 bg-muted/30">
+              <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div>
+                  <p className="text-sm font-semibold">Live notification status</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Checked directly against the WhatsApp platform using this store's active credentials.
+                  </p>
+                </div>
+                <Button
+                  type="button" variant="outline" size="sm"
+                  onClick={() => loadWaStatus(true)} disabled={waStatusLoading}
+                >
+                  {waStatusLoading ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
+                  Refresh from WhatsApp
+                </Button>
+              </div>
+
+              {waStatusError && (
+                <div className="flex items-start gap-2 p-3 rounded-md bg-red-50 border border-red-200 text-sm text-red-800">
+                  <XCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                  <span>{waStatusError}</span>
+                </div>
+              )}
+
+              {!waStatusError && waStatus && !waStatus.enabled && (
+                <div className="flex items-start gap-2 p-3 rounded-md bg-muted border text-sm text-muted-foreground">
+                  <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                  <span>WhatsApp is disabled for this store's current mode — no notifications will send until it's enabled above.</span>
+                </div>
+              )}
+
+              {!waStatusError && waStatus?.enabled && !waStatus.connected && (
+                <div className="flex items-start gap-2 p-3 rounded-md bg-red-50 border border-red-200 text-sm text-red-800">
+                  <XCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="font-medium">Can't reach WhatsApp — {waStatus.connectionError || 'connection failed'}</p>
+                    <p className="text-xs mt-0.5 text-red-700">
+                      {waStatus.usingPlatformDefault
+                        ? "This store has no key of its own configured and the platform's shared default is not working — fill in the API key above."
+                        : "This store's own API key above is not working — check it's current and active."}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {!waStatusError && waStatus?.enabled && waStatus.connected && (
+                <>
+                  <div className="flex items-center gap-2 p-3 rounded-md bg-green-50 border border-green-200 text-sm text-green-800">
+                    <CheckCircle2 className="h-4 w-4 shrink-0" />
+                    <span>
+                      Connected — <strong>{waStatus.registeredPhone || waStatus.phoneNumberId}</strong>.{' '}
+                      <strong>{waStatus.ready}/{waStatus.total}</strong> notification templates approved and ready to send.
+                      {waStatus.usingPlatformDefault && ' Using the platform\'s shared default key.'}
+                    </span>
+                  </div>
+
+                  {waStatus.health && !waStatus.health.canSend && (
+                    <div className="flex items-start gap-2 p-3 rounded-md bg-red-50 border border-red-200 text-sm text-red-800">
+                      <XCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                      <div>
+                        <p className="font-medium">Sending is blocked for this number</p>
+                        <ul className="list-disc list-inside text-xs mt-1">
+                          {(waStatus.health.blockers || []).map((b: string, i: number) => <li key={i}>{b}</li>)}
+                        </ul>
+                      </div>
+                    </div>
+                  )}
+
+                  {waStatus.ready < waStatus.total && (
+                    <div className="flex items-start gap-2 p-3 rounded-md bg-amber-50 border border-amber-200 text-sm text-amber-800">
+                      <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                      <span>{waStatus.total - waStatus.ready} event(s) below are not yet approved — those specific notifications will fall back to SMS until Meta approves them.</span>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    className="flex items-center gap-1.5 text-sm font-medium text-foreground hover:underline"
+                    onClick={() => setWaEventsOpen((v) => !v)}
+                  >
+                    {waEventsOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                    {waEventsOpen ? 'Hide' : 'Show'} all {waStatus.total} events
+                  </button>
+
+                  {waEventsOpen && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {(waStatus.events || []).map((ev: any) => (
+                        <div key={ev.event} className="flex items-start gap-2 p-2.5 rounded-md border bg-background">
+                          {ev.ready ? (
+                            <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
+                          ) : ev.status === 'PENDING' ? (
+                            <Loader2 className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                          ) : (
+                            <XCircle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
+                          )}
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium truncate">{ev.title || ev.event}</p>
+                            <p className="text-[11px] text-muted-foreground">
+                              {ev.ready ? 'Approved & ready' : ev.status === 'PENDING' ? 'Pending Meta approval' : (ev.statusReason || ev.status || 'Not ready')}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
 
             <div className={`flex flex-col gap-3 ${formData.whatsapp.useEnvVars ? 'opacity-50 pointer-events-none' : ''}`}>

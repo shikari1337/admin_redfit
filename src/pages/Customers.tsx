@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { customersAPI } from '../services/api';
-import { User, Phone, Mail, Search, ShoppingBag, Building2, Link2, Copy, Check, Loader2 } from 'lucide-react';
+import { User, Phone, Mail, Search, ShoppingBag, Building2, Link2, Copy, Check, Loader2, Users2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -39,6 +39,11 @@ const Customers: React.FC = () => {
   const [portalLink, setPortalLink] = useState<{ name: string; url: string } | null>(null);
   const [portalLoadingId, setPortalLoadingId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [openDuplicates, setOpenDuplicates] = useState(0);
+
+  useEffect(() => {
+    customersAPI.listDuplicates('open').then((d: any[]) => setOpenDuplicates(d.length)).catch(() => {});
+  }, []);
 
   const handlePortalLink = async (c: StoreCustomer) => {
     const id = String(c.customer_id);
@@ -98,8 +103,16 @@ const Customers: React.FC = () => {
           <h1 className="text-3xl font-bold tracking-tight">Customers</h1>
           <p className="text-sm text-muted-foreground mt-1">Shoppers who registered or ordered on your store.</p>
         </div>
-        <div className="text-sm text-muted-foreground">
-          Total: <span className="font-semibold text-foreground">{total}</span>
+        <div className="flex items-center gap-3">
+          <Link to="/customers/duplicates">
+            <Button variant="outline" size="sm">
+              <Users2 className="mr-1.5 h-3.5 w-3.5" /> Duplicate Accounts
+              {openDuplicates > 0 && <Badge variant="destructive" className="ml-1.5">{openDuplicates}</Badge>}
+            </Button>
+          </Link>
+          <div className="text-sm text-muted-foreground">
+            Total: <span className="font-semibold text-foreground">{total}</span>
+          </div>
         </div>
       </div>
 

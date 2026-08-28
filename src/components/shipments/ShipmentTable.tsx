@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
-import { Calendar, ClipboardList, Download, FileText, RotateCcw, Phone } from 'lucide-react';
+import { Calendar, ClipboardList, Download, FileText, RotateCcw, Phone, Undo2, Eye } from 'lucide-react';
 import {
   Table,
   TableBody,
@@ -46,6 +46,11 @@ interface Shipment {
   awb?: string;
   courierName?: string;
   expectedDelivery?: Date | string;
+  ndrDetails?: {
+    reason?: string | null;
+    attempts?: number | null;
+    raisedAt?: Date | string | null;
+  } | null;
   trackingUrl?: string;
   createdAt: Date | string;
 }
@@ -63,6 +68,8 @@ interface ShipmentTableProps {
   onDownloadPickupReceipt?: (shipmentId: string) => void;
   onNdrReattempt?: (shipmentId: string) => void;
   onNdrUpdatePhone?: (shipmentId: string, phone: string) => void;
+  onNdrRequestRto?: (shipmentId: string) => void;
+  onViewDetails?: (shipmentId: string) => void;
 }
 
 const ShipmentTable: React.FC<ShipmentTableProps> = ({
@@ -78,6 +85,8 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
   onDownloadPickupReceipt,
   onNdrReattempt,
   onNdrUpdatePhone,
+  onNdrRequestRto,
+  onViewDetails,
 }) => {
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -209,6 +218,12 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
                   <Badge variant={getStatusColor(shipment.status) as any}>
                     {getStatusLabel(shipment.status)}
                   </Badge>
+                  {shipment.status === 'ndr_failed_delivery' && shipment.ndrDetails && (
+                    <div className="text-xs text-muted-foreground mt-1 max-w-[180px]">
+                      {shipment.ndrDetails.reason || 'Reason unknown'}
+                      {shipment.ndrDetails.attempts != null && ` · attempt ${shipment.ndrDetails.attempts}`}
+                    </div>
+                  )}
                 </TableCell>
                 <TableCell>
                   {shipment.pickup?.scheduledDate ? (
@@ -246,6 +261,17 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex items-center justify-end gap-2 flex-wrap">
+                    {onViewDetails && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => onViewDetails(shipment._id)}
+                        className="text-slate-600 hover:text-slate-700 hover:bg-slate-50"
+                        title="View shipment details & timeline"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                    )}
                     {!shipment.pickup?.scheduledDate && shipment.status === 'pending' && shipment.shippingProvider !== 'manual' && (
                       <Button
                         variant="ghost"
@@ -328,6 +354,21 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
                         title="Update Delivery Phone Number"
                       >
                         <Phone className="h-4 w-4" />
+                      </Button>
+                    )}
+                    {shipment.status === 'ndr_failed_delivery' && onNdrRequestRto && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          if (confirm('Request RTO for this shipment? The courier will stop attempting delivery and return it instead.')) {
+                            onNdrRequestRto(shipment._id);
+                          }
+                        }}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                        title="Give up on delivery — request RTO"
+                      >
+                        <Undo2 className="h-4 w-4" />
                       </Button>
                     )}
                     {!['delivered', 'cancelled', 'returned', 'rto_delivered', 'rto_failed'].includes(shipment.status) && (

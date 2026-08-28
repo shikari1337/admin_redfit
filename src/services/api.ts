@@ -1616,10 +1616,11 @@ export const paymentsAPI = {
     const response = await api.post('/payments/upi/verify', { orderId, upiPaymentId, notes });
     return response.data;
   },
-  // transactionId is optional (a genuine cash payment has none) — new 3rd
-  // param, additive; every existing 2-arg call site keeps working unchanged.
-  verifyManual: async (orderId: string, notes?: string, transactionId?: string) => {
-    const response = await api.post('/payments/manual/verify', { orderId, notes, transactionId });
+  // transactionId/method are optional (a genuine cash payment has no
+  // reference id) — additive params; every existing 2-arg call site keeps
+  // working unchanged.
+  verifyManual: async (orderId: string, notes?: string, transactionId?: string, method?: string) => {
+    const response = await api.post('/payments/manual/verify', { orderId, notes, transactionId, method });
     return response.data;
   },
   // Recovers a stuck Razorpay payment: identifier is the order id/order_id,
@@ -2346,6 +2347,10 @@ export const shipmentsAPI = {
     const response = await api.post(`/shipments/${id}/ndr-update-phone`, { phone });
     return response.data;
   },
+  ndrRequestRto: async (id: string, remarks?: string) => {
+    const response = await api.post(`/shipments/${id}/ndr-request-rto`, { remarks });
+    return response.data;
+  },
   downloadLabel: async (id: string, pdfSize: '4R' | 'A4' = '4R') => {
     try {
       const response = await api.get(`/shipments/${id}/download-label`, {
@@ -2508,6 +2513,11 @@ export const smsTemplatesAPI = {
     }
   ) => {
     const response = await api.put(`/sms-templates/${event}`, data);
+    return response.data;
+  },
+  /** Live approval status per event, fetched directly from the WhatsApp platform. */
+  whatsappLiveStatus: async (refresh = false) => {
+    const response = await api.get('/sms-templates/whatsapp/live-status', { params: refresh ? { refresh: 'true' } : {} });
     return response.data;
   },
 };
@@ -2801,6 +2811,26 @@ export const customersAPI = {
   mintPortalToken: async (customerId: string, opts?: { label?: string; expiresAt?: string | null }) => {
     const response = await api.post(`/customers/${customerId}/portal-token`, opts || {});
     return response.data?.data || response.data;
+  },
+  // Duplicate-account handling — one real person split across two accounts
+  // (one email-only, one phone-only) with no way to tell they're the same
+  // person until a customer OTP-proves it by trying to link the missing
+  // identifier onto their own account and hitting the other one.
+  listDuplicates: async (status: 'open' | 'merged' | 'dismissed' | 'all' = 'open') => {
+    const response = await api.get('/customers/duplicates', { params: { status } });
+    return response.data?.data ?? response.data ?? [];
+  },
+  flagDuplicate: async (customerIdA: string, customerIdB: string) => {
+    const response = await api.post('/customers/duplicates', { customerIdA, customerIdB });
+    return response.data;
+  },
+  dismissDuplicate: async (flagId: string) => {
+    const response = await api.post(`/customers/duplicates/${flagId}/dismiss`);
+    return response.data;
+  },
+  mergeDuplicate: async (flagId: string, winnerId: string) => {
+    const response = await api.post(`/customers/duplicates/${flagId}/merge`, { winnerId });
+    return response.data;
   },
 };
 

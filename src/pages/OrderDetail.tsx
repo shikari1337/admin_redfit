@@ -933,6 +933,11 @@ const OrderDetail: React.FC = () => {
                 upiVerificationStatus={order.upiVerifyStatus ?? order.upi_verify_status ?? order.upiVerificationStatus}
                 upiPaymentScreenshot={order.upiScreenshot ?? order.upi_screenshot ?? order.upiPaymentScreenshot}
                 upiVerificationNotes={order.upiVerifyNotes ?? order.upi_verify_notes ?? order.upiVerificationNotes}
+                manualPaymentMethod={order.manualPaymentMethod ?? order.manual_payment_method}
+                manualPaymentReference={order.manualPaymentReference ?? order.manual_payment_reference}
+                manualPaymentNotes={order.manualPaymentNotes ?? order.manual_payment_notes}
+                manualPaymentMarkedBy={order.manualPaymentMarkedBy ?? order.manual_payment_marked_by}
+                manualPaymentMarkedAt={order.manualPaymentMarkedAt ?? order.manual_payment_marked_at}
               />
             </CardContent>
           </Card>

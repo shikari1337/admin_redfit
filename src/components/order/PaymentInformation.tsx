@@ -1,6 +1,7 @@
 import React from 'react';
-import { FaCreditCard, FaImage, FaCheckCircle, FaClock, FaTimesCircle } from 'react-icons/fa';
+import { FaCreditCard, FaImage, FaCheckCircle, FaClock, FaTimesCircle, FaMoneyCheckAlt } from 'react-icons/fa';
 import StatusBadge from './StatusBadge';
+import { formatDate } from '../../utils/date';
 
 interface PaymentInformationProps {
   paymentMethod: 'cod' | 'prepaid';
@@ -14,7 +15,25 @@ interface PaymentInformationProps {
   upiVerificationStatus?: string;
   upiPaymentScreenshot?: string;
   upiVerificationNotes?: string;
+  /** Set once staff use "Mark as Paid" for a payment settled outside any
+   *  gateway (bank transfer, cash, cheque) — migration 137. Independent of
+   *  `paymentGateway`: an order whose customer attempted Razorpay can still
+   *  end up marked paid manually, so this renders whenever present rather
+   *  than only when paymentGateway === 'manual'. */
+  manualPaymentMethod?: string;
+  manualPaymentReference?: string;
+  manualPaymentNotes?: string;
+  manualPaymentMarkedBy?: string;
+  manualPaymentMarkedAt?: string;
 }
+
+const MANUAL_METHOD_LABELS: Record<string, string> = {
+  bank_transfer: 'Bank Transfer / NEFT / IMPS',
+  upi: 'UPI (outside the store link)',
+  cash: 'Cash',
+  cheque: 'Cheque',
+  other: 'Other',
+};
 
 const PaymentInformation: React.FC<PaymentInformationProps> = ({
   paymentMethod,
@@ -28,7 +47,13 @@ const PaymentInformation: React.FC<PaymentInformationProps> = ({
   upiVerificationStatus,
   upiPaymentScreenshot,
   upiVerificationNotes,
+  manualPaymentMethod,
+  manualPaymentReference,
+  manualPaymentNotes,
+  manualPaymentMarkedBy,
+  manualPaymentMarkedAt,
 }) => {
+  const hasManualPaymentDetails = !!(manualPaymentMethod || manualPaymentReference || manualPaymentNotes || manualPaymentMarkedAt);
   const getVerificationStatusIcon = (status?: string) => {
     switch (status) {
       case 'verified':
@@ -158,6 +183,46 @@ const PaymentInformation: React.FC<PaymentInformationProps> = ({
                 )}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Independent of paymentGateway — an order whose customer attempted
+            Razorpay/UPI can still be marked paid manually afterward, so this
+            shows whenever the record exists rather than only when
+            paymentGateway === 'manual'. */}
+        {hasManualPaymentDetails && (
+          <div className="border-t pt-4">
+            <p className="text-sm text-gray-500 mb-2 flex items-center gap-2">
+              <FaMoneyCheckAlt className="text-emerald-600" />
+              Marked Paid Manually
+            </p>
+            <div className="space-y-3 bg-emerald-50 p-4 rounded">
+              <div>
+                <p className="text-sm text-gray-600">How it was paid</p>
+                <p className="font-medium text-sm">
+                  {manualPaymentMethod ? (MANUAL_METHOD_LABELS[manualPaymentMethod] ?? manualPaymentMethod) : 'Not specified'}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-600">Transaction / Reference ID</p>
+                <p className="font-mono text-sm">{manualPaymentReference || 'Not provided'}</p>
+              </div>
+              {manualPaymentNotes && (
+                <div>
+                  <p className="text-sm text-gray-600">Description</p>
+                  <p className="text-sm text-gray-700 bg-white p-2 rounded border">{manualPaymentNotes}</p>
+                </div>
+              )}
+              {(manualPaymentMarkedBy || manualPaymentMarkedAt) && (
+                <div>
+                  <p className="text-sm text-gray-600">Marked paid by</p>
+                  <p className="text-sm">
+                    {manualPaymentMarkedBy || 'Staff'}
+                    {manualPaymentMarkedAt && ` — ${formatDate(manualPaymentMarkedAt)}`}
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
