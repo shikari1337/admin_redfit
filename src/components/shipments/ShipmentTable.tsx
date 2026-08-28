@@ -330,7 +330,7 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
                         <Phone className="h-4 w-4" />
                       </Button>
                     )}
-                    {shipment.status !== 'delivered' && shipment.status !== 'cancelled' && (
+                    {!['delivered', 'cancelled', 'returned', 'rto_delivered', 'rto_failed'].includes(shipment.status) && (
                       <div className="w-[140px]">
                         <Select
                           onValueChange={(value) => value && onUpdateStatus(shipment._id, value)}
@@ -344,6 +344,9 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
                             <SelectItem value="in_transit">In Transit</SelectItem>
                             <SelectItem value="out_for_delivery">Out for Delivery</SelectItem>
                             <SelectItem value="delivered">Delivered</SelectItem>
+                            <SelectItem value="rto_in_transit">RTO In Transit</SelectItem>
+                            <SelectItem value="rto_delivered">RTO Delivered</SelectItem>
+                            <SelectItem value="rto_failed">RTO Failed / Lost / Damaged</SelectItem>
                             <SelectItem value="cancelled">Cancelled</SelectItem>
                           </SelectContent>
                         </Select>

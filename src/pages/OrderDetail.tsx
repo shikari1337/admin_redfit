@@ -27,6 +27,7 @@ import {
   OrderBillingCard,
   OrderAddressEditor,
   RecordCodPaymentModal,
+  DeliveryStatusModal,
 } from '../components/order';
 import { PickupModal } from '../components/shipments';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -56,6 +57,9 @@ const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   shipped: ['out_for_delivery', 'delivered', 'returned', 'cancelled'],
   out_for_delivery: ['delivered', 'shipped', 'returned'],
   delivered: ['return_requested', 'completed'],
+  // System-derived only (shipment rollup, migration 133) — not a manual
+  // dropdown target, but needs its own exits once an order lands here.
+  partially_delivered: ['return_requested', 'completed'],
   return_requested: ['returned', 'delivered'],
   returned: ['completed'],
   cancelled: [],
@@ -66,6 +70,7 @@ const STATUS_LABEL: Record<string, string> = {
   on_hold: 'On hold',
   out_for_delivery: 'Out for delivery',
   return_requested: 'Return requested',
+  partially_delivered: 'Partially delivered',
 };
 
 const OrderDetail: React.FC = () => {
@@ -107,6 +112,8 @@ const OrderDetail: React.FC = () => {
   const [showUpdateEmailModal, setShowUpdateEmailModal] = useState(false);
   const [updateEmailSubject, setUpdateEmailSubject] = useState('');
   const [updateEmailContent, setUpdateEmailContent] = useState('');
+  // 'delivered' | 'rto' picks which action opened the modal; null = closed.
+  const [deliveryModalMode, setDeliveryModalMode] = useState<'delivered' | 'rto' | null>(null);
 
   // Shipment actions state
   const [showPickupModal, setShowPickupModal] = useState(false);
@@ -630,6 +637,11 @@ const OrderDetail: React.FC = () => {
   const isOrderEditable = order.paymentStatus !== 'completed'
     && ['pending', 'confirmed', 'on_hold', 'processing'].includes(order.orderStatus)
     && !(order.shipments?.length);
+  // Any shipment not already in a final state (delivered/cancelled/returned/
+  // RTO-settled) — the "Mark Delivered"/"Mark RTO" buttons only make sense
+  // when there's something left to act on.
+  const TERMINAL_SHIPMENT = new Set(['delivered', 'cancelled', 'returned', 'rto_delivered', 'rto_failed']);
+  const actionableShipments = (order.shipments || []).filter((s: any) => !TERMINAL_SHIPMENT.has(s.status));
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -765,6 +777,25 @@ const OrderDetail: React.FC = () => {
                 onClick={handleMarkCompleted} disabled={updating}>
                 <FaCheckCircle className="mr-2 h-3.5 w-3.5" /> {updating ? 'Updating...' : 'Mark as Completed'}
               </Button>
+            )}
+
+            {/* Manual override — automatic Shiprocket/Delhivery sync and
+                webhooks don't always catch every delivery/failed-delivery,
+                and manual-carrier shipments never get one at all. Acts at
+                the SHIPMENT grain so a multi-shipment order rolls up
+                correctly instead of being wrongly marked fully delivered
+                the instant one parcel arrives. */}
+            {canAccess('shipping') && actionableShipments.length > 0 && (
+              <>
+                <Button variant="outline" size="sm" className="h-10 border-green-300 text-green-700 hover:bg-green-50 ml-2"
+                  onClick={() => setDeliveryModalMode('delivered')}>
+                  <FaCheckCircle className="mr-2 h-3.5 w-3.5" /> Mark Delivered
+                </Button>
+                <Button variant="outline" size="sm" className="h-10 border-orange-300 text-orange-700 hover:bg-orange-50 ml-2"
+                  onClick={() => setDeliveryModalMode('rto')}>
+                  <FaTruck className="mr-2 h-3.5 w-3.5" /> Mark RTO / Failed Delivery
+                </Button>
+              </>
             )}
           </div>
         </div>
@@ -933,6 +964,23 @@ const OrderDetail: React.FC = () => {
                   <p className="text-muted-foreground mb-1">Order Status</p>
                   <StatusBadge status={order.orderStatus} type="order" />
                 </div>
+                {/* Return window — stamped once (whole order, or the delivered portion of a
+                    split shipment) delivers; also the date the platform's own billing to this
+                    store becomes eligible to count this order/shipment (COMMON_MISTAKES #142). */}
+                {(order.returnDeadline ?? order.return_deadline) && (
+                  <div>
+                    <p className="text-muted-foreground mb-1">Return Window</p>
+                    {new Date(order.returnDeadline ?? order.return_deadline) > new Date() ? (
+                      <Badge variant="secondary" className="bg-blue-50 text-blue-700 border-blue-200">
+                        Closes {formatDate(order.returnDeadline ?? order.return_deadline)}
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary" className="bg-slate-100 text-slate-600">
+                        Closed {formatDate(order.returnDeadline ?? order.return_deadline)}
+                      </Badge>
+                    )}
+                  </div>
+                )}
                 {/* Order type — B2B (wholesale) vs retail, plus the tier that priced it. */}
                 <div>
                   <p className="text-muted-foreground mb-1">Order Type</p>
@@ -1238,6 +1286,14 @@ const OrderDetail: React.FC = () => {
         content={updateEmailContent}
         onSubjectChange={setUpdateEmailSubject}
         onContentChange={setUpdateEmailContent}
+      />
+
+      <DeliveryStatusModal
+        isOpen={deliveryModalMode !== null}
+        onClose={() => setDeliveryModalMode(null)}
+        shipments={order.shipments || []}
+        mode={deliveryModalMode ?? 'delivered'}
+        onUpdated={() => { toast({ title: 'Shipment updated', description: 'The order has been refreshed.' }); fetchOrder(); }}
       />
 
       <OrderItemsEditModal

@@ -17,4 +17,5 @@ export { default as PaymentVerificationModal } from './PaymentVerificationModal'
 export { default as RecordCodPaymentModal } from './RecordCodPaymentModal';
 export { default as UpdateEmailModal } from './UpdateEmailModal';
  export { default as OrderAddressEditor } from './OrderAddressEditor';
+export { default as DeliveryStatusModal } from './DeliveryStatusModal';
 

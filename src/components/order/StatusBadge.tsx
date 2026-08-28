@@ -19,6 +19,8 @@ const StatusBadge: React.FC<StatusBadgeProps> = ({ status, type = 'order', class
         return 'bg-indigo-100 text-indigo-800';
       case 'delivered':
         return 'bg-green-100 text-green-800';
+      case 'partially_delivered':
+        return 'bg-amber-100 text-amber-800';
       case 'cancelled':
         return 'bg-red-100 text-red-800';
       case 'returned':
