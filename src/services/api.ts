@@ -1547,6 +1547,8 @@ export const ordersAPI = {
     order_type?: 'retail' | 'b2b';
     limit?: number;
     page?: number;
+    /** Backend pages orders by limit/offset, not page/pageSize — see routes/orders.ts. */
+    offset?: number;
     startDate?: string;
     endDate?: string;
     search?: string;

@@ -27,6 +27,11 @@ const Orders: React.FC = () => {
   // way Customers.tsx does (plain useState + setTimeout), not useListControls.
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  // Same page size as before pagination existed (100) — adding page controls,
+  // not shrinking how many orders staff see per screen.
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const PAGE_SIZE = 100;
   const b2bEnabled = canAccess('b2b');
   const [sendingToShiprocket, setSendingToShiprocket] = useState<string | null>(null);
   const [confirmingOrder, setConfirmingOrder] = useState<string | null>(null);
@@ -48,9 +53,15 @@ const Orders: React.FC = () => {
     return () => clearTimeout(t);
   }, [search]);
 
+  // Any filter/search change starts back at page 1 — otherwise a narrower
+  // result set can leave the page number pointing past the last real page.
+  useEffect(() => {
+    setPage(1);
+  }, [statusFilter, typeFilter, debouncedSearch]);
+
   useEffect(() => {
     fetchOrders();
-  }, [statusFilter, typeFilter, debouncedSearch]);
+  }, [statusFilter, typeFilter, debouncedSearch, page]);
 
   const fetchOrders = async () => {
     try {
@@ -59,8 +70,8 @@ const Orders: React.FC = () => {
       if (statusFilter !== 'all') params.status = statusFilter;
       if (typeFilter !== 'all') params.order_type = typeFilter;
       if (debouncedSearch) params.search = debouncedSearch;
-      const response = await ordersAPI.getAll({ ...params, limit: 100 });
-      
+      const response = await ordersAPI.getAll({ ...params, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE });
+
       let fetchedOrders: any[] = [];
       if (Array.isArray(response)) {
         fetchedOrders = response;
@@ -73,8 +84,13 @@ const Orders: React.FC = () => {
       } else {
         console.warn('Unexpected orders response structure:', response);
       }
-      
+
       setOrders(fetchedOrders);
+      // The axios interceptor unwraps { success, data, total } to the array
+      // itself, with `total` preserved as a non-enumerable property (same
+      // pattern Customers.tsx relies on) — read it off whichever value above
+      // actually held the array.
+      setTotal((response as any)?.total ?? (fetchedOrders as any)?.total ?? fetchedOrders.length);
       setSelectedIds([]);
     } catch (error: any) {
       console.error('Failed to fetch orders:', error);
@@ -169,7 +185,10 @@ const Orders: React.FC = () => {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground">Orders</h1>
-          <p className="text-muted-foreground mt-1 text-sm">Manage and track customer orders, shipments, and statuses.</p>
+          <p className="text-muted-foreground mt-1 text-sm">
+            Manage and track customer orders, shipments, and statuses.
+            {total > 0 && <span className="ml-1.5">Total: <span className="font-semibold text-foreground">{total}</span></span>}
+          </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <Button variant="default" size="sm" className="h-9 bg-green-600 hover:bg-green-700" asChild>
@@ -392,6 +411,25 @@ const Orders: React.FC = () => {
           </div>
         </CardContent>
       </Card>
+
+      {total > PAGE_SIZE && (
+        <div className="flex items-center justify-between">
+          <div className="text-sm text-muted-foreground">
+            Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total} orders
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="text-sm text-muted-foreground mr-1">
+              Page {page} of {Math.max(1, Math.ceil(total / PAGE_SIZE))}
+            </div>
+            <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1 || loading}>
+              Previous
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.min(Math.ceil(total / PAGE_SIZE), p + 1))} disabled={page >= Math.ceil(total / PAGE_SIZE) || loading}>
+              Next
+            </Button>
+          </div>
+        </div>
+      )}
 
       <RecoverPaymentModal
         isOpen={showRecoverPayment}
