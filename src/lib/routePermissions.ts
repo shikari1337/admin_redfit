@@ -143,6 +143,7 @@ export const ROUTE_PERMISSIONS: Record<string, string> = {
   '/settings/order-numbering': 'settings.manage',
   '/settings/invoice': 'settings.manage',
   '/settings/sms-templates': 'settings.manage',
+  '/settings/cart-recovery-automation': 'settings.manage',
   '/settings/modules': 'settings.manage',
   '/settings/store-config': 'settings.manage',
   '/settings/contact': 'settings.manage',

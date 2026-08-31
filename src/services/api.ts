@@ -2743,13 +2743,31 @@ export const cartsAPI = {
     const response = await api.put('/carts/admin/settings', data);
     return response.data?.data ?? response.data;
   },
-  listAdmin: async (params?: { status?: string; search?: string }) => {
+  listAdmin: async (params?: { status?: string; search?: string; includeGuests?: boolean }) => {
     const response = await api.get('/carts/admin', { params });
     return response.data;
   },
-  exportAdmin: async () => {
-    const response = await api.get('/carts/admin/export');
+  exportAdmin: async (params?: { includeGuests?: boolean }) => {
+    const response = await api.get('/carts/admin/export', { params });
     return response.data;
+  },
+  /** The store's Reminder → Persuasion → Discount recovery flow. */
+  getRecoverySteps: async () => {
+    const response = await api.get('/carts/admin/recovery-steps');
+    return response.data?.data ?? response.data;
+  },
+  updateRecoverySteps: async (steps: unknown) => {
+    const response = await api.put('/carts/admin/recovery-steps', { steps });
+    return response.data?.data ?? response.data;
+  },
+  /** This store's own live, APPROVED WhatsApp templates — for the flow's per-step Custom mode. */
+  listWhatsAppTemplates: async () => {
+    const response = await api.get('/carts/admin/whatsapp-templates');
+    return response.data?.data ?? [];
+  },
+  getWhatsAppTemplate: async (id: string) => {
+    const response = await api.get(`/carts/admin/whatsapp-templates/${id}`);
+    return response.data?.data ?? response.data;
   },
   getDetail: async (cartId: string) => {
     const response = await api.get(`/carts/admin/${cartId}`);

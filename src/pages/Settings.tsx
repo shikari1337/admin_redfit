@@ -204,6 +204,12 @@ const settingsSections = [
         path: '/settings/sms-templates',
       },
       {
+        title: 'Cart Recovery Automation',
+        description: 'The Reminder → Persuasion → Discount flow that wins back abandoned carts — timing and message content per step, for WhatsApp, SMS, and Email',
+        icon: RefreshCw,
+        path: '/settings/cart-recovery-automation',
+      },
+      {
         title: 'Contact Submissions',
         description: 'View & reply to messages sent through the storefront contact form (also saved to your Leads CRM). To edit the phone/email/address shown to shoppers, use Store Configuration.',
         icon: Inbox,

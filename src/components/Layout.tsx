@@ -407,6 +407,7 @@ const Layout: React.FC = () => {
             { title: 'Payment & Discount', url: '/settings/payment-discount' },
             { title: 'Payment Gateways',   url: '/settings/payment-gateways' },
             { title: 'SMS / WhatsApp Templates', url: '/settings/sms-templates' },
+            { title: 'Cart Recovery Automation', url: '/settings/cart-recovery-automation' },
             { title: 'GST Display',        url: '/settings/gst' },
             ...(canAccess('gst_tax') && hasPerm('settings.manage') ? [{ title: 'Tax Rules',        url: '/settings/tax-rules' }] : []),
             { title: 'Invoice',            url: '/settings/invoice' },

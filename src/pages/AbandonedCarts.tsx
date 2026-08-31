@@ -44,6 +44,9 @@ const AbandonedCarts: React.FC = () => {
   const [carts, setCarts] = useState<CartRecord[]>([]);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<'abandoned' | 'active' | 'converted'>('abandoned');
+  // Guest carts have no phone/email on file — they can never be contacted, so
+  // they're hidden by default; staff can still opt back in to see them.
+  const [includeGuests, setIncludeGuests] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [cartSettings, setCartSettings] = useState<any>(null);
@@ -53,9 +56,9 @@ const AbandonedCarts: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      console.log('🔍 Fetching carts with params:', { status, search });
-      
-      const data = await cartsAPI.listAdmin({ status, search });
+      console.log('🔍 Fetching carts with params:', { status, search, includeGuests });
+
+      const data = await cartsAPI.listAdmin({ status, search, includeGuests });
       // Backend returns: { success: true, data: carts[] }
       // API interceptor normalizes to: carts[] or { data: carts[] }
       let cartsData: any[] = [];
@@ -84,7 +87,7 @@ const AbandonedCarts: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [status, search]);
+  }, [status, search, includeGuests]);
 
   useEffect(() => {
     fetchCarts();
@@ -127,7 +130,7 @@ const AbandonedCarts: React.FC = () => {
     try {
       setExporting(true);
       setError(null);
-      const rows = await cartsAPI.exportAdmin();
+      const rows = await cartsAPI.exportAdmin({ includeGuests });
       const header = [
         'Cart ID',
         'Type',
@@ -313,6 +316,15 @@ const AbandonedCarts: React.FC = () => {
             </button>
           </div>
         </div>
+        <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer w-fit">
+          <input
+            type="checkbox"
+            checked={includeGuests}
+            onChange={(e) => setIncludeGuests(e.target.checked)}
+            className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+          />
+          Show guest carts (no phone/email on file — can&apos;t be contacted)
+        </label>
       </form>
 
       {showSettings && (
@@ -325,30 +337,23 @@ const AbandonedCarts: React.FC = () => {
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {([
-              { key: 'abandonmentMinutes', label: 'Idle before abandoned', unit: 'minutes', hint: '5 min – 7 days' },
-              { key: 'recoveryDelayHours', label: 'Wait before 1st reminder', unit: 'hours', hint: '0 – 14 days' },
-              { key: 'maxRecoveryAttempts', label: 'Max reminders per cart', unit: 'messages', hint: '0 – 10' },
-              { key: 'recoveryGapHours', label: 'Gap between reminders', unit: 'hours', hint: '1 h – 30 days' },
-            ] as const).map((f) => (
-              <div key={f.key}>
-                <label htmlFor={`cs-${f.key}`} className="block text-xs font-medium text-gray-700">
-                  {f.label}
-                </label>
-                <div className="mt-1 flex items-center gap-2">
-                  <input
-                    id={`cs-${f.key}`}
-                    type="number"
-                    min={0}
-                    value={cartSettings?.[f.key] ?? ''}
-                    onChange={(e) => setCartSettings((s: any) => ({ ...(s ?? {}), [f.key]: e.target.value === '' ? '' : Number(e.target.value) }))}
-                    className="w-24 px-2 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
-                  />
-                  <span className="text-xs text-gray-500">{f.unit}</span>
-                </div>
-                <p className="mt-1 text-[11px] text-gray-400">{f.hint}</p>
+            <div>
+              <label htmlFor="cs-abandonmentMinutes" className="block text-xs font-medium text-gray-700">
+                Idle before abandoned
+              </label>
+              <div className="mt-1 flex items-center gap-2">
+                <input
+                  id="cs-abandonmentMinutes"
+                  type="number"
+                  min={0}
+                  value={cartSettings?.abandonmentMinutes ?? ''}
+                  onChange={(e) => setCartSettings((s: any) => ({ ...(s ?? {}), abandonmentMinutes: e.target.value === '' ? '' : Number(e.target.value) }))}
+                  className="w-24 px-2 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                />
+                <span className="text-xs text-gray-500">minutes</span>
               </div>
-            ))}
+              <p className="mt-1 text-[11px] text-gray-400">5 min – 7 days</p>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -361,6 +366,18 @@ const AbandonedCarts: React.FC = () => {
             <span className="text-xs text-gray-500">
               Values outside the allowed range are clamped by the server.
             </span>
+          </div>
+          <div className="border-t border-gray-100 pt-3">
+            <p className="text-sm text-gray-600">
+              What actually gets sent — the Reminder → Persuasion → Discount flow, timing and
+              message content per channel — now lives in its own settings page.
+            </p>
+            <Link
+              to="/settings/cart-recovery-automation"
+              className="inline-flex items-center mt-2 px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+            >
+              Open Cart Recovery Automation →
+            </Link>
           </div>
         </div>
       )}

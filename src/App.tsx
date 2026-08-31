@@ -31,6 +31,7 @@ import ProductSectionsManager from './pages/ProductSectionsManager';
 import ContactSettings from './pages/ContactSettings';
 import PaymentDiscountSettings from './pages/PaymentDiscountSettings';
 import SmsTemplates from './pages/SmsTemplates';
+import CartRecoveryAutomation from './pages/CartRecoveryAutomation';
 import ApiIntegrationSettings from './pages/ApiIntegrationSettings';
 import PaymentGatewaySettings from './pages/PaymentGatewaySettings';
 import GstSettings from './pages/GstSettings';
@@ -453,6 +454,7 @@ function App() {
           <Route path="settings/payment-discount" element={<PaymentDiscountSettings />} />
           <Route path="settings/payment-gateways" element={<PaymentGatewaySettings />} />
           <Route path="settings/sms-templates" element={<SmsTemplates />} />
+          <Route path="settings/cart-recovery-automation" element={<CartRecoveryAutomation />} />
           <Route path="settings/gst" element={<GstSettings />} />
           <Route path="settings/order-numbering" element={<OrderNumbering />} />
           <Route path="settings/invoice" element={<InvoiceSettings />} />
