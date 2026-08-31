@@ -31,6 +31,7 @@ import {
   MarkAsPaidModal,
   OrderProgressStepper,
 } from '../components/order';
+import type { RazorpayAuditResult } from '../components/order';
 import { PickupModal } from '../components/shipments';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -74,6 +75,9 @@ const STATUS_LABEL: Record<string, string> = {
   return_requested: 'Return requested',
   partially_delivered: 'Partially delivered',
 };
+
+/** Order states past which dispatch-time documents (label/manifest) no longer apply. */
+const ORDER_TERMINAL_STATUSES = ['delivered', 'cancelled', 'returned', 'return_requested'];
 
 const OrderDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -120,6 +124,11 @@ const OrderDetail: React.FC = () => {
   // this system can verify (bank transfer, cash, cheque), distinct from the
   // gateway-specific "Verify Payment" flow above.
   const [showMarkAsPaidModal, setShowMarkAsPaidModal] = useState(false);
+  // Read-only re-check of an already-recorded Razorpay payment against
+  // Razorpay itself (status + amount) — independent of order/payment status,
+  // unlike "Verify Payment" above which only works while still pending.
+  const [auditingRazorpay, setAuditingRazorpay] = useState(false);
+  const [razorpayAuditResult, setRazorpayAuditResult] = useState<RazorpayAuditResult | null>(null);
 
   // Shipment actions state
   const [showPickupModal, setShowPickupModal] = useState(false);
@@ -335,6 +344,24 @@ const OrderDetail: React.FC = () => {
       toast({ variant: "destructive", title: "Verification Failed", description: error.response?.data?.message || 'Failed to verify payment.' });
     } finally {
       setVerifyingPayment(false);
+    }
+  };
+
+  const handleAuditRazorpayPayment = async () => {
+    setAuditingRazorpay(true);
+    try {
+      const res: any = await paymentsAPI.auditRazorpay(id!);
+      const result: RazorpayAuditResult = res?.data ?? res;
+      setRazorpayAuditResult(result);
+      toast(
+        result.verified
+          ? { title: 'Confirmed', description: 'Razorpay confirms this payment: captured, amount matches.' }
+          : { variant: 'destructive', title: 'Mismatch found', description: 'This payment does not match what Razorpay has on record — see details below.' }
+      );
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Check Failed", description: error.response?.data?.message || 'Failed to verify against Razorpay.' });
+    } finally {
+      setAuditingRazorpay(false);
     }
   };
 
@@ -938,6 +965,10 @@ const OrderDetail: React.FC = () => {
                 manualPaymentNotes={order.manualPaymentNotes ?? order.manual_payment_notes}
                 manualPaymentMarkedBy={order.manualPaymentMarkedBy ?? order.manual_payment_marked_by}
                 manualPaymentMarkedAt={order.manualPaymentMarkedAt ?? order.manual_payment_marked_at}
+                legacyNotes={order.notes}
+                onAuditRazorpay={hasPerm('orders.manage') ? handleAuditRazorpayPayment : undefined}
+                auditingRazorpay={auditingRazorpay}
+                razorpayAuditResult={razorpayAuditResult}
               />
             </CardContent>
           </Card>
@@ -1114,7 +1145,11 @@ const OrderDetail: React.FC = () => {
                   </div>
                 )}
                 
-                {/* Shipment Actions */}
+                {/* Shipment Actions — Label/Manifest are dispatch-time documents;
+                    once the order is done (delivered/cancelled/returned) there's
+                    nothing left to print one for. Previously shown on every
+                    status as long as an AWB existed, including on a delivered
+                    order from weeks ago. */}
                 {order.shipmentId && (order.shippingProvider === 'shiprocket' || order.shippingProvider === 'delhivery') && (
                   <div className="pt-4 mt-2 border-t flex flex-wrap gap-2">
                     {order.orderStatus === 'shipped' && order.shippingProvider === 'shiprocket' && !order.shiprocketPickupScheduledDate && (
@@ -1122,12 +1157,12 @@ const OrderDetail: React.FC = () => {
                         Schedule Pickup
                       </Button>
                     )}
-                    {(shiprocketAwb || order.delhiveryWaybill) && (
+                    {(shiprocketAwb || order.delhiveryWaybill) && !ORDER_TERMINAL_STATUSES.includes(order.orderStatus) && (
                       <Button variant="outline" size="sm" className="h-9" onClick={handleDownloadLabel}>
                         Download Label
                       </Button>
                     )}
-                    {((order.shippingProvider === 'shiprocket' && shiprocketAwb) || (order.shippingProvider === 'delhivery' && order.delhiveryWaybill)) && (
+                    {((order.shippingProvider === 'shiprocket' && shiprocketAwb) || (order.shippingProvider === 'delhivery' && order.delhiveryWaybill)) && !ORDER_TERMINAL_STATUSES.includes(order.orderStatus) && (
                       <Button variant="outline" size="sm" className="h-9" onClick={handleDownloadManifest}>
                         Download Manifest
                       </Button>

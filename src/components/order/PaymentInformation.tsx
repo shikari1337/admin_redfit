@@ -1,7 +1,18 @@
 import React from 'react';
-import { FaCreditCard, FaImage, FaCheckCircle, FaClock, FaTimesCircle, FaMoneyCheckAlt } from 'react-icons/fa';
+import { FaCreditCard, FaImage, FaCheckCircle, FaClock, FaTimesCircle, FaMoneyCheckAlt, FaShieldAlt, FaExclamationTriangle } from 'react-icons/fa';
 import StatusBadge from './StatusBadge';
 import { formatDate } from '../../utils/date';
+
+export interface RazorpayAuditResult {
+  verified: boolean;
+  orderIdMatch: boolean;
+  statusOk: boolean;
+  amountOk: boolean;
+  gatewayStatus: string;
+  gatewayAmount: number;
+  orderAmount: number;
+  checkedAt: string;
+}
 
 interface PaymentInformationProps {
   paymentMethod: 'cod' | 'prepaid';
@@ -25,6 +36,16 @@ interface PaymentInformationProps {
   manualPaymentNotes?: string;
   manualPaymentMarkedBy?: string;
   manualPaymentMarkedAt?: string;
+  /** Flat legacy `orders.notes` — the free-text description "Mark as Paid"
+   *  wrote BEFORE migration 137 split it into the structured manualPayment*
+   *  fields above. Shown only as a fallback when none of those are set, so
+   *  older orders aren't left with zero visibility into what was entered. */
+  legacyNotes?: string;
+  /** Re-check an already-recorded Razorpay payment against Razorpay itself
+   *  (status + amount) — omit to hide the button entirely (e.g. no permission). */
+  onAuditRazorpay?: () => void;
+  auditingRazorpay?: boolean;
+  razorpayAuditResult?: RazorpayAuditResult | null;
 }
 
 const MANUAL_METHOD_LABELS: Record<string, string> = {
@@ -52,6 +73,10 @@ const PaymentInformation: React.FC<PaymentInformationProps> = ({
   manualPaymentNotes,
   manualPaymentMarkedBy,
   manualPaymentMarkedAt,
+  legacyNotes,
+  onAuditRazorpay,
+  auditingRazorpay,
+  razorpayAuditResult,
 }) => {
   const hasManualPaymentDetails = !!(manualPaymentMethod || manualPaymentReference || manualPaymentNotes || manualPaymentMarkedAt);
   const getVerificationStatusIcon = (status?: string) => {
@@ -121,6 +146,50 @@ const PaymentInformation: React.FC<PaymentInformationProps> = ({
                   <div>
                     <p className="text-sm text-gray-600">Payment Signature</p>
                     <p className="font-mono text-xs break-all">{razorpaySignature}</p>
+                  </div>
+                )}
+                {razorpayPaymentId && onAuditRazorpay && (
+                  <div className="pt-1">
+                    <button
+                      type="button"
+                      onClick={onAuditRazorpay}
+                      disabled={auditingRazorpay}
+                      className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-blue-700 bg-white border border-blue-300 rounded-md hover:bg-blue-100 disabled:opacity-50"
+                    >
+                      <FaShieldAlt size={12} />
+                      {auditingRazorpay ? 'Checking with Razorpay…' : 'Verify with Razorpay'}
+                    </button>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Re-checks this payment id directly against Razorpay — confirms it's really captured and the
+                      amount matches this order's total, to catch a tampered or mismatched transaction id.
+                    </p>
+                  </div>
+                )}
+                {razorpayAuditResult && (
+                  <div className={`p-3 rounded border text-sm ${
+                    razorpayAuditResult.verified
+                      ? 'bg-green-50 border-green-300 text-green-900'
+                      : 'bg-red-50 border-red-300 text-red-900'
+                  }`}>
+                    <div className="flex items-center gap-2 font-semibold mb-1.5">
+                      {razorpayAuditResult.verified
+                        ? <><FaCheckCircle /> Confirmed with Razorpay</>
+                        : <><FaExclamationTriangle /> Mismatch found — needs review</>}
+                    </div>
+                    <ul className="space-y-0.5 text-xs">
+                      <li>
+                        Status: <span className="font-mono">{razorpayAuditResult.gatewayStatus}</span>
+                        {razorpayAuditResult.statusOk ? ' ✓' : ' — expected "captured"'}
+                      </li>
+                      <li>
+                        Amount: gateway ₹{razorpayAuditResult.gatewayAmount} vs order ₹{razorpayAuditResult.orderAmount}
+                        {razorpayAuditResult.amountOk ? ' ✓' : ' — MISMATCH'}
+                      </li>
+                      <li>
+                        Order link: {razorpayAuditResult.orderIdMatch ? 'matches this order ✓' : 'does NOT match — possible tampering'}
+                      </li>
+                      <li className="text-gray-500">Checked {formatDate(razorpayAuditResult.checkedAt)}</li>
+                    </ul>
                   </div>
                 )}
               </div>
@@ -223,6 +292,20 @@ const PaymentInformation: React.FC<PaymentInformationProps> = ({
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Fallback for orders marked paid BEFORE migration 137 (2026-08-28)
+            introduced the structured manualPayment* columns above — the
+            description/reference for those still exists, just in the flat
+            legacy `notes` column, which was otherwise never shown anywhere. */}
+        {!hasManualPaymentDetails && legacyNotes && (
+          <div className="border-t pt-4">
+            <p className="text-sm text-gray-500 mb-2 flex items-center gap-2">
+              <FaMoneyCheckAlt className="text-gray-400" />
+              Payment Notes
+            </p>
+            <p className="text-sm text-gray-700 bg-gray-50 p-3 rounded border">{legacyNotes}</p>
           </div>
         )}
       </div>

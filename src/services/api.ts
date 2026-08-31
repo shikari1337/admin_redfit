@@ -1614,6 +1614,12 @@ export const paymentsAPI = {
     const response = await api.post('/payments/razorpay/verify-admin', { orderId, paymentId });
     return response.data;
   },
+  // Read-only re-check of an already-recorded Razorpay payment (status + amount)
+  // straight from Razorpay — for orders in ANY payment_status, not just pending.
+  auditRazorpay: async (orderId: string) => {
+    const response = await api.post('/payments/razorpay/audit', { orderId });
+    return response.data;
+  },
   verifyUPI: async (orderId: string, upiPaymentId: string, notes?: string) => {
     const response = await api.post('/payments/upi/verify', { orderId, upiPaymentId, notes });
     return response.data;

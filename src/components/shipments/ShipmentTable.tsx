@@ -72,6 +72,15 @@ interface ShipmentTableProps {
   onViewDetails?: (shipmentId: string) => void;
 }
 
+/**
+ * Board statuses past which a shipment is DONE — no further dispatch action
+ * makes sense (mirrors the backend's own TERMINAL_SHIPMENT_STATUSES in
+ * shipmentStatus.ts). Two different inline copies of a near-identical list
+ * used to drift (one included 'returned', the other didn't) — one constant,
+ * used everywhere a "is this shipment still actionable" check is needed.
+ */
+const TERMINAL_STATUSES = ['delivered', 'cancelled', 'returned', 'rto_delivered', 'rto_failed'];
+
 const ShipmentTable: React.FC<ShipmentTableProps> = ({
   shipments,
   activeTab,
@@ -137,7 +146,7 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
   // Allow selection on non-terminal tabs for bulk actions
   const showCheckboxes = ['ready_to_pick', 'pickup_scheduled', 'in_transit'].includes(activeTab);
   const selectableShipments = shipments.filter(
-    s => !['delivered', 'cancelled', 'rto_delivered', 'rto_failed'].includes(s.status) && s.shippingProvider !== 'manual'
+    s => !TERMINAL_STATUSES.includes(s.status) && s.shippingProvider !== 'manual'
   );
 
   return (
@@ -180,7 +189,7 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
               <TableRow key={shipment._id}>
                 <TableCell className="font-medium">
                   <div className="flex items-center gap-2">
-                    {showCheckboxes && shipment.shippingProvider !== 'manual' && !['delivered', 'cancelled', 'rto_delivered', 'rto_failed'].includes(shipment.status) && (
+                    {showCheckboxes && shipment.shippingProvider !== 'manual' && !TERMINAL_STATUSES.includes(shipment.status) && (
                       <Checkbox
                         checked={selectedShipments.includes(shipment._id)}
                         onCheckedChange={(checked: boolean | "indeterminate") => onSelectShipment(shipment._id, checked as boolean)}
@@ -283,8 +292,11 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
                         <Calendar className="h-4 w-4" />
                       </Button>
                     )}
-                    {/* Download Label — page size picker (4R thermal / A4) */}
-                    {(shipment.providerData?.shiprocketAWB || shipment.providerData?.delhiveryWaybill) && onDownloadLabel && (
+                    {/* Download Label — page size picker (4R thermal / A4).
+                        Needs an AWB to exist AND the shipment to still be
+                        in flight — once delivered/cancelled/returned/RTO'd
+                        there's nothing left to print a shipping label for. */}
+                    {(shipment.providerData?.shiprocketAWB || shipment.providerData?.delhiveryWaybill) && !TERMINAL_STATUSES.includes(shipment.status) && onDownloadLabel && (
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button
@@ -306,8 +318,9 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
                         </DropdownMenuContent>
                       </DropdownMenu>
                     )}
-                    {/* Download Manifest Button */}
-                    {(shipment.providerData?.shiprocketAWB || shipment.providerData?.delhiveryWaybill) && onDownloadManifest && (
+                    {/* Download Manifest — a pickup-handover document; same
+                        logic as the label, not needed once the shipment is done. */}
+                    {(shipment.providerData?.shiprocketAWB || shipment.providerData?.delhiveryWaybill) && !TERMINAL_STATUSES.includes(shipment.status) && onDownloadManifest && (
                       <Button
                         variant="ghost"
                         size="icon"
@@ -318,8 +331,10 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
                         <ClipboardList className="h-4 w-4" />
                       </Button>
                     )}
-                    {/* Download Pickup Receipt Button */}
-                    {shipment.pickup?.pickupId && onDownloadPickupReceipt && (
+                    {/* Download Pickup Receipt — only meaningful while the
+                        shipment is still active; a delivered/RTO'd/cancelled
+                        parcel has nothing left to hand over at pickup. */}
+                    {shipment.pickup?.pickupId && !TERMINAL_STATUSES.includes(shipment.status) && onDownloadPickupReceipt && (
                       <Button
                         variant="ghost"
                         size="icon"
@@ -371,7 +386,7 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
                         <Undo2 className="h-4 w-4" />
                       </Button>
                     )}
-                    {!['delivered', 'cancelled', 'returned', 'rto_delivered', 'rto_failed'].includes(shipment.status) && (
+                    {!TERMINAL_STATUSES.includes(shipment.status) && (
                       <div className="w-[140px]">
                         <Select
                           onValueChange={(value) => value && onUpdateStatus(shipment._id, value)}

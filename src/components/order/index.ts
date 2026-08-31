@@ -5,6 +5,7 @@ export { default as OrderSummary } from './OrderSummary';
 export { default as OrderStatusHistory } from './OrderStatusHistory';
 export { default as ShippingInformation } from './ShippingInformation';
 export { default as PaymentInformation } from './PaymentInformation';
+export type { RazorpayAuditResult } from './PaymentInformation';
 export { default as OrderNotes } from './OrderNotes';
 export { default as OrderBillingCard } from './OrderBillingCard';
 export { default as DiscountBreakdown } from './DiscountBreakdown';
