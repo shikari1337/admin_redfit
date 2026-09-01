@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { FaTrash, FaCog, FaChevronDown, FaChevronRight, FaCheck, FaTimes, FaMagic, FaExternalLinkAlt } from 'react-icons/fa';
+import { FaTrash, FaCog, FaChevronDown, FaChevronRight, FaCheck, FaTimes, FaMagic, FaExternalLinkAlt, FaPlus } from 'react-icons/fa';
 import { attributesAPI, attributeValuesAPI, uploadAPI, categoriesAPI } from '../../services/api';
 import type { AttributeOption, AttributeValueOption, ProductVariation } from '../../types/productForm';
 import ProductImageUpload from './ProductImageUpload';
@@ -25,6 +25,19 @@ const isBrandAttributeKey = (key: string) =>
   ['brand', 'brands'].includes((key || '').toLowerCase().trim());
 const isBrandAttribute = (a: AttributeOption) =>
   isBrandAttributeKey(a.slug || a.name || '');
+
+// Dedup key for a variation's attribute+brand combination — ORDER-INSENSITIVE
+// and ignoring legacy brand-named attribute-map entries. Shared by the bulk
+// generator (which must not duplicate an existing row) and the single-variant
+// add flow below (which must not silently create a duplicate combo).
+const variationKey = (attrs: Record<string, string>, brandId?: string) => {
+  const parts = Object.keys(attrs || {})
+    .filter(k => !isBrandAttributeKey(k))
+    .sort()
+    .map(k => `${k.toLowerCase().trim()}=${String(attrs[k]).toLowerCase().trim()}`);
+  parts.push(`__brand=${brandId || ''}`);
+  return parts.join('|');
+};
 
 interface ProductAttributeVariationsProps {
   selectedAttributeIds: string[];
@@ -106,6 +119,17 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
   // Variation table: text filter + client-side pagination.
   const [variationFilter, setVariationFilter] = useState('');
   const [variationPage, setVariationPage] = useState(1);
+
+  // ── Add ONE variant manually — append a single row without touching any
+  // other existing row. "Generate" always recomputes the FULL cross-product of
+  // every ticked value, so adding one new combination the normal way risked
+  // dropping rows whose combination fell outside whatever was currently ticked
+  // (or duplicating rows if the tick-set didn't match what was already
+  // generated). This is a plain additive insert instead. ────────────────────
+  const [showAddVariant, setShowAddVariant] = useState(false);
+  const [newVariantValueIds, setNewVariantValueIds] = useState<Record<string, string>>({}); // attrId -> valueId
+  const [newVariantBrandId, setNewVariantBrandId] = useState<string>('');
+  const [addVariantError, setAddVariantError] = useState<string | null>(null);
 
   // Categories for the per-variation picker.
   useEffect(() => {
@@ -224,18 +248,9 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
       ? selectedBrandIds.map(id => ({ id, name: availableBrands.find(b => b._id === id)?.name || '' }))
       : [{ id: undefined as string | undefined, name: '' }];
 
-    // Dedup key includes brand so the same attributes under two brands are distinct.
-    // Key is ORDER-INSENSITIVE and ignores legacy `brand`/`brands` attribute-map
-    // entries (generation no longer emits them; existing rows that carry one plus
-    // a brandId must still match their brand-free regenerated combo and survive).
-    const variationKey = (attrs: Record<string, string>, brandId?: string) => {
-      const parts = Object.keys(attrs || {})
-        .filter(k => !isBrandAttributeKey(k))
-        .sort()
-        .map(k => `${k.toLowerCase().trim()}=${String(attrs[k]).toLowerCase().trim()}`);
-      parts.push(`__brand=${brandId || ''}`);
-      return parts.join('|');
-    };
+    // Dedup key includes brand so the same attributes under two brands are distinct
+    // (existing rows that carry a legacy brand-named attribute plus a brandId must
+    // still match their brand-free regenerated combo and survive).
     const existingVariationsMap = new Map(
       variations.map(v => [variationKey(v.attributes, v.brandId), v])
     );
@@ -274,6 +289,114 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
     }
 
     onVariationsChange(newVariations);
+  };
+
+  // The attribute axes that currently define this product's variant "shape" —
+  // preferring what existing rows actually carry (so the shape stays
+  // consistent even if the tick-set above has since changed), falling back to
+  // the ticked attributes when there are no variations yet to infer from.
+  const axisAttrs: AttributeOption[] = (() => {
+    const keysFromExisting = new Set<string>();
+    for (const v of variations) {
+      for (const k of Object.keys(v.attributes || {})) {
+        if (!isBrandAttributeKey(k)) keysFromExisting.add(k.toLowerCase());
+      }
+    }
+    if (keysFromExisting.size > 0) {
+      return availableAttributes.filter(a => keysFromExisting.has((a.slug || '').toLowerCase()));
+    }
+    return availableAttributes.filter(a =>
+      selectedAttributeIds.includes(a._id) && !(availableBrands.length > 0 && isBrandAttribute(a)));
+  })();
+  const brandIsAxis = hasSelectedBrands || variations.some(v => !!v.brandId);
+  const canAddVariant = axisAttrs.length > 0 || brandIsAxis;
+
+  const openAddVariant = () => {
+    const defaults: Record<string, string> = {};
+    for (const attr of axisAttrs) {
+      const vals = attributeValuesMap[attr._id] || [];
+      if (vals[0]) defaults[attr._id] = vals[0]._id;
+    }
+    setNewVariantValueIds(defaults);
+    setNewVariantBrandId(brandIsAxis ? (selectedBrandIds[0] || availableBrands[0]?._id || '') : '');
+    setAddVariantError(null);
+    setShowAddVariant(true);
+  };
+
+  // Resolve a stored variation attribute value (which for older/imported rows
+  // can be the raw display value, e.g. "30 ML", rather than a slug) back to
+  // its catalogue value id — so the duplicate check below compares the same
+  // semantic value regardless of which format a given row happens to use.
+  // Falls back to the normalized raw string when no catalogue match exists
+  // (a custom/local value never round-tripped through the catalogue).
+  const resolveAttrValueId = (attrSlugKey: string, storedValue: string): string => {
+    const attr = availableAttributes.find(a => (a.slug || '').toLowerCase() === attrSlugKey.toLowerCase());
+    const norm = String(storedValue).toLowerCase().trim();
+    if (!attr) return norm;
+    const match = (attributeValuesMap[attr._id] || []).find(v =>
+      (v.name || '').toLowerCase().trim() === norm || (v.slug || '').toLowerCase().trim() === norm);
+    return match?._id || norm;
+  };
+  const normalizeAttrsForKey = (rawAttrs: Record<string, string>): Record<string, string> => {
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(rawAttrs || {})) {
+      if (isBrandAttributeKey(k)) continue;
+      out[k] = resolveAttrValueId(k, v);
+    }
+    return out;
+  };
+
+  // Appends exactly ONE new variation — never regenerates or touches any
+  // existing row (unlike Generate, which recomputes the full cross-product).
+  const handleAddSingleVariant = () => {
+    const attrs: Record<string, string> = {};
+    for (const attr of axisAttrs) {
+      const value = (attributeValuesMap[attr._id] || []).find(v => v._id === newVariantValueIds[attr._id]);
+      if (!value) { setAddVariantError(`Pick a value for ${attr.name}.`); return; }
+      const slug = value.slug?.toLowerCase().trim() || value.name?.toLowerCase().trim().replace(/\s+/g, '-');
+      if (slug) attrs[attr.slug.toLowerCase()] = slug;
+    }
+    const brand = brandIsAxis && newVariantBrandId ? availableBrands.find(b => b._id === newVariantBrandId) : undefined;
+
+    const key = variationKey(normalizeAttrsForKey(attrs), brand?._id);
+    const dup = variations.find(v => variationKey(normalizeAttrsForKey(v.attributes), v.brandId) === key);
+    if (dup) {
+      setAddVariantError(`That exact combination already exists (SKU: ${dup.sku}).`);
+      return;
+    }
+
+    const attrNames = axisAttrs.map(attr => {
+      const value = (attributeValuesMap[attr._id] || []).find(v => v._id === newVariantValueIds[attr._id]);
+      return value?.slug?.toUpperCase() || value?.name?.toUpperCase() || 'UNK';
+    }).join('-').slice(0, 20);
+    const brandCode = brand?.name ? brand.name.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) + '-' : '';
+    const sku = `${baseSku}-${brandCode}${attrNames}`.toUpperCase().slice(0, 48);
+
+    // The parent fallback price is commonly 0/blank on a variable product (each
+    // variant prices itself) — defaulting to it would hand back a price-less
+    // active variant that fails validation on save. An existing sibling's own
+    // price is a far more useful starting point; 0 only when there is none.
+    const priceFallback = variations.find(v => Number(v.price) > 0);
+    const defaultPrice = basePrice > 0 ? basePrice : (priceFallback?.price ?? 0);
+    const defaultOriginalPrice = baseOriginalPrice > 0 ? baseOriginalPrice : (priceFallback?.originalPrice ?? 0);
+
+    const newVariation: ProductVariation = {
+      id: `var-${Date.now()}-add`,
+      attributes: attrs,
+      brandId: brand?._id,
+      brandName: brand?.name || undefined,
+      price: defaultPrice,
+      originalPrice: defaultOriginalPrice,
+      stock: 0,
+      sku,
+      images: [],
+      isActive: true,
+    };
+
+    onVariationsChange([...variations, newVariation]);
+    setShowAddVariant(false);
+    setAddVariantError(null);
+    setEditingVariationId(newVariation.id); // straight into quick-edit for price/stock
   };
 
   // Clear variations when neither attributes nor brands are selected (brand is
@@ -1021,6 +1144,91 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
             </div>
           );
         })()}
+
+        {/* Add ONE variant manually — appends a single row without touching any
+            other existing row (unlike Generate, which recomputes the whole
+            cross-product and can drop or duplicate rows outside the current
+            tick-set). Available whenever the product has at least one axis
+            (an existing variant's shape, or ticked attributes/brand). */}
+        {canAddVariant && (
+          <div className="border-t border-dashed border-gray-200 pt-4">
+            {!showAddVariant ? (
+              <button
+                type="button"
+                onClick={openAddVariant}
+                className="px-4 py-2 text-xs font-semibold rounded-lg border border-blue-300 text-blue-600 bg-white hover:bg-blue-50 transition-colors flex items-center gap-2"
+              >
+                <FaPlus size={11} />
+                Add single variant
+              </button>
+            ) : (
+              <div className="border border-blue-200 bg-blue-50/40 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-xs font-semibold text-gray-900 uppercase tracking-wide">
+                    Add one variant
+                  </h4>
+                  <button type="button" onClick={() => setShowAddVariant(false)} className="text-gray-400 hover:text-gray-600">
+                    <FaTimes size={13} />
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mb-3">
+                  Pick the exact combination for this ONE new pack — every other existing variant stays untouched.
+                </p>
+                <div className="flex flex-wrap gap-3 mb-3">
+                  {brandIsAxis && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Brand</label>
+                      <select
+                        value={newVariantBrandId}
+                        onChange={e => setNewVariantBrandId(e.target.value)}
+                        className="px-2.5 py-1.5 text-xs border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 min-w-[10rem]"
+                      >
+                        <option value="">— No brand —</option>
+                        {[...availableBrands].sort((a, b) => a.name.localeCompare(b.name)).map(b => (
+                          <option key={b._id} value={b._id}>{b.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  {axisAttrs.map(attr => (
+                    <div key={attr._id}>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">{attr.name}</label>
+                      <select
+                        value={newVariantValueIds[attr._id] || ''}
+                        onChange={e => setNewVariantValueIds(prev => ({ ...prev, [attr._id]: e.target.value }))}
+                        className="px-2.5 py-1.5 text-xs border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 min-w-[10rem]"
+                      >
+                        {(attributeValuesMap[attr._id] || []).length === 0 && <option value="">No values yet</option>}
+                        {[...(attributeValuesMap[attr._id] || [])].sort((a, b) => a.name.localeCompare(b.name)).map(v => (
+                          <option key={v._id} value={v._id}>{v.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+                {addVariantError && (
+                  <p className="text-xs text-red-600 mb-3">{addVariantError}</p>
+                )}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleAddSingleVariant}
+                    className="px-4 py-2 text-xs font-semibold bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                  >
+                    Add variant
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setShowAddVariant(false); setAddVariantError(null); }}
+                    className="px-4 py-2 text-xs font-medium border border-gray-300 text-gray-600 rounded-md bg-white hover:bg-gray-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* First-run guidance — a new variable product starts here. */}
         {variations.length === 0 && selectedAttributeIds.length === 0 && selectedBrandIds.length === 0 && (

@@ -477,12 +477,22 @@ const ProductForm: React.FC = () => {
       if (nAttr && nVal && nVal !== '[object object]') normalizedAttrs[nAttr] = nVal;
     }
     const brandId = v.brandId || v.primary_brand_id || v.primaryBrandId || undefined;
+    // A freshly-loaded variation only ever carries `selling_price`/`mrp` (the
+    // real DB columns) — never a literal `.price`/`.originalPrice`, which only
+    // exist once something in this form has explicitly set them. Without this
+    // fallback every untouched variant read back as price-less, so
+    // validateForm's "active variant has no price" check fired on EVERY
+    // variation-type product the merchant hadn't just re-typed a price into.
+    const price = v.price != null ? v.price : Number(v.sellingPrice ?? v.selling_price ?? 0) || undefined;
+    const originalPrice = v.originalPrice != null ? v.originalPrice : Number(v.mrp ?? 0) || undefined;
     return {
       ...v,
       id: v.id || `var-${Date.now()}-${idx}`,
       attributes: normalizedAttrs,
       brandId,
       brandName: v.brandName || v.brand_name || undefined,
+      price,
+      originalPrice,
     };
   });
 

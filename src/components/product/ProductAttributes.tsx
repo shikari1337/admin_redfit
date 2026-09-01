@@ -45,6 +45,17 @@ const ProductAttributes: React.FC<ProductAttributesProps> = ({
     loadAttributes();
   }, []);
 
+  // Pre-expand attributes that already have selected values (edit mode) so a
+  // saved selection is actually visible on load, not just a "(N selected)"
+  // badge on a collapsed row the merchant has no reason to click open.
+  useEffect(() => {
+    if (selectedAttributeIds.length && availableAttributes.length) {
+      const withValues = selectedAttributeIds.filter(id => (selectedAttributeValues[id] || []).length > 0);
+      if (withValues.length) setExpandedAttributes(prev => new Set([...prev, ...withValues]));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availableAttributes.length]);
+
   const loadAttributes = async () => {
     try {
       setLoadingAttributes(true);
@@ -86,13 +97,19 @@ const ProductAttributes: React.FC<ProductAttributesProps> = ({
   };
 
   const handleAttributeToggle = (attributeId: string) => {
-    const newIds = selectedAttributeIds.includes(attributeId)
-      ? selectedAttributeIds.filter(id => id !== attributeId)
-      : [...selectedAttributeIds, attributeId];
+    const selecting = !selectedAttributeIds.includes(attributeId);
+    const newIds = selecting
+      ? [...selectedAttributeIds, attributeId]
+      : selectedAttributeIds.filter(id => id !== attributeId);
     onAttributeIdsChange(newIds);
-    
-    // Clear values when attribute is deselected
-    if (!newIds.includes(attributeId) && onAttributeValuesChange) {
+
+    if (selecting) {
+      // Auto-expand so the value picker is visible immediately — ticking the
+      // checkbox alone silently saved an attribute with NO values chosen
+      // unless the merchant separately found and clicked the collapse chevron.
+      setExpandedAttributes(prev => new Set([...prev, attributeId]));
+    } else if (onAttributeValuesChange) {
+      // Clear values when attribute is deselected
       const newValues = { ...selectedAttributeValues };
       delete newValues[attributeId];
       onAttributeValuesChange(newValues);
