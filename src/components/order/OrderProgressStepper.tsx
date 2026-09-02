@@ -47,8 +47,8 @@ const CIRCLE_CLASS: Record<StepState, string> = {
 const OrderProgressStepper: React.FC<OrderProgressStepperProps> = ({ orderStatus, paymentStatus, paymentMethod }) => {
   if (orderStatus === 'cancelled') {
     return (
-      <Card className="shadow-sm border-red-200 bg-red-50/60 mb-2">
-        <CardContent className="py-3 px-4 flex items-center gap-2 text-sm text-red-700">
+      <Card className="shadow-sm border-red-200 bg-red-50/60">
+        <CardContent className="py-2.5 px-4 flex items-center gap-2 text-sm text-red-700">
           <FaTimes className="h-4 w-4 shrink-0" />
           <span className="font-medium">This order was cancelled.</span>
         </CardContent>
@@ -83,16 +83,16 @@ const OrderProgressStepper: React.FC<OrderProgressStepperProps> = ({ orderStatus
   const isReturned = orderStatus === 'returned';
 
   return (
-    <Card className="shadow-sm mb-2">
-      <CardContent className="pt-5 pb-4 px-6">
+    <Card className="shadow-sm">
+      <CardContent className="pt-3 pb-3 px-4">
         {isOnHold && (
-          <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 mb-4">
+          <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 mb-3">
             <FaPause className="h-3.5 w-3.5 shrink-0" />
             <span className="font-medium">This order is on hold — progress is paused.</span>
           </div>
         )}
         {(isReturnRequested || isReturned) && (
-          <div className="flex items-center gap-2 rounded-md border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-800 mb-4">
+          <div className="flex items-center gap-2 rounded-md border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-800 mb-3">
             <FaUndo className="h-3.5 w-3.5 shrink-0" />
             <span className="font-medium">
               {isReturnRequested ? 'A return has been requested for this order.' : 'This order was returned.'}

@@ -26,10 +26,10 @@ interface OrderStatusHistoryProps {
 
 const OrderStatusHistory: React.FC<OrderStatusHistoryProps> = ({ statusHistory }) => {
   return (
-    <div className="bg-white rounded-lg shadow p-6">
-      <h2 className="text-xl font-bold mb-4">Status History</h2>
+    <div className="bg-white rounded-lg shadow p-4">
+      <h2 className="text-base font-bold mb-2.5">Status History</h2>
       {statusHistory && statusHistory.length > 0 ? (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {statusHistory
             .slice()
             // Newest first, ordering by whichever date field the entry carries.
@@ -43,7 +43,7 @@ const OrderStatusHistory: React.FC<OrderStatusHistoryProps> = ({ statusHistory }
                 ? entry.changedBy
                 : entry.changedBy?.name || entry.changedBy?.email) || entry.changed_by;
               return (
-                <div key={index} className="border-l-4 border-red-500 pl-4 pb-3">
+                <div key={index} className="border-l-4 border-red-500 pl-3 pb-2">
                   <div className="flex items-center justify-between">
                     <StatusBadge status={entry.status} type="order" />
                     <span className="text-xs text-gray-500">

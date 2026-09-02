@@ -79,7 +79,7 @@ const ProductRow: React.FC<{ id: string; name: string; sku?: string; sub: React.
  * has no `marketing.read`, so that section simply never fires a doomed request.
  */
 const Dashboard: React.FC = () => {
-  const { range, preset, setPreset, custom, setCustom } = useDateRange('30d', DASHBOARD_PRESETS);
+  const { range, preset, setPreset, custom, setCustom } = useDateRange('today', DASHBOARD_PRESETS);
   const { hasPerm, canAccess, modulesLoaded } = useAuth();
 
   const { data, loading, error } = usePanelStats<any>('commerce', range);

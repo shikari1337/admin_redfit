@@ -42,10 +42,10 @@ const OrderJourneyCard: React.FC<Props> = ({ attribution }) => {
   const a = attribution;
   return (
     <Card className="shadow-sm">
-      <CardHeader className="pb-3 border-b">
-        <CardTitle className="text-xl">Marketing &amp; Journey</CardTitle>
+      <CardHeader className="px-4 py-2.5 border-b">
+        <CardTitle className="text-base">Marketing &amp; Journey</CardTitle>
       </CardHeader>
-      <CardContent className="pt-4 space-y-3">
+      <CardContent className="p-4 space-y-2.5">
         {!a ? (
           <p className="text-sm text-muted-foreground">
             No attribution captured for this order — it was placed before journey

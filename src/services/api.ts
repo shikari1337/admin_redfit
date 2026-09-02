@@ -2807,6 +2807,12 @@ export const cartsAPI = {
     const response = await api.delete(`/carts/admin/${cartId}/discount`);
     return response.data;
   },
+  /** Toggle a shipping/COD waiver on an abandoned cart's estimated charges —
+   *  honored at the real checkout, not just shown in the admin. */
+  updateCharges: async (cartId: string, body: { shippingWaived?: boolean; codWaived?: boolean }) => {
+    const response = await api.put(`/carts/admin/${cartId}/charges`, body);
+    return response.data;
+  },
 };
 
 // Cross-store customer journey/behaviour (public.customer_activity, store-scoped

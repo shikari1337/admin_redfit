@@ -52,14 +52,14 @@ const ShippingInformation: React.FC<ShippingInformationProps> = ({
   const warehouse = typeof warehouseId === 'object' ? warehouseId : null;
 
   return (
-    <>
+    <div className="space-y-3">
       {/* Shipping Address */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="text-xl font-bold">Shipping Address</h2>
+      <div className="bg-white rounded-lg shadow p-4">
+        <div className="mb-2.5 flex items-center justify-between gap-3">
+          <h2 className="text-base font-bold">Shipping Address</h2>
           {headerAction}
         </div>
-        <div className="space-y-2 text-gray-700">
+        <div className="space-y-1.5 text-gray-700 text-sm">
           <p className="font-medium">{shippingAddress.fullName}</p>
           <p>{shippingAddress.address}</p>
           {shippingAddress.addressLine2 && (
@@ -89,18 +89,18 @@ const ShippingInformation: React.FC<ShippingInformationProps> = ({
 
       {/* Warehouse Information */}
       {(warehouse || gst?.storeId) && (
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+        <div className="bg-white rounded-lg shadow p-4">
+          <h2 className="text-base font-bold mb-2.5 flex items-center gap-2">
             <FaWarehouse />
             Warehouse / Invoice Information
           </h2>
-          <div className="space-y-3">
+          <div className="space-y-2 text-sm">
             {warehouse && (
               <div>
-                <p className="text-sm text-gray-500">Warehouse (Fulfillment)</p>
+                <p className="text-gray-500">Warehouse (Fulfillment)</p>
                 <p className="font-medium">{warehouse.name || 'N/A'}</p>
                 {warehouse.address && (
-                  <div className="text-sm text-gray-600 mt-1">
+                  <div className="text-gray-600 mt-0.5">
                     <p>{warehouse.address.line1}</p>
                     {warehouse.address.line2 && (
                       <p>{warehouse.address.line2}</p>
@@ -109,28 +109,28 @@ const ShippingInformation: React.FC<ShippingInformationProps> = ({
                       {warehouse.address.city}, {warehouse.address.state} - {warehouse.address.pincode}
                     </p>
                     {warehouse.gstin && (
-                      <p className="mt-1 font-semibold">GSTIN: {warehouse.gstin}</p>
+                      <p className="mt-0.5 font-semibold">GSTIN: {warehouse.gstin}</p>
                     )}
                   </div>
                 )}
               </div>
             )}
             {gst && gst.storeId && (
-              <div className="border-t pt-3">
-                <p className="text-sm text-gray-500">GST Store (Invoice)</p>
+              <div className="border-t pt-2">
+                <p className="text-gray-500">GST Store (Invoice)</p>
                 <p className="font-medium">{gst.storeName || 'N/A'}</p>
                 {gst.storeGstin && (
-                  <p className="text-sm text-gray-600 mt-1">GSTIN: {gst.storeGstin}</p>
+                  <p className="text-gray-600 mt-0.5">GSTIN: {gst.storeGstin}</p>
                 )}
                 {gst.storeState && (
-                  <p className="text-sm text-gray-600">State: {gst.storeState}</p>
+                  <p className="text-gray-600">State: {gst.storeState}</p>
                 )}
               </div>
             )}
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 };
 

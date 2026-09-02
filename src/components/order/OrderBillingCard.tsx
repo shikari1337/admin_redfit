@@ -114,12 +114,12 @@ const OrderBillingCard: React.FC<Props> = ({
 
   return (
     <Card className="shadow-sm">
-      <CardHeader className="pb-3 border-b">
-        <CardTitle className="text-xl flex items-center gap-2">
+      <CardHeader className="px-4 py-2.5 border-b">
+        <CardTitle className="text-base flex items-center gap-2">
           <FaFileInvoice className="h-4 w-4 text-muted-foreground" /> Billing details
         </CardTitle>
       </CardHeader>
-      <CardContent className="pt-4 space-y-5">
+      <CardContent className="p-4 space-y-3">
 
         {/* ── Invoice number + salesperson ── */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -155,7 +155,7 @@ const OrderBillingCard: React.FC<Props> = ({
         )}
 
         {/* ── Uploaded invoice PDF ── */}
-        <div className="border-t pt-4">
+        <div className="border-t pt-3">
           <p className="text-[13px] font-medium">Invoice document</p>
           <p className="text-xs text-muted-foreground mt-0.5">
             Upload your own PDF and it replaces the generated invoice everywhere — this page,

@@ -106,13 +106,13 @@ const PaymentInformation: React.FC<PaymentInformationProps> = ({
   };
 
   return (
-    <div className="bg-white rounded-lg shadow p-6">
-      <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+    <div className="bg-white rounded-lg shadow p-4">
+      <h2 className="text-base font-bold mb-2.5 flex items-center gap-2">
         <FaCreditCard />
         Payment Information
       </h2>
-      <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
           <div>
             <p className="text-sm text-gray-500">Payment Method</p>
             <p className="font-medium">
@@ -126,14 +126,14 @@ const PaymentInformation: React.FC<PaymentInformationProps> = ({
         </div>
 
         {paymentGateway && (
-          <div className="border-t pt-4">
-            <p className="text-sm text-gray-500 mb-2">Payment Gateway</p>
-            <p className="font-semibold text-lg mb-4">
+          <div className="border-t pt-3">
+            <p className="text-sm text-gray-500 mb-1.5">Payment Gateway</p>
+            <p className="font-semibold text-base mb-2.5">
               {paymentGateway === 'razorpay' ? 'Razorpay' : paymentGateway === 'upi' ? 'UPI' : 'Manual'}
             </p>
 
             {paymentGateway === 'razorpay' && (
-              <div className="space-y-3 bg-blue-50 p-4 rounded">
+              <div className="space-y-2 bg-blue-50 p-3 rounded">
                 <div>
                   <p className="text-sm text-gray-600">Razorpay Order ID</p>
                   <p className="font-mono text-sm">{razorpayOrderId || 'N/A'}</p>
@@ -196,7 +196,7 @@ const PaymentInformation: React.FC<PaymentInformationProps> = ({
             )}
 
             {paymentGateway === 'upi' && (
-              <div className="space-y-3 bg-purple-50 p-4 rounded">
+              <div className="space-y-2 bg-purple-50 p-3 rounded">
                 <div>
                   <p className="text-sm text-gray-600">UPI Transaction ID</p>
                   <p className="font-mono text-sm">{upiPaymentId || 'Not provided'}</p>
@@ -260,12 +260,12 @@ const PaymentInformation: React.FC<PaymentInformationProps> = ({
             shows whenever the record exists rather than only when
             paymentGateway === 'manual'. */}
         {hasManualPaymentDetails && (
-          <div className="border-t pt-4">
+          <div className="border-t pt-3">
             <p className="text-sm text-gray-500 mb-2 flex items-center gap-2">
               <FaMoneyCheckAlt className="text-emerald-600" />
               Marked Paid Manually
             </p>
-            <div className="space-y-3 bg-emerald-50 p-4 rounded">
+            <div className="space-y-2 bg-emerald-50 p-3 rounded">
               <div>
                 <p className="text-sm text-gray-600">How it was paid</p>
                 <p className="font-medium text-sm">
@@ -300,7 +300,7 @@ const PaymentInformation: React.FC<PaymentInformationProps> = ({
             description/reference for those still exists, just in the flat
             legacy `notes` column, which was otherwise never shown anywhere. */}
         {!hasManualPaymentDetails && legacyNotes && (
-          <div className="border-t pt-4">
+          <div className="border-t pt-3">
             <p className="text-sm text-gray-500 mb-2 flex items-center gap-2">
               <FaMoneyCheckAlt className="text-gray-400" />
               Payment Notes

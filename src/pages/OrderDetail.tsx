@@ -677,13 +677,13 @@ const OrderDetail: React.FC = () => {
   const actionableShipments = (order.shipments || []).filter((s: any) => !TERMINAL_SHIPMENT.has(s.status));
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
-      <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 mb-8">
+    <div className="max-w-7xl mx-auto space-y-4">
+      <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3 mb-1">
         <div>
-          <Button variant="ghost" className="mb-2 -ml-3 text-muted-foreground" onClick={() => navigate('/orders')}>
+          <Button variant="ghost" size="sm" className="mb-1 -ml-3 text-muted-foreground" onClick={() => navigate('/orders')}>
             <FaArrowLeft className="mr-2 h-3.5 w-3.5" /> Back to Orders
           </Button>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">Order #{order.orderId}</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Order #{order.orderId}</h1>
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
@@ -856,8 +856,8 @@ const OrderDetail: React.FC = () => {
         paymentMethod={order.paymentMethod}
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2 space-y-4">
           <div className="relative">
             <OrderItems
               items={order.items || []}
@@ -877,7 +877,7 @@ const OrderDetail: React.FC = () => {
               check the order and pay online (works for COD before dispatch too). */}
           {payLink && (
             <Card className="shadow-sm border-emerald-200 bg-emerald-50/40">
-              <CardContent className="py-3 px-4 flex items-center justify-between gap-3 flex-wrap">
+              <CardContent className="py-2 px-4 flex items-center justify-between gap-3 flex-wrap">
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-foreground">Customer payment / confirmation link</p>
                   <p className="text-xs font-mono text-muted-foreground break-all">{payLink}</p>
@@ -902,10 +902,10 @@ const OrderDetail: React.FC = () => {
           />
 
           <Card className="shadow-sm">
-            <CardHeader className="pb-3 border-b">
-              <CardTitle className="text-xl">Order Summary</CardTitle>
+            <CardHeader className="px-4 py-2.5 border-b">
+              <CardTitle className="text-base">Order Summary</CardTitle>
             </CardHeader>
-            <CardContent className="pt-6">
+            <CardContent className="p-4">
               <OrderSummary
                 subtotal={order.subtotal || 0}
                 shipping={order.shippingCost || order.shipping_cost || order.shipping || 0}
@@ -983,9 +983,9 @@ const OrderDetail: React.FC = () => {
             if (!addr) return null;
             return (
               <Card className="shadow-sm">
-                <CardHeader className="pb-3 border-b">
+                <CardHeader className="px-4 py-2.5 border-b">
                   <div className="flex items-center justify-between gap-3">
-                    <CardTitle className="text-xl flex items-center gap-2">
+                    <CardTitle className="text-base flex items-center gap-2">
                       Billing Address
                       {usingShippingFallback && (
                         <span className="text-xs font-normal text-muted-foreground">(same as shipping)</span>
@@ -1002,9 +1002,9 @@ const OrderDetail: React.FC = () => {
                     />
                   </div>
                 </CardHeader>
-                <CardContent className="pt-6">
-                  <div className="space-y-2 text-muted-foreground text-sm">
-                    <p className="font-semibold text-foreground text-base mb-1">{addr.fullName || addr.full_name}</p>
+                <CardContent className="p-4">
+                  <div className="space-y-1.5 text-muted-foreground text-sm">
+                    <p className="font-semibold text-foreground text-sm mb-0.5">{addr.fullName || addr.full_name}</p>
                     <p>{addr.address}</p>
                     {(addr.addressLine2 || addr.address_line2) && <p>{addr.addressLine2 || addr.address_line2}</p>}
                     <p>{addr.district}, {addr.state} {addr.pincode}</p>
@@ -1017,13 +1017,13 @@ const OrderDetail: React.FC = () => {
           })()}
         </div>
 
-        <div className="space-y-6">
+        <div className="space-y-4">
           <Card className="shadow-sm">
-            <CardHeader className="pb-3 border-b">
-              <CardTitle className="text-xl">Order Information</CardTitle>
+            <CardHeader className="px-4 py-2.5 border-b">
+              <CardTitle className="text-base">Order Information</CardTitle>
             </CardHeader>
-            <CardContent className="pt-6">
-              <div className="space-y-4 text-sm">
+            <CardContent className="p-4">
+              <div className="space-y-2.5 text-sm">
                 <div>
                   <p className="text-muted-foreground mb-1">Order Status</p>
                   <StatusBadge status={order.orderStatus} type="order" />
@@ -1087,7 +1087,7 @@ const OrderDetail: React.FC = () => {
                   </p>
                 </div>
                 {order.trackingUrl && (
-                  <div className="pt-2 border-t">
+                  <div className="pt-1.5 border-t">
                     <p className="text-muted-foreground mb-1">Tracking URL</p>
                     <a href={order.trackingUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 hover:underline font-medium">
                       Track Shipment
@@ -1095,25 +1095,25 @@ const OrderDetail: React.FC = () => {
                   </div>
                 )}
                 {order.shippingProvider && (
-                  <div className="pt-2 border-t">
+                  <div className="pt-1.5 border-t">
                     <p className="text-muted-foreground mb-1">Shipping Provider</p>
                     <p className="font-medium text-foreground capitalize">{order.shippingProvider}</p>
                   </div>
                 )}
                 {order.courierName && (
-                  <div className="pt-2 border-t">
+                  <div className="pt-1.5 border-t">
                     <p className="text-muted-foreground mb-1">Courier</p>
                     <p className="font-medium text-foreground">{order.courierName}</p>
                   </div>
                 )}
                 {order.expectedDelivery && (
-                  <div className="pt-2 border-t">
+                  <div className="pt-1.5 border-t">
                     <p className="text-muted-foreground mb-1">Estimated Delivery</p>
                     <p className="font-medium text-foreground">{formatDate(order.expectedDelivery, 'MMM dd, yyyy', 'N/A')}</p>
                   </div>
                 )}
                 {shiprocketAwb && (
-                  <div className="pt-2 border-t">
+                  <div className="pt-1.5 border-t">
                     <p className="text-muted-foreground mb-1">Shiprocket AWB</p>
                     <p className="font-mono text-foreground font-medium bg-muted px-2 py-1 rounded w-fit">{shiprocketAwb}</p>
                   </div>
@@ -1122,7 +1122,7 @@ const OrderDetail: React.FC = () => {
                     order looks shipped in Shiprocket while no AWB exists, and the
                     only visible action (Create Shipment) would duplicate it. */}
                 {!shiprocketAwb && (order.shiprocketShipmentId ?? order.shiprocket_shipment_id) && (
-                  <div className="pt-2 border-t space-y-2">
+                  <div className="pt-1.5 border-t space-y-2">
                     <p className="text-muted-foreground mb-1">Shiprocket AWB</p>
                     <Badge className="bg-yellow-500/15 text-yellow-700 border-yellow-200 hover:bg-yellow-500/25">
                       Order created, not dispatched
@@ -1139,7 +1139,7 @@ const OrderDetail: React.FC = () => {
                   </div>
                 )}
                 {order.delhiveryWaybill && (
-                  <div className="pt-2 border-t">
+                  <div className="pt-1.5 border-t">
                     <p className="text-muted-foreground mb-1">DELHIVERY Waybill</p>
                     <p className="font-mono text-foreground font-medium bg-muted px-2 py-1 rounded w-fit">{order.delhiveryWaybill}</p>
                   </div>
@@ -1151,7 +1151,7 @@ const OrderDetail: React.FC = () => {
                     status as long as an AWB existed, including on a delivered
                     order from weeks ago. */}
                 {order.shipmentId && (order.shippingProvider === 'shiprocket' || order.shippingProvider === 'delhivery') && (
-                  <div className="pt-4 mt-2 border-t flex flex-wrap gap-2">
+                  <div className="pt-3 mt-1 border-t flex flex-wrap gap-2">
                     {order.orderStatus === 'shipped' && order.shippingProvider === 'shiprocket' && !order.shiprocketPickupScheduledDate && (
                       <Button variant="outline" size="sm" className="h-9" onClick={() => setShowPickupModal(true)}>
                         Schedule Pickup
@@ -1170,7 +1170,7 @@ const OrderDetail: React.FC = () => {
                   </div>
                 )}
                 {order.warehouseId && (
-                  <div className="pt-2 border-t">
+                  <div className="pt-1.5 border-t">
                     <p className="text-muted-foreground mb-1">Assigned Warehouse</p>
                     <p className="font-medium text-foreground">{(order.warehouseId as any)?.name || 'N/A'}</p>
                   </div>
@@ -1179,7 +1179,7 @@ const OrderDetail: React.FC = () => {
                     dashboard (e.g. Shiprocket panel) was used directly instead of
                     this app, so nothing here ever learned an AWB exists. */}
                 {!order.shipmentId && !(order.shiprocketShipmentId ?? order.shiprocket_shipment_id) && (
-                  <div className="pt-4 mt-2 border-t">
+                  <div className="pt-3 mt-1 border-t">
                     <p className="text-xs text-muted-foreground mb-2">
                       Shipped straight from the carrier&apos;s own dashboard? Paste the AWB to link it here.
                     </p>
@@ -1203,15 +1203,15 @@ const OrderDetail: React.FC = () => {
             const standing = order.risk.standing;
             return (
               <Card className="shadow-sm">
-                <CardHeader className="pb-3 border-b">
-                  <CardTitle className="text-xl flex items-center justify-between">
+                <CardHeader className="px-4 py-2.5 border-b">
+                  <CardTitle className="text-base flex items-center justify-between">
                     <span>Order Authenticity</span>
                     <span className={`text-xs font-semibold px-2 py-1 rounded-full ${tone.chip}`}>
                       {tone.label}
                     </span>
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="pt-4">
+                <CardContent className="p-4">
                   {/* Score gauge — the higher the score, the more authentic. */}
                   <div className="flex items-end justify-between mb-1">
                     <span className={`text-3xl font-bold ${tone.text}`}>{authenticity}</span>

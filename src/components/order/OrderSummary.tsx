@@ -121,9 +121,9 @@ const OrderSummary: React.FC<OrderSummaryProps> = ({
   const residual = Math.round((total - composed) * 100) / 100;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* ── The addition column: what the customer paid ── */}
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         <div className="flex justify-between">
           <span>Subtotal{gst?.taxType && inclusive ? ' (incl. GST)' : ''}</span>
           <span>₹{money(subtotal)}</span>

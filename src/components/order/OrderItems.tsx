@@ -139,8 +139,8 @@ const OrderItems: React.FC<OrderItemsProps> = ({ items, b2bTier, orderDiscount =
 
   return (
     <Card className="shadow-sm">
-      <CardHeader className="pb-3 border-b">
-        <CardTitle className="text-xl">Order Items</CardTitle>
+      <CardHeader className="px-4 py-2.5 border-b">
+        <CardTitle className="text-base">Order Items</CardTitle>
       </CardHeader>
       <CardContent className="p-0">
         {rows.length === 0 ? (

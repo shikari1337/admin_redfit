@@ -59,8 +59,8 @@ const OrderFulfillmentCard: React.FC<Props> = ({ fulfillment, shipments, sla }) 
 
   return (
     <Card className="shadow-sm">
-      <CardHeader className="pb-3 border-b">
-        <CardTitle className="text-xl flex items-center justify-between">
+      <CardHeader className="px-4 py-2.5 border-b">
+        <CardTitle className="text-base flex items-center justify-between">
           <span>Fulfillment</span>
           {f && (
             <Badge className={f.fully_shipped
@@ -73,7 +73,7 @@ const OrderFulfillmentCard: React.FC<Props> = ({ fulfillment, shipments, sla }) 
           )}
         </CardTitle>
       </CardHeader>
-      <CardContent className="pt-4 space-y-4">
+      <CardContent className="p-4 space-y-3">
         {f && f.total_qty > 0 && (
           <div>
             <div className="flex justify-between text-sm mb-1">

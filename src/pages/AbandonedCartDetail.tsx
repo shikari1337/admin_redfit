@@ -9,12 +9,27 @@ interface CartDetailItem {
   productId: string;
   variationId?: string | null;
   productName: string;
+  sku?: string | null;
   price: number;
   quantity: number;
   image?: string | null;
   attributes?: Record<string, any>;
   lineTotal: number;
   addedAt?: string;
+}
+
+/** Estimated charges breakdown — same shape Order Detail's Order Summary
+ *  shows, computed from the store's flat shipping/COD config (no confirmed
+ *  address needed pre-checkout). Mirrors whatever waiver is currently applied. */
+interface CartCharges {
+  subtotal: number;
+  shipping: number;
+  codFee: number;
+  discount: number;
+  total: number;
+  paymentMethod: 'cod' | 'prepaid';
+  shippingWaived: boolean;
+  codWaived: boolean;
 }
 
 interface JourneyEvent {
@@ -68,6 +83,7 @@ interface CartDetail {
   updatedAt?: string;
   user?: { name?: string; email?: string; phoneNumber?: string } | null;
   checkoutAttempts?: CheckoutAttempt[];
+  charges?: CartCharges;
 }
 
 const formatDate = (value?: string | null) => (value ? new Date(value).toLocaleString() : '—');
@@ -125,6 +141,7 @@ const AbandonedCartDetail: React.FC = () => {
   const [genExpiresInDays, setGenExpiresInDays] = useState('7');
   const [applyingDiscount, setApplyingDiscount] = useState(false);
   const [removingDiscount, setRemovingDiscount] = useState(false);
+  const [togglingCharge, setTogglingCharge] = useState<'shipping' | 'cod' | null>(null);
 
   useEffect(() => {
     couponsAPI.getAll()
@@ -267,6 +284,24 @@ const AbandonedCartDetail: React.FC = () => {
     }
   };
 
+  /** Toggle a shipping/COD waiver — reaches the real order if this cart is
+   *  later recovered and checked out, not just the estimate shown here. */
+  const handleToggleCharge = async (charge: 'shipping' | 'cod') => {
+    if (!cart?.charges) return;
+    setTogglingCharge(charge);
+    try {
+      const body = charge === 'shipping'
+        ? { shippingWaived: !cart.charges.shippingWaived }
+        : { codWaived: !cart.charges.codWaived };
+      await cartsAPI.updateCharges(String(cart._id), body);
+      fetchCart();
+    } catch (err: any) {
+      alert(err.response?.data?.message || err.message || 'Failed to update the charge');
+    } finally {
+      setTogglingCharge(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -354,52 +389,115 @@ const AbandonedCartDetail: React.FC = () => {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* Items */}
+        {/* Items — same tabular shape as Order Detail's Order Items table */}
         <div className="lg:col-span-2 bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
             <h2 className="text-lg font-semibold text-gray-900">Items ({cart.itemCount ?? cart.items?.length ?? 0})</h2>
-            <div className="text-lg font-bold text-gray-900">{formatMoney(cart.total)}</div>
           </div>
-          <div className="divide-y divide-gray-100">
-            {(cart.items || []).map((item, index) => (
-              <div key={`${item.productId}-${item.variationId ?? index}`} className="px-6 py-4 flex items-start gap-4">
-                {item.image ? (
-                  <img src={item.image} alt={item.productName} className="w-14 h-14 rounded-md object-cover border border-gray-200" />
-                ) : (
-                  <div className="w-14 h-14 rounded-md bg-gray-100 border border-gray-200 flex items-center justify-center text-xs text-gray-400">
-                    No image
-                  </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-100">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Product</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">SKU</th>
+                  <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Unit Price</th>
+                  <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Qty</th>
+                  <th className="px-6 py-2.5 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {(cart.items || []).map((item, index) => (
+                  <tr key={`${item.productId}-${item.variationId ?? index}`}>
+                    <td className="px-6 py-3">
+                      <div className="flex items-center gap-3">
+                        {item.image ? (
+                          <img src={item.image} alt={item.productName} className="w-10 h-10 rounded-md object-cover border border-gray-200 shrink-0" />
+                        ) : (
+                          <div className="w-10 h-10 rounded-md bg-gray-100 border border-gray-200 flex items-center justify-center text-[10px] text-gray-400 shrink-0">
+                            No image
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium text-gray-900 truncate">{item.productName}</div>
+                          {attributeText(item.attributes) && (
+                            <div className="text-xs text-gray-500 truncate">{attributeText(item.attributes)}</div>
+                          )}
+                          {item.addedAt && <div className="text-[11px] text-gray-400">Added {formatDate(item.addedAt)}</div>}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{item.sku || '—'}</td>
+                    <td className="px-4 py-3 text-sm text-gray-700 text-right whitespace-nowrap">{formatMoney(item.price)}</td>
+                    <td className="px-4 py-3 text-sm text-gray-700 text-center">{item.quantity}</td>
+                    <td className="px-6 py-3 text-sm font-semibold text-gray-900 text-right whitespace-nowrap">
+                      {formatMoney(item.lineTotal ?? item.price * item.quantity)}
+                    </td>
+                  </tr>
+                ))}
+                {(!cart.items || cart.items.length === 0) && (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-10 text-center text-gray-500">This cart has no items.</td>
+                  </tr>
                 )}
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-gray-900">{item.productName}</div>
-                  {attributeText(item.attributes) && (
-                    <div className="text-xs text-gray-500 mt-0.5">{attributeText(item.attributes)}</div>
-                  )}
-                  <div className="text-xs text-gray-500 mt-1">
-                    {formatMoney(item.price)} × {item.quantity}
-                    {item.addedAt && <span className="ml-2 text-gray-400">Added {formatDate(item.addedAt)}</span>}
-                  </div>
-                </div>
-                <div className="text-sm font-semibold text-gray-900 whitespace-nowrap">
-                  {formatMoney(item.lineTotal ?? item.price * item.quantity)}
-                </div>
-              </div>
-            ))}
-            {(!cart.items || cart.items.length === 0) && (
-              <div className="px-6 py-10 text-center text-gray-500">This cart has no items.</div>
-            )}
+              </tbody>
+            </table>
           </div>
-          <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 space-y-1 text-sm">
+
+          {/* Estimated charges — same breakdown shape as Order Detail's Order
+              Summary; shipping/COD can be waived here to win the cart back,
+              honored automatically if this cart is recovered and checked out. */}
+          <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 space-y-1.5 text-sm">
+            <div className="flex justify-between text-gray-600">
+              <span>Subtotal</span>
+              <span>{formatMoney(cart.charges?.subtotal ?? cart.total)}</span>
+            </div>
             {cart.appliedCouponCode && (
               <div className="flex justify-between text-gray-600">
-                <span>Applied coupon</span>
-                <span className="font-medium text-gray-900">{cart.appliedCouponCode}</span>
+                <span>Discount ({cart.appliedCouponCode})</span>
+                <span>−{formatMoney(cart.charges?.discount ?? 0)}</span>
               </div>
             )}
-            <div className="flex justify-between text-base font-bold text-gray-900">
-              <span>Cart total</span>
-              <span>{formatMoney(cart.total)}</span>
+            {cart.charges && (
+              <>
+                <div className="flex justify-between items-center text-gray-600">
+                  <span>Shipping {cart.charges.shippingWaived && <span className="text-emerald-600 font-medium">(waived)</span>}</span>
+                  <div className="flex items-center gap-2">
+                    <span className={cart.charges.shippingWaived ? 'line-through text-gray-400' : ''}>
+                      {formatMoney(cart.charges.shipping)}
+                    </span>
+                    <button
+                      onClick={() => handleToggleCharge('shipping')}
+                      disabled={togglingCharge !== null}
+                      className="text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                    >
+                      {togglingCharge === 'shipping' ? '…' : cart.charges.shippingWaived ? 'Restore' : 'Waive'}
+                    </button>
+                  </div>
+                </div>
+                {cart.charges.paymentMethod === 'cod' && (
+                  <div className="flex justify-between items-center text-gray-600">
+                    <span>COD charge {cart.charges.codWaived && <span className="text-emerald-600 font-medium">(waived)</span>}</span>
+                    <div className="flex items-center gap-2">
+                      <span className={cart.charges.codWaived ? 'line-through text-gray-400' : ''}>{formatMoney(cart.charges.codFee)}</span>
+                      <button
+                        onClick={() => handleToggleCharge('cod')}
+                        disabled={togglingCharge !== null}
+                        className="text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                      >
+                        {togglingCharge === 'cod' ? '…' : cart.charges.codWaived ? 'Restore' : 'Waive'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+            <div className="flex justify-between text-base font-bold text-gray-900 pt-1 border-t border-gray-200">
+              <span>Estimated total</span>
+              <span>{formatMoney(cart.charges?.total ?? cart.total)}</span>
             </div>
+            <p className="text-[11px] text-gray-400 pt-1">
+              Estimate only — excludes GST and any address-dependent adjustments, resolved at real checkout.
+            </p>
           </div>
         </div>
 

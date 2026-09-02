@@ -32,15 +32,15 @@ const OrderNotes: React.FC<OrderNotesProps> = ({ notes, onAdd, saving }) => {
   });
 
   return (
-    <div className="bg-white rounded-lg shadow p-6">
-      <h2 className="text-xl font-bold mb-4">Order Notes</h2>
+    <div className="bg-white rounded-lg shadow p-4">
+      <h2 className="text-base font-bold mb-2.5">Order Notes</h2>
 
-      <div className="flex gap-2 mb-4">
+      <div className="flex gap-2 mb-3">
         <textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAdd(); }}
-          className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 min-h-[60px] text-sm"
+          className="flex-1 px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 min-h-[44px] text-sm"
           placeholder="Add an internal note… (⌘/Ctrl + Enter to send)"
         />
         <button
@@ -56,7 +56,7 @@ const OrderNotes: React.FC<OrderNotesProps> = ({ notes, onAdd, saving }) => {
       {sorted.length === 0 ? (
         <p className="text-sm text-gray-500">No notes yet.</p>
       ) : (
-        <div className="space-y-3 max-h-80 overflow-y-auto">
+        <div className="space-y-2 max-h-80 overflow-y-auto">
           {sorted.map((n, i) => (
             <div key={i} className="border-l-2 border-gray-200 pl-3 py-0.5">
               <p className="text-sm text-gray-700 whitespace-pre-wrap">{n.text}</p>
