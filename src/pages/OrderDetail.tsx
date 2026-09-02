@@ -499,6 +499,15 @@ const OrderDetail: React.FC = () => {
       toast({ variant: "destructive", title: "Error", description: 'Please select a warehouse' }); return;
     }
 
+    // Native confirm() popups that return SILENTLY on cancel — no toast, no
+    // network request, nothing visible — are exactly why "click Create
+    // Shipment, nothing happens" was reported: the modal's own "Create
+    // Shipment" button IS already an explicit confirmation, so stacking a
+    // redundant native confirm() after it just adds a step that's easy to
+    // miss/dismiss with zero feedback either way. The two warnings below
+    // convey real information the user should consciously acknowledge, so
+    // they stay — but cancelling them now always shows a toast, so the flow
+    // never just goes quiet.
     if (selectedShippingProvider !== 'manual') {
       const selectedWarehouse = warehouses.find(w => w._id === selectedWarehouseId);
       if (selectedWarehouse) {
@@ -509,6 +518,7 @@ const OrderDetail: React.FC = () => {
         if (!hasProviderEnabled) {
           const providerName = selectedShippingProvider === 'shiprocket' ? 'Shiprocket' : 'DELHIVERY';
           if (!confirm(`Warning: ${providerName} is not enabled for the selected warehouse "${selectedWarehouse.name}".\n\nProceed anyway?`)) {
+            toast({ title: "Cancelled", description: `Shipment not created — ${providerName} isn't enabled for this warehouse.` });
             return;
           }
         }
@@ -517,6 +527,7 @@ const OrderDetail: React.FC = () => {
 
     if (order?.shippingProvider) {
       if (!confirm(`Warning: This order was previously shipped via ${order.shippingProvider.toUpperCase()}. Are you sure you want to reship it and create a NEW shipment record?`)) {
+        toast({ title: "Cancelled", description: 'Reship cancelled — no new shipment was created.' });
         return;
       }
     }
@@ -527,11 +538,6 @@ const OrderDetail: React.FC = () => {
       }
     }
 
-    const providerName = selectedShippingProvider === 'shiprocket' ? 'Shiprocket' : 
-                        selectedShippingProvider === 'delhivery' ? 'DELHIVERY' : 'Manual';
-    
-    if (!confirm(`Create shipment with ${providerName}?`)) return;
-    
     setSendingToShiprocket(true);
     try {
       let orderItemSkus: string[] = [];
@@ -571,13 +577,24 @@ const OrderDetail: React.FC = () => {
       }
       
       const response = await shipmentsAPI.create(shipmentData);
-      
-      if (response.success) {
-        toast({ title: "Shipment Created", description: `Shipment #${response.data?.shipmentNumber || response.data?._id} created successfully.` });
-      } else {
-        throw new Error(response.message || 'Failed to create shipment');
-      }
-      
+
+      // The shared axios interceptor (services/api.ts normalizeResponse) already
+      // unwraps a successful `{success, data}` envelope down to just the inner
+      // `data` object BEFORE it reaches here — `success` is gone by design, and
+      // a real failure (4xx/5xx, including the route's own 422 "no shipments
+      // created") would have already thrown and landed in the catch block below.
+      // Checking `response.success` here could never be true, so this threw its
+      // own "Failed to create shipment" on EVERY successful booking — the
+      // backend had already created a real shipment while the admin reported
+      // failure. `Shipments.tsx`'s own create handler already guards against
+      // this shape (`response?.data || response`); this one never did.
+      const shipmentObj = response?.data || response;
+      const awb = shipmentObj?.awbCode || shipmentObj?.waybill || shipmentObj?.shipment?.awb;
+      toast({
+        title: "Shipment Created",
+        description: awb ? `AWB ${awb} assigned via ${shipmentObj?.courierName || shipmentObj?.provider || 'the carrier'}.` : 'Shipment created successfully.',
+      });
+
       setShowShipmentModal(false);
       setSelectedWarehouseId('');
       setManualTrackingId('');

@@ -110,7 +110,13 @@ const Orders: React.FC = () => {
     
     setSendingToShiprocket(orderId);
     try {
-      const response = await shippingAPI.createShipment(orderId);
+      // shippingProvider is REQUIRED by the backend (express-validator
+      // `body('shippingProvider').notEmpty()`) — omitting it (as this call
+      // always did) 400'd on every single click, always, before the request
+      // ever reached the booking logic. This button's own confirm dialog
+      // already says "Send this order to Shiprocket" — it just never told
+      // the backend that.
+      const response = await shippingAPI.createShipment(orderId, { shippingProvider: 'shiprocket' });
       toast({
         title: "Shipment Created",
         description: `Shipment created successfully!${response.data?.shipment?.awbCode ? ` AWB: ${response.data.shipment.awbCode}` : ''}`,
