@@ -132,11 +132,30 @@ export default function Channels() {
     toast({ title: 'Channel disconnected' });
     await load();
   };
+  // Copies the EXISTING feed URL without touching the token — only mints a new
+  // one the first time (no token yet). Re-clicking this to re-copy the link
+  // must never invalidate a URL already registered in Merchant Center / Commerce
+  // Manager; that used to happen because this always rotated the token.
   const getFeed = async (conn: Connection) => {
+    if (conn.feed_url) {
+      await navigator.clipboard.writeText(conn.feed_url).catch(() => {});
+      toast({ title: 'Feed URL copied', description: conn.feed_url });
+      return;
+    }
     const res = await channelsAPI.rotateFeedToken(conn.id);
     if (res?.feed_url) {
       await navigator.clipboard.writeText(res.feed_url).catch(() => {});
       toast({ title: 'Feed URL copied', description: res.feed_url });
+      await load();
+    }
+  };
+  // Explicit, separate action for actually invalidating the old URL.
+  const rotateFeed = async (conn: Connection) => {
+    if (!confirm('Generate a NEW feed URL? The current one — if already added in Google Merchant Center or Meta Commerce Manager — will start returning 404 until you replace it there too.')) return;
+    const res = await channelsAPI.rotateFeedToken(conn.id);
+    if (res?.feed_url) {
+      await navigator.clipboard.writeText(res.feed_url).catch(() => {});
+      toast({ title: 'New feed URL copied', description: 'Update this in Merchant Center / Commerce Manager too.' });
       await load();
     }
   };
@@ -198,7 +217,16 @@ export default function Channels() {
                         <Button size="sm" variant="ghost" className="text-red-600" onClick={() => remove(conn)}><Trash2 className="h-3.5 w-3.5" /></Button>
                       </div>
                       {conn.feed_url && (
-                        <div className="text-xs bg-gray-50 rounded p-2 break-all border">{conn.feed_url}</div>
+                        <div className="text-xs bg-gray-50 rounded p-2 border space-y-1">
+                          <div className="break-all">{conn.feed_url}</div>
+                          <button
+                            type="button"
+                            onClick={() => rotateFeed(conn)}
+                            className="text-red-600 hover:underline"
+                          >
+                            Regenerate (breaks the URL above)
+                          </button>
+                        </div>
                       )}
                     </>
                   ) : (

@@ -26,12 +26,19 @@ const EXTERNAL_LABEL: Record<string, string> = {
   google_shopping: 'Google offer ID', facebook_catalog: 'Meta retailer ID', whatsapp_catalog: 'Meta retailer ID',
 };
 
+const PAGE_SIZE = 200;
+
 export default function ChannelMapping() {
   const { toast } = useToast();
   const [connections, setConnections] = useState<Connection[]>([]);
   const [channelId, setChannelId] = useState<string>('');
   const [rows, setRows] = useState<Mapping[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0); // 0-indexed
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState(''); // debounced value actually queried
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [csv, setCsv] = useState('');
   const [showCsv, setShowCsv] = useState(false);
 
@@ -39,13 +46,32 @@ export default function ChannelMapping() {
     setConnections(c); if (c.length) setChannelId(c[0].id);
   }); }, []);
 
-  const loadRows = async (id: string) => {
-    if (!id) return;
+  // Debounce the search box, then land on page 1 for the new term.
+  useEffect(() => {
+    const t = setTimeout(() => { setSearch(searchInput); setPage(0); }, 350);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+  // Switching channel also resets to page 1.
+  useEffect(() => { setPage(0); }, [channelId]);
+
+  // A full-catalog channel (e.g. Google/Meta feed after Auto-map) can carry tens
+  // of thousands of mapping rows — load one page at a time, not the whole table.
+  useEffect(() => {
+    if (!channelId) { setRows([]); setTotal(0); return; }
+    let cancelled = false;
     setLoading(true);
-    setRows(await channelsAPI.getMappings({ channelId: id }));
-    setLoading(false);
+    channelsAPI.getMappings({ channelId, search: search || undefined, limit: PAGE_SIZE, offset: page * PAGE_SIZE }).then((res) => {
+      if (cancelled) return;
+      setRows(res.data); setTotal(res.total); setLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [channelId, page, search]);
+  const reload = async () => {
+    if (!channelId) return;
+    setLoading(true);
+    const res = await channelsAPI.getMappings({ channelId, search: search || undefined, limit: PAGE_SIZE, offset: page * PAGE_SIZE });
+    setRows(res.data); setTotal(res.total); setLoading(false);
   };
-  useEffect(() => { loadRows(channelId); }, [channelId]);
 
   const platformCode = connections.find((c) => c.id === channelId)?.platform_code || '';
   const idLabel = EXTERNAL_LABEL[platformCode] || 'Marketplace ID';
@@ -64,29 +90,47 @@ export default function ChannelMapping() {
   const autoMap = async () => {
     const res = await channelsAPI.autoMap(channelId);
     toast({ title: 'Auto-map complete', description: res?.message });
-    await loadRows(channelId);
+    await reload();
   };
 
   // CSV bulk fill: lines of "internalSKU,marketplaceID" → set external_id on the matching row.
+  // Looks each SKU up via the search endpoint (not the currently-loaded page) since
+  // the table only ever holds one page of a channel that can run to 40k+ rows.
   const applyCsv = async () => {
-    const bySku = new Map(rows.filter((r) => r.external_sku).map((r) => [r.external_sku!.trim(), r]));
     let updated = 0;
     for (const line of csv.split(/\r?\n/)) {
       const [sku, ext] = line.split(',').map((s) => s?.trim());
       if (!sku || !ext) continue;
-      const row = bySku.get(sku);
+      const res = await channelsAPI.getMappings({ channelId, search: sku, limit: 10 });
+      const row = res.data.find((r: Mapping) => r.external_sku === sku);
       if (row) { await channelsAPI.updateMapping(row.id, { external_id: ext }); updated++; }
     }
     toast({ title: 'CSV applied', description: `${updated} mappings updated` });
     setShowCsv(false); setCsv('');
-    await loadRows(channelId);
+    await reload();
   };
 
-  const exportCsv = () => {
-    const lines = ['internal_sku,marketplace_id', ...rows.map((r) => `${r.external_sku || ''},${r.external_id || ''}`)];
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = `${platformCode}-mappings.csv`; a.click();
+  // Pages through the full (possibly search-filtered) result set — the table
+  // itself only ever holds PAGE_SIZE rows, so export can't just read `rows`.
+  const exportCsv = async () => {
+    setExporting(true);
+    try {
+      const lines = ['internal_sku,marketplace_id'];
+      const limit = 500;
+      let offset = 0;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const res = await channelsAPI.getMappings({ channelId, search: search || undefined, limit, offset });
+        for (const r of res.data) lines.push(`${r.external_sku || ''},${r.external_id || ''}`);
+        offset += limit;
+        if (res.data.length === 0 || offset >= res.total) break;
+      }
+      const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = `${platformCode}-mappings.csv`; a.click();
+    } finally {
+      setExporting(false);
+    }
   };
 
   return (
@@ -108,9 +152,15 @@ export default function ChannelMapping() {
             </SelectContent>
           </Select>
         </div>
+        <div className="min-w-[200px]">
+          <Label>Search</Label>
+          <Input value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder="SKU, title, or ID…" className="h-9" disabled={!channelId} />
+        </div>
         <Button variant="outline" onClick={autoMap} disabled={!channelId}><Wand2 className="h-4 w-4 mr-2" /> Auto-map by SKU</Button>
         <Button variant="outline" onClick={() => setShowCsv((s) => !s)} disabled={!channelId}><Upload className="h-4 w-4 mr-2" /> Bulk fill (CSV)</Button>
-        <Button variant="outline" onClick={exportCsv} disabled={!rows.length}><Download className="h-4 w-4 mr-2" /> Export</Button>
+        <Button variant="outline" onClick={exportCsv} disabled={!total || exporting}>
+          <Download className="h-4 w-4 mr-2" /> {exporting ? 'Exporting…' : 'Export'}
+        </Button>
       </CardContent></Card>
 
       {showCsv && (
@@ -125,37 +175,48 @@ export default function ChannelMapping() {
         {loading ? <p className="p-4 text-sm text-muted-foreground">Loading…</p>
           : !channelId ? <p className="p-4 text-sm text-muted-foreground">Connect a channel first.</p>
           : rows.length === 0 ? (
-            <p className="p-4 text-sm text-muted-foreground">No mappings yet. Click <b>Auto-map by SKU</b> to create a row per product, then fill in the {idLabel}.</p>
+            <p className="p-4 text-sm text-muted-foreground">
+              {search ? 'No mappings match your search.' : <>No mappings yet. Click <b>Auto-map by SKU</b> to create a row per product, then fill in the {idLabel}.</>}
+            </p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="text-left text-muted-foreground border-b bg-gray-50">
-                  <tr>
-                    <th className="p-3">Product</th>
-                    <th className="p-3">Internal SKU</th>
-                    <th className="p-3">{idLabel}</th>
-                    <th className="p-3 w-24">Buffer</th>
-                    <th className="p-3 w-20">Sync</th>
-                    <th className="p-3 w-28"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((r) => (
-                    <tr key={r.id} className="border-b last:border-0">
-                      <td className="p-3">{r.external_title || <span className="text-muted-foreground">—</span>}</td>
-                      <td className="p-3 font-mono text-xs">{r.external_sku}</td>
-                      <td className="p-3"><Input value={r.external_id || ''} onChange={(e) => patch(r.id, 'external_id', e.target.value)} className="h-8" /></td>
-                      <td className="p-3"><Input type="number" min={0} value={r.buffer_qty ?? 0} onChange={(e) => patch(r.id, 'buffer_qty', e.target.value)} className="h-8 w-20" /></td>
-                      <td className="p-3"><Switch checked={r.sync_inventory} onCheckedChange={(v) => patch(r.id, 'sync_inventory', v)} /></td>
-                      <td className="p-3 flex gap-1">
-                        <Button size="sm" variant="outline" onClick={() => saveRow(r)}><Save className="h-3.5 w-3.5" /></Button>
-                        <Button size="sm" variant="ghost" className="text-red-600" onClick={() => removeRow(r)}><Trash2 className="h-3.5 w-3.5" /></Button>
-                      </td>
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="text-left text-muted-foreground border-b bg-gray-50">
+                    <tr>
+                      <th className="p-3">Product</th>
+                      <th className="p-3">Internal SKU</th>
+                      <th className="p-3">{idLabel}</th>
+                      <th className="p-3 w-24">Buffer</th>
+                      <th className="p-3 w-20">Sync</th>
+                      <th className="p-3 w-28"></th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {rows.map((r) => (
+                      <tr key={r.id} className="border-b last:border-0">
+                        <td className="p-3">{r.external_title || <span className="text-muted-foreground">—</span>}</td>
+                        <td className="p-3 font-mono text-xs">{r.external_sku}</td>
+                        <td className="p-3"><Input value={r.external_id || ''} onChange={(e) => patch(r.id, 'external_id', e.target.value)} className="h-8" /></td>
+                        <td className="p-3"><Input type="number" min={0} value={r.buffer_qty ?? 0} onChange={(e) => patch(r.id, 'buffer_qty', e.target.value)} className="h-8 w-20" /></td>
+                        <td className="p-3"><Switch checked={r.sync_inventory} onCheckedChange={(v) => patch(r.id, 'sync_inventory', v)} /></td>
+                        <td className="p-3 flex gap-1">
+                          <Button size="sm" variant="outline" onClick={() => saveRow(r)}><Save className="h-3.5 w-3.5" /></Button>
+                          <Button size="sm" variant="ghost" className="text-red-600" onClick={() => removeRow(r)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex items-center justify-between p-3 border-t text-sm text-muted-foreground">
+                <span>Showing {page * PAGE_SIZE + 1}–{page * PAGE_SIZE + rows.length} of {total}</span>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" disabled={page === 0} onClick={() => setPage((p) => Math.max(p - 1, 0))}>Previous</Button>
+                  <Button size="sm" variant="outline" disabled={(page + 1) * PAGE_SIZE >= total} onClick={() => setPage((p) => p + 1)}>Next</Button>
+                </div>
+              </div>
+            </>
           )}
       </CardContent></Card>
     </div>

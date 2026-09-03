@@ -3934,9 +3934,11 @@ export const channelsAPI = {
     const r = await api.post(`/channels/connections/${connectionId}/auto-map`); return r.data;
   },
   // Mappings
-  getMappings: async (params?: { channelId?: string; productId?: string; variationId?: string }) => {
-    try { const r = await api.get('/channels/mappings', { params }); return r.data?.data ?? r.data ?? []; }
-    catch (e: any) { safeError(e); return []; }
+  getMappings: async (params?: { channelId?: string; productId?: string; variationId?: string; search?: string; limit?: number; offset?: number }) => {
+    try {
+      const r = await api.get('/channels/mappings', { params });
+      return { data: r.data?.data ?? [], total: r.data?.total ?? 0 };
+    } catch (e: any) { safeError(e); return { data: [], total: 0 }; }
   },
   createMapping: async (payload: any) => {
     const r = await api.post('/channels/mappings', payload); return r.data?.data;
