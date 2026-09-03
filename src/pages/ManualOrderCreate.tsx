@@ -409,6 +409,13 @@ const ManualOrderCreate: React.FC = () => {
                 <Input className="sm:col-span-2" placeholder="Customer GSTIN (optional)" value={gstin}
                   onChange={(e) => setGstin(e.target.value.toUpperCase())} />
               </div>
+              {!customer && address.mobileNumber.trim() && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  No customer selected above — on create, this phone number will be matched to an
+                  existing account if one already uses it, or a new customer account will be
+                  created automatically so this order shows up on their profile.
+                </p>
+              )}
             </CardContent>
           </Card>
 
