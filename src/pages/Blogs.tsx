@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { FaPlus, FaEdit, FaTrash, FaToggleOn, FaToggleOff } from 'react-icons/fa';
+import StatusBadge from '../components/order/StatusBadge';
 
 interface BlogPost {
   id: string;
@@ -21,13 +22,6 @@ interface BlogPost {
   read_time_min?: number;
   tags?: string[];
 }
-
-const STATUS_COLORS: Record<string, string> = {
-  published: 'bg-green-100 text-green-800 border-green-200',
-  draft:     'bg-yellow-100 text-yellow-800 border-yellow-200',
-  scheduled: 'bg-blue-100 text-blue-800 border-blue-200',
-  archived:  'bg-gray-100 text-gray-700 border-gray-200',
-};
 
 const PAGE_SIZE = 20;
 
@@ -186,9 +180,7 @@ const Blogs: React.FC = () => {
                       <div className="text-xs text-muted-foreground font-mono mt-0.5">{post.slug}</div>
                     </TableCell>
                     <TableCell className="px-4 py-3">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border capitalize ${STATUS_COLORS[post.status] ?? 'bg-gray-100 text-gray-700 border-gray-200'}`}>
-                        {post.status}
-                      </span>
+                      <StatusBadge status={post.status} type="blog" />
                     </TableCell>
                     <TableCell className="px-4 py-3 text-sm text-muted-foreground">
                       {post.author_name || '—'}

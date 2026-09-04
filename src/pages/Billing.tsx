@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { billingAPI } from '../services/api';
+import StatusBadge from '../components/order/StatusBadge';
 
 interface Invoice {
   _id: string;
@@ -23,13 +24,6 @@ interface UsageSummary {
   totalDue?: number;
   period?: { start: string; end: string };
 }
-
-const STATUS_CONFIG: Record<string, { label: string; bg: string; color: string }> = {
-  pending: { label: 'Pending', bg: '#fff7ed', color: '#c2410c' },
-  paid: { label: 'Paid', bg: '#f0fdf4', color: '#16a34a' },
-  overdue: { label: 'Overdue', bg: '#fef2f2', color: '#dc2626' },
-  waived: { label: 'Waived', bg: '#f3f4f6', color: '#6b7280' },
-};
 
 export default function Billing() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -182,7 +176,6 @@ export default function Billing() {
                   </thead>
                   <tbody>
                     {invoices.map(inv => {
-                      const sc = STATUS_CONFIG[inv.status] ?? STATUS_CONFIG.pending;
                       return (
                         <tr key={inv._id}>
                           <td><strong>{inv.invoiceNumber ?? inv._id.slice(-8)}</strong></td>
@@ -197,9 +190,7 @@ export default function Billing() {
                           <td><strong>{fmt(inv.totalAmount)}</strong></td>
                           <td>{inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : '—'}</td>
                           <td>
-                            <span className="status-pill" style={{ background: sc.bg, color: sc.color }}>
-                              {sc.label}
-                            </span>
+                            <StatusBadge status={inv.status} type="billing" />
                           </td>
                           <td>
                             {(inv.status === 'pending' || inv.status === 'overdue') && (

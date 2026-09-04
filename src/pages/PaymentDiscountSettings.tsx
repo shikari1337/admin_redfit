@@ -125,7 +125,7 @@ const PaymentDiscountSettings: React.FC = () => {
       
       if (settings) {
         setFormData({
-          razorpayDiscountPercent: settings.razorpayDiscountPercent || 2,
+          razorpayDiscountPercent: settings.razorpayDiscountPercent ?? 2,
           quantityDiscounts: settings.quantityDiscounts || [
             { minQuantity: 5, discountPercent: 5 },
             { minQuantity: 10, discountPercent: 10 },

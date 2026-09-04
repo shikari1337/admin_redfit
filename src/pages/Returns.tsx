@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { FaEye, FaTimes } from 'react-icons/fa';
+import StatusBadge from '../components/order/StatusBadge';
 
 interface ReturnRequest {
   id: string;
@@ -21,13 +22,6 @@ interface ReturnRequest {
   notes?: string;
   created_at?: string;
 }
-
-const STATUS_COLORS: Record<string, string> = {
-  pending:   'bg-yellow-100 text-yellow-800 border-yellow-200',
-  approved:  'bg-blue-100 text-blue-800 border-blue-200',
-  rejected:  'bg-red-100 text-red-800 border-red-200',
-  completed: 'bg-green-100 text-green-800 border-green-200',
-};
 
 const TABS = ['all', 'pending', 'approved', 'rejected', 'completed'] as const;
 
@@ -164,9 +158,7 @@ const Returns: React.FC = () => {
                       {ret.reason || '—'}
                     </TableCell>
                     <TableCell className="px-4 py-3">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border capitalize ${STATUS_COLORS[ret.status] ?? 'bg-gray-100 text-gray-700 border-gray-200'}`}>
-                        {ret.status}
-                      </span>
+                      <StatusBadge status={ret.status} type="return" />
                     </TableCell>
                     <TableCell className="px-4 py-3 text-right text-sm font-medium">
                       {ret.refund_amount != null ? `₹${ret.refund_amount.toLocaleString('en-IN')}` : '—'}
@@ -213,9 +205,7 @@ const Returns: React.FC = () => {
                 <div>
                   <span className="text-muted-foreground">Status</span>
                   <p className="mt-0.5">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border capitalize ${STATUS_COLORS[selected.status]}`}>
-                      {selected.status}
-                    </span>
+                    <StatusBadge status={selected.status} type="return" />
                   </p>
                 </div>
                 <div>

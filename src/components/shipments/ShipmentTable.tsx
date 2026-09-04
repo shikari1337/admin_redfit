@@ -10,7 +10,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -26,6 +25,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import StatusBadge from '@/components/order/StatusBadge';
 
 interface Shipment {
   _id: string;
@@ -97,42 +97,6 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
   onNdrRequestRto,
   onViewDetails,
 }) => {
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'pending': return 'warning';
-      case 'pickup_scheduled': return 'default';
-      case 'picked_up': return 'default';
-      case 'in_transit': return 'secondary';
-      case 'out_for_delivery': return 'secondary';
-      case 'delivered': return 'success';
-      case 'cancelled': return 'destructive';
-      case 'returned': return 'outline';
-      case 'ndr_failed_delivery': return 'destructive';
-      case 'rto_in_transit': return 'warning';
-      case 'rto_delivered': return 'outline';
-      case 'rto_failed': return 'destructive';
-      default: return 'outline';
-    }
-  };
-
-  const getStatusLabel = (status: string) => {
-    const labels: Record<string, string> = {
-      pending: 'Pending',
-      pickup_scheduled: 'Pickup Scheduled',
-      picked_up: 'Picked Up',
-      in_transit: 'In Transit',
-      out_for_delivery: 'Out for Delivery',
-      delivered: 'Delivered',
-      cancelled: 'Cancelled',
-      returned: 'Returned',
-      ndr_failed_delivery: 'Failed Delivery',
-      rto_in_transit: 'RTO In Transit',
-      rto_delivered: 'RTO Delivered',
-      rto_failed: 'RTO Failed',
-    };
-    return labels[status] || status;
-  };
-
   const safeFormatDate = (date: any, fmt: string) => {
     try {
       const d = new Date(date);
@@ -224,9 +188,7 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
                 </TableCell>
                 <TableCell className="capitalize">{shipment.shippingProvider}</TableCell>
                 <TableCell>
-                  <Badge variant={getStatusColor(shipment.status) as any}>
-                    {getStatusLabel(shipment.status)}
-                  </Badge>
+                  <StatusBadge status={shipment.status} type="shipment" />
                   {shipment.status === 'ndr_failed_delivery' && shipment.ndrDetails && (
                     <div className="text-xs text-muted-foreground mt-1 max-w-[180px]">
                       {shipment.ndrDetails.reason || 'Reason unknown'}
