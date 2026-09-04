@@ -10,6 +10,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { customersAPI } from '../services/api';
+import { fmtRupees } from '../lib/money';
 import { format } from 'date-fns';
 import {
   User,
@@ -24,6 +25,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { getStatusColorClass } from '../components/order/StatusBadge';
 import {
   Table,
   TableBody,
@@ -65,17 +67,10 @@ const UserDetail: React.FC = () => {
     }
   };
 
-  const getStatusVariant = (status: string) => {
-    switch (status) {
-      case 'pending': return 'warning';
-      case 'confirmed': return 'default';
-      case 'processing': return 'secondary';
-      case 'shipped': return 'default';
-      case 'delivered': return 'success';
-      case 'cancelled': return 'destructive';
-      default: return 'outline';
-    }
-  };
+  // Was a coarse switch returning non-standard Badge variants ('warning'/
+  // 'success' aren't real shadcn variants — hence the `as any` cast at the
+  // call site) — now sources real per-status colors from the same 'order'
+  // palette components/order/StatusBadge.tsx centralizes elsewhere.
 
   if (loading) {
     return (
@@ -189,9 +184,9 @@ const UserDetail: React.FC = () => {
                     {orders.map((order) => (
                       <TableRow key={order.id}>
                         <TableCell className="font-medium">{order.order_id}</TableCell>
-                        <TableCell>₹{Number(order.total || 0).toLocaleString('en-IN')}</TableCell>
+                        <TableCell>{fmtRupees(order.total || 0)}</TableCell>
                         <TableCell>
-                          <Badge variant={getStatusVariant(order.order_status) as any} className="capitalize">
+                          <Badge variant="outline" className={`capitalize border-transparent ${getStatusColorClass('order', order.order_status)}`}>
                             {order.order_status}
                           </Badge>
                         </TableCell>

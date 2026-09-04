@@ -2757,23 +2757,26 @@ export const cartsAPI = {
     const response = await api.get('/carts/admin/export', { params });
     return response.data;
   },
-  /** The store's Reminder → Persuasion → Discount recovery flow. */
+  /** The store's Reminder → Persuasion → Discount recovery flow. The
+   *  response interceptor (`normalizeResponse`) already unwraps the backend's
+   *  `{success, data}` envelope down to `response.data` itself — every method
+   *  in this file returns THAT directly, never a second `.data` on top of it. */
   getRecoverySteps: async () => {
     const response = await api.get('/carts/admin/recovery-steps');
-    return response.data?.data ?? response.data;
+    return response.data;
   },
   updateRecoverySteps: async (steps: unknown) => {
     const response = await api.put('/carts/admin/recovery-steps', { steps });
-    return response.data?.data ?? response.data;
+    return response.data;
   },
   /** This store's own live, APPROVED WhatsApp templates — for the flow's per-step Custom mode. */
   listWhatsAppTemplates: async () => {
     const response = await api.get('/carts/admin/whatsapp-templates');
-    return response.data?.data ?? [];
+    return Array.isArray(response.data) ? response.data : [];
   },
   getWhatsAppTemplate: async (id: string) => {
     const response = await api.get(`/carts/admin/whatsapp-templates/${id}`);
-    return response.data?.data ?? response.data;
+    return response.data;
   },
   getDetail: async (cartId: string) => {
     const response = await api.get(`/carts/admin/${cartId}`);
@@ -2812,6 +2815,13 @@ export const cartsAPI = {
   updateCharges: async (cartId: string, body: { shippingWaived?: boolean; codWaived?: boolean }) => {
     const response = await api.put(`/carts/admin/${cartId}/charges`, body);
     return response.data;
+  },
+  /** Every WhatsApp/SMS/Email attempt made for this cart (automated flow +
+   *  manual sends), newest first — `status:'sent'` means the provider ACCEPTED
+   *  the request, not confirmed delivery (no delivery-receipt webhook exists). */
+  getRecoveryLog: async (cartId: string) => {
+    const response = await api.get(`/carts/admin/${cartId}/recovery-log`);
+    return Array.isArray(response.data) ? response.data : [];
   },
 };
 

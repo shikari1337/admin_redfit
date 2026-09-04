@@ -5,6 +5,8 @@ import { productsAPI, categoriesAPI, brandsAPI, attributesAPI, attributeValuesAP
 import { FaPlus, FaTrash, FaCog, FaCopy } from 'react-icons/fa';
 import { Pencil, Download, Upload, Loader2, ChevronDown, Search, X, FileSpreadsheet } from 'lucide-react';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { fmtRupees } from '../lib/money';
+import { Pagination } from '@/components/erp';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -474,9 +476,15 @@ const IMPORT_LABELS: Record<ImportType, string> = {
 };
 
 const Products: React.FC = () => {
-  const { user, canAccess } = useAuth();
-  const isAdmin = user?.role === 'admin';
-  const canManageProducts = isAdmin || canAccess('products');
+  const { hasPerm, canAccess } = useAuth();
+  // Backend requires products.manage for create/update/duplicate and
+  // products.delete for removal (routes/products/handlers/*.ts) — was
+  // `isAdmin || canAccess('products')`, a role==='admin' anti-pattern
+  // (CLAUDE.md rule 7b) mixed with a module-availability check that answers
+  // a different question ("did the store buy this feature") than
+  // authorization ("can this person do this").
+  const canManageProducts = hasPerm('products.manage');
+  const canDeleteProducts = hasPerm('products.delete');
 
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1132,8 +1140,8 @@ const Products: React.FC = () => {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <div className="font-medium">₹{(product.price ?? 0).toLocaleString('en-IN')}</div>
-                    {(product.originalPrice ?? 0) > 0 && <div className="text-xs text-muted-foreground line-through">₹{product.originalPrice.toLocaleString('en-IN')}</div>}
+                    <div className="font-medium">{fmtRupees(product.price ?? 0)}</div>
+                    {(product.originalPrice ?? 0) > 0 && <div className="text-xs text-muted-foreground line-through">{fmtRupees(product.originalPrice)}</div>}
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
@@ -1197,7 +1205,7 @@ const Products: React.FC = () => {
                           {duplicatingId === product._id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FaCopy className="h-3.5 w-3.5" />}
                         </Button>
                       )}
-                      {isAdmin && (
+                      {canDeleteProducts && (
                         <Button
                           variant="outline" size="sm"
                           className="h-8 w-8 p-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
@@ -1217,39 +1225,7 @@ const Products: React.FC = () => {
       </div>
 
       {/* Pagination */}
-      {total > PAGE_SIZE && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">
-            Page {page} of {Math.ceil(total / PAGE_SIZE)} &middot; {total} total
-          </p>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-              Previous
-            </Button>
-            {Array.from({ length: Math.min(5, Math.ceil(total / PAGE_SIZE)) }, (_, i) => {
-              const totalPages = Math.ceil(total / PAGE_SIZE);
-              let pageNum: number;
-              if (totalPages <= 5) {
-                pageNum = i + 1;
-              } else if (page <= 3) {
-                pageNum = i + 1;
-              } else if (page >= totalPages - 2) {
-                pageNum = totalPages - 4 + i;
-              } else {
-                pageNum = page - 2 + i;
-              }
-              return (
-                <Button key={pageNum} variant={pageNum === page ? 'default' : 'outline'} size="sm" className="w-8 h-8 p-0" onClick={() => setPage(pageNum)}>
-                  {pageNum}
-                </Button>
-              );
-            })}
-            <Button variant="outline" size="sm" disabled={page >= Math.ceil(total / PAGE_SIZE)} onClick={() => setPage((p) => p + 1)}>
-              Next
-            </Button>
-          </div>
-        </div>
-      )}
+      <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPage={setPage} variant="numbered" />
     </div>
   );
 };

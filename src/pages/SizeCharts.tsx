@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { FaPlus, FaSave, FaTrash, FaUndo, FaEdit } from 'react-icons/fa';
 import { sizeChartsAPI } from '../services/api';
 import ImageInputWithActions from '../components/common/ImageInputWithActions';
+import { useAuth } from '../contexts/AuthContext';
 
 interface SizeChartEntry {
   size: string;
@@ -48,6 +49,11 @@ const normalizeId = (id: any): string | null => {
 };
 
 const SizeCharts: React.FC = () => {
+  const { hasPerm } = useAuth();
+  // Backend requires products.manage for create/update, products.delete for removal
+  // (routes/sizeCharts.ts) — this page had ZERO client-side gating before.
+  const canManageSizeCharts = hasPerm('products.manage');
+  const canDeleteSizeCharts = hasPerm('products.delete');
   const [charts, setCharts] = useState<SizeChart[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -355,13 +361,15 @@ const SizeCharts: React.FC = () => {
           >
             Refresh
           </button>
-          <button
-            onClick={resetForm}
-            className="flex items-center px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-          >
-            <FaPlus className="mr-2" />
-            New Size Chart
-          </button>
+          {canManageSizeCharts && (
+            <button
+              onClick={resetForm}
+              className="flex items-center px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+            >
+              <FaPlus className="mr-2" />
+              New Size Chart
+            </button>
+          )}
         </div>
       </div>
 
@@ -456,19 +464,23 @@ const SizeCharts: React.FC = () => {
                     </div>
                   </div>
                   <div className="flex flex-col gap-2">
-                    <button
-                      onClick={() => handleEdit(chart)}
-                      className="px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(chart)}
-                      className="px-3 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
-                    >
-                      <FaTrash className="inline mr-1" />
-                      Delete
-                    </button>
+                    {canManageSizeCharts && (
+                      <button
+                        onClick={() => handleEdit(chart)}
+                        className="px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                      >
+                        Edit
+                      </button>
+                    )}
+                    {canDeleteSizeCharts && (
+                      <button
+                        onClick={() => handleDelete(chart)}
+                        className="px-3 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
+                      >
+                        <FaTrash className="inline mr-1" />
+                        Delete
+                      </button>
+                    )}
                   </div>
                 </div>
               );
@@ -697,14 +709,16 @@ const SizeCharts: React.FC = () => {
             </div>
 
             <div className="pt-3 border-t border-gray-200 flex gap-3">
-              <button
-                type="submit"
-                disabled={saving}
-                className="flex items-center px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-60"
-              >
-                <FaSave className="mr-2" />
-                {saving ? 'Saving...' : selectedId ? 'Update Size Chart' : 'Create Size Chart'}
-              </button>
+              {canManageSizeCharts && (
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="flex items-center px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-60"
+                >
+                  <FaSave className="mr-2" />
+                  {saving ? 'Saving...' : selectedId ? 'Update Size Chart' : 'Create Size Chart'}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={resetForm}

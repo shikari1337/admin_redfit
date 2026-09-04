@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { FaPlus, FaEdit, FaTrash, FaSearch, FaLink } from 'react-icons/fa';
 import { specificationsAPI } from '../services/api';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 
 interface Specification {
   _id: string;
@@ -18,6 +19,11 @@ interface Specification {
 }
 
 const Specifications: React.FC = () => {
+  const { hasPerm } = useAuth();
+  // Backend requires products.manage for create/update (incl. active toggle), products.delete
+  // for removal (routes/specifications.ts) — this page had ZERO client-side gating before.
+  const canManageSpecs = hasPerm('products.manage');
+  const canDeleteSpecs = hasPerm('products.delete');
   const [specifications, setSpecifications] = useState<Specification[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -101,13 +107,15 @@ const Specifications: React.FC = () => {
           <h1 className="text-2xl font-bold text-gray-900">Specifications</h1>
           <p className="text-sm text-gray-500 mt-1">Manage product specifications (shared templates and product-specific)</p>
         </div>
-        <button
-          onClick={() => navigate('/products/specifications/new')}
-          className="flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-        >
-          <FaPlus className="mr-2" />
-          Create Specification
-        </button>
+        {canManageSpecs && (
+          <button
+            onClick={() => navigate('/products/specifications/new')}
+            className="flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+          >
+            <FaPlus className="mr-2" />
+            Create Specification
+          </button>
+        )}
       </div>
 
       {error && (
@@ -208,30 +216,46 @@ const Specifications: React.FC = () => {
                     <div className="text-sm text-gray-500">{spec.sections?.length || 0} sections</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <button
-                      onClick={() => handleToggleActive(spec)}
-                      className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                        spec.isActive
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-gray-100 text-gray-800'
-                      }`}
-                    >
-                      {spec.isActive ? 'Active' : 'Inactive'}
-                    </button>
+                    {canManageSpecs ? (
+                      <button
+                        onClick={() => handleToggleActive(spec)}
+                        className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                          spec.isActive
+                            ? 'bg-green-100 text-green-800'
+                            : 'bg-gray-100 text-gray-800'
+                        }`}
+                      >
+                        {spec.isActive ? 'Active' : 'Inactive'}
+                      </button>
+                    ) : (
+                      <span
+                        className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                          spec.isActive
+                            ? 'bg-green-100 text-green-800'
+                            : 'bg-gray-100 text-gray-800'
+                        }`}
+                      >
+                        {spec.isActive ? 'Active' : 'Inactive'}
+                      </span>
+                    )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button
-                      onClick={() => navigate(`/products/specifications/${spec._id}/edit`)}
-                      className="text-blue-600 hover:text-blue-900 mr-4"
-                    >
-                      <FaEdit />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(spec._id, spec.name)}
-                      className="text-red-600 hover:text-red-900"
-                    >
-                      <FaTrash />
-                    </button>
+                    {canManageSpecs && (
+                      <button
+                        onClick={() => navigate(`/products/specifications/${spec._id}/edit`)}
+                        className="text-blue-600 hover:text-blue-900 mr-4"
+                      >
+                        <FaEdit />
+                      </button>
+                    )}
+                    {canDeleteSpecs && (
+                      <button
+                        onClick={() => handleDelete(spec._id, spec.name)}
+                        className="text-red-600 hover:text-red-900"
+                      >
+                        <FaTrash />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { FaPlus, FaSave, FaUndo, FaTrash, FaEdit, FaChevronDown, FaChevronRight, FaUpload } from 'react-icons/fa';
 import { attributesAPI, attributeValuesAPI, uploadAPI } from '../services/api';
 import { slugifyValue } from '../utils/slugify';
+import { useAuth } from '../contexts/AuthContext';
 
 interface Attribute {
   _id: string;
@@ -67,6 +68,12 @@ const emptyValueForm = {
 };
 
 const Attributes: React.FC = () => {
+  const { hasPerm } = useAuth();
+  // Backend requires products.manage for attribute/value create+update, products.delete
+  // for removal (routes/attributes.ts, routes/attributeValues.ts) — this page had ZERO
+  // client-side gating before.
+  const canManageAttributes = hasPerm('products.manage');
+  const canDeleteAttributes = hasPerm('products.delete');
   const [attributes, setAttributes] = useState<Attribute[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -547,12 +554,14 @@ const Attributes: React.FC = () => {
           <h1 className="text-3xl font-bold text-gray-900">Attributes & Values</h1>
           <p className="text-gray-600 mt-1">Manage product attributes like Color, Size, Material, etc.</p>
         </div>
-        <button
-          onClick={resetAttributeForm}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <FaPlus /> New Attribute
-        </button>
+        {canManageAttributes && (
+          <button
+            onClick={resetAttributeForm}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <FaPlus /> New Attribute
+          </button>
+        )}
       </div>
 
       {error && (
@@ -579,12 +588,14 @@ const Attributes: React.FC = () => {
                 <FaPlus className="mx-auto text-gray-400 text-4xl mb-3" />
                 <p className="text-gray-500 text-lg mb-2">No attributes yet</p>
                 <p className="text-gray-400 text-sm mb-4">Create your first attribute to get started</p>
-                <button
-                  onClick={resetAttributeForm}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  Create Attribute
-                </button>
+                {canManageAttributes && (
+                  <button
+                    onClick={resetAttributeForm}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    Create Attribute
+                  </button>
+                )}
               </div>
             ) : (
               attributes
@@ -654,20 +665,24 @@ const Attributes: React.FC = () => {
                           </div>
                         </div>
                         <div className="flex gap-2 ml-4">
-                          <button
-                            onClick={() => handleEditAttribute(attribute)}
-                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                            title="Edit Attribute"
-                          >
-                            <FaEdit />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteAttribute(normalizedAttrId)}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                            title="Delete Attribute"
-                          >
-                            <FaTrash />
-                          </button>
+                          {canManageAttributes && (
+                            <button
+                              onClick={() => handleEditAttribute(attribute)}
+                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                              title="Edit Attribute"
+                            >
+                              <FaEdit />
+                            </button>
+                          )}
+                          {canDeleteAttributes && (
+                            <button
+                              onClick={() => handleDeleteAttribute(normalizedAttrId)}
+                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                              title="Delete Attribute"
+                            >
+                              <FaTrash />
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -677,7 +692,7 @@ const Attributes: React.FC = () => {
                           <h3 className="text-sm font-semibold text-gray-700">
                             Values ({attributeValues[normalizedAttrId]?.length || 0})
                           </h3>
-                          {!isSelectedForValue && (
+                          {!isSelectedForValue && canManageAttributes && (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation(); // Prevent any parent click handlers
@@ -746,20 +761,24 @@ const Attributes: React.FC = () => {
                                     </div>
                                   </div>
                                   <div className="flex gap-2 ml-4">
-                                    <button
-                                      onClick={() => handleEditValue(value, normalizedAttrId)}
-                                      className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                                      title="Edit Value"
-                                    >
-                                      <FaEdit className="text-sm" />
-                                    </button>
-                                    <button
-                                      onClick={() => handleDeleteValue(normalizedAttrId, normalizedValueId)}
-                                      className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
-                                      title="Delete Value"
-                                    >
-                                      <FaTrash className="text-sm" />
-                                    </button>
+                                    {canManageAttributes && (
+                                      <button
+                                        onClick={() => handleEditValue(value, normalizedAttrId)}
+                                        className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                        title="Edit Value"
+                                      >
+                                        <FaEdit className="text-sm" />
+                                      </button>
+                                    )}
+                                    {canDeleteAttributes && (
+                                      <button
+                                        onClick={() => handleDeleteValue(normalizedAttrId, normalizedValueId)}
+                                        className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                        title="Delete Value"
+                                      >
+                                        <FaTrash className="text-sm" />
+                                      </button>
+                                    )}
                                   </div>
                                 </div>
                               );
@@ -993,25 +1012,27 @@ const Attributes: React.FC = () => {
               </p>
             </div>
             <div className="flex gap-2 pt-4">
-              <button
-                type="submit"
-                disabled={saving}
-                className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-medium transition-colors"
-              >
-                {saving ? (
-                  <>
-                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                    </svg>
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <FaSave /> {editingAttributeId ? 'Update' : 'Create'} Attribute
-                  </>
-                )}
-              </button>
+              {canManageAttributes && (
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-medium transition-colors"
+                >
+                  {saving ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                      </svg>
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <FaSave /> {editingAttributeId ? 'Update' : 'Create'} Attribute
+                    </>
+                  )}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={resetAttributeForm}
@@ -1196,25 +1217,27 @@ const Attributes: React.FC = () => {
                   </label>
                 </div>
                 <div className="flex gap-2 pt-4">
-                  <button
-                    type="submit"
-                    disabled={saving}
-                    className="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-medium transition-colors"
-                  >
-                    {saving ? (
-                      <>
-                        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                        </svg>
-                        Saving...
-                      </>
-                    ) : (
-                      <>
-                        <FaSave /> {selectedValueId ? 'Update' : 'Create'} Value
-                      </>
-                    )}
-                  </button>
+                  {canManageAttributes && (
+                    <button
+                      type="submit"
+                      disabled={saving}
+                      className="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-medium transition-colors"
+                    >
+                      {saving ? (
+                        <>
+                          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                          </svg>
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <FaSave /> {selectedValueId ? 'Update' : 'Create'} Value
+                        </>
+                      )}
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={resetValueForm}

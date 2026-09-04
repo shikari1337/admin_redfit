@@ -7,15 +7,17 @@
  * every field into one long scroll, so the attribute filter and SEO fields sat
  * below the fold and were routinely missed.
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Plus, Save, RotateCcw, Trash2, Search, ChevronRight, ChevronDown,
-  Star, EyeOff, FolderTree,
+  Star, EyeOff, FolderTree, ExternalLink, Filter as FilterIcon, Boxes, Circle,
 } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 import { categoriesAPI, attributesAPI } from '../services/api';
 import ImageInputWithActions from '../components/common/ImageInputWithActions';
 import IconPicker, { getIconComponent } from '../components/IconPicker';
 import CategoryFeaturedPicker, { FeaturedMode, FeaturedValue } from '../components/category/CategoryFeaturedPicker';
+import CategoryProductsPanel from '../components/category/CategoryProductsPanel';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -110,11 +112,21 @@ const emptyForm = {
 
 const emptyFeatured: FeaturedValue = { mode: 'off', productIds: [], brandIds: [], limit: 10 };
 
+/** Where a saved category can be previewed. Same env var Settings/PageBuilder read. */
+const STOREFRONT_URL = (import.meta as any).env?.VITE_STOREFRONT_URL || 'http://localhost:3000';
+
 /** Read a field that may arrive camelCase (admin transform) or snake_case (raw row). */
 const pick = (o: any, camel: string, snake: string, fallback: any = undefined) =>
   o?.[camel] ?? o?.[snake] ?? fallback;
 
 const Categories: React.FC = () => {
+  const { hasPerm } = useAuth();
+  // Backend requires products.manage for create/update, products.delete for
+  // removal (routes/categories.ts) — this page had NO client-side gating at
+  // all before, so every staff member with just page-level access saw fully
+  // live create/edit/delete controls regardless of their actual permissions.
+  const canManageCategories = hasPerm('products.manage');
+  const canDeleteCategories = hasPerm('products.delete');
   const [categories, setCategories] = useState<Category[]>([]);
   const [attributes, setAttributes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -128,6 +140,17 @@ const Categories: React.FC = () => {
   const [tab, setTab] = useState('basics');
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  /**
+   * Snapshot of the form as it was loaded, so an unsaved edit can be detected.
+   * Clicking another category in the tree used to blow away in-progress typing
+   * with no warning at all — easy to do on a 566-row tree.
+   */
+  const baseline = useRef<string>(JSON.stringify({ ...emptyForm, __f: emptyFeatured }));
+  const dirty = JSON.stringify({ ...formState, __f: featured }) !== baseline.current;
+
+  /** Ask before throwing away unsaved edits; returns false to cancel the switch. */
+  const confirmDiscard = () =>
+    !dirty || confirm('You have unsaved changes on this category. Discard them?');
 
   useEffect(() => {
     fetchCategories();
@@ -159,6 +182,7 @@ const Categories: React.FC = () => {
     setSelectedId(null);
     setFormState({ ...emptyForm });
     setFeatured({ ...emptyFeatured });
+    baseline.current = JSON.stringify({ ...emptyForm, __f: emptyFeatured });
     setError(null);
     setImageError(null);
     setImageUploading(false);
@@ -168,7 +192,7 @@ const Categories: React.FC = () => {
   const handleEdit = (category: any) => {
     setSelectedId(category._id);
     const rawFilterValue = String(pick(category, 'filterAttributeValue', 'filter_attribute_value', '') ?? '');
-    setFormState({
+    const loaded = {
       name: category.name || '',
       slug: category.slug || '',
       description: category.description || '',
@@ -187,13 +211,16 @@ const Categories: React.FC = () => {
       // A leading "!" in the stored value means EXCLUDE (hide matching); else INCLUDE.
       filterAttributeValue: rawFilterValue.replace(/^!/, ''),
       filterAttributeMode: rawFilterValue.startsWith('!') ? 'exclude' : 'only',
-    });
-    setFeatured({
+    };
+    const loadedFeatured: FeaturedValue = {
       mode: (category.featuredMode || 'off') as FeaturedMode,
       productIds: category.featuredProductIds ?? [],
       brandIds: category.featuredBrandIds ?? [],
       limit: Number(category.featuredLimit) || 10,
-    });
+    };
+    setFormState(loaded);
+    setFeatured(loadedFeatured);
+    baseline.current = JSON.stringify({ ...loaded, __f: loadedFeatured });
     setError(null);
     setImageError(null);
     setImageUploading(false);
@@ -264,10 +291,20 @@ const Categories: React.FC = () => {
     if (formState.slug?.trim()) payload.slug = formState.slug.trim();
 
     try {
-      if (selectedId) await categoriesAPI.update(selectedId, payload);
-      else await categoriesAPI.create(payload);
+      const saved = selectedId
+        ? await categoriesAPI.update(selectedId, payload)
+        : await categoriesAPI.create(payload);
       await fetchCategories();
-      resetForm();
+      // Stay on the category that was just saved instead of clearing the editor.
+      // A brand-new one especially: its Products tab needs an id to exist, so
+      // dropping the selection meant hunting for it in a 566-row tree first.
+      const row = (saved as any)?.data ?? saved;
+      if (row && (row.id || row._id)) {
+        handleEdit(normalizeCategory(row));
+        setTab(tab);
+      } else {
+        resetForm();
+      }
     } catch (err: any) {
       console.error('Failed to save category', err);
       setError(err?.message || 'Failed to save category');
@@ -299,6 +336,24 @@ const Categories: React.FC = () => {
     categories.forEach((c) => m.set(c._id, c));
     return m;
   }, [categories]);
+
+  /** The slug as SAVED — the form's own slug field may be blank (auto-generate) or mid-edit. */
+  const savedSlug = selectedId ? byId.get(selectedId)?.slug ?? '' : '';
+
+  /** Ancestor path of the category being edited, e.g. "Homeopathy › Drops". */
+  const breadcrumb = useMemo(() => {
+    const startId = formState.parent && formState.parent !== 'none' ? formState.parent : null;
+    if (!startId) return '';
+    const names: string[] = [];
+    const seen = new Set<string>();
+    let cur = byId.get(String(startId));
+    while (cur && !seen.has(cur._id)) {
+      seen.add(cur._id); // a cycle in the data must not hang the page
+      names.unshift(cur.name);
+      cur = cur.parent ? byId.get(String(cur.parent)) : undefined;
+    }
+    return names.join(' › ');
+  }, [formState.parent, byId]);
 
   /**
    * Build the tree. A category whose parent is missing (deleted, or simply not
@@ -362,7 +417,7 @@ const Categories: React.FC = () => {
 
           <button
             type="button"
-            onClick={() => handleEdit(c)}
+            onClick={() => { if (confirmDiscard()) handleEdit(c); }}
             className="flex-1 min-w-0 text-left flex items-center gap-2 py-0.5"
           >
             <span className={`truncate text-sm ${selected ? 'font-semibold' : ''}`}>{c.name}</span>
@@ -376,14 +431,16 @@ const Categories: React.FC = () => {
             )}
           </button>
 
-          <Button
-            variant="ghost" size="sm"
-            className="h-6 w-6 p-0 text-destructive opacity-0 group-hover:opacity-100 focus:opacity-100"
-            onClick={() => handleDelete(c)}
-            aria-label={`Delete ${c.name}`}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
+          {canDeleteCategories && (
+            <Button
+              variant="ghost" size="sm"
+              className="h-6 w-6 p-0 text-destructive opacity-0 group-hover:opacity-100 focus:opacity-100"
+              onClick={() => handleDelete(c)}
+              aria-label={`Delete ${c.name}`}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          )}
         </div>
         {open && kids.map((k) => <Row key={k._id} c={k} depth={depth + 1} />)}
       </>
@@ -399,9 +456,11 @@ const Categories: React.FC = () => {
             Manage the storefront hierarchy, filters and featured products.
           </p>
         </div>
-        <Button onClick={resetForm} className="flex items-center gap-2">
-          <Plus className="h-4 w-4" /> New Category
-        </Button>
+        {canManageCategories && (
+          <Button onClick={() => { if (confirmDiscard()) resetForm(); }} className="flex items-center gap-2">
+            <Plus className="h-4 w-4" /> New Category
+          </Button>
+        )}
       </div>
 
       {error && (
@@ -458,12 +517,43 @@ const Categories: React.FC = () => {
         {/* ── Editor ───────────────────────────────────────────────────────── */}
         <Card className="lg:col-span-3 shadow-sm">
           <CardHeader className="pb-3 border-b">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base">
-                {selectedId ? `Edit — ${formState.name || 'category'}` : 'Create Category'}
-              </CardTitle>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <span className="truncate">
+                    {selectedId ? (formState.name || 'Untitled category') : 'Create Category'}
+                  </span>
+                  {dirty && (
+                    <span title="Unsaved changes" className="shrink-0">
+                      <Circle className="h-2 w-2 fill-amber-500 text-amber-500" />
+                    </span>
+                  )}
+                </CardTitle>
+                {/* Where this category actually sits, and where to go look at it —
+                    neither was visible before, so a merchant editing one of 536
+                    child categories had no idea which branch they were in. */}
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+                  <span>{breadcrumb || 'Top level'}</span>
+                  {selectedId && savedSlug && (
+                    <>
+                      <span className="opacity-50">·</span>
+                      <a
+                        href={`${STOREFRONT_URL}/category/${savedSlug}`}
+                        target="_blank" rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
+                      >
+                        /category/{savedSlug} <ExternalLink className="h-3 w-3" />
+                      </a>
+                    </>
+                  )}
+                </div>
+              </div>
               {selectedId && (
-                <Button variant="ghost" size="sm" onClick={resetForm} className="h-8 px-2 text-muted-foreground">
+                <Button
+                  variant="ghost" size="sm"
+                  onClick={() => { if (confirmDiscard()) resetForm(); }}
+                  className="h-8 shrink-0 px-2 text-muted-foreground"
+                >
                   <RotateCcw className="mr-2 h-3.5 w-3.5" /> New
                 </Button>
               )}
@@ -472,15 +562,30 @@ const Categories: React.FC = () => {
           <CardContent className="pt-5">
             <form onSubmit={handleSubmit} className="space-y-5">
               <Tabs value={tab} onValueChange={setTab}>
+                {/* Each tab shows whether it holds anything, so a merchant can see
+                    at a glance that (say) SEO is still empty without opening it. */}
                 <TabsList className="mb-4 flex-wrap h-auto">
                   <TabsTrigger value="basics">Basics</TabsTrigger>
-                  <TabsTrigger value="seo">SEO</TabsTrigger>
-                  <TabsTrigger value="filter">Filter</TabsTrigger>
+                  <TabsTrigger value="seo" className="gap-1.5">
+                    SEO
+                    {(formState.metaTitle?.trim() || formState.metaDesc?.trim()) && (
+                      <Circle className="h-2 w-2 fill-emerald-500 text-emerald-500" />
+                    )}
+                  </TabsTrigger>
+                  <TabsTrigger value="filter" className="gap-1.5">
+                    Filter
+                    {formState.filterAttributeSlug && formState.filterAttributeValue && (
+                      <FilterIcon className="h-3 w-3 text-sky-600" />
+                    )}
+                  </TabsTrigger>
                   <TabsTrigger value="featured" className="gap-1.5">
                     Featured
                     {featured.mode !== 'off' && (
                       <Star className="h-3 w-3 fill-amber-400 text-amber-500" />
                     )}
+                  </TabsTrigger>
+                  <TabsTrigger value="products" className="gap-1.5">
+                    <Boxes className="h-3.5 w-3.5" /> Products
                   </TabsTrigger>
                 </TabsList>
 
@@ -535,6 +640,7 @@ const Categories: React.FC = () => {
                     <ImageInputWithActions
                       value={formState.imageUrl || ''}
                       onChange={(url: string) => setFormState({ ...formState, imageUrl: url })}
+                      folder="categories"
                       label="" placeholder="Image URL (https://...)" />
                   </div>
 
@@ -580,13 +686,32 @@ const Categories: React.FC = () => {
                 {/* SEO */}
                 <TabsContent value="seo" className="m-0 space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="metaTitle">Meta Title</Label>
+                    <div className="flex items-baseline justify-between">
+                      <Label htmlFor="metaTitle">Meta Title</Label>
+                      {/* The storefront appends " | <store name>" to whatever is
+                          typed here, so the budget that matters is well under 60. */}
+                      <span className={`text-[11px] tabular-nums ${
+                        formState.metaTitle.length > 50 ? 'text-orange-600' : 'text-muted-foreground'
+                      }`}>
+                        {formState.metaTitle.length}/50
+                      </span>
+                    </div>
                     <Input id="metaTitle" value={formState.metaTitle}
                       onChange={(e) => setFormState({ ...formState, metaTitle: e.target.value })}
                       placeholder="Defaults to the category name" />
+                    <p className="text-[11px] text-muted-foreground">
+                      The store name is added automatically — leave it out.
+                    </p>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="metaDesc">Meta Description</Label>
+                    <div className="flex items-baseline justify-between">
+                      <Label htmlFor="metaDesc">Meta Description</Label>
+                      <span className={`text-[11px] tabular-nums ${
+                        formState.metaDesc.length > 160 ? 'text-orange-600' : 'text-muted-foreground'
+                      }`}>
+                        {formState.metaDesc.length}/160
+                      </span>
+                    </div>
                     <Textarea id="metaDesc" rows={3} value={formState.metaDesc}
                       onChange={(e) => setFormState({ ...formState, metaDesc: e.target.value })}
                       placeholder="Shown in search results (~160 characters)" className="resize-y" />
@@ -596,6 +721,7 @@ const Categories: React.FC = () => {
                     <ImageInputWithActions
                       value={formState.ogImageUrl || ''}
                       onChange={(url: string) => setFormState({ ...formState, ogImageUrl: url })}
+                      folder="categories"
                       label="" placeholder="OG image URL (https://...)" />
                   </div>
                 </TabsContent>
@@ -682,14 +808,35 @@ const Categories: React.FC = () => {
                     categoryName={formState.name || undefined}
                   />
                 </TabsContent>
+
+                {/* Products — writes straight to the products, not to this form */}
+                <TabsContent value="products" className="m-0">
+                  <CategoryProductsPanel
+                    categoryId={selectedId}
+                    categoryName={formState.name || 'this category'}
+                    canManage={canManageCategories}
+                  />
+                </TabsContent>
               </Tabs>
 
-              <div className="pt-4 border-t flex gap-3">
-                <Button type="submit" disabled={saving} className="flex-1">
-                  <Save className="mr-2 h-4 w-4" />
-                  {saving ? 'Saving…' : selectedId ? 'Update Category' : 'Create Category'}
-                </Button>
-                <Button type="button" variant="outline" onClick={resetForm} className="flex-none">
+              {/* Sticky so the save action stays reachable on the long tabs
+                  instead of sitting below the fold. */}
+              <div className="sticky bottom-0 -mx-6 -mb-5 flex items-center gap-3 border-t bg-background/95 px-6 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+                {canManageCategories && (
+                  <Button type="submit" disabled={saving} className="flex-1">
+                    <Save className="mr-2 h-4 w-4" />
+                    {saving ? 'Saving…' : selectedId ? 'Update Category' : 'Create Category'}
+                  </Button>
+                )}
+                {dirty && !saving && (
+                  <span className="hidden shrink-0 items-center gap-1.5 text-[11px] text-amber-600 sm:flex">
+                    <Circle className="h-2 w-2 fill-amber-500 text-amber-500" /> Unsaved
+                  </span>
+                )}
+                <Button
+                  type="button" variant="outline" className="flex-none"
+                  onClick={() => { if (confirmDiscard()) resetForm(); }}
+                >
                   <RotateCcw className="mr-2 h-4 w-4" /> Clear
                 </Button>
               </div>

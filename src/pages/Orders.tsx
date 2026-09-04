@@ -3,8 +3,10 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ordersAPI, shippingAPI } from '../services/api';
 import { formatDate } from '../utils/date';
+import { fmtRupees } from '../lib/money';
 import { FaTruck, FaWhatsapp, FaEye, FaDownload, FaPlus, FaSearchDollar } from 'react-icons/fa';
 import RecoverPaymentModal from '../components/order/RecoverPaymentModal';
+import { getStatusColorClass } from '../components/order/StatusBadge';
 import { Search } from 'lucide-react';
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -17,7 +19,15 @@ import { useToast } from "@/hooks/use-toast"; // Assuming useToast is available,
 import { FaCheckCircle } from 'react-icons/fa';
 
 const Orders: React.FC = () => {
-  const { canAccess } = useAuth();
+  const { canAccess, hasPerm } = useAuth();
+  // Backend (routes/orders.ts): status change / manual order create / payment
+  // mark-paid all require orders.manage. Send-to-Shiprocket is a DIFFERENT
+  // permission (routes/shipping.ts POST /create-shipment -> shipments.manage) —
+  // this page previously gated it only on canAccess('shipping'), a module-
+  // enabled flag, not an actual permission (same class of gap already fixed on
+  // OrderDetail.tsx 2026-08-28). This page had ZERO hasPerm gating before.
+  const canManageOrders = hasPerm('orders.manage');
+  const canManageShipments = hasPerm('shipments.manage');
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
@@ -174,17 +184,11 @@ const Orders: React.FC = () => {
     }
   };
 
-  const getStatusBadgeVariant = (status: string): "default" | "secondary" | "destructive" | "outline" | null => {
-    const s = status?.toLowerCase();
-    if (['delivered', 'completed', 'shipped'].includes(s)) return 'default';
-    if (['cancelled', 'failed', 'refunded'].includes(s)) return 'destructive';
-    if (['pending'].includes(s)) return 'outline';
-    return 'secondary';
-  };
-
-  const getPaymentBadgeVariant = (status: string): "default" | "secondary" | "destructive" | "outline" | null => {
-    return status?.toLowerCase() === 'completed' ? 'default' : 'secondary';
-  };
+  // Was a coarse 4-bucket variant scheme (default/secondary/destructive/
+  // outline) that couldn't distinguish e.g. 'shipped' from 'confirmed' from
+  // 'processing' — now sources real per-status colors from the same palette
+  // components/order/StatusBadge.tsx centralizes for every other order/
+  // payment-status display in the admin.
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -197,11 +201,13 @@ const Orders: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <Button variant="default" size="sm" className="h-9 bg-green-600 hover:bg-green-700" asChild>
-            <Link to="/orders/new">
-              <FaPlus className="mr-1.5 h-3 w-3" /> Create Order
-            </Link>
-          </Button>
+          {canManageOrders && (
+            <Button variant="default" size="sm" className="h-9 bg-green-600 hover:bg-green-700" asChild>
+              <Link to="/orders/new">
+                <FaPlus className="mr-1.5 h-3 w-3" /> Create Order
+              </Link>
+            </Button>
+          )}
           {selectedIds.length > 0 && (
             <Button variant="outline" size="sm" className="h-9" onClick={() => handleExport(true)} disabled={exporting}>
               <FaDownload className="mr-1.5 h-3 w-3" />
@@ -212,11 +218,13 @@ const Orders: React.FC = () => {
             <FaDownload className="mr-1.5 h-3 w-3" />
             {exporting ? 'Exporting…' : 'Export all'}
           </Button>
-          <Button variant="outline" size="sm" className="h-9" onClick={() => setShowRecoverPayment(true)}
-            title="Recover a payment Razorpay shows as paid that never turned into an order">
-            <FaSearchDollar className="mr-1.5 h-3 w-3" />
-            Recover Payment
-          </Button>
+          {canManageOrders && (
+            <Button variant="outline" size="sm" className="h-9" onClick={() => setShowRecoverPayment(true)}
+              title="Recover a payment Razorpay shows as paid that never turned into an order">
+              <FaSearchDollar className="mr-1.5 h-3 w-3" />
+              Recover Payment
+            </Button>
+          )}
           <div className="relative w-full sm:w-72">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
@@ -331,6 +339,19 @@ const Orders: React.FC = () => {
                           {(order.isFlagged ?? order.is_flagged) && (
                             <Badge variant="outline" className="border-red-300 bg-red-50 text-red-700 text-[10px] px-1.5 py-0">Flagged</Badge>
                           )}
+                          {/* Placed via the storefront's Bulk Order Platform (marker in
+                              order notes, written by the portal's checkout hand-off). */}
+                          {/Source:\s*Bulk Order Platform/i.test(String(order.notes ?? '')) && (
+                            <Badge variant="outline" className="border-amber-400 bg-amber-50 text-amber-800 text-[10px] px-1.5 py-0">Bulk Platform</Badge>
+                          )}
+                          {(() => {
+                            const m = String(order.notes ?? '').match(/PO Ref:\s*([^\n]+)/i);
+                            return m ? (
+                              <Badge variant="outline" className="border-blue-300 bg-blue-50 text-blue-700 text-[10px] px-1.5 py-0" title="Buyer's purchase-order reference">
+                                PO: {m[1].trim()}
+                              </Badge>
+                            ) : null;
+                          })()}
                         </div>
                       </TableCell>
                       <TableCell className="px-4 py-3">
@@ -347,20 +368,20 @@ const Orders: React.FC = () => {
                         )}
                       </TableCell>
                       <TableCell className="px-4 py-3 font-medium text-foreground">
-                        ₹{(order.total || 0).toLocaleString('en-IN')}
+                        {fmtRupees(order.total || 0)}
                       </TableCell>
                       <TableCell className="px-4 py-3">
                         <div className="flex flex-col gap-1 items-start">
                           <span className="text-xs text-muted-foreground uppercase font-semibold">
                             {order.paymentMethod === 'cod' ? 'COD' : 'Prepaid'}
                           </span>
-                          <Badge variant={getPaymentBadgeVariant(order.paymentStatus)} className="text-[10px] uppercase font-bold tracking-wider rounded-sm px-1.5 py-0">
+                          <Badge variant="outline" className={`text-[10px] uppercase font-bold tracking-wider rounded-sm px-1.5 py-0 border-transparent ${getStatusColorClass('payment', order.paymentStatus)}`}>
                             {order.paymentStatus}
                           </Badge>
                         </div>
                       </TableCell>
                       <TableCell className="px-4 py-3">
-                        <Badge variant={getStatusBadgeVariant(order.orderStatus)} className="uppercase text-[11px] font-bold tracking-wider">
+                        <Badge variant="outline" className={`uppercase text-[11px] font-bold tracking-wider border-transparent ${getStatusColorClass('order', order.orderStatus)}`}>
                           {order.orderStatus}
                         </Badge>
                       </TableCell>
@@ -371,7 +392,7 @@ const Orders: React.FC = () => {
                       </TableCell>
                       <TableCell className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-2 isolate">
-                          {order.orderStatus === 'pending' && (
+                          {canManageOrders && order.orderStatus === 'pending' && (
                             <Button
                               variant="default"
                               size="sm"
@@ -387,7 +408,7 @@ const Orders: React.FC = () => {
                               )}
                             </Button>
                           )}
-                          {canAccess('shipping') && (order.orderStatus === 'confirmed' || order.orderStatus === 'processing') && (
+                          {canAccess('shipping') && canManageShipments && (order.orderStatus === 'confirmed' || order.orderStatus === 'processing') && (
                             <Button
                               variant="default"
                               size="sm"

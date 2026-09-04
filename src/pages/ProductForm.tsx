@@ -445,8 +445,11 @@ const ProductForm: React.FC = () => {
 
   const fetchWebsiteUrl = async () => {
     try {
+      // The axios interceptor (`normalizeResponse`) already unwraps {success,data},
+      // so `res.data` IS the settings object here — the old `res.data?.success`
+      // guard could never be true, which meant this never actually set the URL.
       const res = await api.get('/settings/admin');
-      if (res.data?.success) setWebsiteUrl(res.data.data?.general?.websiteUrl || '');
+      setWebsiteUrl(res.data?.general?.websiteUrl || '');
     } catch { /* silent */ }
   };
 

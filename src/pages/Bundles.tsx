@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FaPlus, FaSearch, FaToggleOn, FaToggleOff, FaBoxOpen, FaEdit, FaTrash, FaTimes, FaSave } from 'react-icons/fa';
 import { bundlesAPI, productsAPI, productQuantityBundlesAPI } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 
 interface BundleListItem {
   _id: string;
@@ -36,6 +37,14 @@ type BundleViewType = 'combo' | 'quantity';
 
 const Bundles: React.FC = () => {
   const navigate = useNavigate();
+  const { hasPerm } = useAuth();
+  // Backend (routes/productBundles.ts): combo bundle POST/PUT -> products.manage,
+  // DELETE /:id -> products.delete; quantity-based bundle PUT+DELETE
+  // /product/:productId/quantity -> BOTH products.manage (there is no separate delete
+  // permission for the quantity-bundle sub-resource). This page had ZERO client-side
+  // gating before.
+  const canManageBundles = hasPerm('products.manage');
+  const canDeleteBundles = hasPerm('products.delete');
   const [viewType, setViewType] = useState<BundleViewType>('combo');
   const [bundles, setBundles] = useState<BundleListItem[]>([]);
   const [quantityBundleProducts, setQuantityBundleProducts] = useState<QuantityBasedBundleProduct[]>([]);
@@ -362,7 +371,7 @@ const Bundles: React.FC = () => {
               : 'Manage quantity-based bundles for individual products. These bundles offer discounts when customers buy multiple quantities of the same product.'}
           </p>
         </div>
-        {viewType === 'combo' && (
+        {viewType === 'combo' && canManageBundles && (
           <button
             onClick={() => navigate('/products/bundles/new')}
             className="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
@@ -549,29 +558,33 @@ const Bundles: React.FC = () => {
                       </td>
                       <td className="px-6 py-4 text-right">
                         <div className="inline-flex items-center gap-2">
-                          <button
-                            onClick={() => {
-                              // CRITICAL FIX: Ensure bundle ID is a string before navigation
-                              const bundleId = normalizeBundleId(bundle._id);
-                              if (bundleId) {
-                                navigate(`/products/bundles/${bundleId}/edit`);
-                              } else {
-                                console.error('Invalid bundle ID:', bundle._id);
-                                alert('Invalid bundle ID');
-                              }
-                            }}
-                            className="p-2 text-gray-500 hover:text-gray-700"
-                            title="Edit bundle"
-                          >
-                            <FaEdit />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(bundle._id)}
-                            className="p-2 text-red-500 hover:text-red-700"
-                            title="Delete bundle"
-                          >
-                            <FaTrash />
-                          </button>
+                          {canManageBundles && (
+                            <button
+                              onClick={() => {
+                                // CRITICAL FIX: Ensure bundle ID is a string before navigation
+                                const bundleId = normalizeBundleId(bundle._id);
+                                if (bundleId) {
+                                  navigate(`/products/bundles/${bundleId}/edit`);
+                                } else {
+                                  console.error('Invalid bundle ID:', bundle._id);
+                                  alert('Invalid bundle ID');
+                                }
+                              }}
+                              className="p-2 text-gray-500 hover:text-gray-700"
+                              title="Edit bundle"
+                            >
+                              <FaEdit />
+                            </button>
+                          )}
+                          {canDeleteBundles && (
+                            <button
+                              onClick={() => handleDelete(bundle._id)}
+                              className="p-2 text-red-500 hover:text-red-700"
+                              title="Delete bundle"
+                            >
+                              <FaTrash />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -649,20 +662,27 @@ const Bundles: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="inline-flex items-center gap-2">
-                        <button
-                          onClick={() => handleEditQuantityBundles(product)}
-                          className="p-2 text-gray-500 hover:text-gray-700"
-                          title="Edit product bundles"
-                        >
-                          <FaEdit />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteAllBundlesFromTable(product)}
-                          className="p-2 text-red-500 hover:text-red-700"
-                          title="Delete all bundles for this product"
-                        >
-                          <FaTrash />
-                        </button>
+                        {canManageBundles && (
+                          <>
+                            <button
+                              onClick={() => handleEditQuantityBundles(product)}
+                              className="p-2 text-gray-500 hover:text-gray-700"
+                              title="Edit product bundles"
+                            >
+                              <FaEdit />
+                            </button>
+                            {/* Quantity-bundle delete route requires products.manage, not
+                                products.delete — there is no separate delete permission for
+                                this sub-resource (routes/productBundles.ts). */}
+                            <button
+                              onClick={() => handleDeleteAllBundlesFromTable(product)}
+                              className="p-2 text-red-500 hover:text-red-700"
+                              title="Delete all bundles for this product"
+                            >
+                              <FaTrash />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -703,7 +723,7 @@ const Bundles: React.FC = () => {
                   Configure quantity-based bundles for this product. Customers can buy multiple quantities at discounted prices.
                 </p>
                 <div className="flex items-center gap-2">
-                  {editingBundles.length > 0 && (
+                  {canManageBundles && editingBundles.length > 0 && (
                     <button
                       onClick={handleDeleteAllBundles}
                       className="inline-flex items-center px-3 py-1.5 text-sm bg-red-100 text-red-700 rounded-md hover:bg-red-200"
@@ -713,13 +733,15 @@ const Bundles: React.FC = () => {
                       Delete All
                     </button>
                   )}
-                  <button
-                    onClick={handleAddBundle}
-                    className="inline-flex items-center px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
-                  >
-                    <FaPlus className="mr-1" />
-                    Add Bundle
-                  </button>
+                  {canManageBundles && (
+                    <button
+                      onClick={handleAddBundle}
+                      className="inline-flex items-center px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+                    >
+                      <FaPlus className="mr-1" />
+                      Add Bundle
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -739,13 +761,15 @@ const Bundles: React.FC = () => {
                         <h3 className="text-sm font-semibold text-gray-700">
                           Bundle {index + 1}
                         </h3>
-                        <button
-                          onClick={() => handleDeleteBundle(index)}
-                          className="p-1.5 text-red-500 hover:text-red-700"
-                          title="Delete bundle"
-                        >
-                          <FaTrash />
-                        </button>
+                        {canManageBundles && (
+                          <button
+                            onClick={() => handleDeleteBundle(index)}
+                            className="p-1.5 text-red-500 hover:text-red-700"
+                            title="Delete bundle"
+                          >
+                            <FaTrash />
+                          </button>
+                        )}
                       </div>
                       <div className="grid gap-4 md:grid-cols-2">
                         <div>
@@ -818,23 +842,25 @@ const Bundles: React.FC = () => {
               >
                 Cancel
               </button>
-              <button
-                onClick={handleSaveQuantityBundles}
-                disabled={saving || editingBundles.length === 0}
-                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-400 disabled:cursor-not-allowed inline-flex items-center"
-              >
-                {saving ? (
-                  <>
-                    <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></span>
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <FaSave className="mr-2" />
-                    Save Bundles
-                  </>
-                )}
-              </button>
+              {canManageBundles && (
+                <button
+                  onClick={handleSaveQuantityBundles}
+                  disabled={saving || editingBundles.length === 0}
+                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-400 disabled:cursor-not-allowed inline-flex items-center"
+                >
+                  {saving ? (
+                    <>
+                      <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></span>
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <FaSave className="mr-2" />
+                      Save Bundles
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           </div>
         </div>

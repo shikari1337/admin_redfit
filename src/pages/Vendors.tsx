@@ -15,13 +15,10 @@ import {
 import LoadingSpinner from '../components/LoadingSpinner';
 import { useAuth } from '../contexts/AuthContext';
 import { ExportMenu, Pagination, type CsvColumn } from '@/components/erp';
+import { getStatusColorClass } from '../components/order/StatusBadge';
 
-const STATUS_COLORS: Record<string, string> = {
-  pending:   'bg-yellow-50 text-yellow-700 border-yellow-200',
-  approved:  'bg-green-50 text-green-700 border-green-200',
-  suspended: 'bg-orange-50 text-orange-700 border-orange-200',
-  rejected:  'bg-red-50 text-red-700 border-red-200',
-};
+// Was a local palette — same colors now centralized in
+// components/order/StatusBadge.tsx's 'vendor' domain (2026-09-04).
 
 // Vendor master CSV — the row the page already holds (client-side export).
 const VENDOR_CSV_COLUMNS: CsvColumn<any>[] = [
@@ -233,7 +230,7 @@ const Vendors: React.FC = () => {
                               {updatingId === id ? (
                                 <Loader2 className="h-4 w-4 animate-spin" />
                               ) : (
-                                <Badge variant="outline" className={`cursor-pointer capitalize ${STATUS_COLORS[vendor.status] || ''}`}>
+                                <Badge variant="outline" className={`cursor-pointer capitalize ${getStatusColorClass('vendor', vendor.status)}`}>
                                   {vendor.status || 'pending'}
                                 </Badge>
                               )}
@@ -248,7 +245,7 @@ const Vendors: React.FC = () => {
                           </DropdownMenuContent>
                         </DropdownMenu>
                       ) : (
-                        <Badge variant="outline" className={`capitalize ${STATUS_COLORS[vendor.status] || ''}`}>
+                        <Badge variant="outline" className={`capitalize ${getStatusColorClass('vendor', vendor.status)}`}>
                           {vendor.status || 'pending'}
                         </Badge>
                       )}

@@ -11,6 +11,7 @@ import {
   FaCheck,
 } from 'react-icons/fa';
 import { uploadAPI } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 
 interface GalleryItem {
   id: string;
@@ -23,6 +24,21 @@ interface GalleryItem {
 }
 
 const Gallery: React.FC = () => {
+  const { hasPerm } = useAuth();
+  // Backend (routes/upload.ts) uses TWO different guards, not a uniform content.*
+  // pair — verified directly against the route file rather than assumed:
+  //   - POST /upload, POST /upload/multiple -> requireAdminOrModule('page_editor')
+  //     (admin role bypasses; staff need the literal 'page_editor' permission flag,
+  //     not a content.* RBAC string). hasPerm('page_editor') replicates this exactly
+  //     (admin role resolves to ['*'] in the local matrix; staff needs the same flag
+  //     in their permissions array, which effectivePermissionsFor merges in).
+  //   - DELETE /upload/:key (what handleDelete below actually calls) -> requirePermission
+  //     ('content.delete'). There is no content.manage anywhere in this route file.
+  // Folder create/delete are pure client-side (localStorage) organizational actions
+  // with no backend call of their own — gated on the same permission as the write
+  // action they group (upload / delete) since they have no independent endpoint.
+  const canUploadGallery = hasPerm('page_editor');
+  const canDeleteGalleryItems = hasPerm('content.delete');
   const [items, setItems] = useState<GalleryItem[]>([]);
   const [folders, setFolders] = useState<string[]>(['']);
   const [selectedFolder, setSelectedFolder] = useState<string>('');
@@ -301,13 +317,15 @@ const Gallery: React.FC = () => {
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-gray-900">Folders</h2>
-          <button
-            onClick={() => setShowNewFolderInput(true)}
-            className="flex items-center px-3 py-1.5 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors text-sm"
-          >
-            <FaFolderPlus className="mr-2" />
-            New Folder
-          </button>
+          {canUploadGallery && (
+            <button
+              onClick={() => setShowNewFolderInput(true)}
+              className="flex items-center px-3 py-1.5 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors text-sm"
+            >
+              <FaFolderPlus className="mr-2" />
+              New Folder
+            </button>
+          )}
         </div>
 
         {showNewFolderInput && (
@@ -368,13 +386,15 @@ const Gallery: React.FC = () => {
                     <FaFolder className="mr-2" />
                     {folder} ({count})
                   </button>
-                  <button
-                    onClick={() => handleDeleteFolder(folder)}
-                    className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
-                    title="Delete folder"
-                  >
-                    <FaTimes size={12} />
-                  </button>
+                  {canDeleteGalleryItems && (
+                    <button
+                      onClick={() => handleDeleteFolder(folder)}
+                      className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                      title="Delete folder"
+                    >
+                      <FaTimes size={12} />
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -410,32 +430,39 @@ const Gallery: React.FC = () => {
             Selected folder: <strong>{selectedFolder || '(root)'}</strong>
           </span>
         </div>
-        <label
-          htmlFor="gallery-upload"
-          className={`flex flex-col items-center justify-center px-6 py-12 border-2 border-dashed rounded-lg cursor-pointer transition ${
-            uploading
-              ? 'border-gray-200 bg-gray-50 cursor-not-allowed'
-              : 'border-gray-300 hover:border-red-400 hover:bg-red-50'
-          }`}
-        >
-          <FaUpload className="text-4xl text-gray-400 mb-3" />
-          <span className="text-lg font-medium text-gray-700 mb-1">
-            {uploading ? 'Uploading...' : 'Click to upload or drag and drop'}
-          </span>
-          <span className="text-sm text-gray-500">
-            Supports images and videos (multiple files allowed)
-          </span>
-          <input
-            id="gallery-upload"
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept="image/*,video/*"
-            onChange={handleFileSelect}
-            disabled={uploading}
-            className="hidden"
-          />
-        </label>
+        {canUploadGallery ? (
+          <label
+            htmlFor="gallery-upload"
+            className={`flex flex-col items-center justify-center px-6 py-12 border-2 border-dashed rounded-lg cursor-pointer transition ${
+              uploading
+                ? 'border-gray-200 bg-gray-50 cursor-not-allowed'
+                : 'border-gray-300 hover:border-red-400 hover:bg-red-50'
+            }`}
+          >
+            <FaUpload className="text-4xl text-gray-400 mb-3" />
+            <span className="text-lg font-medium text-gray-700 mb-1">
+              {uploading ? 'Uploading...' : 'Click to upload or drag and drop'}
+            </span>
+            <span className="text-sm text-gray-500">
+              Supports images and videos (multiple files allowed)
+            </span>
+            <input
+              id="gallery-upload"
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="image/*,video/*"
+              onChange={handleFileSelect}
+              disabled={uploading}
+              className="hidden"
+            />
+          </label>
+        ) : (
+          <div className="flex flex-col items-center justify-center px-6 py-12 border-2 border-dashed border-gray-200 bg-gray-50 rounded-lg text-gray-400">
+            <FaUpload className="text-4xl mb-3" />
+            <span className="text-sm">You don't have permission to upload files.</span>
+          </div>
+        )}
         {Object.keys(uploadProgress).length > 0 && (
           <div className="mt-4 space-y-2">
             {Object.entries(uploadProgress).map(([id, progress]) => (
@@ -505,13 +532,15 @@ const Gallery: React.FC = () => {
                         </>
                       )}
                     </button>
-                    <button
-                      onClick={() => handleDelete(item.id)}
-                      className="opacity-0 group-hover:opacity-100 px-3 py-1.5 bg-red-600 text-white rounded hover:bg-red-700 transition-all text-sm"
-                      title="Delete"
-                    >
-                      <FaTrash />
-                    </button>
+                    {canDeleteGalleryItems && (
+                      <button
+                        onClick={() => handleDelete(item.id)}
+                        className="opacity-0 group-hover:opacity-100 px-3 py-1.5 bg-red-600 text-white rounded hover:bg-red-700 transition-all text-sm"
+                        title="Delete"
+                      >
+                        <FaTrash />
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div className="p-2">

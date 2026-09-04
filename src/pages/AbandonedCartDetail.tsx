@@ -42,6 +42,24 @@ interface JourneyEvent {
   created_at?: string;
 }
 
+/** One WhatsApp/SMS/Email attempt for this cart (automated flow or a manual
+ *  staff send) — `status:'sent'` means the provider ACCEPTED the request,
+ *  not confirmed delivery (no delivery-receipt webhook exists for either
+ *  channel in this platform). */
+interface RecoveryLogEntry {
+  id: string;
+  cart_id: string;
+  step_key: string | null;
+  trigger: 'automated' | 'manual';
+  channel: 'whatsapp' | 'sms' | 'email';
+  status: 'sent' | 'failed';
+  provider_message_id: string | null;
+  error: string | null;
+  actor_id: string | null;
+  actor: { name: string; email: string } | null;
+  sent_at: string;
+}
+
 interface CheckoutAttempt {
   id: string;
   paymentMethod?: string;
@@ -128,6 +146,7 @@ const AbandonedCartDetail: React.FC = () => {
   const [recoveryResult, setRecoveryResult] = useState<{ ok: boolean; channel: string; reason?: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [journey, setJourney] = useState<JourneyEvent[] | null>(null);
+  const [recoveryLog, setRecoveryLog] = useState<RecoveryLogEntry[] | null>(null);
   const [noteText, setNoteText] = useState('');
   const [savingNote, setSavingNote] = useState(false);
 
@@ -181,6 +200,9 @@ const AbandonedCartDetail: React.FC = () => {
       } else {
         setJourney([]);
       }
+      cartsAPI.getRecoveryLog(id)
+        .then((rows: any) => setRecoveryLog(Array.isArray(rows) ? rows : []))
+        .catch(() => setRecoveryLog([]));
     } catch (err: any) {
       setError(err.response?.data?.message || err.message || 'Failed to load cart');
     } finally {
@@ -795,6 +817,58 @@ const AbandonedCartDetail: React.FC = () => {
                       <p className="text-xs text-gray-400 mt-1">
                         {formatMoney(a.total)} · {formatDate(createdAt)}
                       </p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Communication Log — every WhatsApp/SMS/Email attempt, automated
+              or manual, with the real provider outcome. "Sent" means the
+              provider ACCEPTED the request — this platform has no delivery-
+              receipt webhook for either channel, so true read/delivery
+              confirmation past that point is never known; labelled honestly
+              rather than claiming "Delivered". */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Communication Log</h2>
+            <p className="text-xs text-gray-500 mb-3">
+              Every recovery message attempted for this cart. &quot;Sent&quot; means the provider accepted
+              it — not a delivery confirmation (WhatsApp/SMS don&apos;t report that back to us).
+            </p>
+            {recoveryLog === null ? (
+              <div className="text-sm text-gray-400">Loading…</div>
+            ) : recoveryLog.length === 0 ? (
+              <div className="text-sm text-gray-500">No messages sent for this cart yet.</div>
+            ) : (
+              <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+                {recoveryLog.map((entry) => {
+                  const ChannelIcon = entry.channel === 'whatsapp' ? FaWhatsapp : entry.channel === 'sms' ? FaSms : FaEnvelope;
+                  const channelColor = entry.channel === 'whatsapp' ? 'text-green-600' : entry.channel === 'sms' ? 'text-blue-600' : 'text-purple-600';
+                  const stepLabel = entry.step_key
+                    ? entry.step_key.charAt(0).toUpperCase() + entry.step_key.slice(1)
+                    : entry.trigger === 'manual' ? 'Manual send' : '—';
+                  return (
+                    <div key={entry.id} className="text-sm border-l-2 border-gray-200 pl-2.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <ChannelIcon className={channelColor} />
+                        <span className="font-medium text-gray-800 capitalize">{entry.channel}</span>
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                          entry.status === 'sent' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                        }`}>
+                          {entry.status === 'sent' ? 'Sent (accepted by provider)' : 'Failed'}
+                        </span>
+                        <span className="text-xs text-gray-500">{stepLabel}</span>
+                        {entry.trigger === 'manual' && (
+                          <span className="text-xs text-gray-400">
+                            by {entry.actor?.name || entry.actor?.email || 'staff'}
+                          </span>
+                        )}
+                      </div>
+                      {entry.status === 'failed' && entry.error && (
+                        <p className="text-xs text-red-600 mt-1">{entry.error}</p>
+                      )}
+                      <p className="text-xs text-gray-400 mt-1">{formatDate(entry.sent_at)}</p>
                     </div>
                   );
                 })}

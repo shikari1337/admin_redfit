@@ -112,7 +112,16 @@ function formatDate(d?: string): string {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const Staff: React.FC = () => {
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, hasPerm } = useAuth();
+  // Backend requires staff.manage for create/update (incl. active toggle +
+  // permission edits) and staff.delete for removal — see routes/staff.ts.
+  // Was gated on `role === 'admin'` (CLAUDE.md rule 7b: never gate on
+  // role === 'admin', use requirePermission's mirror instead), which also
+  // meant a staff member individually granted 'staff.manage' as an extra
+  // permission (the PermissionPicker below explicitly supports this) still
+  // couldn't see any of these buttons despite the backend allowing the call.
+  const canManageStaff = hasPerm('staff.manage');
+  const canDeleteStaff = hasPerm('staff.delete');
   const [staff, setStaff] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -229,7 +238,7 @@ const Staff: React.FC = () => {
               Manage staff accounts and control which modules each person can access.
             </p>
           </div>
-          {currentUser?.role === 'admin' && (
+          {canManageStaff && (
             <Button onClick={() => { setShowCreate(true); setCreateError(''); }} className="gap-2 shrink-0">
               <UserPlus className="h-4 w-4" /> Invite Staff
             </Button>
@@ -317,7 +326,7 @@ const Staff: React.FC = () => {
                             </Tooltip>
                           </TableCell>
                           <TableCell>
-                            {currentUser?.role === 'admin' && !isCurrentUser ? (
+                            {canManageStaff && !isCurrentUser ? (
                               <div className="flex items-center gap-2">
                                 <Switch
                                   checked={member.isActive !== false}
@@ -343,7 +352,7 @@ const Staff: React.FC = () => {
                                 ? <Loader2 className="h-4 w-4 animate-spin text-primary" />
                                 : (
                                   <>
-                                    {currentUser?.role === 'admin' && (
+                                    {canManageStaff && (
                                       <Tooltip>
                                         <TooltipTrigger asChild>
                                           <Button
@@ -358,7 +367,7 @@ const Staff: React.FC = () => {
                                         <TooltipContent>Edit permissions</TooltipContent>
                                       </Tooltip>
                                     )}
-                                    {currentUser?.role === 'admin' && !isCurrentUser && (
+                                    {canDeleteStaff && !isCurrentUser && (
                                       <Tooltip>
                                         <TooltipTrigger asChild>
                                           <Button

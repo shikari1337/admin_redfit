@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save, CreditCard, Plus, Trash2, Percent, Loader2, Ban, Pencil } from 'lucide-react';
-import api, { paymentRulesAPI } from '../services/api';
+import { paymentRulesAPI } from '../services/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { useSettingsSection } from '../hooks/useSettingsSection';
 
 interface QuantityDiscount {
   minQuantity: number;
@@ -27,20 +28,25 @@ interface PaymentRule {
 const PAYMENT_METHODS = ['cod', 'prepaid', 'upi', 'card', 'netbanking', 'wallet'];
 const emptyRuleForm = { id: '', name: '', method: 'cod', minOrderValue: '', maxOrderValue: '', excludePincodes: '', customerSegment: 'all', is_active: true };
 
+const DEFAULT_FORM_DATA = {
+  razorpayDiscountPercent: 2,
+  quantityDiscounts: [
+    { minQuantity: 5, discountPercent: 5 },
+    { minQuantity: 10, discountPercent: 10 },
+    { minQuantity: 20, discountPercent: 15 },
+  ] as QuantityDiscount[],
+  excludeBundledProductsFromQuantityDiscount: false,
+  // B2B customers: inherit the general % / use a custom % / no gateway discount.
+  // Applies only while the b2b module is enabled; otherwise everyone gets the
+  // general settings.
+  b2bGatewayDiscountMode: 'inherit' as 'inherit' | 'custom' | 'off',
+  b2bRazorpayDiscountPercent: 0,
+};
+
+type FormData = typeof DEFAULT_FORM_DATA;
+
 const PaymentDiscountSettings: React.FC = () => {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [formData, setFormData] = useState({
-    razorpayDiscountPercent: 2,
-    quantityDiscounts: [] as QuantityDiscount[],
-    excludeBundledProductsFromQuantityDiscount: false,
-    // B2B customers: inherit the general % / use a custom % / no gateway discount.
-    // Applies only while the b2b module is enabled; otherwise everyone gets the
-    // general settings.
-    b2bGatewayDiscountMode: 'inherit' as 'inherit' | 'custom' | 'off',
-    b2bRazorpayDiscountPercent: 0,
-  });
 
   // ── Payment method rules (restrict a method under given conditions) ────────
   const [rules, setRules] = useState<PaymentRule[]>([]);
@@ -109,64 +115,20 @@ const PaymentDiscountSettings: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchSettings();
     loadRules();
   }, []);
 
-  const fetchSettings = async () => {
-    try {
-      setLoading(true);
-      const response = await api.get('/settings/admin');
-      const settings = response.data?.success && response.data?.data 
-        ? response.data.data 
-        : response.data?.data 
-        ? response.data.data 
-        : response.data;
-      
-      if (settings) {
-        setFormData({
-          razorpayDiscountPercent: settings.razorpayDiscountPercent ?? 2,
-          quantityDiscounts: settings.quantityDiscounts || [
-            { minQuantity: 5, discountPercent: 5 },
-            { minQuantity: 10, discountPercent: 10 },
-            { minQuantity: 20, discountPercent: 15 },
-          ],
-          excludeBundledProductsFromQuantityDiscount: settings.excludeBundledProductsFromQuantityDiscount || false,
-          b2bGatewayDiscountMode: settings.b2bGatewayDiscountMode || 'inherit',
-          b2bRazorpayDiscountPercent: settings.b2bRazorpayDiscountPercent || 0,
-        });
-      }
-    } catch (error: any) {
-      console.error('Failed to fetch settings:', error);
-      setFormData({
-        razorpayDiscountPercent: 2,
-        quantityDiscounts: [
-          { minQuantity: 5, discountPercent: 5 },
-          { minQuantity: 10, discountPercent: 10 },
-          { minQuantity: 20, discountPercent: 15 },
-        ],
-        excludeBundledProductsFromQuantityDiscount: false,
-        b2bGatewayDiscountMode: 'inherit',
-        b2bRazorpayDiscountPercent: 0,
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    try {
-      await api.put('/settings', formData);
-      alert('Payment gateway discount settings saved successfully!');
-    } catch (error: any) {
-      console.error('Failed to save settings:', error);
-      alert(error.response?.data?.message || 'Failed to save settings');
-    } finally {
-      setSaving(false);
-    }
-  };
+  const { formData, setFormData, loading, saving, handleSubmit } = useSettingsSection<FormData>({
+    defaults: DEFAULT_FORM_DATA,
+    parse: (settings) => ({
+      razorpayDiscountPercent: settings.razorpayDiscountPercent ?? 2,
+      quantityDiscounts: settings.quantityDiscounts || DEFAULT_FORM_DATA.quantityDiscounts,
+      excludeBundledProductsFromQuantityDiscount: settings.excludeBundledProductsFromQuantityDiscount || false,
+      b2bGatewayDiscountMode: settings.b2bGatewayDiscountMode || 'inherit',
+      b2bRazorpayDiscountPercent: settings.b2bRazorpayDiscountPercent || 0,
+    }),
+    successMessage: 'Payment gateway discount settings saved successfully!',
+  });
 
   const handleChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: parseFloat(value) || 0 }));

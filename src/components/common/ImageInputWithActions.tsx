@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { FaUpload, FaMagic, FaImage, FaTimes } from 'react-icons/fa';
+import { FaUpload, FaMagic, FaImage, FaTimes, FaPhotoVideo } from 'react-icons/fa';
 import { uploadAPI, productsAPI } from '../../services/api';
+import MediaPicker from './MediaPicker';
 
 interface ImageInputWithActionsProps {
   value: string;
@@ -10,6 +11,8 @@ interface ImageInputWithActionsProps {
   productId?: string;
   sectionId?: string;
   fieldPath?: string;
+  /** Bucket folder new uploads land in, and the folder the Library tab uploads to. */
+  folder?: string;
   contextData?: {
     productName?: string;
     productDescription?: string;
@@ -30,6 +33,7 @@ const ImageInputWithActions: React.FC<ImageInputWithActionsProps> = ({
   productId,
   sectionId,
   fieldPath,
+  folder = 'products',
   contextData,
   disabled = false,
   className = '',
@@ -37,6 +41,7 @@ const ImageInputWithActions: React.FC<ImageInputWithActionsProps> = ({
   const [uploading, setUploading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [showGenerateModal, setShowGenerateModal] = useState(false);
+  const [showLibrary, setShowLibrary] = useState(false);
   const [customPrompt, setCustomPrompt] = useState('');
   const [imageError, setImageError] = useState<string | null>(null);
 
@@ -47,7 +52,7 @@ const ImageInputWithActions: React.FC<ImageInputWithActionsProps> = ({
     setUploading(true);
     setImageError(null);
     try {
-      const response = await uploadAPI.uploadSingle(file, 'products');
+      const response = await uploadAPI.uploadSingle(file, folder);
       const imageUrl = response.data?.url || response.data?.data?.url || response.url;
       if (imageUrl) {
         onChange(imageUrl);
@@ -138,6 +143,21 @@ const ImageInputWithActions: React.FC<ImageInputWithActionsProps> = ({
             )}
           </label>
 
+          {/* Media library — pick an image that was already uploaded to the
+              store's bucket, instead of re-uploading a copy of it. Every other
+              image surface in the admin offers this; the fields built on this
+              component were the ones left on upload-or-paste-a-URL only. */}
+          <button
+            type="button"
+            onClick={() => setShowLibrary(true)}
+            className={`flex items-center gap-1 px-2 py-1 rounded text-xs bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+            disabled={disabled}
+            title="Choose from the media library"
+          >
+            <FaPhotoVideo size={12} />
+            Library
+          </button>
+
           {/* Generate Button - Only show if productId, sectionId, and fieldPath are provided */}
           {productId && sectionId && fieldPath && (
             <button
@@ -206,6 +226,14 @@ const ImageInputWithActions: React.FC<ImageInputWithActionsProps> = ({
         className="w-full px-3 py-2 border border-gray-300 rounded-md"
         placeholder={placeholder}
         disabled={disabled}
+      />
+
+      {/* Media library picker (browse existing uploads, upload new, customize) */}
+      <MediaPicker
+        open={showLibrary}
+        onClose={() => setShowLibrary(false)}
+        onSelect={(url: string) => { onChange(url); setImageError(null); }}
+        folder={folder}
       />
 
       {/* Error Messages */}

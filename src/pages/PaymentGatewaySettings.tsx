@@ -1,128 +1,83 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, Save, CreditCard, Smartphone, HandCoins, Loader2, ArrowUpRight } from 'lucide-react';
-import api from '../services/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
+import { useSettingsSection } from '../hooks/useSettingsSection';
+
+const DEFAULT_UPI_APPS = [
+  { name: 'PhonePe', urlTemplate: 'phonepe://pay?pa={upiId}&pn={payeeName}&am={amount}&cu=INR&tn={transactionNote}', enabled: true },
+  { name: 'Google Pay', urlTemplate: 'tez://pay?pa={upiId}&pn={payeeName}&am={amount}&cu=INR&tn={transactionNote}', enabled: true },
+  { name: 'Paytm', urlTemplate: 'paytmmp://pay?pa={upiId}&pn={payeeName}&am={amount}&cu=INR&tn={transactionNote}', enabled: true },
+  { name: 'BHIM', urlTemplate: 'bhim://pay?pa={upiId}&pn={payeeName}&am={amount}&cu=INR&tn={transactionNote}', enabled: true },
+  { name: 'Amazon Pay', urlTemplate: 'amazonpay://pay?pa={upiId}&pn={payeeName}&am={amount}&cu=INR&tn={transactionNote}', enabled: true },
+];
+
+const DEFAULT_FORM_DATA = {
+  upi: {
+    isEnabled: false,
+    upiId: '',
+    payeeName: '',
+    apps: DEFAULT_UPI_APPS,
+  },
+  manualPayment: {
+    isEnabled: false,
+    instructions: '',
+    accountDetails: '',
+  },
+};
+
+type FormData = typeof DEFAULT_FORM_DATA;
 
 const PaymentGatewaySettings: React.FC = () => {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [razorpayEnabled, setRazorpayEnabled] = useState(false);
-  const [formData, setFormData] = useState({
-    upi: {
-      isEnabled: false,
-      upiId: '',
-      payeeName: '',
-      apps: [
-        { name: 'PhonePe', urlTemplate: 'phonepe://pay?pa={upiId}&pn={payeeName}&am={amount}&cu=INR&tn={transactionNote}', enabled: true },
-        { name: 'Google Pay', urlTemplate: 'tez://pay?pa={upiId}&pn={payeeName}&am={amount}&cu=INR&tn={transactionNote}', enabled: true },
-        { name: 'Paytm', urlTemplate: 'paytmmp://pay?pa={upiId}&pn={payeeName}&am={amount}&cu=INR&tn={transactionNote}', enabled: true },
-        { name: 'BHIM', urlTemplate: 'bhim://pay?pa={upiId}&pn={payeeName}&am={amount}&cu=INR&tn={transactionNote}', enabled: true },
-        { name: 'Amazon Pay', urlTemplate: 'amazonpay://pay?pa={upiId}&pn={payeeName}&am={amount}&cu=INR&tn={transactionNote}', enabled: true },
-      ],
-    },
-    manualPayment: {
-      isEnabled: false,
-      instructions: '',
-      accountDetails: '',
-    },
-  });
 
-  useEffect(() => {
-    fetchSettings();
-  }, []);
-
-  const fetchSettings = async () => {
-    try {
-      setLoading(true);
-      const response = await api.get('/settings/admin');
-      const settings = response.data?.success && response.data?.data 
-        ? response.data.data 
-        : response.data?.data 
-        ? response.data.data 
-        : response.data;
-      
-      if (settings) {
-        // Razorpay keys/webhook are configured on the API & Integrations page now
-        // (used to be duplicated here too — same setting, two forms, no way to
-        // tell from either one whether a key was actually saved). This page just
-        // shows whether it's currently on, with a link to the real form.
-        setRazorpayEnabled(!!settings.razorpay?.isEnabled);
-
-        if (settings.upi) {
-          setFormData(prev => ({
-            ...prev,
-            upi: {
-              ...prev.upi,
-              isEnabled: settings.upi.isEnabled || false,
-              upiId: settings.upi.upiId || '',
-              payeeName: settings.upi.payeeName || '',
-              apps: settings.upi.apps && settings.upi.apps.length > 0 
-                ? settings.upi.apps 
-                : prev.upi.apps || [
-                    { name: 'PhonePe', urlTemplate: 'phonepe://pay?pa={upiId}&pn={payeeName}&am={amount}&cu=INR&tn={transactionNote}', enabled: true },
-                    { name: 'Google Pay', urlTemplate: 'tez://pay?pa={upiId}&pn={payeeName}&am={amount}&cu=INR&tn={transactionNote}', enabled: true },
-                    { name: 'Paytm', urlTemplate: 'paytmmp://pay?pa={upiId}&pn={payeeName}&am={amount}&cu=INR&tn={transactionNote}', enabled: true },
-                    { name: 'BHIM', urlTemplate: 'bhim://pay?pa={upiId}&pn={payeeName}&am={amount}&cu=INR&tn={transactionNote}', enabled: true },
-                    { name: 'Amazon Pay', urlTemplate: 'amazonpay://pay?pa={upiId}&pn={payeeName}&am={amount}&cu=INR&tn={transactionNote}', enabled: true },
-                  ],
-            },
-          }));
-        }
-
-        if (settings.manualPayment) {
-          setFormData(prev => ({
-            ...prev,
-            manualPayment: {
-              ...prev.manualPayment,
-              isEnabled: settings.manualPayment.isEnabled !== false,
-              instructions: settings.manualPayment.instructions || '',
-              accountDetails: settings.manualPayment.accountDetails || '',
-            },
-          }));
-        } else {
-          setFormData(prev => ({
-            ...prev,
-            manualPayment: {
-              ...prev.manualPayment,
-              isEnabled: true,
-              instructions: 'Please transfer the payment amount to our bank account. Order will be processed after payment verification.',
-              accountDetails: 'Bank transfer, NEFT, IMPS accepted',
-            },
-          }));
-        }
+  const { formData, setFormData, loading, saving, reload, handleSubmit } = useSettingsSection<FormData>({
+    defaults: DEFAULT_FORM_DATA,
+    parse: (settings) => {
+      const next: FormData = {
+        upi: { ...DEFAULT_FORM_DATA.upi },
+        manualPayment: { ...DEFAULT_FORM_DATA.manualPayment },
+      };
+      if (settings.upi) {
+        next.upi = {
+          isEnabled: settings.upi.isEnabled || false,
+          upiId: settings.upi.upiId || '',
+          payeeName: settings.upi.payeeName || '',
+          apps: settings.upi.apps && settings.upi.apps.length > 0 ? settings.upi.apps : DEFAULT_UPI_APPS,
+        };
       }
-    } catch (error: any) {
-      console.error('Failed to fetch settings:', error);
-      alert('Failed to load settings. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      setSaving(true);
-      const response = await api.put('/settings', formData);
-      if (response.data.success || response.data) {
-        alert('Payment gateway settings saved successfully!');
-        fetchSettings();
+      if (settings.manualPayment) {
+        next.manualPayment = {
+          isEnabled: settings.manualPayment.isEnabled !== false,
+          instructions: settings.manualPayment.instructions || '',
+          accountDetails: settings.manualPayment.accountDetails || '',
+        };
       } else {
-        alert('Failed to save settings. Please try again.');
+        next.manualPayment = {
+          isEnabled: true,
+          instructions: 'Please transfer the payment amount to our bank account. Order will be processed after payment verification.',
+          accountDetails: 'Bank transfer, NEFT, IMPS accepted',
+        };
       }
-    } catch (error: any) {
-      console.error('Failed to save settings:', error);
-      alert(error.response?.data?.message || 'Failed to save settings. Please try again.');
-    } finally {
-      setSaving(false);
-    }
-  };
+      return next;
+    },
+    onLoaded: (settings) => {
+      // Razorpay keys/webhook are configured on the API & Integrations page now
+      // (used to be duplicated here too — same setting, two forms, no way to
+      // tell from either one whether a key was actually saved). This page just
+      // shows whether it's currently on, with a link to the real form.
+      setRazorpayEnabled(!!settings.razorpay?.isEnabled);
+    },
+    onLoadError: () => alert('Failed to load settings. Please try again.'),
+    onSuccess: () => { reload(); },
+    successMessage: 'Payment gateway settings saved successfully!',
+    onError: (error) => alert(error?.response?.data?.message || 'Failed to save settings. Please try again.'),
+  });
 
   const handleChange = (section: keyof typeof formData, field: string, value: any) => {
     setFormData(prev => ({

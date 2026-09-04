@@ -75,9 +75,11 @@ const SetupWizard: React.FC = () => {
   useEffect(() => {
     api.get('/settings/admin')
       .then(res => {
-        const raw = res.data;
-        const s: Record<string, any> =
-          raw?.success !== undefined && raw?.data !== undefined ? raw.data : raw ?? {};
+        // The axios interceptor already unwraps {success,data} — res.data IS the
+        // settings object here (the old `raw?.success !== undefined` check could
+        // never be true, so this always fell to the `raw ?? {}` branch anyway;
+        // simplified rather than left as dead-but-harmless boilerplate).
+        const s: Record<string, any> = res.data ?? {};
 
         setCfg(loadStoreConfig(s));
 
@@ -89,7 +91,9 @@ const SetupWizard: React.FC = () => {
         if (s.gstin)                          setGstin(s.gstin);
         if (s.gst?.showPriceIncludingGst != null) setShowPriceIncludingGst(s.gst.showPriceIncludingGst);
         if (s.gst?.showGstOnCheckout != null)     setShowGstOnCheckout(s.gst.showGstOnCheckout);
-        if (s.gst?.defaultRate)               setDefaultGstRate(String(s.gst.defaultRate));
+        // `!= null` (not a truthy check) — a store legitimately GST-exempt at 0%
+        // was silently overridden back to the hardcoded '18' default otherwise.
+        if (s.gst?.defaultRate != null)       setDefaultGstRate(String(s.gst.defaultRate));
 
         // Payment
         if (s.cod?.isEnabled != null)           setCodEnabled(s.cod.isEnabled);

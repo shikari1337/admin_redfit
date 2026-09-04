@@ -12,6 +12,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { Link } from 'react-router-dom';
 import { Wand2, Save, Trash2, Upload, Download } from 'lucide-react';
+import { Pagination } from '@/components/erp';
 
 interface Connection { id: string; platform_code: string; display_name?: string; }
 interface Mapping {
@@ -34,7 +35,7 @@ export default function ChannelMapping() {
   const [channelId, setChannelId] = useState<string>('');
   const [rows, setRows] = useState<Mapping[]>([]);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(0); // 0-indexed
+  const [page, setPage] = useState(1); // 1-indexed (matches the shared Pagination component)
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState(''); // debounced value actually queried
   const [loading, setLoading] = useState(false);
@@ -48,11 +49,11 @@ export default function ChannelMapping() {
 
   // Debounce the search box, then land on page 1 for the new term.
   useEffect(() => {
-    const t = setTimeout(() => { setSearch(searchInput); setPage(0); }, 350);
+    const t = setTimeout(() => { setSearch(searchInput); setPage(1); }, 350);
     return () => clearTimeout(t);
   }, [searchInput]);
   // Switching channel also resets to page 1.
-  useEffect(() => { setPage(0); }, [channelId]);
+  useEffect(() => { setPage(1); }, [channelId]);
 
   // A full-catalog channel (e.g. Google/Meta feed after Auto-map) can carry tens
   // of thousands of mapping rows — load one page at a time, not the whole table.
@@ -60,7 +61,7 @@ export default function ChannelMapping() {
     if (!channelId) { setRows([]); setTotal(0); return; }
     let cancelled = false;
     setLoading(true);
-    channelsAPI.getMappings({ channelId, search: search || undefined, limit: PAGE_SIZE, offset: page * PAGE_SIZE }).then((res) => {
+    channelsAPI.getMappings({ channelId, search: search || undefined, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }).then((res) => {
       if (cancelled) return;
       setRows(res.data); setTotal(res.total); setLoading(false);
     });
@@ -69,7 +70,7 @@ export default function ChannelMapping() {
   const reload = async () => {
     if (!channelId) return;
     setLoading(true);
-    const res = await channelsAPI.getMappings({ channelId, search: search || undefined, limit: PAGE_SIZE, offset: page * PAGE_SIZE });
+    const res = await channelsAPI.getMappings({ channelId, search: search || undefined, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE });
     setRows(res.data); setTotal(res.total); setLoading(false);
   };
 
@@ -209,13 +210,7 @@ export default function ChannelMapping() {
                   </tbody>
                 </table>
               </div>
-              <div className="flex items-center justify-between p-3 border-t text-sm text-muted-foreground">
-                <span>Showing {page * PAGE_SIZE + 1}–{page * PAGE_SIZE + rows.length} of {total}</span>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="outline" disabled={page === 0} onClick={() => setPage((p) => Math.max(p - 1, 0))}>Previous</Button>
-                  <Button size="sm" variant="outline" disabled={(page + 1) * PAGE_SIZE >= total} onClick={() => setPage((p) => p + 1)}>Next</Button>
-                </div>
-              </div>
+              <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPage={setPage} className="border-t px-3 py-3" />
             </>
           )}
       </CardContent></Card>

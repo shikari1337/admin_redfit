@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
@@ -40,6 +41,12 @@ const toKebab = (str: string) =>
   str.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-').replace(/-+/g, '-');
 
 const Manufacturers: React.FC = () => {
+  const { hasPerm } = useAuth();
+  // Backend requires products.manage for create/update, products.delete for
+  // removal (routes/manufacturers.ts) — this page had NO client-side gating
+  // before.
+  const canManageManufacturers = hasPerm('products.manage');
+  const canDeleteManufacturers = hasPerm('products.delete');
   const [manufacturers, setManufacturers] = useState<Manufacturer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -159,10 +166,12 @@ const Manufacturers: React.FC = () => {
           <h1 className="text-3xl font-bold tracking-tight text-foreground">Manufacturers</h1>
           <p className="text-muted-foreground mt-1 text-sm">Manage product manufacturers and suppliers.</p>
         </div>
-        <Button onClick={openCreate} className="flex items-center gap-2">
-          <FaPlus className="h-4 w-4" />
-          Add Manufacturer
-        </Button>
+        {canManageManufacturers && (
+          <Button onClick={openCreate} className="flex items-center gap-2">
+            <FaPlus className="h-4 w-4" />
+            Add Manufacturer
+          </Button>
+        )}
       </div>
 
       {error && (
@@ -233,13 +242,17 @@ const Manufacturers: React.FC = () => {
                     </TableCell>
                     <TableCell className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <Button variant="outline" size="sm" className="h-8 px-3" onClick={() => openEdit(mfr)}>
-                          <FaEdit className="h-3.5 w-3.5 mr-1.5" />
-                          Edit
-                        </Button>
-                        <Button variant="destructive" size="sm" className="h-8 w-8 p-0" onClick={() => handleDelete(mfr)}>
-                          <FaTrash className="h-3.5 w-3.5" />
-                        </Button>
+                        {canManageManufacturers && (
+                          <Button variant="outline" size="sm" className="h-8 px-3" onClick={() => openEdit(mfr)}>
+                            <FaEdit className="h-3.5 w-3.5 mr-1.5" />
+                            Edit
+                          </Button>
+                        )}
+                        {canDeleteManufacturers && (
+                          <Button variant="destructive" size="sm" className="h-8 w-8 p-0" onClick={() => handleDelete(mfr)}>
+                            <FaTrash className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

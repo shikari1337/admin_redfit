@@ -13,6 +13,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Mail, MessageSquare, Bell, Smartphone, Loader2 } from 'lucide-react';
+import { getStatusColorClass as sharedStatusColorClass } from '@/components/order/StatusBadge';
 
 interface Campaign {
   _id: string;
@@ -51,23 +52,10 @@ const getChannelIcon = (channel: string) => {
   }
 };
 
-const getStatusColorClass = (status: string) => {
-  switch (status.toLowerCase()) {
-    case 'sent':
-      return 'bg-green-100 text-green-800 hover:bg-green-100/80 border-transparent';
-    case 'scheduled':
-      return 'bg-yellow-100 text-yellow-800 hover:bg-yellow-100/80 border-transparent';
-    case 'sending':
-      return 'bg-blue-100 text-blue-800 hover:bg-blue-100/80 border-transparent';
-    case 'failed':
-      return 'bg-red-100 text-red-800 hover:bg-red-100/80 border-transparent';
-    case 'paused':
-      return 'bg-purple-100 text-purple-800 hover:bg-purple-100/80 border-transparent';
-    case 'draft':
-    default:
-      return 'bg-gray-100 text-gray-800 hover:bg-gray-100/80 border-transparent';
-  }
-};
+// Was a local reimplementation of the exact same palette already centralized
+// in components/order/StatusBadge.tsx's 'marketing' domain (2026-09-04) —
+// same colors, now one definition instead of two.
+const getStatusColorClass = (status: string) => sharedStatusColorClass('marketing', status);
 
 export default function Marketing() {
   const [activeTab, setActiveTab] = useState('campaigns');

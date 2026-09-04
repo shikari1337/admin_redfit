@@ -22,6 +22,9 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Pagination } from '@/components/erp';
+
+const PAGE_SIZE = 20;
 
 const Users: React.FC = () => {
   const [users, setUsers] = useState<any[]>([]);
@@ -29,7 +32,6 @@ const Users: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
 
   useEffect(() => {
@@ -41,7 +43,7 @@ const Users: React.FC = () => {
       setLoading(true);
       const params: any = {
         page,
-        limit: 20,
+        limit: PAGE_SIZE,
       };
       if (searchTerm) {
         params.search = searchTerm;
@@ -66,7 +68,6 @@ const Users: React.FC = () => {
         _id: typeof user._id === 'string' ? user._id : String(user._id || ''),
       }));
       setUsers(sanitizedUsers);
-      setTotalPages(response?.pagination?.pages || response?.pages || 1);
       setTotal(response?.pagination?.total || response?.total || 0);
     } catch (error) {
       console.error('Failed to fetch users:', error);
@@ -236,31 +237,7 @@ const Users: React.FC = () => {
         </div>
       </Card>
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <div className="text-sm text-muted-foreground">
-            Showing page {page} of {totalPages}
-          </div>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page === 1}
-            >
-              Previous
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page === totalPages}
-            >
-              Next
-            </Button>
-          </div>
-        </div>
-      )}
+      <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPage={setPage} />
     </div>
   );
 };

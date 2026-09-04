@@ -8,6 +8,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { brandsAPI } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 import ImageInputWithActions from '../components/common/ImageInputWithActions';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -131,6 +132,12 @@ function SortableRankRow({
 
 const Brands: React.FC = () => {
   const { toast } = useToast();
+  const { hasPerm } = useAuth();
+  // Backend requires products.manage for create/update (incl. quick Active/
+  // Featured toggles and preference-order saves), products.delete for
+  // removal (routes/brands.ts) — this page had NO client-side gating before.
+  const canManageBrands = hasPerm('products.manage');
+  const canDeleteBrands = hasPerm('products.delete');
   const [brands, setBrands] = useState<Brand[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -409,10 +416,12 @@ const Brands: React.FC = () => {
           <h1 className="text-3xl font-bold tracking-tight">Brands</h1>
           <p className="text-muted-foreground">Manage brands and the order their products lead category pages.</p>
         </div>
-        <Button onClick={openCreate} className="flex items-center gap-2">
-          <FaPlus className="h-4 w-4" />
-          New Brand
-        </Button>
+        {canManageBrands && (
+          <Button onClick={openCreate} className="flex items-center gap-2">
+            <FaPlus className="h-4 w-4" />
+            New Brand
+          </Button>
+        )}
       </div>
 
       <Tabs defaultValue="brands">
@@ -517,6 +526,7 @@ const Brands: React.FC = () => {
                               <Switch
                                 checked={brand.isActive !== false}
                                 onCheckedChange={(v) => quickToggle(brand, 'isActive', v)}
+                                disabled={!canManageBrands}
                                 aria-label={`${brand.name} active`}
                               />
                             </TableCell>
@@ -524,17 +534,22 @@ const Brands: React.FC = () => {
                               <Switch
                                 checked={brand.isFeatured === true}
                                 onCheckedChange={(v) => quickToggle(brand, 'isFeatured', v)}
+                                disabled={!canManageBrands}
                                 aria-label={`${brand.name} featured`}
                               />
                             </TableCell>
                             <TableCell className="py-2 text-right">
                               <div className="flex justify-end gap-1.5">
-                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => openEdit(brand)} aria-label={`Edit ${brand.name}`}>
-                                  <FaPen className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive" onClick={() => handleDelete(brand)} aria-label={`Delete ${brand.name}`}>
-                                  <FaTrash className="h-3.5 w-3.5" />
-                                </Button>
+                                {canManageBrands && (
+                                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => openEdit(brand)} aria-label={`Edit ${brand.name}`}>
+                                    <FaPen className="h-3.5 w-3.5" />
+                                  </Button>
+                                )}
+                                {canDeleteBrands && (
+                                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive" onClick={() => handleDelete(brand)} aria-label={`Delete ${brand.name}`}>
+                                    <FaTrash className="h-3.5 w-3.5" />
+                                  </Button>
+                                )}
                               </div>
                             </TableCell>
                           </TableRow>
@@ -591,10 +606,12 @@ const Brands: React.FC = () => {
                     <Button type="button" variant="outline" size="sm" onClick={discardOrder} disabled={!orderDirty || savingOrder}>
                       Discard
                     </Button>
-                    <Button type="button" size="sm" onClick={saveOrder} disabled={!orderDirty || savingOrder}>
-                      <FaSave className="mr-2 h-3.5 w-3.5" />
-                      {savingOrder ? 'Saving…' : 'Save order'}
-                    </Button>
+                    {canManageBrands && (
+                      <Button type="button" size="sm" onClick={saveOrder} disabled={!orderDirty || savingOrder}>
+                        <FaSave className="mr-2 h-3.5 w-3.5" />
+                        {savingOrder ? 'Saving…' : 'Save order'}
+                      </Button>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -831,10 +848,12 @@ const Brands: React.FC = () => {
             </div>
 
             <div className="sticky bottom-0 bg-background border-t px-6 py-4 flex gap-3">
-              <Button type="submit" disabled={saving} className="flex-1">
-                <FaSave className="mr-2" />
-                {saving ? 'Saving...' : selectedId ? 'Update Brand' : 'Create Brand'}
-              </Button>
+              {canManageBrands && (
+                <Button type="submit" disabled={saving} className="flex-1">
+                  <FaSave className="mr-2" />
+                  {saving ? 'Saving...' : selectedId ? 'Update Brand' : 'Create Brand'}
+                </Button>
+              )}
               <Button type="button" variant="outline" onClick={() => setEditorOpen(false)} className="flex-none">
                 <FaUndo className="mr-2" />
                 Cancel

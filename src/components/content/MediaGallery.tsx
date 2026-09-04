@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Search, Image as ImageIcon, X, Loader, Check, Trash2, Wand2 } from 'lucide-react';
 import { uploadAPI } from '../../services/api';
+import { Pagination } from '../erp';
 
 const formatFileSize = (bytes: number) => {
   if (bytes < 1024) return bytes + ' B';
@@ -81,7 +82,6 @@ const MediaGallery = ({ onSelect, onClose }: MediaGalleryProps) => {
   const filteredFiles = files.filter((f) =>
     f.key.toLowerCase().includes(search.toLowerCase())
   );
-  const totalPages = Math.max(1, Math.ceil(filteredFiles.length / itemsPerPage));
   const currentFiles = filteredFiles.slice(
     (page - 1) * itemsPerPage,
     page * itemsPerPage
@@ -216,29 +216,13 @@ const MediaGallery = ({ onSelect, onClose }: MediaGalleryProps) => {
         </div>
 
         {/* Footer / Pagination */}
-        <div className="p-4 border-t bg-white flex justify-between items-center">
-          <span className="text-sm text-gray-500">
-            Page {page} of {totalPages}
-          </span>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              disabled={page === 1}
-              onClick={() => setPage((p) => p - 1)}
-              className="px-3 py-1 border rounded hover:bg-gray-50 disabled:opacity-50 text-sm"
-            >
-              Previous
-            </button>
-            <button
-              type="button"
-              disabled={page >= totalPages}
-              onClick={() => setPage((p) => p + 1)}
-              className="px-3 py-1 border rounded hover:bg-gray-50 disabled:opacity-50 text-sm"
-            >
-              Next
-            </button>
-          </div>
-        </div>
+        <Pagination
+          page={page}
+          pageSize={itemsPerPage}
+          total={filteredFiles.length}
+          onPage={setPage}
+          className="p-4 border-t bg-white"
+        />
       </div>
     </div>
   );

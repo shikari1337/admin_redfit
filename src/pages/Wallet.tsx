@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Loader2, Wallet as WalletIcon, AlertTriangle, Plus, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
 import { walletAPI } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -67,6 +68,12 @@ const fmtMoney = (n: number | undefined, currency = 'INR') =>
 
 const WalletPage: React.FC = () => {
   const navigate = useNavigate();
+  const { hasPerm } = useAuth();
+  // Backend (routes/wallet.ts): reads (balance/transactions/pricing/recharges) are
+  // billing.read, which the route-level RouteGuard already covers to reach this page.
+  // The only write action is recharge create-order+verify -> billing.manage — this page
+  // had ZERO client-side gating on it before.
+  const canManageBilling = hasPerm('billing.manage');
   const [loading, setLoading] = useState(true);
   const [wallet, setWallet] = useState<WalletBalance | null>(null);
   const [pricing, setPricing] = useState<Record<string, number>>({});
@@ -220,20 +227,22 @@ const WalletPage: React.FC = () => {
                 </p>
               )}
             </div>
-            <div className="flex items-end gap-2">
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">Amount (₹)</label>
-                <Input
-                  type="number" min="1" step="1" value={rechargeAmount}
-                  onChange={e => setRechargeAmount(e.target.value)}
-                  className="w-32 h-9"
-                />
+            {canManageBilling && (
+              <div className="flex items-end gap-2">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Amount (₹)</label>
+                  <Input
+                    type="number" min="1" step="1" value={rechargeAmount}
+                    onChange={e => setRechargeAmount(e.target.value)}
+                    className="w-32 h-9"
+                  />
+                </div>
+                <Button onClick={handleRecharge} disabled={recharging} className="h-9">
+                  {recharging ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+                  Add Money
+                </Button>
               </div>
-              <Button onClick={handleRecharge} disabled={recharging} className="h-9">
-                {recharging ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-                Add Money
-              </Button>
-            </div>
+            )}
           </div>
         </CardContent>
       </Card>

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { couponsAPI } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 import { FaPlus, FaEdit, FaTrash, FaCheckCircle, FaTimesCircle } from 'react-icons/fa';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -38,6 +39,12 @@ interface Coupon {
 
 const Coupons: React.FC = () => {
   const navigate = useNavigate();
+  const { hasPerm } = useAuth();
+  // Backend requires marketing.manage for create/update (incl. active toggle),
+  // marketing.delete for removal (routes/coupons.ts) — note this is marketing.*, not
+  // coupons.* — this page had ZERO client-side gating before.
+  const canManageCoupons = hasPerm('marketing.manage');
+  const canDeleteCoupons = hasPerm('marketing.delete');
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -142,9 +149,11 @@ const Coupons: React.FC = () => {
           <h1 className="text-3xl font-bold tracking-tight">Coupons</h1>
           <p className="text-sm text-muted-foreground mt-1">Manage store discount codes and offers</p>
         </div>
-        <Button onClick={() => navigate('/coupons/new')} className="bg-blue-600 hover:bg-blue-700 text-white">
-          <FaPlus className="mr-2 h-4 w-4" /> Create Coupon
-        </Button>
+        {canManageCoupons && (
+          <Button onClick={() => navigate('/coupons/new')} className="bg-blue-600 hover:bg-blue-700 text-white">
+            <FaPlus className="mr-2 h-4 w-4" /> Create Coupon
+          </Button>
+        )}
       </div>
 
       {error && (
@@ -211,19 +220,33 @@ const Coupons: React.FC = () => {
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-col gap-1 items-start">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className={`h-8 px-2 text-xs font-medium w-[90px] justify-start ${
-                                coupon.isActive
-                                ? 'text-green-700 hover:text-green-800 hover:bg-green-100 bg-green-50'
-                                : 'text-slate-600 hover:text-slate-700 hover:bg-slate-200 bg-slate-100'
-                              }`}
-                              onClick={() => handleToggleActive(coupon)}
-                            >
-                              {coupon.isActive ? <FaCheckCircle className="mr-1.5 h-3 w-3" /> : <FaTimesCircle className="mr-1.5 h-3 w-3" />}
-                              {coupon.isActive ? 'Active' : 'Inactive'}
-                            </Button>
+                            {canManageCoupons ? (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className={`h-8 px-2 text-xs font-medium w-[90px] justify-start ${
+                                  coupon.isActive
+                                  ? 'text-green-700 hover:text-green-800 hover:bg-green-100 bg-green-50'
+                                  : 'text-slate-600 hover:text-slate-700 hover:bg-slate-200 bg-slate-100'
+                                }`}
+                                onClick={() => handleToggleActive(coupon)}
+                              >
+                                {coupon.isActive ? <FaCheckCircle className="mr-1.5 h-3 w-3" /> : <FaTimesCircle className="mr-1.5 h-3 w-3" />}
+                                {coupon.isActive ? 'Active' : 'Inactive'}
+                              </Button>
+                            ) : (
+                              <Badge
+                                variant="outline"
+                                className={`h-8 px-2 text-xs font-medium w-[90px] justify-start ${
+                                  coupon.isActive
+                                  ? 'text-green-700 bg-green-50'
+                                  : 'text-slate-600 bg-slate-100'
+                                }`}
+                              >
+                                {coupon.isActive ? <FaCheckCircle className="mr-1.5 h-3 w-3" /> : <FaTimesCircle className="mr-1.5 h-3 w-3" />}
+                                {coupon.isActive ? 'Active' : 'Inactive'}
+                              </Badge>
+                            )}
                             <span className={`text-[10px] px-2 ${(coupon.isPublic ?? coupon.is_public ?? true) ? 'text-blue-600' : 'text-muted-foreground'}`}>
                               {(coupon.isPublic ?? coupon.is_public ?? true) ? 'Public' : 'Hidden'}
                             </span>
@@ -231,24 +254,28 @@ const Coupons: React.FC = () => {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-2">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                              onClick={() => navigate(`/coupons/${couponId}/edit`)}
-                              title="Edit Coupon"
-                            >
-                              <FaEdit className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-destructive hover:bg-destructive/10"
-                              onClick={() => handleDelete(couponId)}
-                              title="Delete Coupon"
-                            >
-                              <FaTrash className="h-4 w-4" />
-                            </Button>
+                            {canManageCoupons && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                onClick={() => navigate(`/coupons/${couponId}/edit`)}
+                                title="Edit Coupon"
+                              >
+                                <FaEdit className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {canDeleteCoupons && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                                onClick={() => handleDelete(couponId)}
+                                title="Delete Coupon"
+                              >
+                                <FaTrash className="h-4 w-4" />
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>

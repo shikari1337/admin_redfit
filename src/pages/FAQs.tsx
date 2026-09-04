@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { FaPlus, FaEdit, FaTrash, FaChevronDown, FaChevronUp } from 'react-icons/fa';
 import { faqsAPI } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 
 interface FAQ {
   _id: string;
@@ -12,6 +13,11 @@ interface FAQ {
 }
 
 const FAQs: React.FC = () => {
+  const { hasPerm } = useAuth();
+  // Backend requires content.manage for create/update, content.delete for removal
+  // (routes/faqs.ts) — this page had ZERO client-side gating before.
+  const canManageFaqs = hasPerm('content.manage');
+  const canDeleteFaqs = hasPerm('content.delete');
   const [faqs, setFaqs] = useState<FAQ[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -135,16 +141,18 @@ const FAQs: React.FC = () => {
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold text-white">FAQs</h1>
-        <button
-          onClick={() => {
-            resetForm();
-            setEditingFAQ(null);
-            setIsModalOpen(true);
-          }}
-          className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700"
-        >
-          <FaPlus /> Add FAQ
-        </button>
+        {canManageFaqs && (
+          <button
+            onClick={() => {
+              resetForm();
+              setEditingFAQ(null);
+              setIsModalOpen(true);
+            }}
+            className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700"
+          >
+            <FaPlus /> Add FAQ
+          </button>
+        )}
       </div>
 
       <div className="bg-zinc-900 rounded-lg border border-zinc-800 overflow-hidden">
@@ -176,18 +184,22 @@ const FAQs: React.FC = () => {
                   >
                     {expandedIndex === index ? <FaChevronUp /> : <FaChevronDown />}
                   </button>
-                  <button
-                    onClick={() => handleEdit(faq)}
-                    className="text-blue-400 hover:text-blue-300 p-2"
-                  >
-                    <FaEdit />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(faq._id)}
-                    className="text-red-400 hover:text-red-300 p-2"
-                  >
-                    <FaTrash />
-                  </button>
+                  {canManageFaqs && (
+                    <button
+                      onClick={() => handleEdit(faq)}
+                      className="text-blue-400 hover:text-blue-300 p-2"
+                    >
+                      <FaEdit />
+                    </button>
+                  )}
+                  {canDeleteFaqs && (
+                    <button
+                      onClick={() => handleDelete(faq._id)}
+                      className="text-red-400 hover:text-red-300 p-2"
+                    >
+                      <FaTrash />
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

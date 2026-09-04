@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { FaEye, FaTimes } from 'react-icons/fa';
 import StatusBadge from '../components/order/StatusBadge';
+import { fmtRupeesOrDash } from '../lib/money';
 
 interface ReturnRequest {
   id: string;
@@ -161,7 +162,7 @@ const Returns: React.FC = () => {
                       <StatusBadge status={ret.status} type="return" />
                     </TableCell>
                     <TableCell className="px-4 py-3 text-right text-sm font-medium">
-                      {ret.refund_amount != null ? `₹${ret.refund_amount.toLocaleString('en-IN')}` : '—'}
+                      {fmtRupeesOrDash(ret.refund_amount)}
                     </TableCell>
                     <TableCell className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
                       {ret.created_at ? format(new Date(ret.created_at), 'MMM dd, yyyy') : '—'}
@@ -216,7 +217,7 @@ const Returns: React.FC = () => {
                 <div>
                   <span className="text-muted-foreground">Refund Amount</span>
                   <p className="font-medium mt-0.5">
-                    {selected.refund_amount != null ? `₹${selected.refund_amount.toLocaleString('en-IN')}` : '—'}
+                    {fmtRupeesOrDash(selected.refund_amount)}
                   </p>
                 </div>
                 <div>

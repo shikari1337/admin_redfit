@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save, Truck, Warehouse, Loader2, MapPin, Plus, Pencil, Trash2, ShieldCheck, Copy, KeyRound } from 'lucide-react';
 import api, { shippingZonesAPI, pincodeZonesAPI, shippingAPI, type ShippingProviderStatus } from '../services/api';
 import ConnectionStatus, { type ConnState } from '../components/common/ConnectionStatus';
+import { useSettingsSection } from '../hooks/useSettingsSection';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -34,10 +35,35 @@ interface PincodeZoneRow {
 const emptyPincodeForm = { id: '', pincode: '', zone: 'standard', city: '', state: '', is_serviceable: true };
 const PINCODE_PAGE_SIZE = 20;
 
+const DEFAULT_FORM_DATA = {
+  shippingConfig: {
+    freeShippingThreshold: 500,
+    shippingFee: 49,
+    codFee: 0,
+    codEnabled: true,
+    deliveryEnabled: true,
+    slaHours: 0,
+  },
+  shiprocket: {
+    email: '',
+    password: '',
+    apiUrl: 'https://apiv2.shiprocket.in',
+    pickupLocation: '',
+    channelId: '',
+    isEnabled: false,
+    requireSignedWebhook: false,
+  },
+  delhivery: {
+    apiToken: '',
+    apiUrl: 'https://staging-express.delhivery.com/api',
+    isEnabled: false,
+  },
+};
+
+type FormData = typeof DEFAULT_FORM_DATA;
+
 const ShippingSettings: React.FC = () => {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [providerStatus, setProviderStatus] = useState<ShippingProviderStatus[]>([]);
   const [conn, setConn] = useState<Record<string, { state: ConnState; message?: string }>>({});
   const [channels, setChannels] = useState<Array<{ id: string; name: string; type?: string; status?: string }>>([]);
@@ -49,30 +75,6 @@ const ShippingSettings: React.FC = () => {
   const [genSecret, setGenSecret] = useState<string | null>(null); // shown ONCE after generate
   const [genLoading, setGenLoading] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
-  const [formData, setFormData] = useState({
-    shippingConfig: {
-      freeShippingThreshold: 500,
-      shippingFee: 49,
-      codFee: 0,
-      codEnabled: true,
-      deliveryEnabled: true,
-      slaHours: 0,
-    },
-    shiprocket: {
-      email: '',
-      password: '',
-      apiUrl: 'https://apiv2.shiprocket.in',
-      pickupLocation: '',
-      channelId: '',
-      isEnabled: false,
-      requireSignedWebhook: false,
-    },
-    delhivery: {
-      apiToken: '',
-      apiUrl: 'https://staging-express.delhivery.com/api',
-      isEnabled: false,
-    },
-  });
 
   // ── Shipping zones ──────────────────────────────────────────────────────
   const [zones, setZones] = useState<ShippingZone[]>([]);
@@ -202,7 +204,6 @@ const ShippingSettings: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchSettings();
     loadZones();
   }, []);
 
@@ -249,83 +250,76 @@ const ShippingSettings: React.FC = () => {
     }
   };
 
-  const fetchSettings = async () => {
-    try {
-      setLoading(true);
+  // Courier credentials come from the dedicated endpoint that reads the same
+  // `shipping_providers` setting the shipment resolver uses (they used to be
+  // read from /settings/admin, which held a different key entirely — so saved
+  // credentials were never actually applied), so this page's "settings" are
+  // really two independent fetches merged into one form. A failure fetching
+  // creds alone must not fail the whole load — the status strip still reports
+  // the truth from `loadProviderStatus()`.
+  const {
+    formData, setFormData, loading, saving, reload, handleSubmit,
+  } = useSettingsSection<FormData>({
+    defaults: DEFAULT_FORM_DATA,
+    fetcher: async () => {
       loadProviderStatus();
       loadChannels();
       const response = await api.get('/settings/admin');
-      const settings = response.data?.success && response.data?.data 
-        ? response.data.data 
-        : response.data?.data 
-        ? response.data.data 
-        : response.data;
-      
-      if (settings) {
-        if (settings.shippingConfig) {
-          setFormData(prev => ({
-            ...prev,
-            shippingConfig: {
-              freeShippingThreshold: settings.shippingConfig.freeShippingThreshold ?? 500,
-              shippingFee: settings.shippingConfig.shippingFee ?? 49,
-              codFee: settings.shippingConfig.codFee ?? 0,
-              codEnabled: settings.shippingConfig.codEnabled !== false,
-              deliveryEnabled: settings.shippingConfig.deliveryEnabled !== false,
-              slaHours: settings.shippingConfig.slaHours ?? 0,
-            },
-          }));
-        }
+      const settings = response.data;
+      const creds = await shippingAPI.getProviderCredentials().catch(() => null);
+      return { settings, creds };
+    },
+    parse: ({ settings, creds }) => {
+      const next: FormData = {
+        shippingConfig: { ...DEFAULT_FORM_DATA.shippingConfig },
+        shiprocket: { ...DEFAULT_FORM_DATA.shiprocket },
+        delhivery: { ...DEFAULT_FORM_DATA.delhivery },
+      };
+      if (settings?.shippingConfig) {
+        next.shippingConfig = {
+          freeShippingThreshold: settings.shippingConfig.freeShippingThreshold ?? 500,
+          shippingFee: settings.shippingConfig.shippingFee ?? 49,
+          codFee: settings.shippingConfig.codFee ?? 0,
+          codEnabled: settings.shippingConfig.codEnabled !== false,
+          deliveryEnabled: settings.shippingConfig.deliveryEnabled !== false,
+          slaHours: settings.shippingConfig.slaHours ?? 0,
+        };
       }
-
-      // Courier credentials come from the dedicated endpoint that reads the same
-      // `shipping_providers` setting the shipment resolver uses. (They used to be
-      // read from /settings/admin, which held a different key entirely — so saved
-      // credentials were never actually applied.)
-      try {
-        const creds = await shippingAPI.getProviderCredentials();
-        setFormData(prev => ({
-          ...prev,
-          shiprocket: {
-            ...prev.shiprocket,
-            isEnabled: creds.shiprocket.isEnabled,
-            email: creds.shiprocket.email || '',
-            apiUrl: creds.shiprocket.apiUrl || prev.shiprocket.apiUrl,
-            pickupLocation: creds.shiprocket.pickupLocation || '',
-            channelId: (creds.shiprocket as any).channelId || '',
-            password: '', // never prefill a secret
-            requireSignedWebhook: !!creds.shiprocket.requireSignedWebhook,
-          },
-          delhivery: {
-            ...prev.delhivery,
-            isEnabled: creds.delhivery.isEnabled,
-            apiUrl: creds.delhivery.apiUrl || prev.delhivery.apiUrl,
-            apiToken: '',
-          },
-        }));
-        setWebhookTokenSet(!!creds.shiprocket.webhookTokenSet);
-        setStoreSlug(creds.slug ?? null);
-      } catch { /* status strip still reports the truth */ }
-    } catch (error: any) {
-      console.error('Failed to fetch settings:', error);
-      alert('Failed to load shipping settings');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    try {
+      if (creds) {
+        next.shiprocket = {
+          ...DEFAULT_FORM_DATA.shiprocket,
+          isEnabled: creds.shiprocket.isEnabled,
+          email: creds.shiprocket.email || '',
+          apiUrl: creds.shiprocket.apiUrl || DEFAULT_FORM_DATA.shiprocket.apiUrl,
+          pickupLocation: creds.shiprocket.pickupLocation || '',
+          channelId: (creds.shiprocket as any).channelId || '',
+          password: '', // never prefill a secret
+          requireSignedWebhook: !!creds.shiprocket.requireSignedWebhook,
+        };
+        next.delhivery = {
+          ...DEFAULT_FORM_DATA.delhivery,
+          isEnabled: creds.delhivery.isEnabled,
+          apiUrl: creds.delhivery.apiUrl || DEFAULT_FORM_DATA.delhivery.apiUrl,
+          apiToken: '',
+        };
+      }
+      return next;
+    },
+    onLoaded: ({ creds }) => {
+      setWebhookTokenSet(!!creds?.shiprocket.webhookTokenSet);
+      setStoreSlug(creds?.slug ?? null);
+    },
+    onLoadError: () => alert('Failed to load shipping settings'),
+    submitter: async (data) => {
       // Store-wide fee config stays in /settings…
       await api.put('/settings', {
         shippingConfig: {
-          freeShippingThreshold: Number(formData.shippingConfig.freeShippingThreshold) || 500,
-          shippingFee: Number(formData.shippingConfig.shippingFee) || 0,
-          codFee: Number(formData.shippingConfig.codFee) || 0,
-          codEnabled: formData.shippingConfig.codEnabled,
-          deliveryEnabled: formData.shippingConfig.deliveryEnabled,
-          slaHours: Math.max(0, Number(formData.shippingConfig.slaHours) || 0),
+          freeShippingThreshold: Number(data.shippingConfig.freeShippingThreshold) || 500,
+          shippingFee: Number(data.shippingConfig.shippingFee) || 0,
+          codFee: Number(data.shippingConfig.codFee) || 0,
+          codEnabled: data.shippingConfig.codEnabled,
+          deliveryEnabled: data.shippingConfig.deliveryEnabled,
+          slaHours: Math.max(0, Number(data.shippingConfig.slaHours) || 0),
         },
       });
 
@@ -334,18 +328,18 @@ const ShippingSettings: React.FC = () => {
       // Blank secret = keep the stored one.
       await shippingAPI.saveProviderCredentials({
         shiprocket: {
-          isEnabled: formData.shiprocket.isEnabled,
-          email: formData.shiprocket.email,
-          apiUrl: formData.shiprocket.apiUrl,
-          pickupLocation: formData.shiprocket.pickupLocation,
-          channelId: formData.shiprocket.channelId,
-          requireSignedWebhook: formData.shiprocket.requireSignedWebhook,
-          ...(formData.shiprocket.password ? { password: formData.shiprocket.password } : {}),
+          isEnabled: data.shiprocket.isEnabled,
+          email: data.shiprocket.email,
+          apiUrl: data.shiprocket.apiUrl,
+          pickupLocation: data.shiprocket.pickupLocation,
+          channelId: data.shiprocket.channelId,
+          requireSignedWebhook: data.shiprocket.requireSignedWebhook,
+          ...(data.shiprocket.password ? { password: data.shiprocket.password } : {}),
         },
         delhivery: {
-          isEnabled: formData.delhivery.isEnabled,
-          apiUrl: formData.delhivery.apiUrl,
-          ...(formData.delhivery.apiToken ? { apiToken: formData.delhivery.apiToken } : {}),
+          isEnabled: data.delhivery.isEnabled,
+          apiUrl: data.delhivery.apiUrl,
+          ...(data.delhivery.apiToken ? { apiToken: data.delhivery.apiToken } : {}),
         },
       });
       // Report what actually persisted (read back from the server) rather than a
@@ -360,19 +354,17 @@ const ShippingSettings: React.FC = () => {
         `${saved?.shiprocket?.email ? ` · ${saved.shiprocket.email}` : ''}` +
         `${savedChannel ? ` · channel: ${savedChannel}` : ' · no channel selected'}`
       );
-      await fetchSettings();
+      await reload();
       // Credentials may have changed — a previous "Connected" result is now stale.
       setConn({});
       await loadProviderStatus();
       // Newly-saved credentials may unlock the channel list for the first time.
       await loadChannels();
-    } catch (error: any) {
-      console.error('Failed to save settings:', error);
-      alert(error.response?.data?.message || 'Failed to save shipping settings');
-    } finally {
-      setSaving(false);
-    }
-  };
+    },
+    onError: (error: any) => {
+      alert(error?.response?.data?.message || 'Failed to save shipping settings');
+    },
+  });
 
   const handleChange = (section: keyof typeof formData, field: string, value: any) => {
     setFormData(prev => ({

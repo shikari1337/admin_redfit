@@ -59,6 +59,7 @@ const CartRecoveryAutomation: React.FC = () => {
   const [steps, setSteps] = useState<StepForm[]>([]);
   const [original, setOriginal] = useState<StepForm[]>([]);
   const [waTemplates, setWaTemplates] = useState<WaTemplateSummary[]>([]);
+  const [waTemplatesLoading, setWaTemplatesLoading] = useState(true);
   const [waLoadError, setWaLoadError] = useState<string | null>(null);
   const [waDetailLoading, setWaDetailLoading] = useState<string | null>(null);
   const [smsPreview, setSmsPreview] = useState<Record<string, string>>({});
@@ -80,9 +81,14 @@ const CartRecoveryAutomation: React.FC = () => {
         asArray(smsRows).forEach((t: any) => { if (t.event?.startsWith('cart_recovery_')) preview[t.event] = t.content || ''; });
         setSmsPreview(preview);
 
+        // Fetches live from the store's real WhatsApp Business account (an
+        // external API call) — routinely takes a few seconds, so this gets
+        // its own loading flag rather than looking like a permanently-empty
+        // dropdown while the rest of the page has already rendered.
         cartsAPI.listWhatsAppTemplates()
           .then((rows: any) => setWaTemplates(asArray(rows)))
-          .catch((err: any) => setWaLoadError(err.message || 'Could not load WhatsApp templates'));
+          .catch((err: any) => setWaLoadError(err.message || 'Could not load WhatsApp templates'))
+          .finally(() => setWaTemplatesLoading(false));
       } catch (err: any) {
         setError(err.message || 'Failed to load the cart recovery flow');
       } finally {
@@ -290,14 +296,20 @@ const CartRecoveryAutomation: React.FC = () => {
                     ) : (
                       <div className="space-y-2">
                         {waLoadError && <p className="text-xs text-amber-700 flex items-center gap-1"><AlertTriangle className="h-3.5 w-3.5" />{waLoadError}</p>}
-                        <select
-                          className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                          value={step.channels.whatsapp.templateId || ''}
-                          onChange={(e) => pickWhatsAppTemplate(step.key, e.target.value)}
-                        >
-                          <option value="">— select an approved template —</option>
-                          {waTemplates.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.language})</option>)}
-                        </select>
+                        {waTemplatesLoading ? (
+                          <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Fetching your approved templates from WhatsApp…
+                          </p>
+                        ) : (
+                          <select
+                            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                            value={step.channels.whatsapp.templateId || ''}
+                            onChange={(e) => pickWhatsAppTemplate(step.key, e.target.value)}
+                          >
+                            <option value="">— select an approved template —</option>
+                            {waTemplates.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.language})</option>)}
+                          </select>
+                        )}
                         {waDetailLoading === step.key && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
                         {!!step.channels.whatsapp.paramOrder?.length && (
                           <div className="bg-muted/50 border rounded-md p-3 space-y-2">

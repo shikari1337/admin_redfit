@@ -4,6 +4,7 @@ import { FaArrowLeft, FaPlus, FaEdit, FaTrash, FaWarehouse, FaStore, FaTruck, Fa
 import { warehousesAPI } from '../services/api';
 import PhoneInput from '../components/PhoneInput';
 import CarrierLocationMap from '../components/shipments/CarrierLocationMap';
+import { useAuth } from '../contexts/AuthContext';
 
 interface Warehouse {
   _id: string;
@@ -51,6 +52,13 @@ const toIdString = (id: any): string => {
 
 const Warehouses: React.FC = () => {
   const navigate = useNavigate();
+  const { hasPerm } = useAuth();
+  // Backend (routes/warehouses.ts): create/update/sync-with-store -> inventory.manage,
+  // delete -> inventory.delete. This page has no stock-adjust actions (those live on
+  // Inventory.tsx, gated separately -> inventory.adjust). This page had ZERO client-side
+  // gating before.
+  const canManageWarehouses = hasPerm('inventory.manage');
+  const canDeleteWarehouses = hasPerm('inventory.delete');
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -286,17 +294,19 @@ const Warehouses: React.FC = () => {
             <h1 className="text-3xl font-bold text-gray-900">Warehouses</h1>
             <p className="text-sm text-gray-600 mt-2">Manage warehouse locations and shipping provider configurations</p>
           </div>
-          <button
-            onClick={() => {
-              resetForm();
-              setEditingWarehouse(null);
-              setShowForm(true);
-            }}
-            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
-          >
-            <FaPlus className="w-4 h-4" />
-            Add Warehouse
-          </button>
+          {canManageWarehouses && (
+            <button
+              onClick={() => {
+                resetForm();
+                setEditingWarehouse(null);
+                setShowForm(true);
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+            >
+              <FaPlus className="w-4 h-4" />
+              Add Warehouse
+            </button>
+          )}
         </div>
       </div>
 
@@ -554,13 +564,15 @@ const Warehouses: React.FC = () => {
               >
                 Cancel
               </button>
-              <button
-                type="submit"
-                className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
-              >
-                <FaSave className="w-4 h-4" />
-                {editingWarehouse ? 'Update Warehouse' : 'Create Warehouse'}
-              </button>
+              {canManageWarehouses && (
+                <button
+                  type="submit"
+                  className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+                >
+                  <FaSave className="w-4 h-4" />
+                  {editingWarehouse ? 'Update Warehouse' : 'Create Warehouse'}
+                </button>
+              )}
             </div>
           </form>
         </div>
@@ -679,7 +691,7 @@ const Warehouses: React.FC = () => {
               </div>
 
               <div className="flex gap-2 ml-4">
-                {warehouse.linkedStores && warehouse.linkedStores.length > 0 && (
+                {canManageWarehouses && warehouse.linkedStores && warehouse.linkedStores.length > 0 && (
                   <button
                     onClick={() => handleSyncWithStore(warehouse)}
                     className="p-2 text-green-600 hover:bg-green-50 rounded"
@@ -688,20 +700,24 @@ const Warehouses: React.FC = () => {
                     <FaSync className="w-5 h-5" />
                   </button>
                 )}
-                <button
-                  onClick={() => handleEdit(warehouse)}
-                  className="p-2 text-blue-600 hover:bg-blue-50 rounded"
-                  title="Edit"
-                >
-                  <FaEdit className="w-5 h-5" />
-                </button>
-                <button
-                  onClick={() => handleDelete(warehouse)}
-                  className="p-2 text-red-600 hover:bg-red-50 rounded"
-                  title="Delete"
-                >
-                  <FaTrash className="w-5 h-5" />
-                </button>
+                {canManageWarehouses && (
+                  <button
+                    onClick={() => handleEdit(warehouse)}
+                    className="p-2 text-blue-600 hover:bg-blue-50 rounded"
+                    title="Edit"
+                  >
+                    <FaEdit className="w-5 h-5" />
+                  </button>
+                )}
+                {canDeleteWarehouses && (
+                  <button
+                    onClick={() => handleDelete(warehouse)}
+                    className="p-2 text-red-600 hover:bg-red-50 rounded"
+                    title="Delete"
+                  >
+                    <FaTrash className="w-5 h-5" />
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -711,17 +727,19 @@ const Warehouses: React.FC = () => {
           <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
             <FaWarehouse className="w-12 h-12 text-gray-400 mx-auto mb-4" />
             <p className="text-gray-600">No warehouses found</p>
-            <button
-              onClick={() => {
-                resetForm();
-                setEditingWarehouse(null);
-                setShowForm(true);
-              }}
-              className="mt-4 flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 mx-auto"
-            >
-              <FaPlus className="w-4 h-4" />
-              Add First Warehouse
-            </button>
+            {canManageWarehouses && (
+              <button
+                onClick={() => {
+                  resetForm();
+                  setEditingWarehouse(null);
+                  setShowForm(true);
+                }}
+                className="mt-4 flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 mx-auto"
+              >
+                <FaPlus className="w-4 h-4" />
+                Add First Warehouse
+              </button>
+            )}
           </div>
         )}
       </div>

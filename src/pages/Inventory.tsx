@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { inventoryAPI } from '../services/api';
+import { Pagination } from '@/components/erp';
 
 interface Valuation {
   grand_total?: number;
@@ -205,8 +206,6 @@ export default function Inventory() {
     return cat.name ?? '—';
   };
 
-  const totalPages = Math.ceil(total / LIMIT);
-
   return (
     <div className="inv-page">
       <div className="page-header">
@@ -346,17 +345,7 @@ export default function Inventory() {
               </tbody>
             </table>
           </div>
-          {totalPages > 1 && (
-            <div className="pagination">
-              <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} className="btn btn-secondary btn-sm">
-                ← Prev
-              </button>
-              <span>Page {page} of {totalPages}</span>
-              <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} className="btn btn-secondary btn-sm">
-                Next →
-              </button>
-            </div>
-          )}
+          <Pagination page={page} pageSize={LIMIT} total={total} onPage={setPage} />
         </>
       )}
 
@@ -444,7 +433,6 @@ export default function Inventory() {
         .product-name-main { font-weight: 500; }
         .product-name-sub { font-size: 12px; color: #6b7280; }
         .status-pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
-        .pagination { display: flex; justify-content: center; align-items: center; gap: 16px; margin-top: 20px; }
         .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
         .modal { background: #fff; border-radius: 12px; width: 100%; max-width: 420px; overflow: hidden; }
         .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 24px 0; }

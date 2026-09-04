@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 import { format } from 'date-fns';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -9,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { FaPlus, FaEdit, FaTrash, FaToggleOn, FaToggleOff } from 'react-icons/fa';
 import StatusBadge from '../components/order/StatusBadge';
+import { Pagination } from '@/components/erp';
 
 interface BlogPost {
   id: string;
@@ -27,6 +29,12 @@ const PAGE_SIZE = 20;
 
 const Blogs: React.FC = () => {
   const navigate = useNavigate();
+  const { hasPerm } = useAuth();
+  // Backend requires content.manage for create/update (incl. publish toggle),
+  // content.delete for removal (routes/blogPosts.ts) — this page had ZERO client-side
+  // gating before.
+  const canManageBlogs = hasPerm('content.manage');
+  const canDeleteBlogs = hasPerm('content.delete');
   const [posts, setPosts] = useState<BlogPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -98,8 +106,6 @@ const Blogs: React.FC = () => {
     }
   };
 
-  const totalPages = Math.ceil(total / PAGE_SIZE);
-
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -107,10 +113,12 @@ const Blogs: React.FC = () => {
           <h1 className="text-3xl font-bold tracking-tight text-foreground">Blog Posts</h1>
           <p className="text-muted-foreground mt-1 text-sm">Manage your store's blog content.</p>
         </div>
-        <Button onClick={() => navigate('/blogs/new')} className="flex items-center gap-2">
-          <FaPlus className="h-4 w-4" />
-          New Post
-        </Button>
+        {canManageBlogs && (
+          <Button onClick={() => navigate('/blogs/new')} className="flex items-center gap-2">
+            <FaPlus className="h-4 w-4" />
+            New Post
+          </Button>
+        )}
       </div>
 
       {/* Filters */}
@@ -193,34 +201,40 @@ const Blogs: React.FC = () => {
                     </TableCell>
                     <TableCell className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          title={post.status === 'published' ? 'Unpublish' : 'Publish'}
-                          className="h-8 w-8 p-0"
-                          onClick={() => handleToggleStatus(post)}
-                        >
-                          {post.status === 'published'
-                            ? <FaToggleOn className="h-4 w-4 text-green-600" />
-                            : <FaToggleOff className="h-4 w-4 text-muted-foreground" />}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8 px-3"
-                          onClick={() => navigate(`/blogs/${post.id}/edit`)}
-                        >
-                          <FaEdit className="h-3.5 w-3.5 mr-1.5" />
-                          Edit
-                        </Button>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          className="h-8 w-8 p-0"
-                          onClick={() => handleDelete(post)}
-                        >
-                          <FaTrash className="h-3.5 w-3.5" />
-                        </Button>
+                        {canManageBlogs && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            title={post.status === 'published' ? 'Unpublish' : 'Publish'}
+                            className="h-8 w-8 p-0"
+                            onClick={() => handleToggleStatus(post)}
+                          >
+                            {post.status === 'published'
+                              ? <FaToggleOn className="h-4 w-4 text-green-600" />
+                              : <FaToggleOff className="h-4 w-4 text-muted-foreground" />}
+                          </Button>
+                        )}
+                        {canManageBlogs && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 px-3"
+                            onClick={() => navigate(`/blogs/${post.id}/edit`)}
+                          >
+                            <FaEdit className="h-3.5 w-3.5 mr-1.5" />
+                            Edit
+                          </Button>
+                        )}
+                        {canDeleteBlogs && (
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            onClick={() => handleDelete(post)}
+                          >
+                            <FaTrash className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -232,19 +246,7 @@ const Blogs: React.FC = () => {
       </Card>
 
       {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>Showing page {page} of {totalPages} ({total} posts)</span>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
-              Previous
-            </Button>
-            <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>
-              Next
-            </Button>
-          </div>
-        </div>
-      )}
+      <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPage={setPage} />
     </div>
   );
 };

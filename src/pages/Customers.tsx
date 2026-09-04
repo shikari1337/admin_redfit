@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { customersAPI } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 import { User, Phone, Mail, Search, ShoppingBag, Building2, Link2, Copy, Check, Loader2, Users2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -9,6 +10,8 @@ import { Button } from '@/components/ui/button';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
+import { Pagination } from '@/components/erp';
+import { fmtRupees } from '@/lib/money';
 
 interface StoreCustomer {
   customer_id: string;
@@ -22,10 +25,15 @@ interface StoreCustomer {
   b2b_tier?: string | null;
 }
 
-const money = (v: any) => `₹${Number(v ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 const fmtDate = (v?: string | null) => (v ? new Date(v).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
 
 const Customers: React.FC = () => {
+  const { hasPerm } = useAuth();
+  // Backend (routes/customers.ts) has no delete route for individual customers — only
+  // customers.read (list/detail) and customers.manage (duplicates merge, portal-token mint).
+  // This page's only write-type action is "Portal link" (mintPortalToken -> customers.manage);
+  // it had ZERO client-side gating before (only a reactive alert on 403).
+  const canManageCustomers = hasPerm('customers.manage');
   const [customers, setCustomers] = useState<StoreCustomer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -93,8 +101,6 @@ const Customers: React.FC = () => {
     })();
     return () => { alive = false; };
   }, [page, debounced]);
-
-  const totalPages = Math.max(1, Math.ceil(total / limit));
 
   return (
     <div className="space-y-6">
@@ -190,7 +196,7 @@ const Customers: React.FC = () => {
                         <ShoppingBag className="h-3.5 w-3.5 text-muted-foreground" />{c.order_count ?? 0}
                       </span>
                     </TableCell>
-                    <TableCell className="font-medium">{money(c.total_spent)}</TableCell>
+                    <TableCell className="font-medium">{fmtRupees(c.total_spent)}</TableCell>
                     <TableCell className="text-muted-foreground text-sm">{fmtDate(c.last_order_at)}</TableCell>
                     <TableCell>
                       {c.is_b2b ? (
@@ -200,18 +206,20 @@ const Customers: React.FC = () => {
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handlePortalLink(c)}
-                        disabled={portalLoadingId === String(c.customer_id)}
-                        title="Create a no-login portal link the customer can open to see their balance & statement"
-                      >
-                        {portalLoadingId === String(c.customer_id)
-                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          : <Link2 className="h-3.5 w-3.5 mr-1" />}
-                        Portal link
-                      </Button>
+                      {canManageCustomers && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handlePortalLink(c)}
+                          disabled={portalLoadingId === String(c.customer_id)}
+                          title="Create a no-login portal link the customer can open to see their balance & statement"
+                        >
+                          {portalLoadingId === String(c.customer_id)
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            : <Link2 className="h-3.5 w-3.5 mr-1" />}
+                          Portal link
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))
@@ -254,15 +262,7 @@ const Customers: React.FC = () => {
         </div>
       )}
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <div className="text-sm text-muted-foreground">Page {page} of {totalPages}</div>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>Previous</Button>
-            <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>Next</Button>
-          </div>
-        </div>
-      )}
+      <Pagination page={page} pageSize={limit} total={total} onPage={setPage} />
     </div>
   );
 };

@@ -700,7 +700,25 @@ const OrderDetail: React.FC = () => {
           <Button variant="ghost" size="sm" className="mb-1 -ml-3 text-muted-foreground" onClick={() => navigate('/orders')}>
             <FaArrowLeft className="mr-2 h-3.5 w-3.5" /> Back to Orders
           </Button>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Order #{order.orderId}</h1>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">Order #{order.orderId}</h1>
+            {/* Placed via the storefront's Bulk Order Platform + the buyer's own
+                PO reference — both live in the order notes (portal checkout
+                hand-off convention), surfaced here so staff never dig for them. */}
+            {/Source:\s*Bulk Order Platform/i.test(String(order.notes ?? '')) && (
+              <Badge variant="outline" className="border-amber-400 bg-amber-50 text-amber-800 font-bold">
+                Bulk Order Platform
+              </Badge>
+            )}
+            {(() => {
+              const m = String(order.notes ?? '').match(/PO Ref:\s*([^\n]+)/i);
+              return m ? (
+                <Badge variant="outline" className="border-blue-300 bg-blue-50 text-blue-700 font-bold" title="Buyer's purchase-order reference">
+                  PO: {m[1].trim()}
+                </Badge>
+              ) : null;
+            })()}
+          </div>
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">

@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FaArrowLeft, FaSave, FaBoxOpen } from 'react-icons/fa';
 import api from '../services/api';
+import { useSettingsSection } from '../hooks/useSettingsSection';
 
 interface ProductSettings {
   saleTimer: boolean;
@@ -65,39 +66,21 @@ const GROUPS: { title: string; items: { key: Key; label: string; desc: string }[
 
 const AppearanceProducts: React.FC = () => {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState<ProductSettings>(DEFAULTS);
 
-  useEffect(() => { load(); }, []);
-
-  const load = async () => {
-    try {
-      setLoading(true);
-      const res = await api.get('/settings/admin');
-      const data = res.data?.data ?? res.data ?? {};
-      setForm({ ...DEFAULTS, ...(data.productSettings || {}) });
-    } catch {
-      setForm(DEFAULTS);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { formData: form, setFormData: setForm, loading, saving, handleSubmit } = useSettingsSection<ProductSettings>({
+    defaults: DEFAULTS,
+    parse: (settings) => ({ ...DEFAULTS, ...(settings.productSettings || {}) }),
+    // Public so the storefront can read it (is_public = true) — a dedicated key,
+    // not the generic bulk /settings endpoint.
+    submitter: async (data) => {
+      await api.put('/settings/productSettings', { value: data, is_public: true, group_name: 'appearance' });
+    },
+    successMessage: 'Product page settings saved! Your storefront will reflect these changes.',
+    onError: (e: any) => alert(e?.response?.data?.message || 'Failed to save settings'),
+  });
 
   const toggle = (key: Key) => setForm((f) => ({ ...f, [key]: !f[key] }));
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      // Public so the storefront can read it (is_public = true).
-      await api.put('/settings/productSettings', { value: form, is_public: true, group_name: 'appearance' });
-      alert('Product page settings saved! Your storefront will reflect these changes.');
-    } catch (e: any) {
-      alert(e?.response?.data?.message || 'Failed to save settings');
-    } finally {
-      setSaving(false);
-    }
-  };
+  const save = () => handleSubmit();
 
   if (loading) {
     return <div className="p-8 text-gray-500">Loading…</div>;

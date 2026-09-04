@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
+import { useSettingsSection } from '../hooks/useSettingsSection';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -26,22 +27,34 @@ type Section = keyof StoreConfig;
 
 const StoreConfiguration: React.FC = () => {
   const navigate = useNavigate();
-  const [cfg, setCfg] = useState<StoreConfig>(EMPTY_STORE_CONFIG);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    api.get('/settings/admin')
-      .then((res) => {
-        const raw = res.data;
-        const settings = raw?.success !== undefined && raw?.data !== undefined ? raw.data : raw ?? {};
-        setCfg(loadStoreConfig(settings));
-      })
-      .catch(() => setError('Could not load current settings — showing defaults.'))
-      .finally(() => setLoading(false));
-  }, []);
+  const { formData: cfg, setFormData: setCfg, loading, saving, handleSubmit: saveConfig } = useSettingsSection<StoreConfig>({
+    defaults: EMPTY_STORE_CONFIG,
+    // The axios interceptor already unwraps {success,data}, so the default
+    // fetcher's `response.data` IS the settings object here — `loadStoreConfig`
+    // takes that directly (this also drops a dead-but-harmless unwrap ternary
+    // that used to sit in front of it).
+    parse: loadStoreConfig,
+    onLoadError: () => setError('Could not load current settings — showing defaults.'),
+    submitter: async (data) => {
+      const payload = storeConfigSavePayload({ ...data, setupCompleted: true });
+      await api.post('/settings/bulk', { settings: payload });
+      setCfg((c) => ({ ...c, setupCompleted: true }));
+    },
+    onSuccess: () => {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    },
+    onError: (err: any) => setError(err?.response?.data?.message || 'Failed to save configuration.'),
+  });
+
+  const handleSave = () => {
+    setSaved(false);
+    setError(null);
+    saveConfig();
+  };
 
   const set = <S extends Section>(section: S, patch: Partial<StoreConfig[S]>) =>
     setCfg((c) => ({ ...c, [section]: { ...(c[section] as any), ...patch } }));
@@ -69,23 +82,6 @@ const StoreConfiguration: React.FC = () => {
       ...c,
       hours: c.hours.map((h) => (h.day === day ? { ...h, ...patch } : h)),
     }));
-
-  const handleSave = async () => {
-    setSaving(true);
-    setSaved(false);
-    setError(null);
-    try {
-      const payload = storeConfigSavePayload({ ...cfg, setupCompleted: true });
-      await api.post('/settings/bulk', { settings: payload });
-      setSaved(true);
-      setCfg((c) => ({ ...c, setupCompleted: true }));
-      setTimeout(() => setSaved(false), 3000);
-    } catch (err: any) {
-      setError(err?.response?.data?.message || 'Failed to save configuration.');
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const addressPreview = useMemo(
     () =>

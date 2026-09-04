@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FaArrowLeft, FaSave, FaGlobe, FaImage, FaPalette, FaFont, FaInstagram } from 'react-icons/fa';
-import api from '../services/api';
 import ImageInputWithActions from '../components/common/ImageInputWithActions';
+import { useSettingsSection } from '../hooks/useSettingsSection';
 
 interface FormData {
   general: { websiteUrl: string; siteName: string; siteDescription: string; returnPeriodDays: number };
@@ -24,97 +24,73 @@ interface FormData {
   announcementBar: { text: string; bgColor: string; textColor: string; link: string; isEnabled: boolean };
 }
 
+const DEFAULT_FORM_DATA: FormData = {
+  general: { websiteUrl: '', siteName: '', siteDescription: '', returnPeriodDays: 0 },
+  logo: { logoUrl: '', faviconUrl: '', adminLogoUrl: '' },
+  colors: {
+    primaryColor: '#0D9488',
+    secondaryColor: '#F59E0B',
+    accentColor: '#10B981',
+    backgroundColor: '#FFFFFF',
+    textColor: '#111827',
+    linkColor: '#0D9488',
+  },
+  fonts: { fontFamily: 'Inter', headingFontFamily: '', bodyFontFamily: '' },
+  instagram: { username: '', isEnabled: false },
+  announcementBar: { text: 'Free Shipping on orders above ₹500', bgColor: '#f9fafb', textColor: '#111827', link: '', isEnabled: true },
+};
+
 const AppearanceStyle: React.FC = () => {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [formData, setFormData] = useState<FormData>({
-    general: { websiteUrl: '', siteName: '', siteDescription: '', returnPeriodDays: 0 },
-    logo: { logoUrl: '', faviconUrl: '', adminLogoUrl: '' },
-    colors: {
-      primaryColor: '#0D9488',
-      secondaryColor: '#F59E0B',
-      accentColor: '#10B981',
-      backgroundColor: '#FFFFFF',
-      textColor: '#111827',
-      linkColor: '#0D9488',
-    },
-    fonts: { fontFamily: 'Inter', headingFontFamily: '', bodyFontFamily: '' },
-    instagram: { username: '', isEnabled: false },
-    announcementBar: { text: 'Free Shipping on orders above ₹500', bgColor: '#f9fafb', textColor: '#111827', link: '', isEnabled: true },
+
+  const { formData, setFormData, loading, saving, handleSubmit } = useSettingsSection<FormData>({
+    defaults: DEFAULT_FORM_DATA,
+    parse: (settings) => ({
+      general: {
+        websiteUrl: settings.general?.websiteUrl || '',
+        siteName: settings.general?.siteName || '',
+        siteDescription: settings.general?.siteDescription || '',
+        returnPeriodDays: settings.general?.returnPeriodDays || 0,
+      },
+      logo: {
+        logoUrl: settings.logo?.logoUrl || '',
+        faviconUrl: settings.logo?.faviconUrl || '',
+        adminLogoUrl: settings.logo?.adminLogoUrl || '',
+      },
+      colors: {
+        primaryColor: settings.colors?.primaryColor || '#0D9488',
+        secondaryColor: settings.colors?.secondaryColor || '#F59E0B',
+        accentColor: settings.colors?.accentColor || '#10B981',
+        backgroundColor: settings.colors?.backgroundColor || '#FFFFFF',
+        textColor: settings.colors?.textColor || '#111827',
+        linkColor: settings.colors?.linkColor || '#0D9488',
+      },
+      fonts: {
+        fontFamily: settings.fonts?.fontFamily || 'Inter',
+        headingFontFamily: settings.fonts?.headingFontFamily || '',
+        bodyFontFamily: settings.fonts?.bodyFontFamily || '',
+      },
+      instagram: {
+        username: settings.instagram?.username || '',
+        isEnabled: settings.instagram?.isEnabled || false,
+      },
+      announcementBar: {
+        text: settings.announcementBar?.text || 'Free Shipping on orders above ₹500',
+        bgColor: settings.announcementBar?.bgColor || '#f9fafb',
+        textColor: settings.announcementBar?.textColor || '#111827',
+        link: settings.announcementBar?.link || '',
+        isEnabled: settings.announcementBar?.isEnabled !== false,
+      },
+    }),
+    successMessage: 'Style settings saved! Your storefront will reflect these changes.',
+    onError: (error: any) => alert(error?.response?.data?.message || 'Failed to save'),
   });
-
-  useEffect(() => {
-    fetchSettings();
-  }, []);
-
-  const fetchSettings = async () => {
-    try {
-      setLoading(true);
-      const response = await api.get('/settings/admin');
-      const settings = response.data?.success && response.data?.data ? response.data.data : response.data?.data ?? response.data;
-      setFormData({
-        general: {
-          websiteUrl: settings.general?.websiteUrl || '',
-          siteName: settings.general?.siteName || '',
-          siteDescription: settings.general?.siteDescription || '',
-          returnPeriodDays: settings.general?.returnPeriodDays || 0,
-        },
-        logo: {
-          logoUrl: settings.logo?.logoUrl || '',
-          faviconUrl: settings.logo?.faviconUrl || '',
-          adminLogoUrl: settings.logo?.adminLogoUrl || '',
-        },
-        colors: {
-          primaryColor: settings.colors?.primaryColor || '#0D9488',
-          secondaryColor: settings.colors?.secondaryColor || '#F59E0B',
-          accentColor: settings.colors?.accentColor || '#10B981',
-          backgroundColor: settings.colors?.backgroundColor || '#FFFFFF',
-          textColor: settings.colors?.textColor || '#111827',
-          linkColor: settings.colors?.linkColor || '#0D9488',
-        },
-        fonts: {
-          fontFamily: settings.fonts?.fontFamily || 'Inter',
-          headingFontFamily: settings.fonts?.headingFontFamily || '',
-          bodyFontFamily: settings.fonts?.bodyFontFamily || '',
-        },
-        instagram: {
-          username: settings.instagram?.username || '',
-          isEnabled: settings.instagram?.isEnabled || false,
-        },
-        announcementBar: {
-          text: settings.announcementBar?.text || 'Free Shipping on orders above ₹500',
-          bgColor: settings.announcementBar?.bgColor || '#f9fafb',
-          textColor: settings.announcementBar?.textColor || '#111827',
-          link: settings.announcementBar?.link || '',
-          isEnabled: settings.announcementBar?.isEnabled !== false,
-        },
-      });
-    } catch {
-      // Keep defaults
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleChange = (section: keyof FormData, field: string, value: any) => {
     setFormData((prev) => ({
       ...prev,
       [section]: { ...prev[section], [field]: value },
     }));
-  };
-
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    try {
-      await api.put('/settings', formData);
-      alert('Style settings saved! Your storefront will reflect these changes.');
-    } catch (error: any) {
-      alert(error.response?.data?.message || 'Failed to save');
-    } finally {
-      setSaving(false);
-    }
   };
 
   if (loading) {
@@ -136,7 +112,7 @@ const AppearanceStyle: React.FC = () => {
         <p className="text-sm text-gray-600 mt-2">Colors, fonts, logos – everything that defines your storefront look</p>
       </div>
 
-      <form onSubmit={handleSave} className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-6">
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <div className="flex items-center gap-4 mb-6">
             <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">

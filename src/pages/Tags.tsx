@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { FaPlus, FaEdit, FaTrash, FaSearch } from 'react-icons/fa';
 import { tagsAPI } from '../services/api';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 
 interface Tag {
   _id: string;
@@ -25,6 +26,12 @@ const normalizeTag = (t: any): Tag => ({
 });
 
 const Tags: React.FC = () => {
+  const { hasPerm } = useAuth();
+  // Backend requires products.manage for create/update (incl. the active
+  // toggle) and products.delete for removal (routes/tags.ts) — this page had
+  // NO client-side gating before.
+  const canManageTags = hasPerm('products.manage');
+  const canDeleteTags = hasPerm('products.delete');
   const [tags, setTags] = useState<Tag[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -100,13 +107,15 @@ const Tags: React.FC = () => {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold text-gray-900">Tags</h1>
-        <button
-          onClick={() => navigate('/products/tags/new')}
-          className="flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-        >
-          <FaPlus className="mr-2" />
-          Create Tag
-        </button>
+        {canManageTags && (
+          <button
+            onClick={() => navigate('/products/tags/new')}
+            className="flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+          >
+            <FaPlus className="mr-2" />
+            Create Tag
+          </button>
+        )}
       </div>
 
       {error && (
@@ -193,29 +202,34 @@ const Tags: React.FC = () => {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <button
-                      onClick={() => handleToggleActive(tag)}
+                      onClick={() => canManageTags && handleToggleActive(tag)}
+                      disabled={!canManageTags}
                       className={`px-2 py-1 text-xs font-semibold rounded-full ${
                         tag.isActive
                           ? 'bg-green-100 text-green-800'
                           : 'bg-gray-100 text-gray-800'
-                      }`}
+                      } ${!canManageTags ? 'cursor-default' : ''}`}
                     >
                       {tag.isActive ? 'Active' : 'Inactive'}
                     </button>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button
-                      onClick={() => navigate(`/products/tags/${tag._id}/edit`)}
-                      className="text-blue-600 hover:text-blue-900 mr-4"
-                    >
-                      <FaEdit />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(tag._id, tag.name)}
-                      className="text-red-600 hover:text-red-900"
-                    >
-                      <FaTrash />
-                    </button>
+                    {canManageTags && (
+                      <button
+                        onClick={() => navigate(`/products/tags/${tag._id}/edit`)}
+                        className="text-blue-600 hover:text-blue-900 mr-4"
+                      >
+                        <FaEdit />
+                      </button>
+                    )}
+                    {canDeleteTags && (
+                      <button
+                        onClick={() => handleDelete(tag._id, tag.name)}
+                        className="text-red-600 hover:text-red-900"
+                      >
+                        <FaTrash />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))

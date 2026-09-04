@@ -7,11 +7,66 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
+import { useSettingsSection } from '../hooks/useSettingsSection';
+
+const DEFAULT_FORM_DATA = {
+  smtp: {
+    useEnvVars: false,
+    isEnabled: false,
+    test: { host: '', port: 587, user: '', password: '', secure: false, requireTls: true, ignoreTls: false, fromEmail: '', adminEmail: '', passwordSet: false },
+    live: { host: '', port: 587, user: '', password: '', secure: false, requireTls: true, ignoreTls: false, fromEmail: '', adminEmail: '', passwordSet: false },
+  },
+  metaPixel: {
+    useEnvVars: false,
+    pixelId: '',
+    accessToken: '',
+    apiVersion: 'v18.0',
+    isEnabled: false,
+  },
+  ga4: {
+    useEnvVars: false,
+    apiSecret: '',
+    isEnabled: false,
+  },
+  razorpay: {
+    useEnvVars: false,
+    isEnabled: false,
+    test: { keyId: '', keySecret: '', webhookSecret: '', keyIdSet: false, keySecretSet: false, webhookSecretSet: false },
+    live: { keyId: '', keySecret: '', webhookSecret: '', keyIdSet: false, keySecretSet: false, webhookSecretSet: false },
+  },
+  whatsapp: {
+    useEnvVars: false,
+    accessToken: '',
+    phoneNumberId: '',
+    businessAccountId: '',
+    apiVersion: 'v21.0',
+    apiUrl: '',
+    accountSid: '',
+    authToken: '',
+    fromNumber: '',
+    isEnabled: false,
+    useMetaApi: true,
+  },
+  // In-house Growcord gateway — saved under the `whatsapp_settings` key that
+  // services/messaging/whatsapp actually reads (separate from `whatsapp`).
+  // TEST/LIVE pair, same convention as razorpay/smtp above.
+  whatsapp_settings: {
+    isEnabled: true,
+    channelPriority: 'whatsapp_first',
+    test: { apiUrl: '', apiKey: '', apiKeySet: false, phoneNumberId: '' },
+    live: { apiUrl: '', apiKey: '', apiKeySet: false, phoneNumberId: '' },
+  },
+  gemini: {
+    useEnvVars: false,
+    apiKey: '',
+    isEnabled: false,
+  },
+};
+
+type FormData = typeof DEFAULT_FORM_DATA;
 
 const ApiIntegrationSettings: React.FC = () => {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [storeSlug, setStoreSlug] = useState<string | null>(null);
   const [environment, setEnvironment] = useState<'test' | 'live'>('test');
   const [copied, setCopied] = useState<string | null>(null);
@@ -26,62 +81,190 @@ const ApiIntegrationSettings: React.FC = () => {
   const [waStatusLoading, setWaStatusLoading] = useState(false);
   const [waStatusError, setWaStatusError] = useState<string | null>(null);
   const [waEventsOpen, setWaEventsOpen] = useState(false);
-  const [formData, setFormData] = useState({
-    smtp: {
-      useEnvVars: false,
-      isEnabled: false,
-      test: { host: '', port: 587, user: '', password: '', secure: false, requireTls: true, ignoreTls: false, fromEmail: '', adminEmail: '', passwordSet: false },
-      live: { host: '', port: 587, user: '', password: '', secure: false, requireTls: true, ignoreTls: false, fromEmail: '', adminEmail: '', passwordSet: false },
+
+  const {
+    formData, setFormData, loading, saving, reload, handleSubmit,
+  } = useSettingsSection<FormData>({
+    defaults: DEFAULT_FORM_DATA,
+    parse: (settings): FormData => {
+      const next: FormData = {
+        smtp: { ...DEFAULT_FORM_DATA.smtp },
+        metaPixel: { ...DEFAULT_FORM_DATA.metaPixel },
+        ga4: { ...DEFAULT_FORM_DATA.ga4 },
+        razorpay: { ...DEFAULT_FORM_DATA.razorpay },
+        whatsapp: { ...DEFAULT_FORM_DATA.whatsapp },
+        whatsapp_settings: { ...DEFAULT_FORM_DATA.whatsapp_settings },
+        gemini: { ...DEFAULT_FORM_DATA.gemini },
+      };
+
+      if (settings.smtp) {
+        const modeView = (m: any) => ({
+          host: m?.host || '', port: m?.port ?? 587, user: m?.user || '',
+          secure: !!m?.secure, requireTls: m?.requireTls !== false, ignoreTls: !!m?.ignoreTls,
+          fromEmail: m?.fromEmail || '', adminEmail: m?.adminEmail || '',
+          password: m?.passwordSet ? '••••••••' : '', passwordSet: !!m?.passwordSet,
+        });
+        next.smtp = {
+          useEnvVars: settings.smtp.useEnvVars || false,
+          isEnabled: settings.smtp.isEnabled || false,
+          test: modeView(settings.smtp.test),
+          live: modeView(settings.smtp.live),
+        };
+      }
+
+      // metaPixel/ga4/whatsapp/gemini: spread the real settings object over the
+      // defaults (not the other way — a trailing `...settings.x` spread after an
+      // explicit `field: x || default` used to silently clobber that default the
+      // instant the settings object existed at all, which is the normal case;
+      // only mattered for a field genuinely never saved before, e.g. `useEnvVars`
+      // on an old store config — then a controlled Checkbox would receive
+      // `undefined` instead of `false`. Explicit `??` re-applied AFTER the spread
+      // is what actually makes the default stick.
+      if (settings.metaPixel) {
+        next.metaPixel = {
+          ...DEFAULT_FORM_DATA.metaPixel,
+          ...settings.metaPixel,
+          useEnvVars: settings.metaPixel.useEnvVars ?? false,
+          accessToken: settings.metaPixel.accessTokenSet ? '••••••••' : '',
+        };
+      }
+
+      if (settings.ga4) {
+        next.ga4 = {
+          ...DEFAULT_FORM_DATA.ga4,
+          ...settings.ga4,
+          useEnvVars: settings.ga4.useEnvVars ?? false,
+          apiSecret: settings.ga4.apiSecretSet ? '••••••••' : '',
+        };
+      }
+
+      if (settings.razorpay) {
+        const rp = settings.razorpay;
+        const modeView = (m: any) => ({
+          keyId: m?.keyIdSet ? '••••••••' : '',
+          keySecret: m?.keySecretSet ? '••••••••' : '',
+          webhookSecret: m?.webhookSecretSet ? '••••••••' : '',
+          keyIdSet: !!m?.keyIdSet,
+          keySecretSet: !!m?.keySecretSet,
+          webhookSecretSet: !!m?.webhookSecretSet,
+        });
+        next.razorpay = {
+          useEnvVars: rp.useEnvVars || false,
+          isEnabled: rp.isEnabled || false,
+          test: modeView(rp.test),
+          live: modeView(rp.live),
+        };
+      }
+
+      if (settings.whatsapp) {
+        next.whatsapp = {
+          ...DEFAULT_FORM_DATA.whatsapp,
+          ...settings.whatsapp,
+          useEnvVars: settings.whatsapp.useEnvVars ?? false,
+          accessToken: settings.whatsapp.accessTokenSet ? '••••••••' : '',
+          authToken: settings.whatsapp.authTokenSet ? '••••••••' : '',
+        };
+      }
+
+      if (settings.whatsapp_settings) {
+        const w = settings.whatsapp_settings;
+        const modeView = (m: any) => ({
+          apiUrl: m?.apiUrl || '', phoneNumberId: m?.phoneNumberId || '',
+          // The server never returns the key itself, only `apiKeySet`.
+          apiKey: m?.apiKeySet ? '••••••••' : '', apiKeySet: !!m?.apiKeySet,
+        });
+        next.whatsapp_settings = {
+          isEnabled: w.isEnabled !== false,
+          channelPriority: w.channelPriority || 'whatsapp_first',
+          test: modeView(w.test),
+          live: modeView(w.live),
+        };
+      }
+
+      if (settings.gemini) {
+        next.gemini = {
+          ...DEFAULT_FORM_DATA.gemini,
+          ...settings.gemini,
+          useEnvVars: settings.gemini.useEnvVars ?? false,
+          apiKey: settings.gemini.apiKeySet ? '••••••••' : '',
+        };
+      }
+
+      return next;
     },
-    metaPixel: {
-      useEnvVars: false,
-      pixelId: '',
-      accessToken: '',
-      apiVersion: 'v18.0',
-      isEnabled: false,
+    onLoaded: (settings) => {
+      setStoreSlug(settings.slug ?? null);
+      setEnvironment(settings.environment === 'live' ? 'live' : 'test');
+      if (settings.razorpay) setRazorpayEnvFallback(!!settings.razorpay.envFallbackActive);
     },
-    ga4: {
-      useEnvVars: false,
-      apiSecret: '',
-      isEnabled: false,
+    onLoadError: () => alert('Failed to load settings'),
+    submitter: async (data) => {
+      const modeOut = (m: any) => ({
+        host: m.host, port: m.port, user: m.user, secure: m.secure,
+        requireTls: m.requireTls, ignoreTls: m.ignoreTls, fromEmail: m.fromEmail, adminEmail: m.adminEmail,
+        password: m.password && !m.password.startsWith('••••') ? m.password : undefined,
+      });
+      const submitData: any = {
+        smtp: {
+          isEnabled: data.smtp.isEnabled,
+          useEnvVars: data.smtp.useEnvVars,
+          test: modeOut(data.smtp.test),
+          live: modeOut(data.smtp.live),
+        },
+        metaPixel: {
+          ...data.metaPixel,
+          accessToken: data.metaPixel.accessToken && !data.metaPixel.accessToken.startsWith('••••') ? data.metaPixel.accessToken : undefined,
+        },
+        ga4: {
+          ...data.ga4,
+          apiSecret: data.ga4.apiSecret && !data.ga4.apiSecret.startsWith('••••') ? data.ga4.apiSecret : undefined,
+        },
+        razorpay: {
+          isEnabled: data.razorpay.isEnabled,
+          useEnvVars: data.razorpay.useEnvVars,
+          test: {
+            keyId: data.razorpay.test.keyId && !data.razorpay.test.keyId.startsWith('••••') ? data.razorpay.test.keyId : undefined,
+            keySecret: data.razorpay.test.keySecret && !data.razorpay.test.keySecret.startsWith('••••') ? data.razorpay.test.keySecret : undefined,
+            webhookSecret: data.razorpay.test.webhookSecret && !data.razorpay.test.webhookSecret.startsWith('••••') ? data.razorpay.test.webhookSecret : undefined,
+          },
+          live: {
+            keyId: data.razorpay.live.keyId && !data.razorpay.live.keyId.startsWith('••••') ? data.razorpay.live.keyId : undefined,
+            keySecret: data.razorpay.live.keySecret && !data.razorpay.live.keySecret.startsWith('••••') ? data.razorpay.live.keySecret : undefined,
+            webhookSecret: data.razorpay.live.webhookSecret && !data.razorpay.live.webhookSecret.startsWith('••••') ? data.razorpay.live.webhookSecret : undefined,
+          },
+        },
+        whatsapp: {
+          ...data.whatsapp,
+          accessToken: data.whatsapp.accessToken && !data.whatsapp.accessToken.startsWith('••••') ? data.whatsapp.accessToken : undefined,
+          authToken: data.whatsapp.authToken && !data.whatsapp.authToken.startsWith('••••') ? data.whatsapp.authToken : undefined,
+        },
+        whatsapp_settings: {
+          isEnabled: data.whatsapp_settings.isEnabled,
+          channelPriority: data.whatsapp_settings.channelPriority,
+          test: {
+            apiUrl: data.whatsapp_settings.test.apiUrl,
+            phoneNumberId: data.whatsapp_settings.test.phoneNumberId,
+            apiKey: data.whatsapp_settings.test.apiKey && !data.whatsapp_settings.test.apiKey.startsWith('••••') ? data.whatsapp_settings.test.apiKey : undefined,
+          },
+          live: {
+            apiUrl: data.whatsapp_settings.live.apiUrl,
+            phoneNumberId: data.whatsapp_settings.live.phoneNumberId,
+            apiKey: data.whatsapp_settings.live.apiKey && !data.whatsapp_settings.live.apiKey.startsWith('••••') ? data.whatsapp_settings.live.apiKey : undefined,
+          },
+        },
+        gemini: {
+          ...data.gemini,
+          apiKey: data.gemini.apiKey && !data.gemini.apiKey.startsWith('••••') ? data.gemini.apiKey : undefined,
+        },
+      };
+
+      await api.put('/settings', submitData);
     },
-    razorpay: {
-      useEnvVars: false,
-      isEnabled: false,
-      test: { keyId: '', keySecret: '', webhookSecret: '', keyIdSet: false, keySecretSet: false, webhookSecretSet: false },
-      live: { keyId: '', keySecret: '', webhookSecret: '', keyIdSet: false, keySecretSet: false, webhookSecretSet: false },
-    },
-    whatsapp: {
-      useEnvVars: false,
-      accessToken: '',
-      phoneNumberId: '',
-      businessAccountId: '',
-      apiVersion: 'v21.0',
-      apiUrl: '',
-      accountSid: '',
-      authToken: '',
-      fromNumber: '',
-      isEnabled: false,
-      useMetaApi: true,
-    },
-    // In-house Growcord gateway — saved under the `whatsapp_settings` key that
-    // services/messaging/whatsapp actually reads (separate from `whatsapp`).
-    // TEST/LIVE pair, same convention as razorpay/smtp above.
-    whatsapp_settings: {
-      isEnabled: true,
-      channelPriority: 'whatsapp_first',
-      test: { apiUrl: '', apiKey: '', apiKeySet: false, phoneNumberId: '' },
-      live: { apiUrl: '', apiKey: '', apiKeySet: false, phoneNumberId: '' },
-    },
-    gemini: {
-      useEnvVars: false,
-      apiKey: '',
-      isEnabled: false,
-    },
+    onSuccess: () => { reload(); },
+    successMessage: 'Settings saved successfully!',
   });
 
   useEffect(() => {
-    fetchSettings();
     loadWaStatus();
   }, []);
 
@@ -95,208 +278,6 @@ const ApiIntegrationSettings: React.FC = () => {
       setWaStatusError(err?.response?.data?.message || err?.message || 'Failed to check WhatsApp status');
     } finally {
       setWaStatusLoading(false);
-    }
-  };
-
-  const fetchSettings = async () => {
-    try {
-      setLoading(true);
-      const response = await api.get('/settings/admin');
-      const settings = response.data?.success && response.data?.data 
-        ? response.data.data 
-        : response.data?.data 
-        ? response.data.data 
-        : response.data;
-      
-      if (settings) {
-        if (settings.smtp) {
-          const modeView = (m: any) => ({
-            host: m?.host || '', port: m?.port || 587, user: m?.user || '',
-            secure: !!m?.secure, requireTls: m?.requireTls !== false, ignoreTls: !!m?.ignoreTls,
-            fromEmail: m?.fromEmail || '', adminEmail: m?.adminEmail || '',
-            password: m?.passwordSet ? '••••••••' : '', passwordSet: !!m?.passwordSet,
-          });
-          setFormData(prev => ({
-            ...prev,
-            smtp: {
-              useEnvVars: settings.smtp.useEnvVars || false,
-              isEnabled: settings.smtp.isEnabled || false,
-              test: modeView(settings.smtp.test),
-              live: modeView(settings.smtp.live),
-            },
-          }));
-        }
-
-        if (settings.metaPixel) {
-          setFormData(prev => ({
-            ...prev,
-            metaPixel: {
-              ...prev.metaPixel,
-              useEnvVars: settings.metaPixel.useEnvVars || false,
-              ...settings.metaPixel,
-              accessToken: settings.metaPixel.accessTokenSet ? '••••••••' : '',
-            },
-          }));
-        }
-
-        if (settings.ga4) {
-          setFormData(prev => ({
-            ...prev,
-            ga4: {
-              ...prev.ga4,
-              useEnvVars: settings.ga4.useEnvVars || false,
-              ...settings.ga4,
-              apiSecret: settings.ga4.apiSecretSet ? '••••••••' : '',
-            },
-          }));
-        }
-
-        if (settings.razorpay) {
-          const rp = settings.razorpay;
-          const modeView = (m: any) => ({
-            keyId: m?.keyIdSet ? '••••••••' : '',
-            keySecret: m?.keySecretSet ? '••••••••' : '',
-            webhookSecret: m?.webhookSecretSet ? '••••••••' : '',
-            keyIdSet: !!m?.keyIdSet,
-            keySecretSet: !!m?.keySecretSet,
-            webhookSecretSet: !!m?.webhookSecretSet,
-          });
-          setFormData(prev => ({
-            ...prev,
-            razorpay: {
-              useEnvVars: rp.useEnvVars || false,
-              isEnabled: rp.isEnabled || false,
-              test: modeView(rp.test),
-              live: modeView(rp.live),
-            },
-          }));
-          setRazorpayEnvFallback(!!rp.envFallbackActive);
-        }
-        setStoreSlug(settings.slug ?? null);
-        setEnvironment(settings.environment === 'live' ? 'live' : 'test');
-
-        if (settings.whatsapp) {
-          setFormData(prev => ({
-            ...prev,
-            whatsapp: {
-              ...prev.whatsapp,
-              useEnvVars: settings.whatsapp.useEnvVars || false,
-              ...settings.whatsapp,
-              accessToken: settings.whatsapp.accessTokenSet ? '••••••••' : '',
-              authToken: settings.whatsapp.authTokenSet ? '••••••••' : '',
-            },
-          }));
-        }
-
-        if (settings.whatsapp_settings) {
-          const w = settings.whatsapp_settings;
-          const modeView = (m: any) => ({
-            apiUrl: m?.apiUrl || '', phoneNumberId: m?.phoneNumberId || '',
-            // The server never returns the key itself, only `apiKeySet`.
-            apiKey: m?.apiKeySet ? '••••••••' : '', apiKeySet: !!m?.apiKeySet,
-          });
-          setFormData(prev => ({
-            ...prev,
-            whatsapp_settings: {
-              isEnabled: w.isEnabled !== false,
-              channelPriority: w.channelPriority || 'whatsapp_first',
-              test: modeView(w.test),
-              live: modeView(w.live),
-            },
-          }));
-        }
-
-        if (settings.gemini) {
-          setFormData(prev => ({
-            ...prev,
-            gemini: {
-              ...prev.gemini,
-              useEnvVars: settings.gemini.useEnvVars || false,
-              ...settings.gemini,
-              apiKey: settings.gemini.apiKeySet ? '••••••••' : '',
-            },
-          }));
-        }
-      }
-    } catch (error: any) {
-      console.error('Failed to fetch settings:', error);
-      alert('Failed to load settings');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    try {
-      const modeOut = (m: any) => ({
-        host: m.host, port: m.port, user: m.user, secure: m.secure,
-        requireTls: m.requireTls, ignoreTls: m.ignoreTls, fromEmail: m.fromEmail, adminEmail: m.adminEmail,
-        password: m.password && !m.password.startsWith('••••') ? m.password : undefined,
-      });
-      const submitData: any = {
-        smtp: {
-          isEnabled: formData.smtp.isEnabled,
-          useEnvVars: formData.smtp.useEnvVars,
-          test: modeOut(formData.smtp.test),
-          live: modeOut(formData.smtp.live),
-        },
-        metaPixel: {
-          ...formData.metaPixel,
-          accessToken: formData.metaPixel.accessToken && !formData.metaPixel.accessToken.startsWith('••••') ? formData.metaPixel.accessToken : undefined,
-        },
-        ga4: {
-          ...formData.ga4,
-          apiSecret: formData.ga4.apiSecret && !formData.ga4.apiSecret.startsWith('••••') ? formData.ga4.apiSecret : undefined,
-        },
-        razorpay: {
-          isEnabled: formData.razorpay.isEnabled,
-          useEnvVars: formData.razorpay.useEnvVars,
-          test: {
-            keyId: formData.razorpay.test.keyId && !formData.razorpay.test.keyId.startsWith('••••') ? formData.razorpay.test.keyId : undefined,
-            keySecret: formData.razorpay.test.keySecret && !formData.razorpay.test.keySecret.startsWith('••••') ? formData.razorpay.test.keySecret : undefined,
-            webhookSecret: formData.razorpay.test.webhookSecret && !formData.razorpay.test.webhookSecret.startsWith('••••') ? formData.razorpay.test.webhookSecret : undefined,
-          },
-          live: {
-            keyId: formData.razorpay.live.keyId && !formData.razorpay.live.keyId.startsWith('••••') ? formData.razorpay.live.keyId : undefined,
-            keySecret: formData.razorpay.live.keySecret && !formData.razorpay.live.keySecret.startsWith('••••') ? formData.razorpay.live.keySecret : undefined,
-            webhookSecret: formData.razorpay.live.webhookSecret && !formData.razorpay.live.webhookSecret.startsWith('••••') ? formData.razorpay.live.webhookSecret : undefined,
-          },
-        },
-        whatsapp: {
-          ...formData.whatsapp,
-          accessToken: formData.whatsapp.accessToken && !formData.whatsapp.accessToken.startsWith('••••') ? formData.whatsapp.accessToken : undefined,
-          authToken: formData.whatsapp.authToken && !formData.whatsapp.authToken.startsWith('••••') ? formData.whatsapp.authToken : undefined,
-        },
-        whatsapp_settings: {
-          isEnabled: formData.whatsapp_settings.isEnabled,
-          channelPriority: formData.whatsapp_settings.channelPriority,
-          test: {
-            apiUrl: formData.whatsapp_settings.test.apiUrl,
-            phoneNumberId: formData.whatsapp_settings.test.phoneNumberId,
-            apiKey: formData.whatsapp_settings.test.apiKey && !formData.whatsapp_settings.test.apiKey.startsWith('••••') ? formData.whatsapp_settings.test.apiKey : undefined,
-          },
-          live: {
-            apiUrl: formData.whatsapp_settings.live.apiUrl,
-            phoneNumberId: formData.whatsapp_settings.live.phoneNumberId,
-            apiKey: formData.whatsapp_settings.live.apiKey && !formData.whatsapp_settings.live.apiKey.startsWith('••••') ? formData.whatsapp_settings.live.apiKey : undefined,
-          },
-        },
-        gemini: {
-          ...formData.gemini,
-          apiKey: formData.gemini.apiKey && !formData.gemini.apiKey.startsWith('••••') ? formData.gemini.apiKey : undefined,
-        },
-      };
-
-      await api.put('/settings', submitData);
-      alert('Settings saved successfully!');
-      await fetchSettings();
-    } catch (error: any) {
-      console.error('Failed to save settings:', error);
-      alert(error.response?.data?.message || 'Failed to save settings');
-    } finally {
-      setSaving(false);
     }
   };
 

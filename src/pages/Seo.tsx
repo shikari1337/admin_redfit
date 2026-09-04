@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Loader2, Save, Plus, Trash2, RefreshCw, Copy, Check, BarChart3, CircleCheck, CircleDashed, Star } from 'lucide-react';
 import api, { seoAPI } from '../services/api';
+import { useSettingsSection } from '../hooks/useSettingsSection';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,6 +30,41 @@ interface TrackingIds {
 const EMPTY_TRACKING: TrackingIds = {
   ga4Id: '', gtmId: '', metaPixelId: '', clarityId: '', hotjarId: '',
   googleAdsConversionId: '', googleAdsConversionLabel: '',
+};
+
+/** Shared with `useSettingsSection`'s `parse` below AND `load()`'s own inline
+ *  parsing — `load()` fetches the raw admin-settings object once (as part of a
+ *  combined `Promise.all` with the other SEO sources) and feeds it to both this
+ *  and `parseGoogleReviews` directly, so the hook instances below run with
+ *  `skipInitialFetch` rather than each independently re-fetching the same
+ *  `/settings/admin` endpoint. */
+const parseTrackingIds = (settingsRes: any): TrackingIds => {
+  const t = (settingsRes?.tracking ?? {}) as Partial<TrackingIds>;
+  return {
+    ga4Id: t.ga4Id || settingsRes?.ga4?.measurementId || '',
+    gtmId: t.gtmId || '',
+    metaPixelId: t.metaPixelId || settingsRes?.metaPixel?.pixelId || '',
+    clarityId: t.clarityId || '',
+    hotjarId: t.hotjarId || '',
+    googleAdsConversionId: t.googleAdsConversionId || '',
+    googleAdsConversionLabel: t.googleAdsConversionLabel || '',
+  };
+};
+
+interface GoogleReviewsForm { enabled: boolean; title: string; subtitle: string; embedCode: string; }
+
+const DEFAULT_GOOGLE_REVIEWS: GoogleReviewsForm = {
+  enabled: false, title: 'Loved by customers on Google', subtitle: '', embedCode: '',
+};
+
+const parseGoogleReviews = (settingsRes: any): GoogleReviewsForm => {
+  const gr = (settingsRes?.googleReviews ?? {}) as Partial<GoogleReviewsForm>;
+  return {
+    enabled: gr.enabled ?? false,
+    title: gr.title ?? 'Loved by customers on Google',
+    subtitle: gr.subtitle ?? '',
+    embedCode: gr.embedCode ?? '',
+  };
 };
 
 const TRACKING_FIELDS: Array<{
@@ -84,12 +120,6 @@ const Seo: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [settings, setSettings] = useState<Record<string, any>>({});
-  const [tracking, setTracking] = useState<TrackingIds>(EMPTY_TRACKING);
-  const [savingTracking, setSavingTracking] = useState(false);
-  const [googleReviews, setGoogleReviews] = useState<{ enabled: boolean; title: string; subtitle: string; embedCode: string }>({
-    enabled: false, title: 'Loved by customers on Google', subtitle: '', embedCode: '',
-  });
-  const [savingReviews, setSavingReviews] = useState(false);
   const [robotsTxt, setRobotsTxt] = useState('');
   const [redirects, setRedirects] = useState<Redirect[]>([]);
   const [newFrom, setNewFrom] = useState('');
@@ -103,6 +133,64 @@ const Seo: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  // Tracking IDs and the Google Reviews widget are each a genuine single-object
+  // load+save pair, so they go through the shared hook — but `load()` below
+  // fetches the raw admin-settings object ONCE as part of one combined
+  // `Promise.all` with the other SEO sources (robots/redirects), so both hooks
+  // use `skipInitialFetch` and get fed via their `setFormData` from `load()`
+  // directly instead of independently re-fetching `/settings/admin`.
+  const {
+    formData: tracking, setFormData: setTracking, saving: savingTracking, handleSubmit: handleSaveTracking,
+  } = useSettingsSection<TrackingIds>({
+    defaults: EMPTY_TRACKING,
+    skipInitialFetch: true,
+    parse: parseTrackingIds,
+    submitter: async (data) => {
+      const value: TrackingIds = {
+        ga4Id: data.ga4Id.trim(),
+        gtmId: data.gtmId.trim(),
+        metaPixelId: data.metaPixelId.trim(),
+        clarityId: data.clarityId.trim(),
+        hotjarId: data.hotjarId.trim(),
+        googleAdsConversionId: data.googleAdsConversionId.trim(),
+        googleAdsConversionLabel: data.googleAdsConversionLabel.trim(),
+      };
+      // Stored PUBLIC so the storefront's GET /settings returns it (non-secret IDs).
+      await api.put('/settings/tracking', { value, is_public: true, group_name: 'analytics' });
+      setTracking(value);
+    },
+    onSuccess: () => {
+      setSuccess('Tracking & analytics IDs saved. The storefront picks them up within a minute.');
+      setTimeout(() => setSuccess(null), 4000);
+    },
+    onError: (err: any) => setError(err?.response?.data?.message || 'Failed to save tracking IDs'),
+  });
+
+  const {
+    formData: googleReviews, setFormData: setGoogleReviews, saving: savingReviews, handleSubmit: handleSaveGoogleReviews,
+  } = useSettingsSection<GoogleReviewsForm>({
+    defaults: DEFAULT_GOOGLE_REVIEWS,
+    skipInitialFetch: true,
+    parse: parseGoogleReviews,
+    submitter: async (data) => {
+      const value = {
+        enabled: data.enabled,
+        title: data.title.trim(),
+        subtitle: data.subtitle.trim(),
+        embedCode: data.embedCode.trim(),
+      };
+      // Stored PUBLIC so the storefront's GET /settings returns it. The embed may
+      // contain a <script>; it runs only inside the homepage Google Reviews section.
+      await api.put('/settings/googleReviews', { value, is_public: true, group_name: 'analytics' });
+      setGoogleReviews(value);
+    },
+    onSuccess: () => {
+      setSuccess('Google Reviews widget saved. It appears on the homepage within a minute.');
+      setTimeout(() => setSuccess(null), 4000);
+    },
+    onError: (err: any) => setError(err?.response?.data?.message || 'Failed to save Google Reviews'),
+  });
+
   const load = async () => {
     setLoading(true);
     try {
@@ -115,23 +203,8 @@ const Seo: React.FC = () => {
       setSettings(s || {});
       setRobotsTxt(s?.robotsTxt || '');
       setRedirects(Array.isArray(r) ? r : []);
-      const t = (settingsRes?.tracking ?? {}) as Partial<TrackingIds>;
-      setTracking({
-        ga4Id: t.ga4Id || settingsRes?.ga4?.measurementId || '',
-        gtmId: t.gtmId || '',
-        metaPixelId: t.metaPixelId || settingsRes?.metaPixel?.pixelId || '',
-        clarityId: t.clarityId || '',
-        hotjarId: t.hotjarId || '',
-        googleAdsConversionId: t.googleAdsConversionId || '',
-        googleAdsConversionLabel: t.googleAdsConversionLabel || '',
-      });
-      const gr = (settingsRes?.googleReviews ?? {}) as Partial<typeof googleReviews>;
-      setGoogleReviews({
-        enabled: gr.enabled ?? false,
-        title: gr.title ?? 'Loved by customers on Google',
-        subtitle: gr.subtitle ?? '',
-        embedCode: gr.embedCode ?? '',
-      });
+      setTracking(parseTrackingIds(settingsRes));
+      setGoogleReviews(parseGoogleReviews(settingsRes));
     } catch (err: any) {
       setError(err?.response?.data?.message || 'Failed to load SEO settings');
     } finally {
@@ -139,56 +212,8 @@ const Seo: React.FC = () => {
     }
   };
 
-  const handleSaveTracking = async () => {
-    setSavingTracking(true);
-    setError(null);
-    try {
-      const value: TrackingIds = {
-        ga4Id: tracking.ga4Id.trim(),
-        gtmId: tracking.gtmId.trim(),
-        metaPixelId: tracking.metaPixelId.trim(),
-        clarityId: tracking.clarityId.trim(),
-        hotjarId: tracking.hotjarId.trim(),
-        googleAdsConversionId: tracking.googleAdsConversionId.trim(),
-        googleAdsConversionLabel: tracking.googleAdsConversionLabel.trim(),
-      };
-      // Stored PUBLIC so the storefront's GET /settings returns it (non-secret IDs).
-      await api.put('/settings/tracking', { value, is_public: true, group_name: 'analytics' });
-      setTracking(value);
-      setSuccess('Tracking & analytics IDs saved. The storefront picks them up within a minute.');
-      setTimeout(() => setSuccess(null), 4000);
-    } catch (err: any) {
-      setError(err?.response?.data?.message || 'Failed to save tracking IDs');
-    } finally {
-      setSavingTracking(false);
-    }
-  };
-
   const setTrackingField = (key: keyof TrackingIds, val: string) =>
     setTracking((prev) => ({ ...prev, [key]: val }));
-
-  const handleSaveGoogleReviews = async () => {
-    setSavingReviews(true);
-    setError(null);
-    try {
-      const value = {
-        enabled: googleReviews.enabled,
-        title: googleReviews.title.trim(),
-        subtitle: googleReviews.subtitle.trim(),
-        embedCode: googleReviews.embedCode.trim(),
-      };
-      // Stored PUBLIC so the storefront's GET /settings returns it. The embed may
-      // contain a <script>; it runs only inside the homepage Google Reviews section.
-      await api.put('/settings/googleReviews', { value, is_public: true, group_name: 'analytics' });
-      setGoogleReviews(value);
-      setSuccess('Google Reviews widget saved. It appears on the homepage within a minute.');
-      setTimeout(() => setSuccess(null), 4000);
-    } catch (err: any) {
-      setError(err?.response?.data?.message || 'Failed to save Google Reviews');
-    } finally {
-      setSavingReviews(false);
-    }
-  };
 
   const loadPreviews = async () => {
     setPreviewLoading(true);
@@ -319,7 +344,7 @@ const Seo: React.FC = () => {
             );
           })}
           <div className="pt-1">
-            <Button onClick={handleSaveTracking} disabled={savingTracking}>
+            <Button onClick={() => { setError(null); handleSaveTracking(); }} disabled={savingTracking}>
               {savingTracking ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
               Save tracking IDs
             </Button>
@@ -386,7 +411,7 @@ const Seo: React.FC = () => {
             </p>
           </div>
           <div className="pt-1">
-            <Button onClick={handleSaveGoogleReviews} disabled={savingReviews}>
+            <Button onClick={() => { setError(null); handleSaveGoogleReviews(); }} disabled={savingReviews}>
               {savingReviews ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
               Save Google Reviews
             </Button>

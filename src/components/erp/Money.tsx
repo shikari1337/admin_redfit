@@ -1,31 +1,26 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
+import { fmtRupeesOrDash, fmtMinorOrDash, fmtNumber } from '@/lib/money';
 
 /**
  * Money + number formatting for the ERP surfaces. One rule everywhere:
  * ₹ symbol, exactly 2 decimals, en-IN grouping, tabular figures so columns of
  * numbers line up. Amounts render right-aligned by default.
+ *
+ * This is a thin wrapper — `lib/money.ts` is the canonical implementation
+ * (shared with every non-ERP page); these names are kept as the established
+ * ERP-surface call sites (`inr`/`inrMinor`/`num`, `<Money>`) so no consumer
+ * needs to change.
  */
 
 /** Rupee amount → "₹1,23,456.00". Nullish/NaN → "—". */
-export function inr(rupees: number | string | null | undefined): string {
-  if (rupees === null || rupees === undefined || Number.isNaN(Number(rupees))) return '—';
-  return Number(rupees).toLocaleString('en-IN', {
-    style: 'currency', currency: 'INR', minimumFractionDigits: 2, maximumFractionDigits: 2,
-  });
-}
+export const inr = fmtRupeesOrDash;
 
-/** Minor units (paise, string/number/bigint-safe) → "₹1,234.56". */
-export function inrMinor(minor: string | number | null | undefined): string {
-  return inr(Number(minor ?? 0) / 100);
-}
+/** Minor units (paise, string/number/bigint-safe) → "₹1,234.56". Nullish/NaN → "—". */
+export const inrMinor = fmtMinorOrDash;
 
-/** Plain integer with en-IN grouping. Nullish → "—". */
-export function num(n: number | string | null | undefined): string {
-  return n === null || n === undefined || Number.isNaN(Number(n))
-    ? '—'
-    : Number(n).toLocaleString('en-IN');
-}
+/** Plain integer with en-IN grouping. Nullish/NaN → "—". */
+export const num = fmtNumber;
 
 /**
  * Inline money. Pass `rupees` OR `minor`. Right-aligned + tabular by default so
