@@ -203,6 +203,13 @@ const Layout: React.FC = () => {
           { title: 'Platform Connections', url: '/panel/marketing/connections', icon: Plug },
           { title: 'Search & Analytics', url: '/panel/marketing/connections/insights', icon: LineChart },
         ] : []),
+        // Google reviews: reading/curating them is CONTENT work, so it needs
+        // content.read rather than the settings.read the credential screens
+        // above use (#53 — canAccess is the module question, hasPerm the
+        // authorization one; both are required).
+        ...(canAccess('connectors') && hasPerm('content.read') ? [
+          { title: 'Google Reviews', url: '/panel/marketing/google-reviews', icon: Star },
+        ] : []),
         { title: 'Analytics', url: '/panel/marketing/analytics', icon: LineChart },
         { title: 'Compliance & Consent', url: '/panel/marketing/compliance', icon: ShieldCheck },
         ...(hasPerm('marketing.manage') ? [{ title: 'Settings', url: '/panel/marketing/settings', icon: Settings }] : []),

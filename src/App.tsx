@@ -185,6 +185,7 @@ import AdsAudiences from './pages/panels/marketing/AdsAudiences';
 import Connections from './pages/panels/marketing/Connections';
 import ConnectorCallback from './pages/panels/marketing/ConnectorCallback';
 import ConnectorInsights from './pages/panels/marketing/ConnectorInsights';
+import GoogleReviews from './pages/panels/marketing/GoogleReviews';
 import AdsAiStudio from './pages/panels/marketing/AdsAiStudio';
 import MarketingAnalyticsHub from './pages/panels/marketing/MarketingAnalyticsHub';
 import MarketingCompliance from './pages/panels/marketing/MarketingCompliance';
@@ -373,6 +374,10 @@ function App() {
           <Route path="panel/marketing/connections" element={<ProtectedModuleRoute module="connectors"><Connections /></ProtectedModuleRoute>} />
           <Route path="panel/marketing/connections/callback" element={<ProtectedModuleRoute module="connectors"><ConnectorCallback /></ProtectedModuleRoute>} />
           <Route path="panel/marketing/connections/insights" element={<ProtectedModuleRoute module="connectors"><ConnectorInsights /></ProtectedModuleRoute>} />
+          {/* Google Business Profile reviews — gated on the `connectors` module
+              because the sync lives on the connector identity; the PUBLIC
+              storefront read is gated on `reviews` instead (routes/reviews.ts). */}
+          <Route path="panel/marketing/google-reviews" element={<ProtectedModuleRoute module="connectors"><GoogleReviews /></ProtectedModuleRoute>} />
           <Route path="panel/marketing/ads/ai-studio" element={<ProtectedModuleRoute module="ads_management"><AdsAiStudio /></ProtectedModuleRoute>} />
           <Route path="panel/marketing/analytics" element={<ProtectedModuleRoute module="marketing"><MarketingAnalyticsHub /></ProtectedModuleRoute>} />
           <Route path="panel/marketing/compliance" element={<ProtectedModuleRoute module="marketing"><MarketingCompliance /></ProtectedModuleRoute>} />
