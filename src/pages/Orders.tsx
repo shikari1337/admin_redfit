@@ -4,8 +4,9 @@ import { useAuth } from '../contexts/AuthContext';
 import { ordersAPI, shippingAPI } from '../services/api';
 import { formatDate } from '../utils/date';
 import { fmtRupees } from '../lib/money';
-import { FaTruck, FaWhatsapp, FaEye, FaDownload, FaPlus, FaSearchDollar } from 'react-icons/fa';
+import { FaTruck, FaWhatsapp, FaEye, FaDownload, FaPlus, FaSearchDollar, FaFileExcel } from 'react-icons/fa';
 import RecoverPaymentModal from '../components/order/RecoverPaymentModal';
+import ErpExportModal from '../components/order/ErpExportModal';
 import { getStatusColorClass } from '../components/order/StatusBadge';
 import { Search } from 'lucide-react';
 import { Card, CardContent } from "@/components/ui/card";
@@ -48,7 +49,10 @@ const Orders: React.FC = () => {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [exporting, setExporting] = useState(false);
   const [showRecoverPayment, setShowRecoverPayment] = useState(false);
-  
+  // ERP hand-off: the legacy "Order Items Export" workbook the store's ERP
+  // imports (since-last-export watermark or a custom date range).
+  const [showErpExport, setShowErpExport] = useState(false);
+
   // Try to use toast, fallback to window.alert if not available
   let toast: any;
   try {
@@ -217,6 +221,12 @@ const Orders: React.FC = () => {
           <Button variant="outline" size="sm" className="h-9" onClick={() => handleExport(false)} disabled={exporting}>
             <FaDownload className="mr-1.5 h-3 w-3" />
             {exporting ? 'Exporting…' : 'Export all'}
+          </Button>
+          <Button variant="outline" size="sm" className="h-9 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+            onClick={() => setShowErpExport(true)}
+            title="Excel in the ERP's Order Items Export layout — since the last export, or a custom date range">
+            <FaFileExcel className="mr-1.5 h-3 w-3" />
+            Export for ERP
           </Button>
           {canManageOrders && (
             <Button variant="outline" size="sm" className="h-9" onClick={() => setShowRecoverPayment(true)}
@@ -462,6 +472,11 @@ const Orders: React.FC = () => {
         isOpen={showRecoverPayment}
         onClose={() => setShowRecoverPayment(false)}
         onRecovered={fetchOrders}
+      />
+      <ErpExportModal
+        isOpen={showErpExport}
+        onClose={() => setShowErpExport(false)}
+        canManage={canManageOrders}
       />
     </div>
   );

@@ -120,7 +120,7 @@ const AbandonedCarts: React.FC = () => {
       setCartSettings(await cartsAPI.updateSettings(cartSettings ?? {}));
       setError(null);
     } catch {
-      setError('Could not save cart timing settings.');
+      setError('Could not save cart settings.');
     } finally {
       setSavingSettings(false);
     }
@@ -355,13 +355,38 @@ const AbandonedCarts: React.FC = () => {
               <p className="mt-1 text-[11px] text-gray-400">5 min – 7 days</p>
             </div>
           </div>
+          <div className="border-t border-gray-100 pt-3">
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={cartSettings?.recoveryAutomationEnabled === true}
+                onChange={(e) => setCartSettings((s: any) => ({ ...(s ?? {}), recoveryAutomationEnabled: e.target.checked }))}
+                className="mt-0.5 rounded border-gray-300 text-red-600 focus:ring-red-500"
+              />
+              <span className="text-sm">
+                <span className="font-medium text-gray-900">Send automated recovery messages</span>
+                {cartSettings?.recoveryAutomationEnabled === true ? (
+                  <span className="ml-2 align-middle inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-700">ON</span>
+                ) : (
+                  <span className="ml-2 align-middle inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600">OFF</span>
+                )}
+                <span className="block text-xs text-gray-500 mt-1">
+                  While this is off nothing goes out on its own — carts are still tracked, and you
+                  can still send a recovery message by hand from any cart&apos;s detail page. Turning
+                  it on lets the 15-minute sweep message <strong>every</strong> contactable customer
+                  whose cart went idle in the last 7 days, so the first pass after enabling it can
+                  be a large batch.
+                </span>
+              </span>
+            </label>
+          </div>
           <div className="flex items-center gap-2">
             <button
               onClick={saveCartSettings}
               disabled={savingSettings}
               className="px-3 py-2 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-400"
             >
-              {savingSettings ? 'Saving…' : 'Save timing'}
+              {savingSettings ? 'Saving…' : 'Save settings'}
             </button>
             <span className="text-xs text-gray-500">
               Values outside the allowed range are clamped by the server.
@@ -505,12 +530,18 @@ const AbandonedCarts: React.FC = () => {
                         <span className="font-medium text-gray-700">Last active:</span>{' '}
                         {formatDate(cart.lastActiveAt)}
                       </div>
+                      {/* These two used to read "Recovered:" and "Recovery SMS:",
+                          which meant something different from the "Recovered"
+                          TAB right above them (that tab means "an order was
+                          placed from this cart"). This one is only ever "the
+                          shopper opened the recovery link" — and the send may
+                          have been WhatsApp or email, not SMS. */}
                       <div>
-                        <span className="font-medium text-gray-700">Recovered:</span>{' '}
+                        <span className="font-medium text-gray-700">Link opened:</span>{' '}
                         {formatDate(cart.lastRecoveredAt)}
                       </div>
                       <div>
-                        <span className="font-medium text-gray-700">Recovery SMS:</span>{' '}
+                        <span className="font-medium text-gray-700">Last message:</span>{' '}
                         {formatDate(cart.lastRecoverySmsAt)}
                       </div>
                     </td>

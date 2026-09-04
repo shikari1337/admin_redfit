@@ -1606,7 +1606,108 @@ export const ordersAPI = {
     const response = await api.get('/orders/export', { params, responseType: 'blob' });
     return response.data;
   },
+
+  // ── ERP export (Excel "Order Items Export" layout the store's ERP imports) ──
+  /** Watermark, config, recent runs + how many orders "since last export" holds right now. */
+  erpExportStatus: async (): Promise<ErpExportStatus> => {
+    const response = await api.get('/orders/export/erp/status');
+    return response.data;
+  },
+  /** Dry run — resolved window + counts, writes nothing. */
+  erpExportPreview: async (params: ErpExportRequest): Promise<ErpExportPreview> => {
+    const response = await api.get('/orders/export/erp/preview', { params });
+    return response.data;
+  },
+  /**
+   * Downloads the workbook and records the run (advances the watermark).
+   * The blob interceptor skips envelope unwrapping, so a JSON error body
+   * (400 bad dates / 409 nothing to export) arrives as a Blob — read it back
+   * into a message here so callers get a plain Error.
+   */
+  erpExport: async (body: ErpExportRequest & { config?: Partial<ErpExportConfig> }): Promise<{ blob: Blob; filename: string; run: ErpExportRunSummary | null }> => {
+    try {
+      const response = await api.post('/orders/export/erp', body, { responseType: 'blob' });
+      const cd = String(response.headers?.['content-disposition'] ?? '');
+      const m = cd.match(/filename="?([^";]+)"?/i);
+      let run: ErpExportRunSummary | null = null;
+      try {
+        const raw = response.headers?.['x-export-run'];
+        if (raw) run = JSON.parse(decodeURIComponent(String(raw)));
+      } catch { /* summary is decoration */ }
+      return { blob: response.data as Blob, filename: m?.[1] || `Order_Items_Export_${new Date().toISOString().slice(0, 10)}.xlsx`, run };
+    } catch (err: any) {
+      const data = err?.response?.data;
+      if (data instanceof Blob) {
+        try {
+          const parsed = JSON.parse(await data.text());
+          const e: any = new Error(parsed?.message || 'Export failed');
+          e.status = err?.response?.status;
+          throw e;
+        } catch (inner: any) {
+          if (inner?.message && inner.message !== 'Export failed') throw inner;
+        }
+      }
+      throw err;
+    }
+  },
+  /** Forget a recorded run so "since last export" covers its span again (orders.manage). */
+  erpExportForgetRun: async (runId: string): Promise<{ watermark: string | null; last_run: ErpExportRun | null; runs: ErpExportRun[] }> => {
+    const response = await api.delete(`/orders/export/erp/runs/${encodeURIComponent(runId)}`);
+    return response.data;
+  },
 };
+
+export interface ErpExportConfig {
+  website_channel_code: string;
+  admin_channel_code: string;
+  default_salesperson: string;
+}
+export interface ErpExportRunSummary {
+  id: string;
+  order_count: number;
+  item_count: number;
+  first_order: string | null;
+  last_order: string | null;
+  truncated: boolean;
+}
+export interface ErpExportRun extends ErpExportRunSummary {
+  at: string;
+  by: string;
+  mode: 'since_last' | 'range';
+  from: string | null;
+  to: string;
+  exclude_cancelled: boolean;
+  file_name: string;
+}
+export interface ErpExportCounts {
+  order_count: number;
+  item_count: number;
+  first_order_at: string | null;
+  last_order_at: string | null;
+  capped: boolean;
+}
+export interface ErpExportStatus {
+  config: ErpExportConfig;
+  watermark: string | null;
+  last_run: ErpExportRun | null;
+  runs: ErpExportRun[];
+  pending: ErpExportCounts;
+  first_order_at: string | null;
+  max_orders: number;
+  server_time: string;
+}
+export interface ErpExportRequest {
+  mode: 'since_last' | 'range';
+  from?: string;
+  to?: string;
+  excludeCancelled?: boolean;
+}
+export interface ErpExportPreview extends ErpExportCounts {
+  mode: 'since_last' | 'range';
+  from: string | null;
+  to: string;
+  max_orders: number;
+}
 
 // Payments API
 export const paymentsAPI = {
