@@ -1,11 +1,11 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { FaArrowLeft, FaSave, FaGlobe, FaImage, FaPalette, FaFont, FaInstagram } from 'react-icons/fa';
 import ImageInputWithActions from '../components/common/ImageInputWithActions';
 import { useSettingsSection } from '../hooks/useSettingsSection';
 
 interface FormData {
-  general: { websiteUrl: string; siteName: string; siteDescription: string; returnPeriodDays: number };
+  general: { websiteUrl: string; siteName: string; siteDescription: string };
   logo: { logoUrl: string; faviconUrl: string; adminLogoUrl: string };
   colors: {
     primaryColor: string;
@@ -25,7 +25,7 @@ interface FormData {
 }
 
 const DEFAULT_FORM_DATA: FormData = {
-  general: { websiteUrl: '', siteName: '', siteDescription: '', returnPeriodDays: 0 },
+  general: { websiteUrl: '', siteName: '', siteDescription: '' },
   logo: { logoUrl: '', faviconUrl: '', adminLogoUrl: '' },
   colors: {
     primaryColor: '#0D9488',
@@ -50,7 +50,6 @@ const AppearanceStyle: React.FC = () => {
         websiteUrl: settings.general?.websiteUrl || '',
         siteName: settings.general?.siteName || '',
         siteDescription: settings.general?.siteDescription || '',
-        returnPeriodDays: settings.general?.returnPeriodDays || 0,
       },
       logo: {
         logoUrl: settings.logo?.logoUrl || '',
@@ -136,10 +135,22 @@ const AppearanceStyle: React.FC = () => {
               <label className="block text-sm font-medium text-gray-700 mb-2">Site Description</label>
               <textarea value={formData.general.siteDescription} onChange={(e) => handleChange('general', 'siteDescription', e.target.value)} placeholder="Premium apparel" rows={2} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500" />
             </div>
+            {/* The Return Period input that used to sit here wrote
+                settings.general.returnPeriodDays, which NOTHING read — the real
+                return window is the store's default return policy. Pointing at
+                the one place that works beats a second box that silently doesn't. */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Return Period (days)</label>
-              <input type="number" min="0" value={formData.general.returnPeriodDays} onChange={(e) => handleChange('general', 'returnPeriodDays', parseInt(e.target.value) || 0)} placeholder="7" className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500" />
-              <p className="text-xs text-gray-500 mt-1">Days after delivery before order is marked completed. 0 = no return policy.</p>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Return Period</label>
+              <p className="text-sm text-gray-600">
+                Set in{' '}
+                <Link to="/settings/return-policies" className="text-red-600 hover:underline font-medium">
+                  Settings &rarr; Return Policies
+                </Link>
+                , on the policy marked <span className="font-medium">Store default</span>.
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                That window decides when a delivered order stops being returnable.
+              </p>
             </div>
           </div>
         </div>

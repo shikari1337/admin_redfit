@@ -23,10 +23,19 @@ interface ReturnPolicy {
   refund_mode?: string;
   conditions?: string;
   exceptions?: string;
+  /** Exactly one policy is the STORE default — it sets the return window for
+   *  every product that has no policy of its own, and that window is what
+   *  decides when a delivered order stops being returnable. */
+  is_default?: boolean;
 }
+
+/** Mirrors DEFAULT_RETURN_WINDOW_DAYS in backend/src/db/queries/tax.ts — the
+ *  window used when a store has set no default policy at all. */
+const DEFAULT_RETURN_WINDOW_DAYS = 7;
 
 const EMPTY_FORM = {
   name: '',
+  is_default: false,
   is_returnable: false,
   return_window_days: '',
   is_replaceable: false,
@@ -81,6 +90,7 @@ const ReturnPolicies: React.FC = () => {
     setEditId(policy.id);
     setForm({
       name: policy.name,
+      is_default: !!policy.is_default,
       is_returnable: policy.is_returnable,
       return_window_days: policy.return_window_days != null ? String(policy.return_window_days) : '',
       is_replaceable: policy.is_replaceable,
@@ -104,6 +114,7 @@ const ReturnPolicies: React.FC = () => {
 
     const payload: Record<string, any> = {
       name: form.name.trim(),
+      is_default: form.is_default,
       is_returnable: form.is_returnable,
       return_window_days: form.return_window_days ? parseInt(form.return_window_days) : undefined,
       is_replaceable: form.is_replaceable,
@@ -130,6 +141,9 @@ const ReturnPolicies: React.FC = () => {
     }
   };
 
+  /** The one policy that sets the store-wide window (backend enforces singularity). */
+  const defaultPolicy = policies.find(p => p.is_default) ?? null;
+
   const handleDelete = async (policy: ReturnPolicy) => {
     if (!confirm(`Delete return policy "${policy.name}"?`)) return;
     try {
@@ -145,7 +159,10 @@ const ReturnPolicies: React.FC = () => {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground">Return Policies</h1>
-          <p className="text-muted-foreground mt-1 text-sm">Define return, replacement, and refund policies for your products.</p>
+          <p className="text-muted-foreground mt-1 text-sm">
+            Define return, replacement, and refund policies for your products. The policy marked
+            <strong> Store default</strong> sets your store's return window.
+          </p>
         </div>
         <Button onClick={openCreate} className="flex items-center gap-2">
           <FaPlus className="h-4 w-4" />
@@ -157,6 +174,32 @@ const ReturnPolicies: React.FC = () => {
         <div className="p-4 border border-destructive/50 bg-destructive/10 text-sm text-destructive rounded-md">
           {error}
         </div>
+      )}
+
+      {/* The store-level return window, stated plainly. A delivered order stops
+          being returnable — and becomes billable — when this many days pass, so
+          "no default set" is a real condition worth naming rather than hiding
+          behind a silent 7-day fallback. */}
+      {!loading && !error && (
+        defaultPolicy ? (
+          <div className="p-4 border rounded-md bg-muted/40 text-sm">
+            <span className="text-muted-foreground">Your store's return window is </span>
+            <strong>{defaultPolicy.return_window_days ?? DEFAULT_RETURN_WINDOW_DAYS} days</strong>
+            <span className="text-muted-foreground">, from the default policy </span>
+            <strong>{defaultPolicy.name}</strong>
+            <span className="text-muted-foreground">
+              . It applies to every product without a policy of its own, and it decides when a
+              delivered order stops being returnable.
+            </span>
+          </div>
+        ) : (
+          <div className="p-4 border border-amber-300 bg-amber-50 text-amber-900 text-sm rounded-md">
+            <strong>No store default is set.</strong> Your store is falling back to{' '}
+            {DEFAULT_RETURN_WINDOW_DAYS} days, and editing a policy below will not change that
+            until you mark one as the store default
+            {policies.length > 0 ? ' (edit a policy and turn on "Use as store default")' : ''}.
+          </div>
+        )
       )}
 
       <Card className="shadow-sm">
@@ -190,7 +233,14 @@ const ReturnPolicies: React.FC = () => {
               ) : (
                 policies.map(policy => (
                   <TableRow key={policy.id} className="hover:bg-muted/50 transition-colors">
-                    <TableCell className="px-4 py-3 font-medium">{policy.name}</TableCell>
+                    <TableCell className="px-4 py-3 font-medium">
+                      <span className="flex items-center gap-2">
+                        {policy.name}
+                        {policy.is_default && (
+                          <Badge className="bg-indigo-100 text-indigo-800 border border-indigo-200 text-xs">Store default</Badge>
+                        )}
+                      </span>
+                    </TableCell>
                     <TableCell className="px-4 py-3">
                       {policy.is_returnable
                         ? <Badge className="bg-green-100 text-green-800 border border-green-200 text-xs">Yes</Badge>
@@ -254,6 +304,28 @@ const ReturnPolicies: React.FC = () => {
                     placeholder="e.g. Standard Return Policy"
                     required
                   />
+                </div>
+
+                {/* Store default — the switch that makes this policy the store's
+                    return window. Without it, a policy only applies to products
+                    explicitly linked to it. */}
+                <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
+                  <div className="flex items-center gap-3">
+                    <Switch
+                      id="is-default"
+                      checked={form.is_default}
+                      onCheckedChange={checked => setForm(f => ({ ...f, is_default: checked }))}
+                    />
+                    <Label htmlFor="is-default" className="cursor-pointer font-medium">Use as store default</Label>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Applies this policy's return window to every product without a policy of its own,
+                    and it is the window that decides when a delivered order stops being returnable.
+                    {defaultPolicy && defaultPolicy.id !== editId && (
+                      <> Turning this on removes the default from <strong>{defaultPolicy.name}</strong> —
+                      only one policy can be the store default.</>
+                    )}
+                  </p>
                 </div>
 
                 {/* Returnable */}
