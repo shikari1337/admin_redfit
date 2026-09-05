@@ -107,7 +107,15 @@ const AnalyticsDashboard: React.FC = () => {
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
             <KpiTile label="Gross sales" value={fmtRupees(s.gross_sales)} cur={s.gross_sales} prev={p ? p.gross_sales : null} />
             <KpiTile label="Collected revenue" value={fmtRupees(s.collected_revenue)} cur={s.collected_revenue} prev={p ? p.collected_revenue : null}
-              sub="Payment completed or COD delivered" />
+              sub="Paid, less refunds · excludes cancelled" />
+            {/* Money held but not owned: paid orders that were cancelled or
+                returned and haven't been refunded yet. It used to sit inside
+                "Collected revenue" — which is how a cancelled prepaid order
+                could still read as income. Shown only when there is some. */}
+            {s.refund_due > 0 && (
+              <KpiTile label="Refunds due" value={fmtRupees(s.refund_due)} cur={s.refund_due} prev={p ? p.refund_due : null}
+                sub={`${s.refund_due_orders} cancelled/returned, not refunded`} />
+            )}
             <KpiTile label="Orders" value={s.orders.toLocaleString('en-IN')} cur={s.orders} prev={p ? p.orders : null}
               sub={`${s.cancelled_orders} cancelled`} />
             <KpiTile label="AOV" value={fmtRupees(s.aov)} cur={s.aov} prev={p ? p.aov : null} />

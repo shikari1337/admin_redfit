@@ -67,6 +67,7 @@ interface Summary {
     defaultMethod: string;
     autoRequestOnRto: boolean;
     autoRequestOnCreditNote: boolean;
+    autoRequestOnCancellation: boolean;
   };
 }
 
@@ -93,6 +94,7 @@ const METHOD_LABEL: Record<string, string> = {
   gateway: 'Back to the card / UPI they paid with',
   bank_transfer: 'Bank transfer (you send it)',
   store_credit: 'Kept as store credit',
+  adjustment: 'Adjusted against another order',
 };
 
 const STATUS_FILTERS = ['', 'requested', 'approved', 'executing', 'failed', 'completed', 'rejected'];
@@ -117,6 +119,17 @@ const Refunds: React.FC = () => {
   const [method, setMethod] = useState('gateway');
   const [newReason, setNewReason] = useState('');
   const [refundable, setRefundable] = useState<any>(null);
+
+  // Refund policy editor. `PUT /refunds/config` has existed since 081 with no UI
+  // at all, so the auto-approve limit — the ONE dial that decides whether a
+  // refund goes out by itself or waits for a manager — could only be changed by
+  // calling the API by hand. A store wanting cancellations to refund
+  // automatically had no way to say so.
+  const [editingPolicy, setEditingPolicy] = useState(false);
+  const [policyLimit, setPolicyLimit] = useState('');
+  const [policyOnCancel, setPolicyOnCancel] = useState(true);
+  const [policyOnRto, setPolicyOnRto] = useState(true);
+  const [policyOnCreditNote, setPolicyOnCreditNote] = useState(true);
 
   const err = (e: any) => setMsg(e?.response?.data?.message ?? e?.message ?? 'Something went wrong.');
 
@@ -147,6 +160,24 @@ const Refunds: React.FC = () => {
       await openDetail(detail.id); load();
     } catch (e) { err(e); }
     finally { setBusy(false); }
+  };
+
+  /** Save the refund rules (PUT /refunds/config — the route that had no UI). */
+  const savePolicy = async () => {
+    setBusy(true); setMsg(''); setOk('');
+    try {
+      const rupees = policyLimit.trim();
+      await api.put('/refunds/config', {
+        // Blank means "no refund goes out unapproved" — 0, not "leave unchanged".
+        autoApproveUnderMinor: rupees === '' ? 0 : Math.max(0, Math.round(Number(rupees) * 100)),
+        autoRequestOnCancellation: policyOnCancel,
+        autoRequestOnRto: policyOnRto,
+        autoRequestOnCreditNote: policyOnCreditNote,
+      });
+      setEditingPolicy(false);
+      setOk('Refund rules saved.');
+      load();
+    } catch (e) { err(e); } finally { setBusy(false); }
   };
 
   const checkRefundable = async () => {
@@ -210,15 +241,63 @@ const Refunds: React.FC = () => {
         </StatGrid>
       )}
 
-      {summary && (
+      {summary && !editingPolicy && (
         <p className="text-xs text-gray-500">
           Your rule right now:{' '}
           {summary.config.autoApproveUnderMinor > 0
             ? <>refunds under <strong>{inr(summary.config.autoApproveUnderMinor)}</strong> go out without a manager; anything bigger waits for approval.</>
-            : <><strong>every</strong> refund waits for a manager's approval.</>}
-          {' '}Returned parcels {summary.config.autoRequestOnRto ? 'open a refund automatically' : 'do not open a refund automatically'};
+            : <><strong>every</strong> refund waits for a manager's approval — including refunds opened by a cancellation, so none of them go back on their own.</>}
+          {' '}Cancelled paid orders {summary.config.autoRequestOnCancellation ? 'open a refund automatically' : 'do NOT open a refund automatically'};
+          {' '}returned parcels {summary.config.autoRequestOnRto ? 'do too' : 'do not'};
           {' '}cash/bank credit notes {summary.config.autoRequestOnCreditNote ? 'do too' : 'do not'}.
+          {' '}
+          <button type="button" className="underline hover:text-gray-700"
+            onClick={() => {
+              setEditingPolicy(true); setMsg(''); setOk('');
+              setPolicyLimit(summary.config.autoApproveUnderMinor > 0 ? String(summary.config.autoApproveUnderMinor / 100) : '');
+              setPolicyOnCancel(summary.config.autoRequestOnCancellation !== false);
+              setPolicyOnRto(summary.config.autoRequestOnRto !== false);
+              setPolicyOnCreditNote(summary.config.autoRequestOnCreditNote !== false);
+            }}>
+            Change
+          </button>
         </p>
+      )}
+
+      {/* POLICY EDITOR */}
+      {summary && editingPolicy && (
+        <div className="space-y-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+          <h3 className="text-sm font-semibold text-gray-800">Refund rules</h3>
+          <p className="text-xs text-gray-500">
+            The limit decides how much money may go back <strong>without a second person</strong>.
+            A refund at or above it is held for a manager — and the person who raised it cannot be
+            the one who approves it. Leave the limit empty to keep every refund under approval.
+          </p>
+          <FilterBar>
+            <Field label="Refund without approval, up to (₹)">
+              <TextInput type="number" min={0} step="1" value={policyLimit}
+                onChange={(e) => setPolicyLimit(e.target.value)} placeholder="e.g. 5000 — blank = never" />
+            </Field>
+          </FilterBar>
+          <div className="space-y-2 text-sm text-gray-700">
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={policyOnCancel} onChange={(e) => setPolicyOnCancel(e.target.checked)} />
+              Cancelling a paid order opens a refund automatically
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={policyOnRto} onChange={(e) => setPolicyOnRto(e.target.checked)} />
+              A returned (RTO) prepaid parcel opens a refund automatically
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={policyOnCreditNote} onChange={(e) => setPolicyOnCreditNote(e.target.checked)} />
+              A cash/bank-settled credit note opens a refund automatically
+            </label>
+          </div>
+          <div className="flex gap-2">
+            <Btn onClick={savePolicy} disabled={busy}>{busy ? 'Saving…' : 'Save rules'}</Btn>
+            <Btn variant="ghost" onClick={() => setEditingPolicy(false)} disabled={busy}>Cancel</Btn>
+          </div>
+        </div>
       )}
 
       {/* CREATE */}

@@ -156,7 +156,9 @@ const Dashboard: React.FC = () => {
             <StatTile label="Gross sales" value={fmtRupees(s.gross_sales)}
               sub={`${s.orders.toLocaleString('en-IN')} orders · AOV ${fmtRupees(s.aov)}`} />
             <StatTile label="Collected revenue" value={fmtRupees(s.collected_revenue)}
-              sub={`${s.collected_orders} paid / delivered-COD orders`} />
+              sub={s.refund_due > 0
+                ? `${s.collected_orders} paid orders · ${fmtRupees(s.refund_due)} refunds due`
+                : `${s.collected_orders} paid / delivered-COD orders`} />
             <StatTile label="Units sold" value={s.units_sold.toLocaleString('en-IN')}
               sub={`${s.cancelled_orders} cancelled orders excluded`} />
             <StatTile label="New buyers" value={s.new_customers.toLocaleString('en-IN')}
@@ -197,7 +199,7 @@ const Dashboard: React.FC = () => {
           <div className="grid gap-6 lg:grid-cols-3">
             <div className="lg:col-span-2">
               <ChartCard title="Sales over time"
-                sub="Gross = non-cancelled order value · Collected = payment completed or COD delivered">
+                sub="Gross = non-cancelled order value · Collected = money kept (paid, less refunds, excluding cancelled)">
                 <TimeSeries data={data.timeseries} granularity={bucket} money
                   series={[
                     { key: 'gross_sales', name: 'Gross sales', color: SERIES[0], kind: 'area', money: true },

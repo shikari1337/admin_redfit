@@ -364,6 +364,9 @@ function App() {
           <Route path="panel/marketing/performance" element={<ProtectedModuleRoute module="marketing"><MarketingPerformance /></ProtectedModuleRoute>} />
           <Route path="panel/marketing/growth" element={<ProtectedModuleRoute module="marketing"><GrowthAnalytics /></ProtectedModuleRoute>} />
           <Route path="panel/marketing/campaigns" element={<ProtectedModuleRoute module="marketing"><MarketingCampaigns /></ProtectedModuleRoute>} />
+          {/* One dedicated panel per channel (sms | whatsapp | email | push) —
+              same component, which reads :channel and locks itself to it. */}
+          <Route path="panel/marketing/campaigns/:channel" element={<ProtectedModuleRoute module="marketing"><MarketingCampaigns /></ProtectedModuleRoute>} />
           <Route path="panel/marketing/templates" element={<ProtectedModuleRoute module="marketing"><MarketingTemplates /></ProtectedModuleRoute>} />
           <Route path="panel/marketing/audiences" element={<ProtectedModuleRoute module="marketing"><MarketingAudiences /></ProtectedModuleRoute>} />
           <Route path="panel/marketing/automation" element={<ProtectedModuleRoute module="marketing"><MarketingAutomation /></ProtectedModuleRoute>} />

@@ -30,8 +30,10 @@ import {
   DeliveryStatusModal,
   MarkAsPaidModal,
   OrderProgressStepper,
+  CancelOrderModal,
+  OrderRefunds,
 } from '../components/order';
-import type { RazorpayAuditResult } from '../components/order';
+import type { RazorpayAuditResult, RefundOutcome } from '../components/order';
 import { PickupModal } from '../components/shipments';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -124,6 +126,9 @@ const OrderDetail: React.FC = () => {
   // this system can verify (bank transfer, cash, cheque), distinct from the
   // gateway-specific "Verify Payment" flow above.
   const [showMarkAsPaidModal, setShowMarkAsPaidModal] = useState(false);
+  // Cancelling a PAID order decides where the customer's money goes — the
+  // dialog asks, rather than the bare confirm() the other transitions use.
+  const [showCancelModal, setShowCancelModal] = useState(false);
   // Read-only re-check of an already-recorded Razorpay payment against
   // Razorpay itself (status + amount) — independent of order/payment status,
   // unlike "Verify Payment" above which only works while still pending.
@@ -225,7 +230,14 @@ const OrderDetail: React.FC = () => {
     }
   };
 
+  /**
+   * Cancelling is not just a status change — it decides what happens to money
+   * the customer has already paid. It gets a real dialog (CancelOrderModal)
+   * that reads the order's paid position and asks which refund rail to use,
+   * instead of the bare confirm() every other transition uses.
+   */
   const handleStatusUpdate = async (newStatus: string) => {
+    if (newStatus === 'cancelled') { setShowCancelModal(true); return; }
     const label = STATUS_LABEL[newStatus] ?? newStatus;
     if (!confirm(`Update order status to ${label}?`)) return;
 
@@ -1008,6 +1020,10 @@ const OrderDetail: React.FC = () => {
             </CardContent>
           </Card>
 
+          {/* Money that went BACK — refund id, rail and status. Renders nothing
+              when the order has no refunds. */}
+          <OrderRefunds refunds={order.refunds} />
+
           {(() => {
             // Most orders never capture a separate billing address — checkout only
             // asks for one when it differs from shipping. Show it either way instead
@@ -1386,6 +1402,31 @@ const OrderDetail: React.FC = () => {
         orderId={id!}
         total={Number(order.total) || 0}
         onMarked={() => { toast({ title: 'Payment recorded', description: 'Order marked as paid.' }); fetchOrder(); }}
+      />
+
+      <CancelOrderModal
+        isOpen={showCancelModal}
+        onClose={() => setShowCancelModal(false)}
+        orderId={id!}
+        orderNumber={order.orderId ?? order.order_id ?? id!}
+        paymentMethod={order.paymentMethod}
+        onCancelled={(refund: RefundOutcome | null) => {
+          fetchOrder();
+          // Report what happened to the MONEY, not just to the order — a refund
+          // that needs approval or that the gateway refused must not be reported
+          // as a clean success.
+          if (!refund || !refund.attempted) {
+            toast({ title: 'Order cancelled', description: refund?.message || 'The order has been cancelled.' });
+          } else if (refund.ok) {
+            toast({ title: 'Order cancelled and refunded', description: refund.message });
+          } else {
+            toast({
+              variant: 'destructive',
+              title: refund.outcome === 'failed' ? 'Cancelled — refund did not go through' : 'Cancelled — refund not finished',
+              description: refund.message,
+            });
+          }
+        }}
       />
 
       <UpdateEmailModal

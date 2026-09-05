@@ -20,5 +20,8 @@ export { default as UpdateEmailModal } from './UpdateEmailModal';
  export { default as OrderAddressEditor } from './OrderAddressEditor';
 export { default as DeliveryStatusModal } from './DeliveryStatusModal';
 export { default as MarkAsPaidModal } from './MarkAsPaidModal';
+export { default as CancelOrderModal } from './CancelOrderModal';
+export type { RefundOutcome } from './CancelOrderModal';
+export { default as OrderRefunds } from './OrderRefunds';
 export { default as OrderProgressStepper } from './OrderProgressStepper';
 

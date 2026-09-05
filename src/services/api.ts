@@ -1471,6 +1471,26 @@ export const vendorsAPI = {
 };
 
 // Orders API
+/**
+ * What to do about the customer's money when an order is cancelled. Mirrors
+ * `CancellationRefundInput` in backend/src/db/queries/refunds.ts — the backend
+ * is the authority; this is here so the cancel dialog can't send a shape the
+ * refund engine does not understand.
+ *
+ *   gateway        reverse the Razorpay payment now
+ *   bank_transfer  already refunded by hand — `reference` is the proof
+ *   adjustment     carried onto another order — `adjustedOrderNumber` says which
+ *   store_credit   kept with us as credit
+ *   record_only    open the refund, decide the rail later (the safe default)
+ *   none           record nothing
+ */
+export interface OrderCancelRefund {
+  mode: 'gateway' | 'bank_transfer' | 'store_credit' | 'adjustment' | 'record_only' | 'none';
+  reference?: string;
+  adjustedOrderNumber?: string;
+  reason?: string;
+}
+
 export const ordersAPI = {
   /** CSV export — all filtered orders, or just `ids` when a selection was made. */
   exportCsv: async (params?: { ids?: string[]; status?: string; from?: string; to?: string }) => {
@@ -1562,8 +1582,25 @@ export const ordersAPI = {
   },
   // "Confirmed" and "Completed" are just status transitions handled by /status
   // below — there never was a dedicated /confirm or /complete route.
-  updateStatus: async (id: string, status: string, notes?: string) => {
-    const response = await api.put(`/orders/${id}/status`, { status, notes });
+  updateStatus: async (id: string, status: string, notes?: string, refund?: OrderCancelRefund) => {
+    const response = await api.put(`/orders/${id}/status`, { status, notes, refund });
+    return response.data;
+  },
+  /**
+   * "How much can we still send back on this order?" — drives the cancellation
+   * confirmation, so the operator sees the real paid/refundable figures and
+   * whether there is an online payment to reverse before anything is cancelled.
+   */
+  refundable: async (idOrNumber: string) => {
+    const response = await api.get(`/refunds/refundable/${encodeURIComponent(idOrNumber)}`);
+    return response.data;
+  },
+  /**
+   * The store's refund rules — read by the cancel dialog so it can say whether
+   * the refund will actually go out on confirm, or wait for a manager.
+   */
+  refundConfig: async () => {
+    const response = await api.get('/refunds/config');
     return response.data;
   },
   /** Confirm a pending order (shorthand for the pending → confirmed transition). */
