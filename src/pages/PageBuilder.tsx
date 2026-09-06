@@ -44,6 +44,7 @@ import { classicBlocksToHtml } from '../lib/classicBlocksHtml';
 import MediaPicker from '../components/common/MediaPicker';
 import PageSeoPanel from '../components/pagebuilder/PageSeoPanel';
 import type { PageSeoValue, PageBasics } from '../components/pagebuilder/PageSeoPanel';
+import StoreBlockContentPanel, { isEditableStoreBlock } from '../components/pagebuilder/StoreBlockContentPanel';
 
 /** Category/brand/attribute lookups feed the store-block trait dropdowns. */
 async function loadLookups(): Promise<StoreBlocksOpts> {
@@ -118,6 +119,11 @@ const PageBuilder: React.FC = () => {
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>('blocks');
   const [editTab, setEditTab] = useState<EditTab>('content');
   const [selectedLabel, setSelectedLabel] = useState('');
+  // The selected component, when it's a LIVE section whose content is editable
+  // through the shared homepage schema (hero slides, trust badges, …) rather
+  // than through flat GrapesJS traits.
+  const [storeBlock, setStoreBlock] = useState<{ component: any; kind: string } | null>(null);
+  const [storeBlockRev, setStoreBlockRev] = useState(0);
   const [blockSearch, setBlockSearch] = useState('');
   const [sidebarHidden, setSidebarHidden] = useState(false);
 
@@ -202,11 +208,15 @@ const PageBuilder: React.FC = () => {
       editor.on('asset:custom', (data: any) => setAssetCtx(data?.open ? data : null));
       editor.on('component:selected', (component: any) => {
         setSelectedLabel(component?.getName?.() || 'Element');
+        const kind = isEditableStoreBlock(component);
+        setStoreBlock(kind ? { component, kind } : null);
+        setStoreBlockRev((r) => r + 1);
         setSidebarMode('edit');
         setEditTab('content');
       });
       editor.on('component:deselected', () => {
         setSelectedLabel('');
+        setStoreBlock(null);
         setSidebarMode((m) => (m === 'edit' ? 'blocks' : m));
       });
 
@@ -512,7 +522,19 @@ const PageBuilder: React.FC = () => {
               <div className={`pb-edit-tab ${editTab === 'style' ? 'active' : ''}`} onClick={() => setEditTab('style')}>Style</div>
             </div>
             <div className={`pb-panel-scroll ${editTab === 'content' ? '' : 'pb-hidden'}`}>
-              <div ref={traitElRef} />
+              {/* A live section's real content (slides, badges, headings) —
+                  GrapesJS traits can't express a list, so the shared homepage
+                  schema editor is used instead. The trait manager below still
+                  renders for ordinary elements. */}
+              {storeBlock && (
+                <StoreBlockContentPanel
+                  component={storeBlock.component}
+                  kind={storeBlock.kind}
+                  revision={storeBlockRev}
+                  onEdited={() => { canvasDirtyRef.current = true; setDirty(true); }}
+                />
+              )}
+              <div ref={traitElRef} className={storeBlock ? 'pb-hidden' : ''} />
               {!selectedLabel && <p className="pb-empty-hint">Select an element on the canvas to edit its content.</p>}
             </div>
             <div className={`pb-panel-scroll ${editTab === 'style' ? '' : 'pb-hidden'}`}>

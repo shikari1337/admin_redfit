@@ -1,4 +1,5 @@
 import React from 'react';
+import ImageInputWithActions from '../common/ImageInputWithActions';
 
 /**
  * Schema-driven editors for the STOREFRONT HOME PAGE block types
@@ -293,6 +294,22 @@ function FieldInput({ field, data, onChange }: { field: Field; data: any; onChan
     );
   }
 
+  // An image field is a PICKER, not a URL box. Every other block editor in the
+  // admin (BlockEditors / BlockEditorsExtra) already used ImageInputWithActions
+  // — upload, choose from the media library, preview — but the homepage blocks
+  // rendered a bare text input, so changing a hero slide meant pasting a CDN URL
+  // by hand. Same component, so the two can't drift.
+  if (field.type === 'image') {
+    return (
+      <ImageInputWithActions
+        label={field.label}
+        value={val ?? ''}
+        onChange={(url) => set(url)}
+        folder="pages"
+      />
+    );
+  }
+
   return (
     <div>
       <label className={labelCls}>{field.label}</label>
@@ -305,7 +322,7 @@ function FieldInput({ field, data, onChange }: { field: Field; data: any; onChan
       ) : field.type === 'number' ? (
         <input type="number" className={inputCls} value={val ?? ''} onChange={(e) => set(e.target.value === '' ? undefined : Number(e.target.value))} />
       ) : (
-        <input type="text" className={inputCls} value={val ?? ''} placeholder={field.type === 'url' || field.type === 'image' ? 'https://…' : ''} onChange={(e) => set(e.target.value)} />
+        <input type="text" className={inputCls} value={val ?? ''} placeholder={field.type === 'url' ? 'https://…' : ''} onChange={(e) => set(e.target.value)} />
       )}
       {field.help && <p className="text-[11px] text-gray-400 mt-0.5">{field.help}</p>}
     </div>

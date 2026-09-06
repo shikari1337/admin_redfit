@@ -16,7 +16,6 @@ import {
   OrderStatusHistory,
   PaymentInformation,
   OrderNotes,
-  DiscountBreakdown,
   ShipmentCreationModal,
   PaymentVerificationModal,
   UpdateEmailModal,
@@ -696,7 +695,6 @@ const OrderDetail: React.FC = () => {
   // ALLOWED_TRANSITIONS in backend/src/routes/orders.ts — keep the two in step.
   const statusOptions = [order.orderStatus, ...(ALLOWED_TRANSITIONS[order.orderStatus] ?? [])]
     .filter((s, i, a) => s && a.indexOf(s) === i);
-  const discountBreakdown = order.discountReason ? order.discountReason.split(',').map((d: string) => d.trim()) : [];
   // Same gate as "Edit items" — charges can only be waived while the order is
   // still unpaid, unshipped, and in an editable status.
   const isOrderEditable = order.paymentStatus !== 'completed'
@@ -962,6 +960,28 @@ const OrderDetail: React.FC = () => {
                 </Button>
               </>
             )}
+
+            {/* Carrier + gateway actions — previously buried inside the sidebar's
+                Order Information / Payment cards. */}
+            {canAccess('shipping') && hasPerm('shipments.manage') && !shiprocketAwb
+              && (order.shiprocketShipmentId ?? order.shiprocket_shipment_id) && (
+              <Button variant="outline" size="sm" className="h-10 ml-2" onClick={handleAssignAwb} disabled={assigningAwb}>
+                {assigningAwb ? 'Assigning…' : 'Assign AWB'}
+              </Button>
+            )}
+            {canAccess('shipping') && hasPerm('shipments.manage')
+              && !order.shipmentId && !(order.shiprocketShipmentId ?? order.shiprocket_shipment_id) && (
+              <Button variant="outline" size="sm" className="h-10 ml-2" onClick={handleAttachAwb} disabled={attachingAwb}>
+                {attachingAwb ? 'Attaching…' : 'Attach AWB'}
+              </Button>
+            )}
+            {hasPerm('orders.manage') && order.razorpayPaymentId && (
+              <Button variant="outline" size="sm" className="h-10 ml-2 text-indigo-700 hover:text-indigo-800"
+                onClick={handleAuditRazorpayPayment} disabled={auditingRazorpay}>
+                <FaCreditCard className="mr-2 h-3.5 w-3.5" />
+                {auditingRazorpay ? 'Checking…' : 'Verify with Razorpay'}
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -1012,32 +1032,46 @@ const OrderDetail: React.FC = () => {
           {/* Ship-to and bill-to read together (they used to sit in two cards
           several screens apart, with payment and refunds between them), plus
           the ships-from / invoiced-by block the shipping card used to own. */}
-      <OrderAddressPanel
-        shippingAddress={order.shippingAddress || order.shipping_address}
-        billingAddress={order.billingAddress || order.billing_address}
-        warehouseId={order.warehouseId}
-        gst={order.gst}
-        customerGstin={order.customerGstin ?? order.customer_gstin}
-        onWhatsAppClick={handleWhatsAppClick}
-        shippingAction={
-          <OrderAddressEditor
-            orderId={order._id || order.id}
-            orderStatus={order.orderStatus || order.order_status}
-            kind="shipping"
-            address={order.shippingAddress || order.shipping_address}
-            onSaved={(next: any) => setOrder((o: any) => ({ ...o, shippingAddress: next, shipping_address: next }))}
-          />
-        }
-        billingAction={
-          <OrderAddressEditor
-            orderId={order._id || order.id}
-            orderStatus={order.orderStatus || order.order_status}
-            kind="billing"
-            address={order.billingAddress || order.billing_address || order.shippingAddress || order.shipping_address}
-            onSaved={(next: any) => setOrder((o: any) => ({ ...o, billingAddress: next, billing_address: next }))}
-          />
-        }
-      />
+      {/* Addresses beside the customer — near-identical heights, so pairing them
+          costs no vertical space and keeps who/where together. */}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <div className="xl:col-span-2">
+        <OrderAddressPanel
+          shippingAddress={order.shippingAddress || order.shipping_address}
+          billingAddress={order.billingAddress || order.billing_address}
+          warehouseId={order.warehouseId}
+          gst={order.gst}
+          customerGstin={order.customerGstin ?? order.customer_gstin}
+          onWhatsAppClick={handleWhatsAppClick}
+          shippingAction={
+            <OrderAddressEditor
+              orderId={order._id || order.id}
+              orderStatus={order.orderStatus || order.order_status}
+              kind="shipping"
+              address={order.shippingAddress || order.shipping_address}
+              onSaved={(next: any) => setOrder((o: any) => ({ ...o, shippingAddress: next, shipping_address: next }))}
+            />
+          }
+          billingAction={
+            <OrderAddressEditor
+              orderId={order._id || order.id}
+              orderStatus={order.orderStatus || order.order_status}
+              kind="billing"
+              address={order.billingAddress || order.billing_address || order.shippingAddress || order.shipping_address}
+              onSaved={(next: any) => setOrder((o: any) => ({ ...o, billingAddress: next, billing_address: next }))}
+            />
+          }
+        />
+        </div>
+        <div>
+        <OrderCustomerCard
+          customerId={order.customerId ?? order.customer_id}
+          shippingAddress={order.shippingAddress || order.shipping_address}
+          orderTotal={Number(order.total) || 0}
+          onWhatsAppClick={handleWhatsAppClick}
+        />
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 space-y-4">
@@ -1084,12 +1118,6 @@ const OrderDetail: React.FC = () => {
 
           <Card className="shadow-sm">
             <CardContent className="p-0">
-              <DiscountBreakdown discounts={discountBreakdown} couponCode={order.couponCode} />
-            </CardContent>
-          </Card>
-
-          <Card className="shadow-sm">
-            <CardContent className="p-0">
               <PaymentInformation
                 paymentMethod={order.paymentMethod}
                 paymentStatus={order.paymentStatus}
@@ -1131,12 +1159,6 @@ const OrderDetail: React.FC = () => {
         </div>
 
         <div className="space-y-4">
-          <OrderCustomerCard
-            customerId={order.customerId ?? order.customer_id}
-            shippingAddress={order.shippingAddress || order.shipping_address}
-            orderTotal={Number(order.total) || 0}
-            onWhatsAppClick={handleWhatsAppClick}
-          />
 
           {/* Invoice number from the store's own billing software, salesperson,
               and an uploaded invoice PDF that replaces the generated one. */}
@@ -1155,52 +1177,11 @@ const OrderDetail: React.FC = () => {
 
           <Card className="shadow-sm">
             <CardHeader className="px-4 py-2.5 border-b">
-              <CardTitle className="text-base">Order Information</CardTitle>
+              <CardTitle className="text-base">Shipping &amp; tracking</CardTitle>
             </CardHeader>
             <CardContent className="p-4">
               <div className="space-y-2.5 text-sm">
                 <div>
-                  <p className="text-muted-foreground mb-1">Order Status</p>
-                  <StatusBadge status={order.orderStatus} type="order" />
-                </div>
-                {/* Return window — stamped once (whole order, or the delivered portion of a
-                    split shipment) delivers; also the date the platform's own billing to this
-                    store becomes eligible to count this order/shipment (COMMON_MISTAKES #142). */}
-                {(order.returnDeadline ?? order.return_deadline) && (
-                  <div>
-                    <p className="text-muted-foreground mb-1">Return Window</p>
-                    {new Date(order.returnDeadline ?? order.return_deadline) > new Date() ? (
-                      <Badge variant="secondary" className="bg-blue-50 text-blue-700 border-blue-200">
-                        Closes {formatDate(order.returnDeadline ?? order.return_deadline)}
-                      </Badge>
-                    ) : (
-                      <Badge variant="secondary" className="bg-slate-100 text-slate-600">
-                        Closed {formatDate(order.returnDeadline ?? order.return_deadline)}
-                      </Badge>
-                    )}
-                  </div>
-                )}
-                {/* Order type — B2B (wholesale) vs retail, plus the tier that priced it. */}
-                <div>
-                  <p className="text-muted-foreground mb-1">Order Type</p>
-                  {(order.orderType ?? order.order_type) === 'b2b' ? (
-                    <Badge className="bg-blue-500/15 text-blue-700 border-blue-200 hover:bg-blue-500/25">
-                      B2B{(order.b2bTier ?? order.b2b_tier) ? ` — ${order.b2bTier ?? order.b2b_tier} tier` : ''}
-                    </Badge>
-                  ) : (
-                    <Badge variant="outline">Retail</Badge>
-                  )}
-                </div>
-                {(order.customerGstin ?? order.customer_gstin) && (
-                  <div>
-                    <p className="text-muted-foreground mb-0.5">Invoice GSTIN</p>
-                    <p className="font-mono text-xs font-semibold text-foreground">{order.customerGstin ?? order.customer_gstin}</p>
-                  </div>
-                )}
-                <div>
-                  <p className="text-muted-foreground mb-0.5">Payment Method</p>
-                  <p className="font-semibold text-foreground">{order.paymentMethod === 'cod' ? 'COD' : 'Prepaid'}</p>
-                </div>
                 {order.paymentMethod === 'cod' && (
                   <div>
                     <p className="text-muted-foreground mb-1">COD Verification</p>
@@ -1211,15 +1192,6 @@ const OrderDetail: React.FC = () => {
                     </Badge>
                   </div>
                 )}
-                <div>
-                  <p className="text-muted-foreground mb-1">Payment Status</p>
-                  <StatusBadge status={order.paymentStatus} type="payment" />
-                </div>
-                <div>
-                  <p className="text-muted-foreground mb-0.5">Order Date</p>
-                  <p className="font-medium text-foreground">
-                    {formatDate(order.createdAt ?? order.created_at, 'MMM dd, yyyy HH:mm', 'N/A')}
-                  </p>
                 </div>
                 {order.trackingUrl && (
                   <div className="pt-1.5 border-t">
