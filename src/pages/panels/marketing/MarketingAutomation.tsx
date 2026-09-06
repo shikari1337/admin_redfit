@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../../../services/api';
 import { useAuth } from '../../../contexts/AuthContext';
 import { payload } from '../../../lib/unwrap';
+import { localeDateTime } from '../../../utils/date';
 
 /**
  * Automation rules — auto emails / notifications on store events.
@@ -212,7 +213,7 @@ const MarketingAutomation: React.FC = () => {
                 <tr key={e.id}>
                   <td className="py-1 font-mono text-xs">{e.subject_key}</td>
                   <td className={`text-xs capitalize ${e.status === 'failed' ? 'text-red-600' : 'text-gray-700'}`}>{e.status}{e.error ? ` — ${e.error}` : ''}</td>
-                  <td className="text-xs text-gray-400">{new Date(e.executed_at).toLocaleString()}</td>
+                  <td className="text-xs text-gray-400">{localeDateTime(e.executed_at)}</td>
                 </tr>
               ))}
             </tbody>

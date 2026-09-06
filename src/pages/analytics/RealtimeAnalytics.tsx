@@ -5,6 +5,7 @@ import { payload } from '../../lib/unwrap';
 import { ComposableMap, Geographies, Geography } from 'react-simple-maps';
 import { FaGlobeAmericas, FaDesktop, FaMobileAlt } from 'react-icons/fa';
 import LoadingSpinner from '../../components/LoadingSpinner';
+import { localeTime } from '../../utils/date';
 
 const geoUrl = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
 
@@ -142,7 +143,7 @@ const RealtimeAnalytics: React.FC = () => {
                                             </div>
                                         </td>
                                         <td className="px-4 py-3 text-sm text-gray-600">
-                                            {new Date(visitor.lastActive).toLocaleTimeString()}
+                                            {localeTime(visitor.lastActive)}
                                         </td>
                                         <td className="px-4 py-3">
                                             <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">

@@ -12,6 +12,7 @@ import {
 } from 'react-icons/fa';
 import { uploadAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { localeDate } from '../utils/date';
 
 interface GalleryItem {
   id: string;
@@ -549,7 +550,7 @@ const Gallery: React.FC = () => {
                   </p>
                   <p className="text-xs text-gray-500">{formatFileSize(item.size)}</p>
                   <p className="text-xs text-gray-400 mt-1">
-                    {item.uploadedAt.toLocaleDateString()}
+                    {localeDate(item.uploadedAt)}
                   </p>
                 </div>
               </div>

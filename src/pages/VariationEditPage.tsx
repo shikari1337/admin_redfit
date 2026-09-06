@@ -8,6 +8,7 @@ import ProductInventoryPanel from '../components/product/ProductInventoryPanel';
 import { FieldGroup, Field, SwitchRow, fieldInputCls, fieldTextareaCls } from '../components/product/FormField';
 import RichTextEditor from '../components/common/RichTextEditor';
 import ProductImageUpload from '../components/product/ProductImageUpload';
+import { localeDate } from '../utils/date';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -23,7 +24,7 @@ const formatINR = (n: number): string =>
 
 const formatDay = (v: any): string => {
   const d = new Date(v);
-  return isNaN(d.getTime()) ? String(v) : d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  return isNaN(d.getTime()) ? String(v) : localeDate(d, { day: 'numeric', month: 'short', year: 'numeric' }, 'en-IN');
 };
 
 // Convert an ISO timestamp / Date to the `YYYY-MM-DDTHH:mm` format an

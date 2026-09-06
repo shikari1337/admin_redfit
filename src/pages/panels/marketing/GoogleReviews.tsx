@@ -14,6 +14,7 @@ import {
 } from '@/components/erp';
 import { StarRating } from '@/components/reviews/StarRating';
 import { cn } from '@/lib/utils';
+import { localeDate, localeDateTime } from '../../../utils/date';
 
 /**
  * GOOGLE REVIEWS WORKSPACE
@@ -71,10 +72,10 @@ interface Summary {
 const PAGE_SIZE = 25;
 
 const fmtDate = (s: string | null | undefined) =>
-  s ? new Date(s).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+  s ? localeDate(s, { day: '2-digit', month: 'short', year: 'numeric' }, undefined) : '—';
 
 const fmtDateTime = (s: string | null | undefined) =>
-  s ? new Date(s).toLocaleString(undefined, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
+  s ? localeDateTime(s, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }, undefined) : '—';
 
 const GoogleReviews: React.FC = () => {
   const { hasPerm } = useAuth();

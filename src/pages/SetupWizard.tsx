@@ -8,13 +8,14 @@ import { Switch } from '@/components/ui/switch';
 import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { getStoreTimeZone } from '../utils/date';
 import {
   Store, Phone, Image, Receipt, CreditCard, Truck,
   Check, ChevronRight, Loader2, AlertCircle,
 } from 'lucide-react';
 import {
   StoreConfig, EMPTY_STORE_CONFIG, loadStoreConfig, storeConfigSavePayload,
-  COUNTRIES, CURRENCIES, TIMEZONES, LANGUAGES, INDIAN_STATES,
+  COUNTRIES, CURRENCIES, LANGUAGES, INDIAN_STATES,
 } from '@/lib/storeConfig';
 
 // ─── Step definitions ─────────────────────────────────────────────────────────
@@ -367,14 +368,17 @@ const SetupWizard: React.FC = () => {
                     </div>
                   </div>
 
+                  {/* Read-only for the same reason as Store Configuration ▸
+                    * Regional: the timezone in force is the PLATFORM store
+                    * record's, not a second copy stored under storeConfig. */}
                   <div className="space-y-2">
                     <Label>Timezone</Label>
-                    <Select value={cfg.regional.timezone} onValueChange={v => set('regional', { timezone: v })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {TIMEZONES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                    <div className="flex h-9 items-center rounded-md border border-input bg-muted/50 px-3 text-sm">
+                      {getStoreTimeZone()}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Set by your platform administrator — every business day, report and invoice date uses it.
+                    </p>
                   </div>
 
                   <div className="space-y-2">

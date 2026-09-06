@@ -9,6 +9,7 @@ import { StarRating } from './StarRating';
 import { MediaStrip, MediaLightbox, MediaEditor } from './ReviewMedia';
 import { ProductPicker, type PickedProduct } from './ProductPicker';
 import { cn } from '@/lib/utils';
+import { localeDate, localeDateTime } from '../../utils/date';
 
 /**
  * The review workspace's detail panel.
@@ -288,7 +289,7 @@ export const ReviewDetailDrawer: React.FC<{
             )}
             {review.reply_at && (
               <p className="mt-1.5 text-xs text-gray-400">
-                Replied {new Date(review.reply_at).toLocaleDateString()} by {review.reply_by || 'Store'}
+                Replied {localeDate(review.reply_at)} by {review.reply_by || 'Store'}
                 {review.reply_published === false && ' · not visible to shoppers'}
               </p>
             )}
@@ -297,7 +298,7 @@ export const ReviewDetailDrawer: React.FC<{
           {/* Meta */}
           <section className="grid grid-cols-2 gap-x-4 gap-y-2 border-t border-gray-100 pt-4 text-xs text-gray-500">
             <span>Submitted</span>
-            <span className="text-gray-700">{new Date(review.created_at).toLocaleString()}</span>
+            <span className="text-gray-700">{localeDateTime(review.created_at)}</span>
             <span>Source</span>
             <span className="text-gray-700 capitalize">{review.source || 'storefront'}</span>
             <span>Helpful votes</span>
@@ -308,7 +309,7 @@ export const ReviewDetailDrawer: React.FC<{
               <>
                 <span>Last moderated</span>
                 <span className="text-gray-700">
-                  {new Date(review.moderated_at).toLocaleString()}
+                  {localeDateTime(review.moderated_at)}
                   {review.moderation_reason ? ` · ${review.moderation_reason}` : ''}
                 </span>
               </>

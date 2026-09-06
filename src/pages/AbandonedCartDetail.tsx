@@ -4,6 +4,7 @@ import { FaArrowLeft, FaCopy, FaExternalLinkAlt, FaSms, FaWhatsapp, FaEnvelope }
 import { cartsAPI, journeyAPI, couponsAPI } from '../services/api';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ButtonLoader from '../components/ButtonLoader';
+import { localeDateTime } from '../utils/date';
 
 interface CartDetailItem {
   productId: string;
@@ -104,7 +105,7 @@ interface CartDetail {
   charges?: CartCharges;
 }
 
-const formatDate = (value?: string | null) => (value ? new Date(value).toLocaleString() : '—');
+const formatDate = (value?: string | null) => (value ? localeDateTime(value) : '—');
 const formatMoney = (value?: number | null) =>
   `₹${Number(value ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 

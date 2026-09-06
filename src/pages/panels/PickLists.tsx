@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api, searchAPI } from '../../services/api';
+import { localeDateTime } from '../../utils/date';
 import {
   Page, PageHeader, Btn, StatusChip, TextInput,
   TableShell, THead, Th, TBody, Tr, Td,
@@ -121,7 +122,7 @@ const PickLists: React.FC = () => {
                   <Td className="font-mono text-xs">{r.reference ?? r.id.slice(0, 8)}</Td>
                   <Td><StatusChip status={r.status} /></Td>
                   <Td num>{r.done_count}/{r.item_count}</Td>
-                  <Td muted className="text-xs">{new Date(r.created_at).toLocaleString()}</Td>
+                  <Td muted className="text-xs">{localeDateTime(r.created_at)}</Td>
                 </Tr>
               ))}
             </TBody>

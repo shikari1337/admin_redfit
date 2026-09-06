@@ -10,6 +10,7 @@ import {
 } from '../../components/erp';
 import type { Tone } from '../../components/erp';
 import { Repeat, Plus, ArrowLeft, Trash2, PlayCircle, Pause, Play, Ban } from 'lucide-react';
+import { localeDate, localeDateTime } from '../../utils/date';
 
 /**
  * Customer Recurring Invoices / Subscriptions (migration 098). Bill the same
@@ -32,7 +33,7 @@ const StatusPill: React.FC<{ status: string }> = ({ status }) =>
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const niceDate = (d?: string | null) => {
   if (!d) return '—';
-  try { return new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }); }
+  try { return localeDate(d + 'T00:00:00', { day: 'numeric', month: 'short', year: 'numeric' }, 'en-IN'); }
   catch { return d; }
 };
 const rupees = (minor?: string | number | null) => inr(Number(minor ?? 0) / 100);
@@ -449,7 +450,7 @@ const RecurringInvoices: React.FC = () => {
                     <Td num>{rupees(r.total_minor)}</Td>
                     <Td><StatusChip status={r.status} tone={r.status === 'failed' ? 'red' : (r.status === 'pending' ? 'amber' : 'green')} /></Td>
                     <Td>{r.email_status || '—'}</Td>
-                    <Td className="text-xs text-gray-500">{r.created_at ? new Date(r.created_at).toLocaleString('en-IN') : '—'}</Td>
+                    <Td className="text-xs text-gray-500">{r.created_at ? localeDateTime(r.created_at, undefined, 'en-IN') : '—'}</Td>
                   </Tr>
                 ))}
               </TBody>

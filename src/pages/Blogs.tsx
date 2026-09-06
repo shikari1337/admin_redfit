@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
-import { format } from 'date-fns';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
@@ -11,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { FaPlus, FaEdit, FaTrash, FaToggleOn, FaToggleOff } from 'react-icons/fa';
 import StatusBadge from '../components/order/StatusBadge';
 import { Pagination } from '@/components/erp';
+import { formatDate } from '../utils/date';
 
 interface BlogPost {
   id: string;
@@ -194,7 +194,7 @@ const Blogs: React.FC = () => {
                       {post.author_name || '—'}
                     </TableCell>
                     <TableCell className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
-                      {post.published_at ? format(new Date(post.published_at), 'MMM dd, yyyy') : '—'}
+                      {post.published_at ? formatDate(post.published_at, 'MMM dd, yyyy') : '—'}
                     </TableCell>
                     <TableCell className="px-4 py-3 text-right text-sm text-muted-foreground">
                       {post.view_count?.toLocaleString() ?? '0'}

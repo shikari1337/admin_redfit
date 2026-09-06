@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../../../services/api';
 import { useAuth } from '../../../contexts/AuthContext';
 import { payload } from '../../../lib/unwrap';
+import { localeDateTime } from '../../../utils/date';
 
 /**
  * Custom audiences — the GDPR double gate made visible:
@@ -177,7 +178,7 @@ const AdsAudiences: React.FC = () => {
                     <td className="py-1 uppercase text-xs">{r.platform}</td>
                     <td>{r.members_sent}</td>
                     <td className={`text-xs ${r.status === 'error' ? 'text-red-600' : ''}`}>{r.status}{r.error ? ` — ${r.error}` : ''}</td>
-                    <td className="text-xs text-gray-400">{new Date(r.created_at).toLocaleString()}</td>
+                    <td className="text-xs text-gray-400">{localeDateTime(r.created_at)}</td>
                   </tr>
                 ))}
               </tbody>

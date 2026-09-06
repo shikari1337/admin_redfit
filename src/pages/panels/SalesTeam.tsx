@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from '../../services/api';
+import { api, ordersAPI } from '../../services/api';
 import { payload } from '../../lib/unwrap';
 import { fmtRupees } from '../../lib/money';
 import DateRangeBar, { useDateRange } from '../../components/panelAnalytics/DateRangeBar';
@@ -10,6 +10,7 @@ import { SERIES } from '../../components/panelAnalytics/vizTheme';
 import { Page, PageHeader, SectionCard, StatusChip, EmptyState } from '../../components/erp';
 import { actionLabel } from '../../lib/activityVocab';
 import { Inbox, AlertTriangle, ArrowRight, Activity, X } from 'lucide-react';
+import { localeDate, localeDateTime } from '../../utils/date';
 
 /**
  * Sales & Team — who sold what, who is managing what, and who did which steps.
@@ -38,8 +39,19 @@ const SalesTeam: React.FC = () => {
   const { data, loading, error } = usePanelStats<any>('sales-team', range);
 
   const [feed, setFeed] = useState<any[] | null>(null);
+  const [queue, setQueue] = useState<any[] | null>(null);
   const [openAgent, setOpenAgent] = useState<any | null>(null);
   const [agentData, setAgentData] = useState<any | null>(null);
+
+  // The decision queue is LIVE, not range-filtered — an undecided claim is
+  // outstanding today regardless of when its order was placed.
+  useEffect(() => {
+    let alive = true;
+    ordersAPI.salesClaimQueue({ limit: 25 })
+      .then((r) => { if (alive) setQueue(r.items); })
+      .catch(() => { if (alive) setQueue([]); });
+    return () => { alive = false; };
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -62,7 +74,7 @@ const SalesTeam: React.FC = () => {
   const t = data?.totals;
   const un = data?.unattributed;
   const trackingSince = data?.first_activity_at
-    ? new Date(data.first_activity_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+    ? localeDate(data.first_activity_at, { day: 'numeric', month: 'short', year: 'numeric' }, 'en-IN')
     : null;
 
   // Only agents who actually did something rank; the rest are listed after, so
@@ -110,6 +122,66 @@ const SalesTeam: React.FC = () => {
             </div>
           )}
 
+          {/* ── Sales-credit decisions (mig 152) ────────────────────────── */}
+          {/* Contested first — an assisted sale two people claim credits NOBODY
+              until a manager settles it, so this queue is the thing that
+              unblocks a leaderboard number. Deliberately NOT range-filtered:
+              an undecided claim is outstanding today whenever the order came in. */}
+          {!!data.claims?.open && (
+            <SectionCard
+              title="Sales credit to decide"
+              description="Assisted sales whose credit is unsettled. Contested ones credit nobody until someone with approval rights awards them."
+            >
+              <div className="mb-3 flex flex-wrap gap-2 text-xs">
+                {data.claims.contested > 0 && (
+                  <span className="rounded bg-red-100 px-2 py-1 font-medium text-red-700">
+                    {data.claims.contested} contested
+                  </span>
+                )}
+                {data.claims.pending > 0 && (
+                  <span className="rounded bg-amber-100 px-2 py-1 font-medium text-amber-700">
+                    {data.claims.pending} awaiting review
+                  </span>
+                )}
+                {data.claims.auto > 0 && (
+                  <span className="rounded bg-blue-100 px-2 py-1 font-medium text-blue-700">
+                    {data.claims.auto} auto-credited
+                  </span>
+                )}
+              </div>
+              {queue === null && <div className="text-sm text-gray-500">Loading…</div>}
+              {!!queue?.length && (
+                <ul className="divide-y divide-gray-100">
+                  {queue.map((o) => (
+                    <li key={o.id} className="flex items-start justify-between gap-3 py-2 text-sm">
+                      <div className="min-w-0">
+                        <Link to={`/orders/${o.id}`} className="font-medium text-blue-600 hover:underline">
+                          {o.order_id}
+                        </Link>
+                        <span className="ml-2 text-gray-500">{o.customer_name || '—'}</span>
+                        <div className="mt-0.5 text-xs text-gray-600">
+                          {(o.claims ?? []).map((c: any) => c.agent_name).filter(Boolean).join(' vs ') || 'no claimant'}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${
+                          o.sales_claim_status === 'contested' ? 'bg-red-100 text-red-700'
+                          : o.sales_claim_status === 'pending' ? 'bg-amber-100 text-amber-700'
+                          : 'bg-blue-100 text-blue-700'}`}>
+                          {o.sales_claim_status}
+                        </span>
+                        <span className="tabular-nums">{fmtRupees(o.total)}</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {queue?.length === 0 && (
+                <div className="py-3 text-sm text-gray-500">Nothing waiting on a decision.</div>
+              )}
+            </SectionCard>
+          )}
+
           {/* ── Leaderboard ─────────────────────────────────────────────── */}
           <SectionCard
             title="Team performance"
@@ -124,6 +196,8 @@ const SalesTeam: React.FC = () => {
                     <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500">
                       <th className="px-3 py-2 font-medium">Person</th>
                       <th className="px-3 py-2 text-right font-medium">Orders</th>
+                      <th className="px-3 py-2 text-right font-medium" title="Orders this person keyed in themselves">Direct</th>
+                      <th className="px-3 py-2 text-right font-medium" title="Customer-placed orders they earned or won the credit for">Assisted</th>
                       <th className="px-3 py-2 text-right font-medium">Sales</th>
                       <th className="px-3 py-2 text-right font-medium">Collected</th>
                       <th className="px-3 py-2 text-right font-medium">AOV</th>
@@ -144,6 +218,18 @@ const SalesTeam: React.FC = () => {
                           </div>
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">{a.orders.toLocaleString('en-IN')}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-gray-600">
+                          {a.direct_orders ? a.direct_orders : <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums text-gray-600">
+                          {a.assisted_orders ? a.assisted_orders : <span className="text-gray-300">—</span>}
+                          {a.open_claims > 0 && (
+                            <span title={`${a.open_claims} claim(s) awaiting a decision`}
+                              className="ml-1 rounded bg-amber-100 px-1 text-xs font-medium text-amber-700">
+                              +{a.open_claims}
+                            </span>
+                          )}
+                        </td>
                         <td className="px-3 py-2 text-right tabular-nums font-medium">{fmtRupees(a.gross)}</td>
                         <td className="px-3 py-2 text-right tabular-nums text-gray-600">{fmtRupees(a.collected)}</td>
                         <td className="px-3 py-2 text-right tabular-nums text-gray-600">{a.aov ? fmtRupees(a.aov) : '—'}</td>
@@ -224,7 +310,7 @@ const SalesTeam: React.FC = () => {
                         )}
                       </div>
                       <span className="shrink-0 text-xs text-gray-400">
-                        {new Date(r.occurred_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        {localeDateTime(r.occurred_at, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }, 'en-IN')}
                       </span>
                     </li>
                   ))}

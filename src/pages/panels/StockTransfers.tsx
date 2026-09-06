@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ArrowLeftRight, Plus, Loader2, Truck, FileText, CheckCircle2, X, Send, PackageCheck } from 'lucide-react';
 import { api } from '../../services/api';
 import { payload } from '@/lib/unwrap';
+import { localeDate } from '../../utils/date';
 import {
   Page, PageHeader, Btn, FilterBar, Field, TextInput, SelectInput, SearchInput,
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow, EmptyState, Chip,
@@ -321,7 +322,7 @@ const StockTransfers: React.FC = () => {
                 <Td num>{num(t.item_count)}</Td>
                 <Td num>{inr(t.total_value_minor)}</Td>
                 <Td><Chip tone={STATUS_TONE[t.status] ?? 'default'}>{STATUS_LABEL[t.status] ?? t.status}</Chip></Td>
-                <Td muted className="text-xs">{t.dispatched_at ? new Date(t.dispatched_at).toLocaleDateString() : '—'}</Td>
+                <Td muted className="text-xs">{t.dispatched_at ? localeDate(t.dispatched_at) : '—'}</Td>
               </Tr>
             ))}
           </TBody>

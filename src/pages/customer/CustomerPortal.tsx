@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { localeDate } from '../../utils/date';
 
 /**
  * Customer Portal — the B2B buyer's self-service window (spec §12), the
@@ -44,7 +45,7 @@ const rupees = (n?: number | string | null) => {
 };
 const prettyDate = (d?: string | null) => {
   if (!d) return '';
-  try { return new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }); }
+  try { return localeDate(d, { day: 'numeric', month: 'short', year: 'numeric' }, 'en-IN'); }
   catch { return d; }
 };
 // Days since a date, derived from the date itself so it can never contradict the

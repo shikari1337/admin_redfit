@@ -25,6 +25,9 @@ export const ACTION_LABEL: Record<string, string> = {
   'order.shipment_create': 'created a shipment for',
   'order.delivery_mark': 'set delivery status on',
   'order.invoice_details': 'edited invoice details on',
+  'order.sales_claim': 'claimed the sale on',
+  'order.sales_claim_withdraw': 'withdrew their claim on',
+  'order.sales_claim_decide': 'decided the sales credit on',
 };
 
 /** Short noun form for charts/columns, where a verb phrase reads badly. */
@@ -45,6 +48,9 @@ export const ACTION_SHORT: Record<string, string> = {
   'order.shipment_create': 'Shipments created',
   'order.delivery_mark': 'Delivery updates',
   'order.invoice_details': 'Invoice edits',
+  'order.sales_claim': 'Sales claims',
+  'order.sales_claim_withdraw': 'Claims withdrawn',
+  'order.sales_claim_decide': 'Credit decisions',
 };
 
 /** Fallback: 'purchase_order.receive' → 'Purchase order receive'. */

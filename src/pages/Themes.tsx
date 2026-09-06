@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LayoutTemplate, Upload, Paintbrush, Trash2, CheckCircle2, Globe, Loader2, Info } from 'lucide-react';
 import { themeEngineAPI, ThemeMeta } from '../services/themeEngine';
+import { localeDate } from '../utils/date';
 
 /**
  * Themes — Shopify-style theme library for template-mode storefronts.
@@ -144,7 +145,7 @@ export default function Themes() {
                   <p className="text-xs text-gray-400 mt-1 mb-0">
                     {t.version && <>v{t.version} · </>}
                     {t.source === 'starter' ? 'Bundled starter' : 'Uploaded'} ·{' '}
-                    {new Date(t.updatedAt || t.createdAt).toLocaleDateString()}
+                    {localeDate(t.updatedAt || t.createdAt)}
                   </p>
                 </div>
               </div>

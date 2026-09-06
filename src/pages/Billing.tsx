@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { billingAPI } from '../services/api';
 import StatusBadge from '../components/order/StatusBadge';
+import { localeDate } from '../utils/date';
 
 interface Invoice {
   _id: string;
@@ -126,7 +127,7 @@ export default function Billing() {
               <h2>Current Month Usage</h2>
               {usage.period && (
                 <p className="period">
-                  {new Date(usage.period.start).toLocaleDateString()} – {new Date(usage.period.end).toLocaleDateString()}
+                  {localeDate(usage.period.start)} – {localeDate(usage.period.end)}
                 </p>
               )}
               <div className="usage-stats">
@@ -181,14 +182,14 @@ export default function Billing() {
                           <td><strong>{inv.invoiceNumber ?? inv._id.slice(-8)}</strong></td>
                           <td>
                             {inv.period
-                              ? `${new Date(inv.period.start).toLocaleDateString()} – ${new Date(inv.period.end).toLocaleDateString()}`
+                              ? `${localeDate(inv.period.start)} – ${localeDate(inv.period.end)}`
                               : '—'}
                           </td>
                           <td>{fmt(inv.commissionAmount)}</td>
                           <td>{fmt(inv.apiUsageAmount)}</td>
                           <td>{fmt(inv.fixedFee)}</td>
                           <td><strong>{fmt(inv.totalAmount)}</strong></td>
-                          <td>{inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : '—'}</td>
+                          <td>{inv.dueDate ? localeDate(inv.dueDate) : '—'}</td>
                           <td>
                             <StatusBadge status={inv.status} type="billing" />
                           </td>
@@ -204,7 +205,7 @@ export default function Billing() {
                             )}
                             {inv.status === 'paid' && inv.paidAt && (
                               <span className="paid-date">
-                                {new Date(inv.paidAt).toLocaleDateString()}
+                                {localeDate(inv.paidAt)}
                               </span>
                             )}
                           </td>

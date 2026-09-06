@@ -4,6 +4,7 @@ import { FaCog, FaDownload, FaEye, FaSearch, FaSms, FaSyncAlt } from 'react-icon
 import { cartsAPI } from '../services/api';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ButtonLoader from '../components/ButtonLoader';
+import { localeDateTime } from '../utils/date';
 
 interface CartItem {
   productId: string;
@@ -35,7 +36,7 @@ interface CartRecord {
 }
 
 const formatDate = (value?: string) =>
-  value ? new Date(value).toLocaleString() : '—';
+  value ? localeDateTime(value) : '—';
 
 const AbandonedCarts: React.FC = () => {
   const [loading, setLoading] = useState(false);

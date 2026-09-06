@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import { format } from 'date-fns';
 import { shipmentsAPI } from '../../services/api';
 import {
   Sheet,
@@ -10,6 +9,7 @@ import {
 } from '@/components/ui/sheet';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { formatDate } from '../../utils/date';
 
 interface ShipmentDetailDrawerProps {
   shipmentId: string | null;
@@ -37,13 +37,7 @@ const MILESTONE_ORDER = [
 ];
 
 function safeDate(d: any, fmt = 'MMM dd, yyyy HH:mm') {
-  try {
-    const dt = new Date(d);
-    if (isNaN(dt.getTime())) return null;
-    return format(dt, fmt);
-  } catch {
-    return null;
-  }
+  return formatDate(d, fmt, '') || null;
 }
 
 const ShipmentDetailDrawer: React.FC<ShipmentDetailDrawerProps> = ({ shipmentId, onClose }) => {

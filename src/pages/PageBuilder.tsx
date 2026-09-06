@@ -32,13 +32,18 @@ import blocksBasic from 'grapesjs-blocks-basic';
 import customCode from 'grapesjs-custom-code';
 import {
   ArrowLeft, Save, ExternalLink, Import, Undo2, Redo2, Monitor, Tablet, Smartphone,
-  Eye, Code2, SquareDashed, LayoutGrid, Layers, Settings2, ChevronLeft,
+  Eye, Code2, SquareDashed, LayoutGrid, Layers, Settings2, ChevronLeft, Globe,
 } from 'lucide-react';
+import { useStore } from '../contexts/StoreContext';
 import { pagesAPI, categoriesAPI, brandsAPI, attributesAPI } from '../services/api';
 import storeBlocks from '../lib/grapesStoreBlocks';
 import type { StoreBlocksOpts } from '../lib/grapesStoreBlocks';
+import layoutBlocks from '../lib/grapesLayoutBlocks';
+import { STYLE_SECTORS, BUILDER_DEVICES, registerCommonTraits } from '../lib/grapesStyleSectors';
 import { classicBlocksToHtml } from '../lib/classicBlocksHtml';
 import MediaPicker from '../components/common/MediaPicker';
+import PageSeoPanel from '../components/pagebuilder/PageSeoPanel';
+import type { PageSeoValue, PageBasics } from '../components/pagebuilder/PageSeoPanel';
 
 /** Category/brand/attribute lookups feed the store-block trait dropdowns. */
 async function loadLookups(): Promise<StoreBlocksOpts> {
@@ -66,12 +71,16 @@ function bodyToDiv(html: string): string {
   return html.replace(/^\s*<body([^>]*)>/i, '<div$1>').replace(/<\/body>\s*$/i, '</div>');
 }
 
-type SidebarMode = 'blocks' | 'layers' | 'edit';
+type SidebarMode = 'blocks' | 'layers' | 'edit' | 'page';
 type EditTab = 'content' | 'style';
 type Device = 'desktop' | 'tablet' | 'mobile';
 
 const PageBuilder: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  // The SERP preview shows the real "… | StoreName" suffix, so it needs the
+  // store's actual name — already resolved by StoreContext, no extra fetch.
+  const { currentStore } = useStore();
+  const storeName = currentStore?.storeName || 'Store';
   const containerRef = useRef<HTMLDivElement>(null);
   const blocksElRef = useRef<HTMLDivElement>(null);
   const layersElRef = useRef<HTMLDivElement>(null);
@@ -80,9 +89,25 @@ const PageBuilder: React.FC = () => {
   const editorRef = useRef<Editor | null>(null);
   const pageRef = useRef<any>(null);
   const readyRef = useRef(false);
+  /**
+   * Did the author actually touch the CANVAS, as opposed to only the Page/SEO
+   * form? Saving the canvas rewrites the page's content into one `builder`
+   * block — which, on a page still made of classic blocks (the homepage, most
+   * importantly), is a real conversion. Someone who opened the builder purely
+   * to set a meta description must not trigger that as a side effect, so the
+   * two are tracked separately and the save writes only what changed.
+   */
+  const canvasDirtyRef = useRef(false);
 
   const [pageTitle, setPageTitle] = useState('');
   const [pageSlug, setPageSlug] = useState('');
+  // Page settings + SEO, edited in the sidebar's Page tab and saved with the
+  // same Save button as the canvas — an author shouldn't have to leave the
+  // builder (or visit a different screen entirely) to set a page's title or
+  // how it appears in Google.
+  const [basics, setBasics] = useState<PageBasics>({ title: '', slug: '', isActive: true });
+  const [seo, setSeo] = useState<PageSeoValue>({});
+  const [isHomepage, setIsHomepage] = useState(false);
   const [classicCount, setClassicCount] = useState(0);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -123,6 +148,13 @@ const PageBuilder: React.FC = () => {
       pageRef.current = page;
       setPageTitle(page?.title || 'Untitled page');
       setPageSlug(page?.slug || '');
+      setBasics({
+        title: page?.title || '',
+        slug: page?.slug || '',
+        isActive: page?.isActive ?? page?.is_active ?? true,
+      });
+      setSeo((page?.seo && typeof page.seo === 'object') ? page.seo : {});
+      setIsHomepage((page?.type ?? page?.pageType) === 'homepage' || page?.slug === 'home');
 
       const blocks: any[] = page?.contentBlocks || page?.sections || [];
       const builderBlock = blocks.find((b) => b?.blockType === 'builder');
@@ -139,7 +171,14 @@ const PageBuilder: React.FC = () => {
         layerManager: { appendTo: layersElRef.current! },
         traitManager: { appendTo: traitElRef.current! },
         selectorManager: { appendTo: styleElRef.current!, componentFirst: true },
-        styleManager: { appendTo: styleElRef.current! },
+        // Flex/grid/gap/object-fit/filters, grouped the way someone laying out a
+        // page thinks — the stock sectors can't even centre a row (see
+        // lib/grapesStyleSectors.ts).
+        styleManager: { appendTo: styleElRef.current!, sectors: STYLE_SECTORS as any },
+        // Breakpoints match the storefront's own, so "looks right on tablet"
+        // here means the same thing there. Non-desktop edits are written into
+        // that device's media query, which the save-time sanitizer preserves.
+        deviceManager: { devices: BUILDER_DEVICES as any },
         plugins: [
           (ed: Editor) => presetWebpage(ed, {
             modalImportTitle: 'Import HTML / CSS',
@@ -149,6 +188,8 @@ const PageBuilder: React.FC = () => {
           (ed: Editor) => blocksBasic(ed, { flexGrid: true }),
           (ed: Editor) => customCode(ed, {}),
           (ed: Editor) => storeBlocks(ed, lookups),
+          (ed: Editor) => layoutBlocks(ed),
+          (ed: Editor) => registerCommonTraits(ed),
         ],
         assetManager: {
           // Fully custom UI (below) — Media Library / Upload / URL — replaces
@@ -191,11 +232,18 @@ const PageBuilder: React.FC = () => {
         }
         setTimeout(() => {
           readyRef.current = true;
-          // The conversion isn't persisted until the user hits Save.
-          if (seededFromClassic) setDirty(true);
+          // Deliberately NOT marked dirty when seeded from classic blocks: the
+          // conversion now only happens if the author actually edits the canvas
+          // (canvasDirtyRef), so flagging unsaved changes on mere page load
+          // would be claiming a pending write that isn't there.
+          void seededFromClassic;
         }, 0);
       });
-      editor.on('update', () => { if (readyRef.current) setDirty(true); });
+      editor.on('update', () => {
+        if (!readyRef.current) return;
+        canvasDirtyRef.current = true;
+        setDirty(true);
+      });
     })();
 
     return () => {
@@ -232,8 +280,30 @@ const PageBuilder: React.FC = () => {
           ...(replacedBlocks.length ? { replacedBlocks } : {}),
         },
       };
-      await pagesAPI.update(id, { contentBlocks: [block] });
-      pageRef.current = { ...page, contentBlocks: [block] };
+      // Page settings + SEO ride the SAME save as the canvas — one Save button
+      // for everything on screen, so a title change can't be silently lost by
+      // an author who only thinks of Save as "save the layout". The slug is
+      // never sent for the homepage: its `home` slug is what /pages/slug/home
+      // resolves, and letting it be renamed would take the storefront homepage
+      // offline.
+      const payload: Record<string, any> = {
+        title: basics.title.trim() || pageTitle,
+        isActive: basics.isActive,
+        seo,
+        ...(isHomepage || !basics.slug.trim() ? {} : { slug: basics.slug.trim() }),
+        // Content is written ONLY when the canvas was actually edited — see
+        // canvasDirtyRef. A settings-only save leaves the page's existing
+        // blocks exactly as they are.
+        ...(canvasDirtyRef.current ? { contentBlocks: [block] } : {}),
+      };
+      await pagesAPI.update(id, payload);
+      pageRef.current = { ...page, ...payload };
+      setPageTitle(payload.title);
+      if (payload.slug) setPageSlug(payload.slug);
+      if (canvasDirtyRef.current) {
+        canvasDirtyRef.current = false;
+        setClassicCount(0); // the conversion just happened; the notice no longer applies
+      }
       setDirty(false);
       setSaveMsg('Saved!');
       setTimeout(() => setSaveMsg(''), 2500);
@@ -330,7 +400,7 @@ const PageBuilder: React.FC = () => {
         {classicCount > 0 && (
           <span className="hidden md:flex items-center gap-1.5 text-[10.5px] font-semibold text-sky-300 bg-sky-500/15 px-2.5 py-1 rounded-full shrink-0">
             <Import size={11} />
-            {classicCount} classic block{classicCount !== 1 ? 's' : ''} imported into the canvas — Save converts the page (originals kept as backup)
+            {classicCount} classic block{classicCount !== 1 ? 's' : ''} shown in the canvas — editing then saving converts the page (originals kept as backup). Page &amp; SEO changes save on their own.
           </span>
         )}
 
@@ -376,13 +446,19 @@ const PageBuilder: React.FC = () => {
 
       {/* Sidebar + canvas */}
       <div className="pb-shell flex-1 min-h-0 flex">
-        <div className={`pb-sidebar w-[300px] shrink-0 flex-col overflow-hidden ${sidebarHidden ? 'hidden' : 'flex'}`}>
+        {/* The Page & SEO form needs more room than the block palette — a SERP
+            preview at 300px is unreadable, which is the whole point of it. */}
+        <div className={`pb-sidebar ${sidebarMode === 'page' ? 'w-[380px]' : 'w-[300px]'} shrink-0 flex-col overflow-hidden transition-[width] duration-150 ${sidebarHidden ? 'hidden' : 'flex'}`}>
           <div className="pb-sidebar-tabs">
             <div className={`pb-sidebar-tab ${sidebarMode === 'blocks' ? 'active' : ''}`} onClick={() => setSidebarMode('blocks')}>
               <LayoutGrid size={13} /> Elements
             </div>
             <div className={`pb-sidebar-tab ${sidebarMode === 'layers' ? 'active' : ''}`} onClick={() => setSidebarMode('layers')}>
               <Layers size={13} /> Layers
+            </div>
+            <div className={`pb-sidebar-tab ${sidebarMode === 'page' ? 'active' : ''}`} onClick={() => setSidebarMode('page')}
+              title="Page settings & SEO">
+              <Globe size={13} /> SEO
             </div>
             {selectedLabel && (
               <div className={`pb-sidebar-tab ${sidebarMode === 'edit' ? 'active' : ''}`} onClick={() => setSidebarMode('edit')}>
@@ -407,6 +483,22 @@ const PageBuilder: React.FC = () => {
           {/* Layers — the component tree (drag to reorder/nest) */}
           <div className={`pb-panel ${sidebarMode === 'layers' ? '' : 'pb-hidden'}`}>
             <div className="pb-panel-scroll"><div ref={layersElRef} /></div>
+          </div>
+
+          {/* Page & SEO — title/slug/visibility + everything the storefront's
+              generateMetadata reads. Light-on-dark by design: it's a form, not
+              a canvas tool, and form fields need form contrast. */}
+          <div className={`pb-panel ${sidebarMode === 'page' ? '' : 'pb-hidden'}`}>
+            <div className="pb-panel-scroll">
+              <PageSeoPanel
+                basics={basics}
+                seo={seo}
+                isHomepage={isHomepage}
+                storeName={storeName}
+                storefrontUrl={(import.meta as any).env?.VITE_STOREFRONT_URL || 'http://localhost:3000'}
+                onChange={({ basics: b, seo: s }) => { setBasics(b); setSeo(s); setDirty(true); }}
+              />
+            </div>
           </div>
 
           {/* Edit — the selected element's Content / Style */}

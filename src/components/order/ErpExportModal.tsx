@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { FaFileExcel } from 'react-icons/fa';
 import Modal from './Modal';
+import { localeDate, localeDateTime } from '../../utils/date';
 import {
   ordersAPI, type ErpExportConfig, type ErpExportPreview, type ErpExportStatus,
 } from '../../services/api';
@@ -15,9 +16,9 @@ interface ErpExportModalProps {
 type Mode = 'since_last' | 'range';
 
 const fmtDateTime = (iso: string | null | undefined) =>
-  iso ? new Date(iso).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
+  iso ? localeDateTime(iso, { dateStyle: 'medium', timeStyle: 'short' }, 'en-IN') : '—';
 const fmtDate = (iso: string | null | undefined) =>
-  iso ? new Date(iso).toLocaleDateString('en-IN', { dateStyle: 'medium' }) : '—';
+  iso ? localeDate(iso, { dateStyle: 'medium' }, 'en-IN') : '—';
 /** `YYYY-MM-DD` of an instant in the browser's local calendar (the admin runs in IST like the store). */
 const toDateInput = (d: Date) => {
   const p = (n: number) => String(n).padStart(2, '0');

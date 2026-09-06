@@ -12,6 +12,7 @@ import {
   TableShell, THead, Th, TBody, Tr, Td, EmptyState, Pagination, inr,
 } from '@/components/erp';
 import { cn } from '@/lib/utils';
+import { localeDate } from '../utils/date';
 
 /**
  * WISHLIST WORKSPACE
@@ -49,7 +50,7 @@ const PERIODS = [
 ];
 
 const fmtDate = (d?: string | null) =>
-  d ? new Date(d).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: '2-digit' }) : '—';
+  d ? localeDate(d, { day: 'numeric', month: 'short', year: '2-digit' }, undefined) : '—';
 
 const Wishlist: React.FC = () => {
   const [tab, setTab] = React.useState<TabKey>('out');

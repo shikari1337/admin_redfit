@@ -4,6 +4,7 @@ import { payload } from '../../lib/unwrap';
 import DateRangeBar, { useDateRange } from '../../components/panelAnalytics/DateRangeBar';
 import { ChartCard, CategoryBars, Donut, StatTile } from '../../components/panelAnalytics/Kit';
 import { FaSearch, FaUser } from 'react-icons/fa';
+import { localeDateTime } from '../../utils/date';
 
 /**
  * Analytics → Users. Who visits and how they behave: devices, browsers,
@@ -169,7 +170,7 @@ const UserAnalytics: React.FC = () => {
                     </p>
                   </div>
                   <span className="text-xs text-gray-400">
-                    {new Date(step.createdAt ?? step.created_at).toLocaleString()}
+                    {localeDateTime(step.createdAt ?? step.created_at)}
                   </span>
                 </div>
               </div>

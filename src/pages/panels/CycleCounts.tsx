@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../services/api';
+import { localeDateTime } from '../../utils/date';
 import {
   Page, PageHeader, Btn, StatusChip, TextInput,
   TableShell, THead, Th, TBody, Tr, Td,
@@ -123,7 +124,7 @@ const CycleCounts: React.FC = () => {
                   <Td className="font-mono text-xs">{r.reference ?? r.id.slice(0, 8)}{r.blind ? ' 🙈' : ''}</Td>
                   <Td><StatusChip status={r.status} /></Td>
                   <Td num>{r.counted_count}/{r.item_count}</Td>
-                  <Td muted className="text-xs">{new Date(r.created_at).toLocaleString()}</Td>
+                  <Td muted className="text-xs">{localeDateTime(r.created_at)}</Td>
                 </Tr>
               ))}
             </TBody>

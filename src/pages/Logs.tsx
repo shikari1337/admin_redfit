@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { logsAPI } from '../services/api';
 import { FaFileAlt, FaFilter, FaSync, FaExclamationTriangle, FaInfoCircle, FaBug } from 'react-icons/fa';
+import { localeDateTime } from '../utils/date';
 
 interface LogEntry {
   timestamp?: string;
@@ -157,7 +158,7 @@ const Logs: React.FC = () => {
   const formatTimestamp = (timestamp?: string) => {
     if (!timestamp) return 'N/A';
     try {
-      return new Date(timestamp).toLocaleString();
+      return localeDateTime(timestamp);
     } catch {
       return timestamp;
     }

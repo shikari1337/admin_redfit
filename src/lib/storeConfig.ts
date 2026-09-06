@@ -52,7 +52,15 @@ export interface StoreRegional {
   currency: string;
   /** Additional currencies the store accepts/displays. */
   supportedCurrencies: string[];
-  timezone: string;
+  /**
+   * NOTE: there is deliberately no `timezone` here.
+   * The store's civil timezone lives on the PLATFORM store record
+   * (`stores.settings.timezone`) and is resolved server-side by
+   * `backend/src/config/timezone.ts`; the admin renders it read-only from
+   * `utils/date.ts`. A second copy under storeConfig was written by two
+   * screens and read by nothing — see COMMON_MISTAKES #216 (and #199 for the
+   * identical `returnPeriodDays` shape). Do not add it back.
+   */
   language: string;
   weightUnit: 'kg' | 'lb' | 'g';
   dimensionUnit: 'cm' | 'in';
@@ -142,12 +150,6 @@ export const CURRENCIES: CurrencyRef[] = [
   { code: 'ZAR', symbol: 'R',  name: 'South African Rand' },
 ];
 
-export const TIMEZONES = [
-  'Asia/Kolkata', 'Asia/Dubai', 'Asia/Riyadh', 'Asia/Singapore', 'Asia/Kuala_Lumpur',
-  'Asia/Kathmandu', 'Asia/Dhaka', 'Asia/Colombo', 'Asia/Karachi',
-  'UTC', 'Europe/London', 'Europe/Paris', 'America/New_York', 'America/Los_Angeles',
-  'Australia/Sydney',
-];
 
 export const LANGUAGES = [
   { code: 'en', name: 'English' },
@@ -196,7 +198,7 @@ export const EMPTY_STORE_CONFIG: StoreConfig = {
   address: { line1: '', line2: '', city: '', state: '', postalCode: '', country: 'IN', mapUrl: '' },
   regional: {
     baseCountry: 'IN', operatingCountries: ['IN'], currency: 'INR', supportedCurrencies: ['INR'],
-    timezone: 'Asia/Kolkata', language: 'en', weightUnit: 'kg', dimensionUnit: 'cm',
+    language: 'en', weightUnit: 'kg', dimensionUnit: 'cm',
   },
   social: { facebook: '', instagram: '', twitter: '', youtube: '', linkedin: '', pinterest: '' },
   hours: DEFAULT_HOURS,
@@ -257,7 +259,6 @@ export function loadStoreConfig(settings: Record<string, any> | null | undefined
     supportedCurrencies: arr(sc.regional?.supportedCurrencies).length
       ? arr(sc.regional?.supportedCurrencies)
       : [s(sc.regional?.currency ?? legacyGeneral.currency) || 'INR'],
-    timezone: s(sc.regional?.timezone ?? legacyGeneral.timezone) || 'Asia/Kolkata',
     language: s(sc.regional?.language ?? legacyGeneral.language) || 'en',
     weightUnit: (sc.regional?.weightUnit as StoreRegional['weightUnit']) || 'kg',
     dimensionUnit: (sc.regional?.dimensionUnit as StoreRegional['dimensionUnit']) || 'cm',
@@ -309,7 +310,6 @@ export function storeConfigToLegacy(cfg: StoreConfig): Array<{ key: string; valu
         tagline: cfg.business.tagline,
         websiteUrl: cfg.business.websiteUrl,
         currency: cfg.regional.currency,
-        timezone: cfg.regional.timezone,
         language: cfg.regional.language,
       },
     },

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../../services/api';
 import { payload } from '../../../lib/unwrap';
+import { localeDateTime } from '../../../utils/date';
 
 /**
  * Connector insights — Search Console, Analytics and Merchant Center in one
@@ -251,7 +252,7 @@ const ConnectorInsights: React.FC = () => {
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm text-gray-600">
                 {m.lastCheckedAt
-                  ? `Last checked ${new Date(m.lastCheckedAt).toLocaleString('en-IN')}`
+                  ? `Last checked ${localeDateTime(m.lastCheckedAt, undefined, 'en-IN')}`
                   : 'Never checked — run a scan to pull per-offer approval status.'}
               </p>
               <button onClick={syncMerchant} disabled={busy === 'merchant'}

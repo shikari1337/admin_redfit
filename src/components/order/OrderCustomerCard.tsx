@@ -6,7 +6,6 @@ import { Badge } from '@/components/ui/badge';
 import { customersAPI } from '../../services/api';
 import { formatDate } from '../../utils/date';
 import { fmtRupees } from '../../lib/money';
-import { getStatusColorClass } from './StatusBadge';
 
 /**
  * Who this order is for, and what they are worth to the store.
@@ -15,8 +14,12 @@ import { getStatusColorClass } from './StatusBadge';
  * store-owner view — customers are GLOBAL, in a different database post-ADR-001)
  * and renders immediately. The standing — how many orders they have placed here
  * and what they have spent — comes from ONE extra call to `GET /customers/:id`,
- * which already returns `order_count`, `total_spent`, the B2B profile and the
- * customer's recent orders together. No backend change, no per-row fan-out.
+ * which already returns `order_count`, `total_spent` and the B2B profile. No
+ * backend change, no per-row fan-out.
+ *
+ * STATS ONLY, deliberately (owner call, 2026-09-06): this card is glanced at
+ * while working an order, not browsed. The order list it used to render is one
+ * click away on the customer profile, and leaving it out keeps the card cheap.
  *
  * A guest checkout has no `customer_id`; the card then shows the order's own
  * contact details and says so, rather than rendering an empty history.
@@ -29,8 +32,6 @@ interface OrderCustomerCardProps {
   customerId?: string | null;
   /** Checkout-time snapshot from this order — always available, always shown. */
   shippingAddress?: Record<string, any> | null;
-  /** This order's own id, so it can be marked in the history list. */
-  currentOrderId?: string;
   /** This order's value, to frame it against the customer's lifetime spend. */
   orderTotal?: number;
   onWhatsAppClick?: (phone: string) => void;
@@ -60,7 +61,7 @@ const Stat: React.FC<{ label: string; value: React.ReactNode; hint?: string; ton
 );
 
 const OrderCustomerCard: React.FC<OrderCustomerCardProps> = ({
-  customerId, shippingAddress, currentOrderId, orderTotal, onWhatsAppClick,
+  customerId, shippingAddress, orderTotal, onWhatsAppClick,
 }) => {
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [loading, setLoading] = useState(false);
@@ -91,8 +92,9 @@ const OrderCustomerCard: React.FC<OrderCustomerCardProps> = ({
   const capped = rawCount >= 100;
   const spent = Number(profile?.total_spent ?? 0);
   const aov = rawCount > 0 ? spent / rawCount : 0;
+  // `orders[]` still arrives (it is that route's fixed shape, shared with the
+  // Customers detail page); it is read ONLY to date the customer's first order.
   const history = profile?.orders ?? [];
-  const previous = history.filter((o) => o.id !== currentOrderId && o.order_id !== currentOrderId);
   const firstOrderAt = history.length ? history[history.length - 1]?.created_at : null;
   const isRepeat = rawCount > 1;
 
@@ -189,34 +191,6 @@ const OrderCustomerCard: React.FC<OrderCustomerCardProps> = ({
                   : undefined}
               />
             </div>
-
-            {previous.length > 0 && (
-              <div>
-                <p className="mb-1.5 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                  Recent orders ({previous.length})
-                </p>
-                <div className="max-h-44 divide-y-2 divide-slate-50 overflow-y-auto rounded-lg border-2 border-slate-100">
-                  {previous.slice(0, 8).map((o) => (
-                    <Link
-                      key={o.id}
-                      to={`/orders/${o.id}`}
-                      className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-xs hover:bg-slate-50"
-                    >
-                      <span className="font-black text-slate-800">{o.order_id}</span>
-                      <span className="font-medium text-slate-400">
-                        {formatDate(o.created_at, 'dd MMM yy', '')}
-                      </span>
-                      <span className={`rounded px-1.5 py-0.5 text-[10px] font-black uppercase ${getStatusColorClass('order', o.order_status)}`}>
-                        {o.order_status}
-                      </span>
-                      <span className="min-w-[70px] text-right font-black tabular-nums text-slate-900">
-                        {fmtRupees(o.total)}
-                      </span>
-                    </Link>
-                  ))}
-                </div>
-              </div>
-            )}
 
             <Link
               to={`/customers/${customerId}`}

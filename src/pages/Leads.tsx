@@ -27,6 +27,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
+import { localeDate, localeTime } from '../utils/date';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
@@ -41,11 +42,11 @@ type Dict = Record<string, any>;
 const asRows = (r: any): Dict[] => (Array.isArray(r) ? r : Array.isArray(r?.data) ? r.data : []);
 const fmtDate = (d: any): string => {
   const t = new Date(d);
-  return isNaN(t.getTime()) ? '—' : t.toLocaleDateString();
+  return isNaN(t.getTime()) ? '—' : localeDate(t);
 };
 const fmtTime = (d: any): string => {
   const t = new Date(d);
-  return isNaN(t.getTime()) ? '' : t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return isNaN(t.getTime()) ? '' : localeTime(t, { hour: '2-digit', minute: '2-digit' });
 };
 const fmtDateTime = (d: any): string => (d ? `${fmtDate(d)} ${fmtTime(d)}` : '—');
 
@@ -288,7 +289,7 @@ const AbandonedCartsCrmPanel: React.FC = () => {
                 {c.user?.name || 'Guest'} · {(c.items?.length ?? 0)} item(s)
               </p>
               <p className="text-xs text-muted-foreground truncate">
-                {c.user?.phoneNumber || 'no phone'} · last active {c.lastActiveAt ? new Date(c.lastActiveAt).toLocaleDateString('en-IN') : '—'}
+                {c.user?.phoneNumber || 'no phone'} · last active {c.lastActiveAt ? localeDate(c.lastActiveAt, undefined, 'en-IN') : '—'}
               </p>
             </Link>
           ))}

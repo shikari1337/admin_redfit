@@ -1,7 +1,6 @@
 // Order-related components
 export { default as StatusBadge } from './StatusBadge';
 export { default as OrderItems } from './OrderItems';
-export { default as OrderSummary } from './OrderSummary';
 export { default as OrderStatusHistory } from './OrderStatusHistory';
 export { default as PaymentInformation } from './PaymentInformation';
 export type { RazorpayAuditResult } from './PaymentInformation';

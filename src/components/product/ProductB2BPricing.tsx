@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { b2bAPI } from '../../services/api';
+import { localeDate } from '../../utils/date';
 
 /** A product×tier bulk slab → product_b2b_pricing (pricing P3 tier slab, or P4 any-tier when
  *  tierName is empty — price-list rules from B2B → Price Lists outrank BOTH). */
@@ -277,7 +278,7 @@ const ProductB2BPricing: React.FC<ProductB2BPricingProps> = ({ tiers, onChange, 
                     <span className="font-semibold text-gray-800 flex-1 truncate">{c.company_name}</span>
                     <span className="text-gray-500">{varLabel(c.variation_id)}</span>
                     <span className="font-bold text-emerald-700">₹{money(c.unit_price)}</span>
-                    {c.valid_until && <span className="text-gray-400">till {new Date(c.valid_until).toLocaleDateString()}</span>}
+                    {c.valid_until && <span className="text-gray-400">till {localeDate(c.valid_until)}</span>}
                     <button type="button" onClick={() => removeContract(c.id)} className="text-gray-300 hover:text-red-500">✕</button>
                   </div>
                 ))}

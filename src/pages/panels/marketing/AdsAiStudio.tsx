@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../../../services/api';
 import { useAuth } from '../../../contexts/AuthContext';
 import { payload } from '../../../lib/unwrap';
+import { localeDate } from '../../../utils/date';
 
 /**
  * AI Ads Studio — propose, review, apply.
@@ -501,7 +502,7 @@ const AdsAiStudio: React.FC = () => {
                 </div>
                 <div className="mt-1 flex items-center justify-between text-[11px] text-gray-500">
                   <span>{KIND_LABEL[d.kind] ?? d.kind}</span>
-                  <span>{new Date(d.created_at).toLocaleDateString('en-IN')}</span>
+                  <span>{localeDate(d.created_at, undefined, 'en-IN')}</span>
                 </div>
                 {d.status === 'draft' && canManage && (
                   <button onClick={(e) => { e.stopPropagation(); discard(d.id); }}

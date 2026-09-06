@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Users, ArrowLeft, ExternalLink, Loader2, Save, Ban, CheckCircle2, Plus, Search, User } from 'lucide-react';
+import { localeDate } from '../../utils/date';
 
 // The admin axios interceptor unwraps { success, data } → the array/object AND
 // adds camelCase aliases for snake_case keys, so a row exposes both id/entity_id
@@ -371,10 +372,10 @@ export default function B2BCustomers() {
                       <TableCell className="font-medium">{productName(c.product_id)}</TableCell>
                       <TableCell>{money(c.unit_price)}</TableCell>
                       <TableCell className="text-muted-foreground text-sm">
-                        {c.valid_from ? new Date(c.valid_from).toLocaleDateString() : '—'}
+                        {c.valid_from ? localeDate(c.valid_from) : '—'}
                       </TableCell>
                       <TableCell className="text-muted-foreground text-sm">
-                        {c.valid_until ? new Date(c.valid_until).toLocaleDateString() : '—'}
+                        {c.valid_until ? localeDate(c.valid_until) : '—'}
                       </TableCell>
                     </TableRow>
                   ))}

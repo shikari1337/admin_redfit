@@ -15,6 +15,7 @@ import { ReviewDetailDrawer } from '@/components/reviews/ReviewDetailDrawer';
 import { ReviewEditorModal } from '@/components/reviews/ReviewEditorModal';
 import { ReviewImportModal } from '@/components/reviews/ReviewImportModal';
 import { cn } from '@/lib/utils';
+import { localeDate } from '../utils/date';
 
 /**
  * REVIEWS WORKSPACE
@@ -468,7 +469,7 @@ const Reviews: React.FC = () => {
                   </Td>
 
                   <Td muted>
-                    {new Date(r.created_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: '2-digit' })}
+                    {localeDate(r.created_at, { day: 'numeric', month: 'short', year: '2-digit' }, undefined)}
                   </Td>
                 </Tr>
               ))}

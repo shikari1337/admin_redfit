@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/table';
 import { Pagination } from '@/components/erp';
 import { fmtRupees } from '@/lib/money';
+import { localeDate } from '../utils/date';
 
 interface StoreCustomer {
   customer_id: string;
@@ -25,7 +26,7 @@ interface StoreCustomer {
   b2b_tier?: string | null;
 }
 
-const fmtDate = (v?: string | null) => (v ? new Date(v).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
+const fmtDate = (v?: string | null) => (v ? localeDate(v, { day: '2-digit', month: 'short', year: 'numeric' }, 'en-IN') : '—');
 
 const Customers: React.FC = () => {
   const { hasPerm } = useAuth();

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { payload } from '../../lib/unwrap';
-import { formatDate } from '../../utils/date';
+import { formatDate, localeDate } from '../../utils/date';
 import {
   Page, PageHeader, Btn, StatCard, StatGrid, StatusChip, TabBar,
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow, inrMinor, AttachmentPanel,
@@ -19,7 +19,9 @@ import {
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const monthLabel = (m: string) => {
   const [y, mm] = m.split('-');
-  return new Date(Number(y), Number(mm) - 1, 1).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+  // Noon UTC so rendering the label in the store's zone can never tip the
+  // 1st of the month back onto the last day of the previous one.
+  return localeDate(new Date(Date.UTC(Number(y), Number(mm) - 1, 1, 12)), { month: 'short', year: 'numeric' }, 'en-IN');
 };
 
 interface CatOpt { key: string; label: string; }
@@ -349,7 +351,7 @@ const Expenses: React.FC = () => {
 // also force a "generate due now" pass here.
 const freqLabel: Record<string, string> = { monthly: 'Every month', quarterly: 'Every 3 months', yearly: 'Every year' };
 const niceDate = (d: string) => {
-  try { return new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }); }
+  try { return localeDate(d + 'T00:00:00', { day: 'numeric', month: 'short', year: 'numeric' }, 'en-IN'); }
   catch { return d; }
 };
 const nextMonthFirst = () => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth() + 1, 1).toISOString().slice(0, 10); };

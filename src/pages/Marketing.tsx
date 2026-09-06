@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/table';
 import { Mail, MessageSquare, Bell, Smartphone, Loader2 } from 'lucide-react';
 import { getStatusColorClass as sharedStatusColorClass } from '@/components/order/StatusBadge';
+import { localeDateTime } from '../utils/date';
 
 interface Campaign {
   _id: string;
@@ -209,7 +210,7 @@ export default function Marketing() {
                             </Badge>
                           </TableCell>
                           <TableCell className="text-muted-foreground">
-                            {c.scheduledAt ? new Date(c.scheduledAt).toLocaleString() : '—'}
+                            {c.scheduledAt ? localeDateTime(c.scheduledAt) : '—'}
                           </TableCell>
                           <TableCell className="text-right">
                             {(c.status === 'draft' || c.status === 'scheduled') && (
@@ -275,7 +276,7 @@ export default function Marketing() {
                             </Badge>
                           </TableCell>
                           <TableCell className="text-muted-foreground">
-                            {cart.updatedAt ? new Date(cart.updatedAt).toLocaleString() : '—'}
+                            {cart.updatedAt ? localeDateTime(cart.updatedAt) : '—'}
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-2">

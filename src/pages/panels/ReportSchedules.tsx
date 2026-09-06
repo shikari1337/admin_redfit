@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../../services/api';
 import { payload } from '../../lib/unwrap';
 import { useAuth } from '../../contexts/AuthContext';
+import { localeDateTime } from '../../utils/date';
 import {
   Page, PageHeader, Btn, Field, SelectInput, TextInput, StatusChip, EmptyState,
   ExportMenu, type CsvColumn,
@@ -37,7 +38,7 @@ interface Run {
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const CADENCE_WORD: Record<Cadence, string> = { daily: 'day', weekly: 'week', monthly: 'month' };
-const fmtWhen = (s: string | null) => (s ? new Date(s).toLocaleString() : '—');
+const fmtWhen = (s: string | null) => (s ? localeDateTime(s) : '—');
 const toneFor = (status: string) =>
   status === 'sent' ? 'green' : status === 'failed' ? 'red' : status === 'pending' ? 'amber' : 'neutral';
 

@@ -14,6 +14,7 @@ import {
 import { ProductPicker, type PickedProduct } from '@/components/reviews/ProductPicker';
 import { QuestionDetailDrawer } from '@/components/qa/QuestionDetailDrawer';
 import { cn } from '@/lib/utils';
+import { localeDate } from '../utils/date';
 
 /**
  * PRODUCT Q&A WORKSPACE
@@ -47,7 +48,7 @@ const relative = (iso: string): string => {
   if (days <= 0) return 'today';
   if (days === 1) return 'yesterday';
   if (days < 30) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: '2-digit' });
+  return localeDate(iso, { day: 'numeric', month: 'short', year: '2-digit' }, undefined);
 };
 
 const ProductQA: React.FC = () => {

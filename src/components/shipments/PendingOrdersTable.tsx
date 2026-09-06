@@ -1,6 +1,5 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { format } from 'date-fns';
 import { Package } from 'lucide-react';
 import {
   Table,
@@ -12,6 +11,7 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { formatDate } from '../../utils/date';
 
 interface PendingOrder {
   _id: string;
@@ -40,15 +40,7 @@ const PendingOrdersTable: React.FC<PendingOrdersTableProps> = ({ orders, onCreat
   // Debug: log orders to check data structure
   console.log('📦 PendingOrdersTable orders:', JSON.stringify(orders?.slice(0, 2), null, 2));
 
-  const safeFormatDate = (date: any, fmt: string) => {
-    try {
-      const d = new Date(date);
-      if (isNaN(d.getTime())) return 'N/A';
-      return format(d, fmt);
-    } catch {
-      return 'N/A';
-    }
-  };
+  const safeFormatDate = (date: any, fmt: string) => formatDate(date, fmt, 'N/A');
 
   return (
     <div className="bg-white rounded-md border">

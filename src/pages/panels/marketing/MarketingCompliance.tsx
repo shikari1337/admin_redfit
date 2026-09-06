@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../../../services/api';
 import { useAuth } from '../../../contexts/AuthContext';
 import { payload } from '../../../lib/unwrap';
+import { localeDateTime } from '../../../utils/date';
 
 /**
  * Compliance & Consent (GDPR / DPDP): consent ledger, manual consent
@@ -114,7 +115,7 @@ const MarketingCompliance: React.FC = () => {
                   </span>
                 </td>
                 <td className="text-xs">{r.source}</td>
-                <td className="text-xs text-gray-400">{new Date(r.occurred_at).toLocaleString()}</td>
+                <td className="text-xs text-gray-400">{localeDateTime(r.occurred_at)}</td>
               </tr>
             ))}
             {rows.length === 0 && <tr><td colSpan={5} className="p-6 text-center text-gray-500">No consent records yet.</td></tr>}

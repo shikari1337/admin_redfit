@@ -5,6 +5,7 @@ import { contactsAPI } from '../services/api';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import { localeDate, localeDateTime } from '../utils/date';
 
 interface Contact {
   id: string;
@@ -153,7 +154,7 @@ const ContactSettings: React.FC = () => {
                     </div>
                     <p className="text-xs text-muted-foreground truncate">{c.subject || c.message}</p>
                   </div>
-                  <span className="text-xs text-muted-foreground shrink-0">{new Date(c.created_at).toLocaleDateString('en-IN')}</span>
+                  <span className="text-xs text-muted-foreground shrink-0">{localeDate(c.created_at, undefined, 'en-IN')}</span>
                   {expanded ? <ChevronUp className="h-4 w-4 text-muted-foreground shrink-0" /> : <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />}
                 </button>
 
@@ -168,7 +169,7 @@ const ContactSettings: React.FC = () => {
 
                     {c.reply_message && (
                       <div className="bg-green-50 border border-green-200 rounded-md p-3">
-                        <p className="text-xs font-medium text-green-800 mb-1">Replied {c.replied_at ? new Date(c.replied_at).toLocaleString('en-IN') : ''}</p>
+                        <p className="text-xs font-medium text-green-800 mb-1">Replied {c.replied_at ? localeDateTime(c.replied_at, undefined, 'en-IN') : ''}</p>
                         <p className="text-sm text-green-900 whitespace-pre-wrap">{c.reply_message}</p>
                       </div>
                     )}

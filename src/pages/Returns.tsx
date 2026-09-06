@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
-import { format } from 'date-fns';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
@@ -9,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { FaEye, FaTimes } from 'react-icons/fa';
 import StatusBadge from '../components/order/StatusBadge';
 import { fmtRupeesOrDash } from '../lib/money';
+import { formatDate } from '../utils/date';
 
 interface ReturnRequest {
   id: string;
@@ -165,7 +165,7 @@ const Returns: React.FC = () => {
                       {fmtRupeesOrDash(ret.refund_amount)}
                     </TableCell>
                     <TableCell className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
-                      {ret.created_at ? format(new Date(ret.created_at), 'MMM dd, yyyy') : '—'}
+                      {ret.created_at ? formatDate(ret.created_at, 'MMM dd, yyyy') : '—'}
                     </TableCell>
                     <TableCell className="px-4 py-3 text-right">
                       <Button
@@ -229,7 +229,7 @@ const Returns: React.FC = () => {
                 <div>
                   <span className="text-muted-foreground">Date</span>
                   <p className="font-medium mt-0.5">
-                    {selected.created_at ? format(new Date(selected.created_at), 'MMM dd, yyyy') : '—'}
+                    {selected.created_at ? formatDate(selected.created_at, 'MMM dd, yyyy') : '—'}
                   </p>
                 </div>
               </div>

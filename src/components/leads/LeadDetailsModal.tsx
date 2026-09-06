@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Send, Clock, CheckCircle, Smartphone, Mail, FileText, Tag, Calendar } from 'lucide-react';
 import { leadsAPI } from '../../services/api';
+import { localeDate, localeDateTime } from '../../utils/date';
 
 interface Lead {
   _id: string;
@@ -225,7 +226,7 @@ const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClose, onUp
                     {lead.status}
                   </span>
                   <span>•</span>
-                  <span>Added {new Date(lead.createdAt).toLocaleDateString()}</span>
+                  <span>Added {localeDate(lead.createdAt)}</span>
                 </div>
               </div>
             )}
@@ -472,7 +473,7 @@ const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({ lead, onClose, onUp
                       <div className="flex justify-between items-start mb-2">
                         <span className="font-bold text-slate-800 text-sm">{item.action}</span>
                         <span className="text-xs font-mono text-slate-400 bg-slate-50 px-2 py-1 rounded">
-                          {new Date(item.date).toLocaleString()}
+                          {localeDateTime(item.date)}
                         </span>
                       </div>
                       <p className="text-sm text-slate-600 leading-relaxed">{item.details}</p>

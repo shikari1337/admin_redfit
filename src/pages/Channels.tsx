@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { Link } from 'react-router-dom';
+import { localeDateTime } from '../utils/date';
 import {
   Plug, RefreshCw, Trash2, Settings2, Rss, CheckCircle2, XCircle, Link2, ExternalLink, ClipboardList, Upload,
 } from 'lucide-react';
@@ -246,7 +247,7 @@ export default function Channels() {
                           <>
                             <div>Sync: {[conn.sync_inventory && 'Inventory', conn.sync_listings && 'Listings', conn.sync_orders && 'Orders'].filter(Boolean).join(', ') || 'none'}</div>
                             {conn.inventory_buffer_pct > 0 && <div>Safety buffer: {conn.inventory_buffer_pct}%</div>}
-                            {conn.last_push_at && <div>Last push: {new Date(conn.last_push_at).toLocaleString()}</div>}
+                            {conn.last_push_at && <div>Last push: {localeDateTime(conn.last_push_at)}</div>}
                             {conn.last_error && <div className="text-red-600 flex items-center gap-1"><XCircle className="h-3 w-3" /> {conn.last_error}</div>}
                           </>
                         )}
@@ -346,7 +347,7 @@ export default function Channels() {
                 <tbody>
                   {logs.map((l) => (
                     <tr key={l.id} className="border-b last:border-0">
-                      <td className="py-2 pr-4 whitespace-nowrap">{new Date(l.created_at).toLocaleString()}</td>
+                      <td className="py-2 pr-4 whitespace-nowrap">{localeDateTime(l.created_at)}</td>
                       <td className="pr-4">{l.platform_code}</td>
                       <td className="pr-4">{l.direction}</td>
                       <td className="pr-4">

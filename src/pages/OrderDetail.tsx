@@ -13,7 +13,6 @@ import { FaCheckCircle, FaEnvelope, FaFileInvoice, FaCreditCard, FaTruck, FaArro
 import {
   StatusBadge,
   OrderItems,
-  OrderSummary,
   OrderStatusHistory,
   PaymentInformation,
   OrderNotes,
@@ -967,14 +966,26 @@ const OrderDetail: React.FC = () => {
         paymentMethod={order.paymentMethod}
       />
 
-      {/* Full width, not inside the 2/3 column: the line-item breakdown carries
-          11 columns (MRP / Disc % / Rate / Tier / Qty / Savings / Amount) and in
-          a two-thirds column the money columns fell off the right edge behind a
-          horizontal scrollbar — the figures staff check first. */}
+      {/* Full width, not inside the 2/3 column: this table now carries the WHOLE
+          money story of the order — 13 line columns (SKU / Product+HSN / Brand /
+          Variation / MRP / Rate / Qty / Disc % / Disc amount / Taxable / GST /
+          Total), a totals row for every one of them, and the order calculation
+          itself as numbered footer steps. In a two-thirds column the money
+          columns fell off the right edge behind a scrollbar. */}
       <OrderItems
         items={order.items || []}
         b2bTier={order.b2bTier ?? order.b2b_tier}
         orderDiscount={Number(order.discount) || 0}
+        subtotal={Number(order.subtotal) || 0}
+        shipping={Number(order.shippingCost ?? order.shipping_cost ?? order.shipping ?? 0)}
+        total={Number(order.total) || 0}
+        gst={order.gst}
+        amountReceived={order.amountReceived}
+        couponCode={order.couponCode ?? order.coupon_code}
+        discountReason={order.discountReason ?? order.discount_reason}
+        onRemoveShipping={isOrderEditable ? () => handleRemoveCharge('shipping') : undefined}
+        onRemoveCod={isOrderEditable ? () => handleRemoveCharge('cod') : undefined}
+        removingCharge={removingCharge}
         /* Items are editable only while unpaid and unshipped. */
         headerAction={isOrderEditable ? (
           <Button size="sm" variant="outline" className="h-7 text-xs font-bold"
@@ -986,6 +997,19 @@ const OrderDetail: React.FC = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 space-y-4">
+          {/* Internal notes FIRST in the wide column (owner call, 2026-09-06):
+              they are working notes — read and added while acting on the order —
+              and were previously below every other card on the page. */}
+          <Card className="shadow-sm">
+            <CardContent className="p-0">
+              <OrderNotes
+                notes={order.orderNotes || order.order_notes || []}
+                onAdd={handleAddNote}
+                saving={savingNotes}
+              />
+            </CardContent>
+          </Card>
+
           {/* Review-and-pay link — Shopify-style page the customer can open to
               check the order and pay online (works for COD before dispatch too). */}
           {payLink && (
@@ -1013,25 +1037,6 @@ const OrderDetail: React.FC = () => {
             shipments={order.shipments}
             sla={order.sla}
           />
-
-          <Card className="shadow-sm">
-            <CardHeader className="px-4 py-2.5 border-b">
-              <CardTitle className="text-base">Order Summary</CardTitle>
-            </CardHeader>
-            <CardContent className="p-4">
-              <OrderSummary
-                subtotal={order.subtotal || 0}
-                shipping={order.shippingCost || order.shipping_cost || order.shipping || 0}
-                discount={order.discount || 0}
-                total={order.total || 0}
-                gst={order.gst}
-                onRemoveShipping={isOrderEditable ? () => handleRemoveCharge('shipping') : undefined}
-                onRemoveCod={isOrderEditable ? () => handleRemoveCharge('cod') : undefined}
-                removingCharge={removingCharge}
-                amountReceived={order.amountReceived}
-              />
-            </CardContent>
-          </Card>
 
           <Card className="shadow-sm">
             <CardContent className="p-0">
@@ -1109,25 +1114,29 @@ const OrderDetail: React.FC = () => {
             </CardContent>
           </Card>
 
-          <Card className="shadow-sm">
-            <CardContent className="p-0">
-              <OrderNotes
-                notes={order.orderNotes || order.order_notes || []}
-                onAdd={handleAddNote}
-                saving={savingNotes}
-              />
-            </CardContent>
-          </Card>
-
         </div>
 
         <div className="space-y-4">
           <OrderCustomerCard
             customerId={order.customerId ?? order.customer_id}
             shippingAddress={order.shippingAddress || order.shipping_address}
-            currentOrderId={order._id || order.id}
             orderTotal={Number(order.total) || 0}
             onWhatsAppClick={handleWhatsAppClick}
+          />
+
+          {/* Invoice number from the store's own billing software, salesperson,
+              and an uploaded invoice PDF that replaces the generated one. */}
+          <OrderBillingCard
+            orderId={id!}
+            invoiceNumber={order.invoiceNumber ?? order.invoice_number}
+            invoiceDate={order.invoiceDate ?? order.invoice_date}
+            invoiceNumberSource={order.invoiceNumberSource ?? order.invoice_number_source}
+            salesperson={order.salesperson}
+            manualInvoiceUrl={order.manualInvoiceUrl ?? order.manual_invoice_url}
+            manualInvoiceFilename={order.manualInvoiceFilename ?? order.manual_invoice_filename}
+            manualInvoiceUploadedBy={order.manualInvoiceUploadedBy ?? order.manual_invoice_uploaded_by}
+            canManage={hasPerm('orders.manage')}
+            onSaved={fetchOrder}
           />
 
           <Card className="shadow-sm">
@@ -1374,27 +1383,13 @@ const OrderDetail: React.FC = () => {
 
           <OrderJourneyCard attribution={order.attribution} />
 
-          {/* Invoice number from the store's own billing software, salesperson,
-              and an uploaded invoice PDF that replaces the generated one. */}
-          <OrderBillingCard
-            orderId={id!}
-            invoiceNumber={order.invoiceNumber ?? order.invoice_number}
-            invoiceDate={order.invoiceDate ?? order.invoice_date}
-            invoiceNumberSource={order.invoiceNumberSource ?? order.invoice_number_source}
-            salesperson={order.salesperson}
-            manualInvoiceUrl={order.manualInvoiceUrl ?? order.manual_invoice_url}
-            manualInvoiceFilename={order.manualInvoiceFilename ?? order.manual_invoice_filename}
-            manualInvoiceUploadedBy={order.manualInvoiceUploadedBy ?? order.manual_invoice_uploaded_by}
-            canManage={hasPerm('orders.manage')}
-            onSaved={fetchOrder}
-          />
-
           <OrderTeamCard
             orderId={order.id ?? order._id}
             orderNumber={order.orderId}
             salesAgentId={order.salesAgentId ?? order.sales_agent_id ?? null}
             assignedTo={order.assignedTo ?? order.assigned_to ?? null}
             assignedAt={order.assignedAt ?? order.assigned_at ?? null}
+            salesType={order.salesType ?? order.sales_type ?? null}
             createdByUserId={order.userId ?? order.user_id ?? null}
             createdByName_={order.createdByName ?? order.created_by_name ?? null}
             salesAgentName={order.salesAgentName ?? order.sales_agent_name ?? null}

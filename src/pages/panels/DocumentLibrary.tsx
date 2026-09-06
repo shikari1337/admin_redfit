@@ -5,6 +5,7 @@ import {
 import { api } from '../../services/api';
 import { payload } from '../../lib/unwrap';
 import { useAuth } from '../../contexts/AuthContext';
+import { localeDate } from '../../utils/date';
 import {
   Page, PageHeader, Btn, SectionCard, TableShell, THead, Th, TBody, Tr, Td, EmptyRow,
   ExportMenu, SearchInput, type CsvColumn,
@@ -29,7 +30,7 @@ const fmtBytes = (n: number): string => {
   const u = ['B', 'KB', 'MB', 'GB']; const i = Math.min(u.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
   return `${(n / Math.pow(1024, i)).toFixed(i ? 1 : 0)} ${u[i]}`;
 };
-const fmtWhen = (d: string) => { try { return new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }); } catch { return d; } };
+const fmtWhen = (d: string) => { try { return localeDate(d, { day: 'numeric', month: 'short', year: 'numeric' }, 'en-IN'); } catch { return d; } };
 
 const fileCols: CsvColumn<FileRow>[] = [
   { key: 'fileName', label: 'Name' },

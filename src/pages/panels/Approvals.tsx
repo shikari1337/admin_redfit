@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ShieldCheck, Plus, Loader2, Check, X, CheckCircle2, XCircle, Inbox, ClipboardList } from 'lucide-react';
 import { api } from '../../services/api';
 import { payload } from '@/lib/unwrap';
+import { localeDateTime } from '../../utils/date';
 import {
   Page, PageHeader, Btn, FilterBar, Field, TextInput, SelectInput,
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow, EmptyState, Chip, TabBar,
@@ -147,7 +148,7 @@ const Approvals: React.FC = () => {
                 <Tr key={r.id}>
                   <Td>
                     <div className="font-medium text-gray-800">{r.title || docLabel(r.doc_type)}</div>
-                    <div className="text-xs text-gray-500">Asked {new Date(r.created_at).toLocaleString()}</div>
+                    <div className="text-xs text-gray-500">Asked {localeDateTime(r.created_at)}</div>
                   </Td>
                   <Td><Chip tone="neutral">{docLabel(r.doc_type)}</Chip></Td>
                   <Td num className="font-semibold">{inr(r.amount_minor)}</Td>

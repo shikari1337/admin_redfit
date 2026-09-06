@@ -10,6 +10,7 @@ import { Switch } from '@/components/ui/switch';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { getStoreTimeZone } from '../utils/date';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -19,7 +20,7 @@ import {
 } from 'lucide-react';
 import {
   StoreConfig, EMPTY_STORE_CONFIG, loadStoreConfig, storeConfigSavePayload,
-  COUNTRIES, CURRENCIES, TIMEZONES, LANGUAGES, INDIAN_STATES, WEEKDAYS,
+  COUNTRIES, CURRENCIES, LANGUAGES, INDIAN_STATES, WEEKDAYS,
 } from '@/lib/storeConfig';
 
 // Small helpers to update deeply-nested config immutably.
@@ -337,13 +338,26 @@ const StoreConfiguration: React.FC = () => {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/*
+                  * Read-only on purpose. The timezone that actually decides
+                  * where a business day starts — for reports, GST periods,
+                  * coupon validity and every date this panel renders — lives on
+                  * the PLATFORM store record (`stores.settings.timezone`,
+                  * resolved by the backend's `config/timezone.ts`). This field
+                  * used to write a separate `storeConfig.regional.timezone` key
+                  * that nothing read, so a merchant could change it and watch
+                  * nothing happen. Showing the value in force, and who can
+                  * change it, is honest; two editable fields for one setting is
+                  * how the drift started.
+                  */}
                 <Field label="Timezone">
-                  <Select value={cfg.regional.timezone} onValueChange={(v) => set('regional', { timezone: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {TIMEZONES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                  <div className="flex h-9 items-center rounded-md border border-input bg-muted/50 px-3 text-sm">
+                    {getStoreTimeZone()}
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Every report, invoice date and business day on this store uses this timezone.
+                    Ask your platform administrator to change it.
+                  </p>
                 </Field>
                 <Field label="Default Language">
                   <Select value={cfg.regional.language} onValueChange={(v) => set('regional', { language: v })}>

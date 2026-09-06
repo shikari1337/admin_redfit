@@ -53,7 +53,7 @@ const ROLE_PERMISSIONS: Record<ErpRole, string[]> = {
   auditor: ['accounting.read', 'gst.read', 'audit.read', 'orders.read',
             'reports.read', 'inventory.read', 'purchasing.read', 'billing.read',
             'customers.read', 'products.read', 'settings.read'],
-  store_manager: ['orders.manage', 'orders.delete', 'shipments.manage',
+  store_manager: ['orders.manage', 'orders.delete', 'orders.approve', 'shipments.manage',
                   'returns.manage', 'products.manage', 'products.delete',
                   'content.manage', 'content.delete',
                   'customers.manage', 'inventory.read',

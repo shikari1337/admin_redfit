@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../../../services/api';
 import { useAuth } from '../../../contexts/AuthContext';
 import { payload } from '../../../lib/unwrap';
+import { localeDate } from '../../../utils/date';
 
 /**
  * Ads Manager — Google / Meta / Snapchat accounts + campaigns (all types,
@@ -186,7 +187,7 @@ const AdsManager: React.FC = () => {
               <select value={cForm.ad_account_id ?? ''} onChange={(e) => {
                 const acc = accounts.find((x) => x.id === e.target.value);
                 const firstType = acc ? (meta(acc.platform)?.campaignTypes?.[0] ?? 'search') : 'search';
-                const month = new Date().toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+                const month = localeDate(new Date(), { month: 'short', year: 'numeric' }, 'en-IN');
                 setCForm({
                   ...cForm, ad_account_id: e.target.value, campaign_type: firstType,
                   name: cForm.nameTouched ? cForm.name : (acc ? `${acc.platform} ${firstType.replace(/_/g, ' ')} — ${month}` : cForm.name),
@@ -202,7 +203,7 @@ const AdsManager: React.FC = () => {
             </label>
             <label className="text-sm">Type
               <select value={cForm.campaign_type} onChange={(e) => {
-                const month = new Date().toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+                const month = localeDate(new Date(), { month: 'short', year: 'numeric' }, 'en-IN');
                 setCForm({
                   ...cForm, campaign_type: e.target.value,
                   is_remarketing: e.target.value === 'remarketing' || cForm.is_remarketing,

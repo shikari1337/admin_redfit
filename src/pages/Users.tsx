@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { usersAPI } from '../services/api';
-import { format } from 'date-fns';
 import { User, Mail, Phone, Eye, Search } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -23,6 +22,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Pagination } from '@/components/erp';
+import { formatDate } from '../utils/date';
 
 const PAGE_SIZE = 20;
 
@@ -217,7 +217,7 @@ const Users: React.FC = () => {
                       </TableCell>
                       <TableCell className="text-muted-foreground text-sm">
                         {user.createdAt
-                          ? format(new Date(user.createdAt), 'MMM dd, yyyy')
+                          ? formatDate(user.createdAt, 'MMM dd, yyyy')
                           : 'N/A'}
                       </TableCell>
                       <TableCell className="text-right">

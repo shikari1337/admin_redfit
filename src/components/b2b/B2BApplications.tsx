@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Loader2, Inbox, Check, X } from 'lucide-react';
+import { localeDate } from '../../utils/date';
 
 interface B2BApplication {
   id: string;
@@ -158,7 +159,7 @@ export default function B2BApplications() {
                   <TableCell className="font-mono text-xs">{a.gstin || '—'}</TableCell>
                   <TableCell>{a.contact_phone || '—'}</TableCell>
                   <TableCell className="text-muted-foreground text-sm">
-                    {a.created_at ? new Date(a.created_at).toLocaleDateString() : '—'}
+                    {a.created_at ? localeDate(a.created_at) : '—'}
                   </TableCell>
                   <TableCell>
                     <Badge variant={(STATUS_VARIANT[a.status] ?? 'outline') as any} className="capitalize">{a.status}</Badge>

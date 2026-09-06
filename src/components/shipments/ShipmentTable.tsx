@@ -1,6 +1,5 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { format } from 'date-fns';
 import { Calendar, ClipboardList, Download, FileText, RotateCcw, Phone, Undo2, Eye } from 'lucide-react';
 import {
   Table,
@@ -26,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import StatusBadge from '@/components/order/StatusBadge';
+import { formatDate } from '../../utils/date';
 
 interface Shipment {
   _id: string;
@@ -97,15 +97,7 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
   onNdrRequestRto,
   onViewDetails,
 }) => {
-  const safeFormatDate = (date: any, fmt: string) => {
-    try {
-      const d = new Date(date);
-      if (isNaN(d.getTime())) return 'N/A';
-      return format(d, fmt);
-    } catch {
-      return 'N/A';
-    }
-  };
+  const safeFormatDate = (date: any, fmt: string) => formatDate(date, fmt, 'N/A');
 
   // Allow selection on non-terminal tabs for bulk actions
   const showCheckboxes = ['ready_to_pick', 'pickup_scheduled', 'in_transit'].includes(activeTab);

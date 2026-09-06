@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { setStoreTimeZone } from '../utils/date';
 
 // API Configuration
 // All requests go to the platform API domain for consistent tenant identification
@@ -356,6 +357,16 @@ api.interceptors.response.use(
     if (response.data) {
       // Debug: log raw data before normalization for shipments endpoint
       const url = response.config?.url || '';
+      // Adopt the store's civil timezone the moment any /settings payload goes
+      // past, so every date the panel renders agrees with the day boundaries
+      // the server just computed (utils/date.ts). Done here rather than in each
+      // page because no single page is guaranteed to load, and a panel that
+      // renders dates in the VIEWER's zone silently disagrees with its own
+      // analytics totals.
+      if (url.includes('/settings')) {
+        const tz = (response.data as any)?.data?.timezone ?? (response.data as any)?.timezone;
+        if (tz) setStoreTimeZone(tz);
+      }
       if (url.includes('/shipments') && !url.includes('pending-orders')) {
         console.log('📥 [SHIPMENTS DEBUG] Raw response.data BEFORE normalization:', JSON.stringify(response.data).substring(0, 2000));
       }
@@ -1725,6 +1736,38 @@ export const ordersAPI = {
   assignableStaff: async (): Promise<Array<{ id: string; name: string | null; role: string }>> => {
     const response = await api.get('/orders/assignable-staff');
     return response.data?.data ?? response.data ?? [];
+  },
+
+  // ── Assisted-sale credit claims (migration 152) ───────────────────────────
+  // A DIRECT sale (staff keyed it in) has an immutable salesperson and rejects
+  // all of these with a 409. Only assisted sales are claimable.
+
+  /** Every claim on an order + the order's current credit state. */
+  salesClaims: async (orderId: string) => {
+    const response = await api.get(`/orders/${encodeURIComponent(orderId)}/claims`);
+    return response.data?.data ?? response.data;
+  },
+  /** "This assisted sale was mine" — claims for the CALLER only. */
+  claimSale: async (orderId: string, note?: string) => {
+    const response = await api.post(`/orders/${encodeURIComponent(orderId)}/claims`, { note });
+    return response.data?.data ?? response.data;
+  },
+  /** Take your own undecided claim back. */
+  withdrawSaleClaim: async (orderId: string) => {
+    const response = await api.delete(`/orders/${encodeURIComponent(orderId)}/claims/mine`);
+    return response.data?.data ?? response.data;
+  },
+  /** Settle a dispute — needs `orders.approve` (owner / store manager). */
+  decideSaleClaim: async (orderId: string, claimId: string, decision: 'approve' | 'reject', note?: string) => {
+    const response = await api.post(
+      `/orders/${encodeURIComponent(orderId)}/claims/${encodeURIComponent(claimId)}/decide`,
+      { decision, note });
+    return response.data?.data ?? response.data;
+  },
+  /** The manager's decision queue — contested first. */
+  salesClaimQueue: async (params: { state?: string; limit?: number; offset?: number } = {}) => {
+    const response = await api.get('/orders/sales-claims/queue', { params });
+    return { items: (response.data?.items ?? []) as any[], total: Number(response.data?.total ?? 0) };
   },
 
   /** Open orders by owner. assignedTo='unassigned' for the nobody-owns-it queue. */

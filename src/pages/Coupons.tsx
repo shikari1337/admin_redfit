@@ -6,6 +6,7 @@ import { FaPlus, FaEdit, FaTrash, FaCheckCircle, FaTimesCircle } from 'react-ico
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { localeDate } from '../utils/date';
 import {
   Table,
   TableBody,
@@ -212,9 +213,9 @@ const Coupons: React.FC = () => {
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-col text-sm text-muted-foreground">
-                            <span>{new Date(coupon.validFrom).toLocaleDateString()}</span>
+                            <span>{localeDate(coupon.validFrom)}</span>
                             {coupon.validUntil && (
-                              <span className="text-xs">to {new Date(coupon.validUntil).toLocaleDateString()}</span>
+                              <span className="text-xs">to {localeDate(coupon.validUntil)}</span>
                             )}
                           </div>
                         </TableCell>

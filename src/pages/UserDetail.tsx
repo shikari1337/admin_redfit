@@ -11,7 +11,6 @@ import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { customersAPI } from '../services/api';
 import { fmtRupees } from '../lib/money';
-import { format } from 'date-fns';
 import {
   User,
   Mail,
@@ -26,6 +25,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { getStatusColorClass } from '../components/order/StatusBadge';
+import { formatDate } from '../utils/date';
 import {
   Table,
   TableBody,
@@ -191,7 +191,7 @@ const UserDetail: React.FC = () => {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-muted-foreground">
-                          {order.created_at ? format(new Date(order.created_at), 'MMM dd, yyyy') : 'N/A'}
+                          {order.created_at ? formatDate(order.created_at, 'MMM dd, yyyy') : 'N/A'}
                         </TableCell>
                         <TableCell className="text-right">
                           <Button variant="ghost" size="sm" asChild>

@@ -7,6 +7,7 @@ import {
 import { productQuestionsAPI, type AdminQuestion } from '@/services/api';
 import { Btn, StatusChip } from '@/components/erp';
 import { cn } from '@/lib/utils';
+import { localeDateTime } from '../../utils/date';
 
 /**
  * One question, everything you can do to it.
@@ -24,7 +25,7 @@ import { cn } from '@/lib/utils';
  */
 
 const fmt = (d?: string | null) =>
-  d ? new Date(d).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+  d ? localeDateTime(d, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }, undefined) : '—';
 
 export const QuestionDetailDrawer: React.FC<{
   question: AdminQuestion | null;

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { localeDate } from '../../utils/date';
 
 /**
  * PARTNER PORTAL — the franchise partner's own window (migration 085; spec Part V
@@ -65,7 +66,7 @@ const rupees = (minor?: number | string | null) => {
 };
 const prettyDate = (d?: string | null) => {
   if (!d) return '';
-  try { return new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }); }
+  try { return localeDate(d, { day: 'numeric', month: 'short', year: 'numeric' }, 'en-IN'); }
   catch { return d; }
 };
 

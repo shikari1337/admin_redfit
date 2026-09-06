@@ -14,6 +14,7 @@ import {
 } from './campaigns/channelMeta';
 import { ChannelCard, ChannelReadinessBanner, type ChannelStatus } from './campaigns/ChannelReadiness';
 import { ChannelPreview } from './campaigns/ChannelPreview';
+import { localeDate, localeDateTime, localeTime } from '../../../utils/date';
 
 /**
  * CAMPAIGNS — a hub plus one dedicated panel per channel.
@@ -100,7 +101,7 @@ const MarketingCampaigns: React.FC = () => {
     const aud = form.audienceKind === 'list'
       ? (lists.find((l) => l.id === form.list_id)?.name ?? 'List')
       : (selectedAudience?.label ?? 'Audience');
-    const date = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+    const date = localeDate(new Date(), { day: 'numeric', month: 'short' }, 'en-IN');
     return `${formChannel.toUpperCase()} · ${aud} · ${date}`;
   }, [formChannel, form.system, form.audienceKind, form.list_id, systemAudiences, lists]);
 
@@ -139,7 +140,7 @@ const MarketingCampaigns: React.FC = () => {
     setShowNew(false);
     setForm({ audienceKind: 'system', system: 'all_customers', audience: {}, utm: {}, when: 'now' });
     setInfo(form.when === 'schedule'
-      ? `Scheduled — will send automatically at ${new Date(payload(r).scheduled_at).toLocaleString()}.`
+      ? `Scheduled — will send automatically at ${localeDateTime(payload(r).scheduled_at)}.`
       : 'Draft created — opening it below (estimate runs automatically).');
     if (form.when !== 'schedule') await openDetail(payload(r).id);
   });
@@ -433,12 +434,12 @@ const MarketingCampaigns: React.FC = () => {
                 <Td>
                   <StatusChip status={c.status} tone={CAMPAIGN_STATUS_TONE[c.status]} />
                   {c.status === 'scheduled' && c.scheduled_at && (
-                    <div className="mt-0.5 text-xs text-gray-400">{new Date(c.scheduled_at).toLocaleString()}</div>
+                    <div className="mt-0.5 text-xs text-gray-400">{localeDateTime(c.scheduled_at)}</div>
                   )}
                 </Td>
                 <Td num>{c.stats?.sent ?? '—'}</Td>
                 <Td num>{c.actual_cost != null ? Number(c.actual_cost).toFixed(2) : '—'}</Td>
-                <Td num muted className="text-xs">{new Date(c.created_at).toLocaleDateString()}</Td>
+                <Td num muted className="text-xs">{localeDate(c.created_at)}</Td>
               </Tr>
             );
           })}
@@ -567,8 +568,8 @@ const MarketingCampaigns: React.FC = () => {
               sub={status.templates_pending ? `${status.templates_pending} pending` : undefined}
               tone={status.templates_approved ? 'default' : 'warn'} />
             <StatCard label="Last sent" icon={Clock}
-              value={status.last_sent_at ? new Date(status.last_sent_at).toLocaleDateString() : '—'}
-              sub={status.last_sent_at ? new Date(status.last_sent_at).toLocaleTimeString() : 'never'} />
+              value={status.last_sent_at ? localeDate(status.last_sent_at) : '—'}
+              sub={status.last_sent_at ? localeTime(status.last_sent_at) : 'never'} />
           </StatGrid>
         )}
 

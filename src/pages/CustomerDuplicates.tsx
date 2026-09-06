@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { localeDateTime } from '../utils/date';
 
 interface CustomerSummary {
   id: string;
@@ -28,7 +29,7 @@ interface DuplicateFlag {
   b: CustomerSummary;
 }
 
-const fmtDate = (v?: string | null) => (v ? new Date(v).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
+const fmtDate = (v?: string | null) => (v ? localeDateTime(v, { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }, 'en-IN') : '—');
 
 /** One side of a flagged pair — click to pick as the surviving account. */
 const AccountCard: React.FC<{ c: CustomerSummary; picked: boolean; onPick: () => void; disabled: boolean }> = ({ c, picked, onPick, disabled }) => (

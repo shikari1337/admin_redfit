@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { localeDateTime } from '../utils/date';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
@@ -279,7 +280,7 @@ const WalletPage: React.FC = () => {
               <TableBody>
                 {recharges.map(r => (
                   <TableRow key={r.id}>
-                    <TableCell className="text-sm">{new Date(r.created_at).toLocaleString('en-IN')}</TableCell>
+                    <TableCell className="text-sm">{localeDateTime(r.created_at, undefined, 'en-IN')}</TableCell>
                     <TableCell className="font-medium">{fmtMoney(r.amount, r.currency)}</TableCell>
                     <TableCell>
                       <Badge variant={r.status === 'paid' ? 'default' : r.status === 'failed' ? 'destructive' : 'secondary'}
@@ -328,7 +329,7 @@ const WalletPage: React.FC = () => {
                 <TableRow><TableCell colSpan={5} className="h-20 text-center text-muted-foreground">No transactions yet.</TableCell></TableRow>
               ) : transactions.map(tx => (
                 <TableRow key={tx.id}>
-                  <TableCell className="text-sm">{new Date(tx.created_at).toLocaleString('en-IN')}</TableCell>
+                  <TableCell className="text-sm">{localeDateTime(tx.created_at, undefined, 'en-IN')}</TableCell>
                   <TableCell className="capitalize text-sm">{tx.category.replace(/_/g, ' ')}</TableCell>
                   <TableCell className="text-xs text-muted-foreground max-w-xs truncate">{tx.note || tx.reference || '—'}</TableCell>
                   <TableCell className={`text-right font-medium flex items-center justify-end gap-1 ${tx.direction === 'credit' ? 'text-green-600' : 'text-destructive'}`}>

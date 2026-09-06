@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import { Bell } from 'lucide-react';
 import { ordersAPI } from '../services/api';
 import { Button } from '@/components/ui/button';
+import { localeTime } from '../utils/date';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -109,7 +110,7 @@ const NotificationBell: React.FC = () => {
                 <span className="font-medium text-sm">{n.title}</span>
                 {!n.seen && <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />}
                 <span className="ml-auto text-[10px] text-muted-foreground">
-                  {n.at ? new Date(n.at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : ''}
+                  {n.at ? localeTime(n.at, { hour: '2-digit', minute: '2-digit' }, 'en-IN') : ''}
                 </span>
               </div>
               <span className="text-xs text-muted-foreground">{n.detail}</span>

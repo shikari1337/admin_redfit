@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
+import { localeDate } from '../utils/date';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog';
@@ -106,7 +107,7 @@ function initials(name: string): string {
 
 function formatDate(d?: string): string {
   if (!d) return '—';
-  return new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  return localeDate(d, { day: 'numeric', month: 'short', year: 'numeric' }, 'en-IN');
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
