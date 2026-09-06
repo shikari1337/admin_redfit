@@ -188,6 +188,150 @@ function pricingHtml(d: any): string {
 }
 
 /** One classic block → canvas HTML. Dynamic blocks stay LIVE via placeholders. */
+// ── Homepage blocks ─────────────────────────────────────────────────────────
+//
+// The homepage is built from a DIFFERENT, richer block vocabulary than CMS
+// pages (`HomeClient.tsx`'s 18 types). None of them had a converter, so opening
+// the homepage in the builder showed 2 blocks out of 21 and a screen of blank
+// space — everything else fell through `default: return ''`.
+//
+// The split below is deliberate:
+//  • Blocks whose content is DATA (product rows, brand/category grids, live
+//    stats, API-sourced FAQs, Google reviews, the banner carousel) become
+//    `data-store-block` placeholders. The builder previews them and the
+//    storefront mounts the REAL component through `HomeClient`'s own block
+//    router, so they keep pulling live data and can't drift from the homepage.
+//  • Blocks whose content is COPY (trust bar, promo images, banners, why-choose-us,
+//    newsletter, info strip, CTA) become real editable HTML — text, images,
+//    colours and layout all directly editable with the style manager.
+//
+// Structured values (a carousel's slides, a product row's `config`) ride in a
+// single attribute, BASE64-encoded — not raw JSON.
+//
+// Raw JSON does not survive the trip. `routes/pages.ts` deliberately reverses
+// the global xss-clean escaping on every string (COMMON_MISTAKES #20), which
+// turns the `&quot;` this correctly writes back into a bare `"` — INSIDE a
+// double-quoted attribute. The value then terminates at the first key and the
+// rest of the JSON is re-parsed as junk attributes; observed live as
+// `data-items="[{" title title title`. Base64's alphabet (A-Z a-z 0-9 + / =)
+// contains nothing that decode touches, so it arrives intact.
+const json = (v: any): string => {
+  if (v === undefined || v === null) return '';
+  const s = JSON.stringify(v);
+  const bytes = new TextEncoder().encode(s);
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return `b64:${btoa(bin)}`;
+};
+
+/**
+ * Icon fields hold either a lucide component NAME ("ShieldCheck") or an emoji.
+ *
+ * A component name can't render in plain HTML, and falling back to the title's
+ * first letter produced "1 / F / E / E / S" across the trust bar — technically
+ * honest, visually broken. These map to the closest emoji instead: it renders
+ * everywhere without a font or icon library, and — the point — it stays plain
+ * text the author can simply retype to change, which an inline SVG would not.
+ */
+const LUCIDE_GLYPHS: Record<string, string> = {
+  shieldcheck: '🛡️', shield: '🛡️', truck: '🚚', refreshcw: '↩️', rotateccw: '↩️',
+  headphones: '🎧', creditcard: '💳', lock: '🔒', package: '📦', award: '🏆',
+  shoppingbag: '🛍️', shoppingcart: '🛒', star: '⭐', heart: '❤️', users: '👥',
+  leaf: '🌿', checkcircle: '✅', check: '✅', clock: '⏱️', gift: '🎁',
+  phone: '📞', mail: '✉️', mappin: '📍', percent: '🏷️', zap: '⚡', thumbsup: '👍',
+  stethoscope: '🩺', pill: '💊', flask: '⚗️', flaskconical: '⚗️', sparkles: '✨',
+};
+
+const iconGlyph = (icon: any, title: any): string => {
+  const raw = String(icon ?? '').trim();
+  if (!raw) return String(title ?? '?').trim().charAt(0).toUpperCase();
+  // Non-ASCII = already an emoji/symbol → use as-is.
+  if (!/^[\x20-\x7e]+$/.test(raw)) return raw;
+  return LUCIDE_GLYPHS[raw.toLowerCase().replace(/[^a-z]/g, '')]
+    ?? String(title ?? raw).trim().charAt(0).toUpperCase();
+};
+
+function iconCardsHtml(d: any, opts: { cls: string; cols?: number }): string {
+  const items = (d.items || []).map((it: any) => `
+    <div class="cb-card cb-icon-box">
+      <div class="cb-icon-circle">${esc(iconGlyph(it.icon, it.title))}</div>
+      <h3 class="cb-h3">${esc(it.title || '')}</h3>
+      <div class="cb-muted">${esc(it.desc || it.description || '')}</div>
+    </div>`).join('');
+  const cols = opts.cols || Math.min(4, Math.max(2, (d.items || []).length || 3));
+  return `<section class="cb-section ${opts.cls}">
+  ${d.title ? `<h2 class="cb-h2 cb-center">${esc(d.title)}</h2>` : ''}
+  ${d.subtitle ? `<p class="cb-muted cb-center" style="margin:-6px 0 22px">${esc(d.subtitle)}</p>` : ''}
+  <div class="cb-grid-${cols === 3 ? '3' : '4'}">${items}</div>
+</section>`;
+}
+
+function promoBannersHtml(d: any): string {
+  const banners = (d.banners || []).filter((b: any) => b?.imageUrl);
+  if (!banners.length) return '';
+  const cols = Math.max(1, Math.min(4, Number(d.columns) || banners.length));
+  const cells = banners.map((b: any) => {
+    const img = `<img class="cb-img" src="${esc(b.imageUrl)}" alt="${esc(b.title || '')}" loading="lazy"/>`;
+    return b.buttonUrl ? `<a href="${esc(b.buttonUrl)}">${img}</a>` : img;
+  }).join('');
+  return `<section class="cb-section"><div class="cb-promo" style="grid-template-columns:repeat(${cols},1fr)">${cells}</div></section>`;
+}
+
+function fullWidthBannerHtml(d: any): string {
+  return `<section class="cb-cta">
+  <div class="cb-cta-inner">
+    ${d.badge ? `<span class="cb-badge">${esc(d.badge)}</span>` : ''}
+    ${d.title ? `<h2 class="cb-cta-title">${esc(d.title)}</h2>` : ''}
+    ${d.subtitle ? `<p class="cb-cta-sub">${esc(d.subtitle)}</p>` : ''}
+    ${d.buttonText ? `<a class="cb-btn cb-btn-light" href="${esc(d.buttonUrl || '#')}">${esc(d.buttonText)}</a>` : ''}
+  </div>
+</section>`;
+}
+
+function ctaBannerHtml(d: any): string {
+  const btn = (text: any, url: any, light: boolean) =>
+    (text ? `<a class="cb-btn${light ? ' cb-btn-light' : ' cb-btn-outline'}" href="${esc(url || '#')}">${esc(text)}</a>` : '');
+  return `<section class="cb-cta">
+  <div class="cb-cta-inner">
+    ${d.title ? `<h2 class="cb-cta-title">${esc(d.title)}</h2>` : ''}
+    ${d.subtitle ? `<p class="cb-cta-sub">${esc(d.subtitle)}</p>` : ''}
+    <div class="cb-btn-row">
+      ${btn(d.buttonText, d.buttonUrl, true)}
+      ${btn(d.secondaryButtonText, d.secondaryButtonUrl, false)}
+    </div>
+  </div>
+</section>`;
+}
+
+function splitBannerHtml(d: any): string {
+  const side = (s: any) => {
+    if (!s) return '';
+    const bg = s.imageUrl ? ` style="background-image:url('${esc(s.imageUrl)}')"` : '';
+    return `<div class="cb-split-side"${bg}>
+      <div class="cb-split-inner">
+        ${s.badge ? `<span class="cb-badge">${esc(s.badge)}</span>` : ''}
+        ${s.title ? `<h3 class="cb-split-title">${esc(s.title)}</h3>` : ''}
+        ${s.subtitle ? `<p class="cb-split-sub">${esc(s.subtitle)}</p>` : ''}
+        ${s.buttonText ? `<a class="cb-btn cb-btn-light" href="${esc(s.buttonUrl || '#')}">${esc(s.buttonText)}</a>` : ''}
+      </div>
+    </div>`;
+  };
+  return `<section class="cb-section"><div class="cb-2col cb-split">${side(d.left)}${side(d.right)}</div></section>`;
+}
+
+function newsletterHtml(d: any): string {
+  const badges = (d.badges || []).map((b: any) => `<span class="cb-badge">${esc(b)}</span>`).join('');
+  return `<section class="cb-section cb-narrow cb-center cb-newsletter">
+  ${d.title ? `<h2 class="cb-h2">${esc(d.title)}</h2>` : ''}
+  ${d.subtitle ? `<p class="cb-muted">${esc(d.subtitle)}</p>` : ''}
+  <div class="cb-news-form">
+    <input class="cb-news-input" type="email" placeholder="${esc(d.placeholder || 'Enter your email')}"/>
+    <a class="cb-btn" href="#">${esc(d.buttonText || 'Subscribe')}</a>
+  </div>
+  ${badges ? `<div class="cb-badge-row">${badges}</div>` : ''}
+</section>`;
+}
+
 function blockToHtml(block: any): string {
   const d = block?.data || {};
   switch (block?.blockType) {
@@ -215,8 +359,59 @@ function blockToHtml(block: any): string {
       return storeBlock('product-grid', { title: d.title, slugs: d.productSlug, limit: 1, cols: 2 });
     case 'product-categories':
       return storeBlock('category-grid', { title: d.title, limit: d.limit || 8 });
+
+    // ── Homepage vocabulary (HomeClient.tsx) ────────────────────────────────
+    // Data-driven → live placeholder, so the storefront mounts the real
+    // component and the section keeps working after conversion.
+    case 'hero-carousel':
+      return storeBlock('hero-carousel', {
+        source: d.source || 'items', location: d.location,
+        items: json(d.items), 'fallback-slides': json(d.fallbackSlides),
+      });
+    case 'product-row':
+      return storeBlock('product-row', {
+        title: d.title, subtitle: d.subtitle, badge: d.badge,
+        'view-all-url': d.viewAllUrl, 'accent-color': d.accentColor, config: json(d.config),
+      });
+    case 'category-grid':
+      return storeBlock('category-grid', {
+        title: d.title, subtitle: d.subtitle, limit: d.limit || 8, 'view-all-url': d.viewAllUrl,
+      });
+    case 'brand-grid':
+      return storeBlock('brand-grid', {
+        title: d.title, subtitle: d.subtitle, limit: d.limit || 12, 'view-all-url': d.viewAllUrl,
+      });
+    case 'health-concerns-grid':
+      return storeBlock('health-concerns-grid', {
+        title: d.title, subtitle: d.subtitle, limit: d.limit || 16, 'parent-slug': d.parentSlug,
+      });
+    case 'google-reviews':
+      return storeBlock('google-reviews', { title: d.title, subtitle: d.subtitle });
+    case 'stats-bar':
+      // Each stat's value is resolved live from a `source` ("products",
+      // "customers"…), so this can't become static numbers.
+      return storeBlock('stats-bar', { items: json(d.items) });
+
+    // Copy-driven → real editable HTML.
+    case 'trust-bar':       return iconCardsHtml(d, { cls: 'cb-trust', cols: 4 });
+    case 'info-strip':      return iconCardsHtml(d, { cls: 'cb-info', cols: 4 });
+    case 'why-choose-us':   return iconCardsHtml(d, { cls: 'cb-why', cols: 3 });
+    case 'promo-banners':   return promoBannersHtml(d);
+    case 'full-width-banner': return fullWidthBannerHtml(d);
+    case 'cta-banner':      return ctaBannerHtml(d);
+    case 'split-banner':    return splitBannerHtml(d);
+    case 'newsletter':      return newsletterHtml(d);
+
     case 'builder':       return String(d.html || '');
-    default:              return '';
+    default:
+      // Never silently drop an unknown block — that is exactly how 19 of the
+      // homepage's 21 blocks became blank space. Emit a visible, editable
+      // placeholder naming the type so the author can see what is there and
+      // decide, instead of the section simply vanishing from the canvas.
+      return `<section class="cb-section cb-unknown"><div class="cb-card cb-center">
+    <div class="cb-muted"><b>${esc(block?.blockType || 'Unknown block')}</b></div>
+    <div class="cb-muted" style="font-size:12.5px;margin-top:4px">This section has no visual-builder equivalent yet. It stays on the page until you delete it here.</div>
+  </div></section>`;
   }
 }
 
@@ -272,7 +467,25 @@ export const BASE_CSS = `
 .cb-plan-price span{font-size:13px;color:#6b7280;font-weight:500}
 .cb-plan-features{list-style:none;margin:0 0 18px;padding:0;font-size:14px;color:#374151;flex:1}
 .cb-plan-features li{margin-bottom:8px}
-@media (max-width:900px){.cb-grid-3,.cb-grid-4{grid-template-columns:repeat(2,1fr)}.cb-2col{grid-template-columns:1fr}}
+.cb-badge{display:inline-block;padding:4px 12px;border-radius:999px;background:rgba(255,255,255,.18);color:inherit;font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:10px}
+.cb-btn-row{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.cb-btn-outline{background:transparent;border:2px solid currentColor}
+.cb-promo{display:grid;gap:18px}
+.cb-promo img{width:100%;height:auto;border-radius:14px;display:block}
+.cb-split{gap:20px}
+.cb-split-side{position:relative;min-height:260px;border-radius:16px;overflow:hidden;background:#0f766e center/cover no-repeat;display:flex;align-items:flex-end}
+.cb-split-inner{position:relative;padding:26px;color:#fff;background:linear-gradient(to top,rgba(0,0,0,.62),transparent);width:100%}
+.cb-split-title{font-size:22px;font-weight:800;margin:0 0 6px}
+.cb-split-sub{font-size:14px;margin:0 0 14px;color:rgba(255,255,255,.9)}
+.cb-newsletter{background:#f8fafc;border-radius:16px}
+.cb-news-form{display:flex;gap:10px;justify-content:center;margin:18px 0 12px;flex-wrap:wrap}
+.cb-news-input{flex:1;min-width:220px;max-width:340px;padding:12px 16px;border:1px solid #d1d5db;border-radius:999px;font-size:14px}
+.cb-badge-row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+.cb-badge-row .cb-badge{background:rgba(15,118,110,.1);color:#0f766e}
+.cb-trust .cb-card,.cb-info .cb-card{text-align:center}
+.cb-trust .cb-icon-circle,.cb-info .cb-icon-circle,.cb-why .cb-icon-circle{margin-left:auto;margin-right:auto}
+.cb-unknown .cb-card{border-style:dashed;background:#fafafa}
+@media (max-width:900px){.cb-grid-3,.cb-grid-4{grid-template-columns:repeat(2,1fr)}.cb-2col{grid-template-columns:1fr}.cb-promo{grid-template-columns:1fr !important}}
 @media (max-width:560px){.cb-grid-3,.cb-grid-4{grid-template-columns:1fr}}
 `;
 

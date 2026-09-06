@@ -1,5 +1,5 @@
 import React from 'react';
-import StatusBadge from './StatusBadge';
+import { getStatusColorClass, getStatusLabel } from './StatusBadge';
 import { formatPicked, pickDate, HISTORY_DATE_KEYS } from '../../utils/date';
 
 interface StatusHistoryEntry {
@@ -24,58 +24,67 @@ interface OrderStatusHistoryProps {
   statusHistory?: StatusHistoryEntry[];
 }
 
+/**
+ * Order timeline — ONE compact line per change.
+ *
+ * Each entry used to be a bordered block with the status, the date, and then
+ * "Location: …" / "Changed by: …" / notes each on their own line — four rows of
+ * chrome for one fact, so a normal order's history filled most of a screen. It
+ * is now a single dense row: status pill · date **and time** · who · note, with
+ * a hairline rail connecting them. Nothing was dropped, it just stopped
+ * spending a paragraph per event.
+ */
 const OrderStatusHistory: React.FC<OrderStatusHistoryProps> = ({ statusHistory }) => {
+  const entries = (statusHistory ?? []).slice().sort((a, b) => {
+    const da = pickDate(a, ...HISTORY_DATE_KEYS)?.getTime() ?? 0;
+    const db = pickDate(b, ...HISTORY_DATE_KEYS)?.getTime() ?? 0;
+    return db - da; // newest first
+  });
+
   return (
-    <div className="bg-white rounded-lg shadow p-4">
-      <h2 className="text-base font-bold mb-2.5">Status History</h2>
-      {statusHistory && statusHistory.length > 0 ? (
-        <div className="space-y-2">
-          {statusHistory
-            .slice()
-            // Newest first, ordering by whichever date field the entry carries.
-            .sort((a, b) => {
-              const da = pickDate(a, ...HISTORY_DATE_KEYS)?.getTime() ?? 0;
-              const db = pickDate(b, ...HISTORY_DATE_KEYS)?.getTime() ?? 0;
-              return db - da;
-            })
-            .map((entry, index) => {
-              const changedBy = (typeof entry.changedBy === 'string'
-                ? entry.changedBy
-                : entry.changedBy?.name || entry.changedBy?.email) || entry.changed_by;
-              return (
-                <div key={index} className="border-l-4 border-red-500 pl-3 pb-2">
-                  <div className="flex items-center justify-between">
-                    <StatusBadge status={entry.status} type="order" />
-                    <span className="text-xs text-gray-500">
-                      {formatPicked(entry, HISTORY_DATE_KEYS)}
-                    </span>
-                  </div>
-                  {entry.location && (
-                    <p className="text-xs text-gray-500 mt-1">
-                      Location: {entry.location}
-                    </p>
-                  )}
-                  {changedBy && (
-                    <p className="text-xs text-gray-500 mt-1">
-                      Changed by: {changedBy}
-                    </p>
-                  )}
-                  {entry.notes && (
-                    <p className="text-sm text-gray-600 mt-1">{entry.notes}</p>
-                  )}
-                </div>
-              );
-            })}
-        </div>
+    <div className="rounded-lg bg-white p-4 shadow">
+      <div className="mb-2 flex items-baseline justify-between gap-2">
+        <h2 className="text-sm font-black uppercase tracking-wide text-slate-700">Timeline</h2>
+        {entries.length > 0 && (
+          <span className="text-xs font-bold text-slate-400">{entries.length} change{entries.length === 1 ? '' : 's'}</span>
+        )}
+      </div>
+
+      {entries.length === 0 ? (
+        <p className="py-3 text-center text-sm font-semibold text-slate-400">
+          No status changes yet.
+        </p>
       ) : (
-        <div className="text-center py-8 text-gray-500">
-          <p>No status history available yet</p>
-          <p className="text-sm mt-2">Status changes will appear here</p>
-        </div>
+        <ol className="divide-y divide-slate-100">
+          {entries.map((entry, index) => {
+            const changedBy = (typeof entry.changedBy === 'string'
+              ? entry.changedBy
+              : entry.changedBy?.name || entry.changedBy?.email) || entry.changed_by;
+            return (
+              <li key={index} className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 py-1.5">
+                <span className={`rounded px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wide ${getStatusColorClass('order', entry.status)}`}>
+                  {getStatusLabel('order', entry.status)}
+                </span>
+                {/* Date AND time — an ops timeline is useless without the clock. */}
+                <span className="whitespace-nowrap text-xs font-bold tabular-nums text-slate-600">
+                  {formatPicked(entry, HISTORY_DATE_KEYS, 'dd MMM yyyy, hh:mm a')}
+                </span>
+                {changedBy && (
+                  <span className="text-xs font-semibold text-slate-500">by {changedBy}</span>
+                )}
+                {entry.location && (
+                  <span className="text-xs font-medium text-slate-400">· {entry.location}</span>
+                )}
+                {entry.notes && (
+                  <span className="w-full text-xs font-medium text-slate-500">{entry.notes}</span>
+                )}
+              </li>
+            );
+          })}
+        </ol>
       )}
     </div>
   );
 };
 
 export default OrderStatusHistory;
-

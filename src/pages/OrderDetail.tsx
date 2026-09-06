@@ -775,8 +775,14 @@ const OrderDetail: React.FC = () => {
             {order.paymentMethod === 'cod' ? 'Cash on delivery' : 'Prepaid'}
             {order.paymentGateway ? ` · ${order.paymentGateway}` : ''}
           </span>
-          <span className="font-semibold text-slate-500">
-            Placed {formatDate(order.createdAt ?? order.created_at, 'dd MMM yyyy, hh:mm a', 'N/A')}
+          <span className="flex items-baseline gap-1.5">
+            <span className="font-black uppercase tracking-wider text-slate-400">Placed</span>
+            <span className="text-sm font-bold tabular-nums text-slate-700">
+              {formatDate(order.createdAt ?? order.created_at, 'dd MMM yyyy', 'N/A')}
+            </span>
+            <span className="text-sm font-bold tabular-nums text-slate-500">
+              {formatDate(order.createdAt ?? order.created_at, 'hh:mm a', '')}
+            </span>
           </span>
           {(order.returnDeadline ?? order.return_deadline) && (
             <span className="font-semibold text-slate-500">
@@ -795,8 +801,8 @@ const OrderDetail: React.FC = () => {
       <div className="space-y-4 p-4 md:p-6">
       {/* Action toolbar — every write on this order. Framed as its own surface so
           it reads as a control strip rather than buttons floating on the page. */}
-      <div className="flex flex-col items-start justify-between gap-3 rounded-lg border-2 border-slate-200 bg-white p-2.5 lg:flex-row lg:items-center">
-        <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border-2 border-slate-200 bg-white p-2.5">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-2 bg-muted/50 p-1 rounded-md border">
             <Input
               type="text"
@@ -824,7 +830,7 @@ const OrderDetail: React.FC = () => {
             </Select>
           </div>
 
-          <div className="flex items-center isolate">
+          <div className="flex flex-wrap items-center gap-y-2 isolate">
             {order.shippingAddress?.email && (
               <>
                 {/* Each button reflects and disables ONLY its own action, so
@@ -983,6 +989,14 @@ const OrderDetail: React.FC = () => {
         amountReceived={order.amountReceived}
         couponCode={order.couponCode ?? order.coupon_code}
         discountReason={order.discountReason ?? order.discount_reason}
+        orderNotes={order.notes}
+        paymentMethod={order.paymentMethod}
+        paymentGateway={order.paymentGateway}
+        placedAt={order.createdAt ?? order.created_at}
+        orderType={order.orderType ?? order.order_type}
+        customerGstin={order.customerGstin ?? order.customer_gstin}
+        salesperson={order.salesperson}
+        importedFrom={order.importedFrom ?? order.imported_from}
         onRemoveShipping={isOrderEditable ? () => handleRemoveCharge('shipping') : undefined}
         onRemoveCod={isOrderEditable ? () => handleRemoveCharge('cod') : undefined}
         removingCharge={removingCharge}
@@ -993,6 +1007,36 @@ const OrderDetail: React.FC = () => {
             Edit items
           </Button>
         ) : undefined}
+      />
+
+          {/* Ship-to and bill-to read together (they used to sit in two cards
+          several screens apart, with payment and refunds between them), plus
+          the ships-from / invoiced-by block the shipping card used to own. */}
+      <OrderAddressPanel
+        shippingAddress={order.shippingAddress || order.shipping_address}
+        billingAddress={order.billingAddress || order.billing_address}
+        warehouseId={order.warehouseId}
+        gst={order.gst}
+        customerGstin={order.customerGstin ?? order.customer_gstin}
+        onWhatsAppClick={handleWhatsAppClick}
+        shippingAction={
+          <OrderAddressEditor
+            orderId={order._id || order.id}
+            orderStatus={order.orderStatus || order.order_status}
+            kind="shipping"
+            address={order.shippingAddress || order.shipping_address}
+            onSaved={(next: any) => setOrder((o: any) => ({ ...o, shippingAddress: next, shipping_address: next }))}
+          />
+        }
+        billingAction={
+          <OrderAddressEditor
+            orderId={order._id || order.id}
+            orderStatus={order.orderStatus || order.order_status}
+            kind="billing"
+            address={order.billingAddress || order.billing_address || order.shippingAddress || order.shipping_address}
+            onSaved={(next: any) => setOrder((o: any) => ({ ...o, billingAddress: next, billing_address: next }))}
+          />
+        }
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -1043,36 +1087,6 @@ const OrderDetail: React.FC = () => {
               <DiscountBreakdown discounts={discountBreakdown} couponCode={order.couponCode} />
             </CardContent>
           </Card>
-
-          {/* Ship-to and bill-to read together (they used to sit in two cards
-              several screens apart, with payment and refunds between them), plus
-              the ships-from / invoiced-by block the shipping card used to own. */}
-          <OrderAddressPanel
-            shippingAddress={order.shippingAddress || order.shipping_address}
-            billingAddress={order.billingAddress || order.billing_address}
-            warehouseId={order.warehouseId}
-            gst={order.gst}
-            customerGstin={order.customerGstin ?? order.customer_gstin}
-            onWhatsAppClick={handleWhatsAppClick}
-            shippingAction={
-              <OrderAddressEditor
-                orderId={order._id || order.id}
-                orderStatus={order.orderStatus || order.order_status}
-                kind="shipping"
-                address={order.shippingAddress || order.shipping_address}
-                onSaved={(next: any) => setOrder((o: any) => ({ ...o, shippingAddress: next, shipping_address: next }))}
-              />
-            }
-            billingAction={
-              <OrderAddressEditor
-                orderId={order._id || order.id}
-                orderStatus={order.orderStatus || order.order_status}
-                kind="billing"
-                address={order.billingAddress || order.billing_address || order.shippingAddress || order.shipping_address}
-                onSaved={(next: any) => setOrder((o: any) => ({ ...o, billingAddress: next, billing_address: next }))}
-              />
-            }
-          />
 
           <Card className="shadow-sm">
             <CardContent className="p-0">
@@ -1313,93 +1327,100 @@ const OrderDetail: React.FC = () => {
             </CardContent>
           </Card>
 
-          {order.risk && (() => {
-            // Authenticity reads HIGHER = BETTER (100 = fully trustworthy).
-            const authenticity: number = order.risk.authenticity ?? Math.max(0, 100 - (order.risk.score ?? 0));
-            const tone = authenticity >= 80
-              ? { label: 'Authentic', text: 'text-green-700', chip: 'bg-green-100 text-green-700', bar: 'bg-green-500' }
-              : authenticity >= 50
-                ? { label: 'Review advised', text: 'text-yellow-700', chip: 'bg-yellow-100 text-yellow-700', bar: 'bg-yellow-500' }
-                : { label: 'High risk', text: 'text-red-700', chip: 'bg-red-100 text-red-700', bar: 'bg-red-500' };
-            const standing = order.risk.standing;
-            return (
-              <Card className="shadow-sm">
-                <CardHeader className="px-4 py-2.5 border-b">
-                  <CardTitle className="text-base flex items-center justify-between">
-                    <span>Order Authenticity</span>
-                    <span className={`text-xs font-semibold px-2 py-1 rounded-full ${tone.chip}`}>
-                      {tone.label}
-                    </span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-4">
-                  {/* Score gauge — the higher the score, the more authentic. */}
-                  <div className="flex items-end justify-between mb-1">
-                    <span className={`text-3xl font-bold ${tone.text}`}>{authenticity}</span>
-                    <span className="text-xs text-muted-foreground mb-1">/ 100</span>
-                  </div>
-                  <div className="h-2.5 rounded-full bg-muted overflow-hidden mb-1">
-                    <div className={`h-full rounded-full ${tone.bar}`} style={{ width: `${Math.max(2, authenticity)}%` }} />
-                  </div>
-                  <div className="flex justify-between text-[10px] text-muted-foreground mb-3">
-                    <span className="text-red-600">Risky</span>
-                    <span className="text-yellow-600">Review</span>
-                    <span className="text-green-600">Authentic</span>
-                  </div>
-
-                  <p className="text-xs text-muted-foreground mb-3">
-                    Heuristic score from address completeness, IP-vs-shipping-address location, and this
-                    customer's cancellation history across every store on the platform — not a fraud guarantee.
-                  </p>
-                  {order.risk.flags?.length > 0 ? (
-                    <ul className="space-y-2">
-                      {order.risk.flags.map((f: any, i: number) => (
-                        <li key={i} className="flex items-start gap-2 text-sm">
-                          <span className={`mt-1 h-2 w-2 rounded-full shrink-0 ${
-                            f.severity === 'high' ? 'bg-red-500' : f.severity === 'medium' ? 'bg-yellow-500' : 'bg-gray-400'
-                          }`} />
-                          <span className="text-foreground">{f.message}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-sm text-green-700">No risk signals detected.</p>
-                  )}
-                  {standing && standing.totalOrders > 0 && (
-                    <p className="text-xs text-muted-foreground mt-3 pt-3 border-t">
-                      Platform history: {standing.totalOrders} order(s) across {standing.storeCount} store(s),
-                      {' '}{standing.totalCancelled} cancelled/returned.
-                    </p>
-                  )}
-                  {order.risk.ipGeo && (
-                    <p className="text-xs text-muted-foreground mt-2">
-                      Order IP geolocates to {[order.risk.ipGeo.city, order.risk.ipGeo.region, order.risk.ipGeo.country].filter(Boolean).join(', ') || 'an unknown location'}.
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })()}
-
-          <OrderJourneyCard attribution={order.attribution} />
-
-          <OrderTeamCard
-            orderId={order.id ?? order._id}
-            orderNumber={order.orderId}
-            salesAgentId={order.salesAgentId ?? order.sales_agent_id ?? null}
-            assignedTo={order.assignedTo ?? order.assigned_to ?? null}
-            assignedAt={order.assignedAt ?? order.assigned_at ?? null}
-            salesType={order.salesType ?? order.sales_type ?? null}
-            createdByUserId={order.userId ?? order.user_id ?? null}
-            createdByName_={order.createdByName ?? order.created_by_name ?? null}
-            salesAgentName={order.salesAgentName ?? order.sales_agent_name ?? null}
-            assignedToName={order.assignedToName ?? order.assigned_to_name ?? null}
-            salesperson={order.salesperson ?? null}
-            canManage={hasPerm('orders.manage')}
-            onChanged={fetchOrder}
-          />
 
         </div>
+      </div>
+
+      {/* Marketing journey · sales ownership · authenticity — a 3-up responsive
+          grid (1 col on phones, 2 on tablets, 3 on desktop) rather than three
+          more cards stacked in the narrow sidebar. Each is an independent
+          read-mostly panel, so they tile cleanly. */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {order.risk && (() => {
+          // Authenticity reads HIGHER = BETTER (100 = fully trustworthy).
+          const authenticity: number = order.risk.authenticity ?? Math.max(0, 100 - (order.risk.score ?? 0));
+          const tone = authenticity >= 80
+            ? { label: 'Authentic', text: 'text-green-700', chip: 'bg-green-100 text-green-700', bar: 'bg-green-500' }
+            : authenticity >= 50
+              ? { label: 'Review advised', text: 'text-yellow-700', chip: 'bg-yellow-100 text-yellow-700', bar: 'bg-yellow-500' }
+              : { label: 'High risk', text: 'text-red-700', chip: 'bg-red-100 text-red-700', bar: 'bg-red-500' };
+          const standing = order.risk.standing;
+          return (
+            <Card className="shadow-sm">
+              <CardHeader className="px-4 py-2.5 border-b">
+                <CardTitle className="text-base flex items-center justify-between">
+                  <span>Order Authenticity</span>
+                  <span className={`text-xs font-semibold px-2 py-1 rounded-full ${tone.chip}`}>
+                    {tone.label}
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-4">
+                {/* Score gauge — the higher the score, the more authentic. */}
+                <div className="flex items-end justify-between mb-1">
+                  <span className={`text-3xl font-bold ${tone.text}`}>{authenticity}</span>
+                  <span className="text-xs text-muted-foreground mb-1">/ 100</span>
+                </div>
+                <div className="h-2.5 rounded-full bg-muted overflow-hidden mb-1">
+                  <div className={`h-full rounded-full ${tone.bar}`} style={{ width: `${Math.max(2, authenticity)}%` }} />
+                </div>
+                <div className="flex justify-between text-[10px] text-muted-foreground mb-3">
+                  <span className="text-red-600">Risky</span>
+                  <span className="text-yellow-600">Review</span>
+                  <span className="text-green-600">Authentic</span>
+                </div>
+
+                <p className="text-xs text-muted-foreground mb-3">
+                  Heuristic score from address completeness, IP-vs-shipping-address location, and this
+                  customer's cancellation history across every store on the platform — not a fraud guarantee.
+                </p>
+                {order.risk.flags?.length > 0 ? (
+                  <ul className="space-y-2">
+                    {order.risk.flags.map((f: any, i: number) => (
+                      <li key={i} className="flex items-start gap-2 text-sm">
+                        <span className={`mt-1 h-2 w-2 rounded-full shrink-0 ${
+                          f.severity === 'high' ? 'bg-red-500' : f.severity === 'medium' ? 'bg-yellow-500' : 'bg-gray-400'
+                        }`} />
+                        <span className="text-foreground">{f.message}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-green-700">No risk signals detected.</p>
+                )}
+                {standing && standing.totalOrders > 0 && (
+                  <p className="text-xs text-muted-foreground mt-3 pt-3 border-t">
+                    Platform history: {standing.totalOrders} order(s) across {standing.storeCount} store(s),
+                    {' '}{standing.totalCancelled} cancelled/returned.
+                  </p>
+                )}
+                {order.risk.ipGeo && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Order IP geolocates to {[order.risk.ipGeo.city, order.risk.ipGeo.region, order.risk.ipGeo.country].filter(Boolean).join(', ') || 'an unknown location'}.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })()}
+
+        <OrderJourneyCard attribution={order.attribution} />
+
+        <OrderTeamCard
+          orderId={order.id ?? order._id}
+          orderNumber={order.orderId}
+          salesAgentId={order.salesAgentId ?? order.sales_agent_id ?? null}
+          assignedTo={order.assignedTo ?? order.assigned_to ?? null}
+          assignedAt={order.assignedAt ?? order.assigned_at ?? null}
+          salesType={order.salesType ?? order.sales_type ?? null}
+          createdByUserId={order.userId ?? order.user_id ?? null}
+          createdByName_={order.createdByName ?? order.created_by_name ?? null}
+          salesAgentName={order.salesAgentName ?? order.sales_agent_name ?? null}
+          assignedToName={order.assignedToName ?? order.assigned_to_name ?? null}
+          salesperson={order.salesperson ?? null}
+          canManage={hasPerm('orders.manage')}
+          onChanged={fetchOrder}
+        />
       </div>
 
       {canAccess('shipping') && (

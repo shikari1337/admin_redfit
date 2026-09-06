@@ -218,6 +218,181 @@ export default function storeBlocks(editor: Editor, opts: StoreBlocksOpts = {}) 
     view: liveView(renderContactPreview) as any,
   });
 
+  // ── Homepage section types ────────────────────────────────────────────────
+  //
+  // The homepage is built from a richer block vocabulary than CMS pages
+  // (HomeClient.tsx). Converting it for the builder turns each data-driven
+  // section into one of these placeholders — WITHOUT a registered type here
+  // they'd be empty, invisible divs, which is exactly how the homepage came to
+  // show 2 of its 21 sections and a screen of blank space.
+  //
+  // Each one previews with the store's real data where that's cheap, and every
+  // setting the storefront component reads is exposed as a trait, so the
+  // section stays configurable after the page moves into the builder.
+  const homeSection = (
+    kind: string,
+    typeName: string,
+    label: string,
+    traits: any[],
+    paint: (el: HTMLElement, attrs: Record<string, any>) => void,
+  ) => {
+    editor.DomComponents.addType(typeName, {
+      isComponent: (el: any) => (isKind(kind)(el) ? { type: typeName } : false),
+      model: {
+        defaults: {
+          name: label,
+          droppable: false,
+          attributes: { 'data-store-block': kind },
+          traits: traits as any,
+        },
+      },
+      view: liveView(paint) as any,
+    });
+  };
+
+  /** Structured values (slides, a product row's config) ride in one attribute,
+   *  base64-encoded so the backend's xss-clean decode can't shred the JSON's
+   *  quotes — see the `json()` helper in classicBlocksHtml.ts. */
+  const readJson = (v: any): any => {
+    if (!v) return null;
+    if (typeof v === 'object') return v;
+    const s = String(v);
+    try {
+      if (s.startsWith('b64:')) {
+        const bin = atob(s.slice(4));
+        return JSON.parse(new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0))));
+      }
+      return JSON.parse(s);
+    } catch { return null; }
+  };
+
+  homeSection('hero-carousel', 'store-hero-carousel', 'Hero carousel (live)',
+    [
+      { type: 'select', name: 'data-source', label: 'Slides from', options: [
+        { id: 'items', label: 'The slides saved here' },
+        { id: 'banners', label: 'Appearance ▸ Banners' },
+      ] },
+      { type: 'text', name: 'data-location', label: 'Banner location (when using Banners)' },
+    ],
+    (el, a) => {
+      const items = readJson(a['data-items']) || [];
+      const usingBanners = a['data-source'] === 'banners';
+      const first = items[0];
+      el.innerHTML = shell('Hero carousel', undefined,
+        usingBanners ? `from Banners · ${esc(a['data-location'] || 'no location set')}` : `${items.length} slide${items.length === 1 ? '' : 's'}`,
+        first?.imageUrl
+          ? `<img src="${esc(first.imageUrl)}" style="width:100%;max-height:220px;object-fit:cover;border-radius:10px"/>
+             <div style="font-size:11.5px;color:#94a3b8;margin-top:6px">Slide 1 of ${items.length} — slides are managed in Appearance ▸ Banners</div>`
+          : `<div style="color:#94a3b8;font-size:13px">Slides load from Banners on the storefront.</div>`);
+    });
+
+  homeSection('product-row', 'store-product-row', 'Product row (live)',
+    [
+      { type: 'text', name: 'data-title', label: 'Heading' },
+      { type: 'text', name: 'data-subtitle', label: 'Sub-heading' },
+      { type: 'text', name: 'data-badge', label: 'Badge (e.g. HOT)' },
+      { type: 'text', name: 'data-view-all-url', label: '"View all" link' },
+    ],
+    (el, a) => {
+      const cfg = readJson(a['data-config']) || {};
+      const limit = Math.max(1, Math.min(12, Number(cfg.limit) || 8));
+      el.innerHTML = shell('Product row', a['data-title'], `collection: ${cfg.collection || 'latest'} · ${limit} max`,
+        `<div style="color:#94a3b8;font-size:13px">Loading products…</div>`);
+      const token = String(Date.now() + Math.random());
+      (el as any)._pvToken = token;
+      fetchPreview('/products', { limit, active: true }).then((list) => {
+        if ((el as any)._pvToken !== token) return;
+        const cards = list.slice(0, limit).map((p) => `
+          <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:10px;text-align:center;min-width:0">
+            <div style="height:70px;display:flex;align-items:center;justify-content:center;margin-bottom:6px">
+              ${imgOf(p) ? `<img src="${esc(imgOf(p))}" style="max-height:70px;max-width:100%;object-fit:contain"/>` : '<span style="font-size:20px">🧴</span>'}
+            </div>
+            <div style="font-size:11px;font-weight:600;color:#374151;line-height:1.25;height:28px;overflow:hidden">${esc(p.name)}</div>
+            <div style="font-size:11.5px;font-weight:700;color:#0f766e;margin-top:3px">${fmtPrice(p)}</div>
+          </div>`).join('');
+        el.innerHTML = shell('Product row', a['data-title'], `collection: ${cfg.collection || 'latest'} · showing ${Math.min(list.length, limit)}`,
+          `<div style="display:grid;grid-template-columns:repeat(${Math.min(6, limit)},1fr);gap:10px">${cards}</div>`);
+      });
+    });
+
+  homeSection('brand-grid', 'store-brand-grid', 'Brand grid (live)',
+    [
+      { type: 'text', name: 'data-title', label: 'Heading' },
+      { type: 'text', name: 'data-subtitle', label: 'Sub-heading' },
+      { type: 'number', name: 'data-limit', label: 'Max brands' },
+      { type: 'text', name: 'data-view-all-url', label: '"View all" link' },
+    ],
+    (el, a) => {
+      const limit = Number(a['data-limit']) || 12;
+      el.innerHTML = shell('Brands', a['data-title'], `${limit} max`, `<div style="color:#94a3b8;font-size:13px">Loading brands…</div>`);
+      const token = String(Date.now() + Math.random());
+      (el as any)._pvToken = token;
+      fetchPreview('/brands', { limit: 200 }).then((list) => {
+        if ((el as any)._pvToken !== token) return;
+        const use = list.slice(0, limit);
+        const cards = use.map((b: any) => `
+          <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:10px;text-align:center">
+            ${(b.logo_url || b.thumbnail_url || b.image) ? `<img src="${esc(b.logo_url || b.thumbnail_url || b.image)}" style="height:38px;max-width:100%;object-fit:contain;margin-bottom:5px"/>` : '<div style="font-size:18px;margin-bottom:5px">🏷</div>'}
+            <div style="font-size:11.5px;font-weight:600;color:#374151">${esc(b.name)}</div>
+          </div>`).join('');
+        el.innerHTML = shell('Brands', a['data-title'], `showing ${use.length}`,
+          `<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px">${cards}</div>`);
+      });
+    });
+
+  homeSection('health-concerns-grid', 'store-health-concerns', 'Health concerns (live)',
+    [
+      { type: 'text', name: 'data-title', label: 'Heading' },
+      { type: 'text', name: 'data-subtitle', label: 'Sub-heading' },
+      { type: 'number', name: 'data-limit', label: 'Max concerns' },
+      { type: 'text', name: 'data-parent-slug', label: 'Parent category slug' },
+    ],
+    (el, a) => {
+      const limit = Number(a['data-limit']) || 16;
+      const parent = a['data-parent-slug'] || 'health-concerns';
+      el.innerHTML = shell('Health concerns', a['data-title'], `under: ${parent}`, `<div style="color:#94a3b8;font-size:13px">Loading…</div>`);
+      const token = String(Date.now() + Math.random());
+      (el as any)._pvToken = token;
+      fetchPreview('/categories', { active: true, limit: 500 }).then((list) => {
+        if ((el as any)._pvToken !== token) return;
+        const parentRow = list.find((c: any) => c.slug === parent);
+        const pid = parentRow?.id ?? parentRow?._id;
+        const kids = list.filter((c: any) => pid && String(c.parent ?? c.parent_id ?? c.parentId) === String(pid)).slice(0, limit);
+        const use = kids.length ? kids : list.slice(0, limit);
+        el.innerHTML = shell('Health concerns', a['data-title'],
+          kids.length ? `showing ${use.length} under ${parent}` : `⚠ no children under "${parent}" — showing sample`,
+          `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">${use.map((c: any) =>
+            `<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:8px;text-align:center;font-size:11.5px;color:#374151">${esc(c.name)}</div>`).join('')}</div>`);
+      });
+    });
+
+  homeSection('google-reviews', 'store-google-reviews', 'Google reviews (live)',
+    [
+      { type: 'text', name: 'data-title', label: 'Heading' },
+      { type: 'text', name: 'data-subtitle', label: 'Sub-heading' },
+    ],
+    (el, a) => {
+      el.innerHTML = shell('Google reviews', a['data-title'], 'from your Google Business Profile',
+        `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">${[0, 1, 2].map(() =>
+          `<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px">
+            <div style="color:#f59e0b;font-size:12px">★★★★★</div>
+            <div style="font-size:11.5px;color:#94a3b8;margin-top:6px">Live review text from Google</div>
+          </div>`).join('')}</div>`);
+    });
+
+  homeSection('stats-bar', 'store-stats-bar', 'Stats bar (live)',
+    [],
+    (el, a) => {
+      const items = readJson(a['data-items']) || [];
+      el.innerHTML = shell('Stats', undefined, 'counts resolve live on the storefront',
+        `<div style="display:grid;grid-template-columns:repeat(${Math.max(1, Math.min(4, items.length || 4))},1fr);gap:10px">${
+          (items.length ? items : [{ label: 'Products' }, { label: 'Brands' }, { label: 'Customers' }, { label: 'Rating' }])
+            .map((s: any) => `<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px;text-align:center">
+              <div style="font-size:20px;font-weight:800;color:#0f766e">—</div>
+              <div style="font-size:11.5px;color:#6b7280;margin-top:2px">${esc(s.label || s.source || '')}</div>
+            </div>`).join('')}</div>`);
+    });
+
   // ── Block palette ──────────────────────────────────────────────────────────
   const bm = editor.BlockManager;
   const CAT_PRODUCTS = 'Store · Products';
