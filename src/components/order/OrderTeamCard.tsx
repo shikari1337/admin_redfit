@@ -129,8 +129,8 @@ const OrderTeamCard: React.FC<Props> = ({
 
   return (
     <Card className="shadow-sm">
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center justify-between gap-2 text-base">
+      <CardHeader className="border-b bg-slate-50/80 px-4 py-2.5">
+        <CardTitle className="flex items-center justify-between gap-2 text-sm font-semibold uppercase tracking-wide text-slate-700">
           <span className="flex items-center gap-2">
             <UserCheck className="h-4 w-4 text-gray-500" /> Sales &amp; ownership
           </span>

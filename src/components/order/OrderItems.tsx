@@ -346,33 +346,33 @@ const OrderItems: React.FC<OrderItemsProps> = ({
     taxable?: number | null; taxAmt?: number | null;
     info?: React.ReactNode;
   }> = ({ n, label, note, value, amount, tone = 'plain', taxable, taxAmt, info }) => {
-    const tint = tone === 'total' ? 'text-white' : 'text-slate-700';
+    const tint = tone === 'total' ? 'text-blue-900' : 'text-slate-700';
     const half = taxAmt != null ? taxAmt / 2 : null;
     return (
     <tr className={
-      tone === 'total' ? 'border-t-2 border-slate-300 bg-slate-800 text-white'
-        : tone === 'subtotal' ? 'border-t border-slate-300 bg-slate-100'
-        : 'bg-slate-50/70'
+      tone === 'total' ? 'border-t-2 border-blue-200 bg-blue-50 text-blue-900'
+        : tone === 'subtotal' ? 'border-t border-slate-200 bg-slate-50'
+        : 'bg-white'
     }>
       <td colSpan={infoSpan} className="px-3 py-2 align-middle">{info}</td>
       <td colSpan={labelSpan} className="whitespace-nowrap px-3 py-2 text-right align-middle">
-        <span className={`mr-2 text-xs font-black tabular-nums ${tone === 'total' ? 'text-slate-300' : 'text-slate-400'}`}>
+        <span className={`mr-2 text-xs font-semibold tabular-nums ${tone === 'total' ? 'text-blue-400' : 'text-slate-400'}`}>
           {n ?? ''}
         </span>
         <span className={
-          tone === 'total' ? 'text-base font-black uppercase tracking-wider'
-            : tone === 'subtotal' ? 'text-sm font-black uppercase tracking-wide text-slate-700'
-            : 'text-sm font-bold text-slate-700'
+          tone === 'total' ? 'text-base font-bold uppercase tracking-wider'
+            : tone === 'subtotal' ? 'text-sm font-semibold uppercase tracking-wide text-slate-700'
+            : 'text-sm font-medium text-slate-700'
         }>
           {label}
         </span>
         {note && <span className="ml-2 text-xs font-medium text-slate-400">{note}</span>}
       </td>
       <td className={`whitespace-nowrap px-3 py-2 text-right align-middle tabular-nums ${
-        tone === 'total' ? 'text-lg font-black'
-          : tone === 'credit' ? 'text-base font-black text-emerald-700'
-          : tone === 'subtotal' ? 'text-base font-black text-slate-900'
-          : 'text-base font-bold text-slate-800'
+        tone === 'total' ? 'text-lg font-bold'
+          : tone === 'credit' ? 'text-base font-semibold text-emerald-700'
+          : tone === 'subtotal' ? 'text-base font-semibold text-slate-900'
+          : 'text-base font-medium text-slate-800'
       }`}>
         {value != null
           ? (tone === 'credit' ? `−${money(Math.abs(value))}` : money(value))
@@ -408,7 +408,7 @@ const OrderItems: React.FC<OrderItemsProps> = ({
   /** A labelled fact for the info pane beside the ladder. */
   const Fact: React.FC<{ k: string; v: React.ReactNode; accent?: boolean }> = ({ k, v, accent }) => (
     <div className="flex items-baseline gap-2 leading-tight">
-      <span className="w-[84px] shrink-0 text-[11px] font-black uppercase tracking-wider text-slate-400">{k}</span>
+      <span className="w-[84px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-slate-400">{k}</span>
       <span className={`text-sm font-bold ${accent ? 'text-emerald-700' : 'text-slate-700'}`}>{v}</span>
     </div>
   );
@@ -422,7 +422,7 @@ const OrderItems: React.FC<OrderItemsProps> = ({
    */
   const facts: React.ReactNode[] = [
     // Coupon FIRST so it lands on the coupon's own discount row, not three rows below it.
-    ...(couponCode ? [<Fact key="cp" k="Coupon" v={<span className="font-mono font-black text-emerald-700">{couponCode}</span>} />] : []),
+    ...(couponCode ? [<Fact key="cp" k="Coupon" v={<span className="font-mono font-semibold text-emerald-700">{couponCode}</span>} />] : []),
     <Fact key="ch" k="Channel" v={channel} />,
     <Fact key="pay" k="Payment" v={`${paymentMethod === 'cod' ? 'Cash on delivery' : 'Prepaid'}${paymentGateway ? ` · ${paymentGateway}` : ''}`} />,
     ...(placedAt ? [<Fact key="pl" k="Placed" v={dateTime(placedAt)} />] : []),
@@ -435,9 +435,9 @@ const OrderItems: React.FC<OrderItemsProps> = ({
   const nextFact = () => facts[factIdx++] ?? undefined;
 
   return (
-    <Card className="border-2 shadow-sm">
-      <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0 border-b-2 bg-slate-50/80 px-4 py-3">
-        <CardTitle className="flex items-baseline gap-2 text-base font-black uppercase tracking-wide text-slate-700">
+    <Card className="shadow-sm">
+      <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0 border-b bg-slate-50/80 px-4 py-3">
+        <CardTitle className="flex items-baseline gap-2 text-base font-semibold uppercase tracking-wide text-slate-700">
           Order Items &amp; Calculation
           <span className="text-sm font-bold normal-case tracking-normal text-slate-400">
             {rows.length} line{rows.length === 1 ? '' : 's'} · {totalQty} unit{totalQty === 1 ? '' : 's'}
@@ -456,41 +456,41 @@ const OrderItems: React.FC<OrderItemsProps> = ({
           <div className="w-0 min-w-full overflow-x-auto">
             <table className={`w-full border-collapse text-sm ${showTax ? 'min-w-[1040px]' : 'min-w-[900px]'}`}>
               <thead>
-                <tr className="bg-slate-800 text-left text-xs uppercase tracking-wider text-slate-100">
-                  <th rowSpan={2} className="whitespace-nowrap px-3 py-2 align-bottom font-black">SKU</th>
-                  <th rowSpan={2} className="min-w-[240px] px-3 py-2 align-bottom font-black">Product name</th>
-                  <th rowSpan={2} className={`w-[120px] px-3 py-2 align-bottom font-black ${CLS.brand}`}>Brand</th>
-                  <th rowSpan={2} className={`px-3 py-2 align-bottom font-black ${CLS.variation}`}>Variation</th>
-                  <th rowSpan={2} className={`whitespace-nowrap px-3 py-2 text-right align-bottom font-black ${CLS.mrp}`}>MRP</th>
-                  <th rowSpan={2} className="whitespace-nowrap px-3 py-2 text-right align-bottom font-black">Rate</th>
-                  <th rowSpan={2} className="px-3 py-2 text-center align-bottom font-black">Qty</th>
-                  <th rowSpan={2} className={`whitespace-nowrap px-3 py-2 text-right align-bottom font-black ${CLS.discPct}`}>Disc %</th>
-                  <th colSpan={2} className="whitespace-nowrap border-l border-slate-700 px-3 pb-0.5 pt-2 text-center font-black">Discount</th>
-                  <th rowSpan={2} className="whitespace-nowrap border-l border-slate-700 px-3 py-2 text-right align-bottom font-black">Total</th>
+                <tr className="border-b border-slate-200 bg-slate-100 text-left text-[11px] uppercase tracking-wider text-blue-900">
+                  <th rowSpan={2} className="whitespace-nowrap px-3 py-2 align-bottom font-semibold">SKU</th>
+                  <th rowSpan={2} className="min-w-[240px] px-3 py-2 align-bottom font-semibold">Product name</th>
+                  <th rowSpan={2} className={`w-[120px] px-3 py-2 align-bottom font-semibold ${CLS.brand}`}>Brand</th>
+                  <th rowSpan={2} className={`px-3 py-2 align-bottom font-semibold ${CLS.variation}`}>Variation</th>
+                  <th rowSpan={2} className={`whitespace-nowrap px-3 py-2 text-right align-bottom font-semibold ${CLS.mrp}`}>MRP</th>
+                  <th rowSpan={2} className="whitespace-nowrap px-3 py-2 text-right align-bottom font-semibold">Rate</th>
+                  <th rowSpan={2} className="px-3 py-2 text-center align-bottom font-semibold">Qty</th>
+                  <th rowSpan={2} className={`whitespace-nowrap px-3 py-2 text-right align-bottom font-semibold ${CLS.discPct}`}>Disc %</th>
+                  <th colSpan={2} className="whitespace-nowrap border-l border-slate-300 px-3 pb-0.5 pt-2 text-center font-semibold">Discount</th>
+                  <th rowSpan={2} className="whitespace-nowrap border-l border-slate-300 px-3 py-2 text-right align-bottom font-semibold">Total</th>
                   {showTax && (
                     <>
-                      <th colSpan={gstCols} className="whitespace-nowrap border-l border-slate-700 px-3 pb-0.5 pt-2 text-center font-black">GST</th>
-                      <th rowSpan={2} className="whitespace-nowrap border-l border-slate-700 px-3 py-2 text-right align-bottom font-black">Taxable value</th>
+                      <th colSpan={gstCols} className="whitespace-nowrap border-l border-slate-300 px-3 pb-0.5 pt-2 text-center font-semibold">GST</th>
+                      <th rowSpan={2} className="whitespace-nowrap border-l border-slate-300 px-3 py-2 text-right align-bottom font-semibold">Taxable value</th>
                     </>
                   )}
                 </tr>
-                <tr className="bg-slate-800 text-left text-[10px] uppercase tracking-wider text-slate-300">
-                  <th className="whitespace-nowrap border-l border-slate-700 px-3 pb-2 text-right font-bold">Line</th>
+                <tr className="border-b border-slate-200 bg-slate-100 text-left text-[10px] uppercase tracking-wider text-blue-700">
+                  <th className="whitespace-nowrap border-l border-slate-300 px-3 pb-2 text-right font-bold">Line</th>
                   <th className="whitespace-nowrap px-3 pb-2 text-right font-bold">Order</th>
                   {showTax && (isIgst
-                    ? <th className="whitespace-nowrap border-l border-slate-700 px-3 pb-2 text-right font-bold">IGST</th>
+                    ? <th className="whitespace-nowrap border-l border-slate-300 px-3 pb-2 text-right font-bold">IGST</th>
                     : <>
-                        <th className="whitespace-nowrap border-l border-slate-700 px-3 pb-2 text-right font-bold">CGST</th>
+                        <th className="whitespace-nowrap border-l border-slate-300 px-3 pb-2 text-right font-bold">CGST</th>
                         <th className="whitespace-nowrap px-3 pb-2 text-right font-bold">SGST</th>
                       </>)}
                 </tr>
               </thead>
-              <tbody className="divide-y-2 divide-slate-100">
+              <tbody className="divide-y divide-slate-100">
                 {rows.map((r, index) => {
                   const tier = tierOf(r);
                   return (
                     <tr key={index} className="align-top hover:bg-slate-50/80">
-                      <td className="whitespace-nowrap px-2 py-3 font-mono text-xs font-black text-slate-700">
+                      <td className="whitespace-nowrap px-2 py-3 font-mono text-xs font-semibold text-slate-700">
                         {r.sku}
                       </td>
 
@@ -500,9 +500,9 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                               is the cart-time snapshot which can hold the PARENT photo. */}
                           {(r.item.catalog_image || r.item.image) ? (
                             <img src={r.item.catalog_image || r.item.image} alt={r.name}
-                              className="h-11 w-11 flex-shrink-0 rounded-md border-2 border-slate-100 bg-slate-50 object-cover" />
+                              className="h-11 w-11 flex-shrink-0 rounded-md border border-slate-100 bg-slate-50 object-cover" />
                           ) : (
-                            <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-md border-2 border-slate-100 bg-slate-50 text-[9px] font-bold text-slate-400">
+                            <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-md border border-slate-100 bg-slate-50 text-[9px] font-bold text-slate-400">
                               No img
                             </div>
                           )}
@@ -519,7 +519,7 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                             )}
                             <p className="mt-0.5 text-xs font-bold text-slate-500">
                               {r.hsn
-                                ? <>HSN <span className="font-mono font-black text-slate-700">{r.hsn}</span></>
+                                ? <>HSN <span className="font-mono text-slate-700">{r.hsn}</span></>
                                 : <span className="text-amber-600">No HSN set</span>}
                               {r.rate != null && <span className="ml-2 text-slate-400">· GST {r.rate}%</span>}
                               {r.form && <span className="ml-2 text-slate-400">· {prettyAttr(r.form)}</span>}
@@ -534,7 +534,7 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                               </p>
                             )}
                             <div className="mt-1 flex flex-wrap items-center gap-1">
-                              <Badge variant="outline" className={`text-[10px] font-black uppercase ${TIER_CLASS[tier.tone]}`}>
+                              <Badge variant="outline" className={`text-[10px] font-semibold uppercase ${TIER_CLASS[tier.tone]}`}>
                                 {tier.label}
                               </Badge>
                               {r.offRetailPct != null && (
@@ -555,7 +555,7 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                       {/* Brand — full text, the column sizes to it. */}
                       <td className={`w-[120px] px-3 py-3 align-top ${CLS.brand}`}>
                         {r.brand
-                          ? <span className="text-sm font-black leading-tight text-slate-700">{r.brand}</span>
+                          ? <span className="text-sm font-semibold leading-tight text-slate-700">{r.brand}</span>
                           : <span className="text-slate-300">—</span>}
                       </td>
 
@@ -565,7 +565,7 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                             {r.attrs.map(([k, v]) => (
                               <div key={k} className="whitespace-nowrap text-sm leading-tight">
                                 <span className="text-[11px] font-bold uppercase text-slate-400">{prettyAttr(k)} </span>
-                                <span className="font-black text-slate-700">{v}</span>
+                                <span className="font-semibold text-slate-700">{v}</span>
                               </div>
                             ))}
                           </div>
@@ -579,19 +579,19 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                       </td>
 
                       <td className="whitespace-nowrap px-3 py-3 text-right align-top">
-                        <span className="text-base font-black tabular-nums text-slate-900">{money(r.price)}</span>
+                        <span className="text-base font-semibold tabular-nums text-slate-900">{money(r.price)}</span>
                         {r.retail != null && Number(r.retail) > r.price && (
                           <div className="text-xs font-bold text-slate-400">retail {money(Number(r.retail))}</div>
                         )}
                       </td>
 
-                      <td className="whitespace-nowrap px-3 py-3 text-center align-top text-base font-black tabular-nums text-slate-900">
+                      <td className="whitespace-nowrap px-3 py-3 text-center align-top text-base font-semibold tabular-nums text-slate-900">
                         {r.qty}
                       </td>
 
                       <td className={`whitespace-nowrap px-3 py-3 text-right align-top tabular-nums ${CLS.discPct}`}>
                         {r.discPct > 0.05
-                          ? <span className="text-base font-black text-emerald-700">{r.discPct.toFixed(1)}%</span>
+                          ? <span className="text-base font-semibold text-emerald-700">{r.discPct.toFixed(1)}%</span>
                           : <span className="text-slate-300">—</span>}
                       </td>
 
@@ -602,8 +602,17 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                         {r.orderShare > 0.009 ? money(r.orderShare) : <span className="text-slate-300">—</span>}
                       </td>
 
-                      <td className="whitespace-nowrap border-l border-slate-100 px-3 py-3 text-right align-top text-base font-black tabular-nums text-slate-900">
-                        {money(r.lineTotal)}
+                      <td className="whitespace-nowrap border-l border-slate-100 px-3 py-3 text-right align-top tabular-nums">
+                        <span className="text-base font-semibold text-slate-900">{money(r.lineTotal)}</span>
+                        {/* The order-level discount apportioned to this line is NOT in the
+                            gross above. Printing the net makes that subtraction visible --
+                            and the net is exactly what the Taxable value + GST cells to the
+                            right decompose, so the row reads across without a gap. */}
+                        {r.orderShare > 0.009 && (
+                          <div className="text-[11px] font-medium text-slate-500">
+                            net {money(r.lineTotal - r.orderShare)}
+                          </div>
+                        )}
                       </td>
 
                       {showTax && (
@@ -634,8 +643,8 @@ const OrderItems: React.FC<OrderItemsProps> = ({
 
               <tfoot>
                 {/* ── Totals of every column ── */}
-                <tr className="border-t-2 border-slate-300 bg-slate-100 text-slate-900">
-                  <td className="px-3 py-3 text-sm font-black uppercase tracking-wider text-slate-500">Totals</td>
+                <tr className="border-t-2 border-slate-200 bg-slate-50 text-blue-900">
+                  <td className="px-3 py-3 text-sm font-semibold uppercase tracking-wider text-slate-500">Totals</td>
                   <td className="px-3 py-3 text-sm font-bold text-slate-500">
                     {rows.length} line{rows.length === 1 ? '' : 's'}
                   </td>
@@ -645,36 +654,41 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                     {money(totalMrp)}
                   </td>
                   <td className="px-3 py-3" />
-                  <td className="whitespace-nowrap px-3 py-3 text-center text-base font-black tabular-nums">{totalQty}</td>
-                  <td className={`whitespace-nowrap px-3 py-3 text-right text-base font-black tabular-nums text-emerald-700 ${CLS.discPct}`}>
+                  <td className="whitespace-nowrap px-3 py-3 text-center text-base font-semibold tabular-nums">{totalQty}</td>
+                  <td className={`whitespace-nowrap px-3 py-3 text-right text-base font-semibold tabular-nums text-emerald-700 ${CLS.discPct}`}>
                     {totalDiscPct > 0.05 ? `${totalDiscPct.toFixed(1)}%` : '—'}
                   </td>
-                  <td className="whitespace-nowrap border-l border-slate-300 px-3 py-3 text-right text-sm font-black tabular-nums text-emerald-700">
+                  <td className="whitespace-nowrap border-l border-slate-300 px-3 py-3 text-right text-sm font-semibold tabular-nums text-emerald-700">
                     {totalLineDiscount > 0.009 ? money(totalLineDiscount) : '—'}
                   </td>
-                  <td className="whitespace-nowrap px-3 py-3 text-right text-sm font-black tabular-nums text-emerald-700">
+                  <td className="whitespace-nowrap px-3 py-3 text-right text-sm font-semibold tabular-nums text-emerald-700">
                     {totalOrderShare > 0.009 ? money(totalOrderShare) : '—'}
                   </td>
-                  <td className="whitespace-nowrap border-l border-slate-300 px-3 py-3 text-right text-lg font-black tabular-nums">
-                    {money(totalValue)}
+                  <td className="whitespace-nowrap border-l border-slate-300 px-3 py-3 text-right tabular-nums">
+                    <span className="text-lg font-bold">{money(totalValue)}</span>
+                    {totalOrderShare > 0.009 && (
+                      <div className="text-[11px] font-medium text-slate-500">
+                        net {money(totalValue - totalOrderShare)}
+                      </div>
+                    )}
                   </td>
                   {showTax && (
                     <>
                       {isIgst ? (
-                        <td className="whitespace-nowrap border-l border-slate-300 px-3 py-3 text-right text-base font-black tabular-nums text-slate-700">
+                        <td className="whitespace-nowrap border-l border-slate-300 px-3 py-3 text-right text-base font-semibold tabular-nums text-slate-700">
                           {anyTax ? money(totalLineGst) : '—'}
                         </td>
                       ) : (
                         <>
-                          <td className="whitespace-nowrap border-l border-slate-300 px-3 py-3 text-right text-base font-black tabular-nums text-slate-700">
+                          <td className="whitespace-nowrap border-l border-slate-300 px-3 py-3 text-right text-base font-semibold tabular-nums text-slate-700">
                             {anyTax ? money(totalLineGst / 2) : '—'}
                           </td>
-                          <td className="whitespace-nowrap px-3 py-3 text-right text-base font-black tabular-nums text-slate-700">
+                          <td className="whitespace-nowrap px-3 py-3 text-right text-base font-semibold tabular-nums text-slate-700">
                             {anyTax ? money(totalLineGst / 2) : '—'}
                           </td>
                         </>
                       )}
-                      <td className="whitespace-nowrap border-l border-slate-300 px-3 py-3 text-right text-base font-black tabular-nums text-slate-700">
+                      <td className="whitespace-nowrap border-l border-slate-300 px-3 py-3 text-right text-base font-semibold tabular-nums text-slate-700">
                         {anyTax ? money(totalTaxable) : '—'}
                       </td>
                     </>
@@ -687,12 +701,10 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                 {hasLadder && (
                   <>
                     <tr className="bg-slate-50">
-                      <td colSpan={infoSpan} className="px-3 pb-1 pt-3 text-[11px] font-black uppercase tracking-widest text-slate-400">
+                      <td colSpan={infoSpan} className="px-3 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-widest text-slate-400">
                         Order details
                       </td>
-                      <td colSpan={visibleCols - infoSpan} className="px-3 pb-1 pt-3 text-right text-[11px] font-black uppercase tracking-widest text-slate-400">
-                        How this order was calculated
-                      </td>
+                      <td colSpan={visibleCols - infoSpan} className="px-3 pb-1 pt-3" />
                     </tr>
 
                     {/* No "Items value" step — the TOTALS row directly above
@@ -700,21 +712,33 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                         said the same number twice. The order context moves onto
                         the first row that remains. */}
 
-                    {/* Each discount that made up the total, named individually. */}
-                    {orderDiscount > 0 && discountParts.map((part, i) => (
-                      <Step
-                        key={`d${i}`} n={i === 0 ? ++step : ''}
-                        label={<span className="text-emerald-800">{part}</span>}
-                        amount={discountAmountFor(part)}
-                        info={nextFact()}
-                      />
-                    ))}
-                    {orderDiscount > 0 && (
-                      <Step tone="credit" label="Order discount" value={orderDiscount} info={nextFact()} />
-                    )}
-                    {orderDiscount > 0 && (
-                      <Step n={++step} tone="subtotal" label="Net items value" value={sub - orderDiscount} info={nextFact()} />
-                    )}
+                    {/* Each discount on ONE row -- its name and its rupees together,
+                        one row per discount. A separate combined row is used only when
+                        the components genuinely cannot be priced apart (orders placed
+                        before `orders.discount_items` existed, migration 155). */}
+                    {orderDiscount > 0 && (() => {
+                      const parts = discountParts.length ? discountParts : ['Order discount'];
+                      const priced = parts.map((part) => discountAmountFor(part));
+                      const allPriced = priced.every((a) => a != null);
+                      const single = parts.length === 1;
+                      return (
+                        <>
+                          {parts.map((part, i) => (
+                            <Step
+                              key={`d${i}`} n={i === 0 ? ++step : ''} tone="credit"
+                              label={<span className="text-emerald-800">{part}</span>}
+                              value={allPriced ? priced[i] : single ? orderDiscount : undefined}
+                              info={nextFact()}
+                            />
+                          ))}
+                          {!allPriced && !single && (
+                            <Step tone="credit" label="Total discount" value={orderDiscount} info={nextFact()} />
+                          )}
+                          <Step n={++step} tone="subtotal" label="Net items value"
+                            value={sub - orderDiscount} info={nextFact()} />
+                        </>
+                      );
+                    })()}
 
                     {/* Charges carry their OWN taxable value + GST in the tax columns. */}
                     {m.charges.filter((c) => Number(c.amount) > 0).map((c, i) => {
@@ -785,17 +809,17 @@ const OrderItems: React.FC<OrderItemsProps> = ({
         )}
 
         {hasLadder && !hasGst && (
-          <div className="border-t-2 border-amber-100 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800">
+          <div className="border-t border-amber-100 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800">
             No GST breakdown was recorded for this order — GST was not enabled/configured when it
             was placed, so the Taxable value and GST columns are not shown.
           </div>
         )}
 
         {rows.length > 0 && (
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t-2 border-slate-100 bg-white px-4 py-2.5 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-white px-4 py-2.5 text-sm">
             <span />
             {totalDiscount > 0.009 && (
-              <span className="font-black text-emerald-700">
+              <span className="font-semibold text-emerald-700">
                 Customer saved {money(totalDiscount)}
                 {totalMrp > 0 && ` (${((totalDiscount / totalMrp) * 100).toFixed(1)}%)`}
               </span>

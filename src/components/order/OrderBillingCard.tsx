@@ -28,10 +28,12 @@ interface Props {
   invoiceNumber?: string | null;
   invoiceDate?: string | null;
   invoiceNumberSource?: 'system' | 'manual' | null;
-  salesperson?: string | null;
   manualInvoiceUrl?: string | null;
   manualInvoiceFilename?: string | null;
   manualInvoiceUploadedBy?: string | null;
+  /** Seller GSTIN and CGST/SGST-vs-IGST for this order — the invoice header facts. */
+  gstin?: string | null;
+  taxType?: string | null;
   canManage: boolean;
   onSaved: () => void;
 }
@@ -43,13 +45,13 @@ const dateForInput = (v?: string | null): string => {
 };
 
 const OrderBillingCard: React.FC<Props> = ({
-  orderId, invoiceNumber, invoiceDate, invoiceNumberSource, salesperson,
-  manualInvoiceUrl, manualInvoiceFilename, manualInvoiceUploadedBy, canManage, onSaved,
+  orderId, invoiceNumber, invoiceDate, invoiceNumberSource,
+  manualInvoiceUrl, manualInvoiceFilename, manualInvoiceUploadedBy,
+  gstin, taxType, canManage, onSaved,
 }) => {
   const { toast } = useToast();
   const [num, setNum] = React.useState(invoiceNumber ?? '');
   const [date, setDate] = React.useState(dateForInput(invoiceDate));
-  const [rep, setRep] = React.useState(salesperson ?? '');
   const [saving, setSaving] = React.useState(false);
   const [busy, setBusy] = React.useState<'upload' | 'remove' | null>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
@@ -58,20 +60,20 @@ const OrderBillingCard: React.FC<Props> = ({
   React.useEffect(() => {
     setNum(invoiceNumber ?? '');
     setDate(dateForInput(invoiceDate));
-    setRep(salesperson ?? '');
-  }, [invoiceNumber, invoiceDate, salesperson]);
+  }, [invoiceNumber, invoiceDate]);
 
   const dirty = (num ?? '') !== (invoiceNumber ?? '')
-    || date !== dateForInput(invoiceDate)
-    || (rep ?? '') !== (salesperson ?? '');
+    || date !== dateForInput(invoiceDate);
 
   const save = async () => {
     setSaving(true);
     try {
+      // `salesperson` is deliberately NOT sent: the route writes that column
+      // whenever the key is present, so passing an empty one would wipe the
+      // credit the Sales & Team card owns.
       await invoicesAPI.saveDetails(orderId, {
         invoiceNumber: num.trim(),
         invoiceDate: date || undefined,
-        salesperson: rep.trim(),
       });
       toast({ title: 'Billing details saved' });
       onSaved();
@@ -114,15 +116,29 @@ const OrderBillingCard: React.FC<Props> = ({
 
   return (
     <Card className="shadow-sm">
-      <CardHeader className="px-4 py-2.5 border-b">
-        <CardTitle className="text-base flex items-center gap-2">
-          <FaFileInvoice className="h-4 w-4 text-muted-foreground" /> Billing details
+      <CardHeader className="border-b bg-slate-50/80 px-4 py-2.5">
+        <CardTitle className="flex items-center justify-between gap-2 text-sm font-semibold uppercase tracking-wide text-slate-700">
+          <span className="flex items-center gap-2">
+            <FaFileInvoice className="h-3.5 w-3.5 text-slate-400" /> Billing details
+          </span>
+          {invoiceNumberSource === 'manual' && (
+            <Badge variant="outline" className="text-[10px] font-semibold uppercase text-slate-500">Own number</Badge>
+          )}
         </CardTitle>
       </CardHeader>
-      <CardContent className="p-4 space-y-3">
+      <CardContent className="space-y-3 p-4">
 
-        {/* ── Invoice number + salesperson ── */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {/* Who the invoice is raised by, and under which tax treatment — the
+            header facts of the document these fields number. */}
+        {(gstin || taxType) && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border bg-slate-50 px-2.5 py-1.5 text-xs">
+            {gstin && <span className="font-mono text-slate-700">GSTIN {gstin}</span>}
+            {taxType && <span className="font-medium text-slate-500">{taxType}</span>}
+          </div>
+        )}
+
+        {/* ── Invoice number + date ── */}
+        <div className="grid grid-cols-1 gap-3">
           <div>
             <label className="text-[11px] font-medium text-muted-foreground">Invoice number</label>
             <Input value={num} onChange={(e) => setNum(e.target.value)} disabled={!canManage}
@@ -138,11 +154,6 @@ const OrderBillingCard: React.FC<Props> = ({
           <div>
             <label className="text-[11px] font-medium text-muted-foreground">Invoice date</label>
             <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} disabled={!canManage} className="mt-1" />
-          </div>
-          <div>
-            <label className="text-[11px] font-medium text-muted-foreground">Salesperson</label>
-            <Input value={rep} onChange={(e) => setRep(e.target.value)} disabled={!canManage}
-              placeholder="Who sold this order" className="mt-1" />
           </div>
         </div>
         {canManage && (

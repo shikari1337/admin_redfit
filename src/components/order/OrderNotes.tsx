@@ -32,21 +32,21 @@ const OrderNotes: React.FC<OrderNotesProps> = ({ notes, onAdd, saving }) => {
   });
 
   return (
-    <div className="bg-white rounded-lg shadow p-4">
-      <h2 className="text-base font-bold mb-2.5">Order Notes</h2>
+    <div className="p-4">
+      <h2 className="mb-2.5 text-sm font-semibold uppercase tracking-wide text-slate-700">Order notes</h2>
 
-      <div className="flex gap-2 mb-3">
+      <div className="mb-3 space-y-2">
         <textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAdd(); }}
-          className="flex-1 px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 min-h-[44px] text-sm"
+          className="min-h-[52px] w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
           placeholder="Add an internal note… (⌘/Ctrl + Enter to send)"
         />
         <button
           onClick={handleAdd}
           disabled={saving || !draft.trim()}
-          className="flex items-center gap-2 px-3 h-fit py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 text-sm"
+          className="flex items-center gap-2 rounded bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
         >
           <FaPaperPlane size={12} />
           {saving ? 'Saving…' : 'Add'}
@@ -54,7 +54,7 @@ const OrderNotes: React.FC<OrderNotesProps> = ({ notes, onAdd, saving }) => {
       </div>
 
       {sorted.length === 0 ? (
-        <p className="text-sm text-gray-500">No notes yet.</p>
+        <p className="text-sm text-slate-400">No notes yet.</p>
       ) : (
         <div className="space-y-2 max-h-80 overflow-y-auto">
           {sorted.map((n, i) => (

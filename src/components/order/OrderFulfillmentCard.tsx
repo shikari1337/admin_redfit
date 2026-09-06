@@ -45,17 +45,82 @@ interface Props {
     pending: boolean;
     breached: boolean;
   } | null;
+  /**
+   * `inline` drops the Card chrome so this can sit as one column of the
+   * addresses footer strip, beside "Invoiced by".
+   */
+  variant?: 'card' | 'inline';
 }
 
 /**
  * Fulfillment picture for one order: how many units are on their way, which
  * parcel carries what, and whether the store is inside its dispatch SLA.
  */
-const OrderFulfillmentCard: React.FC<Props> = ({ fulfillment, shipments, sla }) => {
+const OrderFulfillmentCard: React.FC<Props> = ({ fulfillment, shipments, sla, variant = 'card' }) => {
   if (!fulfillment && !(shipments?.length) && !sla) return null;
   const f = fulfillment;
   const pct = f && f.total_qty > 0 ? Math.round((f.shipped_qty / f.total_qty) * 100) : 0;
   const expectedShipBy = sla?.expectedShipBy ?? sla?.expected_ship_by;
+
+  if (variant === 'inline') {
+    return (
+      <div>
+        <h3 className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+          Fulfilment
+          {f && (
+            <span className={`rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase ${
+              f.fully_shipped ? 'bg-emerald-100 text-emerald-700'
+                : f.partially_shipped ? 'bg-blue-100 text-blue-700'
+                : 'bg-amber-100 text-amber-700'}`}>
+              {f.fully_shipped ? 'Fully shipped' : f.partially_shipped ? 'Part shipped' : 'Not shipped'}
+            </span>
+          )}
+        </h3>
+        {f && f.total_qty > 0 && (
+          <>
+            <p className="font-semibold tabular-nums text-slate-900">
+              {f.shipped_qty} of {f.total_qty} units shipped
+            </p>
+            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-200">
+              <div className={`h-full rounded-full ${pct >= 100 ? 'bg-emerald-500' : 'bg-blue-500'}`}
+                style={{ width: `${Math.min(100, pct)}%` }} />
+            </div>
+          </>
+        )}
+        {sla?.pending && (
+          <p className={`mt-1 font-medium ${sla.breached ? 'text-red-700' : 'text-emerald-700'}`}>
+            {sla.breached ? 'Dispatch SLA breached — ' : ''}
+            ship by {formatDate(expectedShipBy, 'dd MMM, HH:mm', 'N/A')}
+          </p>
+        )}
+        {(shipments?.length ?? 0) > 0 && (
+          <div className="mt-1 space-y-0.5">
+            {shipments!.map((sh) => {
+              const trackingUrl = sh.trackingUrl ?? sh.tracking_url;
+              return (
+                <p key={sh.id} className="text-slate-600">
+                  <span className="font-medium text-slate-800">{sh.shipmentNumber ?? sh.shipment_number ?? sh.id}</span>
+                  <span className="capitalize"> · {String(sh.status).replace(/_/g, ' ')}</span>
+                  {sh.awb && (trackingUrl
+                    ? <> · <a href={trackingUrl} target="_blank" rel="noopener noreferrer"
+                        className="font-mono text-blue-700 hover:underline">{sh.awb}</a></>
+                    : <> · <span className="font-mono">{sh.awb}</span></>)}
+                </p>
+              );
+            })}
+          </div>
+        )}
+        {/* Lines still waiting — the actual question a part-shipped order raises. */}
+        {f?.partially_shipped && (
+          <div className="mt-1 space-y-0.5 text-slate-500">
+            {f.lines.filter((l) => l.remaining > 0).map((l) => (
+              <p key={l.sku || l.name}>Awaiting: {l.name} × {l.remaining}</p>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <Card className="shadow-sm">

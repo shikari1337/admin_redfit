@@ -106,8 +106,8 @@ const PaymentInformation: React.FC<PaymentInformationProps> = ({
   };
 
   return (
-    <div className="bg-white rounded-lg shadow p-3">
-      <h2 className="text-base font-bold mb-2.5 flex items-center gap-2">
+    <div className="p-4">
+      <h2 className="mb-2.5 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-700">
         <FaCreditCard />
         Payment Information
       </h2>

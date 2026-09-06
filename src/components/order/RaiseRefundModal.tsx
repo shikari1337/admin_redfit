@@ -119,16 +119,16 @@ const RaiseRefundModal: React.FC<Props> = ({ isOpen, onClose, orderId, orderNumb
           <>
             <div className="grid grid-cols-3 gap-2 rounded-lg border-2 border-slate-100 bg-slate-50 p-3 text-center">
               <div>
-                <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Paid</p>
-                <p className="text-base font-black tabular-nums text-slate-900">{fmtRupees(paid)}</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Paid</p>
+                <p className="text-base font-semibold tabular-nums text-slate-900">{fmtRupees(paid)}</p>
               </div>
               <div>
-                <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Already refunded</p>
-                <p className="text-base font-black tabular-nums text-slate-600">{fmtRupees(already)}</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Already refunded</p>
+                <p className="text-base font-semibold tabular-nums text-slate-600">{fmtRupees(already)}</p>
               </div>
               <div>
-                <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Refundable</p>
-                <p className="text-base font-black tabular-nums text-emerald-700">{fmtRupees(refundable)}</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Refundable</p>
+                <p className="text-base font-semibold tabular-nums text-emerald-700">{fmtRupees(refundable)}</p>
               </div>
             </div>
 
@@ -145,7 +145,7 @@ const RaiseRefundModal: React.FC<Props> = ({ isOpen, onClose, orderId, orderNumb
             ) : (
               <>
                 <div>
-                  <label className="mb-1 block text-xs font-black uppercase tracking-wider text-slate-500">How</label>
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-500">How</label>
                   <div className="space-y-1">
                     {METHODS.map((m) => {
                       const disabled = m.needsGateway && !snap?.gatewayPaymentId;
@@ -168,13 +168,13 @@ const RaiseRefundModal: React.FC<Props> = ({ isOpen, onClose, orderId, orderNumb
 
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="mb-1 block text-xs font-black uppercase tracking-wider text-slate-500">Amount</label>
+                    <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-500">Amount</label>
                     <input type="number" step="0.01" min="0.01" max={refundable}
                       value={amount} onChange={(e) => setAmount(e.target.value)}
                       className="w-full rounded border-2 border-slate-200 px-2 py-1.5 text-sm font-bold tabular-nums" />
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-black uppercase tracking-wider text-slate-500">
+                    <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-500">
                       {method === 'adjustment' ? 'Absorb into order #' : 'Reference (optional)'}
                     </label>
                     <input type="text"
@@ -187,7 +187,7 @@ const RaiseRefundModal: React.FC<Props> = ({ isOpen, onClose, orderId, orderNumb
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-xs font-black uppercase tracking-wider text-slate-500">Reason</label>
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-500">Reason</label>
                   <input type="text" value={reason} onChange={(e) => setReason(e.target.value)}
                     placeholder="Refund for cancelled order"
                     className="w-full rounded border-2 border-slate-200 px-2 py-1.5 text-sm font-semibold" />

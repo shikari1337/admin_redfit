@@ -56,7 +56,7 @@ type StepState = 'done' | 'current' | 'pending' | 'partial';
 const CIRCLE_CLASS: Record<StepState, string> = {
   done: 'border-green-500 bg-green-500 text-white',
   partial: 'border-amber-400 bg-amber-100 text-amber-700',
-  current: 'border-primary bg-primary/10 text-primary',
+  current: 'border-blue-500 bg-blue-50 text-blue-700',
   pending: 'border-muted-foreground/30 bg-muted text-muted-foreground',
 };
 
@@ -163,7 +163,7 @@ const OrderProgressStepper: React.FC<OrderProgressStepperProps> = ({
                   <div className={`flex h-6 w-6 items-center justify-center rounded-full border-2 text-[11px] font-bold ${CIRCLE_CLASS[state]}`}>
                     {state === 'partial' ? '!' : state === 'done' ? <FaCheck className="h-2.5 w-2.5" /> : i + 1}
                   </div>
-                  <span className={`text-[11px] text-center leading-tight ${state === 'pending' ? 'text-muted-foreground' : 'text-foreground font-bold'}`}>
+                  <span className={`text-center text-[11px] leading-tight ${state === 'pending' ? 'text-slate-400' : 'font-semibold text-slate-700'}`}>
                     {step.key === 'payment' && isCod ? 'Pay on Delivery' : step.label}
                     {state === 'partial' ? ' (Partial)' : ''}
                   </span>

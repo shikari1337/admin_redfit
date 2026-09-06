@@ -82,6 +82,14 @@ const STATUS_LABEL: Record<string, string> = {
   partially_delivered: 'Partially delivered',
 };
 
+/** One fact in the side rail: a fixed-width label with its value beside it. */
+const TrackRow: React.FC<{ k: string; v: React.ReactNode }> = ({ k, v }) => (
+  <div className="flex items-baseline gap-2 text-sm">
+    <span className="w-[86px] shrink-0 text-[11px] font-semibold uppercase tracking-wide text-slate-400">{k}</span>
+    <span className="min-w-0 flex-1 text-slate-700">{v}</span>
+  </div>
+);
+
 /** Order states past which dispatch-time documents (label/manifest) no longer apply. */
 const ORDER_TERMINAL_STATUSES = ['delivered', 'cancelled', 'returned', 'return_requested'];
 
@@ -729,8 +737,6 @@ const OrderDetail: React.FC = () => {
 
   const poRef = String(order.notes ?? '').match(/PO Ref:\s*([^\n]+)/i)?.[1]?.trim();
   const viaBulkPortal = /Source:\s*Bulk Order Platform/i.test(String(order.notes ?? ''));
-  const itemCount = (order.items || []).length;
-  const unitCount = (order.items || []).reduce((s: number, i: any) => s + (Number(i.quantity) || 0), 0);
 
   return (
     /* Full-bleed: cancels Layout's own page padding (p-4/md:p-6/lg:p-8) so the
@@ -738,47 +744,65 @@ const OrderDetail: React.FC = () => {
        columns need. The wrapper is exactly the parent's padding-box width, so
        nothing overflows horizontally. */
     <div className="-m-4 min-h-full bg-slate-100/70 md:-m-6 lg:-m-8">
-      {/* Command bar: identity, state and navigation, pinned while scrolling a
-          long order. Everything here is read-only; actions stay below. */}
-      <div className="sticky top-0 z-30 border-b-2 border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
+      {/* Command bar: who/what/where on top, every write on the dark band below.
+          The figures that used to sit here (total, lines/units, payment, placed)
+          are all in the items table's own totals and order-details footer, so
+          repeating them here only cost a row. No backdrop-blur -- it softened
+          the text of everything scrolling under it. */}
+      <div className="sticky top-0 z-30 border-b border-slate-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 px-4 py-1.5 md:px-6">
-          <Button variant="ghost" size="sm" className="h-7 px-2 font-bold text-slate-500 hover:text-slate-900"
+          <Button variant="ghost" size="sm" className="h-7 px-2 font-medium text-slate-500 hover:text-slate-900"
             onClick={() => navigate('/orders')}>
             <FaArrowLeft className="mr-1.5 h-3.5 w-3.5" /> Orders
           </Button>
           <div className="h-6 w-px bg-slate-200" />
-          <h1 className="text-lg font-black tracking-tight text-slate-900 md:text-xl">#{order.orderId}</h1>
+          <h1 className="text-lg font-bold tracking-tight text-slate-900 md:text-xl">#{order.orderId}</h1>
           <span className="flex items-center gap-1.5">
-            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Status</span>
-            <StatusBadge status={order.orderStatus} type="order" className="font-black uppercase tracking-wide" />
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Status</span>
+            <StatusBadge status={order.orderStatus} type="order" className="font-semibold uppercase tracking-wide" />
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Payment</span>
-            <StatusBadge status={order.paymentStatus} type="payment" className="font-black uppercase tracking-wide" />
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Payment</span>
+            <StatusBadge status={order.paymentStatus} type="payment" className="font-semibold uppercase tracking-wide" />
           </span>
           {(order.orderType ?? order.order_type) === 'b2b' ? (
-            <Badge className="border-purple-200 bg-purple-100 font-black uppercase text-purple-800 hover:bg-purple-100">
+            <Badge className="border-purple-200 bg-purple-100 font-semibold uppercase text-purple-800 hover:bg-purple-100">
               B2B{(order.b2bTier ?? order.b2b_tier) ? ` · ${order.b2bTier ?? order.b2b_tier}` : ''}
             </Badge>
           ) : (
-            <Badge variant="outline" className="font-bold uppercase text-slate-500">Retail</Badge>
+            <Badge variant="outline" className="font-medium uppercase text-slate-500">Retail</Badge>
           )}
           {/* Placed via the storefront's Bulk Order Platform + the buyer's own
               PO reference — both live in the order notes (portal checkout
               hand-off convention), surfaced here so staff never dig for them. */}
           {viaBulkPortal && (
-            <Badge variant="outline" className="border-amber-400 bg-amber-50 font-bold text-amber-800">
+            <Badge variant="outline" className="border-amber-400 bg-amber-50 font-medium text-amber-800">
               Bulk Order Platform
             </Badge>
           )}
           {poRef && (
-            <Badge variant="outline" className="border-blue-300 bg-blue-50 font-bold text-blue-700"
+            <Badge variant="outline" className="border-blue-300 bg-blue-50 font-medium text-blue-700"
               title="Buyer's purchase-order reference">
               PO: {poRef}
             </Badge>
           )}
           {(order.isFlagged ?? order.is_flagged) && (
-            <Badge variant="outline" className="border-red-300 bg-red-50 font-bold text-red-700">Flagged</Badge>
+            <Badge variant="outline" className="border-red-300 bg-red-50 font-medium text-red-700">Flagged</Badge>
+          )}
+          {/* Return window and money already returned — neither appears in the
+              items table, so both stay on the bar. */}
+          {(order.returnDeadline ?? order.return_deadline) && (
+            <span className="text-xs text-slate-500">
+              Return window {new Date(order.returnDeadline ?? order.return_deadline) > new Date() ? 'closes' : 'closed'}{' '}
+              <span className="font-medium tabular-nums text-slate-700">
+                {formatDate(order.returnDeadline ?? order.return_deadline, 'dd MMM yyyy', '')}
+              </span>
+            </span>
+          )}
+          {Number(order.refundedAmount ?? order.refunded_amount ?? 0) > 0 && (
+            <Badge variant="outline" className="border-orange-300 bg-orange-50 font-semibold tabular-nums text-orange-700">
+              Refunded {fmtRupees(order.refundedAmount ?? order.refunded_amount)}
+            </Badge>
           )}
           <div className="ml-auto flex items-center gap-2">
             {/* Walks the same sequence the Orders list last rendered — same
@@ -787,60 +811,18 @@ const OrderDetail: React.FC = () => {
           </div>
         </div>
 
-        {/* Second row: the numbers an operator checks first, without scrolling. */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 border-t border-slate-100 bg-slate-50/80 px-4 py-1 text-xs md:px-6">
-          <span className="font-black uppercase tracking-wider text-slate-400">Total</span>
-          <span className="-ml-3.5 text-base font-black tabular-nums text-slate-900">
-            {fmtRupees(order.total || 0)}
-          </span>
-          <span className="font-semibold text-slate-500">
-            {itemCount} line{itemCount === 1 ? '' : 's'} · {unitCount} unit{unitCount === 1 ? '' : 's'}
-          </span>
-          <span className="font-semibold text-slate-500">
-            {order.paymentMethod === 'cod' ? 'Cash on delivery' : 'Prepaid'}
-            {order.paymentGateway ? ` · ${order.paymentGateway}` : ''}
-          </span>
-          <span className="flex items-baseline gap-1.5">
-            <span className="font-black uppercase tracking-wider text-slate-400">Placed</span>
-            <span className="text-sm font-bold tabular-nums text-slate-700">
-              {formatDate(order.createdAt ?? order.created_at, 'dd MMM yyyy', 'N/A')}
-            </span>
-            <span className="text-sm font-bold tabular-nums text-slate-500">
-              {formatDate(order.createdAt ?? order.created_at, 'hh:mm a', '')}
-            </span>
-          </span>
-          {(order.returnDeadline ?? order.return_deadline) && (
-            <span className="font-semibold text-slate-500">
-              Return window {new Date(order.returnDeadline ?? order.return_deadline) > new Date() ? 'closes' : 'closed'}{' '}
-              {formatDate(order.returnDeadline ?? order.return_deadline, 'dd MMM yyyy', '')}
-            </span>
-          )}
-          {Number(order.refundedAmount ?? order.refunded_amount ?? 0) > 0 && (
-            <span className="font-black text-orange-700">
-              Refunded {fmtRupees(order.refundedAmount ?? order.refunded_amount)}
-            </span>
-          )}
-        </div>
-      </div>
-
-      <div className="space-y-4 p-4 md:p-6">
-      {/* Action toolbar — every write on this order. Framed as its own surface so
-          it reads as a control strip rather than buttons floating on the page. */}
-      {/* Three groups: STATUS on the left, CUSTOMER COMMS in the middle,
-          FULFILMENT pushed right — instead of one long wrap that put buttons
-          wherever they happened to land. */}
-      <div className="grid grid-cols-1 items-center gap-2 rounded-lg border-2 border-slate-200 bg-white p-2 lg:grid-cols-[auto_1fr_auto]">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-2 bg-muted/50 p-1 rounded-md border">
+        {/* Every write on this order, on one band. */}
+        <div className="flex flex-wrap items-center gap-2 bg-slate-900 px-4 py-2 md:px-6">
+          <div className="flex items-center gap-2 rounded-md border border-white/15 bg-white/5 p-1">
             <Input
               type="text"
               placeholder="Status note..."
               value={statusNotes}
               onChange={(e) => setStatusNotes(e.target.value)}
-              className="h-9 w-40 sm:w-48 bg-background border-none shadow-none"
+              className="h-8 w-36 border-none bg-transparent text-slate-100 shadow-none placeholder:text-slate-500 sm:w-44"
             />
             <Select value={order.orderStatus} onValueChange={handleStatusUpdate} disabled={updating || !hasPerm('orders.manage')}>
-              <SelectTrigger className="h-9 w-[130px] border-none bg-background shadow-none font-medium capitalize">
+              <SelectTrigger className="h-8 w-[128px] border-none bg-transparent font-medium capitalize text-slate-100 shadow-none">
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent>
@@ -850,7 +832,7 @@ const OrderDetail: React.FC = () => {
                   </SelectItem>
                 ))}
                 {statusOptions.length === 1 && (
-                  <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                  <div className="px-2 py-1.5 text-xs text-slate-500">
                     No further changes — this order is closed.
                   </div>
                 )}
@@ -858,14 +840,14 @@ const OrderDetail: React.FC = () => {
             </Select>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 gap-y-1 isolate lg:justify-end">
+          <div className="isolate flex flex-wrap items-center gap-2 gap-y-1">
             {/* One menu for every customer message on every channel. WhatsApp/SMS
                 go through notifyCustomer (store credentials + real errors);
                 email keeps the existing templated sender. A COD order that can
                 still be paid online carries its pay-link in the message. */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button type="button" variant="outline" size="sm" className="h-9 text-green-700 hover:text-green-800"
+                <Button type="button" variant="outline" size="sm" className="h-8 border-white/20 bg-white/10 text-emerald-200 hover:bg-white/20 hover:text-emerald-100"
                   disabled={sendingNotify !== null || sendingEmail !== null}>
                   <FaEnvelope className="mr-2 h-3.5 w-3.5" />
                   {sendingNotify || sendingEmail ? 'Sending…' : 'Send'}
@@ -914,7 +896,7 @@ const OrderDetail: React.FC = () => {
             {/* Invoice: download the PDF or send it on a specific channel. */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button type="button" variant="outline" size="sm" className="h-9 text-purple-700 hover:text-purple-800"
+                <Button type="button" variant="outline" size="sm" className="h-8 border-white/20 bg-white/10 text-violet-200 hover:bg-white/20 hover:text-violet-100"
                   disabled={invoiceBusy !== null}>
                   <FaFileInvoice className="mr-2 h-3.5 w-3.5" />
                   {invoiceBusy ? `Invoice (${invoiceBusy})…` : 'Invoice'}
@@ -938,7 +920,7 @@ const OrderDetail: React.FC = () => {
             </DropdownMenu>
 
             {hasPerm('orders.manage') && order.orderStatus === 'pending' && order.paymentMethod === 'prepaid' && order.paymentStatus !== 'completed' && (
-              <Button variant="secondary" size="sm" className="h-9 bg-yellow-100 text-yellow-800 hover:bg-yellow-200"
+              <Button variant="secondary" size="sm" className="h-8 bg-amber-400/20 text-amber-100 hover:bg-amber-400/30"
                 onClick={() => setShowPaymentVerifyModal(true)}>
                 <FaCreditCard className="mr-2 h-3.5 w-3.5" /> Verify Payment
               </Button>
@@ -954,7 +936,7 @@ const OrderDetail: React.FC = () => {
                 genuinely unpaid. */}
             {hasPerm('orders.manage') && order.paymentMethod === 'prepaid' && order.paymentStatus !== 'completed'
               && !['cancelled', 'returned'].includes(order.orderStatus) && (
-              <Button variant="secondary" size="sm" className="h-9 bg-emerald-100 text-emerald-800 hover:bg-emerald-200"
+              <Button variant="secondary" size="sm" className="h-8 bg-emerald-400/20 text-emerald-100 hover:bg-emerald-400/30"
                 onClick={() => setShowMarkAsPaidModal(true)}>
                 <FaMoneyCheckAlt className="mr-2 h-3.5 w-3.5" /> Mark as Paid
               </Button>
@@ -965,14 +947,14 @@ const OrderDetail: React.FC = () => {
                 paid or in a terminal state, not just while order_status is pending. */}
             {hasPerm('orders.manage') && order.paymentMethod === 'cod' && order.paymentStatus !== 'completed'
               && !['cancelled', 'returned'].includes(order.orderStatus) && (
-              <Button variant="secondary" size="sm" className="h-9 bg-green-100 text-green-800 hover:bg-green-200"
+              <Button variant="secondary" size="sm" className="h-8 bg-green-400/20 text-green-100 hover:bg-green-400/30"
                 onClick={() => setShowRecordCodPayment(true)}>
                 <FaCreditCard className="mr-2 h-3.5 w-3.5" /> Record Payment
               </Button>
             )}
 
             {hasPerm('orders.manage') && order.orderStatus === 'pending' && (
-              <Button variant="default" size="sm" className="h-9 bg-green-600 hover:bg-green-700"
+              <Button variant="default" size="sm" className="h-8 bg-emerald-600 text-white hover:bg-emerald-500"
                 onClick={handleConfirmOrder} disabled={confirmingOrder || (order.paymentMethod === 'prepaid' && order.paymentStatus !== 'completed')}>
                 <FaCheckCircle className="mr-2 h-3.5 w-3.5" /> {confirmingOrder ? 'Confirming...' : 'Confirm Order'}
               </Button>
@@ -980,20 +962,20 @@ const OrderDetail: React.FC = () => {
 
             {/* Hold / release — parks an order (stock query, address doubt) without cancelling. */}
             {hasPerm('orders.manage') && ['pending', 'confirmed', 'processing'].includes(order.orderStatus) && (
-              <Button variant="secondary" size="sm" className="h-9 bg-orange-100 text-orange-800 hover:bg-orange-200"
+              <Button variant="secondary" size="sm" className="h-8 bg-orange-400/20 text-orange-100 hover:bg-orange-400/30"
                 onClick={() => handleStatusUpdate('on_hold')} disabled={updating}>
                 Put on Hold
               </Button>
             )}
             {hasPerm('orders.manage') && order.orderStatus === 'on_hold' && (
-              <Button variant="secondary" size="sm" className="h-9 bg-blue-100 text-blue-800 hover:bg-blue-200"
+              <Button variant="secondary" size="sm" className="h-8 bg-blue-400/20 text-blue-100 hover:bg-blue-400/30"
                 onClick={() => handleStatusUpdate('confirmed')} disabled={updating}>
                 Release Hold
               </Button>
             )}
 
             {canAccess('shipping') && hasPerm('shipments.manage') && ['confirmed', 'processing', 'shipped'].includes(order.orderStatus) && (
-              <Button variant="default" size="sm" className="h-9 bg-blue-600 hover:bg-blue-700"
+              <Button variant="default" size="sm" className="h-8 bg-blue-600 text-white hover:bg-blue-500"
                 onClick={() => setShowShipmentModal(true)} disabled={sendingToShiprocket}>
                 <FaTruck className="mr-2 h-3.5 w-3.5" /> {sendingToShiprocket ? 'Creating...' : order.shippingProvider ? 'Reship Order' : 'Create Shipment'}
               </Button>
@@ -1002,14 +984,14 @@ const OrderDetail: React.FC = () => {
             {hasPerm('orders.manage')
               && ['cancelled', 'returned', 'partially_refunded'].includes(order.orderStatus)
               && Number(order.refundedAmount ?? order.refunded_amount ?? 0) < Number(order.total ?? 0) && (
-              <Button variant="outline" size="sm" className="h-9 border-orange-300 text-orange-700 hover:bg-orange-50"
+              <Button variant="outline" size="sm" className="h-8 border-orange-400/40 bg-orange-500/15 text-orange-100 hover:bg-orange-500/25"
                 onClick={() => setShowRaiseRefund(true)}>
                 <FaMoneyCheckAlt className="mr-2 h-3.5 w-3.5" /> Refund
               </Button>
             )}
 
             {hasPerm('orders.manage') && order.orderStatus === 'delivered' && (
-              <Button variant="default" size="sm" className="h-9 bg-indigo-600 hover:bg-indigo-700"
+              <Button variant="default" size="sm" className="h-8 bg-indigo-500 text-white hover:bg-indigo-400"
                 onClick={handleMarkCompleted} disabled={updating}>
                 <FaCheckCircle className="mr-2 h-3.5 w-3.5" /> {updating ? 'Updating...' : 'Mark as Completed'}
               </Button>
@@ -1023,11 +1005,11 @@ const OrderDetail: React.FC = () => {
                 the instant one parcel arrives. */}
             {canAccess('shipping') && hasPerm('shipments.manage') && actionableShipments.length > 0 && (
               <>
-                <Button variant="outline" size="sm" className="h-9 border-green-300 text-green-700 hover:bg-green-50"
+                <Button variant="outline" size="sm" className="h-8 border-emerald-400/40 bg-emerald-500/15 text-emerald-100 hover:bg-emerald-500/25"
                   onClick={() => setDeliveryModalMode('delivered')}>
                   <FaCheckCircle className="mr-2 h-3.5 w-3.5" /> Mark Delivered
                 </Button>
-                <Button variant="outline" size="sm" className="h-9 border-orange-300 text-orange-700 hover:bg-orange-50"
+                <Button variant="outline" size="sm" className="h-8 border-orange-400/40 bg-orange-500/15 text-orange-100 hover:bg-orange-500/25"
                   onClick={() => setDeliveryModalMode('rto')}>
                   <FaTruck className="mr-2 h-3.5 w-3.5" /> Mark RTO / Failed Delivery
                 </Button>
@@ -1038,18 +1020,18 @@ const OrderDetail: React.FC = () => {
                 Order Information / Payment cards. */}
             {canAccess('shipping') && hasPerm('shipments.manage') && !shiprocketAwb
               && (order.shiprocketShipmentId ?? order.shiprocket_shipment_id) && (
-              <Button variant="outline" size="sm" className="h-9" onClick={handleAssignAwb} disabled={assigningAwb}>
+              <Button variant="outline" size="sm" className="h-8 border-white/20 bg-white/10 text-slate-100 hover:bg-white/20 hover:text-white" onClick={handleAssignAwb} disabled={assigningAwb}>
                 {assigningAwb ? 'Assigning…' : 'Assign AWB'}
               </Button>
             )}
             {canAccess('shipping') && hasPerm('shipments.manage')
               && !order.shipmentId && !(order.shiprocketShipmentId ?? order.shiprocket_shipment_id) && (
-              <Button variant="outline" size="sm" className="h-9" onClick={handleAttachAwb} disabled={attachingAwb}>
+              <Button variant="outline" size="sm" className="h-8 border-white/20 bg-white/10 text-slate-100 hover:bg-white/20 hover:text-white" onClick={handleAttachAwb} disabled={attachingAwb}>
                 {attachingAwb ? 'Attaching…' : 'Attach AWB'}
               </Button>
             )}
             {hasPerm('orders.manage') && order.razorpayPaymentId && (
-              <Button variant="outline" size="sm" className="h-9 ml-2 text-indigo-700 hover:text-indigo-800"
+              <Button variant="outline" size="sm" className="ml-2 h-8 border-white/20 bg-white/10 text-indigo-200 hover:bg-white/20 hover:text-indigo-100"
                 onClick={handleAuditRazorpayPayment} disabled={auditingRazorpay}>
                 <FaCreditCard className="mr-2 h-3.5 w-3.5" />
                 {auditingRazorpay ? 'Checking…' : 'Verify with Razorpay'}
@@ -1059,6 +1041,7 @@ const OrderDetail: React.FC = () => {
         </div>
       </div>
 
+      <div className="space-y-4 p-4 md:p-6">
       <OrderProgressStepper
         orderStatus={order.orderStatus}
         paymentStatus={order.paymentStatus}
@@ -1068,182 +1051,95 @@ const OrderDetail: React.FC = () => {
         deliveredAt={order.deliveredAt ?? order.delivered_at}
       />
 
-      {/* Full width, not inside the 2/3 column: this table now carries the WHOLE
-          money story of the order — 13 line columns (SKU / Product+HSN / Brand /
-          Variation / MRP / Rate / Qty / Disc % / Disc amount / Taxable / GST /
-          Total), a totals row for every one of them, and the order calculation
-          itself as numbered footer steps. In a two-thirds column the money
-          columns fell off the right edge behind a scrollbar. */}
-      {/* Items table ~80%, order authenticity in the remaining column — the
-          score belongs next to the money it is judging, not three sections
-          below it. Stacks on anything narrower than xl. */}
-      <div className="grid grid-cols-1 gap-4 2xl:grid-cols-5">
-        <div className="2xl:col-span-4">
+      {/* The items table takes the FULL width: it carries the whole money story
+          of the order — 13 line columns, a total for every one of them, and the
+          order calculation itself as footer steps — and needs ~1040px before
+          Total / GST / Taxable start falling off the right edge. */}
       <OrderItems
-        items={order.items || []}
-        b2bTier={order.b2bTier ?? order.b2b_tier}
-        orderDiscount={Number(order.discount) || 0}
-        subtotal={Number(order.subtotal) || 0}
-        shipping={Number(order.shippingCost ?? order.shipping_cost ?? order.shipping ?? 0)}
-        total={Number(order.total) || 0}
-        gst={order.gst}
-        amountReceived={order.amountReceived}
-        couponCode={order.couponCode ?? order.coupon_code}
-        discountReason={order.discountReason ?? order.discount_reason}
-        discountItems={order.discountItems ?? order.discount_items}
-        orderNotes={order.notes}
-        paymentMethod={order.paymentMethod}
-        paymentGateway={order.paymentGateway}
-        placedAt={order.createdAt ?? order.created_at}
-        orderType={order.orderType ?? order.order_type}
-        customerGstin={order.customerGstin ?? order.customer_gstin}
-        salesperson={order.salesperson}
-        importedFrom={order.importedFrom ?? order.imported_from}
-        onRemoveShipping={isOrderEditable ? () => handleRemoveCharge('shipping') : undefined}
-        onRemoveCod={isOrderEditable ? () => handleRemoveCharge('cod') : undefined}
-        removingCharge={removingCharge}
-        /* Items are editable only while unpaid and unshipped. */
-        headerAction={isOrderEditable ? (
-          <Button size="sm" variant="outline" className="h-7 text-xs font-bold"
-            onClick={() => setShowEditItems(true)}>
-            Edit items
-          </Button>
-        ) : undefined}
+            items={order.items || []}
+            b2bTier={order.b2bTier ?? order.b2b_tier}
+            orderDiscount={Number(order.discount) || 0}
+            subtotal={Number(order.subtotal) || 0}
+            shipping={Number(order.shippingCost ?? order.shipping_cost ?? order.shipping ?? 0)}
+            total={Number(order.total) || 0}
+            gst={order.gst}
+            amountReceived={order.amountReceived}
+            couponCode={order.couponCode ?? order.coupon_code}
+            discountReason={order.discountReason ?? order.discount_reason}
+            discountItems={order.discountItems ?? order.discount_items}
+            orderNotes={order.notes}
+            paymentMethod={order.paymentMethod}
+            paymentGateway={order.paymentGateway}
+            placedAt={order.createdAt ?? order.created_at}
+            orderType={order.orderType ?? order.order_type}
+            customerGstin={order.customerGstin ?? order.customer_gstin}
+            salesperson={order.salesperson}
+            importedFrom={order.importedFrom ?? order.imported_from}
+            onRemoveShipping={isOrderEditable ? () => handleRemoveCharge('shipping') : undefined}
+            onRemoveCod={isOrderEditable ? () => handleRemoveCharge('cod') : undefined}
+            removingCharge={removingCharge}
+            /* Items are editable only while unpaid and unshipped. */
+            headerAction={isOrderEditable ? (
+              <Button size="sm" variant="outline" className="h-7 text-xs font-semibold"
+                onClick={() => setShowEditItems(true)}>
+                Edit items
+              </Button>
+            ) : undefined}
       />
-        </div>
-        <div className="2xl:col-span-1">
-          <div className="space-y-4">
-            <OrderCustomerCard
-              customerId={order.customerId ?? order.customer_id}
-              shippingAddress={order.shippingAddress || order.shipping_address}
-              orderTotal={Number(order.total) || 0}
-              onWhatsAppClick={handleWhatsAppClick}
-            />
 
-      {order.risk && (() => {
-        // Authenticity reads HIGHER = BETTER (100 = fully trustworthy).
-        const authenticity: number = order.risk.authenticity ?? Math.max(0, 100 - (order.risk.score ?? 0));
-        const tone = authenticity >= 80
-          ? { label: 'Authentic', text: 'text-green-700', chip: 'bg-green-100 text-green-700', bar: 'bg-green-500' }
-          : authenticity >= 50
-            ? { label: 'Review advised', text: 'text-yellow-700', chip: 'bg-yellow-100 text-yellow-700', bar: 'bg-yellow-500' }
-            : { label: 'High risk', text: 'text-red-700', chip: 'bg-red-100 text-red-700', bar: 'bg-red-500' };
-        const standing = order.risk.standing;
-        return (
-          <Card className="shadow-sm">
-            <CardHeader className="px-4 py-2.5 border-b">
-              <CardTitle className="text-base flex items-center justify-between">
-                <span>Order Authenticity</span>
-                <span className={`text-xs font-semibold px-2 py-1 rounded-full ${tone.chip}`}>
-                  {tone.label}
-                </span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-4">
-              {/* Score gauge — the higher the score, the more authentic. */}
-              <div className="flex items-end justify-between mb-1">
-                <span className={`text-3xl font-bold ${tone.text}`}>{authenticity}</span>
-                <span className="text-xs text-muted-foreground mb-1">/ 100</span>
-              </div>
-              <div className="h-2.5 rounded-full bg-muted overflow-hidden mb-1">
-                <div className={`h-full rounded-full ${tone.bar}`} style={{ width: `${Math.max(2, authenticity)}%` }} />
-              </div>
-              <div className="flex justify-between text-[10px] text-muted-foreground mb-3">
-                <span className="text-red-600">Risky</span>
-                <span className="text-yellow-600">Review</span>
-                <span className="text-green-600">Authentic</span>
-              </div>
-
-                            {order.risk.flags?.length > 0 ? (
-                <ul className="space-y-2">
-                  {order.risk.flags.map((f: any, i: number) => (
-                    <li key={i} className="flex items-start gap-2 text-sm">
-                      <span className={`mt-1 h-2 w-2 rounded-full shrink-0 ${
-                        f.severity === 'high' ? 'bg-red-500' : f.severity === 'medium' ? 'bg-yellow-500' : 'bg-gray-400'
-                      }`} />
-                      <span className="text-foreground">{f.message}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-sm text-green-700">No risk signals detected.</p>
-              )}
-              {standing && standing.totalOrders > 0 && (
-                <p className="text-xs text-muted-foreground mt-3 pt-3 border-t">
-                  Platform history: {standing.totalOrders} order(s) across {standing.storeCount} store(s),
-                  {' '}{standing.totalCancelled} cancelled/returned.
-                </p>
-              )}
-              {order.risk.ipGeo && (
-                <p className="text-xs text-muted-foreground mt-2">
-                  Order IP geolocates to {[order.risk.ipGeo.city, order.risk.ipGeo.region, order.risk.ipGeo.country].filter(Boolean).join(', ') || 'an unknown location'}.
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        );
-      })()}
-          </div>
-        </div>
-      </div>
-
-          {/* Ship-to and bill-to read together (they used to sit in two cards
-          several screens apart, with payment and refunds between them), plus
-          the ships-from / invoiced-by block the shipping card used to own. */}
-      {/* Addresses beside the customer — near-identical heights, so pairing them
-          costs no vertical space and keeps who/where together. */}
-      <OrderAddressPanel
-          shippingAddress={order.shippingAddress || order.shipping_address}
-          billingAddress={order.billingAddress || order.billing_address}
-          warehouseId={order.warehouseId}
-          gst={order.gst}
-          customerGstin={order.customerGstin ?? order.customer_gstin}
-          onWhatsAppClick={handleWhatsAppClick}
-          shippingAction={
-            <OrderAddressEditor
-              orderId={order._id || order.id}
-              orderStatus={order.orderStatus || order.order_status}
-              kind="shipping"
-              address={order.shippingAddress || order.shipping_address}
-              onSaved={(next: any) => setOrder((o: any) => ({ ...o, shippingAddress: next, shipping_address: next }))}
-            />
-          }
-          billingAction={
-            <OrderAddressEditor
-              orderId={order._id || order.id}
-              orderStatus={order.orderStatus || order.order_status}
-              kind="billing"
-              address={order.billingAddress || order.billing_address || order.shippingAddress || order.shipping_address}
-              onSaved={(next: any) => setOrder((o: any) => ({ ...o, billingAddress: next, billing_address: next }))}
-            />
-          }
-        />
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 space-y-4">
-          {/* Internal notes FIRST in the wide column (owner call, 2026-09-06):
-              they are working notes — read and added while acting on the order —
-              and were previously below every other card on the page. */}
-          <Card className="shadow-sm">
-            <CardContent className="p-0">
-              <OrderNotes
-                notes={order.orderNotes || order.order_notes || []}
-                onAdd={handleAddNote}
-                saving={savingNotes}
+      {/* ~80/20 from here down. The rail reads top-down in the order the desk
+          asks its questions: who is this · can we trust it · how is it billed ·
+          where is the parcel · what has been said and done. */}
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="min-w-0 space-y-4">
+          {/* Ship-to and bill-to read together, with ships-from / invoiced-by /
+              fulfilment as one footer strip — the three facts an invoice or a
+              packing query needs, side by side. */}
+          <OrderAddressPanel
+            shippingAddress={order.shippingAddress || order.shipping_address}
+            billingAddress={order.billingAddress || order.billing_address}
+            warehouseId={order.warehouseId}
+            gst={order.gst}
+            customerGstin={order.customerGstin ?? order.customer_gstin}
+            onWhatsAppClick={handleWhatsAppClick}
+            fulfillmentSlot={
+              <OrderFulfillmentCard
+                variant="inline"
+                fulfillment={order.fulfillment}
+                shipments={order.shipments}
+                sla={order.sla}
               />
-            </CardContent>
-          </Card>
+            }
+            shippingAction={
+              <OrderAddressEditor
+                orderId={order._id || order.id}
+                orderStatus={order.orderStatus || order.order_status}
+                kind="shipping"
+                address={order.shippingAddress || order.shipping_address}
+                onSaved={(next: any) => setOrder((o: any) => ({ ...o, shippingAddress: next, shipping_address: next }))}
+              />
+            }
+            billingAction={
+              <OrderAddressEditor
+                orderId={order._id || order.id}
+                orderStatus={order.orderStatus || order.order_status}
+                kind="billing"
+                address={order.billingAddress || order.billing_address || order.shippingAddress || order.shipping_address}
+                onSaved={(next: any) => setOrder((o: any) => ({ ...o, billingAddress: next, billing_address: next }))}
+              />
+            }
+          />
 
           {/* Review-and-pay link — Shopify-style page the customer can open to
               check the order and pay online (works for COD before dispatch too). */}
           {payLink && (
-            <Card className="shadow-sm border-emerald-200 bg-emerald-50/40">
-              <CardContent className="py-2 px-4 flex items-center justify-between gap-3 flex-wrap">
+            <Card className="border-emerald-200 bg-emerald-50/40 shadow-sm">
+              <CardContent className="flex flex-wrap items-center justify-between gap-3 px-4 py-2">
                 <div className="min-w-0">
-                  <p className="text-sm font-semibold text-foreground">Customer payment / confirmation link</p>
-                  <p className="text-xs font-mono text-muted-foreground break-all">{payLink}</p>
+                  <p className="text-sm font-semibold text-slate-800">Customer payment / confirmation link</p>
+                  <p className="break-all font-mono text-xs text-slate-500">{payLink}</p>
                 </div>
-                <div className="flex gap-2 shrink-0">
+                <div className="flex shrink-0 gap-2">
                   <Button size="sm" variant="outline"
                     onClick={() => { navigator.clipboard.writeText(payLink); toast({ title: 'Link copied' }); }}>
                     Copy
@@ -1255,12 +1151,6 @@ const OrderDetail: React.FC = () => {
               </CardContent>
             </Card>
           )}
-
-          <OrderFulfillmentCard
-            fulfillment={order.fulfillment}
-            shipments={order.shipments}
-            sla={order.sla}
-          />
 
           <Card className="shadow-sm">
             <CardContent className="p-0">
@@ -1289,25 +1179,107 @@ const OrderDetail: React.FC = () => {
             </CardContent>
           </Card>
 
-          {/* Money that went BACK — refund id, rail and status. Renders nothing
-              when the order has no refunds. */}
-          <OrderRefunds refunds={order.refunds} />
+          {/* Money that went BACK — refund id, rail, gateway reference and when.
+              Renders nothing when the order has no refunds. */}
+          <OrderRefunds
+            refunds={order.refunds}
+            gatewayPaymentId={order.razorpayPaymentId ?? order.razorpay_payment_id ?? null}
+          />
 
-          {/* Timeline and internal notes live in the WIDE column: both are
-              text-heavy and were being wrapped to 4-5 words per line in the
-              sidebar. */}
-          <Card className="shadow-sm">
-            <CardContent className="p-0">
-              <OrderStatusHistory statusHistory={order.statusHistory} />
-            </CardContent>
-          </Card>
-
+          {/* Marketing journey and sales ownership — independent read-mostly
+              panels, so they tile rather than stack. */}
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <OrderJourneyCard attribution={order.attribution} />
+            <OrderTeamCard
+              orderId={order.id ?? order._id}
+              orderNumber={order.orderId}
+              salesAgentId={order.salesAgentId ?? order.sales_agent_id ?? null}
+              assignedTo={order.assignedTo ?? order.assigned_to ?? null}
+              assignedAt={order.assignedAt ?? order.assigned_at ?? null}
+              salesType={order.salesType ?? order.sales_type ?? null}
+              createdByUserId={order.userId ?? order.user_id ?? null}
+              createdByName_={order.createdByName ?? order.created_by_name ?? null}
+              salesAgentName={order.salesAgentName ?? order.sales_agent_name ?? null}
+              assignedToName={order.assignedToName ?? order.assigned_to_name ?? null}
+              salesperson={order.salesperson ?? null}
+              canManage={hasPerm('orders.manage')}
+              onChanged={fetchOrder}
+            />
+          </div>
         </div>
 
+        {/* ── Side rail ── */}
         <div className="space-y-4">
+          <OrderCustomerCard
+            customerId={order.customerId ?? order.customer_id}
+            shippingAddress={order.shippingAddress || order.shipping_address}
+            orderTotal={Number(order.total) || 0}
+            onWhatsAppClick={handleWhatsAppClick}
+          />
 
-          {/* Invoice number from the store's own billing software, salesperson,
-              and an uploaded invoice PDF that replaces the generated one. */}
+          {order.risk && (() => {
+            // Authenticity reads HIGHER = BETTER (100 = fully trustworthy).
+            const authenticity: number = order.risk.authenticity ?? Math.max(0, 100 - (order.risk.score ?? 0));
+            const tone = authenticity >= 80
+              ? { label: 'Authentic', text: 'text-emerald-700', chip: 'bg-emerald-100 text-emerald-700', bar: 'bg-emerald-500' }
+              : authenticity >= 50
+                ? { label: 'Review advised', text: 'text-amber-700', chip: 'bg-amber-100 text-amber-700', bar: 'bg-amber-500' }
+                : { label: 'High risk', text: 'text-red-700', chip: 'bg-red-100 text-red-700', bar: 'bg-red-500' };
+            const standing = order.risk.standing;
+            return (
+              <Card className="shadow-sm">
+                <CardHeader className="border-b bg-slate-50/80 px-4 py-2.5">
+                  <CardTitle className="flex items-center justify-between text-sm font-semibold uppercase tracking-wide text-slate-700">
+                    <span>Order authenticity</span>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${tone.chip}`}>
+                      {tone.label}
+                    </span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-4">
+                  <div className="mb-1 flex items-end justify-between">
+                    <span className={`text-3xl font-bold tabular-nums ${tone.text}`}>{authenticity}</span>
+                    <span className="mb-1 text-xs text-slate-400">/ 100</span>
+                  </div>
+                  <div className="mb-1 h-2 overflow-hidden rounded-full bg-slate-100">
+                    <div className={`h-full rounded-full ${tone.bar}`} style={{ width: `${Math.max(2, authenticity)}%` }} />
+                  </div>
+                  <div className="mb-3 flex justify-between text-[10px] text-slate-400">
+                    <span>Risky</span><span>Review</span><span>Authentic</span>
+                  </div>
+
+                  {order.risk.flags?.length > 0 ? (
+                    <ul className="space-y-1.5">
+                      {order.risk.flags.map((f: any, i: number) => (
+                        <li key={i} className="flex items-start gap-2 text-sm">
+                          <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
+                            f.severity === 'high' ? 'bg-red-500' : f.severity === 'medium' ? 'bg-amber-500' : 'bg-slate-400'
+                          }`} />
+                          <span className="text-slate-700">{f.message}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-emerald-700">No risk signals detected.</p>
+                  )}
+                  {standing && standing.totalOrders > 0 && (
+                    <p className="mt-3 border-t pt-3 text-xs text-slate-500">
+                      Platform history: {standing.totalOrders} order(s) across {standing.storeCount} store(s),
+                      {' '}{standing.totalCancelled} cancelled/returned.
+                    </p>
+                  )}
+                  {order.risk.ipGeo && (
+                    <p className="mt-2 text-xs text-slate-500">
+                      Order IP geolocates to {[order.risk.ipGeo.city, order.risk.ipGeo.region, order.risk.ipGeo.country].filter(Boolean).join(', ') || 'an unknown location'}.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })()}
+
+          {/* Invoice number from the store's own billing software, invoice date,
+              and an uploaded PDF that replaces the generated invoice. */}
           <OrderBillingCard
             orderId={id!}
             invoiceNumber={order.invoiceNumber ?? order.invoice_number}
@@ -1316,161 +1288,123 @@ const OrderDetail: React.FC = () => {
             manualInvoiceUrl={order.manualInvoiceUrl ?? order.manual_invoice_url}
             manualInvoiceFilename={order.manualInvoiceFilename ?? order.manual_invoice_filename}
             manualInvoiceUploadedBy={order.manualInvoiceUploadedBy ?? order.manual_invoice_uploaded_by}
+            gstin={order.gst?.storeGstin}
+            taxType={order.gst?.taxType}
             canManage={hasPerm('orders.manage')}
             onSaved={fetchOrder}
           />
 
+          {/* ── Shipping & tracking ── */}
           <Card className="shadow-sm">
-            <CardHeader className="px-4 py-2.5 border-b">
-              <CardTitle className="text-base">Shipping &amp; tracking</CardTitle>
+            <CardHeader className="border-b bg-slate-50/80 px-4 py-2.5">
+              <CardTitle className="text-sm font-semibold uppercase tracking-wide text-slate-700">
+                Shipping &amp; tracking
+              </CardTitle>
             </CardHeader>
-            <CardContent className="p-4">
-              <div className="space-y-2.5 text-sm">
-                <div>
-                {order.paymentMethod === 'cod' && (
-                  <div>
-                    <p className="text-muted-foreground mb-1">COD Verification</p>
-                    <Badge className={(order.isOtpVerified ?? order.is_otp_verified)
-                      ? 'bg-green-500/15 text-green-700 border-green-200 hover:bg-green-500/25'
-                      : 'bg-yellow-500/15 text-yellow-700 border-yellow-200 hover:bg-yellow-500/25'}>
-                      {(order.isOtpVerified ?? order.is_otp_verified) ? 'Verified (OTP)' : 'Not verified'}
-                    </Badge>
-                  </div>
-                )}
+            <CardContent className="space-y-2 p-4">
+              {order.paymentMethod === 'cod' && (
+                <TrackRow k="COD check" v={
+                  <Badge className={(order.isOtpVerified ?? order.is_otp_verified)
+                    ? 'border-emerald-200 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20'
+                    : 'border-amber-200 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20'}>
+                    {(order.isOtpVerified ?? order.is_otp_verified) ? 'OTP verified' : 'Not verified'}
+                  </Badge>
+                } />
+              )}
+              {order.shippingProvider && (
+                <TrackRow k="Carrier" v={
+                  <span className="capitalize">
+                    {order.shippingProvider}{order.courierName ? ` · ${order.courierName}` : ''}
+                  </span>
+                } />
+              )}
+              {shiprocketAwb && (
+                <TrackRow k="AWB" v={<span className="font-mono text-slate-800">{shiprocketAwb}</span>} />
+              )}
+              {order.delhiveryWaybill && (
+                <TrackRow k="Waybill" v={<span className="font-mono text-slate-800">{order.delhiveryWaybill}</span>} />
+              )}
+              {order.expectedDelivery && (
+                <TrackRow k="Est. delivery" v={formatDate(order.expectedDelivery, 'dd MMM yyyy', 'N/A')} />
+              )}
+              {order.warehouseId && (
+                <TrackRow k="Warehouse" v={(order.warehouseId as any)?.name || 'N/A'} />
+              )}
+              {order.trackingUrl && (
+                <TrackRow k="Tracking" v={
+                  <a href={order.trackingUrl} target="_blank" rel="noopener noreferrer"
+                    className="font-semibold text-blue-700 hover:underline">Track shipment</a>
+                } />
+              )}
+
+              {/* Booked at the carrier but never dispatched — without this the
+                  order looks shipped in Shiprocket while no AWB exists, and the
+                  only visible action (Create Shipment) would duplicate it. */}
+              {!shiprocketAwb && (order.shiprocketShipmentId ?? order.shiprocket_shipment_id) && (
+                <div className="space-y-2 rounded-md border border-amber-200 bg-amber-50 p-2.5">
+                  <p className="text-xs font-semibold text-amber-800">Order created, not dispatched</p>
+                  <p className="text-xs text-amber-700">
+                    Shiprocket order #{order.shiprocketOrderId ?? order.shiprocket_order_id} exists but has no AWB —
+                    usually the Shiprocket wallet is below its ₹100 minimum. Top up, then assign the AWB here;
+                    don&apos;t create the shipment again or a duplicate is booked.
+                  </p>
+                  <Button size="sm" variant="outline" className="h-8" onClick={handleAssignAwb} disabled={assigningAwb}>
+                    {assigningAwb ? 'Assigning…' : 'Assign AWB'}
+                  </Button>
                 </div>
-                {order.trackingUrl && (
-                  <div className="pt-1.5 border-t">
-                    <p className="text-muted-foreground mb-1">Tracking URL</p>
-                    <a href={order.trackingUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 hover:underline font-medium">
-                      Track Shipment
-                    </a>
-                  </div>
-                )}
-                {order.shippingProvider && (
-                  <div className="pt-1.5 border-t">
-                    <p className="text-muted-foreground mb-1">Shipping Provider</p>
-                    <p className="font-medium text-foreground capitalize">{order.shippingProvider}</p>
-                  </div>
-                )}
-                {order.courierName && (
-                  <div className="pt-1.5 border-t">
-                    <p className="text-muted-foreground mb-1">Courier</p>
-                    <p className="font-medium text-foreground">{order.courierName}</p>
-                  </div>
-                )}
-                {order.expectedDelivery && (
-                  <div className="pt-1.5 border-t">
-                    <p className="text-muted-foreground mb-1">Estimated Delivery</p>
-                    <p className="font-medium text-foreground">{formatDate(order.expectedDelivery, 'MMM dd, yyyy', 'N/A')}</p>
-                  </div>
-                )}
-                {shiprocketAwb && (
-                  <div className="pt-1.5 border-t">
-                    <p className="text-muted-foreground mb-1">Shiprocket AWB</p>
-                    <p className="font-mono text-foreground font-medium bg-muted px-2 py-1 rounded w-fit">{shiprocketAwb}</p>
-                  </div>
-                )}
-                {/* Booked at the carrier but never dispatched — without this the
-                    order looks shipped in Shiprocket while no AWB exists, and the
-                    only visible action (Create Shipment) would duplicate it. */}
-                {!shiprocketAwb && (order.shiprocketShipmentId ?? order.shiprocket_shipment_id) && (
-                  <div className="pt-1.5 border-t space-y-2">
-                    <p className="text-muted-foreground mb-1">Shiprocket AWB</p>
-                    <Badge className="bg-yellow-500/15 text-yellow-700 border-yellow-200 hover:bg-yellow-500/25">
-                      Order created, not dispatched
-                    </Badge>
-                    <p className="text-xs text-muted-foreground">
-                      Shiprocket order #{order.shiprocketOrderId ?? order.shiprocket_order_id} exists but has no AWB.
-                      This usually means the Shiprocket account wallet is below its ₹100 minimum.
-                      Top up at shiprocket.in, then assign the AWB here — don&apos;t create the shipment
-                      again or a duplicate order is booked.
-                    </p>
-                    <Button size="sm" variant="outline" onClick={handleAssignAwb} disabled={assigningAwb}>
-                      {assigningAwb ? 'Assigning…' : 'Assign AWB'}
+              )}
+
+              {/* Dispatch-time documents only — once the order is delivered,
+                  cancelled or returned there is nothing left to print one for. */}
+              {order.shipmentId && (order.shippingProvider === 'shiprocket' || order.shippingProvider === 'delhivery') && (
+                <div className="flex flex-wrap gap-2 border-t pt-2.5">
+                  {order.orderStatus === 'shipped' && order.shippingProvider === 'shiprocket' && !order.shiprocketPickupScheduledDate && (
+                    <Button variant="outline" size="sm" className="h-8" onClick={() => setShowPickupModal(true)}>
+                      Schedule pickup
                     </Button>
-                  </div>
-                )}
-                {order.delhiveryWaybill && (
-                  <div className="pt-1.5 border-t">
-                    <p className="text-muted-foreground mb-1">DELHIVERY Waybill</p>
-                    <p className="font-mono text-foreground font-medium bg-muted px-2 py-1 rounded w-fit">{order.delhiveryWaybill}</p>
-                  </div>
-                )}
-                
-                {/* Shipment Actions — Label/Manifest are dispatch-time documents;
-                    once the order is done (delivered/cancelled/returned) there's
-                    nothing left to print one for. Previously shown on every
-                    status as long as an AWB existed, including on a delivered
-                    order from weeks ago. */}
-                {order.shipmentId && (order.shippingProvider === 'shiprocket' || order.shippingProvider === 'delhivery') && (
-                  <div className="pt-3 mt-1 border-t flex flex-wrap gap-2">
-                    {order.orderStatus === 'shipped' && order.shippingProvider === 'shiprocket' && !order.shiprocketPickupScheduledDate && (
-                      <Button variant="outline" size="sm" className="h-9" onClick={() => setShowPickupModal(true)}>
-                        Schedule Pickup
-                      </Button>
-                    )}
-                    {(shiprocketAwb || order.delhiveryWaybill) && !ORDER_TERMINAL_STATUSES.includes(order.orderStatus) && (
-                      <Button variant="outline" size="sm" className="h-9" onClick={handleDownloadLabel}>
-                        Download Label
-                      </Button>
-                    )}
-                    {((order.shippingProvider === 'shiprocket' && shiprocketAwb) || (order.shippingProvider === 'delhivery' && order.delhiveryWaybill)) && !ORDER_TERMINAL_STATUSES.includes(order.orderStatus) && (
-                      <Button variant="outline" size="sm" className="h-9" onClick={handleDownloadManifest}>
-                        Download Manifest
-                      </Button>
-                    )}
-                  </div>
-                )}
-                {order.warehouseId && (
-                  <div className="pt-1.5 border-t">
-                    <p className="text-muted-foreground mb-1">Assigned Warehouse</p>
-                    <p className="font-medium text-foreground">{(order.warehouseId as any)?.name || 'N/A'}</p>
-                  </div>
-                )}
-                {/* No shipment on this order at all — the case where a carrier
-                    dashboard (e.g. Shiprocket panel) was used directly instead of
-                    this app, so nothing here ever learned an AWB exists. */}
-                {!order.shipmentId && !(order.shiprocketShipmentId ?? order.shiprocket_shipment_id) && (
-                  <div className="pt-3 mt-1 border-t">
-                    <p className="text-xs text-muted-foreground mb-2">
-                      Shipped straight from the carrier&apos;s own dashboard? Paste the AWB to link it here.
-                    </p>
-                    <Button variant="outline" size="sm" className="h-9" onClick={handleAttachAwb} disabled={attachingAwb}>
-                      {attachingAwb ? 'Attaching…' : 'Attach AWB (booked elsewhere)'}
-                    </Button>
-                  </div>
-                )}
-              </div>
+                  )}
+                  {(shiprocketAwb || order.delhiveryWaybill) && !ORDER_TERMINAL_STATUSES.includes(order.orderStatus) && (
+                    <Button variant="outline" size="sm" className="h-8" onClick={handleDownloadLabel}>Label</Button>
+                  )}
+                  {((order.shippingProvider === 'shiprocket' && shiprocketAwb) || (order.shippingProvider === 'delhivery' && order.delhiveryWaybill)) && !ORDER_TERMINAL_STATUSES.includes(order.orderStatus) && (
+                    <Button variant="outline" size="sm" className="h-8" onClick={handleDownloadManifest}>Manifest</Button>
+                  )}
+                </div>
+              )}
+
+              {/* Nothing booked here at all — the case where a carrier dashboard
+                  was used directly, so this app never learned an AWB exists. */}
+              {!order.shipmentId && !(order.shiprocketShipmentId ?? order.shiprocket_shipment_id) && (
+                <div className="border-t pt-2.5">
+                  <p className="mb-2 text-xs text-slate-500">
+                    Shipped straight from the carrier&apos;s own dashboard? Paste the AWB to link it here.
+                  </p>
+                  <Button variant="outline" size="sm" className="h-8" onClick={handleAttachAwb} disabled={attachingAwb}>
+                    {attachingAwb ? 'Attaching…' : 'Attach AWB'}
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
 
+          {/* Working notes, then the timeline — read and written while acting
+              on the order, so they sit under the facts they refer to. */}
+          <Card className="shadow-sm">
+            <CardContent className="p-0">
+              <OrderNotes
+                notes={order.orderNotes || order.order_notes || []}
+                onAdd={handleAddNote}
+                saving={savingNotes}
+              />
+            </CardContent>
+          </Card>
 
+          <Card className="shadow-sm">
+            <CardContent className="p-0">
+              <OrderStatusHistory statusHistory={order.statusHistory} />
+            </CardContent>
+          </Card>
         </div>
-      </div>
-
-      {/* Marketing journey · sales ownership · authenticity — a 3-up responsive
-          grid (1 col on phones, 2 on tablets, 3 on desktop) rather than three
-          more cards stacked in the narrow sidebar. Each is an independent
-          read-mostly panel, so they tile cleanly. */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-
-        <OrderJourneyCard attribution={order.attribution} />
-
-        <OrderTeamCard
-          orderId={order.id ?? order._id}
-          orderNumber={order.orderId}
-          salesAgentId={order.salesAgentId ?? order.sales_agent_id ?? null}
-          assignedTo={order.assignedTo ?? order.assigned_to ?? null}
-          assignedAt={order.assignedAt ?? order.assigned_at ?? null}
-          salesType={order.salesType ?? order.sales_type ?? null}
-          createdByUserId={order.userId ?? order.user_id ?? null}
-          createdByName_={order.createdByName ?? order.created_by_name ?? null}
-          salesAgentName={order.salesAgentName ?? order.sales_agent_name ?? null}
-          assignedToName={order.assignedToName ?? order.assigned_to_name ?? null}
-          salesperson={order.salesperson ?? null}
-          canManage={hasPerm('orders.manage')}
-          onChanged={fetchOrder}
-        />
       </div>
 
       {canAccess('shipping') && (

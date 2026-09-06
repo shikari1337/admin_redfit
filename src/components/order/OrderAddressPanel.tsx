@@ -54,6 +54,13 @@ interface OrderAddressPanelProps {
   /** Edit controls, supplied by the page so this component stays presentational. */
   shippingAction?: React.ReactNode;
   billingAction?: React.ReactNode;
+  /**
+   * Fulfilment summary, rendered beside "Invoiced by" in the footer strip.
+   * Ships-from, invoiced-by and how-much-has-gone are the three facts a packing
+   * or invoice query asks together, so they read as one row rather than sending
+   * the reader to a separate card further down the page.
+   */
+  fulfillmentSlot?: React.ReactNode;
 }
 
 const line = (a: Address) => [
@@ -94,17 +101,17 @@ const AddressBlock: React.FC<{
   const l2 = address.addressLine2 || address.address_line2;
   return (
     <div className="space-y-1 text-sm leading-relaxed">
-      <p className="text-base font-black leading-tight text-slate-900">{name || '—'}</p>
+      <p className="text-base font-bold leading-tight text-slate-900">{name || '—'}</p>
       {address.address && <p className="font-medium text-slate-700">{address.address}</p>}
       {l2 && <p className="font-medium text-slate-700">{l2}</p>}
       <p className="font-medium text-slate-700">
         {[address.district, address.state].filter(Boolean).join(', ')}
-        {address.pincode && <span className="ml-1.5 font-black tabular-nums text-slate-900">{address.pincode}</span>}
+        {address.pincode && <span className="ml-1.5 font-semibold tabular-nums text-slate-900">{address.pincode}</span>}
       </p>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1.5 text-xs">
         {phone && (
           <>
-            <a href={`tel:${phone}`} className="font-black tabular-nums text-slate-800 hover:underline">{phone}</a>
+            <a href={`tel:${phone}`} className="font-semibold tabular-nums text-slate-800 hover:underline">{phone}</a>
             {onWhatsAppClick && (
               <button type="button" onClick={() => onWhatsAppClick(phone)}
                 className="flex items-center gap-1 font-bold text-green-700 hover:underline" title="Open WhatsApp">
@@ -123,7 +130,7 @@ const AddressBlock: React.FC<{
 
 const OrderAddressPanel: React.FC<OrderAddressPanelProps> = ({
   shippingAddress, billingAddress, warehouseId, gst, customerGstin,
-  onWhatsAppClick, shippingAction, billingAction,
+  onWhatsAppClick, shippingAction, billingAction, fulfillmentSlot,
 }) => {
   const warehouse = typeof warehouseId === 'object' && warehouseId ? warehouseId : null;
   const shipping = shippingAddress ?? null;
@@ -133,18 +140,18 @@ const OrderAddressPanel: React.FC<OrderAddressPanelProps> = ({
   const billing = billingAddress ?? shippingAddress ?? null;
 
   return (
-    <Card className="border-2 shadow-sm">
-      <CardHeader className="border-b-2 bg-slate-50/80 px-4 py-2.5">
-        <CardTitle className="text-sm font-black uppercase tracking-wide text-slate-700">
+    <Card className="shadow-sm">
+      <CardHeader className="border-b bg-slate-50/80 px-4 py-2.5">
+        <CardTitle className="text-sm font-semibold uppercase tracking-wide text-slate-700">
           Addresses
         </CardTitle>
       </CardHeader>
       <CardContent className="p-0">
-        <div className="grid grid-cols-1 divide-y-2 divide-slate-100 md:grid-cols-2 md:divide-x-2 md:divide-y-0">
+        <div className="grid grid-cols-1 divide-y divide-slate-100 md:grid-cols-2 md:divide-x md:divide-y-0">
           {/* ── Ship to ── */}
           <div className="p-4">
             <div className="mb-2 flex items-center justify-between gap-2">
-              <h3 className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-slate-500">
+              <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
                 <FaMapMarkerAlt className="h-3 w-3 text-slate-400" /> Ship to
               </h3>
               <div className="flex items-center gap-1">
@@ -160,7 +167,7 @@ const OrderAddressPanel: React.FC<OrderAddressPanelProps> = ({
           {/* ── Bill to ── */}
           <div className="p-4">
             <div className="mb-2 flex items-center justify-between gap-2">
-              <h3 className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-slate-500">
+              <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
                 <FaFileInvoiceDollar className="h-3 w-3 text-slate-400" /> Bill to
                 {billingIsFallback && (
                   <Badge variant="outline" className="ml-1 border-slate-200 text-[9px] font-bold uppercase text-slate-500">
@@ -177,7 +184,7 @@ const OrderAddressPanel: React.FC<OrderAddressPanelProps> = ({
               ? <AddressBlock address={billing} onWhatsAppClick={onWhatsAppClick} />
               : <p className="text-sm font-semibold text-slate-400">No billing address on this order.</p>}
             {customerGstin && (
-              <p className="mt-2 rounded border-2 border-slate-100 bg-slate-50 px-2 py-1 font-mono text-[11px] font-black text-slate-700">
+              <p className="mt-2 rounded border border-slate-100 bg-slate-50 px-2 py-1 font-mono text-[11px] font-semibold text-slate-700">
                 Invoice GSTIN · {customerGstin}
               </p>
             )}
@@ -185,14 +192,14 @@ const OrderAddressPanel: React.FC<OrderAddressPanelProps> = ({
         </div>
 
         {/* ── Where it ships FROM, and who invoices it ── */}
-        {(warehouse || gst?.storeId) && (
-          <div className="grid grid-cols-1 gap-4 border-t-2 border-slate-100 bg-slate-50/50 p-4 text-xs md:grid-cols-2">
+        {(warehouse || gst?.storeId || fulfillmentSlot) && (
+          <div className="grid grid-cols-1 gap-4 border-t border-slate-100 bg-slate-50/60 p-4 text-xs md:grid-cols-2 xl:grid-cols-3">
             {warehouse && (
               <div>
-                <h3 className="mb-1 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                <h3 className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
                   <FaWarehouse className="h-3 w-3" /> Ships from
                 </h3>
-                <p className="font-black text-slate-900">{warehouse.name || 'N/A'}</p>
+                <p className="font-semibold text-slate-900">{warehouse.name || 'N/A'}</p>
                 {warehouse.address && (
                   <p className="font-medium text-slate-600">
                     {[warehouse.address.line1, warehouse.address.line2, warehouse.address.city,
@@ -204,8 +211,8 @@ const OrderAddressPanel: React.FC<OrderAddressPanelProps> = ({
             )}
             {gst?.storeId && (
               <div>
-                <h3 className="mb-1 text-[10px] font-black uppercase tracking-wider text-slate-500">Invoiced by</h3>
-                <p className="font-black text-slate-900">{gst.storeName || 'N/A'}</p>
+                <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Invoiced by</h3>
+                <p className="font-semibold text-slate-900">{gst.storeName || 'N/A'}</p>
                 {gst.storeGstin && <p className="font-mono font-bold text-slate-700">GSTIN {gst.storeGstin}</p>}
                 {(gst.storeState || gst.orderState) && (
                   <p className="font-medium text-slate-600">
@@ -215,6 +222,7 @@ const OrderAddressPanel: React.FC<OrderAddressPanelProps> = ({
                 )}
               </div>
             )}
+            {fulfillmentSlot}
           </div>
         )}
       </CardContent>

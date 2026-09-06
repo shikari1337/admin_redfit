@@ -1787,7 +1787,8 @@ export const ordersAPI = {
 export interface ErpExportConfig {
   website_channel_code: string;
   admin_channel_code: string;
-  default_salesperson: string;
+  /** `compact` = SM9268 (the ERP template's style, default) · `as_is` = SM-9268. */
+  order_number_style: 'compact' | 'as_is';
 }
 export interface ErpExportRunSummary {
   id: string;
@@ -3747,6 +3748,73 @@ export const inventoryAPI = {
       headers: { 'Content-Type': 'multipart/form-data' }, timeout: 600000,
     });
     return response.data;
+  },
+
+  // ── Batch-wise (one row per SKU x batch, each batch with its OWN printed MRP).
+  //    A different sheet from the four above — see backend routes/inventory.ts.
+  exportBatches: async (opts?: { search?: string; includeUnbatched?: boolean; nearExpiryDays?: number }) => {
+    const response = await api.get('/inventory/batches/export', {
+      params: {
+        ...(opts?.search ? { search: opts.search } : {}),
+        ...(opts?.includeUnbatched ? { includeUnbatched: 'true' } : {}),
+        ...(opts?.nearExpiryDays !== undefined ? { nearExpiryDays: opts.nearExpiryDays } : {}),
+      },
+      responseType: 'blob',
+      // The unbatched seed export walks the whole catalogue (44k SKUs on
+      // homeomead) — the same reason importExcel carries its own long timeout.
+      timeout: 600000,
+    });
+    return response.data as Blob;
+  },
+  downloadBatchTemplate: async () => {
+    const response = await api.get('/inventory/batches/template', { responseType: 'blob' });
+    return response.data as Blob;
+  },
+  // Whether a sale is priced from the batch it is served from. Reading is
+  // `inventory.read`; writing is `settings.manage` (it moves money).
+  getBatchPricing: async () => {
+    const r = await api.get('/inventory/batch-pricing');
+    return r.data?.data ?? r.data;
+  },
+  setBatchPricing: async (config: { mode: 'off' | 'mrp_only' | 'full'; neverExceedBatchMrp?: boolean }) => {
+    const r = await api.put('/inventory/batch-pricing', config);
+    return r.data?.data ?? r.data;
+  },
+  importBatches: async (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    const response = await api.post('/inventory/batches/import', form, {
+      headers: { 'Content-Type': 'multipart/form-data' }, timeout: 600000,
+    });
+    return response.data;
+  },
+};
+
+// ─── BATCHES API (pharma batch/expiry — migrations 032 + 157) ─────────────────
+// Batches live under /purchasing because that is where they are born (a GRN
+// line); these are the read + edit endpoints the Batches screen drives.
+export const batchesAPI = {
+  list: async (params?: { nearExpiryDays?: number; variationId?: string; limit?: number }) => {
+    const r = await api.get('/purchasing/batches', { params: params ?? {} });
+    return r.data?.rows ?? r.data?.data ?? r.data ?? [];
+  },
+  get: async (id: string) => {
+    const r = await api.get(`/purchasing/batches/${id}`);
+    return r.data?.data ?? r.data;
+  },
+  create: async (data: Record<string, any>) => {
+    const r = await api.post('/purchasing/batches', data);
+    return r.data?.data ?? r.data;
+  },
+  /** Details only — prices, dates, identity. Never the quantity (see setQuantity). */
+  update: async (id: string, data: Record<string, any>) => {
+    const r = await api.patch(`/purchasing/batches/${id}`, data);
+    return r.data?.data ?? r.data;
+  },
+  /** A physical count. Goes through the stock ledger server-side. */
+  setQuantity: async (id: string, qty: number, reason?: string) => {
+    const r = await api.put(`/purchasing/batches/${id}/quantity`, { qty, ...(reason ? { reason } : {}) });
+    return r.data?.data ?? r.data;
   },
 };
 

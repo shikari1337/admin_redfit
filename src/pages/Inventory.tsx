@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { inventoryAPI } from '../services/api';
 import { Pagination } from '@/components/erp';
+import { Link } from 'react-router-dom';
 
 interface Valuation {
   grand_total?: number;
@@ -212,6 +213,17 @@ export default function Inventory() {
         <div>
           <h1>Inventory</h1>
           <p className="subtitle">Manage stock, retail &amp; B2B pricing across all SKUs. Export to Excel, edit, and re-import — blank cells are left unchanged.</p>
+          {/* This sheet carries ONE stock figure and ONE MRP per SKU, so it cannot
+              describe two batches of the same medicine printed at different MRPs.
+              Point at the sheet that can, rather than letting a merchant reach for
+              the wrong one (the batch importer refuses this file by name, but
+              finding the right surface should not need a failed import first). */}
+          <p className="subtitle" style={{ marginTop: 4 }}>
+            Stock held as batches, each with its own printed MRP and expiry?{' '}
+            <Link to="/panel/inventory/batches" style={{ color: '#2563eb' }}>
+              Use the batch-wise sheet
+            </Link>.
+          </p>
         </div>
         <div className="header-actions">
           <button className="btn btn-secondary" onClick={handleTemplate}>Template</button>

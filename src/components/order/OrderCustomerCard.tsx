@@ -51,9 +51,9 @@ interface CustomerProfile {
 const Stat: React.FC<{ label: string; value: React.ReactNode; hint?: string; tone?: 'default' | 'accent' }> = ({
   label, value, hint, tone = 'default',
 }) => (
-  <div className="rounded-lg border-2 border-slate-100 bg-slate-50/60 px-3 py-2">
-    <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">{label}</p>
-    <p className={`mt-0.5 text-lg font-black tabular-nums leading-tight ${tone === 'accent' ? 'text-emerald-700' : 'text-slate-900'}`}>
+  <div className="rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2">
+    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">{label}</p>
+    <p className={`mt-0.5 text-lg font-bold tabular-nums leading-tight ${tone === 'accent' ? 'text-emerald-700' : 'text-slate-900'}`}>
       {value}
     </p>
     {hint && <p className="mt-0.5 text-[10px] font-medium text-slate-400">{hint}</p>}
@@ -99,20 +99,20 @@ const OrderCustomerCard: React.FC<OrderCustomerCardProps> = ({
   const isRepeat = rawCount > 1;
 
   return (
-    <Card className="border-2 shadow-sm">
-      <CardHeader className="border-b-2 bg-slate-50/80 px-4 py-2.5">
-        <CardTitle className="flex items-center justify-between gap-2 text-sm font-black uppercase tracking-wide text-slate-700">
+    <Card className="shadow-sm">
+      <CardHeader className="border-b bg-slate-50/80 px-4 py-2.5">
+        <CardTitle className="flex items-center justify-between gap-2 text-sm font-semibold uppercase tracking-wide text-slate-700">
           <span>Customer</span>
           <div className="flex items-center gap-1.5">
             {profile?.b2b?.is_b2b && (
-              <Badge className="border-purple-200 bg-purple-100 text-[10px] font-black uppercase text-purple-800 hover:bg-purple-100">
+              <Badge className="border-purple-200 bg-purple-100 text-[10px] font-semibold uppercase text-purple-800 hover:bg-purple-100">
                 B2B{profile.b2b.b2b_tier ? ` · ${profile.b2b.b2b_tier}` : ''}
               </Badge>
             )}
             {!loading && customerId && !failed && (
               <Badge
                 variant="outline"
-                className={`text-[10px] font-black uppercase ${
+                className={`text-[10px] font-semibold uppercase ${
                   isRepeat ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-blue-300 bg-blue-50 text-blue-700'
                 }`}
               >
@@ -126,7 +126,7 @@ const OrderCustomerCard: React.FC<OrderCustomerCardProps> = ({
       <CardContent className="space-y-3 p-4">
         {/* ── Identity — from this order, always present ── */}
         <div>
-          <p className="text-base font-black leading-tight text-slate-900">{name}</p>
+          <p className="text-base font-bold leading-tight text-slate-900">{name}</p>
           {profile?.b2b?.company_name && (
             <p className="text-xs font-bold text-purple-700">{profile.b2b.company_name}</p>
           )}
@@ -157,7 +157,7 @@ const OrderCustomerCard: React.FC<OrderCustomerCardProps> = ({
 
         {/* ── Standing with this store ── */}
         {!customerId ? (
-          <p className="rounded-md border-2 border-amber-100 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+          <p className="rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
             Guest checkout — this order is not linked to a customer account, so there is no
             order history to show.
           </p>
@@ -166,7 +166,7 @@ const OrderCustomerCard: React.FC<OrderCustomerCardProps> = ({
             {[0, 1, 2].map((i) => <div key={i} className="h-16 animate-pulse rounded-lg bg-slate-100" />)}
           </div>
         ) : failed ? (
-          <p className="rounded-md border-2 border-slate-100 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500">
+          <p className="rounded-md border border-slate-100 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500">
             Customer history could not be loaded.
           </p>
         ) : (
@@ -194,7 +194,7 @@ const OrderCustomerCard: React.FC<OrderCustomerCardProps> = ({
 
             <Link
               to={`/customers/${customerId}`}
-              className="inline-flex items-center gap-1.5 text-xs font-black text-blue-700 hover:underline"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 hover:underline"
             >
               Full customer profile <FaExternalLinkAlt className="h-2.5 w-2.5" />
             </Link>

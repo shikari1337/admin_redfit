@@ -42,9 +42,9 @@ const OrderStatusHistory: React.FC<OrderStatusHistoryProps> = ({ statusHistory }
   });
 
   return (
-    <div className="rounded-lg bg-white p-4 shadow">
+    <div className="p-4">
       <div className="mb-2 flex items-baseline justify-between gap-2">
-        <h2 className="text-sm font-black uppercase tracking-wide text-slate-700">Timeline</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Timeline</h2>
         {entries.length > 0 && (
           <span className="text-xs font-bold text-slate-400">{entries.length} change{entries.length === 1 ? '' : 's'}</span>
         )}
@@ -62,7 +62,7 @@ const OrderStatusHistory: React.FC<OrderStatusHistoryProps> = ({ statusHistory }
               : entry.changedBy?.name || entry.changedBy?.email) || entry.changed_by;
             return (
               <li key={index} className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 py-1.5">
-                <span className={`rounded px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wide ${getStatusColorClass('order', entry.status)}`}>
+                <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${getStatusColorClass('order', entry.status)}`}>
                   {getStatusLabel('order', entry.status)}
                 </span>
                 {/* Date AND time — an ops timeline is useless without the clock. */}

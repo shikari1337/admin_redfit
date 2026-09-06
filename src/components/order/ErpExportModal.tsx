@@ -40,8 +40,8 @@ const inputCls = 'w-full px-3 py-2 border border-gray-300 rounded-md text-sm foc
 
 /**
  * Exports orders as the ERP's "Order Items Export" workbook — one row per
- * order line, the 58-column layout the legacy platform produced and the
- * store's ERP still imports (backend services/erpOrderExport.ts,
+ * order line, the 47-column layout of the ERP's own import template
+ * (`HMD 31-07-26 1.xlsx`; backend services/erpOrderExport.ts,
  * docs/ERP_ORDER_EXPORT.md).
  *
  * "Since last export" resumes from the watermark the previous run recorded,
@@ -58,7 +58,7 @@ const ErpExportModal: React.FC<ErpExportModalProps> = ({ isOpen, onClose, canMan
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [excludeCancelled, setExcludeCancelled] = useState(true);
-  const [config, setConfig] = useState<ErpExportConfig>({ website_channel_code: '', admin_channel_code: 'admin', default_salesperson: '' });
+  const [config, setConfig] = useState<ErpExportConfig>({ website_channel_code: '', admin_channel_code: 'admin', order_number_style: 'compact' });
   const [showConfig, setShowConfig] = useState(false);
 
   const [preview, setPreview] = useState<ErpExportPreview | null>(null);
@@ -190,7 +190,7 @@ const ErpExportModal: React.FC<ErpExportModalProps> = ({ isOpen, onClose, canMan
       <div className="space-y-4">
         <p className="text-sm text-gray-600">
           Builds the <span className="font-medium">Order Items Export</span> workbook your ERP imports — one row per
-          order line, the same columns as the previous website's export. Orders imported from the old site are
+          order line, the 47 columns of the ERP's own import template. Orders imported from the old site are
           never included (the ERP already has them).
         </p>
 
@@ -314,9 +314,12 @@ const ErpExportModal: React.FC<ErpExportModalProps> = ({ isOpen, onClose, canMan
                   onChange={(e) => setConfig((c) => ({ ...c, admin_channel_code: e.target.value }))} className={inputCls} />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Default sales person</label>
-                <input type="text" value={config.default_salesperson}
-                  onChange={(e) => setConfig((c) => ({ ...c, default_salesperson: e.target.value }))} className={inputCls} placeholder="Used when the order has none" />
+                <label className="block text-xs font-medium text-gray-700 mb-1">Order number style</label>
+                <select value={config.order_number_style}
+                  onChange={(e) => setConfig((c) => ({ ...c, order_number_style: e.target.value === 'as_is' ? 'as_is' : 'compact' }))} className={inputCls}>
+                  <option value="compact">SM9268 — no separators (ERP template)</option>
+                  <option value="as_is">SM-9268 — exactly as shown here</option>
+                </select>
               </div>
               <p className="sm:col-span-3 text-[11px] text-gray-500">Saved with the next export.</p>
             </div>
