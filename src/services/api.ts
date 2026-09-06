@@ -1692,6 +1692,46 @@ export const ordersAPI = {
     const response = await api.delete(`/orders/export/erp/runs/${encodeURIComponent(runId)}`);
     return response.data;
   },
+
+  // ── Sales attribution & ownership (migration 151) ──────────────────────────
+  // Three separate people can be on one order — see the route comments in
+  // backend/src/routes/orders.ts. `null` clears in both setters.
+
+  /** Who is MANAGING this order now. */
+  assign: async (orderId: string, assignedTo: string | null) => {
+    const response = await api.put(`/orders/${encodeURIComponent(orderId)}/assign`, { assignedTo });
+    return response.data?.data ?? response.data;
+  },
+
+  /** Who gets the SALES CREDIT for this order. */
+  setSalesAgent: async (orderId: string, salesAgentId: string | null) => {
+    const response = await api.put(`/orders/${encodeURIComponent(orderId)}/sales-agent`, { salesAgentId });
+    return response.data?.data ?? response.data;
+  },
+
+  /** Every tracked step taken on this order, newest first. */
+  activity: async (orderId: string, limit = 100) => {
+    // This route spreads {items,total} at the TOP level of the envelope (like
+    // the other list endpoints), so there is no `.data.data` to unwrap here.
+    const response = await api.get(`/orders/${encodeURIComponent(orderId)}/activity`, { params: { limit } });
+    return (response.data?.items ?? []) as any[];
+  },
+
+  /**
+   * People this order desk may credit or assign to (orders.read).
+   * NOT `staffAPI.list()`: that needs `staff.read` (which the junior staff role
+   * lacks) and hides admins (who do create orders).
+   */
+  assignableStaff: async (): Promise<Array<{ id: string; name: string | null; role: string }>> => {
+    const response = await api.get('/orders/assignable-staff');
+    return response.data?.data ?? response.data ?? [];
+  },
+
+  /** Open orders by owner. assignedTo='unassigned' for the nobody-owns-it queue. */
+  assignmentQueue: async (params: { assignedTo?: string; limit?: number; offset?: number } = {}) => {
+    const response = await api.get('/orders/assignment-queue', { params });
+    return { items: (response.data?.items ?? []) as any[], total: Number(response.data?.total ?? 0) };
+  },
 };
 
 export interface ErpExportConfig {

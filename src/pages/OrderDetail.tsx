@@ -8,13 +8,13 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ordersAPI, shippingAPI, paymentsAPI, shipmentsAPI, invoicesAPI } from '../services/api';
 import { formatDate } from '../utils/date';
+import { fmtRupees } from '../lib/money';
 import { FaCheckCircle, FaEnvelope, FaFileInvoice, FaCreditCard, FaTruck, FaArrowLeft, FaDownload, FaWhatsapp, FaSms, FaChevronDown, FaMoneyCheckAlt } from 'react-icons/fa';
 import {
   StatusBadge,
   OrderItems,
   OrderSummary,
   OrderStatusHistory,
-  ShippingInformation,
   PaymentInformation,
   OrderNotes,
   DiscountBreakdown,
@@ -30,8 +30,12 @@ import {
   DeliveryStatusModal,
   MarkAsPaidModal,
   OrderProgressStepper,
+  OrderTeamCard,
   CancelOrderModal,
   OrderRefunds,
+  OrderNavigator,
+  OrderCustomerCard,
+  OrderAddressPanel,
 } from '../components/order';
 import type { RazorpayAuditResult, RefundOutcome } from '../components/order';
 import { PickupModal } from '../components/shipments';
@@ -705,35 +709,95 @@ const OrderDetail: React.FC = () => {
   const TERMINAL_SHIPMENT = new Set(['delivered', 'cancelled', 'returned', 'rto_delivered', 'rto_failed']);
   const actionableShipments = (order.shipments || []).filter((s: any) => !TERMINAL_SHIPMENT.has(s.status));
 
+  const poRef = String(order.notes ?? '').match(/PO Ref:\s*([^\n]+)/i)?.[1]?.trim();
+  const viaBulkPortal = /Source:\s*Bulk Order Platform/i.test(String(order.notes ?? ''));
+  const itemCount = (order.items || []).length;
+  const unitCount = (order.items || []).reduce((s: number, i: any) => s + (Number(i.quantity) || 0), 0);
+
   return (
-    <div className="max-w-7xl mx-auto space-y-4">
-      <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3 mb-1">
-        <div>
-          <Button variant="ghost" size="sm" className="mb-1 -ml-3 text-muted-foreground" onClick={() => navigate('/orders')}>
-            <FaArrowLeft className="mr-2 h-3.5 w-3.5" /> Back to Orders
+    /* Full-bleed: cancels Layout's own page padding (p-4/md:p-6/lg:p-8) so the
+       command bar spans the whole width and the items table gets the room its
+       columns need. The wrapper is exactly the parent's padding-box width, so
+       nothing overflows horizontally. */
+    <div className="-m-4 min-h-full bg-slate-100/70 md:-m-6 lg:-m-8">
+      {/* Command bar: identity, state and navigation, pinned while scrolling a
+          long order. Everything here is read-only; actions stay below. */}
+      <div className="sticky top-0 z-30 border-b-2 border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 md:px-6">
+          <Button variant="ghost" size="sm" className="h-8 px-2 font-bold text-slate-500 hover:text-slate-900"
+            onClick={() => navigate('/orders')}>
+            <FaArrowLeft className="mr-1.5 h-3.5 w-3.5" /> Orders
           </Button>
-          <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">Order #{order.orderId}</h1>
-            {/* Placed via the storefront's Bulk Order Platform + the buyer's own
-                PO reference — both live in the order notes (portal checkout
-                hand-off convention), surfaced here so staff never dig for them. */}
-            {/Source:\s*Bulk Order Platform/i.test(String(order.notes ?? '')) && (
-              <Badge variant="outline" className="border-amber-400 bg-amber-50 text-amber-800 font-bold">
-                Bulk Order Platform
-              </Badge>
-            )}
-            {(() => {
-              const m = String(order.notes ?? '').match(/PO Ref:\s*([^\n]+)/i);
-              return m ? (
-                <Badge variant="outline" className="border-blue-300 bg-blue-50 text-blue-700 font-bold" title="Buyer's purchase-order reference">
-                  PO: {m[1].trim()}
-                </Badge>
-              ) : null;
-            })()}
+          <div className="h-6 w-px bg-slate-200" />
+          <h1 className="text-xl font-black tracking-tight text-slate-900 md:text-2xl">#{order.orderId}</h1>
+          <StatusBadge status={order.orderStatus} type="order" className="font-black uppercase tracking-wide" />
+          <StatusBadge status={order.paymentStatus} type="payment" className="font-black uppercase tracking-wide" />
+          {(order.orderType ?? order.order_type) === 'b2b' ? (
+            <Badge className="border-purple-200 bg-purple-100 font-black uppercase text-purple-800 hover:bg-purple-100">
+              B2B{(order.b2bTier ?? order.b2b_tier) ? ` · ${order.b2bTier ?? order.b2b_tier}` : ''}
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="font-bold uppercase text-slate-500">Retail</Badge>
+          )}
+          {/* Placed via the storefront's Bulk Order Platform + the buyer's own
+              PO reference — both live in the order notes (portal checkout
+              hand-off convention), surfaced here so staff never dig for them. */}
+          {viaBulkPortal && (
+            <Badge variant="outline" className="border-amber-400 bg-amber-50 font-bold text-amber-800">
+              Bulk Order Platform
+            </Badge>
+          )}
+          {poRef && (
+            <Badge variant="outline" className="border-blue-300 bg-blue-50 font-bold text-blue-700"
+              title="Buyer's purchase-order reference">
+              PO: {poRef}
+            </Badge>
+          )}
+          {(order.isFlagged ?? order.is_flagged) && (
+            <Badge variant="outline" className="border-red-300 bg-red-50 font-bold text-red-700">Flagged</Badge>
+          )}
+          <div className="ml-auto flex items-center gap-2">
+            {/* Walks the same sequence the Orders list last rendered — same
+                filters, same search — and across its page boundaries. */}
+            <OrderNavigator currentId={order._id || order.id} currentOrderNumber={order.orderId} />
           </div>
         </div>
 
-        <div className="flex items-center gap-3 flex-wrap">
+        {/* Second row: the numbers an operator checks first, without scrolling. */}
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-slate-100 bg-slate-50/80 px-4 py-1.5 text-xs md:px-6">
+          <span className="font-black uppercase tracking-wider text-slate-400">Total</span>
+          <span className="-ml-3.5 text-base font-black tabular-nums text-slate-900">
+            {fmtRupees(order.total || 0)}
+          </span>
+          <span className="font-semibold text-slate-500">
+            {itemCount} line{itemCount === 1 ? '' : 's'} · {unitCount} unit{unitCount === 1 ? '' : 's'}
+          </span>
+          <span className="font-semibold text-slate-500">
+            {order.paymentMethod === 'cod' ? 'Cash on delivery' : 'Prepaid'}
+            {order.paymentGateway ? ` · ${order.paymentGateway}` : ''}
+          </span>
+          <span className="font-semibold text-slate-500">
+            Placed {formatDate(order.createdAt ?? order.created_at, 'dd MMM yyyy, hh:mm a', 'N/A')}
+          </span>
+          {(order.returnDeadline ?? order.return_deadline) && (
+            <span className="font-semibold text-slate-500">
+              Return window {new Date(order.returnDeadline ?? order.return_deadline) > new Date() ? 'closes' : 'closed'}{' '}
+              {formatDate(order.returnDeadline ?? order.return_deadline, 'dd MMM yyyy', '')}
+            </span>
+          )}
+          {Number(order.refundedAmount ?? order.refunded_amount ?? 0) > 0 && (
+            <span className="font-black text-orange-700">
+              Refunded {fmtRupees(order.refundedAmount ?? order.refunded_amount)}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-4 p-4 md:p-6">
+      {/* Action toolbar — every write on this order. Framed as its own surface so
+          it reads as a control strip rather than buttons floating on the page. */}
+      <div className="flex flex-col items-start justify-between gap-3 rounded-lg border-2 border-slate-200 bg-white p-2.5 lg:flex-row lg:items-center">
+        <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2 bg-muted/50 p-1 rounded-md border">
             <Input
               type="text"
@@ -903,23 +967,25 @@ const OrderDetail: React.FC = () => {
         paymentMethod={order.paymentMethod}
       />
 
+      {/* Full width, not inside the 2/3 column: the line-item breakdown carries
+          11 columns (MRP / Disc % / Rate / Tier / Qty / Savings / Amount) and in
+          a two-thirds column the money columns fell off the right edge behind a
+          horizontal scrollbar — the figures staff check first. */}
+      <OrderItems
+        items={order.items || []}
+        b2bTier={order.b2bTier ?? order.b2b_tier}
+        orderDiscount={Number(order.discount) || 0}
+        /* Items are editable only while unpaid and unshipped. */
+        headerAction={isOrderEditable ? (
+          <Button size="sm" variant="outline" className="h-7 text-xs font-bold"
+            onClick={() => setShowEditItems(true)}>
+            Edit items
+          </Button>
+        ) : undefined}
+      />
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 space-y-4">
-          <div className="relative">
-            <OrderItems
-              items={order.items || []}
-              b2bTier={order.b2bTier ?? order.b2b_tier}
-              orderDiscount={Number(order.discount) || 0}
-            />
-            {/* Items are editable only while unpaid and unshipped. */}
-            {isOrderEditable && (
-              <Button size="sm" variant="outline" className="absolute top-4 right-4"
-                onClick={() => setShowEditItems(true)}>
-                Edit items
-              </Button>
-            )}
-          </div>
-
           {/* Review-and-pay link — Shopify-style page the customer can open to
               check the order and pay online (works for COD before dispatch too). */}
           {payLink && (
@@ -973,25 +1039,35 @@ const OrderDetail: React.FC = () => {
             </CardContent>
           </Card>
 
-          <Card className="shadow-sm">
-            <CardContent className="p-0">
-              <ShippingInformation
-                shippingAddress={order.shippingAddress}
-                warehouseId={order.warehouseId}
-                gst={order.gst}
-                onWhatsAppClick={handleWhatsAppClick}
-                headerAction={
-                  <OrderAddressEditor
-                    orderId={order._id || order.id}
-                    orderStatus={order.orderStatus || order.order_status}
-                    kind="shipping"
-                    address={order.shippingAddress || order.shipping_address}
-                    onSaved={(next: any) => setOrder((o: any) => ({ ...o, shippingAddress: next, shipping_address: next }))}
-                  />
-                }
+          {/* Ship-to and bill-to read together (they used to sit in two cards
+              several screens apart, with payment and refunds between them), plus
+              the ships-from / invoiced-by block the shipping card used to own. */}
+          <OrderAddressPanel
+            shippingAddress={order.shippingAddress || order.shipping_address}
+            billingAddress={order.billingAddress || order.billing_address}
+            warehouseId={order.warehouseId}
+            gst={order.gst}
+            customerGstin={order.customerGstin ?? order.customer_gstin}
+            onWhatsAppClick={handleWhatsAppClick}
+            shippingAction={
+              <OrderAddressEditor
+                orderId={order._id || order.id}
+                orderStatus={order.orderStatus || order.order_status}
+                kind="shipping"
+                address={order.shippingAddress || order.shipping_address}
+                onSaved={(next: any) => setOrder((o: any) => ({ ...o, shippingAddress: next, shipping_address: next }))}
               />
-            </CardContent>
-          </Card>
+            }
+            billingAction={
+              <OrderAddressEditor
+                orderId={order._id || order.id}
+                orderStatus={order.orderStatus || order.order_status}
+                kind="billing"
+                address={order.billingAddress || order.billing_address || order.shippingAddress || order.shipping_address}
+                onSaved={(next: any) => setOrder((o: any) => ({ ...o, billingAddress: next, billing_address: next }))}
+              />
+            }
+          />
 
           <Card className="shadow-sm">
             <CardContent className="p-0">
@@ -1024,51 +1100,36 @@ const OrderDetail: React.FC = () => {
               when the order has no refunds. */}
           <OrderRefunds refunds={order.refunds} />
 
-          {(() => {
-            // Most orders never capture a separate billing address — checkout only
-            // asks for one when it differs from shipping. Show it either way instead
-            // of hiding the whole card, clearly labeled when it's a fallback.
-            const billing = order.billingAddress || order.billing_address;
-            const usingShippingFallback = !billing;
-            const addr = billing || order.shippingAddress || order.shipping_address;
-            if (!addr) return null;
-            return (
-              <Card className="shadow-sm">
-                <CardHeader className="px-4 py-2.5 border-b">
-                  <div className="flex items-center justify-between gap-3">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      Billing Address
-                      {usingShippingFallback && (
-                        <span className="text-xs font-normal text-muted-foreground">(same as shipping)</span>
-                      )}
-                    </CardTitle>
-                    {/* Seeded from the shipping address when none was captured, so
-                        saving here CREATES a distinct billing address for the order. */}
-                    <OrderAddressEditor
-                      orderId={order._id || order.id}
-                      orderStatus={order.orderStatus || order.order_status}
-                      kind="billing"
-                      address={addr}
-                      onSaved={(next: any) => setOrder((o: any) => ({ ...o, billingAddress: next, billing_address: next }))}
-                    />
-                  </div>
-                </CardHeader>
-                <CardContent className="p-4">
-                  <div className="space-y-1.5 text-muted-foreground text-sm">
-                    <p className="font-semibold text-foreground text-sm mb-0.5">{addr.fullName || addr.full_name}</p>
-                    <p>{addr.address}</p>
-                    {(addr.addressLine2 || addr.address_line2) && <p>{addr.addressLine2 || addr.address_line2}</p>}
-                    <p>{addr.district}, {addr.state} {addr.pincode}</p>
-                    <p className="pt-2 font-medium">Phone: {addr.mobileNumber || addr.mobile_number}</p>
-                    {addr.email && <p className="font-medium">Email: {addr.email}</p>}
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })()}
+          {/* Timeline and internal notes live in the WIDE column: both are
+              text-heavy and were being wrapped to 4-5 words per line in the
+              sidebar. */}
+          <Card className="shadow-sm">
+            <CardContent className="p-0">
+              <OrderStatusHistory statusHistory={order.statusHistory} />
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-sm">
+            <CardContent className="p-0">
+              <OrderNotes
+                notes={order.orderNotes || order.order_notes || []}
+                onAdd={handleAddNote}
+                saving={savingNotes}
+              />
+            </CardContent>
+          </Card>
+
         </div>
 
         <div className="space-y-4">
+          <OrderCustomerCard
+            customerId={order.customerId ?? order.customer_id}
+            shippingAddress={order.shippingAddress || order.shipping_address}
+            currentOrderId={order._id || order.id}
+            orderTotal={Number(order.total) || 0}
+            onWhatsAppClick={handleWhatsAppClick}
+          />
+
           <Card className="shadow-sm">
             <CardHeader className="px-4 py-2.5 border-b">
               <CardTitle className="text-base">Order Information</CardTitle>
@@ -1328,21 +1389,21 @@ const OrderDetail: React.FC = () => {
             onSaved={fetchOrder}
           />
 
-          <Card className="shadow-sm">
-            <CardContent className="p-0">
-              <OrderNotes
-                notes={order.orderNotes || order.order_notes || []}
-                onAdd={handleAddNote}
-                saving={savingNotes}
-              />
-            </CardContent>
-          </Card>
+          <OrderTeamCard
+            orderId={order.id ?? order._id}
+            orderNumber={order.orderId}
+            salesAgentId={order.salesAgentId ?? order.sales_agent_id ?? null}
+            assignedTo={order.assignedTo ?? order.assigned_to ?? null}
+            assignedAt={order.assignedAt ?? order.assigned_at ?? null}
+            createdByUserId={order.userId ?? order.user_id ?? null}
+            createdByName_={order.createdByName ?? order.created_by_name ?? null}
+            salesAgentName={order.salesAgentName ?? order.sales_agent_name ?? null}
+            assignedToName={order.assignedToName ?? order.assigned_to_name ?? null}
+            salesperson={order.salesperson ?? null}
+            canManage={hasPerm('orders.manage')}
+            onChanged={fetchOrder}
+          />
 
-          <Card className="shadow-sm">
-            <CardContent className="p-0">
-              <OrderStatusHistory statusHistory={order.statusHistory} />
-            </CardContent>
-          </Card>
         </div>
       </div>
 
@@ -1475,6 +1536,7 @@ const OrderDetail: React.FC = () => {
         onNotesChange={setPickupNotes}
         isSubmitting={schedulingPickup}
       />
+      </div>
     </div>
   );
 };

@@ -8,6 +8,7 @@ import { FaTruck, FaWhatsapp, FaEye, FaDownload, FaPlus, FaSearchDollar, FaFileE
 import RecoverPaymentModal from '../components/order/RecoverPaymentModal';
 import ErpExportModal from '../components/order/ErpExportModal';
 import { getStatusColorClass } from '../components/order/StatusBadge';
+import { saveOrderNav } from '../lib/orderNav';
 import { Search } from 'lucide-react';
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -104,8 +105,26 @@ const Orders: React.FC = () => {
       // itself, with `total` preserved as a non-enumerable property (same
       // pattern Customers.tsx relies on) — read it off whichever value above
       // actually held the array.
-      setTotal((response as any)?.total ?? (fetchedOrders as any)?.total ?? fetchedOrders.length);
+      const resolvedTotal = (response as any)?.total ?? (fetchedOrders as any)?.total ?? fetchedOrders.length;
+      setTotal(resolvedTotal);
       setSelectedIds([]);
+      // Publish this page's exact sequence so Order Detail can offer
+      // "Previous / Next order" through the same filters the operator is
+      // looking at (lib/orderNav.ts). Purely a navigation convenience — every
+      // consumer works fine without it.
+      const navLabels: Record<string, string> = {};
+      fetchedOrders.forEach((o) => {
+        const key = o._id ?? o.id;
+        if (key) navLabels[key] = o.orderId ?? o.order_id ?? '';
+      });
+      saveOrderNav({
+        ids: fetchedOrders.map((o) => o._id ?? o.id).filter(Boolean),
+        labels: navLabels,
+        offset: (page - 1) * PAGE_SIZE,
+        limit: PAGE_SIZE,
+        total: resolvedTotal,
+        params,
+      });
     } catch (error: any) {
       console.error('Failed to fetch orders:', error);
       toast({

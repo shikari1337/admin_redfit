@@ -276,6 +276,10 @@ const Layout: React.FC = () => {
         ...(hasPerm('orders.read') ? [{ title: 'Quotations', url: '/panel/orders/quotations', icon: FileText }] : []),
         ...(hasPerm('orders.read') ? [{ title: 'Credit/Debit Notes & Challans', url: '/panel/orders/documents', icon: FileText }] : []),
         ...(hasPerm('orders.manage') ? [{ title: 'POS (New Sale)', url: '/pos', icon: Store }] : []),
+        // Sales attribution + staff activity (mig 151). reports.read, NOT
+        // orders.read: this ranks colleagues, and the junior `staff` role that
+        // works the order desk holds orders.read.
+        ...(hasPerm('reports.read') ? [{ title: 'Sales & Team', url: '/panel/orders/sales-team', icon: UserCheck }] : []),
         { title: 'Abandoned Carts', url: '/orders/abandoned-carts', icon: ShoppingCart },
         ...(hasPerm('shipments.read') ? [{ title: 'Shipments', url: '/shipments', icon: Truck }] : []),
         ...(hasPerm('shipments.read') ? [{ title: 'e-Way Bills', url: '/panel/orders/ewb', icon: FileText }] : []),

@@ -34,6 +34,11 @@ export const ASSIGNABLE_ROLES: ErpRole[] = [
  * MUST stay identical to backend/src/kernel/rbac/roles.ts ROLE_PERMISSIONS.
  * `read` is implied by every other action on the same area (see
  * withImpliedReads below), so it is only listed where a role gets read only.
+ *
+ * Growcord People (`hr.*`, `payroll.*`, migrations 146/147) is deliberately
+ * absent from every role here, mirroring the backend: salary data is granted
+ * per user from Settings → Staff, never inherited by a role. Only `admin`
+ * (via `*`) has it by default.
  */
 const ROLE_PERMISSIONS: Record<ErpRole, string[]> = {
   admin: ['*'],
@@ -55,7 +60,14 @@ const ROLE_PERMISSIONS: Record<ErpRole, string[]> = {
                   'marketing.manage', 'marketing.send', 'marketing.delete',
                   'channels.manage', 'b2b.manage', 'b2b.delete',
                   'reports.read', 'purchasing.manage', 'settings.read',
-                  'staff.read', 'billing.read'],
+                  'staff.read', 'billing.read',
+                  // Deliberate default (widen or narrow per store): running a
+                  // partnership day to day is operational work, so `manage`
+                  // (which implies `partner.read`) sits here — but `partner.grant`
+                  // stays with `admin` alone, because issuing a scope exposes this
+                  // organisation's data outward and arming auto-accept lets another
+                  // company's documents write here with no human reading them.
+                  'partner.manage'],
   warehouse_manager: ['inventory.adjust', 'inventory.manage', 'orders.read',
                       'shipments.manage', 'returns.manage', 'reports.read',
                       'purchasing.receive', 'products.read', 'settings.read'],
@@ -73,7 +85,10 @@ const ROLE_PERMISSIONS: Record<ErpRole, string[]> = {
                  'customers.manage', 'inventory.read'],
 };
 
-const IMPLIES_READ = ['manage', 'delete', 'post', 'adjust', 'receive', 'send', 'approve'];
+// `run` (payroll.run) implies payroll.read — mirrors the backend's IMPLIES_READ.
+// `grant` (partner.grant) likewise implies partner.read: you cannot sensibly
+// hand a partner a scope without being able to see the partnership.
+const IMPLIES_READ = ['manage', 'delete', 'post', 'adjust', 'receive', 'send', 'approve', 'run', 'grant'];
 
 function withImpliedReads(perms: string[]): string[] {
   const out = new Set(perms);

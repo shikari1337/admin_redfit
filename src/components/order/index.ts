@@ -3,7 +3,6 @@ export { default as StatusBadge } from './StatusBadge';
 export { default as OrderItems } from './OrderItems';
 export { default as OrderSummary } from './OrderSummary';
 export { default as OrderStatusHistory } from './OrderStatusHistory';
-export { default as ShippingInformation } from './ShippingInformation';
 export { default as PaymentInformation } from './PaymentInformation';
 export type { RazorpayAuditResult } from './PaymentInformation';
 export { default as OrderNotes } from './OrderNotes';
@@ -24,4 +23,8 @@ export { default as CancelOrderModal } from './CancelOrderModal';
 export type { RefundOutcome } from './CancelOrderModal';
 export { default as OrderRefunds } from './OrderRefunds';
 export { default as OrderProgressStepper } from './OrderProgressStepper';
+export { default as OrderTeamCard } from './OrderTeamCard';
+export { default as OrderNavigator } from './OrderNavigator';
+export { default as OrderCustomerCard } from './OrderCustomerCard';
+export { default as OrderAddressPanel } from './OrderAddressPanel';
 

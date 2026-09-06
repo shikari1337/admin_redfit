@@ -2,9 +2,6 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import {
-  Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow,
-} from "@/components/ui/table";
 
 interface OrderItem {
   // The `items` array arrives as an opaque JSONB blob (the API interceptor
@@ -55,6 +52,8 @@ interface OrderItemsProps {
   /** Order-level discount (₹) — pro-rated across lines by value so every
    *  product shows its full effective discount. */
   orderDiscount?: number;
+  /** Rendered in the card header (e.g. the "Edit items" button). */
+  headerAction?: React.ReactNode;
 }
 
 // This catalog's variant attributes are potency/volume/type (homeopathy), not a
@@ -72,7 +71,27 @@ const formatVariant = (attrs?: Record<string, string>): string => {
 
 const money = (n: number) => `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-const OrderItems: React.FC<OrderItemsProps> = ({ items, b2bTier, orderDiscount = 0 }) => {
+/**
+ * The order's line items as a full commercial breakdown — one fact per column,
+ * in the same dense tabular language as the storefront's Bulk Order Platform
+ * (`storefront/src/app/bulk-order/components/CatalogTable.tsx`): dark sticky
+ * header, `font-black` labels, right-aligned tabular money, a totals footer.
+ *
+ * Every figure here was already in the payload; the previous layout stacked
+ * MRP, retail, discount rupees, discount %, off-retail % and two badges INSIDE
+ * a single "Unit Price"/"Discount" cell, so nothing could be scanned down a
+ * column or checked against an invoice. Each now has its own column:
+ *
+ *   MRP · Disc % (off MRP) · Rate (charged) · Tier (which price book) · Qty ·
+ *   Amount · Savings
+ *
+ * The discount semantics are deliberately unchanged (COMMON_MISTAKES #91): the
+ * percentage describes THIS LINE's own cut from MRP to the charged rate and
+ * nothing else — a pro-rated share of an ORDER-level discount (coupon, payment
+ * discount) is real money off but a different discount, so it stays a separate
+ * rupee figure and never inflates the per-line percentage.
+ */
+const OrderItems: React.FC<OrderItemsProps> = ({ items, b2bTier, orderDiscount = 0, headerAction }) => {
   const lineTotals = (items ?? []).map((i) => (Number(i.price) || 0) * (Number(i.quantity) || 0));
   const itemsValue = lineTotals.reduce((s, v) => s + v, 0);
 
@@ -87,16 +106,7 @@ const OrderItems: React.FC<OrderItemsProps> = ({ items, b2bTier, orderDiscount =
     const orderShare = itemsValue > 0 ? (orderDiscount * lineTotal) / itemsValue : 0;
     const discAmt = mrpDiscount + orderShare;
     const baseValue = (mrp !== undefined && mrp > 0 ? mrp : price) * qty;
-    /**
-     * The PERCENTAGE describes THIS LINE's own price cut (MRP → charged) and
-     * nothing else. It used to be `(mrpDiscount + orderShare) / baseValue`,
-     * which folded a pro-rated share of the ORDER-level discount (coupon,
-     * online-payment discount) into the same figure and still labelled it
-     * "off MRP" — so a line genuinely sold at the 30% B2B rate displayed
-     * "31.4% off MRP" once a 2% payment discount existed on the order. Two
-     * different discounts, one number, wrong label (COMMON_MISTAKES #91).
-     * The order-level share is still shown — as its own rupee line below.
-     */
+    /** THIS LINE's own price cut (MRP → charged) only — see the block comment above. */
     const discPct = baseValue > 0 ? (mrpDiscount / baseValue) * 100 : 0;
     // What the B2B agreement is actually written against: the cut off RETAIL.
     // Only meaningful when the line carries a retail snapshot above the charged
@@ -128,44 +138,90 @@ const OrderItems: React.FC<OrderItemsProps> = ({ items, b2bTier, orderDiscount =
   const totalQty = rows.reduce((s, r) => s + r.qty, 0);
   const totalValue = rows.reduce((s, r) => s + r.lineTotal, 0);
   const totalDiscount = rows.reduce((s, r) => s + r.discAmt, 0);
+  const totalMrp = rows.reduce((s, r) => s + (r.mrp !== undefined && r.mrp > 0 ? r.mrp : r.price) * r.qty, 0);
+  /**
+   * The two halves of "Savings", kept separate in the footer for the same reason
+   * they are separate per row: only the LINE half is deducted from Amount.
+   * `MRP − line discount = Amount` holds exactly; the order-level share comes off
+   * at order level (Order Summary), so a footer quoting the combined figure alone
+   * makes the column look like it doesn't add up. Split it and both sums check.
+   */
+  const totalLineDiscount = rows.reduce((s, r) => s + r.mrpDiscount, 0);
+  const totalOrderShare = rows.reduce((s, r) => s + r.orderShare, 0);
 
   const sourceLabel = (source?: string | null): string | null => {
     if (!source || source === 'retail') return null;
     if (source === 'manual') return 'Manual price';
     if (source === 'manual_discount') return 'Manual discount';
     // B2B rule names — the tier itself is its own badge alongside.
-    return `via ${source.replace(/_/g, ' ')}`;
+    return source.replace(/_/g, ' ');
+  };
+
+  /**
+   * WHICH price book priced this line — the Bulk Order Platform's "Tier" column.
+   * A line carrying a retail snapshot above the charged price really was sold at
+   * a wholesale rate; everything else is retail, however it was discounted.
+   */
+  const tierOf = (r: typeof rows[number]) => {
+    const b2bPriced = r.retail != null && Number(r.retail) > r.price;
+    if (b2bPriced) return { label: b2bTier ? String(b2bTier).toUpperCase() : 'B2B', tone: 'b2b' as const };
+    const manual = sourceLabel(r.source);
+    if (manual) return { label: manual.toUpperCase(), tone: 'manual' as const };
+    return { label: 'RETAIL', tone: 'retail' as const };
+  };
+
+  const TIER_CLASS = {
+    b2b: 'border-purple-300 bg-purple-100 text-purple-800',
+    manual: 'border-blue-300 bg-blue-100 text-blue-800',
+    retail: 'border-slate-200 bg-slate-100 text-slate-600',
   };
 
   return (
-    <Card className="shadow-sm">
-      <CardHeader className="px-4 py-2.5 border-b">
-        <CardTitle className="text-base">Order Items</CardTitle>
+    <Card className="border-2 shadow-sm">
+      <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0 border-b-2 bg-slate-50/80 px-4 py-2.5">
+        <CardTitle className="flex items-baseline gap-2 text-sm font-black uppercase tracking-wide text-slate-700">
+          Order Items
+          <span className="text-xs font-bold normal-case tracking-normal text-slate-400">
+            {rows.length} line{rows.length === 1 ? '' : 's'} · {totalQty} unit{totalQty === 1 ? '' : 's'}
+          </span>
+        </CardTitle>
+        {headerAction}
       </CardHeader>
       <CardContent className="p-0">
         {rows.length === 0 ? (
-          <div className="text-center py-6 text-muted-foreground">No items in this order.</div>
+          <div className="py-8 text-center text-sm font-semibold text-slate-400">No items in this order.</div>
         ) : (
           <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="min-w-[240px]">Product</TableHead>
-                  <TableHead>SKU</TableHead>
-                  <TableHead>Variation</TableHead>
-                  <TableHead className="text-right">Unit Price</TableHead>
-                  <TableHead className="text-right">Discount</TableHead>
-                  <TableHead className="text-center">Qty</TableHead>
-                  <TableHead className="text-right">Total</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <table className="w-full min-w-[900px] border-collapse text-sm">
+              <thead>
+                <tr className="bg-slate-800 text-left text-[11px] uppercase tracking-wider text-slate-100">
+                  <th className="hidden w-10 px-2 py-2.5 text-center font-black md:table-cell">#</th>
+                  <th className="min-w-[240px] px-2.5 py-2.5 font-black">Product</th>
+                  <th className="hidden px-2.5 py-2.5 font-black lg:table-cell">SKU</th>
+                  <th className="hidden px-2.5 py-2.5 font-black xl:table-cell">Variation</th>
+                  <th className="hidden px-2.5 py-2.5 text-right font-black md:table-cell">MRP</th>
+                  <th className="hidden px-2.5 py-2.5 text-right font-black md:table-cell">Disc %</th>
+                  <th className="px-2.5 py-2.5 text-right font-black">Rate</th>
+                  <th className="hidden px-2.5 py-2.5 text-center font-black lg:table-cell">Tier</th>
+                  <th className="px-2.5 py-2.5 text-center font-black">Qty</th>
+                  <th className="hidden px-2.5 py-2.5 text-right font-black lg:table-cell">Savings</th>
+                  <th className="px-2.5 py-2.5 text-right font-black">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y-2 divide-slate-50">
                 {rows.map((r, index) => {
-                  const b2bPriced = r.retail != null && Number(r.retail) > r.price;
+                  const tier = tierOf(r);
+                  const productId = r.item.product_id || r.item.productId;
                   return (
-                    <TableRow key={index}>
-                      <TableCell>
-                        <div className="flex items-center gap-3">
+                    <tr key={index} className="align-top hover:bg-slate-50/80">
+                      <td className="hidden px-2 py-2.5 text-center text-xs font-black tabular-nums text-slate-400 md:table-cell">
+                        {index + 1}
+                      </td>
+
+                      {/* Product — thumbnail, name, and the facts the narrow
+                          viewport columns below are hidden on. */}
+                      <td className="px-2.5 py-2.5">
+                        <div className="flex items-start gap-2.5">
                           {/* `catalog_image` is the resolved VARIATION photo
                               (db/queries/orders.ts). `item.image` is the
                               cart-time snapshot, which can hold the PARENT
@@ -175,105 +231,184 @@ const OrderItems: React.FC<OrderItemsProps> = ({ items, b2bTier, orderDiscount =
                             <img
                               src={r.item.catalog_image || r.item.image}
                               alt={r.name}
-                              className="w-12 h-12 rounded-md object-cover border bg-muted flex-shrink-0"
+                              className="h-11 w-11 flex-shrink-0 rounded-md border-2 border-slate-100 bg-slate-50 object-cover"
                             />
                           ) : (
-                            <div className="w-12 h-12 rounded-md border bg-muted flex items-center justify-center text-[10px] text-muted-foreground flex-shrink-0">
+                            <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-md border-2 border-slate-100 bg-slate-50 text-[9px] font-bold text-slate-400">
                               No img
                             </div>
                           )}
                           <div className="min-w-0">
-                            {(r.item.product_id || r.item.productId) ? (
+                            {productId ? (
                               <Link
-                                to={`/products/${r.item.product_id || r.item.productId}/edit`}
-                                className="font-medium text-foreground leading-snug line-clamp-2 hover:text-primary hover:underline"
+                                to={`/products/${productId}/edit`}
+                                className="line-clamp-2 font-bold leading-snug text-slate-900 hover:text-blue-700 hover:underline"
                                 title="Open product"
                               >
                                 {r.name}
                               </Link>
                             ) : (
-                              <p className="font-medium text-foreground leading-snug line-clamp-2">{r.name}</p>
+                              <p className="line-clamp-2 font-bold leading-snug text-slate-900">{r.name}</p>
                             )}
-                            {r.item.variant?.colorName && (
-                              <p className="text-xs text-muted-foreground">Color: {r.item.variant.colorName}</p>
+                            {/* Narrow viewports hide SKU/Variation/MRP/Tier as
+                                columns — they stay readable here instead. */}
+                            <p className="mt-0.5 font-mono text-[11px] font-bold text-slate-400 lg:hidden">{r.sku}</p>
+                            {r.variant && (
+                              <p className="text-[11px] font-bold text-slate-500 xl:hidden">{r.variant}</p>
                             )}
-                            {r.bundle && (
-                              <Badge variant="secondary" className="mt-1 text-blue-700 bg-blue-100/50 border-blue-200 text-[10px]">
-                                Bundle: {r.bundle.title}
+                            <div className="mt-1 flex flex-wrap items-center gap-1">
+                              <Badge
+                                variant="outline"
+                                className={`text-[9px] font-black uppercase lg:hidden ${TIER_CLASS[tier.tone]}`}
+                              >
+                                {tier.label}
                               </Badge>
-                            )}
+                              {r.item.variant?.colorName && (
+                                <Badge variant="outline" className="text-[9px] font-bold">
+                                  {r.item.variant.colorName}
+                                </Badge>
+                              )}
+                              {r.bundle && (
+                                <Badge variant="outline" className="border-blue-200 bg-blue-50 text-[9px] font-bold text-blue-700">
+                                  Bundle: {r.bundle.title}
+                                </Badge>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </TableCell>
-                      <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">{r.sku}</TableCell>
-                      <TableCell className="text-sm">{r.variant || <span className="text-muted-foreground">—</span>}</TableCell>
-                      <TableCell className="text-right whitespace-nowrap">
-                        <span className="font-medium">{money(r.price)}</span>
-                        {r.mrp !== undefined && r.mrp > r.price && (
-                          <div className="text-xs text-muted-foreground line-through">{money(Number(r.mrp))}</div>
+                      </td>
+
+                      <td className="hidden whitespace-nowrap px-2.5 py-2.5 font-mono text-xs font-bold text-slate-500 lg:table-cell">
+                        {r.sku}
+                      </td>
+                      <td className="hidden px-2.5 py-2.5 text-xs font-bold text-slate-600 xl:table-cell">
+                        {r.variant || <span className="text-slate-300">—</span>}
+                      </td>
+
+                      {/* MRP — the list price this line was sold against. */}
+                      <td className="hidden whitespace-nowrap px-2.5 py-2.5 text-right tabular-nums md:table-cell">
+                        {r.mrp !== undefined && r.mrp > 0 ? (
+                          <span className={r.mrp > r.price ? 'font-semibold text-slate-400 line-through' : 'font-semibold text-slate-600'}>
+                            {money(Number(r.mrp))}
+                          </span>
+                        ) : (
+                          <span className="text-slate-300">—</span>
                         )}
-                        {b2bPriced && (
-                          <div className="text-[11px] text-blue-700 font-medium">
-                            retail {money(Number(r.retail))}
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right whitespace-nowrap">
-                        {r.discAmt > 0.009 ? (
+                      </td>
+
+                      {/* Disc % — off MRP only. Off-retail (the B2B agreement's
+                          own basis) is a genuinely different number, shown under it. */}
+                      <td className="hidden whitespace-nowrap px-2.5 py-2.5 text-right tabular-nums md:table-cell">
+                        {r.discPct > 0.05 ? (
                           <>
-                            <span className="font-medium text-green-700">{money(r.discAmt)}</span>
-                            {/* The % describes THIS LINE's own cut only. The
-                                order-level share is a separate rupee line — it
-                                is a different discount and must not inflate the
-                                per-line percentage. */}
-                            {r.mrpDiscount > 0.009 && (
-                              <div className="text-xs text-green-700">
-                                ({r.discPct.toFixed(1)}% off{r.mrp !== undefined && r.mrp > r.price ? ' MRP' : ''}
-                                {r.offRetailPct != null && ` · ${r.offRetailPct.toFixed(1)}% off retail`})
-                              </div>
-                            )}
-                            {r.orderShare > 0.009 && (
-                              <div className="text-[10px] text-muted-foreground">
-                                {r.mrpDiscount > 0.009 ? `${money(r.mrpDiscount)} line + ` : ''}
-                                {money(r.orderShare)} order discount
+                            <span className="font-black text-emerald-700">{r.discPct.toFixed(1)}%</span>
+                            {r.offRetailPct != null && (
+                              <div className="text-[10px] font-bold text-purple-600">
+                                {r.offRetailPct.toFixed(1)}% off retail
                               </div>
                             )}
                           </>
                         ) : (
-                          <span className="text-muted-foreground">—</span>
+                          <span className="text-slate-300">—</span>
                         )}
-                        <div className="flex flex-col items-end gap-0.5 mt-1">
-                          {b2bTier && (
-                            <Badge variant="outline" className="text-[10px] border-purple-200 bg-purple-50 text-purple-700">
-                              B2B · {b2bTier} tier
-                            </Badge>
-                          )}
-                          {sourceLabel(r.source) && (
-                            <Badge variant="outline" className="text-[10px] border-blue-200 bg-blue-50 text-blue-700">
-                              {sourceLabel(r.source)}
-                            </Badge>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-center font-medium">{r.qty}</TableCell>
-                      <TableCell className="text-right font-bold whitespace-nowrap">{money(r.lineTotal)}</TableCell>
-                    </TableRow>
+                      </td>
+
+                      {/* Rate — what was actually charged per unit. */}
+                      <td className="whitespace-nowrap px-2.5 py-2.5 text-right">
+                        <span className="text-[15px] font-black tabular-nums text-slate-900">{money(r.price)}</span>
+                        {r.retail != null && Number(r.retail) > r.price && (
+                          <div className="text-[10px] font-bold text-slate-400">
+                            retail {money(Number(r.retail))}
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Tier — which price book produced the rate. */}
+                      <td className="hidden whitespace-nowrap px-2.5 py-2.5 text-center lg:table-cell">
+                        <Badge variant="outline" className={`text-[10px] font-black uppercase ${TIER_CLASS[tier.tone]}`}>
+                          {tier.label}
+                        </Badge>
+                      </td>
+
+                      <td className="whitespace-nowrap px-2.5 py-2.5 text-center text-[15px] font-black tabular-nums text-slate-900">
+                        {r.qty}
+                      </td>
+
+                      {/* Savings — the line's own MRP cut plus its share of any
+                          order-level discount, itemised so the two never merge. */}
+                      <td className="hidden whitespace-nowrap px-2.5 py-2.5 text-right lg:table-cell">
+                        {r.discAmt > 0.009 ? (
+                          <>
+                            <span className="font-black tabular-nums text-emerald-700">{money(r.discAmt)}</span>
+                            {r.orderShare > 0.009 && (
+                              <div className="text-[10px] font-medium text-slate-400">
+                                {r.mrpDiscount > 0.009 ? `${money(r.mrpDiscount)} line + ` : ''}
+                                {money(r.orderShare)} order
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-slate-300">—</span>
+                        )}
+                      </td>
+
+                      <td className="whitespace-nowrap px-2.5 py-2.5 text-right text-[15px] font-black tabular-nums text-slate-900">
+                        {money(r.lineTotal)}
+                      </td>
+                    </tr>
                   );
                 })}
-              </TableBody>
-              <TableFooter>
-                <TableRow>
-                  <TableCell colSpan={4} className="text-sm text-muted-foreground">
-                    {rows.length} line(s)
-                  </TableCell>
-                  <TableCell className="text-right text-sm font-bold text-green-700">
-                    {totalDiscount > 0.009 ? money(totalDiscount) : '—'}
-                  </TableCell>
-                  <TableCell className="text-center font-bold">{totalQty}</TableCell>
-                  <TableCell className="text-right font-bold">{money(totalValue)}</TableCell>
-                </TableRow>
-              </TableFooter>
-            </Table>
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-slate-200 bg-slate-100 text-slate-900">
+                  <td className="hidden px-2 py-2.5 md:table-cell" />
+                  <td className="px-2.5 py-2.5 text-xs font-black uppercase tracking-wider text-slate-500">
+                    Totals
+                  </td>
+                  <td className="hidden lg:table-cell" />
+                  <td className="hidden xl:table-cell" />
+                  <td className="hidden whitespace-nowrap px-2.5 py-2.5 text-right font-bold tabular-nums text-slate-500 md:table-cell">
+                    {money(totalMrp)}
+                  </td>
+                  <td className="hidden px-2.5 py-2.5 md:table-cell" />
+                  <td className="px-2.5 py-2.5" />
+                  <td className="hidden lg:table-cell" />
+                  <td className="whitespace-nowrap px-2.5 py-2.5 text-center text-[15px] font-black tabular-nums">
+                    {totalQty}
+                  </td>
+                  <td className="hidden whitespace-nowrap px-2.5 py-2.5 text-right lg:table-cell">
+                    <span className="text-[15px] font-black tabular-nums text-emerald-700">
+                      {totalDiscount > 0.009 ? money(totalDiscount) : '—'}
+                    </span>
+                    {totalOrderShare > 0.009 && (
+                      <div className="text-[10px] font-medium text-slate-500">
+                        {money(totalLineDiscount)} line + {money(totalOrderShare)} order
+                      </div>
+                    )}
+                  </td>
+                  <td className="whitespace-nowrap px-2.5 py-2.5 text-right text-base font-black tabular-nums">
+                    {money(totalValue)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+
+        {/* Items value is BEFORE shipping/COD/round-off — say so, so this figure
+            is never mistaken for the order total in the summary card below. */}
+        {rows.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t-2 border-slate-100 bg-slate-50/60 px-4 py-2 text-xs">
+            <span className="font-semibold text-slate-500">
+              MRP − line discount = Amount. Order-level discount, shipping, COD handling and
+              round-off are applied in Order Summary.
+            </span>
+            {totalDiscount > 0.009 && (
+              <span className="font-black text-emerald-700">
+                Customer saved {money(totalDiscount)}
+                {totalMrp > 0 && ` (${((totalDiscount / totalMrp) * 100).toFixed(1)}%)`}
+              </span>
+            )}
           </div>
         )}
       </CardContent>

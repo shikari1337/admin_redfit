@@ -127,6 +127,7 @@ import InventoryPanelDashboard from './pages/panels/InventoryPanelDashboard';
 import Purchasing from './pages/panels/Purchasing';
 import VendorScorecard from './pages/panels/VendorScorecard';
 import OrdersPanelDashboard from './pages/panels/OrdersPanelDashboard';
+import SalesTeam from './pages/panels/SalesTeam';
 import Ewb from './pages/panels/Ewb';
 import Quotations from './pages/panels/Quotations';
 import SalesDocuments from './pages/panels/SalesDocuments';
@@ -346,6 +347,8 @@ function App() {
           <Route path="panel/purchasing" element={<Purchasing />} />
           <Route path="panel/purchasing/scorecard" element={<VendorScorecard />} />
           <Route path="panel/orders" element={<OrdersPanelDashboard />} />
+          {/* Sales attribution + staff activity (mig 151) — reports.read */}
+          <Route path="panel/orders/sales-team" element={<SalesTeam />} />
           <Route path="panel/orders/ewb" element={<Ewb />} />
           <Route path="panel/orders/quotations" element={<Quotations />} />
           <Route path="panel/orders/documents" element={<SalesDocuments />} />
