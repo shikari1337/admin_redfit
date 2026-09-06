@@ -71,6 +71,8 @@ interface OrderItemsProps {
   amountReceived?: number;
   couponCode?: string | null;
   discountReason?: string | null;
+  /** Per-component discount amounts as recorded on the order (migration 153). */
+  discountItems?: Array<{ amount: number | string; reason: string }> | null;
   /** Free-text order notes — carries the Bulk-Order-Platform marker + PO ref. */
   orderNotes?: string | null;
   /** Extra context for the info pane beside the ladder. */
@@ -182,7 +184,7 @@ function useVisibleColumnCount(showTax: boolean, gstCols: number): number {
  */
 const OrderItems: React.FC<OrderItemsProps> = ({
   items, b2bTier, orderDiscount = 0, headerAction,
-  subtotal, shipping = 0, total, gst, amountReceived, couponCode, discountReason,
+  subtotal, shipping = 0, total, gst, amountReceived, couponCode, discountReason, discountItems,
   orderNotes, paymentMethod, paymentGateway, placedAt, orderType, customerGstin,
   salesperson, importedFrom,
   onRemoveShipping, onRemoveCod, removingCharge,
@@ -288,6 +290,21 @@ const OrderItems: React.FC<OrderItemsProps> = ({
   const discountParts = String(discountReason ?? '')
     .split(',').map((s) => s.trim()).filter(Boolean);
 
+  /**
+   * The rupee amount of ONE named discount, when the order stored it.
+   *
+   * `orders.discount_items` (migration 153) records `{amount, reason}` per
+   * component at order creation — before it existed only the combined
+   * `orders.discount` was kept, so an older order still shows its components by
+   * name with the total on its own row. Never re-derived here: the parts
+   * provably do not re-sum to the stored total (money math lives in
+   * `computeOrderTotals`, CLAUDE.md rule 7a).
+   */
+  const discountAmountFor = (reason: string): number | undefined => {
+    const hit = (discountItems ?? []).find((d) => String(d?.reason ?? '').trim() === reason);
+    return hit && Number.isFinite(Number(hit.amount)) ? Number(hit.amount) : undefined;
+  };
+
   /** Where this order came from — derived, since orders carry no channel column. */
   const viaBulkPortal = /Source:\s*Bulk Order Platform/i.test(String(orderNotes ?? ''));
   const poRef = String(orderNotes ?? '').match(/PO Ref:\s*([^\n]+)/i)?.[1]?.trim();
@@ -325,10 +342,10 @@ const OrderItems: React.FC<OrderItemsProps> = ({
    */
   const Step: React.FC<{
     n?: number | string; label: React.ReactNode; note?: React.ReactNode;
-    value?: number; tone?: 'plain' | 'credit' | 'subtotal' | 'total';
+    value?: number; amount?: number; tone?: 'plain' | 'credit' | 'subtotal' | 'total';
     taxable?: number | null; taxAmt?: number | null;
     info?: React.ReactNode;
-  }> = ({ n, label, note, value, tone = 'plain', taxable, taxAmt, info }) => {
+  }> = ({ n, label, note, value, amount, tone = 'plain', taxable, taxAmt, info }) => {
     const tint = tone === 'total' ? 'text-white' : 'text-slate-700';
     const half = taxAmt != null ? taxAmt / 2 : null;
     return (
@@ -357,7 +374,11 @@ const OrderItems: React.FC<OrderItemsProps> = ({
           : tone === 'subtotal' ? 'text-base font-black text-slate-900'
           : 'text-base font-bold text-slate-800'
       }`}>
-        {value == null ? '' : tone === 'credit' ? `−${money(Math.abs(value))}` : money(value)}
+        {value != null
+          ? (tone === 'credit' ? `−${money(Math.abs(value))}` : money(value))
+          : amount != null
+            ? <span className="text-sm font-bold text-emerald-700">−{money(Math.abs(amount))}</span>
+            : ''}
       </td>
       {showTax && (
         <>
@@ -393,6 +414,25 @@ const OrderItems: React.FC<OrderItemsProps> = ({
   );
 
   let step = 0;
+
+  /**
+   * Order context, one item per ladder row. Consumed positionally by `nextFact()`
+   * so a fact always sits LEVEL with a money line instead of stacking into a tall
+   * first row that left a blank band above the coupon.
+   */
+  const facts: React.ReactNode[] = [
+    // Coupon FIRST so it lands on the coupon's own discount row, not three rows below it.
+    ...(couponCode ? [<Fact key="cp" k="Coupon" v={<span className="font-mono font-black text-emerald-700">{couponCode}</span>} />] : []),
+    <Fact key="ch" k="Channel" v={channel} />,
+    <Fact key="pay" k="Payment" v={`${paymentMethod === 'cod' ? 'Cash on delivery' : 'Prepaid'}${paymentGateway ? ` · ${paymentGateway}` : ''}`} />,
+    ...(placedAt ? [<Fact key="pl" k="Placed" v={dateTime(placedAt)} />] : []),
+    ...(poRef ? [<Fact key="po" k="PO ref" v={<span className="font-mono">{poRef}</span>} />] : []),
+    ...(orderType === 'b2b' && customerGstin
+      ? [<Fact key="gst" k="Buyer GSTIN" v={<span className="font-mono">{customerGstin}</span>} />] : []),
+    ...(salesperson ? [<Fact key="sp" k="Sold by" v={salesperson} />] : []),
+  ];
+  let factIdx = 0;
+  const nextFact = () => facts[factIdx++] ?? undefined;
 
   return (
     <Card className="border-2 shadow-sm">
@@ -659,42 +699,21 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                         already carries that figure; repeating it as step 1 just
                         said the same number twice. The order context moves onto
                         the first row that remains. */}
-                    <Step
-                      n="" label="" value={undefined}
-                      info={
-                        <div className="space-y-1">
-                          <Fact k="Channel" v={channel} />
-                          {poRef && <Fact k="PO ref" v={<span className="font-mono">{poRef}</span>} />}
-                          <Fact k="Payment" v={`${paymentMethod === 'cod' ? 'Cash on delivery' : 'Prepaid'}${paymentGateway ? ` · ${paymentGateway}` : ''}`} />
-                          {placedAt && <Fact k="Placed" v={dateTime(placedAt)} />}
-                          {orderType === 'b2b' && customerGstin && (
-                            <Fact k="Buyer GSTIN" v={<span className="font-mono">{customerGstin}</span>} />
-                          )}
-                          {salesperson && <Fact k="Sold by" v={salesperson} />}
-                        </div>
-                      }
-                    />
 
                     {/* Each discount that made up the total, named individually. */}
                     {orderDiscount > 0 && discountParts.map((part, i) => (
                       <Step
                         key={`d${i}`} n={i === 0 ? ++step : ''}
                         label={<span className="text-emerald-800">{part}</span>}
-                        info={i === 0 ? (
-                          <div className="space-y-1">
-                            {couponCode && <Fact k="Coupon" v={<span className="font-mono font-black">{couponCode}</span>} accent />}
-                            <Fact k="Discounts" v={`${discountParts.length} applied`} accent />
-                          </div>
-                        ) : undefined}
+                        amount={discountAmountFor(part)}
+                        info={nextFact()}
                       />
                     ))}
                     {orderDiscount > 0 && (
-                      <Step tone="credit" label="Order discount" value={orderDiscount}
- />
+                      <Step tone="credit" label="Order discount" value={orderDiscount} info={nextFact()} />
                     )}
                     {orderDiscount > 0 && (
-                      <Step n={++step} tone="subtotal" label="Net items value" value={sub - orderDiscount}
- />
+                      <Step n={++step} tone="subtotal" label="Net items value" value={sub - orderDiscount} info={nextFact()} />
                     )}
 
                     {/* Charges carry their OWN taxable value + GST in the tax columns. */}
@@ -710,6 +729,7 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                           taxable={showTax && c.taxableAmount ? Number(c.taxableAmount) : null}
                           taxAmt={showTax && cTax ? cTax : null}
                           note={c.rate ? `GST ${c.rate}%` : undefined}
+                          info={nextFact()}
                           label={
                             <>{c.label}
                               {remove && (

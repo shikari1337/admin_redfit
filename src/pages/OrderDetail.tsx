@@ -34,6 +34,7 @@ import {
   OrderNavigator,
   OrderCustomerCard,
   OrderAddressPanel,
+  RaiseRefundModal,
 } from '../components/order';
 import type { RazorpayAuditResult, RefundOutcome } from '../components/order';
 import { PickupModal } from '../components/shipments';
@@ -129,6 +130,7 @@ const OrderDetail: React.FC = () => {
   // this system can verify (bank transfer, cash, cheque), distinct from the
   // gateway-specific "Verify Payment" flow above.
   const [showMarkAsPaidModal, setShowMarkAsPaidModal] = useState(false);
+  const [showRaiseRefund, setShowRaiseRefund] = useState(false);
   // Cancelling a PAID order decides where the customer's money goes — the
   // dialog asks, rather than the bare confirm() the other transitions use.
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -746,8 +748,14 @@ const OrderDetail: React.FC = () => {
           </Button>
           <div className="h-6 w-px bg-slate-200" />
           <h1 className="text-lg font-black tracking-tight text-slate-900 md:text-xl">#{order.orderId}</h1>
-          <StatusBadge status={order.orderStatus} type="order" className="font-black uppercase tracking-wide" />
-          <StatusBadge status={order.paymentStatus} type="payment" className="font-black uppercase tracking-wide" />
+          <span className="flex items-center gap-1.5">
+            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Status</span>
+            <StatusBadge status={order.orderStatus} type="order" className="font-black uppercase tracking-wide" />
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Payment</span>
+            <StatusBadge status={order.paymentStatus} type="payment" className="font-black uppercase tracking-wide" />
+          </span>
           {(order.orderType ?? order.order_type) === 'b2b' ? (
             <Badge className="border-purple-200 bg-purple-100 font-black uppercase text-purple-800 hover:bg-purple-100">
               B2B{(order.b2bTier ?? order.b2b_tier) ? ` · ${order.b2bTier ?? order.b2b_tier}` : ''}
@@ -991,6 +999,15 @@ const OrderDetail: React.FC = () => {
               </Button>
             )}
 
+            {hasPerm('orders.manage')
+              && ['cancelled', 'returned', 'partially_refunded'].includes(order.orderStatus)
+              && Number(order.refundedAmount ?? order.refunded_amount ?? 0) < Number(order.total ?? 0) && (
+              <Button variant="outline" size="sm" className="h-9 border-orange-300 text-orange-700 hover:bg-orange-50"
+                onClick={() => setShowRaiseRefund(true)}>
+                <FaMoneyCheckAlt className="mr-2 h-3.5 w-3.5" /> Refund
+              </Button>
+            )}
+
             {hasPerm('orders.manage') && order.orderStatus === 'delivered' && (
               <Button variant="default" size="sm" className="h-9 bg-indigo-600 hover:bg-indigo-700"
                 onClick={handleMarkCompleted} disabled={updating}>
@@ -1046,6 +1063,9 @@ const OrderDetail: React.FC = () => {
         orderStatus={order.orderStatus}
         paymentStatus={order.paymentStatus}
         paymentMethod={order.paymentMethod}
+        statusHistory={order.statusHistory}
+        createdAt={order.createdAt ?? order.created_at}
+        deliveredAt={order.deliveredAt ?? order.delivered_at}
       />
 
       {/* Full width, not inside the 2/3 column: this table now carries the WHOLE
@@ -1070,6 +1090,7 @@ const OrderDetail: React.FC = () => {
         amountReceived={order.amountReceived}
         couponCode={order.couponCode ?? order.coupon_code}
         discountReason={order.discountReason ?? order.discount_reason}
+        discountItems={order.discountItems ?? order.discount_items}
         orderNotes={order.notes}
         paymentMethod={order.paymentMethod}
         paymentGateway={order.paymentGateway}
@@ -1091,6 +1112,14 @@ const OrderDetail: React.FC = () => {
       />
         </div>
         <div className="2xl:col-span-1">
+          <div className="space-y-4">
+            <OrderCustomerCard
+              customerId={order.customerId ?? order.customer_id}
+              shippingAddress={order.shippingAddress || order.shipping_address}
+              orderTotal={Number(order.total) || 0}
+              onWhatsAppClick={handleWhatsAppClick}
+            />
+
       {order.risk && (() => {
         // Authenticity reads HIGHER = BETTER (100 = fully trustworthy).
         const authenticity: number = order.risk.authenticity ?? Math.max(0, 100 - (order.risk.score ?? 0));
@@ -1154,6 +1183,7 @@ const OrderDetail: React.FC = () => {
           </Card>
         );
       })()}
+          </div>
         </div>
       </div>
 
@@ -1162,9 +1192,7 @@ const OrderDetail: React.FC = () => {
           the ships-from / invoiced-by block the shipping card used to own. */}
       {/* Addresses beside the customer — near-identical heights, so pairing them
           costs no vertical space and keeps who/where together. */}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <div className="xl:col-span-2">
-        <OrderAddressPanel
+      <OrderAddressPanel
           shippingAddress={order.shippingAddress || order.shipping_address}
           billingAddress={order.billingAddress || order.billing_address}
           warehouseId={order.warehouseId}
@@ -1190,16 +1218,6 @@ const OrderDetail: React.FC = () => {
             />
           }
         />
-        </div>
-        <div>
-        <OrderCustomerCard
-          customerId={order.customerId ?? order.customer_id}
-          shippingAddress={order.shippingAddress || order.shipping_address}
-          orderTotal={Number(order.total) || 0}
-          onWhatsAppClick={handleWhatsAppClick}
-        />
-        </div>
-      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 space-y-4">
@@ -1511,6 +1529,14 @@ const OrderDetail: React.FC = () => {
         orderId={id!}
         total={Number(order.total) || 0}
         onMarked={() => { toast({ title: 'Payment recorded', description: 'Order marked as paid.' }); fetchOrder(); }}
+      />
+
+      <RaiseRefundModal
+        isOpen={showRaiseRefund}
+        onClose={() => setShowRaiseRefund(false)}
+        orderId={order._id || order.id}
+        orderNumber={order.orderId}
+        onRaised={() => { toast({ title: 'Refund raised', description: 'It is queued for approval.' }); fetchOrder(); }}
       />
 
       <CancelOrderModal

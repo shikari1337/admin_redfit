@@ -3129,6 +3129,20 @@ export const usersAPI = {
 };
 
 // Logs API
+/** Refund pipeline (request -> approve -> execute). `POST /refunds` accepts ANY
+ *  order, which is what lets an already-cancelled order still be refunded. */
+export const refundsAPI = {
+  create: async (payload: {
+    orderId?: string; orderNumber?: string;
+    source?: 'rto' | 'cancellation' | 'credit_note' | 'manual';
+    amount: number; method?: string; reason?: string; reference?: string;
+    adjustedOrderNumber?: string;
+  }) => {
+    const response = await api.post('/refunds', payload);
+    return response.data;
+  },
+};
+
 export const logsAPI = {
   getLogs: async (params?: {
     type?: 'error' | 'combined' | 'exceptions' | 'rejections';

@@ -6,7 +6,30 @@ interface OrderProgressStepperProps {
   orderStatus: string;
   paymentStatus: string;
   paymentMethod: string;
+  /** `orders.status_history` — supplies WHEN each stage was reached. */
+  statusHistory?: Array<Record<string, any>> | null;
+  /** Order creation instant, for the "Order Placed" stage. */
+  createdAt?: string | Date | null;
+  /** Stamped on delivery; used when history has no explicit delivered entry. */
+  deliveredAt?: string | Date | null;
 }
+
+/** "06 Sep, 07:10 pm" — short enough to sit under a stage label. */
+const stamp = (d?: string | Date | null): string | null => {
+  if (!d) return null;
+  const t = new Date(d as any);
+  if (Number.isNaN(t.getTime())) return null;
+  return t.toLocaleString('en-IN', {
+    day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true,
+  });
+};
+
+/** Which order status first satisfies each stage, so a time can be found for it. */
+const STAGE_STATUSES: Record<string, string[]> = {
+  confirmed: ['confirmed', 'processing'],
+  shipped: ['shipped', 'partially_delivered', 'out_for_delivery'],
+  delivered: ['delivered', 'completed'],
+};
 
 const STEPS = [
   { key: 'placed', label: 'Order Placed' },
@@ -44,11 +67,41 @@ const CIRCLE_CLASS: Record<StepState, string> = {
  * this only makes "where is this order right now" legible at a glance
  * instead of a bare status pill buried in the sidebar.
  */
-const OrderProgressStepper: React.FC<OrderProgressStepperProps> = ({ orderStatus, paymentStatus, paymentMethod }) => {
+const OrderProgressStepper: React.FC<OrderProgressStepperProps> = ({
+  orderStatus, paymentStatus, paymentMethod, statusHistory, createdAt, deliveredAt,
+}) => {
+  /**
+   * The EARLIEST time each stage was reached, read off `status_history`.
+   * That array is JSONB and deliberately never camelCased by the API layer, so
+   * its entries carry `changed_at` (with `changedAt`/`timestamp` seen on older
+   * rows) — read whichever exists rather than assuming one.
+   */
+  const timeFor = React.useCallback((stageKey: string): string | null => {
+    if (stageKey === 'placed') return stamp(createdAt);
+    // An order row is only born when its payment's confirming step succeeds
+    // (docs/CHECKOUT_LOGIC.md §0a — order-creation deferral), so for a paid
+    // PREPAID order `created_at` genuinely IS the moment payment cleared.
+    // COD is settled at delivery, so that stage borrows the delivery time.
+    if (stageKey === 'payment') {
+      if (paymentMethod === 'cod') return stamp(deliveredAt);
+      return paymentStatus === 'completed' ? stamp(createdAt) : null;
+    }
+    if (stageKey === 'delivered' && deliveredAt) return stamp(deliveredAt);
+    const wanted = STAGE_STATUSES[stageKey];
+    if (!wanted || !Array.isArray(statusHistory)) return null;
+    const hits = statusHistory
+      .filter((e) => wanted.includes(String(e?.status ?? '').toLowerCase()))
+      .map((e) => e?.changed_at ?? e?.changedAt ?? e?.timestamp)
+      .filter(Boolean)
+      .map((d: any) => new Date(d).getTime())
+      .filter((n) => Number.isFinite(n));
+    return hits.length ? stamp(new Date(Math.min(...hits))) : null;
+  }, [statusHistory, createdAt, deliveredAt, paymentMethod, paymentStatus]);
+
   if (orderStatus === 'cancelled') {
     return (
       <Card className="shadow-sm border-red-200 bg-red-50/60">
-        <CardContent className="py-2.5 px-4 flex items-center gap-2 text-sm text-red-700">
+        <CardContent className="py-2 px-4 flex items-center gap-2 text-sm text-red-700">
           <FaTimes className="h-4 w-4 shrink-0" />
           <span className="font-medium">This order was cancelled.</span>
         </CardContent>
@@ -106,17 +159,25 @@ const OrderProgressStepper: React.FC<OrderProgressStepperProps> = ({ orderStatus
             const lineDone = state === 'done' || state === 'partial';
             return (
               <React.Fragment key={step.key}>
-                <div className="flex flex-col items-center gap-1.5 w-20 shrink-0">
-                  <div className={`flex h-8 w-8 items-center justify-center rounded-full border-2 text-xs font-semibold ${CIRCLE_CLASS[state]}`}>
-                    {state === 'partial' ? '!' : state === 'done' ? <FaCheck className="h-3 w-3" /> : i + 1}
+                <div className="flex flex-col items-center gap-0.5 w-24 shrink-0">
+                  <div className={`flex h-6 w-6 items-center justify-center rounded-full border-2 text-[11px] font-bold ${CIRCLE_CLASS[state]}`}>
+                    {state === 'partial' ? '!' : state === 'done' ? <FaCheck className="h-2.5 w-2.5" /> : i + 1}
                   </div>
-                  <span className={`text-xs text-center leading-tight ${state === 'pending' ? 'text-muted-foreground' : 'text-foreground font-medium'}`}>
+                  <span className={`text-[11px] text-center leading-tight ${state === 'pending' ? 'text-muted-foreground' : 'text-foreground font-bold'}`}>
                     {step.key === 'payment' && isCod ? 'Pay on Delivery' : step.label}
                     {state === 'partial' ? ' (Partial)' : ''}
                   </span>
+                  {/* WHEN it happened — a progress bar without times cannot answer
+                      "how long has this been sitting in Confirmed?". */}
+                  {(() => {
+                    const t = timeFor(step.key);
+                    return t
+                      ? <span className="text-[10px] leading-tight text-center font-medium tabular-nums text-slate-400">{t}</span>
+                      : <span className="text-[10px] leading-tight">&nbsp;</span>;
+                  })()}
                 </div>
                 {!isLast && (
-                  <div className={`h-0.5 flex-1 mt-4 ${lineDone ? 'bg-green-500' : 'bg-muted-foreground/20'}`} />
+                  <div className={`h-0.5 flex-1 mt-3 ${lineDone ? 'bg-green-500' : 'bg-muted-foreground/20'}`} />
                 )}
               </React.Fragment>
             );

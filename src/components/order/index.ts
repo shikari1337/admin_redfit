@@ -27,3 +27,4 @@ export { default as OrderNavigator } from './OrderNavigator';
 export { default as OrderCustomerCard } from './OrderCustomerCard';
 export { default as OrderAddressPanel } from './OrderAddressPanel';
 
+export { default as RaiseRefundModal } from './RaiseRefundModal';
