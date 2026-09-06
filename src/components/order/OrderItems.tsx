@@ -338,7 +338,7 @@ const OrderItems: React.FC<OrderItemsProps> = ({
         : 'bg-slate-50/70'
     }>
       <td colSpan={infoSpan} className="px-3 py-2 align-middle">{info}</td>
-      <td colSpan={labelSpan} className="px-3 py-2 text-right align-middle">
+      <td colSpan={labelSpan} className="whitespace-nowrap px-3 py-2 text-right align-middle">
         <span className={`mr-2 text-xs font-black tabular-nums ${tone === 'total' ? 'text-slate-300' : 'text-slate-400'}`}>
           {n ?? ''}
         </span>
@@ -414,11 +414,11 @@ const OrderItems: React.FC<OrderItemsProps> = ({
              (`min-width:auto`), so it grew and the whole PAGE scrolled sideways.
              See COMMON_MISTAKES #215. */
           <div className="w-0 min-w-full overflow-x-auto">
-            <table className={`w-full border-collapse text-sm ${showTax ? 'min-w-[1040px]' : 'min-w-[960px]'}`}>
+            <table className={`w-full border-collapse text-sm ${showTax ? 'min-w-[1040px]' : 'min-w-[900px]'}`}>
               <thead>
                 <tr className="bg-slate-800 text-left text-xs uppercase tracking-wider text-slate-100">
                   <th rowSpan={2} className="whitespace-nowrap px-3 py-2 align-bottom font-black">SKU</th>
-                  <th rowSpan={2} className="min-w-[300px] px-3 py-2 align-bottom font-black">Product name</th>
+                  <th rowSpan={2} className="min-w-[240px] px-3 py-2 align-bottom font-black">Product name</th>
                   <th rowSpan={2} className={`w-[120px] px-3 py-2 align-bottom font-black ${CLS.brand}`}>Brand</th>
                   <th rowSpan={2} className={`px-3 py-2 align-bottom font-black ${CLS.variation}`}>Variation</th>
                   <th rowSpan={2} className={`whitespace-nowrap px-3 py-2 text-right align-bottom font-black ${CLS.mrp}`}>MRP</th>
@@ -450,7 +450,7 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                   const tier = tierOf(r);
                   return (
                     <tr key={index} className="align-top hover:bg-slate-50/80">
-                      <td className="whitespace-nowrap px-3 py-3 font-mono text-sm font-black text-slate-700">
+                      <td className="whitespace-nowrap px-2 py-3 font-mono text-xs font-black text-slate-700">
                         {r.sku}
                       </td>
 
@@ -655,8 +655,12 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                       </td>
                     </tr>
 
+                    {/* No "Items value" step — the TOTALS row directly above
+                        already carries that figure; repeating it as step 1 just
+                        said the same number twice. The order context moves onto
+                        the first row that remains. */}
                     <Step
-                      n={++step} label="Items value" value={sub}
+                      n="" label="" value={undefined}
                       info={
                         <div className="space-y-1">
                           <Fact k="Channel" v={channel} />

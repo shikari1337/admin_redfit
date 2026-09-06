@@ -1591,6 +1591,13 @@ export const ordersAPI = {
     const response = await api.get(`/orders/${id}`);
     return response.data;
   },
+  /** Send an order message on a channel staff pick (WhatsApp / SMS / Email).
+   *  Backed by notifyCustomer(), so it uses the STORE's own credentials and
+   *  reports the real provider error rather than a cheerful success. */
+  notify: async (id: string, event: string, channel?: 'whatsapp' | 'sms' | 'email') => {
+    const response = await api.post(`/orders/${id}/notify`, { event, channel });
+    return response.data;
+  },
   // "Confirmed" and "Completed" are just status transitions handled by /status
   // below — there never was a dedicated /confirm or /complete route.
   updateStatus: async (id: string, status: string, notes?: string, refund?: OrderCancelRefund) => {

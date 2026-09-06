@@ -44,6 +44,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+  DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 
@@ -428,6 +429,24 @@ const OrderDetail: React.FC = () => {
     }
   };
 
+  /** On-demand order message on a chosen channel. */
+  const [sendingNotify, setSendingNotify] = useState<string | null>(null);
+  const handleNotify = async (event: string, channel: 'whatsapp' | 'sms' | 'email', label: string) => {
+    setSendingNotify(`${event}:${channel}`);
+    try {
+      const res: any = await ordersAPI.notify(id!, event, channel);
+      toast({ title: `${label} sent`, description: res?.message || `Delivered on ${channel}.` });
+    } catch (e: any) {
+      toast({
+        variant: 'destructive',
+        title: `${label} not sent`,
+        description: e?.response?.data?.message || `Could not send on ${channel}.`,
+      });
+    } finally {
+      setSendingNotify(null);
+    }
+  };
+
   const handleSendEmail = async (type: 'confirmation' | 'update' | 'invoice', subject?: string, content?: string) => {
     if (!order.shippingAddress?.email) {
       toast({ variant: "destructive", title: "No Email", description: 'Customer email address is not available' });
@@ -720,13 +739,13 @@ const OrderDetail: React.FC = () => {
       {/* Command bar: identity, state and navigation, pinned while scrolling a
           long order. Everything here is read-only; actions stay below. */}
       <div className="sticky top-0 z-30 border-b-2 border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 md:px-6">
-          <Button variant="ghost" size="sm" className="h-8 px-2 font-bold text-slate-500 hover:text-slate-900"
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 px-4 py-1.5 md:px-6">
+          <Button variant="ghost" size="sm" className="h-7 px-2 font-bold text-slate-500 hover:text-slate-900"
             onClick={() => navigate('/orders')}>
             <FaArrowLeft className="mr-1.5 h-3.5 w-3.5" /> Orders
           </Button>
           <div className="h-6 w-px bg-slate-200" />
-          <h1 className="text-xl font-black tracking-tight text-slate-900 md:text-2xl">#{order.orderId}</h1>
+          <h1 className="text-lg font-black tracking-tight text-slate-900 md:text-xl">#{order.orderId}</h1>
           <StatusBadge status={order.orderStatus} type="order" className="font-black uppercase tracking-wide" />
           <StatusBadge status={order.paymentStatus} type="payment" className="font-black uppercase tracking-wide" />
           {(order.orderType ?? order.order_type) === 'b2b' ? (
@@ -761,7 +780,7 @@ const OrderDetail: React.FC = () => {
         </div>
 
         {/* Second row: the numbers an operator checks first, without scrolling. */}
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-slate-100 bg-slate-50/80 px-4 py-1.5 text-xs md:px-6">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 border-t border-slate-100 bg-slate-50/80 px-4 py-1 text-xs md:px-6">
           <span className="font-black uppercase tracking-wider text-slate-400">Total</span>
           <span className="-ml-3.5 text-base font-black tabular-nums text-slate-900">
             {fmtRupees(order.total || 0)}
@@ -799,7 +818,10 @@ const OrderDetail: React.FC = () => {
       <div className="space-y-4 p-4 md:p-6">
       {/* Action toolbar — every write on this order. Framed as its own surface so
           it reads as a control strip rather than buttons floating on the page. */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border-2 border-slate-200 bg-white p-2.5">
+      {/* Three groups: STATUS on the left, CUSTOMER COMMS in the middle,
+          FULFILMENT pushed right — instead of one long wrap that put buttons
+          wherever they happened to land. */}
+      <div className="grid grid-cols-1 items-center gap-2 rounded-lg border-2 border-slate-200 bg-white p-2 lg:grid-cols-[auto_1fr_auto]">
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-2 bg-muted/50 p-1 rounded-md border">
             <Input
@@ -828,29 +850,63 @@ const OrderDetail: React.FC = () => {
             </Select>
           </div>
 
-          <div className="flex flex-wrap items-center gap-y-2 isolate">
-            {order.shippingAddress?.email && (
-              <>
-                {/* Each button reflects and disables ONLY its own action, so
-                    clicking one no longer greys out (or visually "clicks") the
-                    other two. */}
-                <Button type="button" variant="outline" size="sm" className="h-10 rounded-r-none border-r-0 text-green-700 hover:text-green-800"
-                  onClick={() => handleSendEmail('confirmation')} disabled={sendingEmail === 'confirmation'}>
+          <div className="flex flex-wrap items-center gap-2 gap-y-1 isolate lg:justify-end">
+            {/* One menu for every customer message on every channel. WhatsApp/SMS
+                go through notifyCustomer (store credentials + real errors);
+                email keeps the existing templated sender. A COD order that can
+                still be paid online carries its pay-link in the message. */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="outline" size="sm" className="h-9 text-green-700 hover:text-green-800"
+                  disabled={sendingNotify !== null || sendingEmail !== null}>
                   <FaEnvelope className="mr-2 h-3.5 w-3.5" />
-                  {sendingEmail === 'confirmation' ? 'Sending…' : 'Confirmation'}
+                  {sendingNotify || sendingEmail ? 'Sending…' : 'Send'}
+                  <FaChevronDown className="ml-2 h-3 w-3" />
                 </Button>
-                <Button type="button" variant="outline" size="sm" className="h-10 rounded-l-none text-blue-700 hover:text-blue-800 mr-2"
-                  onClick={() => setShowUpdateEmailModal(true)} disabled={sendingEmail === 'update'}>
-                  <FaEnvelope className="mr-2 h-3.5 w-3.5" />
-                  {sendingEmail === 'update' ? 'Sending…' : 'Update'}
-                </Button>
-              </>
-            )}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-64">
+                {([
+                  { event: 'order_confirmation', label: 'Order confirmation' },
+                  ...(order.paymentMethod === 'cod'
+                    ? [{ event: 'cod_confirm', label: 'COD confirmation + pay link' }] : []),
+                  ...(payLink ? [{ event: 'payment_link', label: 'Payment link' }] : []),
+                  { event: 'order_status', label: 'Status update' },
+                  ...(order.orderStatus === 'shipped' || order.shipments?.length
+                    ? [{ event: 'order_shipped', label: 'Shipped + tracking' }] : []),
+                  ...(order.orderStatus === 'delivered'
+                    ? [{ event: 'order_delivered', label: 'Delivered' }] : []),
+                ] as Array<{ event: string; label: string }>).map((m) => (
+                  <DropdownMenuSub key={m.event}>
+                    <DropdownMenuSubTrigger>{m.label}</DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      <DropdownMenuItem disabled={!order.shippingAddress?.mobileNumber}
+                        onClick={() => handleNotify(m.event, 'whatsapp', m.label)}>
+                        <FaWhatsapp className="mr-2 h-3.5 w-3.5 text-green-600" /> WhatsApp
+                      </DropdownMenuItem>
+                      <DropdownMenuItem disabled={!order.shippingAddress?.mobileNumber}
+                        onClick={() => handleNotify(m.event, 'sms', m.label)}>
+                        <FaSms className="mr-2 h-3.5 w-3.5" /> SMS
+                      </DropdownMenuItem>
+                      <DropdownMenuItem disabled={!order.shippingAddress?.email}
+                        onClick={() => (m.event === 'order_confirmation'
+                          ? handleSendEmail('confirmation')
+                          : handleNotify(m.event, 'email', m.label))}>
+                        <FaEnvelope className="mr-2 h-3.5 w-3.5" /> Email
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                ))}
+                <DropdownMenuItem disabled={!order.shippingAddress?.email}
+                  onClick={() => setShowUpdateEmailModal(true)}>
+                  <FaEnvelope className="mr-2 h-3.5 w-3.5" /> Custom email…
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
 
             {/* Invoice: download the PDF or send it on a specific channel. */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button type="button" variant="outline" size="sm" className="h-10 text-purple-700 hover:text-purple-800 mr-2"
+                <Button type="button" variant="outline" size="sm" className="h-9 text-purple-700 hover:text-purple-800"
                   disabled={invoiceBusy !== null}>
                   <FaFileInvoice className="mr-2 h-3.5 w-3.5" />
                   {invoiceBusy ? `Invoice (${invoiceBusy})…` : 'Invoice'}
@@ -874,7 +930,7 @@ const OrderDetail: React.FC = () => {
             </DropdownMenu>
 
             {hasPerm('orders.manage') && order.orderStatus === 'pending' && order.paymentMethod === 'prepaid' && order.paymentStatus !== 'completed' && (
-              <Button variant="secondary" size="sm" className="h-10 bg-yellow-100 text-yellow-800 hover:bg-yellow-200 mr-2"
+              <Button variant="secondary" size="sm" className="h-9 bg-yellow-100 text-yellow-800 hover:bg-yellow-200"
                 onClick={() => setShowPaymentVerifyModal(true)}>
                 <FaCreditCard className="mr-2 h-3.5 w-3.5" /> Verify Payment
               </Button>
@@ -890,7 +946,7 @@ const OrderDetail: React.FC = () => {
                 genuinely unpaid. */}
             {hasPerm('orders.manage') && order.paymentMethod === 'prepaid' && order.paymentStatus !== 'completed'
               && !['cancelled', 'returned'].includes(order.orderStatus) && (
-              <Button variant="secondary" size="sm" className="h-10 bg-emerald-100 text-emerald-800 hover:bg-emerald-200 mr-2"
+              <Button variant="secondary" size="sm" className="h-9 bg-emerald-100 text-emerald-800 hover:bg-emerald-200"
                 onClick={() => setShowMarkAsPaidModal(true)}>
                 <FaMoneyCheckAlt className="mr-2 h-3.5 w-3.5" /> Mark as Paid
               </Button>
@@ -901,14 +957,14 @@ const OrderDetail: React.FC = () => {
                 paid or in a terminal state, not just while order_status is pending. */}
             {hasPerm('orders.manage') && order.paymentMethod === 'cod' && order.paymentStatus !== 'completed'
               && !['cancelled', 'returned'].includes(order.orderStatus) && (
-              <Button variant="secondary" size="sm" className="h-10 bg-green-100 text-green-800 hover:bg-green-200 mr-2"
+              <Button variant="secondary" size="sm" className="h-9 bg-green-100 text-green-800 hover:bg-green-200"
                 onClick={() => setShowRecordCodPayment(true)}>
                 <FaCreditCard className="mr-2 h-3.5 w-3.5" /> Record Payment
               </Button>
             )}
 
             {hasPerm('orders.manage') && order.orderStatus === 'pending' && (
-              <Button variant="default" size="sm" className="h-10 bg-green-600 hover:bg-green-700 mr-2"
+              <Button variant="default" size="sm" className="h-9 bg-green-600 hover:bg-green-700"
                 onClick={handleConfirmOrder} disabled={confirmingOrder || (order.paymentMethod === 'prepaid' && order.paymentStatus !== 'completed')}>
                 <FaCheckCircle className="mr-2 h-3.5 w-3.5" /> {confirmingOrder ? 'Confirming...' : 'Confirm Order'}
               </Button>
@@ -916,27 +972,27 @@ const OrderDetail: React.FC = () => {
 
             {/* Hold / release — parks an order (stock query, address doubt) without cancelling. */}
             {hasPerm('orders.manage') && ['pending', 'confirmed', 'processing'].includes(order.orderStatus) && (
-              <Button variant="secondary" size="sm" className="h-10 bg-orange-100 text-orange-800 hover:bg-orange-200 mr-2"
+              <Button variant="secondary" size="sm" className="h-9 bg-orange-100 text-orange-800 hover:bg-orange-200"
                 onClick={() => handleStatusUpdate('on_hold')} disabled={updating}>
                 Put on Hold
               </Button>
             )}
             {hasPerm('orders.manage') && order.orderStatus === 'on_hold' && (
-              <Button variant="secondary" size="sm" className="h-10 bg-blue-100 text-blue-800 hover:bg-blue-200 mr-2"
+              <Button variant="secondary" size="sm" className="h-9 bg-blue-100 text-blue-800 hover:bg-blue-200"
                 onClick={() => handleStatusUpdate('confirmed')} disabled={updating}>
                 Release Hold
               </Button>
             )}
 
             {canAccess('shipping') && hasPerm('shipments.manage') && ['confirmed', 'processing', 'shipped'].includes(order.orderStatus) && (
-              <Button variant="default" size="sm" className="h-10 bg-blue-600 hover:bg-blue-700"
+              <Button variant="default" size="sm" className="h-9 bg-blue-600 hover:bg-blue-700"
                 onClick={() => setShowShipmentModal(true)} disabled={sendingToShiprocket}>
                 <FaTruck className="mr-2 h-3.5 w-3.5" /> {sendingToShiprocket ? 'Creating...' : order.shippingProvider ? 'Reship Order' : 'Create Shipment'}
               </Button>
             )}
 
             {hasPerm('orders.manage') && order.orderStatus === 'delivered' && (
-              <Button variant="default" size="sm" className="h-10 bg-indigo-600 hover:bg-indigo-700 ml-2"
+              <Button variant="default" size="sm" className="h-9 bg-indigo-600 hover:bg-indigo-700"
                 onClick={handleMarkCompleted} disabled={updating}>
                 <FaCheckCircle className="mr-2 h-3.5 w-3.5" /> {updating ? 'Updating...' : 'Mark as Completed'}
               </Button>
@@ -950,11 +1006,11 @@ const OrderDetail: React.FC = () => {
                 the instant one parcel arrives. */}
             {canAccess('shipping') && hasPerm('shipments.manage') && actionableShipments.length > 0 && (
               <>
-                <Button variant="outline" size="sm" className="h-10 border-green-300 text-green-700 hover:bg-green-50 ml-2"
+                <Button variant="outline" size="sm" className="h-9 border-green-300 text-green-700 hover:bg-green-50"
                   onClick={() => setDeliveryModalMode('delivered')}>
                   <FaCheckCircle className="mr-2 h-3.5 w-3.5" /> Mark Delivered
                 </Button>
-                <Button variant="outline" size="sm" className="h-10 border-orange-300 text-orange-700 hover:bg-orange-50 ml-2"
+                <Button variant="outline" size="sm" className="h-9 border-orange-300 text-orange-700 hover:bg-orange-50"
                   onClick={() => setDeliveryModalMode('rto')}>
                   <FaTruck className="mr-2 h-3.5 w-3.5" /> Mark RTO / Failed Delivery
                 </Button>
@@ -965,18 +1021,18 @@ const OrderDetail: React.FC = () => {
                 Order Information / Payment cards. */}
             {canAccess('shipping') && hasPerm('shipments.manage') && !shiprocketAwb
               && (order.shiprocketShipmentId ?? order.shiprocket_shipment_id) && (
-              <Button variant="outline" size="sm" className="h-10 ml-2" onClick={handleAssignAwb} disabled={assigningAwb}>
+              <Button variant="outline" size="sm" className="h-9" onClick={handleAssignAwb} disabled={assigningAwb}>
                 {assigningAwb ? 'Assigning…' : 'Assign AWB'}
               </Button>
             )}
             {canAccess('shipping') && hasPerm('shipments.manage')
               && !order.shipmentId && !(order.shiprocketShipmentId ?? order.shiprocket_shipment_id) && (
-              <Button variant="outline" size="sm" className="h-10 ml-2" onClick={handleAttachAwb} disabled={attachingAwb}>
+              <Button variant="outline" size="sm" className="h-9" onClick={handleAttachAwb} disabled={attachingAwb}>
                 {attachingAwb ? 'Attaching…' : 'Attach AWB'}
               </Button>
             )}
             {hasPerm('orders.manage') && order.razorpayPaymentId && (
-              <Button variant="outline" size="sm" className="h-10 ml-2 text-indigo-700 hover:text-indigo-800"
+              <Button variant="outline" size="sm" className="h-9 ml-2 text-indigo-700 hover:text-indigo-800"
                 onClick={handleAuditRazorpayPayment} disabled={auditingRazorpay}>
                 <FaCreditCard className="mr-2 h-3.5 w-3.5" />
                 {auditingRazorpay ? 'Checking…' : 'Verify with Razorpay'}
@@ -998,6 +1054,11 @@ const OrderDetail: React.FC = () => {
           Total), a totals row for every one of them, and the order calculation
           itself as numbered footer steps. In a two-thirds column the money
           columns fell off the right edge behind a scrollbar. */}
+      {/* Items table ~80%, order authenticity in the remaining column — the
+          score belongs next to the money it is judging, not three sections
+          below it. Stacks on anything narrower than xl. */}
+      <div className="grid grid-cols-1 gap-4 2xl:grid-cols-5">
+        <div className="2xl:col-span-4">
       <OrderItems
         items={order.items || []}
         b2bTier={order.b2bTier ?? order.b2b_tier}
@@ -1028,6 +1089,73 @@ const OrderDetail: React.FC = () => {
           </Button>
         ) : undefined}
       />
+        </div>
+        <div className="2xl:col-span-1">
+      {order.risk && (() => {
+        // Authenticity reads HIGHER = BETTER (100 = fully trustworthy).
+        const authenticity: number = order.risk.authenticity ?? Math.max(0, 100 - (order.risk.score ?? 0));
+        const tone = authenticity >= 80
+          ? { label: 'Authentic', text: 'text-green-700', chip: 'bg-green-100 text-green-700', bar: 'bg-green-500' }
+          : authenticity >= 50
+            ? { label: 'Review advised', text: 'text-yellow-700', chip: 'bg-yellow-100 text-yellow-700', bar: 'bg-yellow-500' }
+            : { label: 'High risk', text: 'text-red-700', chip: 'bg-red-100 text-red-700', bar: 'bg-red-500' };
+        const standing = order.risk.standing;
+        return (
+          <Card className="shadow-sm">
+            <CardHeader className="px-4 py-2.5 border-b">
+              <CardTitle className="text-base flex items-center justify-between">
+                <span>Order Authenticity</span>
+                <span className={`text-xs font-semibold px-2 py-1 rounded-full ${tone.chip}`}>
+                  {tone.label}
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-4">
+              {/* Score gauge — the higher the score, the more authentic. */}
+              <div className="flex items-end justify-between mb-1">
+                <span className={`text-3xl font-bold ${tone.text}`}>{authenticity}</span>
+                <span className="text-xs text-muted-foreground mb-1">/ 100</span>
+              </div>
+              <div className="h-2.5 rounded-full bg-muted overflow-hidden mb-1">
+                <div className={`h-full rounded-full ${tone.bar}`} style={{ width: `${Math.max(2, authenticity)}%` }} />
+              </div>
+              <div className="flex justify-between text-[10px] text-muted-foreground mb-3">
+                <span className="text-red-600">Risky</span>
+                <span className="text-yellow-600">Review</span>
+                <span className="text-green-600">Authentic</span>
+              </div>
+
+                            {order.risk.flags?.length > 0 ? (
+                <ul className="space-y-2">
+                  {order.risk.flags.map((f: any, i: number) => (
+                    <li key={i} className="flex items-start gap-2 text-sm">
+                      <span className={`mt-1 h-2 w-2 rounded-full shrink-0 ${
+                        f.severity === 'high' ? 'bg-red-500' : f.severity === 'medium' ? 'bg-yellow-500' : 'bg-gray-400'
+                      }`} />
+                      <span className="text-foreground">{f.message}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-green-700">No risk signals detected.</p>
+              )}
+              {standing && standing.totalOrders > 0 && (
+                <p className="text-xs text-muted-foreground mt-3 pt-3 border-t">
+                  Platform history: {standing.totalOrders} order(s) across {standing.storeCount} store(s),
+                  {' '}{standing.totalCancelled} cancelled/returned.
+                </p>
+              )}
+              {order.risk.ipGeo && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  Order IP geolocates to {[order.risk.ipGeo.city, order.risk.ipGeo.region, order.risk.ipGeo.country].filter(Boolean).join(', ') || 'an unknown location'}.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })()}
+        </div>
+      </div>
 
           {/* Ship-to and bill-to read together (they used to sit in two cards
           several screens apart, with payment and refunds between them), plus
@@ -1167,7 +1295,6 @@ const OrderDetail: React.FC = () => {
             invoiceNumber={order.invoiceNumber ?? order.invoice_number}
             invoiceDate={order.invoiceDate ?? order.invoice_date}
             invoiceNumberSource={order.invoiceNumberSource ?? order.invoice_number_source}
-            salesperson={order.salesperson}
             manualInvoiceUrl={order.manualInvoiceUrl ?? order.manual_invoice_url}
             manualInvoiceFilename={order.manualInvoiceFilename ?? order.manual_invoice_filename}
             manualInvoiceUploadedBy={order.manualInvoiceUploadedBy ?? order.manual_invoice_uploaded_by}
@@ -1308,73 +1435,6 @@ const OrderDetail: React.FC = () => {
           more cards stacked in the narrow sidebar. Each is an independent
           read-mostly panel, so they tile cleanly. */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {order.risk && (() => {
-          // Authenticity reads HIGHER = BETTER (100 = fully trustworthy).
-          const authenticity: number = order.risk.authenticity ?? Math.max(0, 100 - (order.risk.score ?? 0));
-          const tone = authenticity >= 80
-            ? { label: 'Authentic', text: 'text-green-700', chip: 'bg-green-100 text-green-700', bar: 'bg-green-500' }
-            : authenticity >= 50
-              ? { label: 'Review advised', text: 'text-yellow-700', chip: 'bg-yellow-100 text-yellow-700', bar: 'bg-yellow-500' }
-              : { label: 'High risk', text: 'text-red-700', chip: 'bg-red-100 text-red-700', bar: 'bg-red-500' };
-          const standing = order.risk.standing;
-          return (
-            <Card className="shadow-sm">
-              <CardHeader className="px-4 py-2.5 border-b">
-                <CardTitle className="text-base flex items-center justify-between">
-                  <span>Order Authenticity</span>
-                  <span className={`text-xs font-semibold px-2 py-1 rounded-full ${tone.chip}`}>
-                    {tone.label}
-                  </span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-4">
-                {/* Score gauge — the higher the score, the more authentic. */}
-                <div className="flex items-end justify-between mb-1">
-                  <span className={`text-3xl font-bold ${tone.text}`}>{authenticity}</span>
-                  <span className="text-xs text-muted-foreground mb-1">/ 100</span>
-                </div>
-                <div className="h-2.5 rounded-full bg-muted overflow-hidden mb-1">
-                  <div className={`h-full rounded-full ${tone.bar}`} style={{ width: `${Math.max(2, authenticity)}%` }} />
-                </div>
-                <div className="flex justify-between text-[10px] text-muted-foreground mb-3">
-                  <span className="text-red-600">Risky</span>
-                  <span className="text-yellow-600">Review</span>
-                  <span className="text-green-600">Authentic</span>
-                </div>
-
-                <p className="text-xs text-muted-foreground mb-3">
-                  Heuristic score from address completeness, IP-vs-shipping-address location, and this
-                  customer's cancellation history across every store on the platform — not a fraud guarantee.
-                </p>
-                {order.risk.flags?.length > 0 ? (
-                  <ul className="space-y-2">
-                    {order.risk.flags.map((f: any, i: number) => (
-                      <li key={i} className="flex items-start gap-2 text-sm">
-                        <span className={`mt-1 h-2 w-2 rounded-full shrink-0 ${
-                          f.severity === 'high' ? 'bg-red-500' : f.severity === 'medium' ? 'bg-yellow-500' : 'bg-gray-400'
-                        }`} />
-                        <span className="text-foreground">{f.message}</span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-sm text-green-700">No risk signals detected.</p>
-                )}
-                {standing && standing.totalOrders > 0 && (
-                  <p className="text-xs text-muted-foreground mt-3 pt-3 border-t">
-                    Platform history: {standing.totalOrders} order(s) across {standing.storeCount} store(s),
-                    {' '}{standing.totalCancelled} cancelled/returned.
-                  </p>
-                )}
-                {order.risk.ipGeo && (
-                  <p className="text-xs text-muted-foreground mt-2">
-                    Order IP geolocates to {[order.risk.ipGeo.city, order.risk.ipGeo.region, order.risk.ipGeo.country].filter(Boolean).join(', ') || 'an unknown location'}.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          );
-        })()}
 
         <OrderJourneyCard attribution={order.attribution} />
 
