@@ -282,6 +282,18 @@ const normalizeResponse = (response: any): any => {
       if (response.counts !== undefined) {
         Object.defineProperty(extracted, 'counts', { value: response.counts, writable: true, enumerable: false, configurable: true });
       }
+      // Sales channels + this user's channel scope ride the orders-list envelope
+      // (migration 162) so the page draws its picker without a second call. They
+      // are ADDED HERE ON PURPOSE: anything not named in this list is dropped
+      // when the envelope is unwrapped, silently — the picker would simply never
+      // appear and nothing would say why.
+      for (const key of ['channels', 'channelAccess'] as const) {
+        if ((response as any)[key] !== undefined) {
+          Object.defineProperty(extracted, key, {
+            value: (response as any)[key], writable: true, enumerable: false, configurable: true,
+          });
+        }
+      }
     }
     return extracted;
   }

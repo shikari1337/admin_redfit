@@ -35,6 +35,15 @@ const Orders: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState('all');
   // Retail vs B2B tab — only meaningful (and only shown) when the B2B module is on.
   const [typeFilter, setTypeFilter] = useState<'all' | 'retail' | 'b2b'>('all');
+  // WHERE the sale came from (migration 162) — a POS bill, the website, a manual
+  // entry, the bulk portal. Distinct from the retail/B2B tab above, which is the
+  // PRICE SCOPE: a counter sale to a wholesale customer is both `pos` and `b2b`.
+  const [channelFilter, setChannelFilter] = useState('all');
+  const [channels, setChannels] = useState<Array<{ code: string; label: string; description?: string }>>([]);
+  // Channels this user is scoped to. EMPTY = every channel; when it is not empty
+  // the page says so, because "there are no orders" and "you cannot see them"
+  // must never look the same.
+  const [channelAccess, setChannelAccess] = useState<string[]>([]);
   // Free-text search (order #, SKU, name, email, phone) — debounced the same
   // way Customers.tsx does (plain useState + setTimeout), not useListControls.
   const [search, setSearch] = useState('');
@@ -72,11 +81,11 @@ const Orders: React.FC = () => {
   // result set can leave the page number pointing past the last real page.
   useEffect(() => {
     setPage(1);
-  }, [statusFilter, typeFilter, debouncedSearch]);
+  }, [statusFilter, typeFilter, channelFilter, debouncedSearch]);
 
   useEffect(() => {
     fetchOrders();
-  }, [statusFilter, typeFilter, debouncedSearch, page]);
+  }, [statusFilter, typeFilter, channelFilter, debouncedSearch, page]);
 
   const fetchOrders = async () => {
     try {
@@ -84,6 +93,7 @@ const Orders: React.FC = () => {
       const params: any = {};
       if (statusFilter !== 'all') params.status = statusFilter;
       if (typeFilter !== 'all') params.order_type = typeFilter;
+      if (channelFilter !== 'all') params.channel = channelFilter;
       if (debouncedSearch) params.search = debouncedSearch;
       const response = await ordersAPI.getAll({ ...params, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE });
 
@@ -107,6 +117,12 @@ const Orders: React.FC = () => {
       // actually held the array.
       const resolvedTotal = (response as any)?.total ?? (fetchedOrders as any)?.total ?? fetchedOrders.length;
       setTotal(resolvedTotal);
+      // The channel picker and this user's scope ride the SAME response, so the
+      // page never fires a second call just to know what to draw.
+      const ch = (response as any)?.channels ?? (fetchedOrders as any)?.channels;
+      if (Array.isArray(ch)) setChannels(ch);
+      const acc = (response as any)?.channelAccess ?? (fetchedOrders as any)?.channelAccess;
+      if (Array.isArray(acc)) setChannelAccess(acc);
       setSelectedIds([]);
       // Publish this page's exact sequence so Order Detail can offer
       // "Previous / Next order" through the same filters the operator is
@@ -284,6 +300,39 @@ const Orders: React.FC = () => {
         </div>
       </div>
 
+      {/*
+        WHERE the sale came from. Shown only once a store genuinely has more than
+        one channel with orders on it — a website-only shop gets no extra chrome
+        it would never use. Separate from the Retail/B2B tabs below because they
+        answer a different question: this is the place, that is the price book.
+      */}
+      {channels.length > 1 && (
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          <span className="text-xs uppercase tracking-wide text-muted-foreground">Channel</span>
+          {([{ code: 'all', label: 'All channels' }, ...channels]).map(c => (
+            <button
+              key={c.code}
+              type="button"
+              title={(c as any).description}
+              onClick={() => { setChannelFilter(c.code); setPage(1); }}
+              className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
+                channelFilter === c.code
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-border text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {c.label}
+            </button>
+          ))}
+          {channelAccess.length > 0 && (
+            <span className="text-xs text-amber-600">
+              You can work orders from {channelAccess.length === 1 ? 'one channel' : `${channelAccess.length} channels`} only —
+              other channels' orders are not shown.
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Retail / B2B tabs — shown only when the B2B module is enabled. */}
       {b2bEnabled && (
         <div className="flex items-center gap-1 mb-4 border-b border-border">
@@ -357,6 +406,15 @@ const Orders: React.FC = () => {
                       <TableCell className="font-medium px-4 py-3">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <span>{order.orderId || order._id?.substring(0, 8).toUpperCase()}</span>
+                          {/* WHERE it came from. Rendered only when it is not the
+                              plain website order, so the common row stays quiet. */}
+                          {(order.salesChannel ?? order.sales_channel) &&
+                            (order.salesChannel ?? order.sales_channel) !== 'online_store' && (
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                              {channels.find(c => c.code === (order.salesChannel ?? order.sales_channel))?.label
+                                ?? (order.salesChannel ?? order.sales_channel)}
+                            </Badge>
+                          )}
                           {/* Sale type at a glance — B2B (wholesale) vs retail. */}
                           {(order.orderType ?? order.order_type) === 'b2b' ? (
                             <Badge variant="outline" className="border-purple-300 bg-purple-50 text-purple-700 text-[10px] px-1.5 py-0">
