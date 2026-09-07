@@ -19,13 +19,15 @@ import { loadOrderNav, saveOrderNav, type OrderNavContext } from '../../lib/orde
  * convenience, never the only way to reach an order.
  */
 interface OrderNavigatorProps {
+  /** Rendered on the dark command bar — light surface, light text. */
+  dark?: boolean;
   /** The order currently open — its UUID. */
   currentId: string;
   /** Its printed number, used to recognise the order when the list stored ids by number. */
   currentOrderNumber?: string;
 }
 
-const OrderNavigator: React.FC<OrderNavigatorProps> = ({ currentId, currentOrderNumber }) => {
+const OrderNavigator: React.FC<OrderNavigatorProps> = ({ currentId, currentOrderNumber, dark }) => {
   const navigate = useNavigate();
   const [ctx, setCtx] = useState<OrderNavContext | null>(null);
   const [busy, setBusy] = useState<'prev' | 'next' | null>(null);
@@ -84,10 +86,12 @@ const OrderNavigator: React.FC<OrderNavigatorProps> = ({ currentId, currentOrder
   };
 
   return (
-    <div className="flex items-center gap-1 rounded-lg border-2 border-slate-200 bg-white p-0.5">
+    <div className={`flex items-center gap-1 rounded-lg p-0.5 ${
+      dark ? 'border border-white/20 bg-white/10' : 'border-2 border-slate-200 bg-white'}`}>
       <Button
         type="button" variant="ghost" size="sm"
-        className="h-8 px-2.5 font-bold text-slate-700 disabled:opacity-30"
+        className={`h-8 px-2.5 font-semibold disabled:opacity-30 ${
+          dark ? 'text-slate-100 hover:bg-white/15 hover:text-white' : 'text-slate-700'}`}
         disabled={!hasPrev || busy !== null}
         onClick={() => go('prev')}
         title={label('prev') ? `Previous order — ${label('prev')}` : 'Previous order'}
@@ -95,12 +99,13 @@ const OrderNavigator: React.FC<OrderNavigatorProps> = ({ currentId, currentOrder
         <FaChevronLeft className="h-3 w-3" />
         <span className="ml-1.5 hidden sm:inline">Prev</span>
       </Button>
-      <span className="px-2 text-xs font-bold tabular-nums text-slate-500 whitespace-nowrap">
+      <span className={`whitespace-nowrap px-2 text-xs font-medium tabular-nums ${dark ? 'text-slate-300' : 'text-slate-500'}`}>
         {(absolute + 1).toLocaleString('en-IN')} / {ctx.total.toLocaleString('en-IN')}
       </span>
       <Button
         type="button" variant="ghost" size="sm"
-        className="h-8 px-2.5 font-bold text-slate-700 disabled:opacity-30"
+        className={`h-8 px-2.5 font-semibold disabled:opacity-30 ${
+          dark ? 'text-slate-100 hover:bg-white/15 hover:text-white' : 'text-slate-700'}`}
         disabled={!hasNext || busy !== null}
         onClick={() => go('next')}
         title={label('next') ? `Next order — ${label('next')}` : 'Next order'}

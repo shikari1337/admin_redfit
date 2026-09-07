@@ -744,25 +744,25 @@ const OrderDetail: React.FC = () => {
        columns need. The wrapper is exactly the parent's padding-box width, so
        nothing overflows horizontally. */
     <div className="-m-4 min-h-full bg-slate-100/70 md:-m-6 lg:-m-8">
-      {/* Command bar: who/what/where on top, every write on the dark band below.
-          The figures that used to sit here (total, lines/units, payment, placed)
-          are all in the items table's own totals and order-details footer, so
-          repeating them here only cost a row. No backdrop-blur -- it softened
-          the text of everything scrolling under it. */}
-      <div className="sticky top-0 z-30 border-b border-slate-200 bg-white shadow-sm">
-        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 px-4 py-1.5 md:px-6">
-          <Button variant="ghost" size="sm" className="h-7 px-2 font-medium text-slate-500 hover:text-slate-900"
+      {/* ONE command row (owner call): identity, state, every write, and the
+          Prev/Next walk, on a single dark band. The figures that used to sit on
+          a second row (total, lines/units, payment, placed) are all in the items
+          table's own totals and order-details footer, so repeating them here
+          only cost a row. No backdrop-blur -- it softened the text of everything
+          scrolling under it. */}
+      <div className="sticky top-0 z-30 bg-slate-900 shadow-sm">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 px-4 py-2 md:px-6">
+          <Button variant="ghost" size="sm" className="h-8 px-2 font-medium text-slate-300 hover:bg-white/10 hover:text-white"
             onClick={() => navigate('/orders')}>
             <FaArrowLeft className="mr-1.5 h-3.5 w-3.5" /> Orders
           </Button>
-          <div className="h-6 w-px bg-slate-200" />
-          <h1 className="text-lg font-bold tracking-tight text-slate-900 md:text-xl">#{order.orderId}</h1>
+          <h1 className="text-lg font-bold tracking-tight text-white">#{order.orderId}</h1>
           <span className="flex items-center gap-1.5">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Status</span>
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Status</span>
             <StatusBadge status={order.orderStatus} type="order" className="font-semibold uppercase tracking-wide" />
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Payment</span>
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Payment</span>
             <StatusBadge status={order.paymentStatus} type="payment" className="font-semibold uppercase tracking-wide" />
           </span>
           {(order.orderType ?? order.order_type) === 'b2b' ? (
@@ -770,7 +770,7 @@ const OrderDetail: React.FC = () => {
               B2B{(order.b2bTier ?? order.b2b_tier) ? ` · ${order.b2bTier ?? order.b2b_tier}` : ''}
             </Badge>
           ) : (
-            <Badge variant="outline" className="font-medium uppercase text-slate-500">Retail</Badge>
+            <Badge variant="outline" className="border-white/20 font-medium uppercase text-slate-300">Retail</Badge>
           )}
           {/* Placed via the storefront's Bulk Order Platform + the buyer's own
               PO reference — both live in the order notes (portal checkout
@@ -792,9 +792,9 @@ const OrderDetail: React.FC = () => {
           {/* Return window and money already returned — neither appears in the
               items table, so both stay on the bar. */}
           {(order.returnDeadline ?? order.return_deadline) && (
-            <span className="text-xs text-slate-500">
+            <span className="text-xs text-slate-400">
               Return window {new Date(order.returnDeadline ?? order.return_deadline) > new Date() ? 'closes' : 'closed'}{' '}
-              <span className="font-medium tabular-nums text-slate-700">
+              <span className="font-medium tabular-nums text-slate-200">
                 {formatDate(order.returnDeadline ?? order.return_deadline, 'dd MMM yyyy', '')}
               </span>
             </span>
@@ -804,15 +804,8 @@ const OrderDetail: React.FC = () => {
               Refunded {fmtRupees(order.refundedAmount ?? order.refunded_amount)}
             </Badge>
           )}
-          <div className="ml-auto flex items-center gap-2">
-            {/* Walks the same sequence the Orders list last rendered — same
-                filters, same search — and across its page boundaries. */}
-            <OrderNavigator currentId={order._id || order.id} currentOrderNumber={order.orderId} />
-          </div>
-        </div>
+          <div className="mx-1 hidden h-6 w-px bg-white/15 lg:block" />
 
-        {/* Every write on this order, on one band. */}
-        <div className="flex flex-wrap items-center gap-2 bg-slate-900 px-4 py-2 md:px-6">
           <div className="flex items-center gap-2 rounded-md border border-white/15 bg-white/5 p-1">
             <Input
               type="text"
@@ -1038,60 +1031,66 @@ const OrderDetail: React.FC = () => {
               </Button>
             )}
           </div>
+
+          <div className="ml-auto flex items-center gap-2">
+            {/* Walks the same sequence the Orders list last rendered — same
+                filters, same search — and across its page boundaries. */}
+            <OrderNavigator currentId={order._id || order.id} currentOrderNumber={order.orderId} dark />
+          </div>
         </div>
+
       </div>
 
       <div className="space-y-4 p-4 md:p-6">
-      <OrderProgressStepper
-        orderStatus={order.orderStatus}
-        paymentStatus={order.paymentStatus}
-        paymentMethod={order.paymentMethod}
-        statusHistory={order.statusHistory}
-        createdAt={order.createdAt ?? order.created_at}
-        deliveredAt={order.deliveredAt ?? order.delivered_at}
-      />
-
-      {/* The items table takes the FULL width: it carries the whole money story
-          of the order — 13 line columns, a total for every one of them, and the
-          order calculation itself as footer steps — and needs ~1040px before
-          Total / GST / Taxable start falling off the right edge. */}
-      <OrderItems
-            items={order.items || []}
-            b2bTier={order.b2bTier ?? order.b2b_tier}
-            orderDiscount={Number(order.discount) || 0}
-            subtotal={Number(order.subtotal) || 0}
-            shipping={Number(order.shippingCost ?? order.shipping_cost ?? order.shipping ?? 0)}
-            total={Number(order.total) || 0}
-            gst={order.gst}
-            amountReceived={order.amountReceived}
-            couponCode={order.couponCode ?? order.coupon_code}
-            discountReason={order.discountReason ?? order.discount_reason}
-            discountItems={order.discountItems ?? order.discount_items}
-            orderNotes={order.notes}
-            paymentMethod={order.paymentMethod}
-            paymentGateway={order.paymentGateway}
-            placedAt={order.createdAt ?? order.created_at}
-            orderType={order.orderType ?? order.order_type}
-            customerGstin={order.customerGstin ?? order.customer_gstin}
-            salesperson={order.salesperson}
-            importedFrom={order.importedFrom ?? order.imported_from}
-            onRemoveShipping={isOrderEditable ? () => handleRemoveCharge('shipping') : undefined}
-            onRemoveCod={isOrderEditable ? () => handleRemoveCharge('cod') : undefined}
-            removingCharge={removingCharge}
-            /* Items are editable only while unpaid and unshipped. */
-            headerAction={isOrderEditable ? (
-              <Button size="sm" variant="outline" className="h-7 text-xs font-semibold"
-                onClick={() => setShowEditItems(true)}>
-                Edit items
-              </Button>
-            ) : undefined}
-      />
-
-      {/* ~80/20 from here down. The rail reads top-down in the order the desk
-          asks its questions: who is this · can we trust it · how is it billed ·
-          where is the parcel · what has been said and done. */}
-      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+      {/* 80 / 20 for the whole page (owner call): the status timeline and the
+          items table lead the wide column, the rail runs beside them from the
+          very top. `4fr / 1fr` rather than a fixed rail width so the split stays
+          80/20 at every size instead of drifting with the viewport. */}
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,4fr)_minmax(0,1fr)]">
         <div className="min-w-0 space-y-4">
+          <OrderProgressStepper
+            orderStatus={order.orderStatus}
+            paymentStatus={order.paymentStatus}
+            paymentMethod={order.paymentMethod}
+            statusHistory={order.statusHistory}
+            createdAt={order.createdAt ?? order.created_at}
+            deliveredAt={order.deliveredAt ?? order.delivered_at}
+          />
+
+          {/* The whole money story of the order — line columns, a total for every
+              one of them, and the order calculation itself as footer steps. */}
+          <OrderItems
+              items={order.items || []}
+              b2bTier={order.b2bTier ?? order.b2b_tier}
+              orderDiscount={Number(order.discount) || 0}
+              subtotal={Number(order.subtotal) || 0}
+              shipping={Number(order.shippingCost ?? order.shipping_cost ?? order.shipping ?? 0)}
+              total={Number(order.total) || 0}
+              gst={order.gst}
+              amountReceived={order.amountReceived}
+              couponCode={order.couponCode ?? order.coupon_code}
+              discountReason={order.discountReason ?? order.discount_reason}
+              discountItems={order.discountItems ?? order.discount_items}
+              orderNotes={order.notes}
+              paymentMethod={order.paymentMethod}
+              paymentGateway={order.paymentGateway}
+              placedAt={order.createdAt ?? order.created_at}
+              orderType={order.orderType ?? order.order_type}
+              customerGstin={order.customerGstin ?? order.customer_gstin}
+              salesperson={order.salesperson}
+              importedFrom={order.importedFrom ?? order.imported_from}
+              onRemoveShipping={isOrderEditable ? () => handleRemoveCharge('shipping') : undefined}
+              onRemoveCod={isOrderEditable ? () => handleRemoveCharge('cod') : undefined}
+              removingCharge={removingCharge}
+              /* Items are editable only while unpaid and unshipped. */
+              headerAction={isOrderEditable ? (
+                <Button size="sm" variant="outline" className="h-7 text-xs font-semibold"
+                  onClick={() => setShowEditItems(true)}>
+                  Edit items
+                </Button>
+              ) : undefined}
+          />
+
           {/* Ship-to and bill-to read together, with ships-from / invoiced-by /
               fulfilment as one footer strip — the three facts an invoice or a
               packing query needs, side by side. */}
@@ -1387,8 +1386,14 @@ const OrderDetail: React.FC = () => {
             </CardContent>
           </Card>
 
-          {/* Working notes, then the timeline — read and written while acting
-              on the order, so they sit under the facts they refer to. */}
+          {/* What HAPPENED, then what was SAID about it (owner order): the
+              timeline is the record, the notes are the commentary on it. */}
+          <Card className="shadow-sm">
+            <CardContent className="p-0">
+              <OrderStatusHistory statusHistory={order.statusHistory} />
+            </CardContent>
+          </Card>
+
           <Card className="shadow-sm">
             <CardContent className="p-0">
               <OrderNotes
@@ -1396,12 +1401,6 @@ const OrderDetail: React.FC = () => {
                 onAdd={handleAddNote}
                 saving={savingNotes}
               />
-            </CardContent>
-          </Card>
-
-          <Card className="shadow-sm">
-            <CardContent className="p-0">
-              <OrderStatusHistory statusHistory={order.statusHistory} />
             </CardContent>
           </Card>
         </div>
