@@ -48,6 +48,7 @@ const BatchBulkBar: React.FC<{ onImported?: () => void }> = ({ onImported }) => 
 
   const [busy, setBusy] = useState<'' | 'template' | 'export' | 'import'>('');
   const [includeUnbatched, setIncludeUnbatched] = useState(false);
+  const [blankRows, setBlankRows] = useState(1);
   const [error, setError] = useState('');
   const [summary, setSummary] = useState<ImportSummary | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -64,7 +65,7 @@ const BatchBulkBar: React.FC<{ onImported?: () => void }> = ({ onImported }) => 
   const handleExport = async () => {
     setError(''); setBusy('export');
     try {
-      const blob = await inventoryAPI.exportBatches({ includeUnbatched });
+      const blob = await inventoryAPI.exportBatches({ includeUnbatched, blankRowsPerSku: blankRows });
       downloadBlob(blob, `batch-inventory-${today}.xlsx`);
     } catch (e: any) {
       setError(e?.response?.data?.message ?? 'Could not export batches.');
@@ -99,56 +100,108 @@ const BatchBulkBar: React.FC<{ onImported?: () => void }> = ({ onImported }) => 
   return (
     <SectionCard title="Batch-wise bulk update">
     <div className="space-y-3 text-sm">
-      <p className="text-gray-600">
-        One row per SKU <span className="font-mono">x</span> batch, each batch with its own
-        printed <strong>MRP</strong>, mfg and expiry date. Export, edit in Excel, re-import.
-        Every row says what to do with itself in its <strong>Action</strong> column —{' '}
-        <span className="font-mono">update</span> (details only, the default),{' '}
-        <span className="font-mono">receive</span> (new units in),{' '}
-        <span className="font-mono">assign</span> (label stock you already hold) or{' '}
-        <span className="font-mono">set</span> (a physical count). Re-importing an untouched
-        export changes nothing. The full column guide is on the file's Instructions sheet.
-      </p>
+      {/* Export FIRST. The sheet is only safe to fill in when it already carries
+          the Variation IDs, the current batches and the catalogue prices to
+          compare against — so the flow is numbered rather than left to guess. */}
+      <ol className="space-y-3">
+        <li className="flex gap-3">
+          <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-gray-900 text-[11px] font-semibold text-white">1</span>
+          <div className="min-w-0 flex-1">
+            <div className="font-medium text-gray-900">Export what you have now</div>
+            <p className="mt-0.5 text-gray-600">
+              Every row arrives filled in with its Variation ID, current batch, quantity and the
+              catalogue prices to compare against. Start here — a sheet built from scratch has to
+              match SKUs by hand.
+            </p>
+            <label className="mt-2 flex items-start gap-2 text-gray-700">
+              <input type="checkbox" className="mt-0.5" checked={includeUnbatched}
+                onChange={(e) => setIncludeUnbatched(e.target.checked)} />
+              <span>
+                Also include SKUs that have no batches yet
+                <span className="block text-xs text-gray-500">
+                  For a first batch load. Rows left with a blank batch number are skipped, so the
+                  file is safe to re-import as-is.
+                </span>
+              </span>
+            </label>
+            {includeUnbatched && (
+              <label className="mt-2 flex flex-wrap items-center gap-2 text-gray-700">
+                <span>Give each of those SKUs</span>
+                <select className="rounded-md border border-gray-300 px-2 py-1 text-sm"
+                  value={blankRows} onChange={(e) => setBlankRows(parseInt(e.target.value, 10) || 1)}>
+                  {[1, 2, 3, 4, 5, 10].map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+                <span>blank row(s)</span>
+                <span className="w-full text-xs text-gray-500">
+                  One product usually holds several batches at once. Pick how many empty rows you
+                  want per SKU so you can enter each lot — its own quantity, prices and dates —
+                  without copying rows by hand.
+                </span>
+              </label>
+            )}
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Btn variant="outline" onClick={handleExport} disabled={!!busy}>
+                {busy === 'export' ? 'Exporting…' : '⬇ Export batches'}
+              </Btn>
+              <Btn variant="ghost" onClick={handleTemplate} disabled={!!busy}>
+                {busy === 'template' ? 'Preparing…' : 'Blank template instead'}
+              </Btn>
+            </div>
+          </div>
+        </li>
 
-      <label className="flex items-start gap-2 text-gray-700">
-        <input
-          type="checkbox"
-          className="mt-0.5"
-          checked={includeUnbatched}
-          onChange={(e) => setIncludeUnbatched(e.target.checked)}
-        />
-        <span>
-          Include SKUs that have no batches yet
-          <span className="block text-xs text-gray-500">
-            For a first batch load: one blank row per SKU to fill in. Rows left with a blank
-            batch number are skipped, so the file is safe to re-import as-is.
-          </span>
-        </span>
-      </label>
+        <li className="flex gap-3">
+          <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-gray-900 text-[11px] font-semibold text-white">2</span>
+          <div className="min-w-0 flex-1">
+            <div className="font-medium text-gray-900">Fill it in</div>
+            <p className="mt-0.5 text-gray-600">
+              One row per SKU <span className="font-mono">×</span> batch. Each row carries its own{' '}
+              <strong>Quantity</strong>, <strong>Batch MRP</strong> and{' '}
+              <strong>Batch Selling Price</strong>. To hold several batches of one product, repeat
+              the SKU on more rows with different <strong>Batch Numbers</strong>.
+            </p>
+            <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs">
+              <div className="font-medium text-gray-700">How the price is decided</div>
+              <div className="mt-1 text-gray-600">
+                Batch Selling Price → Batch MRP → Catalogue Selling Price → Catalogue MRP.
+                Leave the selling price blank and the batch sells at its own printed MRP.
+                Nothing is ever worked out as a percentage.
+              </div>
+            </div>
+            <p className="mt-2 text-gray-600">
+              The <strong>Action</strong> column says what each row does —{' '}
+              <span className="font-mono">update</span> (details only, the default),{' '}
+              <span className="font-mono">receive</span> (new units in),{' '}
+              <span className="font-mono">assign</span> (label stock you already hold) or{' '}
+              <span className="font-mono">set</span> (a physical count). Re-importing an untouched
+              export changes nothing. The full guide is on the file's Instructions sheet.
+            </p>
+          </div>
+        </li>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Btn variant="outline" onClick={handleTemplate} disabled={!!busy}>
-          {busy === 'template' ? 'Preparing…' : 'Blank template'}
-        </Btn>
-        <Btn variant="outline" onClick={handleExport} disabled={!!busy}>
-          {busy === 'export' ? 'Exporting…' : 'Export batches'}
-        </Btn>
-        {canImport && (
-          <Btn onClick={() => fileRef.current?.click()} disabled={!!busy}>
-            {busy === 'import' ? 'Importing…' : 'Import filled sheet'}
-          </Btn>
-        )}
-        <input
-          ref={fileRef} type="file" accept=".xlsx,.xls,.csv"
-          className="hidden" onChange={handleImport}
-        />
-      </div>
-      {!canImport && (
-        <p className="text-xs text-gray-500">
-          You can export batches but not import — importing needs the “adjust inventory”
-          permission.
-        </p>
-      )}
+        <li className="flex gap-3">
+          <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-gray-900 text-[11px] font-semibold text-white">3</span>
+          <div className="min-w-0 flex-1">
+            <div className="font-medium text-gray-900">Send it back</div>
+            <p className="mt-0.5 text-gray-600">
+              A bad row is reported on its own — the rows beside it still apply.
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {canImport ? (
+                <Btn onClick={() => fileRef.current?.click()} disabled={!!busy}>
+                  {busy === 'import' ? 'Importing…' : '⬆ Import filled sheet'}
+                </Btn>
+              ) : (
+                <p className="text-xs text-gray-500">
+                  You can export batches but not import — importing needs the “adjust inventory”
+                  permission.
+                </p>
+              )}
+              <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleImport} />
+            </div>
+          </div>
+        </li>
+      </ol>
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-red-700">{error}</div>

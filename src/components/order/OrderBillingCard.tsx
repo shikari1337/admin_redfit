@@ -34,6 +34,13 @@ interface Props {
   /** Seller GSTIN and CGST/SGST-vs-IGST for this order — the invoice header facts. */
   gstin?: string | null;
   taxType?: string | null;
+  /**
+   * The BUYER's GSTIN, from the order's own `customer_gstin` column. When it is
+   * present the invoice is a B2B supply the buyer can claim input credit on, so
+   * it is tagged as such — that is what decides whether this document has to
+   * carry the buyer's number at all.
+   */
+  customerGstin?: string | null;
   canManage: boolean;
   onSaved: () => void;
 }
@@ -47,7 +54,7 @@ const dateForInput = (v?: string | null): string => {
 const OrderBillingCard: React.FC<Props> = ({
   orderId, invoiceNumber, invoiceDate, invoiceNumberSource,
   manualInvoiceUrl, manualInvoiceFilename, manualInvoiceUploadedBy,
-  gstin, taxType, canManage, onSaved,
+  gstin, taxType, customerGstin, canManage, onSaved,
 }) => {
   const { toast } = useToast();
   const [num, setNum] = React.useState(invoiceNumber ?? '');
@@ -130,20 +137,34 @@ const OrderBillingCard: React.FC<Props> = ({
 
         {/* Who the invoice is raised by, and under which tax treatment — the
             header facts of the document these fields number. */}
-        {(gstin || taxType) && (
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border bg-slate-50 px-2.5 py-1.5 text-xs">
-            {gstin && <span className="font-mono text-slate-700">GSTIN {gstin}</span>}
-            {taxType && <span className="font-medium text-slate-500">{taxType}</span>}
+        {(gstin || taxType || customerGstin) && (
+          <div className="space-y-1 rounded-md border bg-slate-50 px-2.5 py-1.5 text-xs">
+            {gstin && (
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                <span className="font-medium text-slate-500">Seller GSTIN</span>
+                <span className="font-mono font-medium text-slate-900">{gstin}</span>
+                {taxType && <span className="font-medium text-slate-900">· {taxType}</span>}
+              </div>
+            )}
+            {customerGstin && (
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="font-medium text-slate-500">Buyer GSTIN</span>
+                <span className="font-mono font-medium text-slate-900">{customerGstin}</span>
+                <Badge variant="outline" className="border-emerald-300 bg-emerald-50 text-[9px] font-medium uppercase tracking-wide text-emerald-700">
+                  GST input
+                </Badge>
+              </div>
+            )}
           </div>
         )}
 
         {/* ── Invoice number + date ── */}
         <div className="grid grid-cols-1 gap-3">
           <div>
-            <label className="text-[11px] font-medium text-muted-foreground">Invoice number</label>
+            <label className="text-[11px] font-medium text-slate-500">Invoice number</label>
             <Input value={num} onChange={(e) => setNum(e.target.value)} disabled={!canManage}
               placeholder="From your billing software" className="mt-1" />
-            <p className="text-[11px] text-muted-foreground mt-1">
+            <p className="mt-1 text-[11px] font-medium text-slate-500">
               {invoiceNumberSource === 'manual'
                 ? 'Entered by your team.'
                 : invoiceNumber
@@ -152,7 +173,7 @@ const OrderBillingCard: React.FC<Props> = ({
             </p>
           </div>
           <div>
-            <label className="text-[11px] font-medium text-muted-foreground">Invoice date</label>
+            <label className="text-[11px] font-medium text-slate-500">Invoice date</label>
             <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} disabled={!canManage} className="mt-1" />
           </div>
         </div>
@@ -167,8 +188,8 @@ const OrderBillingCard: React.FC<Props> = ({
 
         {/* ── Uploaded invoice PDF ── */}
         <div className="border-t pt-3">
-          <p className="text-[13px] font-medium">Invoice document</p>
-          <p className="text-xs text-muted-foreground mt-0.5">
+          <p className="text-[13px] font-medium text-slate-900">Invoice document</p>
+          <p className="mt-0.5 text-xs font-medium text-slate-500">
             Upload your own PDF and it replaces the generated invoice everywhere — this page,
             the customer&apos;s email, and their order page.
           </p>
@@ -193,7 +214,7 @@ const OrderBillingCard: React.FC<Props> = ({
               )}
             </div>
           ) : (
-            <p className="mt-2 text-xs text-muted-foreground">
+            <p className="mt-2 text-xs font-medium text-slate-500">
               No upload — the system-generated invoice is being used.
             </p>
           )}

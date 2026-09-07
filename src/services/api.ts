@@ -3752,12 +3752,18 @@ export const inventoryAPI = {
 
   // ── Batch-wise (one row per SKU x batch, each batch with its OWN printed MRP).
   //    A different sheet from the four above — see backend routes/inventory.ts.
-  exportBatches: async (opts?: { search?: string; includeUnbatched?: boolean; nearExpiryDays?: number }) => {
+  exportBatches: async (opts?: {
+    search?: string; includeUnbatched?: boolean; nearExpiryDays?: number;
+    /** Blank rows per SKU that has no batches yet — one product, several lots. */
+    blankRowsPerSku?: number;
+  }) => {
     const response = await api.get('/inventory/batches/export', {
       params: {
         ...(opts?.search ? { search: opts.search } : {}),
         ...(opts?.includeUnbatched ? { includeUnbatched: 'true' } : {}),
         ...(opts?.nearExpiryDays !== undefined ? { nearExpiryDays: opts.nearExpiryDays } : {}),
+        ...(opts?.blankRowsPerSku && opts.blankRowsPerSku > 1
+          ? { blankRowsPerSku: opts.blankRowsPerSku } : {}),
       },
       responseType: 'blob',
       // The unbatched seed export walks the whole catalogue (44k SKUs on

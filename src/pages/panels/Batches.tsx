@@ -154,6 +154,33 @@ const Batches: React.FC = () => {
     return out;
   }, [rows, filter, view, days, sort]);
 
+  const exportView = () => {
+    const cols: Array<[string, (b: any) => any]> = [
+      ['Product', (b) => b.product_name], ['SKU', (b) => b.sku],
+      ['Batch Number', (b) => b.batch_number], ['Qty In Batch', (b) => b.qty_on_hand],
+      ['Purchase Date', (b) => b.purchase_date ?? ''], ['Purchase Ref', (b) => b.purchase_ref ?? ''],
+      ['Mfg Date', (b) => b.mfg_date ?? ''], ['Expiry Date', (b) => b.expiry_date ?? ''],
+      ['Days To Expiry', (b) => b.days_to_expiry ?? ''],
+      ['Batch MRP', (b) => b.mrp ?? ''], ['Batch Selling Price', (b) => b.selling_price ?? ''],
+      ['Catalogue MRP', (b) => b.catalogue_mrp ?? ''],
+      ['Catalogue Selling Price', (b) => b.catalogue_selling_price ?? ''],
+      ['Status', (b) => b.status],
+    ];
+    // A leading =+-@ turns a cell into a formula in Excel; prefix it so an
+    // exported product name can never execute (the bulk portal's own guard).
+    const cell = (v: any) => {
+      const t = v == null ? '' : String(v);
+      const safe = /^[=+\-@]/.test(t) ? `'${t}` : t;
+      return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+    };
+    const csv = [cols.map((c) => c[0]).join(','),
+                 ...visible.map((b) => cols.map(([, get]) => cell(get(b))).join(','))].join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = `batches-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  };
+
   const expiryClass = (d: number | null) =>
     d == null ? '' : d < 0 ? 'bg-red-50' : d <= 30 ? 'bg-red-50/50' : d <= 90 ? 'bg-amber-50/50' : '';
 
@@ -167,6 +194,9 @@ const Batches: React.FC = () => {
         description="Each batch is a physical lot with its own quantity, dates and — when batch pricing is on — its own printed MRP and selling price. Stock is always sold first-to-expire."
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <Btn variant="ghost" onClick={exportView} disabled={!visible.length}>
+              ⬇ Export this view (CSV)
+            </Btn>
             <Btn variant="outline" onClick={() => setBulkOpen((o) => !o)}>
               {bulkOpen ? 'Hide bulk update' : 'Bulk update (Excel)'}
             </Btn>
@@ -272,9 +302,9 @@ const Batches: React.FC = () => {
         <div className="w-0 min-w-full overflow-x-auto">
           <table className="w-full text-sm">
             <THead>
-              <Th>Product</Th><Th>SKU</Th><Th>Batch</Th><Th num>Qty</Th>
+              <Th>Product</Th><Th>SKU</Th><Th>Batch</Th><Th num>Qty in batch</Th>
               <Th>Purchased</Th><Th>Expiry</Th><Th num>Days left</Th>
-              <Th num>Batch MRP</Th><Th num>Batch price</Th><Th num>Catalogue</Th>
+              <Th num>Batch MRP</Th><Th num>Batch price</Th><Th num>Catalogue price</Th>
               <Th>Status</Th><Th> </Th>
             </THead>
             <TBody>

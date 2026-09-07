@@ -459,7 +459,11 @@ const Layout: React.FC = () => {
       <PageTransitionLoader />
       <AppSidebar userPerms={userPerms} onLogout={handleLogout} menuGroups={menuGroups} />
 
-      <main className="flex flex-1 flex-col min-h-screen bg-gray-50">
+      {/* `min-w-0`: as a flex item this defaults to `min-width:auto`, i.e. its own
+          min-content — so any single wide child (a table, a nowrap toolbar) grew
+          the whole page sideways. The clip below hides the overflow visually but
+          only `min-w-0` stops it being claimed as width in the first place. */}
+      <main className="flex min-h-screen min-w-0 flex-1 flex-col bg-gray-50">
         <header className="sticky top-0 z-10 shrink-0 border-b border-gray-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
           <div className="flex h-14 items-center justify-between gap-2 px-4 md:px-6">
             {/* Left: sidebar trigger + PANEL TABS (the top-level areas) */}
@@ -516,7 +520,7 @@ const Layout: React.FC = () => {
         <TestModeBanner />
         <SetupBanner />
 
-        <div className="flex-1 overflow-x-hidden p-4 md:p-6 lg:p-8">
+        <div className="flex-1 overflow-x-clip p-4 md:p-6 lg:p-8">
           {/* Authorization gate — see components/RouteGuard.tsx. Single
               integration point so every Layout child route is covered. */}
           <RouteGuard>

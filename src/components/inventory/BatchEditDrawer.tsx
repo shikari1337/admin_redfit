@@ -191,18 +191,19 @@ const BatchEditDrawer: React.FC<{
             <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">This batch’s prices</h3>
             <p className="mb-2.5 text-[11px] leading-snug text-gray-500">{pricingLine}</p>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Printed MRP" hint={`Catalogue: ${money(batch.catalogue_mrp)}`}>
+              <Field label="Batch MRP" hint={`Printed on the pack. Catalogue: ${money(batch.catalogue_mrp)}`}>
                 <input className={input} type="number" step="0.01" min="0" inputMode="decimal"
                   value={val('mrp')} onChange={set('mrp')} disabled={!canEdit} placeholder="—" />
               </Field>
-              <Field label="Selling price" hint={`Catalogue: ${money(batch.catalogue_selling_price)}`}>
+              <Field label="Batch selling price" hint={`Blank ⇒ sells at the Batch MRP. Catalogue: ${money(batch.catalogue_selling_price)}`}>
                 <input className={input} type="number" step="0.01" min="0" inputMode="decimal"
                   value={val('sellingPrice')} onChange={set('sellingPrice')} disabled={!canEdit} placeholder="—" />
               </Field>
             </div>
             <p className="mt-2 text-[11px] leading-snug text-gray-500">
-              These two are independent — nothing is worked out as a percentage of the other.
-              Leave one blank to fall back to the catalogue for that field alone.
+              Price order: <strong>batch selling price → batch MRP → catalogue selling price →
+              catalogue MRP</strong>. Leave the selling price blank and this batch sells at its own
+              printed MRP. Nothing is worked out as a percentage of anything else.
             </p>
             {priceWarning && (
               <div className="mt-2 flex gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">

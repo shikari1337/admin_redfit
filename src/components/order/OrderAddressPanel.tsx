@@ -47,6 +47,8 @@ interface OrderAddressPanelProps {
   shippingAddress?: Address | null;
   billingAddress?: Address | null;
   warehouseId?: Warehouse | string | null;
+  /** Kept in the props for callers; the seller block it fed now lives in the
+   *  documents row's own "Invoiced by" card. */
   gst?: GstInfo | null;
   /** Customer GSTIN the tax invoice is raised against (order column, not the address). */
   customerGstin?: string | null;
@@ -129,7 +131,7 @@ const AddressBlock: React.FC<{
 };
 
 const OrderAddressPanel: React.FC<OrderAddressPanelProps> = ({
-  shippingAddress, billingAddress, warehouseId, gst, customerGstin,
+  shippingAddress, billingAddress, warehouseId, customerGstin,
   onWhatsAppClick, shippingAction, billingAction, fulfillmentSlot,
 }) => {
   const warehouse = typeof warehouseId === 'object' && warehouseId ? warehouseId : null;
@@ -192,8 +194,8 @@ const OrderAddressPanel: React.FC<OrderAddressPanelProps> = ({
         </div>
 
         {/* ── Where it ships FROM, and who invoices it ── */}
-        {(warehouse || gst?.storeId || fulfillmentSlot) && (
-          <div className="grid grid-cols-1 gap-4 border-t border-slate-100 bg-slate-50/60 p-4 text-xs md:grid-cols-2 xl:grid-cols-3">
+        {(warehouse || fulfillmentSlot) && (
+          <div className="grid grid-cols-1 gap-4 border-t border-slate-100 bg-slate-50/60 p-4 text-xs md:grid-cols-2">
             {warehouse && (
               <div>
                 <h3 className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
@@ -207,19 +209,6 @@ const OrderAddressPanel: React.FC<OrderAddressPanelProps> = ({
                   </p>
                 )}
                 {warehouse.gstin && <p className="mt-0.5 font-mono font-bold text-slate-700">GSTIN {warehouse.gstin}</p>}
-              </div>
-            )}
-            {gst?.storeId && (
-              <div>
-                <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Invoiced by</h3>
-                <p className="font-semibold text-slate-900">{gst.storeName || 'N/A'}</p>
-                {gst.storeGstin && <p className="font-mono font-bold text-slate-700">GSTIN {gst.storeGstin}</p>}
-                {(gst.storeState || gst.orderState) && (
-                  <p className="font-medium text-slate-600">
-                    {gst.storeState ?? '?'} → {gst.orderState ?? '?'}
-                    {gst.taxType ? ` · ${gst.taxType}` : ''}
-                  </p>
-                )}
               </div>
             )}
             {fulfillmentSlot}
