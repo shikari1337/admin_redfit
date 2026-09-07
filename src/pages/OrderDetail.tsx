@@ -21,6 +21,7 @@ import {
   UpdateEmailModal,
   OrderFulfillmentCard,
   OrderJourneyCard,
+  OrderLinksCard,
   OrderItemsEditModal,
   OrderBillingCard,
   OrderAddressEditor,
@@ -1337,6 +1338,12 @@ const OrderDetail: React.FC = () => {
             refunds={order.refunds}
             gatewayPaymentId={order.razorpayPaymentId ?? order.razorpay_payment_id ?? null}
           />
+
+          {/* The links staff actually send — one per channel, so which message got
+              opened is answerable. Loads on demand: minting them calls the
+              shortener, and an order desk opens far more orders than it sends
+              links from. */}
+          <OrderLinksCard orderId={order.orderId ?? order.id ?? order._id} />
 
           {/* Marketing journey and sales ownership — independent read-mostly
               panels, so they tile rather than stack. */}

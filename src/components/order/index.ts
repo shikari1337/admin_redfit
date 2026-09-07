@@ -28,3 +28,4 @@ export { default as OrderCustomerCard } from './OrderCustomerCard';
 export { default as OrderAddressPanel } from './OrderAddressPanel';
 
 export { default as RaiseRefundModal } from './RaiseRefundModal';
+export { OrderLinksCard } from './OrderLinksCard';

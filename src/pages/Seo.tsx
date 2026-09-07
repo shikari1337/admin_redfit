@@ -1,18 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, Save, Plus, Trash2, RefreshCw, Copy, Check, BarChart3, CircleCheck, CircleDashed, Star } from 'lucide-react';
+import { ArrowLeft, Loader2, Save, RefreshCw, Copy, Check, BarChart3, CircleCheck, CircleDashed, Star } from 'lucide-react';
 import api, { seoAPI } from '../services/api';
+import RedirectsManager from '../components/seo/RedirectsManager';
+import { useAuth } from '../contexts/AuthContext';
 import { useSettingsSection } from '../hooks/useSettingsSection';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from '@/components/ui/table';
-
-interface Redirect { from: string; to: string; }
 
 /** Non-secret client-side tracking IDs, stored as the public `tracking` setting.
  *  These appear in storefront page source anyway; server secrets (Meta CAPI
@@ -117,14 +114,13 @@ const CopyButton: React.FC<{ text: string }> = ({ text }) => {
 
 const Seo: React.FC = () => {
   const navigate = useNavigate();
+  // Mirrors the backend's own requirePermission('content.manage') on every
+  // redirect write — the panel must not offer a control the API will refuse.
+  const { hasPerm } = useAuth();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [settings, setSettings] = useState<Record<string, any>>({});
   const [robotsTxt, setRobotsTxt] = useState('');
-  const [redirects, setRedirects] = useState<Redirect[]>([]);
-  const [newFrom, setNewFrom] = useState('');
-  const [newTo, setNewTo] = useState('');
-  const [addingRedirect, setAddingRedirect] = useState(false);
 
   const [sitemapPreview, setSitemapPreview] = useState('');
   const [robotsPreview, setRobotsPreview] = useState('');
@@ -194,15 +190,13 @@ const Seo: React.FC = () => {
   const load = async () => {
     setLoading(true);
     try {
-      const [s, r, settingsRes] = await Promise.all([
+      const [s, settingsRes] = await Promise.all([
         seoAPI.get(),
-        seoAPI.getRedirects(),
         // Admin settings carry the stored `tracking` object (axios unwraps {success,data}).
         api.get('/settings/admin').then((res) => res.data).catch(() => ({})),
       ]);
       setSettings(s || {});
       setRobotsTxt(s?.robotsTxt || '');
-      setRedirects(Array.isArray(r) ? r : []);
       setTracking(parseTrackingIds(settingsRes));
       setGoogleReviews(parseGoogleReviews(settingsRes));
     } catch (err: any) {
@@ -245,33 +239,6 @@ const Seo: React.FC = () => {
       setError(err?.response?.data?.message || 'Failed to save');
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleAddRedirect = async () => {
-    const from = newFrom.trim();
-    const to = newTo.trim();
-    if (!from || !to) { setError('Both "From" and "To" are required.'); return; }
-    setAddingRedirect(true);
-    setError(null);
-    try {
-      await seoAPI.createRedirect({ from, to });
-      setRedirects(prev => [...prev, { from, to }]);
-      setNewFrom(''); setNewTo('');
-    } catch (err: any) {
-      setError(err?.response?.data?.message || 'Failed to add redirect');
-    } finally {
-      setAddingRedirect(false);
-    }
-  };
-
-  const handleDeleteRedirect = async (from: string) => {
-    if (!confirm(`Remove the redirect from "${from}"?`)) return;
-    try {
-      await seoAPI.deleteRedirect(from);
-      setRedirects(prev => prev.filter(r => r.from !== from));
-    } catch (err: any) {
-      setError(err?.response?.data?.message || 'Failed to remove redirect');
     }
   };
 
@@ -419,47 +386,11 @@ const Seo: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* Redirects */}
-      <Card>
-        <CardHeader className="pb-3"><CardTitle className="text-base">Redirects</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-end gap-2">
-            <div className="flex-1 space-y-1.5">
-              <Label className="text-xs">From (old path)</Label>
-              <Input value={newFrom} onChange={e => setNewFrom(e.target.value)} placeholder="/old-page" className="h-9" />
-            </div>
-            <div className="flex-1 space-y-1.5">
-              <Label className="text-xs">To (new path or URL)</Label>
-              <Input value={newTo} onChange={e => setNewTo(e.target.value)} placeholder="/new-page" className="h-9" />
-            </div>
-            <Button onClick={handleAddRedirect} disabled={addingRedirect} className="h-9">
-              {addingRedirect ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Plus className="mr-1.5 h-4 w-4" />}
-              Add
-            </Button>
-          </div>
-
-          <Table>
-            <TableHeader>
-              <TableRow><TableHead>From</TableHead><TableHead>To</TableHead><TableHead className="w-10" /></TableRow>
-            </TableHeader>
-            <TableBody>
-              {redirects.length === 0 ? (
-                <TableRow><TableCell colSpan={3} className="h-16 text-center text-muted-foreground">No redirects configured.</TableCell></TableRow>
-              ) : redirects.map((r, i) => (
-                <TableRow key={`${r.from}-${i}`}>
-                  <TableCell className="font-mono text-sm">{r.from}</TableCell>
-                  <TableCell className="font-mono text-sm">{r.to}</TableCell>
-                  <TableCell>
-                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive" onClick={() => handleDeleteRedirect(r.from)}>
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      {/* URL redirects — grouped rules, bulk CSV, edit history and hit log.
+          Was a flat from/to table that could not express the case that broke
+          this store (a brand rename moving one segment inside thousands of
+          product URLs); the manager owns all of it now. */}
+      <RedirectsManager canManage={hasPerm('content.manage')} />
 
       {/* robots.txt override */}
       <Card>

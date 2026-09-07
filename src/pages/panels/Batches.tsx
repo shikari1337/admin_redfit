@@ -58,6 +58,12 @@ const Batches: React.FC = () => {
   const canConfigure = hasPerm('settings.manage');
 
   const [rows, setRows] = useState<any[]>([]);
+  // Two shapes of the same register. "By product" answers the question a
+  // merchant actually asks — show me this medicine's batches across all its
+  // pack sizes — which a flat batch list structurally cannot.
+  const [shape, setShape] = useState<'flat' | 'grouped'>('flat');
+  const [grouped, setGrouped] = useState<any[]>([]);
+  const [openProducts, setOpenProducts] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [filter, setFilter] = useState('');
@@ -75,9 +81,15 @@ const Batches: React.FC = () => {
   const load = useCallback(async () => {
     setError(''); setLoading(true);
     try {
-      // Ask for the whole register; the view/search filters below are client-side
-      // so switching between them is instant and never re-queries.
-      setRows(await batchesAPI.list({ limit: 500 }));
+      // Both shapes are fetched together so switching between them is instant
+      // and never re-queries; the grouped feed is bounded by the BATCHES that
+      // exist, never by the 44k-SKU catalogue.
+      const [flat, byProd] = await Promise.all([
+        batchesAPI.list({ limit: 500 }),
+        batchesAPI.byProduct({ includeDepleted: true }).catch(() => []),
+      ]);
+      setRows(flat);
+      setGrouped(byProd);
     } catch (e: any) {
       setError(e?.response?.data?.message ?? e.message ?? 'Could not load batches.');
     } finally { setLoading(false); }
@@ -288,7 +300,12 @@ const Batches: React.FC = () => {
             days
           </label>
         )}
-        <SelectInput value={sort} onChange={(e) => setSort(e.target.value as any)} className="w-44" aria-label="Sort">
+        <SelectInput value={shape} onChange={(e) => setShape(e.target.value as any)} className="w-40" aria-label="Shape">
+          <option value="flat">Flat: one row per batch</option>
+          <option value="grouped">By product &amp; SKU</option>
+        </SelectInput>
+        <SelectInput value={sort} onChange={(e) => setSort(e.target.value as any)} className="w-44"
+          aria-label="Sort" disabled={shape === 'grouped'}>
           <option value="expiry">Soonest expiry first</option>
           <option value="qty">Largest quantity first</option>
           <option value="product">Product A–Z</option>
@@ -298,6 +315,16 @@ const Batches: React.FC = () => {
         </span>
       </div>
 
+      {shape === 'grouped' ? (
+        <GroupedBatches
+          products={grouped}
+          filter={filter}
+          open={openProducts}
+          onToggle={(id) => setOpenProducts((o) => ({ ...o, [id]: !o[id] }))}
+          onPick={(b) => setEditing(b as BatchRecord)}
+          loading={loading}
+        />
+      ) : (
       <TableShell>
         <div className="w-0 min-w-full overflow-x-auto">
           <table className="w-full text-sm">
@@ -347,6 +374,7 @@ const Batches: React.FC = () => {
           </table>
         </div>
       </TableShell>
+      )}
 
       <p className="text-xs leading-relaxed text-gray-500">
         A line whose quantity spans two batches is priced from the first-to-expire one — an order
@@ -361,6 +389,135 @@ const Batches: React.FC = () => {
         onSaved={() => { load(); loadPricing(); }}
       />
     </Page>
+  );
+};
+
+/* ── Product -> variations -> batches ───────────────────────────────────────
+ * The flat list is one row per batch and cannot express "this medicine, across
+ * its 30ml and 100ml packs, has these lots". This view is that question.
+ *
+ * It also shows WHERE each batch sits. A batch has no warehouse column on
+ * purpose: `bin_stock` records placement at (location, variation, batch), which
+ * can represent one lot split across bins — or warehouses — that a single
+ * column never could. Anything not yet put away is shown as "unplaced", which
+ * is a real state, not an error.                                            */
+const GroupedBatches: React.FC<{
+  products: any[];
+  filter: string;
+  open: Record<string, boolean>;
+  onToggle: (id: string) => void;
+  onPick: (b: any) => void;
+  loading: boolean;
+}> = ({ products, filter, open, onToggle, onPick, loading }) => {
+  const q = filter.trim().toLowerCase();
+  const visible = q
+    ? products.filter((p: any) =>
+        String(p.product_name ?? '').toLowerCase().includes(q) ||
+        p.variations.some((v: any) =>
+          String(v.sku ?? '').toLowerCase().includes(q) ||
+          v.batches.some((b: any) => String(b.batch_number ?? '').toLowerCase().includes(q))))
+    : products;
+
+  if (loading) return <div className="rounded-xl border border-gray-200 bg-white px-4 py-8 text-center text-sm text-gray-500">Loading…</div>;
+  if (!visible.length) {
+    return (
+      <div className="rounded-xl border border-gray-200 bg-white px-4 py-10 text-center text-sm text-gray-500">
+        {products.length ? `No product matches “${filter}”.` : 'No batches yet.'}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {visible.map((p: any) => {
+        const isOpen = open[p.product_id] ?? true;
+        return (
+          <div key={p.product_id} className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+            <button className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-gray-50"
+                    onClick={() => onToggle(p.product_id)}>
+              <span className="w-4 shrink-0 text-gray-400">{isOpen ? '\u25be' : '\u25b8'}</span>
+              <span className="min-w-0 flex-1 truncate font-medium text-gray-900">{p.product_name}</span>
+              <span className="shrink-0 text-xs text-gray-500">
+                {p.variations.length} of {p.variation_count} SKU{p.variation_count === 1 ? '' : 's'} batched
+                {' · '}{p.batch_count} batch{p.batch_count === 1 ? '' : 'es'}
+                {' · '}<strong className="text-gray-700">{p.batched_qty}</strong> units
+              </span>
+            </button>
+
+            {isOpen && (
+              <div className="border-t border-gray-100">
+                {p.variations.map((v: any) => (
+                  <div key={v.variation_id} className="border-b border-gray-100 last:border-b-0">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-gray-50/70 px-4 py-1.5 text-xs">
+                      <span className="font-mono font-medium text-gray-800">{v.sku}</span>
+                      <span className="truncate text-gray-600">{v.variation_name}</span>
+                      <span className="ml-auto text-gray-500">
+                        <strong className="text-gray-700">{v.batched_qty}</strong> in batches of {v.sku_stock} in stock
+                      </span>
+                      {v.batched_qty < v.sku_stock && (
+                        <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700"
+                              title="Stock of this SKU that is not attached to any batch.">
+                          {v.sku_stock - v.batched_qty} un-batched
+                        </span>
+                      )}
+                      {!v.dims_confirmed && (
+                        <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-600"
+                              title="No pack size on record, so warehouse volume/weight limits cannot be checked for this SKU.">
+                          size not set
+                        </span>
+                      )}
+                    </div>
+
+                    <table className="w-full text-sm">
+                      <tbody>
+                        {v.batches.map((b: any) => (
+                          <tr key={b.id} className="cursor-pointer border-t border-gray-50 hover:bg-gray-50"
+                              onClick={() => onPick({ ...b, sku: v.sku, product_name: p.product_name,
+                                                      catalogue_mrp: v.catalogue_mrp,
+                                                      catalogue_selling_price: v.catalogue_selling_price })}>
+                            <td className="py-1.5 pl-8 pr-3 font-mono font-medium">{b.batch_number}</td>
+                            <td className="px-3 text-right tabular-nums">{b.qty_on_hand}</td>
+                            <td className="whitespace-nowrap px-3 text-gray-600">{b.expiry_date ?? '—'}</td>
+                            <td className={`px-3 text-right tabular-nums ${b.days_to_expiry != null && b.days_to_expiry < 0 ? 'font-semibold text-red-700' : 'text-gray-500'}`}>
+                              {b.days_to_expiry != null ? `${b.days_to_expiry}d` : '—'}
+                            </td>
+                            <td className="px-3 text-right tabular-nums">{b.mrp != null ? `\u20b9${Number(b.mrp).toFixed(2)}` : '—'}</td>
+                            <td className="px-3 text-right tabular-nums">{b.selling_price != null ? `\u20b9${Number(b.selling_price).toFixed(2)}` : '—'}</td>
+                            <td className="px-3 py-1.5">
+                              {/* Where it physically is. Several bins is normal. */}
+                              {b.placements?.length ? (
+                                <span className="flex flex-wrap gap-1">
+                                  {b.placements.map((pl: any) => (
+                                    <span key={pl.location_id}
+                                          className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-800"
+                                          title={pl.warehouse_name ?? ''}>
+                                      {pl.location_code} · {pl.qty}
+                                    </span>
+                                  ))}
+                                  {b.unplaced_qty > 0 && (
+                                    <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700"
+                                          title="Received but not yet put away into a bin.">
+                                      {b.unplaced_qty} unplaced
+                                    </span>
+                                  )}
+                                </span>
+                              ) : (
+                                <span className="text-[11px] text-gray-400">not put away</span>
+                              )}
+                            </td>
+                            <td className="px-3"><StatusChip status={b.status} /></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 };
 

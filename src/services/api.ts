@@ -1502,7 +1502,37 @@ export interface OrderCancelRefund {
   reason?: string;
 }
 
+/** One outbound link, shortened for one channel. */
+export interface OrderChannelLink {
+  /** What to send: the short URL when shortening worked, the long one otherwise. */
+  url: string;
+  longUrl: string;
+  shortened: boolean;
+  /** Whether it fits the 30-character DLT variable slot. Only SMS is rejected over it. */
+  fits: boolean;
+  reason?: 'disabled' | 'not_a_url' | 'no_shortener' | 'provider_failed';
+}
+
+export interface OrderLinkGroup {
+  key: string;
+  label: string;
+  purpose: string;
+  longUrl: string;
+  channels: Record<'whatsapp' | 'sms' | 'email', OrderChannelLink>;
+}
+
 export const ordersAPI = {
+  /**
+   * Every link this order can send a customer, one per channel.
+   *
+   * Separate from the order payload because minting them calls the shortener:
+   * folding it into the order fetch would put a third-party round trip in front
+   * of the screen everyone opens all day.
+   */
+  links: async (orderId: string) => {
+    const response = await api.get(`/orders/${orderId}/links`);
+    return response.data?.data as { orderId: string; links: OrderLinkGroup[] };
+  },
   /** CSV export — all filtered orders, or just `ids` when a selection was made. */
   exportCsv: async (params?: { ids?: string[]; status?: string; from?: string; to?: string }) => {
     const response = await api.get('/orders/export/csv', {
@@ -3817,6 +3847,20 @@ export const batchesAPI = {
     const r = await api.patch(`/purchasing/batches/${id}`, data);
     return r.data?.data ?? r.data;
   },
+  /**
+   * Product -> its variations -> their batches, with WHERE each batch sits.
+   * The flat list cannot answer "show me every batch of this product, including
+   * its other pack sizes".
+   */
+  byProduct: async (params?: { search?: string; productId?: string; nearExpiryDays?: number; includeDepleted?: boolean }) => {
+    const r = await api.get('/purchasing/batches/by-product', { params: params ?? {} });
+    return r.data?.rows ?? r.data?.data ?? r.data ?? [];
+  },
+  /** Where one batch physically sits, and how much of it is not put away yet. */
+  placement: async (id: string) => {
+    const r = await api.get(`/purchasing/batches/${id}/placement`);
+    return r.data?.data ?? r.data;
+  },
   /** A physical count. Goes through the stock ledger server-side. */
   setQuantity: async (id: string, qty: number, reason?: string) => {
     const r = await api.put(`/purchasing/batches/${id}/quantity`, { qty, ...(reason ? { reason } : {}) });
@@ -4060,18 +4104,81 @@ export const seoAPI = {
     const response = await api.put('/seo/settings', data);
     return response.data;
   },
-  getRedirects: async () => {
-    const response = await api.get('/seo/redirects');
+  // ── URL redirects (migration 159/160) ──────────────────────────────────────
+  // The response interceptor unwraps {success,data,...} down to `data`, and it
+  // runs AFTER any per-request transformResponse — so a `meta` block on the
+  // envelope cannot reach a caller here no matter how the request is made. The
+  // route still sends group counts in `meta` for other clients; this panel
+  // derives them from the rules it already has, and reads the master switch
+  // from /seo/redirects/config, whose flag lives INSIDE `data`.
+  getRedirects: async (params?: Record<string, any>) => {
+    const response = await api.get('/seo/redirects', { params });
     return response.data;
   },
-  createRedirect: async (data: { from: string; to: string }) => {
+  createRedirect: async (data: Record<string, any>) => {
     const response = await api.post('/seo/redirects', data);
     return response.data;
   },
-  // The backend keys redirects by their `from` path, not an id.
+  updateRedirect: async (id: string, data: Record<string, any>) => {
+    const response = await api.put(`/seo/redirects/${id}`, data);
+    return response.data;
+  },
+  // Kept: the pre-159 admin deleted by `from` path. New code deletes by id.
   deleteRedirect: async (from: string) => {
     const response = await api.delete('/seo/redirects', { data: { from } });
     return response.data;
+  },
+  deleteRedirectById: async (id: string) => {
+    const response = await api.delete(`/seo/redirects/${id}`);
+    return response.data;
+  },
+  bulkRedirects: async (body: { action: 'enable' | 'disable' | 'delete'; ids?: string[]; entityType?: string }) => {
+    const response = await api.post('/seo/redirects/bulk', body);
+    return response.data;
+  },
+  getRedirectConfig: async () => {
+    const response = await api.get('/seo/redirects/config');
+    return response.data;
+  },
+  setRedirectConfig: async (enabled: boolean) => {
+    const response = await api.put('/seo/redirects/config', { enabled });
+    return response.data;
+  },
+  testRedirect: async (path: string) => {
+    const response = await api.get('/seo/redirects/test', { params: { path } });
+    return response.data;
+  },
+  getSlugHistory: async (params?: Record<string, any>) => {
+    const response = await api.get('/seo/slug-history', { params });
+    return response.data;
+  },
+  reconstructSlugChange: async (body: Record<string, any>) => {
+    const response = await api.post('/seo/slug-history/reconstruct', body);
+    return response.data;
+  },
+  getRedirectLog: async (params?: Record<string, any>) => {
+    const response = await api.get('/seo/redirects/log', { params });
+    return response.data;
+  },
+  getRedirectScore: async (days = 90) => {
+    const response = await api.get('/seo/redirects/score', { params: { days } });
+    return response.data;
+  },
+  exportRedirectsCsv: async () => {
+    const response = await api.get('/seo/redirects/export.csv', { responseType: 'text', transformResponse: (d) => d });
+    return response.data as string;
+  },
+  redirectsCsvTemplate: async () => {
+    const response = await api.get('/seo/redirects/template.csv', { responseType: 'text', transformResponse: (d) => d });
+    return response.data as string;
+  },
+  importRedirectsCsv: async (csv: string) => {
+    // Raw (untransformed) so the per-row result survives the envelope unwrap —
+    // an import must be able to say WHICH lines failed, not just "ok".
+    const response = await api.post('/seo/redirects/import', { csv }, {
+      transformResponse: (d) => { try { return JSON.parse(d); } catch { return d; } },
+    });
+    return response.data as { success: boolean; message: string; data: any };
   },
   // Fetched (not linked directly) so the tenant's x-api-key header resolves the
   // correct store — a bare <a href> would hit the platform API with no tenant context.
