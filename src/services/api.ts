@@ -2692,6 +2692,31 @@ export const shipmentsAPI = {
       throw error;
     }
   },
+  /**
+   * Bulk documents: ONE PDF per natural group (Shiprocket renders all requested
+   * labels into one file; a manifest is one handover sheet per courier). The
+   * server returns base64 documents in JSON; each is saved as its own file.
+   */
+  downloadDocumentsBulk: async (kind: 'labels' | 'manifests', shipmentIds: string[], pdfSize: '4R' | 'A4' = '4R') => {
+    const res: any = await api.post(`/shipments/documents/${kind}`, { shipmentIds, pdfSize });
+    const data = res?.documents !== undefined ? res : (res?.data ?? {});
+    const documents: Array<{ filename: string; contentBase64: string; shipmentNumbers: string[]; courier?: string | null }> = data?.documents ?? [];
+    for (const d of documents) {
+      const bin = atob(d.contentBase64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const blob = new Blob([bytes], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', d.filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    }
+    return { documents, failed: (data?.failed ?? []) as Array<{ shipmentId: string; shipmentNumber?: string; message: string }>, groups: data?.groups ?? documents.length };
+  },
   downloadManifest: async (id: string) => {
     try {
       const response = await api.get(`/shipments/${id}/download-manifest`, {
@@ -4510,6 +4535,22 @@ export const channelAllocationAPI = {
   },
   remove: async (id: string) => {
     const r = await api.delete(`/channel-allocations/${id}`); return r.data;
+  },
+};
+
+// ─── SETTINGS CENTER (registry-driven) ──────────────────────────────────────
+// ONE read (every setting the caller may see, with effective values, options,
+// canWrite) and ONE validated merging write per key — backend/src/services/
+// settingsCenter.ts. Body of update = { fieldPath: value } using the registry's
+// dotted paths; the server refuses unknown paths and enforces ranges/options.
+export const settingsRegistryAPI = {
+  get: async () => {
+    const response = await api.get('/settings/registry');
+    return response.data;
+  },
+  update: async (key: string, patch: Record<string, any>) => {
+    const response = await api.put(`/settings/registry/${encodeURIComponent(key)}`, patch);
+    return response.data;
   },
 };
 

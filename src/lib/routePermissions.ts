@@ -132,6 +132,7 @@ export const ROUTE_PERMISSIONS: Record<string, string> = {
 
   // ── Store configuration (credentials, tax, payment, numbering) ───────────
   '/settings': 'settings.read',
+  '/settings/directory': 'settings.read',
   '/settings/general': 'settings.manage',
   '/settings/api-integrations': 'settings.manage',
   '/settings/payment-gateways': 'settings.manage',

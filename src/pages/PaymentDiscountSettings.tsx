@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save, CreditCard, Plus, Trash2, Percent, Loader2, Ban, Pencil } from 'lucide-react';
 import { paymentRulesAPI } from '../services/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -20,7 +20,7 @@ interface PaymentRule {
   id: string;
   name: string;
   method: string;
-  conditions: { minOrderValue?: number; maxOrderValue?: number; excludePincodes?: string[]; customerSegment?: string };
+  conditions: { minOrderValue?: number; maxOrderValue?: number; orderValueAbove?: number; excludePincodes?: string[]; customerSegment?: string; system?: string };
   is_active: boolean;
   sort_order: number;
 }
@@ -488,8 +488,12 @@ const PaymentDiscountSettings: React.FC = () => {
                       )}
                       {r.conditions?.minOrderValue != null && <span>Min ₹{r.conditions.minOrderValue} </span>}
                       {r.conditions?.maxOrderValue != null && <span>Max ₹{r.conditions.maxOrderValue} </span>}
+                      {r.conditions?.orderValueAbove != null && <span>Above ₹{r.conditions.orderValueAbove} </span>}
+                      {r.conditions?.system && (
+                        <Badge variant="outline" className="ml-1 bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">managed by Settings ▸ Cash on delivery</Badge>
+                      )}
                       {r.conditions?.excludePincodes?.length ? <span>Excl. {r.conditions.excludePincodes.length} pincode(s)</span> : null}
-                      {!r.conditions?.minOrderValue && !r.conditions?.maxOrderValue && !r.conditions?.excludePincodes?.length && (!r.conditions?.customerSegment || r.conditions.customerSegment === 'all') && '—'}
+                      {!r.conditions?.minOrderValue && !r.conditions?.maxOrderValue && r.conditions?.orderValueAbove == null && !r.conditions?.excludePincodes?.length && (!r.conditions?.customerSegment || r.conditions.customerSegment === 'all') && '—'}
                     </TableCell>
                     <TableCell>
                       <Badge variant={r.is_active ? 'default' : 'secondary'} className={r.is_active ? 'bg-green-500/15 text-green-700 border-green-200 hover:bg-green-500/25' : ''}>
@@ -497,8 +501,14 @@ const PaymentDiscountSettings: React.FC = () => {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
+                      {r.conditions?.system ? (
+                        <Link to="/settings?key=cod" className="text-xs text-primary underline">Edit in Settings</Link>
+                      ) : (
                       <Button variant="outline" size="sm" className="h-7 w-7 p-0 mr-1" onClick={() => openEditRule(r)}><Pencil className="h-3.5 w-3.5" /></Button>
-                      <Button variant="outline" size="sm" className="h-7 w-7 p-0 text-destructive" onClick={() => deleteRule(r.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                      )}
+                      {!r.conditions?.system && (
+                        <Button variant="outline" size="sm" className="h-7 w-7 p-0 text-destructive" onClick={() => deleteRule(r.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

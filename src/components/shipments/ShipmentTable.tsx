@@ -27,6 +27,22 @@ import {
 import StatusBadge from '@/components/order/StatusBadge';
 import { formatDate } from '../../utils/date';
 
+/**
+ * "2026-09-09 09:00:00" (Shiprocket, store-local, no zone) → "Sep 09, 2026 · 09:00".
+ * Rendered from the string on purpose: `new Date()` on a zone-less string would
+ * shift it by the viewer's browser zone (COMMON_MISTAKES #216).
+ */
+export function formatPickupWhen(pickup: { scheduledDate?: any; scheduledFor?: string | null } | undefined): string {
+  const raw = String(pickup?.scheduledFor ?? '').trim();
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
+  if (m) {
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const date = `${months[Number(m[2]) - 1]} ${m[3]}, ${m[1]}`;
+    return m[4] ? `${date} · ${m[4]}:${m[5]}` : date;
+  }
+  return safeFormatDate(pickup?.scheduledDate, 'MMM dd, yyyy');
+}
+
 interface Shipment {
   _id: string;
   shipmentNumber: string;
@@ -36,8 +52,14 @@ interface Shipment {
   status: string;
   pickup?: {
     scheduledDate?: Date | string;
+    /** The carrier's own scheduled datetime string, verbatim ("2026-09-09 09:00:00"). */
+    scheduledFor?: string | null;
     pickupTimeSlot?: string;
-    pickupId?: string;
+    pickupId?: string | null;
+    pickupToken?: string | null;
+    manifestId?: string | null;
+    pickupException?: string | null;
+    source?: 'app' | 'carrier';
   };
   providerData?: {
     shiprocketAWB?: string;
@@ -189,11 +211,21 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
                   )}
                 </TableCell>
                 <TableCell>
-                  {shipment.pickup?.scheduledDate ? (
+                  {shipment.pickup?.scheduledDate || shipment.pickup?.scheduledFor ? (
                     <div className="text-sm">
-                      {safeFormatDate(shipment.pickup.scheduledDate, 'MMM dd, yyyy')}
+                      {/* The carrier's confirmed date + time when it gave one;
+                          our slot is only a preference and is labelled so. */}
+                      {formatPickupWhen(shipment.pickup)}
                       {shipment.pickup.pickupTimeSlot && (
-                        <div className="text-xs text-muted-foreground mt-0.5">{shipment.pickup.pickupTimeSlot}</div>
+                        <div className="text-xs text-muted-foreground mt-0.5">preferred {shipment.pickup.pickupTimeSlot}</div>
+                      )}
+                      {(shipment.pickup.pickupId || shipment.pickup.manifestId) && (
+                        <div className="text-xs text-muted-foreground mt-0.5 font-mono">
+                          {[shipment.pickup.pickupId, shipment.pickup.manifestId].filter(Boolean).join(' · ')}
+                        </div>
+                      )}
+                      {shipment.pickup.pickupException && (
+                        <div className="text-xs text-red-600 mt-0.5">{shipment.pickup.pickupException}</div>
                       )}
                     </div>
                   ) : (

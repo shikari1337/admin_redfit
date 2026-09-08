@@ -411,7 +411,8 @@ const Layout: React.FC = () => {
       items: [
         ...(canAccess('settings') && hasPerm('settings.read') ? [{
           title: 'Settings', url: '/settings', icon: Settings, items: [
-            { title: 'General',            url: '/settings' },
+            { title: 'Settings Center',    url: '/settings' },
+            { title: 'All settings pages', url: '/settings/directory' },
             { title: 'Store Configuration', url: '/settings/store-config' },
             { title: 'API Integrations',   url: '/settings/api-integrations' },
             { title: 'Contact Submissions', url: '/settings/contact' },

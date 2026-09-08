@@ -38,6 +38,7 @@ import GstSettings from './pages/GstSettings';
 import OrderNumbering from './pages/OrderNumbering';
 import InvoiceSettings from './pages/InvoiceSettings';
 import Settings from './pages/Settings';
+import SettingsCenter from './pages/SettingsCenter';
 import ShippingSettings from './pages/ShippingSettings';
 import Warehouses from './pages/Warehouses';
 import Shipments from './pages/Shipments';
@@ -456,7 +457,8 @@ function App() {
               </ProtectedModuleRoute>
             }
           />
-          <Route path="settings" element={<Settings />} />
+          <Route path="settings" element={<SettingsCenter />} />
+          <Route path="settings/directory" element={<Settings />} />
           <Route path="settings/store-config" element={<StoreConfiguration />} />
           <Route path="settings/staff" element={<Staff />} />
           <Route path="settings/general" element={<Navigate to="/appearance/style" replace />} />

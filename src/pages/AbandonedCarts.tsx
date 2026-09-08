@@ -40,6 +40,12 @@ interface CartRecord {
   } | null;
 }
 
+/** Same money rendering as everywhere else in the admin — no local copy. */
+const formatMoney = (value?: number | null) =>
+  typeof value === 'number' && Number.isFinite(value)
+    ? value.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 })
+    : '—';
+
 const formatDate = (value?: string) =>
   value ? localeDateTime(value) : '—';
 
@@ -472,19 +478,19 @@ const AbandonedCarts: React.FC = () => {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-3 py-2 text-left text-[11px] font-medium text-slate-500 uppercase tracking-wider">
                   Cart
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-3 py-2 text-left text-[11px] font-medium text-slate-500 uppercase tracking-wider">
                   Customer
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Items
+                <th className="px-3 py-2 text-left text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+                  Value &amp; items
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-3 py-2 text-left text-[11px] font-medium text-slate-500 uppercase tracking-wider hidden xl:table-cell">
                   Timeline
                 </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-3 py-2 text-right text-[11px] font-medium text-slate-500 uppercase tracking-wider">
                   Actions
                 </th>
               </tr>
@@ -506,36 +512,38 @@ const AbandonedCarts: React.FC = () => {
                 carts.map((cart) => {
                   // Ensure _id and recoveryToken are strings before calling slice
                   const cartIdStr = String(cart._id || '');
-                  const recoveryTokenStr = String(cart.recoveryToken || '');
+                  // The list endpoint returns each line's price and quantity but
+                  // never a cart total, so the value of a cart — the number you
+                  // actually triage on — was nowhere on this screen. Derive it
+                  // here rather than adding a column the API would have to keep
+                  // in step with the detail page's own total.
+                  const lines = Array.isArray(cart.items) ? cart.items : [];
+                  const itemCount = lines.length;
+                  const cartTotal = itemCount
+                    ? lines.reduce((sum, i) => sum + (Number(i.price) || 0) * (Number(i.quantity) || 0), 0)
+                    : null;
+                  const itemSummary = lines.slice(0, 2).map((i) => i.productName).join(', ')
+                    + (itemCount > 2 ? ` +${itemCount - 2} more` : '');
                   
                   return (
                   <tr key={cartIdStr} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 align-top">
+                    <td className="px-3 py-2 align-top">
                       <Link
                         to={`/orders/abandoned-carts/${cartIdStr}`}
-                        className="text-sm font-semibold text-blue-600 hover:underline"
+                        className="block text-sm font-semibold text-blue-600 hover:underline truncate max-w-[11rem]"
+                        title={cart.cartId || cartIdStr}
                       >
-                        Cart ID: {cart.cartId || cartIdStr.slice(-8)}
+                        {cart.cartId || cartIdStr.slice(-8)}
                       </Link>
-                      <div className="text-xs text-gray-500">
-                        {cart.isGuest ? (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">
-                            Guest
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800">
-                            Logged In
-                          </span>
-                        )}
-                      </div>
-                      {recoveryTokenStr && (
-                        <div className="text-xs text-gray-400">Token: {recoveryTokenStr.slice(0, 8)}...</div>
-                      )}
-                      <div className="text-xs text-gray-500 mt-1">
-                        Status:{' '}
-                        <span className="font-medium capitalize">
-                          {cart.status}
+                      {/* Badge and status share ONE line. The token and the
+                          repeated short id are gone — neither is scanned, and
+                          together they were three of this cell's five rows. */}
+                      <div className="mt-0.5 flex items-center gap-1.5 flex-wrap">
+                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                          cart.isGuest ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                          {cart.isGuest ? 'Guest' : 'Signed in'}
                         </span>
+                        <span className="text-[11px] text-slate-500 capitalize">{cart.status}</span>
                       </div>
                       {/* A recovered cart names the order it became — the tab's
                           claim is only meaningful with the evidence beside it. */}
@@ -560,13 +568,9 @@ const AbandonedCarts: React.FC = () => {
                           </div>
                         </div>
                       )}
-                      {cartIdStr && (
-                        <div className="text-xs text-gray-400 mt-1">
-                          Cart ID: {cartIdStr.slice(-6)}
-                        </div>
-                      )}
+
                     </td>
-                    <td className="px-6 py-4 align-top">
+                    <td className="px-3 py-2 align-top">
                       {cart.user ? (
                         <div className="space-y-1 text-sm text-gray-700">
                           <div className="font-medium">{cart.user.name || 'Unnamed user'}</div>
@@ -585,26 +589,25 @@ const AbandonedCarts: React.FC = () => {
                         <span className="text-xs text-gray-400">Anonymous cart</span>
                       )}
                     </td>
-                    <td className="px-6 py-4 align-top">
-                      <div className="space-y-2 text-sm text-gray-700">
-                        {Array.isArray(cart.items) && cart.items.slice(0, 3).map((item, index) => (
-                          <div key={`${cartIdStr}-item-${index}`}>
-                            <span className="font-medium">{item.productName}</span>
-                            <div className="text-xs text-gray-500">
-                              Qty: {item.quantity} · ₹{item.price} {item.size && `· Size ${item.size}`}
-                            </div>
-                          </div>
-                        ))}
-                        {Array.isArray(cart.items) && cart.items.length > 3 && (
-                          <div className="text-xs text-gray-400">
-                            +{cart.items.length - 3} more items
-                          </div>
-                        )}
+                    {/* Value first, then WHAT is in the cart on one line. The
+                        old cell stacked three products vertically with a second
+                        line each, so one cart cost ~200px and five filled a
+                        screen — and the cart's own TOTAL, the number you
+                        actually triage on, was never shown at all. */}
+                    <td className="px-3 py-2 align-top">
+                      <div className="text-sm font-semibold text-slate-900 tabular-nums">
+                        {cartTotal != null ? formatMoney(cartTotal) : '—'}
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        {itemCount} {itemCount === 1 ? 'line' : 'lines'}
+                      </div>
+                      <div className="text-xs text-slate-500 truncate max-w-[22rem]" title={itemSummary}>
+                        {itemSummary || '—'}
                       </div>
                     </td>
-                    <td className="px-6 py-4 align-top text-sm text-gray-600">
+                    <td className="px-3 py-2 align-top text-xs text-slate-600 whitespace-nowrap hidden xl:table-cell">
                       <div>
-                        <span className="font-medium text-gray-700">Last active:</span>{' '}
+                        <span className="text-slate-400">Active</span>{' '}
                         {formatDate(cart.lastActiveAt)}
                       </div>
                       {/* These two used to read "Recovered:" and "Recovery SMS:",
@@ -614,30 +617,31 @@ const AbandonedCarts: React.FC = () => {
                           shopper opened the recovery link" — and the send may
                           have been WhatsApp or email, not SMS. */}
                       <div>
-                        <span className="font-medium text-gray-700">Link opened:</span>{' '}
+                        <span className="text-slate-400">Opened</span>{' '}
                         {formatDate(cart.lastRecoveredAt)}
                       </div>
                       <div>
-                        <span className="font-medium text-gray-700">Last message:</span>{' '}
+                        <span className="text-slate-400">Msg</span>{' '}
                         {formatDate(cart.lastRecoverySmsAt)}
                       </div>
                     </td>
-                    <td className="px-6 py-4 align-top text-right">
+                    <td className="px-3 py-2 align-top text-right w-px whitespace-nowrap">
                       <div className="inline-flex items-center gap-2">
                         <Link
                           to={`/orders/abandoned-carts/${cartIdStr}`}
-                          className="inline-flex items-center px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                          className="inline-flex items-center px-2.5 py-1.5 text-xs border border-slate-300 rounded-md text-slate-700 hover:bg-slate-50"
                         >
-                          <FaEye className="mr-2" />
+                          <FaEye className="mr-1.5" />
                           View
                         </Link>
                         <button
                           onClick={() => handleSendRecovery(cart)}
                           disabled={sendingSmsIds.has(cartIdStr)}
-                          className="inline-flex items-center px-3 py-2 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-400"
+                          className="inline-flex items-center px-2.5 py-1.5 text-xs bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-400"
+                          title="Send a recovery message now"
                         >
-                          <FaSms className="mr-2" />
-                          {sendingSmsIds.has(cartIdStr) ? 'Sending...' : 'Send Recovery'}
+                          <FaSms className="mr-1.5" />
+                          {sendingSmsIds.has(cartIdStr) ? 'Sending…' : 'Send'}
                         </button>
                       </div>
                     </td>

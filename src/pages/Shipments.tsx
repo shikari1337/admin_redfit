@@ -243,12 +243,19 @@ const Shipments: React.FC = () => {
 
     setSchedulingPickup(true);
     try {
-      await shipmentsAPI.schedulePickup(selectedShipment._id, {
+      const res: any = await shipmentsAPI.schedulePickup(selectedShipment._id, {
         scheduledDate: pickupDate,
         pickupTimeSlot: pickupTimeSlot || undefined,
         notes: pickupNotes || undefined,
       });
-      alert('Pickup scheduled successfully!');
+      // The api client unwraps {success,data} → data; `message`/`meta` may be
+      // siblings (dropped) or present — read the shipment's own pickup record.
+      const pk = res?.pickup ?? res?.data?.pickup ?? {};
+      const when = pk.scheduledFor || pk.scheduledDate || pickupDate;
+      const tokenBits = [pk.pickupId, pk.pickupToken].filter(Boolean).join(' · ');
+      alert(pk.source === 'carrier' || res?.meta?.alreadyScheduled
+        ? `A pickup was already booked with the courier for ${when}${tokenBits ? ` (${tokenBits})` : ''}. Recorded on the shipment.`
+        : `Pickup scheduled for ${when}${tokenBits ? ` (${tokenBits})` : ''}.`);
       setShowPickupModal(false);
       setPickupDate('');
       setPickupTimeSlot('');
@@ -290,10 +297,12 @@ const Shipments: React.FC = () => {
       const failed: any[] = Array.isArray(data?.failed) ? data.failed : [];
 
       const tokens = [...new Set(scheduled.map((s: any) => s.pickupId).filter(Boolean))];
+      const already = scheduled.filter((s: any) => s.alreadyScheduled).length;
       const lines: string[] = [];
       if (scheduled.length) {
-        lines.push(`✅ Pickup scheduled for ${scheduled.length} shipment(s) on ${data?.scheduledDate || pickupDate}${tokens.length ? `\nPickup token${tokens.length > 1 ? 's' : ''}: ${tokens.join(', ')}` : ''}`);
+        lines.push(`✅ Pickup confirmed for ${scheduled.length} shipment(s) on ${scheduled[0]?.scheduledFor || data?.scheduledDate || pickupDate}${already ? ` (${already} already booked with the courier — recorded)` : ''}${tokens.length ? `\nPickup id${tokens.length > 1 ? 's' : ''}: ${tokens.join(', ')}` : ''}`);
       }
+      if (data?.hint) lines.push(`ℹ️ ${data.hint}`);
       if (failed.length) {
         lines.push(`❌ ${failed.length} not scheduled:\n` + failed
           .map((f: any) => `• ${f.shipmentNumber || f.shipmentId}: ${f.message}`)
@@ -315,41 +324,28 @@ const Shipments: React.FC = () => {
     }
   };
 
-  const handleBulkDownloadLabel = useCallback(async () => {
+  // ONE file per natural group (all Shiprocket labels in one PDF; one manifest
+  // per courier), not one download per shipment — the carrier renders them
+  // that way and a manifest is a handover sheet for a courier's whole pickup.
+  const handleBulkDocuments = useCallback(async (kind: 'labels' | 'manifests') => {
     if (selectedShipments.length === 0) return;
     try {
-      let successCount = 0;
-      for (const id of selectedShipments) {
-        try {
-          await shipmentsAPI.downloadLabel(id);
-          successCount++;
-        } catch (err) {
-          console.error(`Failed to download label for ${id}:`, err);
-        }
+      const r = await shipmentsAPI.downloadDocumentsBulk(kind, selectedShipments);
+      const lines: string[] = [];
+      if (r.documents.length) {
+        lines.push(`✅ ${r.documents.length} ${kind === 'labels' ? 'label' : 'manifest'} file(s) for ${selectedShipments.length - r.failed.length} shipment(s):\n` +
+          r.documents.map((d) => `• ${d.filename}${d.courier ? ` — ${d.courier}` : ''} (${d.shipmentNumbers.length})`).join('\n'));
       }
-      alert(`Downloaded ${successCount} of ${selectedShipments.length} label(s).`);
+      if (r.failed.length) {
+        lines.push(`❌ ${r.failed.length} not included:\n` + r.failed.map((f) => `• ${f.shipmentNumber || f.shipmentId}: ${f.message}`).join('\n'));
+      }
+      alert(lines.join('\n\n') || 'No documents were produced.');
     } catch (error: any) {
-      alert('Failed to download labels');
+      alert(error.response?.data?.message || `Failed to download ${kind}`);
     }
   }, [selectedShipments]);
-
-  const handleBulkDownloadManifest = useCallback(async () => {
-    if (selectedShipments.length === 0) return;
-    try {
-      let successCount = 0;
-      for (const id of selectedShipments) {
-        try {
-          await shipmentsAPI.downloadManifest(id);
-          successCount++;
-        } catch (err) {
-          console.error(`Failed to download manifest for ${id}:`, err);
-        }
-      }
-      alert(`Downloaded ${successCount} of ${selectedShipments.length} manifest(s).`);
-    } catch (error: any) {
-      alert('Failed to download manifests');
-    }
-  }, [selectedShipments]);
+  const handleBulkDownloadLabel = useCallback(() => handleBulkDocuments('labels'), [handleBulkDocuments]);
+  const handleBulkDownloadManifest = useCallback(() => handleBulkDocuments('manifests'), [handleBulkDocuments]);
 
   const handleUpdateStatus = async (shipmentId: string, status: string) => {
     const notes = prompt(`Enter notes for status change to ${status} (optional):`);

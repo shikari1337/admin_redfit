@@ -147,7 +147,7 @@ const formatDate = (value?: string | null) => (value ? localeDateTime(value) : '
  *  rendering blank. */
 /** Past this many lines the items table gets its own scroll area instead of
  *  growing the page. Chosen so an ordinary cart is untouched. */
-const ITEMS_SCROLL_THRESHOLD = 8;
+const ITEMS_SCROLL_THRESHOLD = 10;
 
 const CART_ACTION_LABELS: Record<string, string> = {
   'cart.recovery_send': 'sent a reminder',
@@ -568,44 +568,50 @@ const AbandonedCartDetail: React.FC = () => {
               the threshold, so a 3-line cart still renders at its natural size. */}
           <div
             className="overflow-auto"
-            style={(cart.items?.length ?? 0) > ITEMS_SCROLL_THRESHOLD ? { maxHeight: '28rem' } : undefined}
+            style={(cart.items?.length ?? 0) > ITEMS_SCROLL_THRESHOLD ? { maxHeight: '32rem' } : undefined}
           >
             <table className="min-w-full divide-y divide-gray-100">
               <thead className="bg-gray-50 sticky top-0 z-10">
                 <tr>
-                  <th className="px-6 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Product</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">SKU</th>
-                  <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Unit Price</th>
-                  <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Qty</th>
-                  <th className="px-6 py-2.5 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                  <th className="px-3 py-2 text-right text-[11px] font-medium text-slate-500 uppercase tracking-wider w-10">#</th>
+                  <th className="px-3 py-2 text-left text-[11px] font-medium text-slate-500 uppercase tracking-wider">Product</th>
+                  <th className="px-3 py-2 text-left text-[11px] font-medium text-slate-500 uppercase tracking-wider w-28">SKU</th>
+                  <th className="px-3 py-2 text-right text-[11px] font-medium text-slate-500 uppercase tracking-wider w-24">Rate</th>
+                  <th className="px-3 py-2 text-center text-[11px] font-medium text-slate-500 uppercase tracking-wider w-14">Qty</th>
+                  <th className="px-3 py-2 text-right text-[11px] font-medium text-slate-500 uppercase tracking-wider w-28">Total</th>
+                  <th className="px-3 py-2 text-left text-[11px] font-medium text-slate-500 uppercase tracking-wider w-40 hidden lg:table-cell">Added</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {(cart.items || []).map((item, index) => (
                   <tr key={`${item.productId}-${item.variationId ?? index}`}>
-                    <td className="px-6 py-3">
-                      <div className="flex items-center gap-3">
+                    <td className="px-3 py-1.5 text-xs text-slate-400 tabular-nums text-right">{index + 1}</td>
+                    <td className="px-3 py-1.5">
+                      <div className="flex items-center gap-2">
                         {item.image ? (
-                          <img src={item.image} alt={item.productName} className="w-10 h-10 rounded-md object-cover border border-gray-200 shrink-0" />
+                          <img src={item.image} alt="" className="w-8 h-8 rounded object-cover border border-slate-200 shrink-0" />
                         ) : (
-                          <div className="w-10 h-10 rounded-md bg-gray-100 border border-gray-200 flex items-center justify-center text-[10px] text-gray-400 shrink-0">
-                            No image
-                          </div>
+                          <div className="w-8 h-8 rounded bg-slate-100 border border-slate-200 shrink-0" title="No image" />
                         )}
                         <div className="min-w-0">
-                          <div className="text-sm font-medium text-gray-900 truncate">{item.productName}</div>
+                          <div className="text-sm text-slate-900 truncate" title={item.productName}>{item.productName}</div>
                           {attributeText(item.attributes) && (
-                            <div className="text-xs text-gray-500 truncate">{attributeText(item.attributes)}</div>
+                            <div className="text-[11px] text-slate-400 truncate">{attributeText(item.attributes)}</div>
                           )}
-                          {item.addedAt && <div className="text-[11px] text-gray-400">Added {formatDate(item.addedAt)}</div>}
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{item.sku || '—'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700 text-right whitespace-nowrap">{formatMoney(item.price)}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700 text-center">{item.quantity}</td>
-                    <td className="px-6 py-3 text-sm font-semibold text-gray-900 text-right whitespace-nowrap">
+                    <td className="px-3 py-1.5 text-xs text-slate-600 whitespace-nowrap tabular-nums">{item.sku || <span className="text-slate-300">—</span>}</td>
+                    <td className="px-3 py-1.5 text-sm text-slate-700 text-right whitespace-nowrap tabular-nums">{formatMoney(item.price)}</td>
+                    <td className="px-3 py-1.5 text-sm text-slate-700 text-center tabular-nums">{item.quantity}</td>
+                    <td className="px-3 py-1.5 text-sm font-semibold text-slate-900 text-right whitespace-nowrap tabular-nums">
                       {formatMoney(item.lineTotal ?? item.price * item.quantity)}
+                    </td>
+                    {/* Its own column, not a third line under the name — the
+                        added time is the least-scanned fact on the row and was
+                        costing every row 18px of height. */}
+                    <td className="px-3 py-1.5 text-[11px] text-slate-400 whitespace-nowrap hidden lg:table-cell">
+                      {item.addedAt ? formatDate(item.addedAt) : '—'}
                     </td>
                   </tr>
                 ))}

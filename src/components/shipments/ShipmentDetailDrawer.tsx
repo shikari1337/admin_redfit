@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { formatPickupWhen } from './ShipmentTable';
 import { shipmentsAPI } from '../../services/api';
 import {
   Sheet,
@@ -119,6 +120,31 @@ const ShipmentDetailDrawer: React.FC<ShipmentDetailDrawerProps> = ({ shipmentId,
                       ))}
                     </div>
                   )}
+                </div>
+              </>
+            )}
+
+            {/* Pickup — what the courier actually booked (synced from the carrier
+                when the pickup was made in its own panel) */}
+            {(shipment?.pickup?.scheduledDate || shipment?.pickup?.scheduledFor || shipment?.pickup?.manifestId) && (
+              <>
+                <Separator />
+                <div>
+                  <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                    Pickup
+                    {shipment.pickup.source === 'carrier' && <Badge variant="outline">booked at courier</Badge>}
+                  </h3>
+                  <div className="text-sm space-y-1">
+                    <p><span className="text-muted-foreground">Scheduled: </span>{formatPickupWhen(shipment.pickup) || '—'}</p>
+                    {shipment.pickup.pickupTimeSlot && <p><span className="text-muted-foreground">Preferred slot: </span>{shipment.pickup.pickupTimeSlot}</p>}
+                    {shipment.pickup.pickupId && <p><span className="text-muted-foreground">Pickup id: </span><span className="font-mono">{shipment.pickup.pickupId}</span></p>}
+                    {shipment.pickup.pickupToken && <p><span className="text-muted-foreground">Token: </span><span className="font-mono">{shipment.pickup.pickupToken}</span></p>}
+                    {shipment.pickup.manifestId && <p><span className="text-muted-foreground">Manifest: </span><span className="font-mono">{shipment.pickup.manifestId}</span></p>}
+                    {shipment.pickup.pickupBookedAt && <p><span className="text-muted-foreground">Booked: </span>{shipment.pickup.pickupBookedAt}</p>}
+                    {shipment.pickup.pickupAgent?.name && <p><span className="text-muted-foreground">Pickup agent: </span>{shipment.pickup.pickupAgent.name}{shipment.pickup.pickupAgent.phone ? ` · ${shipment.pickup.pickupAgent.phone}` : ''}</p>}
+                    {shipment.pickup.pickupException && <p className="text-red-600">{shipment.pickup.pickupException}</p>}
+                    {shipment.pickup.syncedAt && <p className="text-xs text-muted-foreground">Synced {safeDate(shipment.pickup.syncedAt)}</p>}
+                  </div>
                 </div>
               </>
             )}
