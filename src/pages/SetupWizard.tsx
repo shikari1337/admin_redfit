@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { Button } from '@/components/ui/button';
@@ -60,8 +60,14 @@ const SetupWizard: React.FC = () => {
   const [defaultGstRate,        setDefaultGstRate]        = useState('18');
 
   // ── Step 5: Payment ──
+  // COD on/off + fee live in the SAME `shippingConfig` setting the checkout
+  // actually reads (Settings → Shipping edits the same key). This wizard used
+  // to write its own `cod` {isEnabled, charge} and `shipping` {codCharge…} keys
+  // that nothing on the platform ever read — a write-only decoy, so switching
+  // COD off here changed nothing (COMMON_MISTAKES #236). ONE fee field now,
+  // not one per step.
   const [codEnabled,       setCodEnabled]       = useState(true);
-  const [codChargePay,     setCodChargePay]     = useState('');
+  const [codFee,           setCodFee]           = useState('');
   const [razorpayEnabled,  setRazorpayEnabled]  = useState(false);
   const [upiEnabled,       setUpiEnabled]       = useState(false);
   const [upiId,            setUpiId]            = useState('');
@@ -69,8 +75,18 @@ const SetupWizard: React.FC = () => {
 
   // ── Step 6: Shipping ──
   const [freeShippingAmount, setFreeShippingAmount] = useState('');
-  const [codCharge,          setCodCharge]          = useState('');
   const [defaultShippingFee, setDefaultShippingFee] = useState('');
+  // The store's current shippingConfig as loaded — every save MERGES into it,
+  // because `/settings/bulk` replaces a key's whole value and this wizard only
+  // edits four of its fields (deliveryEnabled, slaHours, … must survive).
+  const loadedShippingConfigRef = useRef<Record<string, any>>({});
+  const mergedShippingConfig = () => ({
+    ...loadedShippingConfigRef.current,
+    codEnabled,
+    codFee: parseFloat(codFee) || 0,
+    shippingFee: parseFloat(defaultShippingFee) || 0,
+    freeShippingThreshold: parseFloat(freeShippingAmount) || 0,
+  });
 
   // ─── Load existing settings so the wizard pre-fills ─────────────────────────
   useEffect(() => {
@@ -96,18 +112,18 @@ const SetupWizard: React.FC = () => {
         // was silently overridden back to the hardcoded '18' default otherwise.
         if (s.gst?.defaultRate != null)       setDefaultGstRate(String(s.gst.defaultRate));
 
-        // Payment
-        if (s.cod?.isEnabled != null)           setCodEnabled(s.cod.isEnabled);
-        if (s.cod?.charge != null)              setCodChargePay(String(s.cod.charge));
+        // Payment + Shipping — all four fields come from the ONE key the
+        // checkout reads (`shippingConfig`, resolved with defaults server-side).
+        const sc = s.shippingConfig ?? {};
+        loadedShippingConfigRef.current = sc;
+        if (sc.codEnabled != null)             setCodEnabled(sc.codEnabled !== false);
+        if (sc.codFee != null)                 setCodFee(String(sc.codFee));
+        if (sc.freeShippingThreshold != null)  setFreeShippingAmount(String(sc.freeShippingThreshold));
+        if (sc.shippingFee != null)            setDefaultShippingFee(String(sc.shippingFee));
         if (s.razorpay?.isEnabled != null)      setRazorpayEnabled(s.razorpay.isEnabled);
         if (s.upi?.isEnabled != null)           setUpiEnabled(s.upi.isEnabled);
         if (s.upi?.upiId)                       setUpiId(s.upi.upiId);
         if (s.upi?.payeeName)                   setUpiPayeeName(s.upi.payeeName);
-
-        // Shipping
-        if (s.shipping?.freeShippingAmount != null) setFreeShippingAmount(String(s.shipping.freeShippingAmount));
-        if (s.shipping?.codCharge != null)          setCodCharge(String(s.shipping.codCharge));
-        if (s.shipping?.defaultFee != null)         setDefaultShippingFee(String(s.shipping.defaultFee));
       })
       .catch(() => { /* pre-fill is best-effort */ })
       .finally(() => setLoadingSettings(false));
@@ -146,7 +162,9 @@ const SetupWizard: React.FC = () => {
       if (stepId === 'payment') {
         await api.post('/settings/bulk', {
           settings: [
-            { key: 'cod',      value: { isEnabled: codEnabled, charge: parseFloat(codChargePay) || 0 }, grp: 'payment', is_public: false },
+            // COD on/off + fee → the SAME `shippingConfig` the checkout reads
+            // (merged, so the fields this step doesn't edit survive).
+            { key: 'shippingConfig', value: mergedShippingConfig(), grp: 'shipping', is_public: true },
             // Keys/webhook are entered on API & Integrations — this step only
             // ever toggles isEnabled. normalizeSecretSections (routes/settings.ts)
             // merges rather than overwrites, so omitting keyId/keySecret here
@@ -155,14 +173,16 @@ const SetupWizard: React.FC = () => {
             { key: 'upi',      value: { isEnabled: upiEnabled, upiId, payeeName: upiPayeeName }, grp: 'payment', is_public: false },
           ],
         });
+        loadedShippingConfigRef.current = mergedShippingConfig();
       }
 
       if (stepId === 'shipping') {
         await api.post('/settings/bulk', {
           settings: [
-            { key: 'shipping', value: { freeShippingAmount: parseFloat(freeShippingAmount) || 0, codCharge: parseFloat(codCharge) || 0, defaultFee: parseFloat(defaultShippingFee) || 0 }, grp: 'shipping', is_public: true },
+            { key: 'shippingConfig', value: mergedShippingConfig(), grp: 'shipping', is_public: true },
           ],
         });
+        loadedShippingConfigRef.current = mergedShippingConfig();
       }
 
       return true;
@@ -554,10 +574,15 @@ const SetupWizard: React.FC = () => {
                     </div>
                     {codEnabled && (
                       <div className="space-y-2">
-                        <Label htmlFor="w-codChargePay">COD Charge (₹)</Label>
-                        <Input id="w-codChargePay" type="number" min={0} value={codChargePay} onChange={e => setCodChargePay(e.target.value)} placeholder="0" />
+                        <Label htmlFor="w-codFee">COD Charge (₹)</Label>
+                        <Input id="w-codFee" type="number" min={0} value={codFee} onChange={e => setCodFee(e.target.value)} placeholder="0" />
+                        <p className="text-xs text-muted-foreground">Extra fee added to COD orders. Set 0 for no charge.</p>
                       </div>
                     )}
+                    <p className="text-xs text-muted-foreground">
+                      This switch and fee are the same ones under <strong>Settings → Shipping</strong>. To restrict COD by order value or pincode
+                      (e.g. no COD above ₹2,000), add a rule under <strong>Settings → Payment Methods &amp; Discounts → Payment Method Rules</strong>.
+                    </p>
                   </CardContent>
                 </Card>
 
@@ -625,13 +650,9 @@ const SetupWizard: React.FC = () => {
                     <Input id="w-defaultFee" type="number" min={0} value={defaultShippingFee} onChange={e => setDefaultShippingFee(e.target.value)} placeholder="99" />
                     <p className="text-xs text-muted-foreground">Applied when the order doesn't qualify for free shipping.</p>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="w-codCharge">COD Charge (₹)</Label>
-                    <Input id="w-codCharge" type="number" min={0} value={codCharge} onChange={e => setCodCharge(e.target.value)} placeholder="50" />
-                    <p className="text-xs text-muted-foreground">Extra fee added to COD orders. Set 0 for no charge.</p>
-                  </div>
                   <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
-                    You can set up advanced shipping zones, carriers (Shiprocket, Delhivery), and per-pincode rules in <strong>Settings → Shipping</strong> later.
+                    The COD switch and COD charge are on the <strong>Payment</strong> step (one setting, not two). You can set up advanced
+                    shipping zones, carriers (Shiprocket, Delhivery), and per-pincode rules in <strong>Settings → Shipping</strong> later.
                   </div>
                 </CardContent>
               </Card>

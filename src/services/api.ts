@@ -2598,6 +2598,19 @@ export const shipmentsAPI = {
     const response = await api.post(`/shipments/${id}/schedule-pickup`, data);
     return response.data;
   },
+  /**
+   * One request for the whole selection — the backend groups by provider +
+   * warehouse and books ONE carrier pickup per group (one pickup token covering
+   * every shipment in it). Response: `{ scheduled[], failed[], groups, scheduledDate }`.
+   */
+  schedulePickupBulk: async (shipmentIds: string[], data: {
+    scheduledDate: string;
+    pickupTimeSlot?: string;
+    notes?: string;
+  }) => {
+    const response = await api.post('/shipments/schedule-pickup-bulk', { shipmentIds, ...data });
+    return response.data;
+  },
   generateAWB: async (id: string) => {
     const response = await api.post(`/shipments/${id}/generate-awb`);
     return response.data;
@@ -3098,6 +3111,14 @@ export const cartsAPI = {
   /** Recovery link shortened PER CHANNEL (gc.mw when the store prefers the
    *  platform shortener) — one link each for WhatsApp/SMS/Email so opens can
    *  be attributed to the channel that actually produced them. */
+  /** The full recovery flow for one cart: what was sent, what is queued next,
+   *  when it is due and the wording that will be used. Timing mirrors the
+   *  sweep's own math, so the screen can't predict a different moment. */
+  getSchedule: async (cartId: string) => {
+    const response = await api.get(`/carts/admin/${cartId}/schedule`);
+    return response.data;
+  },
+
   /** Who has worked this cart, and who would earn the ASSISTED sale if it
    *  converts now (same precedence salesAttribution applies at finalisation). */
   getTeam: async (cartId: string) => {

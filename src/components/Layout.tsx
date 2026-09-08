@@ -415,7 +415,7 @@ const Layout: React.FC = () => {
             { title: 'Store Configuration', url: '/settings/store-config' },
             { title: 'API Integrations',   url: '/settings/api-integrations' },
             { title: 'Contact Submissions', url: '/settings/contact' },
-            { title: 'Payment & Discount', url: '/settings/payment-discount' },
+            { title: 'Payment Methods & Discounts', url: '/settings/payment-discount' },
             { title: 'Payment Gateways',   url: '/settings/payment-gateways' },
             { title: 'SMS / WhatsApp Templates', url: '/settings/sms-templates' },
             { title: 'Cart Recovery Automation', url: '/settings/cart-recovery-automation' },

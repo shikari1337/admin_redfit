@@ -21,11 +21,15 @@ export interface SetupStatus {
 function checkPaymentConfigured(settings: Record<string, any>): boolean {
   const rp = settings.razorpay;
   const upi = settings.upi;
-  const cod = settings.cod;
+  // COD on/off lives in the ONE key the checkout reads (`shippingConfig.codEnabled`,
+  // Settings → Shipping / Setup Wizard); the old `cod` key was a write-only decoy
+  // no code ever read (COMMON_MISTAKES #236). COD is ON by default for a new store,
+  // so this step is satisfied unless the store switched it off and set up nothing else.
+  const sc = settings.shippingConfig;
   const mp = settings.manualPayment;
   if (rp?.isEnabled && rp?.keyId) return true;
   if (upi?.isEnabled && upi?.upiId) return true;
-  if (cod?.isEnabled) return true;
+  if (sc && sc.codEnabled !== false) return true;
   if (mp?.isEnabled) return true;
   return false;
 }
@@ -54,7 +58,8 @@ export function useSetupStatus(): SetupStatus {
         const logoDone = !!(settings.logo?.logoUrl?.trim());
         const gstDone = !!(settings.gstin?.trim() || settings.gst);
         const paymentDone = checkPaymentConfigured(settings);
-        const shippingDone = !!(settings.shipping?.freeShippingAmount != null || settings.shippingFee != null);
+        // Same real key as above — the old `shipping` {freeShippingAmount…} row was never read.
+        const shippingDone = !!(settings.shippingConfig && (settings.shippingConfig.shippingFee != null || settings.shippingConfig.freeShippingThreshold != null));
 
         setSteps([
           {

@@ -154,8 +154,12 @@ const PaymentDiscountSettings: React.FC = () => {
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Settings
         </Button>
-        <h1 className="text-3xl font-bold tracking-tight text-foreground">Payment Gateway Discount</h1>
-        <p className="text-sm text-muted-foreground mt-2">Configure discount percentage for prepaid orders</p>
+        <h1 className="text-3xl font-bold tracking-tight text-foreground">Payment Methods &amp; Discounts</h1>
+        <p className="text-sm text-muted-foreground mt-2">
+          Prepaid (gateway) discount, quantity discounts, and <strong>Payment Method Rules</strong> — restrict COD or online
+          payment by order value, pincode or customer type (e.g. no COD above ₹2,000). COD on/off and its fee live under
+          Settings → Shipping.
+        </p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6 pb-12">
@@ -390,7 +394,11 @@ const PaymentDiscountSettings: React.FC = () => {
             </div>
             <div>
               <CardTitle>Payment Method Rules</CardTitle>
-              <CardDescription>Restrict a payment method under specific conditions (e.g. disable COD above ₹5,000).</CardDescription>
+              <CardDescription>
+                Restrict a payment method under specific conditions — e.g. <em>method COD, min order value 2000</em> blocks COD for
+                every order of ₹2,000 or more. "Order value" is the items subtotal before discounts. A blocked method is hidden
+                at checkout and refused at placement.
+              </CardDescription>
             </div>
           </div>
           <Button size="sm" onClick={openCreateRule}><Plus className="mr-1.5 h-4 w-4" /> Add Rule</Button>
@@ -432,11 +440,11 @@ const PaymentDiscountSettings: React.FC = () => {
                   <p className="text-[10px] text-muted-foreground">B2B-only rules are ignored while the B2B module is disabled.</p>
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Min order value ₹ (optional)</Label>
+                  <Label className="text-xs">Block from order value ₹ (optional — this value and above)</Label>
                   <Input type="number" min="0" value={ruleForm.minOrderValue} onChange={e => setRuleForm(f => ({ ...f, minOrderValue: e.target.value }))} className="h-9" />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Max order value ₹ (optional)</Label>
+                  <Label className="text-xs">Block up to order value ₹ (optional — this value and below)</Label>
                   <Input type="number" min="0" value={ruleForm.maxOrderValue} onChange={e => setRuleForm(f => ({ ...f, maxOrderValue: e.target.value }))} className="h-9" />
                 </div>
                 <div className="space-y-1.5 md:col-span-2">

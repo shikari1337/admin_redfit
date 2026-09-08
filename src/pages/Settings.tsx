@@ -85,8 +85,8 @@ const settingsSections = [
         path: '/settings/payment-gateways',
       },
       {
-        title: 'Payment Gateway Discount',
-        description: 'Offer a discount for specific payment methods',
+        title: 'Payment Methods & Discounts',
+        description: 'Prepaid discount, quantity discounts, and Payment Method Rules — restrict COD or online payment by order value, pincode or customer type (e.g. no COD above ₹2,000)',
         icon: CreditCard,
         path: '/settings/payment-discount',
       },
@@ -103,7 +103,7 @@ const settingsSections = [
     items: [
       {
         title: 'Shipping & Fees',
-        description: 'Shipping fee, free shipping threshold, COD charge, and carrier integrations (Shiprocket, Delhivery)',
+        description: 'Shipping fee, free shipping threshold, COD on/off and COD charge, and carrier integrations (Shiprocket, Delhivery)',
         icon: Truck,
         path: '/settings/shipping',
       },

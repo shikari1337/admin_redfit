@@ -47,6 +47,23 @@ interface JourneyEvent {
  *  staff send) — `status:'sent'` means the provider ACCEPTED the request,
  *  not confirmed delivery (no delivery-receipt webhook exists for either
  *  channel in this platform). */
+interface CartScheduleStep {
+  key: string; name: string; enabled: boolean; delayHours: number;
+  state: 'sent' | 'skipped' | 'disabled' | 'pending';
+  dueAt: string | null; channels: string[];
+  discount: { type: string; value: number } | null;
+  content: {
+    email: { subject: string | null; headline: string | null; message: string | null } | null;
+    whatsapp: { mode: string; templateName: string | null } | null;
+    sms: { editedIn: string } | null;
+  };
+  sent: Array<{ channel: string; status: string; at: string; error: string | null }>;
+}
+interface CartSchedule {
+  automationEnabled: boolean; blockers: string[]; anchorAt: string;
+  attempts: number; manualSends: number; plan: CartScheduleStep[];
+}
+
 interface CartTeamMember {
   agentId: string; agentName: string | null; role?: string | null;
   lastAction: string; lastAt: string; earnsCredit: boolean;
@@ -128,6 +145,10 @@ const formatDate = (value?: string | null) => (value ? localeDateTime(value) : '
 /** Cart ledger actions in the words staff use. Mirrors staffActivity's
  *  CART_* vocabulary; an unknown action degrades to its raw key rather than
  *  rendering blank. */
+/** Past this many lines the items table gets its own scroll area instead of
+ *  growing the page. Chosen so an ordinary cart is untouched. */
+const ITEMS_SCROLL_THRESHOLD = 8;
+
 const CART_ACTION_LABELS: Record<string, string> = {
   'cart.recovery_send': 'sent a reminder',
   'cart.waive_charge': 'waived a charge',
@@ -185,6 +206,7 @@ const AbandonedCartDetail: React.FC = () => {
    *  WhatsApp/SMS/email opens into one number nobody can act on. */
   const [links, setLinks] = useState<CartLink[] | null>(null);
   const [team, setTeam] = useState<CartTeam | null>(null);
+  const [schedule, setSchedule] = useState<CartSchedule | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [noteText, setNoteText] = useState('');
   const [savingNote, setSavingNote] = useState(false);
@@ -248,6 +270,9 @@ const AbandonedCartDetail: React.FC = () => {
       cartsAPI.getTeam(id)
         .then((d: any) => setTeam(d ?? null))
         .catch(() => setTeam(null));
+      cartsAPI.getSchedule(id)
+        .then((d: any) => setSchedule(d ?? null))
+        .catch(() => setSchedule(null));
     } catch (err: any) {
       setError(err.response?.data?.message || err.message || 'Failed to load cart');
     } finally {
@@ -531,12 +556,22 @@ const AbandonedCartDetail: React.FC = () => {
             needs w-0 min-w-full: a flex/grid child's min-width:auto otherwise
             lets a wide table widen the whole PAGE (COMMON_MISTAKES #215). */}
         <div className="w-0 min-w-full bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+          <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between gap-3">
             <h2 className="text-lg font-semibold text-gray-900">Items ({cart.itemCount ?? cart.items?.length ?? 0})</h2>
+            {(cart.items?.length ?? 0) > ITEMS_SCROLL_THRESHOLD && (
+              <span className="text-xs text-slate-400">Scroll for the rest · header stays put</span>
+            )}
           </div>
-          <div className="overflow-x-auto">
+          {/* A 69-line cart pushed every other panel off the screen. Cap the
+              body and let it scroll, with a sticky header so the columns stay
+              readable. Small carts are unaffected — max-height only bites past
+              the threshold, so a 3-line cart still renders at its natural size. */}
+          <div
+            className="overflow-auto"
+            style={(cart.items?.length ?? 0) > ITEMS_SCROLL_THRESHOLD ? { maxHeight: '28rem' } : undefined}
+          >
             <table className="min-w-full divide-y divide-gray-100">
-              <thead className="bg-gray-50">
+              <thead className="bg-gray-50 sticky top-0 z-10">
                 <tr>
                   <th className="px-6 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Product</th>
                   <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">SKU</th>
@@ -1038,6 +1073,81 @@ const AbandonedCartDetail: React.FC = () => {
               receipt webhook for either channel, so true read/delivery
               confirmation past that point is never known; labelled honestly
               rather than claiming "Delivered". */}
+          <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 mb-4">
+            <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Recovery flow</h2>
+            <p className="text-xs text-slate-500 mt-1">
+              What has gone out and what is queued next. Times are the sweep&apos;s own — this
+              cannot predict a different moment from the one it will act on.
+            </p>
+            {schedule === null ? (
+              <div className="mt-3 text-sm text-slate-400">Loading…</div>
+            ) : (
+              <div className="mt-3 space-y-3">
+                {schedule.blockers.length > 0 && (
+                  <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-800">
+                      Nothing will send automatically
+                    </div>
+                    <ul className="mt-1 space-y-0.5 text-xs text-amber-900 list-disc list-inside">
+                      {schedule.blockers.map((b) => <li key={b}>{b}</li>)}
+                    </ul>
+                  </div>
+                )}
+                {schedule.plan.map((step) => (
+                  <div key={step.key} className="rounded-md border border-slate-200 p-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-semibold text-slate-900">{step.name}</span>
+                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                        step.state === 'sent' ? 'bg-emerald-100 text-emerald-800'
+                        : step.state === 'pending' ? 'bg-blue-100 text-blue-800'
+                        : step.state === 'disabled' ? 'bg-slate-100 text-slate-500'
+                        : 'bg-amber-100 text-amber-800'}`}>
+                        {step.state}
+                      </span>
+                      {step.discount && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-100 text-purple-800">
+                          attaches a discount
+                        </span>
+                      )}
+                      <span className="text-[11px] text-slate-400 ml-auto">
+                        {step.state === 'pending' && step.dueAt
+                          ? `due ${formatDate(step.dueAt)}`
+                          : `+${step.delayHours}h after the previous step`}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-[11px] text-slate-500">
+                      Channels: {step.channels.length ? step.channels.join(' · ') : 'none enabled'}
+                    </div>
+                    {step.content.email && (step.content.email.subject || step.content.email.message) && (
+                      <div className="mt-2 rounded bg-slate-50 border border-slate-200 px-2 py-1.5">
+                        {step.content.email.subject && (
+                          <div className="text-[11px] text-slate-700"><strong>Subject:</strong> {step.content.email.subject}</div>
+                        )}
+                        {step.content.email.message && (
+                          <div className="text-[11px] text-slate-600 mt-0.5 line-clamp-3">{step.content.email.message}</div>
+                        )}
+                      </div>
+                    )}
+                    {step.sent.length > 0 && (
+                      <ul className="mt-2 space-y-0.5">
+                        {step.sent.map((x, i) => (
+                          <li key={i} className="text-[11px] text-slate-500">
+                            <span className="uppercase">{x.channel}</span> · {x.status}
+                            {x.error && <span className="text-red-600"> — {x.error}</span>}
+                            <span className="text-slate-400"> · {formatDate(x.at)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ))}
+                <Link to="/settings/cart-recovery-automation" className="inline-block text-xs text-blue-600 hover:underline">
+                  Edit the flow, timing and wording →
+                </Link>
+              </div>
+            )}
+          </div>
+
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Communication Log</h2>
             <p className="text-xs text-gray-500 mb-3">

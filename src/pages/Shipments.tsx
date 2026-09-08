@@ -270,45 +270,36 @@ const Shipments: React.FC = () => {
       return;
     }
 
-    // Group selected shipments by provider and warehouse
-    const grouped: Record<string, string[]> = {};
-    selectedShipments.forEach(id => {
-      const shipment = shipments.find(s => s._id === id);
-      if (shipment && shipment.status === 'pending' && shipment.shippingProvider !== 'manual') {
-        const key = `${shipment.shippingProvider}_${shipment.warehouseId?._id || shipment.warehouseId}`;
-        if (!grouped[key]) {
-          grouped[key] = [];
-        }
-        grouped[key].push(id);
-      }
-    });
-
-    const keys = Object.keys(grouped);
-    if (keys.length > 1) {
-      alert('Bulk pickup can only be scheduled for shipments from the same shipping provider and warehouse. Please select shipments from the same provider and warehouse.');
-      return;
-    }
-
+    // ONE request for the whole selection. The backend groups by provider +
+    // warehouse and books ONE carrier pickup per group — that is what a bulk
+    // pickup is at the carrier (Shiprocket: an array of shipment ids → one
+    // pickup token). The old code fired N separate single-shipment calls and
+    // refused any mixed provider/warehouse selection up front; the grouping
+    // now happens server-side, so a mixed selection just becomes several
+    // pickups.
     setSchedulingBulkPickup(true);
     try {
-      const results = await Promise.allSettled(
-        selectedShipments.map(id =>
-          shipmentsAPI.schedulePickup(id, {
-            scheduledDate: pickupDate,
-            pickupTimeSlot: pickupTimeSlot || undefined,
-            notes: pickupNotes || undefined,
-          })
-        )
-      );
+      const res = await shipmentsAPI.schedulePickupBulk(selectedShipments, {
+        scheduledDate: pickupDate,
+        pickupTimeSlot: pickupTimeSlot || undefined,
+        notes: pickupNotes || undefined,
+      });
+      // The api client unwraps {success,data} → fields may be top-level.
+      const data = res?.scheduled !== undefined ? res : (res?.data ?? {});
+      const scheduled: any[] = Array.isArray(data?.scheduled) ? data.scheduled : [];
+      const failed: any[] = Array.isArray(data?.failed) ? data.failed : [];
 
-      const successful = results.filter(r => r.status === 'fulfilled').length;
-      const failed = results.filter(r => r.status === 'rejected').length;
-
-      if (failed === 0) {
-        alert(`Successfully scheduled pickup for ${successful} shipment(s)!`);
-      } else {
-        alert(`Scheduled pickup for ${successful} shipment(s), but ${failed} failed. Please check individual shipments.`);
+      const tokens = [...new Set(scheduled.map((s: any) => s.pickupId).filter(Boolean))];
+      const lines: string[] = [];
+      if (scheduled.length) {
+        lines.push(`✅ Pickup scheduled for ${scheduled.length} shipment(s) on ${data?.scheduledDate || pickupDate}${tokens.length ? `\nPickup token${tokens.length > 1 ? 's' : ''}: ${tokens.join(', ')}` : ''}`);
       }
+      if (failed.length) {
+        lines.push(`❌ ${failed.length} not scheduled:\n` + failed
+          .map((f: any) => `• ${f.shipmentNumber || f.shipmentId}: ${f.message}`)
+          .join('\n'));
+      }
+      alert(lines.join('\n\n') || 'No shipments were scheduled.');
 
       setShowBulkPickupModal(false);
       setPickupDate('');

@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
+import { todayIso } from '../../utils/date';
 
 interface PickupModalProps {
   isOpen: boolean;
@@ -62,14 +63,19 @@ const PickupModal: React.FC<PickupModalProps> = ({
         <div className="grid gap-4 py-4">
           <div className="grid gap-2">
             <Label htmlFor="pickupDate">Pickup Date *</Label>
+            {/* A calendar DATE, not datetime-local: the carriers book pickups
+                by day (Shiprocket: pickup_date ["YYYY-MM-DD"]) and the old
+                datetime string was rejected by them on every attempt. `min` is
+                the STORE's today (utils/date.ts), not the UTC day (#216). */}
             <Input
               id="pickupDate"
-              type="datetime-local"
+              type="date"
               value={pickupDate}
               onChange={(e) => onDateChange(e.target.value)}
               required
-              min={new Date().toISOString().slice(0, 16)}
+              min={todayIso()}
             />
+            <p className="text-xs text-muted-foreground">The courier's slot preference below is recorded on the shipment; the carrier books by date.</p>
           </div>
 
           <div className="grid gap-2">

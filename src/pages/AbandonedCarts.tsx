@@ -27,6 +27,11 @@ interface CartRecord {
   createdAt?: string;
   updatedAt?: string;
   recoveryToken: string;
+  /** Set only on a CONVERTED cart — the order it actually became, and who was
+   *  credited for the sale. 'Recovered' is true only because this order exists. */
+  orderId?: string | null;
+  salesAgentName?: string | null;
+  salesClaimStatus?: string | null;
   user?: {
     _id: string;
     name?: string;
@@ -532,6 +537,29 @@ const AbandonedCarts: React.FC = () => {
                           {cart.status}
                         </span>
                       </div>
+                      {/* A recovered cart names the order it became — the tab's
+                          claim is only meaningful with the evidence beside it. */}
+                      {cart.orderId && (
+                        <div className="mt-1 space-y-0.5">
+                          <Link
+                            to={`/orders/${cart.orderId}`}
+                            className="inline-flex items-center text-xs font-semibold text-emerald-700 hover:underline"
+                          >
+                            → {cart.orderId}
+                          </Link>
+                          <div className="text-xs text-gray-500">
+                            {cart.salesAgentName ? (
+                              <>Credited: <span className="font-medium text-gray-700">{cart.salesAgentName}</span>
+                                {cart.salesClaimStatus === 'contested' && (
+                                  <span className="ml-1 text-amber-600">(contested)</span>
+                                )}
+                              </>
+                            ) : (
+                              <span className="text-gray-400">Unassisted — nobody worked this cart</span>
+                            )}
+                          </div>
+                        </div>
+                      )}
                       {cartIdStr && (
                         <div className="text-xs text-gray-400 mt-1">
                           Cart ID: {cartIdStr.slice(-6)}
