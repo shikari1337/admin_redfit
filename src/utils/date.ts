@@ -250,3 +250,37 @@ export function formatPicked(
 
 /** Field names an order status/timeline entry might carry its date under. */
 export const HISTORY_DATE_KEYS = ['changedAt', 'changed_at', 'timestamp', 'date', 'createdAt', 'created_at'];
+
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * A carrier's own local date/time string, rendered as written.
+ *
+ * Shiprocket answers `pickup_scheduled_date` as `"2026-09-09 09:00:00"` — a
+ * wall-clock time in the pickup location's zone, with no offset. It is NOT an
+ * instant: parsing it with `new Date()` would reinterpret it in the viewer's
+ * browser zone and move a 09:00 pickup by hours (COMMON_MISTAKES #216). So the
+ * string is read, not parsed. Anything else (a real timestamp) falls through to
+ * `formatDate`, which renders in the store's zone as usual.
+ */
+export function formatCarrierWhen(value: unknown, fallback = '—'): string {
+  const raw = String(value ?? '').trim();
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
+  if (m) {
+    const day = `${MONTH_ABBR[Number(m[2]) - 1]} ${m[3]}, ${m[1]}`;
+    return m[4] ? `${day} · ${m[4]}:${m[5]}` : day;
+  }
+  return formatDate(value, 'MMM dd, yyyy', fallback);
+}
+
+/**
+ * What a shipment's `pickup` record says about WHEN the courier is coming:
+ * the carrier's own confirmed datetime if it gave one, else the date we asked
+ * for. One definition — the board table and the detail drawer must agree.
+ */
+export function formatPickupWhen(
+  pickup: { scheduledDate?: unknown; scheduledFor?: string | null } | null | undefined,
+  fallback = '—',
+): string {
+  return formatCarrierWhen(pickup?.scheduledFor || pickup?.scheduledDate, fallback);
+}

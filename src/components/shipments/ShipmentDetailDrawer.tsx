@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import { formatPickupWhen } from './ShipmentTable';
 import { shipmentsAPI } from '../../services/api';
 import {
   Sheet,
@@ -10,7 +9,7 @@ import {
 } from '@/components/ui/sheet';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { formatDate } from '../../utils/date';
+import { formatDate, formatPickupWhen } from '../../utils/date';
 
 interface ShipmentDetailDrawerProps {
   shipmentId: string | null;
