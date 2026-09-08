@@ -11,6 +11,8 @@ interface CartDetailItem {
   variationId?: string | null;
   productName: string;
   sku?: string | null;
+  /** true = matched from the name, not recorded by the shopper's client. */
+  skuInferred?: boolean;
   price: number;
   quantity: number;
   image?: string | null;
@@ -27,6 +29,8 @@ interface CartCharges {
   shipping: number;
   codFee: number;
   discount: number;
+  couponCode?: string | null;
+  gst?: { rate: number; inclusive: boolean; amount: number } | null;
   total: number;
   paymentMethod: 'cod' | 'prepaid';
   shippingWaived: boolean;
@@ -79,8 +83,7 @@ interface CartLink {
   key: string;
   label: string;
   longUrl: string;
-  /** channel -> the short url actually minted for it (absent = not shortened) */
-  channels: Record<string, { url?: string; shortUrl?: string; provider?: string } | string>;
+  shortUrl: string | null;
 }
 
 interface RecoveryLogEntry {
@@ -449,10 +452,6 @@ const AbandonedCartDetail: React.FC = () => {
   const activeCoupons = coupons.filter((c: any) => c.isActive ?? c.is_active);
 
 
-  /** `shortenForChannels` may hand back a plain string or an object depending
-   *  on provider; read both rather than guessing one. */
-  const shortUrlOf = (v: any): string | null =>
-    typeof v === 'string' ? v : (v?.shortUrl ?? v?.url ?? null);
 
   const copyText = async (text: string, key: string) => {
     try {
@@ -601,7 +600,18 @@ const AbandonedCartDetail: React.FC = () => {
                         </div>
                       </div>
                     </td>
-                    <td className="px-3 py-1.5 text-xs text-slate-600 whitespace-nowrap tabular-nums">{item.sku || <span className="text-slate-300">—</span>}</td>
+                    <td className="px-3 py-1.5 text-xs whitespace-nowrap tabular-nums">
+                      {item.sku ? (
+                        <span
+                          className={item.skuInferred ? 'text-amber-700' : 'text-slate-600'}
+                          title={item.skuInferred
+                            ? 'Matched from the item name — this line never recorded which variation was chosen'
+                            : undefined}
+                        >
+                          {item.sku}{item.skuInferred && <span className="ml-1 text-[10px]">≈</span>}
+                        </span>
+                      ) : <span className="text-slate-300">—</span>}
+                    </td>
                     <td className="px-3 py-1.5 text-sm text-slate-700 text-right whitespace-nowrap tabular-nums">{formatMoney(item.price)}</td>
                     <td className="px-3 py-1.5 text-sm text-slate-700 text-center tabular-nums">{item.quantity}</td>
                     <td className="px-3 py-1.5 text-sm font-semibold text-slate-900 text-right whitespace-nowrap tabular-nums">
@@ -672,6 +682,26 @@ const AbandonedCartDetail: React.FC = () => {
                 )}
               </>
             )}
+            {/* GST as this store actually charges it. Inclusive means the tax
+                is already inside the prices above, so it is shown as a
+                breakdown line, not added again to the total. */}
+            {cart.charges?.gst && (
+              <div className="flex justify-between text-sm text-gray-600">
+                <span>
+                  GST @ {cart.charges.gst.rate}%{' '}
+                  <span className="text-xs text-gray-400">
+                    {cart.charges.gst.inclusive ? '(included above)' : '(added)'}
+                  </span>
+                </span>
+                <span>{formatMoney(cart.charges.gst.amount)}</span>
+              </div>
+            )}
+            {cart.charges?.gst?.inclusive && (
+              <p className="text-[11px] text-gray-400">
+                Split into IGST or CGST+SGST at checkout — which one depends on the delivery
+                state, and this cart has no confirmed address yet.
+              </p>
+            )}
             <div className="flex justify-between text-base font-bold text-gray-900 pt-1 border-t border-gray-200">
               <span>Estimated total</span>
               <span>{formatMoney(cart.charges?.total ?? cart.total)}</span>
@@ -706,14 +736,11 @@ const AbandonedCartDetail: React.FC = () => {
                         ? `Sent the recovery message (${team.wouldCredit.detail})`
                         : `Worked the cart — ${actionLabel(team.wouldCredit.detail)}`}
                     </div>
-                    <div className="text-[11px] text-emerald-700 mt-1">
-                      Provisional and contestable — a colleague can still claim it on the order.
-                    </div>
+
                   </div>
                 ) : (
                   <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                    Nobody has worked this cart yet, so a sale from it would count as unassisted.
-                    Sending a reminder, waiving a charge or applying a discount earns the credit.
+                    Not worked yet — a sale would be unassisted.
                   </div>
                 )}
 
@@ -794,37 +821,23 @@ const AbandonedCartDetail: React.FC = () => {
                   </a>
                 </div>
 
-                {/* Per-channel tracking links. Separate links are what make
-                    "which message did they open" answerable at all. */}
-                {links === null ? (
-                  <div className="text-xs text-gray-400">Loading tracking links…</div>
-                ) : links.length === 0 ? null : (
-                  <div className="pt-3 border-t border-slate-100 space-y-2">
-                    <div className="text-xs font-medium text-slate-600">Tracking links (per channel)</div>
-                    {links.flatMap((lnk) =>
-                      ['whatsapp', 'sms', 'email'].map((ch) => {
-                        const short = shortUrlOf((lnk.channels as any)?.[ch]);
-                        if (!short) return null;
-                        const key = `${lnk.key}:${ch}`;
-                        return (
-                          <div key={key} className="flex items-center gap-2">
-                            <span className="w-16 shrink-0 text-[11px] uppercase tracking-wide text-slate-400">{ch}</span>
-                            <code className="flex-1 min-w-0 truncate text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1">
-                              {short}
-                            </code>
-                            <button
-                              onClick={() => copyText(short, key)}
-                              className="shrink-0 px-2 py-1 text-[11px] border border-slate-300 rounded text-slate-600 hover:bg-slate-50"
-                            >
-                              {copiedKey === key ? 'Copied' : 'Copy'}
-                            </button>
-                          </div>
-                        );
-                      }),
-                    )}
-                    <p className="text-[11px] text-slate-400">
-                      Shortened per channel so opens can be attributed to the message that produced them.
-                    </p>
+                {/* One short link for the cart (gc.mw when the store prefers the
+                    platform shortener). Staff copy this and paste it wherever
+                    they are talking to the customer. */}
+                {links && links.length > 0 && links[0].shortUrl && (
+                  <div className="pt-3 border-t border-slate-100">
+                    <div className="text-xs font-medium text-slate-600 mb-1">Short link</div>
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 min-w-0 truncate text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1">
+                        {links[0].shortUrl}
+                      </code>
+                      <button
+                        onClick={() => copyText(links[0].shortUrl as string, 'short')}
+                        className="shrink-0 px-2 py-1 text-[11px] border border-slate-300 rounded text-slate-600 hover:bg-slate-50"
+                      >
+                        {copiedKey === 'short' ? 'Copied' : 'Copy'}
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
