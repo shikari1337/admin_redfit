@@ -94,6 +94,17 @@ const AbandonedCarts: React.FC = () => {
     fetchCarts();
   }, [fetchCarts]);
 
+  /** Load cart settings on mount, not just when the timing panel is opened —
+   *  the automation banner at the top of this page reads them, and "is anything
+   *  actually being sent?" must be answerable without hunting for a panel. */
+  useEffect(() => {
+    let cancelled = false;
+    cartsAPI.getSettings()
+      .then((v: any) => { if (!cancelled) setCartSettings(v); })
+      .catch(() => { /* banner simply stays hidden; the list still works */ });
+    return () => { cancelled = true; };
+  }, []);
+
   const handleSearch = async (event: React.FormEvent) => {
     event.preventDefault();
     await fetchCarts();
@@ -259,6 +270,43 @@ const AbandonedCarts: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Automation state, stated plainly at the top. This is the answer to
+          "why has nothing been sent" — the engine tracks and snapshots carts
+          regardless, but SENDING stays off until a human arms it, so that
+          fixing a data gap can never turn into a mass send nobody chose. */}
+      {cartSettings && (
+        cartSettings.recoveryAutomationEnabled === true ? (
+          <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg border border-emerald-200 bg-emerald-50">
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-600 text-white">
+              AUTOMATION ON
+            </span>
+            <span className="text-sm text-emerald-900">
+              Reminder → Persuasion → Discount messages go out automatically on the 15-minute sweep.
+            </span>
+            <Link to="/settings/cart-recovery-automation" className="ml-auto shrink-0 text-sm font-medium text-emerald-800 hover:underline">
+              Edit flow →
+            </Link>
+          </div>
+        ) : (
+          <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg border border-amber-200 bg-amber-50">
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-500 text-white">
+              AUTOMATION OFF
+            </span>
+            <span className="text-sm text-amber-900">
+              No automated reminders are being sent. Carts are still tracked and you can still send by hand
+              from any cart. Turn it on under <strong>Cart timing</strong>.
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowSettings(true)}
+              className="ml-auto shrink-0 text-sm font-medium text-amber-900 hover:underline"
+            >
+              Turn on →
+            </button>
+          </div>
+        )
+      )}
 
       {/* Two tabs: carts still being shopped, and carts that went cold.
           `converted` stays reachable as a third tab — it is the proof that a

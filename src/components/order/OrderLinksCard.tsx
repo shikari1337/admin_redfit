@@ -11,9 +11,12 @@
  * same pay page are what make "the WhatsApp nudge worked, the SMS did not" a
  * question with an answer.
  *
- * Deliberately lazy — the fetch mints links through the shortener, so it runs
- * when someone opens the panel rather than on every order view. An order desk
- * opens a hundred orders a day and sends links from a handful.
+ * Loads with the order, so the short link is simply THERE when staff open the
+ * page — the point of the card is that nobody has to think about it. The cost is
+ * one shortener round trip the first time a given order is opened; the service
+ * memoises long → short for 24h per store/channel/purpose, so every later view of
+ * the same order is free, and the fetch is separate from the order payload so a
+ * slow shortener never delays the page itself.
  *
  * Two states are called out rather than hidden, both because a silent version
  * costs a real send:
@@ -21,7 +24,7 @@
  *   - SMS over 30 characters — the DLT gateway rejects the WHOLE message, so a
  *     "working" link that does not fit is worse than no link, and is flagged red.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FaLink, FaWhatsapp, FaSms, FaEnvelope, FaRegCopy, FaCheck, FaExclamationTriangle } from 'react-icons/fa';
 import { ordersAPI, type OrderChannelLink, type OrderLinkGroup } from '../../services/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -102,6 +105,21 @@ export function OrderLinksCard({ orderId }: { orderId: string }) {
     }
   };
 
+  // `orderId` in the dependency list, not `[]`: OrderNavigator moves between
+  // orders without remounting this card, and an empty list would leave the
+  // previous order's links on screen under the new order's number.
+  useEffect(() => {
+    let cancelled = false;
+    setLinks(null);
+    setError(null);
+    setLoading(true);
+    ordersAPI.links(orderId)
+      .then((data) => { if (!cancelled) setLinks(data.links); })
+      .catch((e: any) => { if (!cancelled) setError(e?.response?.data?.message || 'Could not load links'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [orderId]);
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
@@ -109,17 +127,13 @@ export function OrderLinksCard({ orderId }: { orderId: string }) {
           <FaLink className="h-4 w-4 text-muted-foreground" /> Customer links
         </CardTitle>
         <Button type="button" variant="outline" size="sm" className="h-7" disabled={loading} onClick={load}>
-          {loading ? 'Loading…' : links ? 'Refresh' : 'Show links'}
+          {loading ? 'Loading…' : 'Refresh'}
         </Button>
       </CardHeader>
 
       <CardContent>
-        {!links && !error && (
-          <p className="text-sm text-muted-foreground">
-            Short, tracked links for this order — payment, tracking, invoice and the abandoned-cart
-            link where there is one. A separate link per channel, so you can tell which message the
-            customer actually opened.
-          </p>
+        {loading && !links && (
+          <p className="text-sm text-muted-foreground">Shortening this order's links…</p>
         )}
 
         {error && <p className="text-sm text-red-600">{error}</p>}

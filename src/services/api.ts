@@ -3094,6 +3094,16 @@ export const cartsAPI = {
     const response = await api.get(`/carts/admin/${cartId}/recovery-log`);
     return Array.isArray(response.data) ? response.data : [];
   },
+
+  /** Recovery link shortened PER CHANNEL (gc.mw when the store prefers the
+   *  platform shortener) — one link each for WhatsApp/SMS/Email so opens can
+   *  be attributed to the channel that actually produced them. */
+  getLinks: async (cartId: string) => {
+    const response = await api.get(`/carts/admin/${cartId}/links`);
+    // NOTE: the axios interceptor already unwraps {success,data} — reading
+    // `.data.data` here would silently yield undefined (COMMON_MISTAKES #187).
+    return response.data;
+  },
 };
 
 // Cross-store customer journey/behaviour (public.customer_activity, store-scoped

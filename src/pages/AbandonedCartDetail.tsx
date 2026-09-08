@@ -47,6 +47,14 @@ interface JourneyEvent {
  *  staff send) — `status:'sent'` means the provider ACCEPTED the request,
  *  not confirmed delivery (no delivery-receipt webhook exists for either
  *  channel in this platform). */
+interface CartLink {
+  key: string;
+  label: string;
+  longUrl: string;
+  /** channel -> the short url actually minted for it (absent = not shortened) */
+  channels: Record<string, { url?: string; shortUrl?: string; provider?: string } | string>;
+}
+
 interface RecoveryLogEntry {
   id: string;
   cart_id: string;
@@ -148,6 +156,11 @@ const AbandonedCartDetail: React.FC = () => {
   const [copied, setCopied] = useState(false);
   const [journey, setJourney] = useState<JourneyEvent[] | null>(null);
   const [recoveryLog, setRecoveryLog] = useState<RecoveryLogEntry[] | null>(null);
+  /** Per-channel short links (gc.mw when the store prefers the platform
+   *  shortener). One PER CHANNEL on purpose — a single shared link would merge
+   *  WhatsApp/SMS/email opens into one number nobody can act on. */
+  const [links, setLinks] = useState<CartLink[] | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [noteText, setNoteText] = useState('');
   const [savingNote, setSavingNote] = useState(false);
 
@@ -204,6 +217,9 @@ const AbandonedCartDetail: React.FC = () => {
       cartsAPI.getRecoveryLog(id)
         .then((rows: any) => setRecoveryLog(Array.isArray(rows) ? rows : []))
         .catch(() => setRecoveryLog([]));
+      cartsAPI.getLinks(id)
+        .then((d: any) => setLinks(Array.isArray(d?.links) ? d.links : []))
+        .catch(() => setLinks([]));
     } catch (err: any) {
       setError(err.response?.data?.message || err.message || 'Failed to load cart');
     } finally {
@@ -359,30 +375,68 @@ const AbandonedCartDetail: React.FC = () => {
 
   const activeCoupons = coupons.filter((c: any) => c.isActive ?? c.is_active);
 
+  /** `shortenForChannels` may hand back a plain string or an object depending
+   *  on provider; read both rather than guessing one. */
+  const shortUrlOf = (v: any): string | null =>
+    typeof v === 'string' ? v : (v?.shortUrl ?? v?.url ?? null);
+
+  const copyText = async (text: string, key: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 1800);
+    } catch { /* clipboard blocked — the link is on screen to copy by hand */ }
+  };
+
+  /** One fact per cell, same reading order as Order Detail's command band. */
+  const Stat = ({ label, value, tone }: { label: string; value: React.ReactNode; tone?: string }) => (
+    <div className="flex flex-col justify-center px-4 py-2 border-l border-slate-200 first:border-l-0">
+      <span className="text-[10px] uppercase tracking-wider text-slate-400">{label}</span>
+      <span className={`text-sm font-semibold tabular-nums ${tone ?? 'text-slate-800'}`}>{value}</span>
+    </div>
+  );
+
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
+    /* Full-bleed: cancels Layout.tsx's own padding, same as Order Detail. */
+    <div className="-m-4 md:-m-6 lg:-m-8 bg-slate-50 min-h-screen">
+      {/* ── Command band — the whole cart in one line, sticky while scrolling ── */}
+      <div className="sticky top-0 z-20 bg-white border-b border-slate-200 shadow-sm">
+        <div className="px-4 md:px-6 py-2.5 flex items-center gap-3 flex-nowrap overflow-x-auto">
           <Link
             to="/orders/abandoned-carts"
-            className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900 mb-2"
+            className="shrink-0 inline-flex items-center text-sm text-slate-500 hover:text-slate-900"
+            title="Back to Abandoned Carts"
           >
-            <FaArrowLeft className="mr-2" /> Back to Abandoned Carts
+            <FaArrowLeft />
           </Link>
-          <h1 className="text-3xl font-bold text-gray-900">
-            Cart {cart.cartId || String(cart._id).slice(-8)}
-          </h1>
-          <div className="flex items-center gap-2 mt-2">
-            <span className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium capitalize ${statusBadge(cart.status)}`}>
-              {cart.status}
-            </span>
-            <span className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${cart.isGuest ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>
-              {cart.isGuest ? 'Guest' : 'Logged In'}
-            </span>
+          <div className="shrink-0">
+            <div className="text-base font-bold text-slate-900 leading-tight">
+              Cart {cart.cartId || String(cart._id).slice(-8)}
+            </div>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium capitalize ${statusBadge(cart.status)}`}>
+                {cart.status}
+              </span>
+              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${cart.isGuest ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                {cart.isGuest ? 'Guest' : 'Signed in'}
+              </span>
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-2 self-start">
+          <div className="flex items-stretch shrink-0 ml-2">
+            <Stat label="Total" value={formatMoney(cart.total ?? 0)} />
+            <Stat label="Lines" value={cart.itemCount ?? cart.items?.length ?? 0} />
+            <Stat
+              label="Messages sent"
+              value={recoveryLog ? recoveryLog.filter((l) => l.status === 'sent').length : '—'}
+            />
+            <Stat
+              label="Nudges"
+              value={cart.recoveryAttempts ?? 0}
+              tone={(cart.recoveryAttempts ?? 0) > 0 ? 'text-slate-800' : 'text-slate-400'}
+            />
+          </div>
+          <div className="flex-1" />
+          <div className="flex items-center gap-2 shrink-0">
           {(
             [
               { channel: 'whatsapp' as const, label: 'WhatsApp', Icon: FaWhatsapp, className: 'bg-green-600 hover:bg-green-700 disabled:bg-green-400' },
@@ -408,12 +462,15 @@ const AbandonedCartDetail: React.FC = () => {
               )}
             </button>
           ))}
+          </div>
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Items — same tabular shape as Order Detail's Order Items table */}
-        <div className="lg:col-span-2 bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+      <div className="px-4 md:px-6 py-4 space-y-4">
+        {/* Items — FULL WIDTH above the grid, as on Order Detail. The scroller
+            needs w-0 min-w-full: a flex/grid child's min-width:auto otherwise
+            lets a wide table widen the whole PAGE (COMMON_MISTAKES #215). */}
+        <div className="w-0 min-w-full bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
             <h2 className="text-lg font-semibold text-gray-900">Items ({cart.itemCount ?? cart.items?.length ?? 0})</h2>
           </div>
@@ -524,8 +581,10 @@ const AbandonedCartDetail: React.FC = () => {
           </div>
         </div>
 
+        {/* Wide column (2/3) + rail (1/3), same proportions as Order Detail */}
+        <div className="grid gap-4 lg:grid-cols-3 items-start">
         {/* Sidebar */}
-        <div className="space-y-6">
+        <div className="space-y-4 lg:col-span-1 lg:order-2">
           {/* Customer */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-3">Customer</h2>
@@ -582,6 +641,40 @@ const AbandonedCartDetail: React.FC = () => {
                     <FaExternalLinkAlt className="mr-1.5" /> Open
                   </a>
                 </div>
+
+                {/* Per-channel tracking links. Separate links are what make
+                    "which message did they open" answerable at all. */}
+                {links === null ? (
+                  <div className="text-xs text-gray-400">Loading tracking links…</div>
+                ) : links.length === 0 ? null : (
+                  <div className="pt-3 border-t border-slate-100 space-y-2">
+                    <div className="text-xs font-medium text-slate-600">Tracking links (per channel)</div>
+                    {links.flatMap((lnk) =>
+                      ['whatsapp', 'sms', 'email'].map((ch) => {
+                        const short = shortUrlOf((lnk.channels as any)?.[ch]);
+                        if (!short) return null;
+                        const key = `${lnk.key}:${ch}`;
+                        return (
+                          <div key={key} className="flex items-center gap-2">
+                            <span className="w-16 shrink-0 text-[11px] uppercase tracking-wide text-slate-400">{ch}</span>
+                            <code className="flex-1 min-w-0 truncate text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1">
+                              {short}
+                            </code>
+                            <button
+                              onClick={() => copyText(short, key)}
+                              className="shrink-0 px-2 py-1 text-[11px] border border-slate-300 rounded text-slate-600 hover:bg-slate-50"
+                            >
+                              {copiedKey === key ? 'Copied' : 'Copy'}
+                            </button>
+                          </div>
+                        );
+                      }),
+                    )}
+                    <p className="text-[11px] text-slate-400">
+                      Shortened per channel so opens can be attributed to the message that produced them.
+                    </p>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="text-sm text-gray-500">No recovery link generated yet.</div>
@@ -698,7 +791,10 @@ const AbandonedCartDetail: React.FC = () => {
               {applyingDiscount ? 'Applying…' : 'Apply Discount'}
             </button>
           </div>
+        </div>
 
+        {/* Wide column — the history: what happened and what we sent. */}
+        <div className="space-y-4 lg:col-span-2 lg:order-1 min-w-0">
           {/* Staff notes — follow-up outcomes, call summaries */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-3">Notes</h2>
@@ -904,6 +1000,7 @@ const AbandonedCartDetail: React.FC = () => {
             </dl>
           </div>
         </div>
+      </div>
       </div>
     </div>
   );
