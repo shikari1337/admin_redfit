@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { FaArrowLeft, FaCopy, FaExternalLinkAlt, FaSms, FaWhatsapp, FaEnvelope } from 'react-icons/fa';
 import { cartsAPI, journeyAPI, couponsAPI } from '../services/api';
@@ -369,6 +369,26 @@ const AbandonedCartDetail: React.FC = () => {
     }
   };
 
+  // NOTE: hooks must run on EVERY render. This sat below the `loading` /
+  // `error` early returns, so it was skipped on the first pass and called on
+  // the second — "Rendered more hooks than during the previous render". Both
+  // tsc and vite build pass on that; only the browser catches it.
+  /**
+   * Communication counts derived from `cart_recovery_log` — the authoritative
+   * record of what was actually attempted. Derived ONCE here so the command
+   * band and the Communication Log below cannot quote different numbers.
+   * `null` while loading, so the band shows an em dash instead of a false 0.
+   */
+  const comms = useMemo(() => {
+    if (!recoveryLog) return null;
+    return {
+      sent: recoveryLog.filter((l) => l.status === 'sent').length,
+      failed: recoveryLog.filter((l) => l.status === 'failed').length,
+      automated: recoveryLog.filter((l) => l.trigger === 'automated').length,
+      manual: recoveryLog.filter((l) => l.trigger === 'manual').length,
+    };
+  }, [recoveryLog]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -402,6 +422,7 @@ const AbandonedCartDetail: React.FC = () => {
   };
 
   const activeCoupons = coupons.filter((c: any) => c.isActive ?? c.is_active);
+
 
   /** `shortenForChannels` may hand back a plain string or an object depending
    *  on provider; read both rather than guessing one. */
@@ -453,14 +474,25 @@ const AbandonedCartDetail: React.FC = () => {
           <div className="flex items-stretch shrink-0 ml-2">
             <Stat label="Total" value={formatMoney(cart.total ?? 0)} />
             <Stat label="Lines" value={cart.itemCount ?? cart.items?.length ?? 0} />
+            <Stat label="Sent" value={comms ? comms.sent : '—'} />
+            {/* Failures were previously invisible anywhere on this page, even
+                though every attempt is recorded with its provider reason. A
+                cart whose only nudge BOUNCED reads identically to one nobody
+                ever contacted unless this is on screen. */}
             <Stat
-              label="Messages sent"
-              value={recoveryLog ? recoveryLog.filter((l) => l.status === 'sent').length : '—'}
+              label="Failed"
+              value={comms ? comms.failed : '—'}
+              tone={comms && comms.failed > 0 ? 'text-red-600' : 'text-slate-400'}
             />
             <Stat
-              label="Nudges"
-              value={cart.recoveryAttempts ?? 0}
-              tone={(cart.recoveryAttempts ?? 0) > 0 ? 'text-slate-800' : 'text-slate-400'}
+              label="Automated"
+              value={comms ? comms.automated : '—'}
+              tone={comms && comms.automated > 0 ? 'text-slate-800' : 'text-slate-400'}
+            />
+            <Stat
+              label="By staff"
+              value={comms ? comms.manual : '—'}
+              tone={comms && comms.manual > 0 ? 'text-slate-800' : 'text-slate-400'}
             />
           </div>
           <div className="flex-1" />
