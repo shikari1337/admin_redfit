@@ -47,6 +47,17 @@ interface JourneyEvent {
  *  staff send) — `status:'sent'` means the provider ACCEPTED the request,
  *  not confirmed delivery (no delivery-receipt webhook exists for either
  *  channel in this platform). */
+interface CartTeamMember {
+  agentId: string; agentName: string | null; role?: string | null;
+  lastAction: string; lastAt: string; earnsCredit: boolean;
+}
+interface CartTeam {
+  contributors: CartTeamMember[];
+  wouldCredit: { agentId: string; agentName: string | null; basis: string; detail: string; at: string } | null;
+  activity: Array<{ id: string; actorName: string | null; action: string; created_at: string;
+                    actor_name?: string | null; to_value?: string | null }>;
+}
+
 interface CartLink {
   key: string;
   label: string;
@@ -114,6 +125,19 @@ interface CartDetail {
 }
 
 const formatDate = (value?: string | null) => (value ? localeDateTime(value) : '—');
+/** Cart ledger actions in the words staff use. Mirrors staffActivity's
+ *  CART_* vocabulary; an unknown action degrades to its raw key rather than
+ *  rendering blank. */
+const CART_ACTION_LABELS: Record<string, string> = {
+  'cart.recovery_send': 'sent a reminder',
+  'cart.waive_charge': 'waived a charge',
+  'cart.discount_apply': 'applied a discount',
+  'cart.discount_remove': 'removed a discount',
+  'cart.items_edit': 'edited the items',
+  'cart.note': 'added a note',
+};
+const actionLabel = (a?: string | null) => (a ? CART_ACTION_LABELS[a] ?? a : '—');
+
 const formatMoney = (value?: number | null) =>
   `₹${Number(value ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -160,6 +184,7 @@ const AbandonedCartDetail: React.FC = () => {
    *  shortener). One PER CHANNEL on purpose — a single shared link would merge
    *  WhatsApp/SMS/email opens into one number nobody can act on. */
   const [links, setLinks] = useState<CartLink[] | null>(null);
+  const [team, setTeam] = useState<CartTeam | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [noteText, setNoteText] = useState('');
   const [savingNote, setSavingNote] = useState(false);
@@ -220,6 +245,9 @@ const AbandonedCartDetail: React.FC = () => {
       cartsAPI.getLinks(id)
         .then((d: any) => setLinks(Array.isArray(d?.links) ? d.links : []))
         .catch(() => setLinks([]));
+      cartsAPI.getTeam(id)
+        .then((d: any) => setTeam(d ?? null))
+        .catch(() => setTeam(null));
     } catch (err: any) {
       setError(err.response?.data?.message || err.message || 'Failed to load cart');
     } finally {
@@ -585,6 +613,57 @@ const AbandonedCartDetail: React.FC = () => {
         <div className="grid gap-4 lg:grid-cols-3 items-start">
         {/* Sidebar */}
         <div className="space-y-4 lg:col-span-1 lg:order-2">
+          {/* Who worked this cart — and who would be credited for the sale.
+              Working an abandoned cart IS selling, so this mirrors Order
+              Detail's team card rather than inventing a second vocabulary. */}
+          <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+            <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-3">Worked by</h2>
+            {team === null ? (
+              <div className="text-sm text-slate-400">Loading…</div>
+            ) : (
+              <div className="space-y-3">
+                {team.wouldCredit ? (
+                  <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
+                    <div className="text-[11px] uppercase tracking-wide text-emerald-700">Assisted credit would go to</div>
+                    <div className="text-sm font-semibold text-emerald-900">
+                      {team.wouldCredit.agentName || 'Unnamed staff'}
+                    </div>
+                    <div className="text-[11px] text-emerald-800 mt-0.5">
+                      {team.wouldCredit.basis === 'auto_recovery'
+                        ? `Sent the recovery message (${team.wouldCredit.detail})`
+                        : `Worked the cart — ${actionLabel(team.wouldCredit.detail)}`}
+                    </div>
+                    <div className="text-[11px] text-emerald-700 mt-1">
+                      Provisional and contestable — a colleague can still claim it on the order.
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                    Nobody has worked this cart yet, so a sale from it would count as unassisted.
+                    Sending a reminder, waiving a charge or applying a discount earns the credit.
+                  </div>
+                )}
+
+                {team.contributors.length > 0 && (
+                  <ul className="space-y-1.5">
+                    {team.contributors.map((c) => (
+                      <li key={c.agentId} className="flex items-center justify-between gap-2 text-sm">
+                        <span className="min-w-0 truncate text-slate-800">
+                          {c.agentName || 'Unnamed staff'}
+                          {c.role && <span className="text-[11px] text-slate-400 ml-1.5">{c.role}</span>}
+                        </span>
+                        <span className="shrink-0 text-[11px] text-slate-500">
+                          {actionLabel(c.lastAction)}
+                          {!c.earnsCredit && <span className="ml-1 text-slate-300">(no credit)</span>}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Customer */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-3">Customer</h2>

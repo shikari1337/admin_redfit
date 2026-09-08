@@ -3098,6 +3098,13 @@ export const cartsAPI = {
   /** Recovery link shortened PER CHANNEL (gc.mw when the store prefers the
    *  platform shortener) — one link each for WhatsApp/SMS/Email so opens can
    *  be attributed to the channel that actually produced them. */
+  /** Who has worked this cart, and who would earn the ASSISTED sale if it
+   *  converts now (same precedence salesAttribution applies at finalisation). */
+  getTeam: async (cartId: string) => {
+    const response = await api.get(`/carts/admin/${cartId}/team`);
+    return response.data;
+  },
+
   getLinks: async (cartId: string) => {
     const response = await api.get(`/carts/admin/${cartId}/links`);
     // NOTE: the axios interceptor already unwraps {success,data} — reading
