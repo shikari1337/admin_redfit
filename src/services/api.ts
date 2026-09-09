@@ -1514,6 +1514,36 @@ export interface OrderCancelRefund {
   reason?: string;
 }
 
+/**
+ * One row of `GET /orders/:id/communications` — a message that was actually
+ * attempted for this order (order confirmation, shipping update, OTP…).
+ * `status`/`provider`/`error` are rendered exactly as the provider reported
+ * them: "sent"/"accepted" is proof the gateway took it, NOT proof of delivery
+ * (WhatsApp/SMS never report delivery back to us — see
+ * cart_communication_log_2026_09_04). Never relabel this as "Delivered".
+ */
+export interface OrderCommunicationEntry {
+  id: string;
+  channel: string;
+  event: string;
+  recipient: string | null;
+  status: string;
+  provider: string | null;
+  provider_message_id: string | null;
+  error: string | null;
+  actor_name: string | null;
+  is_automated: boolean;
+  created_at: string;
+}
+
+/** What `POST /orders/:id/apply-discount` hands back — the server's own
+ *  recomputed figures (via computeOrderTotals), never derived client-side. */
+export interface ApplyOrderDiscountResult {
+  discount: number;
+  total: number;
+  message: string;
+}
+
 /** One outbound link, shortened for one channel. */
 export interface OrderChannelLink {
   /** What to send: the short URL when shortening worked, the long one otherwise. */
@@ -1543,7 +1573,12 @@ export const ordersAPI = {
    */
   links: async (orderId: string) => {
     const response = await api.get(`/orders/${orderId}/links`);
-    return response.data?.data as { orderId: string; links: OrderLinkGroup[] };
+    // The shared interceptor has ALREADY unwrapped `{success,data}` down to
+    // `data`, so `response.data.data` is undefined and the card's `data.links`
+    // threw — surfacing as "Could not load links" on an endpoint that was
+    // answering 200 the whole time. Same interceptor family as #228/#230; every
+    // other reader in this file uses the both-ways form below.
+    return (response.data?.data ?? response.data) as { orderId: string; links: OrderLinkGroup[] };
   },
   /** CSV export — all filtered orders, or just `ids` when a selection was made. */
   exportCsv: async (params?: { ids?: string[]; status?: string; from?: string; to?: string }) => {
@@ -1584,6 +1619,21 @@ export const ordersAPI = {
     discount?: number; discountReason?: string; shippingCost?: number;
   }) => {
     const response = await api.put(`/orders/${id}/items`, data);
+    return response.data;
+  },
+  /**
+   * Apply a manual discount (percent / flat amount / coupon code) to an order
+   * that is still unpaid and unshipped — the same gate `PUT /orders/:id/items`
+   * already applies. Totals and GST are always recomputed server-side via
+   * computeOrderTotals; this never carries its own money math (rule 7a).
+   */
+  applyDiscount: async (id: string, data: {
+    mode: 'percent' | 'amount' | 'coupon';
+    value?: number;
+    couponCode?: string;
+    reason?: string;
+  }): Promise<ApplyOrderDiscountResult> => {
+    const response = await api.post(`/orders/${id}/apply-discount`, data);
     return response.data;
   },
   /** Waive the shipping fee or COD handling fee on an unpaid order (a retention
@@ -1694,6 +1744,19 @@ export const ordersAPI = {
   getTimeline: async (id: string) => {
     const response = await api.get(`/orders/${id}/timeline`);
     return response.data;
+  },
+  /**
+   * Every message actually sent for this order — order confirmation, shipping
+   * updates, OTPs, manual notify sends — newest first. Backed by
+   * `recordCommunication()`, hooked into `notifyCustomer()`; renders the
+   * provider's own status/error, never an invented "delivered".
+   */
+  communications: async (id: string): Promise<OrderCommunicationEntry[]> => {
+    const response = await api.get(`/orders/${id}/communications`);
+    // The interceptor unwraps {success,data} → response.data IS the array;
+    // fall back defensively in case a caller ever sees the raw envelope.
+    const d: any = response.data;
+    return Array.isArray(d) ? d : (d?.data ?? []);
   },
   cancelOrder: async (id: string, reason?: string) => {
     const response = await api.post(`/orders/${id}/cancel`, { reason });
@@ -4264,6 +4327,56 @@ export const seoAPI = {
   getRobots: async () => {
     const response = await api.get('/seo/robots.txt', { responseType: 'text', transformResponse: (d) => d });
     return response.data as string;
+  },
+};
+
+// ─── COMPANIES + BRAND OWNERSHIP (migration 165) ─────────────────────────────
+// A company is a `parties` row with `kind='company'` plus its `party_company`
+// facet — there is no separate companies table. See backend db/queries/companies.ts.
+export const companiesAPI = {
+  list: async (params?: { search?: string; role?: string; limit?: number; offset?: number }) => {
+    const response = await api.get('/companies', { params });
+    return response.data;
+  },
+  get: async (id: string) => {
+    const response = await api.get(`/companies/${id}`);
+    return response.data;
+  },
+  create: async (data: Record<string, any>) => {
+    // Raw, so `created` survives the interceptor's unwrap to `data` — the UI has
+    // to be able to say "matched an existing company" instead of leaving the
+    // user believing they just made a second one (the #228/#230 envelope trap).
+    const response = await api.post('/companies', data, {
+      transformResponse: (d) => { try { return JSON.parse(d); } catch { return d; } },
+    });
+    return response.data as { success: boolean; data: any; created: boolean; message: string };
+  },
+  update: async (id: string, data: Record<string, any>) => {
+    const response = await api.put(`/companies/${id}`, data);
+    return response.data;
+  },
+  archive: async (id: string) => {
+    const response = await api.delete(`/companies/${id}`);
+    return response.data;
+  },
+};
+
+export const brandLicensesAPI = {
+  list: async (brandId: string) => {
+    const response = await api.get(`/brands/${brandId}/licenses`);
+    return response.data;
+  },
+  create: async (brandId: string, data: Record<string, any>) => {
+    const response = await api.post(`/brands/${brandId}/licenses`, data);
+    return response.data;
+  },
+  update: async (licenseId: string, data: Record<string, any>) => {
+    const response = await api.put(`/brands/licenses/${licenseId}`, data);
+    return response.data;
+  },
+  remove: async (licenseId: string) => {
+    const response = await api.delete(`/brands/licenses/${licenseId}`);
+    return response.data;
   },
 };
 

@@ -9,7 +9,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { ordersAPI, shippingAPI, paymentsAPI, shipmentsAPI, invoicesAPI } from '../services/api';
 import { formatDate } from '../utils/date';
 import { fmtRupees } from '../lib/money';
-import { FaCheckCircle, FaEnvelope, FaFileInvoice, FaCreditCard, FaTruck, FaArrowLeft, FaDownload, FaWhatsapp, FaSms, FaChevronDown, FaMoneyCheckAlt } from 'react-icons/fa';
+import { FaCheckCircle, FaEnvelope, FaFileInvoice, FaCreditCard, FaTruck, FaArrowLeft, FaDownload, FaWhatsapp, FaSms, FaChevronDown, FaMoneyCheckAlt, FaTag } from 'react-icons/fa';
 import {
   StatusBadge,
   OrderItems,
@@ -32,6 +32,8 @@ import {
   OrderTeamCard,
   CancelOrderModal,
   OrderRefunds,
+  OrderCommunicationLog,
+  ApplyOrderDiscountModal,
   OrderNavigator,
   OrderCustomerCard,
   OrderAddressPanel,
@@ -140,6 +142,10 @@ const OrderDetail: React.FC = () => {
   // gateway-specific "Verify Payment" flow above.
   const [showMarkAsPaidModal, setShowMarkAsPaidModal] = useState(false);
   const [showRaiseRefund, setShowRaiseRefund] = useState(false);
+  // A retention lever on an order that has not been paid or shipped yet —
+  // same editability gate the server enforces, so the button is never offered
+  // for an order the route would refuse.
+  const [showApplyDiscount, setShowApplyDiscount] = useState(false);
   // Cancelling a PAID order decides where the customer's money goes — the
   // dialog asks, rather than the bare confirm() the other transitions use.
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -752,16 +758,18 @@ const OrderDetail: React.FC = () => {
           only cost a row. No backdrop-blur -- it softened the text of everything
           scrolling under it. */}
       {/* The app header is 56px of tabs PLUS a 30px breadcrumb row from md up —
-          park below the whole thing, not behind its lower half. */}
-      <div className="sticky top-14 z-20 bg-slate-900 shadow-sm md:top-[86px]">
+          park below the whole thing, not behind its lower half. Light surface
+          (owner call): white ground, a bottom border to separate it from the
+          page instead of the dark band this used to be. */}
+      <div className="sticky top-14 z-20 border-b border-slate-200 bg-white shadow-sm md:top-[86px]">
         {/* nowrap + its own scroller: the owner wants ONE line, so a narrow
             window scrolls the bar sideways rather than stacking it. */}
         <div className="flex flex-nowrap items-center gap-x-1.5 overflow-x-auto px-4 py-1.5 md:px-6">
-          <Button variant="ghost" size="sm" className="h-7 shrink-0 px-2 font-medium text-slate-300 hover:bg-white/10 hover:text-white"
+          <Button variant="ghost" size="sm" className="h-7 shrink-0 px-2 font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900"
             onClick={() => navigate('/orders')}>
             <FaArrowLeft className="mr-1.5 h-3.5 w-3.5" /> Orders
           </Button>
-          <h1 className="shrink-0 text-base font-bold tracking-tight text-white">#{order.orderId}</h1>
+          <h1 className="shrink-0 text-base font-bold tracking-tight text-slate-900">#{order.orderId}</h1>
           <span className="flex shrink-0 items-center gap-1">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Status</span>
             <StatusBadge status={order.orderStatus} type="order" className="font-semibold uppercase tracking-wide" />
@@ -775,7 +783,7 @@ const OrderDetail: React.FC = () => {
               B2B{(order.b2bTier ?? order.b2b_tier) ? ` · ${order.b2bTier ?? order.b2b_tier}` : ''}
             </Badge>
           ) : (
-            <Badge variant="outline" className="border-white/20 font-medium uppercase text-slate-300">Retail</Badge>
+            <Badge variant="outline" className="border-slate-300 bg-slate-50 font-medium uppercase text-slate-600">Retail</Badge>
           )}
           {/* Placed via the storefront's Bulk Order Platform + the buyer's own
               PO reference — both live in the order notes (portal checkout
@@ -797,9 +805,9 @@ const OrderDetail: React.FC = () => {
           {/* Return window and money already returned — neither appears in the
               items table, so both stay on the bar. */}
           {(order.returnDeadline ?? order.return_deadline) && (
-            <span className="shrink-0 whitespace-nowrap text-xs text-slate-400">
+            <span className="shrink-0 whitespace-nowrap text-xs text-slate-500">
               Return window {new Date(order.returnDeadline ?? order.return_deadline) > new Date() ? 'closes' : 'closed'}{' '}
-              <span className="font-medium tabular-nums text-slate-200">
+              <span className="font-medium tabular-nums text-slate-800">
                 {formatDate(order.returnDeadline ?? order.return_deadline, 'dd MMM yyyy', '')}
               </span>
             </span>
@@ -809,18 +817,18 @@ const OrderDetail: React.FC = () => {
               Refunded {fmtRupees(order.refundedAmount ?? order.refunded_amount)}
             </Badge>
           )}
-          <div className="mx-0.5 h-5 w-px shrink-0 bg-white/15" />
+          <div className="mx-0.5 h-5 w-px shrink-0 bg-slate-200" />
 
-          <div className="flex shrink-0 items-center gap-1 rounded-md border border-white/15 bg-white/5 p-0.5">
+          <div className="flex shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-slate-50 p-0.5">
             <Input
               type="text"
               placeholder="Status note..."
               value={statusNotes}
               onChange={(e) => setStatusNotes(e.target.value)}
-              className="h-7 w-28 border-none bg-transparent text-xs text-slate-100 shadow-none placeholder:text-slate-500"
+              className="h-7 w-28 border-none bg-transparent text-xs text-slate-900 shadow-none placeholder:text-slate-400"
             />
             <Select value={order.orderStatus} onValueChange={handleStatusUpdate} disabled={updating || !hasPerm('orders.manage')}>
-              <SelectTrigger className="h-7 w-[112px] border-none bg-transparent text-xs font-medium capitalize text-slate-100 shadow-none">
+              <SelectTrigger className="h-7 w-[112px] border-none bg-transparent text-xs font-medium capitalize text-slate-900 shadow-none">
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent>
@@ -845,7 +853,7 @@ const OrderDetail: React.FC = () => {
                 still be paid online carries its pay-link in the message. */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button type="button" variant="outline" size="sm" className="h-7 shrink-0 border-white/20 bg-white/10 text-emerald-200 hover:bg-white/20 hover:text-emerald-100"
+                <Button type="button" variant="outline" size="sm" className="h-7 shrink-0 border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800"
                   disabled={sendingNotify !== null || sendingEmail !== null}>
                   <FaEnvelope className="mr-1.5 h-3.5 w-3.5" />
                   {sendingNotify || sendingEmail ? 'Sending…' : 'Send'}
@@ -894,7 +902,7 @@ const OrderDetail: React.FC = () => {
             {/* Invoice: download the PDF or send it on a specific channel. */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button type="button" variant="outline" size="sm" className="h-7 shrink-0 border-white/20 bg-white/10 text-violet-200 hover:bg-white/20 hover:text-violet-100"
+                <Button type="button" variant="outline" size="sm" className="h-7 shrink-0 border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 hover:text-violet-800"
                   disabled={invoiceBusy !== null}>
                   <FaFileInvoice className="mr-1.5 h-3.5 w-3.5" />
                   {invoiceBusy ? `Invoice (${invoiceBusy})…` : 'Invoice'}
@@ -918,7 +926,7 @@ const OrderDetail: React.FC = () => {
             </DropdownMenu>
 
             {hasPerm('orders.manage') && order.orderStatus === 'pending' && order.paymentMethod === 'prepaid' && order.paymentStatus !== 'completed' && (
-              <Button variant="secondary" size="sm" className="h-7 shrink-0 bg-amber-400/20 text-amber-100 hover:bg-amber-400/30"
+              <Button variant="secondary" size="sm" className="h-7 shrink-0 border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
                 onClick={() => setShowPaymentVerifyModal(true)}>
                 <FaCreditCard className="mr-1.5 h-3.5 w-3.5" /> Verify
               </Button>
@@ -934,7 +942,7 @@ const OrderDetail: React.FC = () => {
                 genuinely unpaid. */}
             {hasPerm('orders.manage') && order.paymentMethod === 'prepaid' && order.paymentStatus !== 'completed'
               && !['cancelled', 'returned'].includes(order.orderStatus) && (
-              <Button variant="secondary" size="sm" className="h-7 shrink-0 bg-emerald-400/20 text-emerald-100 hover:bg-emerald-400/30"
+              <Button variant="secondary" size="sm" className="h-7 shrink-0 border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
                 onClick={() => setShowMarkAsPaidModal(true)}>
                 <FaMoneyCheckAlt className="mr-1.5 h-3.5 w-3.5" /> Mark paid
               </Button>
@@ -945,7 +953,7 @@ const OrderDetail: React.FC = () => {
                 paid or in a terminal state, not just while order_status is pending. */}
             {hasPerm('orders.manage') && order.paymentMethod === 'cod' && order.paymentStatus !== 'completed'
               && !['cancelled', 'returned'].includes(order.orderStatus) && (
-              <Button variant="secondary" size="sm" className="h-7 shrink-0 bg-green-400/20 text-green-100 hover:bg-green-400/30"
+              <Button variant="secondary" size="sm" className="h-7 shrink-0 border border-green-200 bg-green-50 text-green-700 hover:bg-green-100"
                 onClick={() => setShowRecordCodPayment(true)}>
                 <FaCreditCard className="mr-1.5 h-3.5 w-3.5" /> Record payment
               </Button>
@@ -960,13 +968,13 @@ const OrderDetail: React.FC = () => {
 
             {/* Hold / release — parks an order (stock query, address doubt) without cancelling. */}
             {hasPerm('orders.manage') && ['pending', 'confirmed', 'processing'].includes(order.orderStatus) && (
-              <Button variant="secondary" size="sm" className="h-7 shrink-0 bg-orange-400/20 text-orange-100 hover:bg-orange-400/30"
+              <Button variant="secondary" size="sm" className="h-7 shrink-0 border border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100"
                 onClick={() => handleStatusUpdate('on_hold')} disabled={updating}>
                 Hold
               </Button>
             )}
             {hasPerm('orders.manage') && order.orderStatus === 'on_hold' && (
-              <Button variant="secondary" size="sm" className="h-7 shrink-0 bg-blue-400/20 text-blue-100 hover:bg-blue-400/30"
+              <Button variant="secondary" size="sm" className="h-7 shrink-0 border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
                 onClick={() => handleStatusUpdate('confirmed')} disabled={updating}>
                 Release Hold
               </Button>
@@ -979,10 +987,17 @@ const OrderDetail: React.FC = () => {
               </Button>
             )}
 
+            {hasPerm('orders.manage') && isOrderEditable && (
+              <Button variant="outline" size="sm" className="h-7 shrink-0 border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                onClick={() => setShowApplyDiscount(true)}>
+                <FaTag className="mr-1.5 h-3.5 w-3.5" /> Add discount
+              </Button>
+            )}
+
             {hasPerm('orders.manage')
               && ['cancelled', 'returned', 'partially_refunded'].includes(order.orderStatus)
               && Number(order.refundedAmount ?? order.refunded_amount ?? 0) < Number(order.total ?? 0) && (
-              <Button variant="outline" size="sm" className="h-7 shrink-0 border-orange-400/40 bg-orange-500/15 text-orange-100 hover:bg-orange-500/25"
+              <Button variant="outline" size="sm" className="h-7 shrink-0 border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100"
                 onClick={() => setShowRaiseRefund(true)}>
                 <FaMoneyCheckAlt className="mr-1.5 h-3.5 w-3.5" /> Refund
               </Button>
@@ -1003,11 +1018,11 @@ const OrderDetail: React.FC = () => {
                 the instant one parcel arrives. */}
             {canAccess('shipping') && hasPerm('shipments.manage') && actionableShipments.length > 0 && (
               <>
-                <Button variant="outline" size="sm" className="h-7 shrink-0 border-emerald-400/40 bg-emerald-500/15 text-emerald-100 hover:bg-emerald-500/25"
+                <Button variant="outline" size="sm" className="h-7 shrink-0 border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
                   onClick={() => setDeliveryModalMode('delivered')}>
                   <FaCheckCircle className="mr-1.5 h-3.5 w-3.5" /> Delivered
                 </Button>
-                <Button variant="outline" size="sm" className="h-7 shrink-0 border-orange-400/40 bg-orange-500/15 text-orange-100 hover:bg-orange-500/25"
+                <Button variant="outline" size="sm" className="h-7 shrink-0 border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100"
                   onClick={() => setDeliveryModalMode('rto')}>
                   <FaTruck className="mr-1.5 h-3.5 w-3.5" /> RTO
                 </Button>
@@ -1018,18 +1033,18 @@ const OrderDetail: React.FC = () => {
                 Order Information / Payment cards. */}
             {canAccess('shipping') && hasPerm('shipments.manage') && !shiprocketAwb
               && (order.shiprocketShipmentId ?? order.shiprocket_shipment_id) && (
-              <Button variant="outline" size="sm" className="h-7 shrink-0 border-white/20 bg-white/10 text-slate-100 hover:bg-white/20 hover:text-white" onClick={handleAssignAwb} disabled={assigningAwb}>
+              <Button variant="outline" size="sm" className="h-7 shrink-0 border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 hover:text-slate-900" onClick={handleAssignAwb} disabled={assigningAwb}>
                 {assigningAwb ? 'Assigning…' : 'Assign AWB'}
               </Button>
             )}
             {canAccess('shipping') && hasPerm('shipments.manage')
               && !order.shipmentId && !(order.shiprocketShipmentId ?? order.shiprocket_shipment_id) && (
-              <Button variant="outline" size="sm" className="h-7 shrink-0 border-white/20 bg-white/10 text-slate-100 hover:bg-white/20 hover:text-white" onClick={handleAttachAwb} disabled={attachingAwb}>
+              <Button variant="outline" size="sm" className="h-7 shrink-0 border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 hover:text-slate-900" onClick={handleAttachAwb} disabled={attachingAwb}>
                 {attachingAwb ? 'Attaching…' : 'AWB'}
               </Button>
             )}
             {hasPerm('orders.manage') && order.razorpayPaymentId && (
-              <Button variant="outline" size="sm" className="ml-1 h-7 shrink-0 border-white/20 bg-white/10 text-indigo-200 hover:bg-white/20 hover:text-indigo-100"
+              <Button variant="outline" size="sm" className="ml-1 h-7 shrink-0 border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 hover:text-indigo-800"
                 onClick={handleAuditRazorpayPayment} disabled={auditingRazorpay}>
                 <FaCreditCard className="mr-1.5 h-3.5 w-3.5" />
                 {auditingRazorpay ? 'Checking…' : 'Verify'}
@@ -1040,7 +1055,7 @@ const OrderDetail: React.FC = () => {
           <div className="ml-auto flex shrink-0 items-center gap-2 pl-2">
             {/* Walks the same sequence the Orders list last rendered — same
                 filters, same search — and across its page boundaries. */}
-            <OrderNavigator currentId={order._id || order.id} currentOrderNumber={order.orderId} dark />
+            <OrderNavigator currentId={order._id || order.id} currentOrderNumber={order.orderId} />
           </div>
         </div>
 
@@ -1339,6 +1354,10 @@ const OrderDetail: React.FC = () => {
             gatewayPaymentId={order.razorpayPaymentId ?? order.razorpay_payment_id ?? null}
           />
 
+          {/* Every message this order has sent — staff-triggered and automated,
+              with the status the provider actually reported and who sent it. */}
+          <OrderCommunicationLog orderId={order._id || order.id} />
+
           {/* The links staff actually send — one per channel, so which message got
               opened is answerable. Loads on demand: minting them calls the
               shortener, and an order desk opens far more orders than it sends
@@ -1346,8 +1365,11 @@ const OrderDetail: React.FC = () => {
           <OrderLinksCard orderId={order.orderId ?? order.id ?? order._id} />
 
           {/* Marketing journey and sales ownership — independent read-mostly
-              panels, so they tile rather than stack. */}
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              panels, so they tile rather than stack. `items-start` (C4): the
+              default grid stretch was forcing the shorter card (Journey, often
+              just one line when there is no attribution) to match the taller
+              one's height, leaving a half-empty card with nothing in the gap. */}
+          <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
             <OrderJourneyCard attribution={order.attribution} />
             <OrderTeamCard
               orderId={order.id ?? order._id}
@@ -1373,6 +1395,7 @@ const OrderDetail: React.FC = () => {
             customerId={order.customerId ?? order.customer_id}
             shippingAddress={order.shippingAddress || order.shipping_address}
             orderTotal={Number(order.total) || 0}
+            customerGstin={order.customerGstin ?? order.customer_gstin}
             onWhatsAppClick={handleWhatsAppClick}
           />
 
@@ -1513,6 +1536,18 @@ const OrderDetail: React.FC = () => {
         orderId={id!}
         total={Number(order.total) || 0}
         onMarked={() => { toast({ title: 'Payment recorded', description: 'Order marked as paid.' }); fetchOrder(); }}
+      />
+
+      <ApplyOrderDiscountModal
+        isOpen={showApplyDiscount}
+        onClose={() => setShowApplyDiscount(false)}
+        orderId={order._id || order.id}
+        orderNumber={order.orderId}
+        currentTotal={Number(order.total) || 0}
+        onApplied={(r: any) => {
+          toast({ title: 'Discount applied', description: r?.message || 'The order total has been recalculated.' });
+          fetchOrder();
+        }}
       />
 
       <RaiseRefundModal

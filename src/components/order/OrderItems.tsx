@@ -213,7 +213,7 @@ const OrderItems: React.FC<OrderItemsProps> = ({
   const tailCols = (showTax ? 1 + gstCols : 0) + 1;
   /** Info pane (left) · label (middle) · the tail — always summing to exactly
    *  the number of columns the table is really rendering. */
-  const infoSpan = Math.max(1, Math.min(3, visibleCols - tailCols - 2));
+  const infoSpan = vw < 640 ? 1 : Math.max(1, Math.min(3, visibleCols - tailCols - 2));
   const labelSpan = Math.max(1, visibleCols - infoSpan - tailCols);
   /** The single product rate, when the order has exactly one — the only case in
    *  which a line WITHOUT its own tax rule can still be split honestly. */
@@ -255,7 +255,7 @@ const OrderItems: React.FC<OrderItemsProps> = ({
       slug: item.product_slug ?? item.productSlug ?? null,
       sku: item.catalog_sku || item.catalogSku || item.sku || '—',
       hsn: item.catalog_hsn ?? item.catalogHsn ?? null,
-      brand: item.attributes?.brand || item.catalog_brand || item.catalogBrand || null,
+      brand: item.catalog_brand || item.catalogBrand || item.attributes?.brand || null,
       form: item.attributes?.['product-form'] || null,
       attrs: attributePairs(item.attributes),
       price, qty, lineTotal, mrp, mrpDiscount, orderShare, discAmt, discPct, orderDiscPct,
@@ -291,6 +291,29 @@ const OrderItems: React.FC<OrderItemsProps> = ({
   /** Each discount that made up the order-level total, by name. */
   const discountParts = String(discountReason ?? '')
     .split(',').map((s) => s.trim()).filter(Boolean);
+
+  /**
+   * "2% off" / "Coupon LAUNCH5: 5.00% off" → 2 / 5 — the rate the discount was
+   * STATED at, which is not always the rate it worked out to.
+   */
+  const nominalPctOf = (reason: string): number | null => {
+    const m = String(reason).match(/(\d+(?:\.\d+)?)\s*%/);
+    const n = m ? Number(m[1]) : NaN;
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+
+  /**
+   * What a stated percentage actually became, once it was rounded to the rupee.
+   * Returns null when nothing moved — the note only earns its place when the two
+   * figures genuinely differ.
+   */
+  const roundingNote = (reason: string, amount: number | undefined): string | null => {
+    const pct = nominalPctOf(reason);
+    if (pct == null || amount == null || totalGross <= 0) return null;
+    const exact = (totalGross * pct) / 100;
+    if (Math.abs(exact - amount) < 0.005) return null;
+    return `${pct}% of ${money(totalGross)} = ${money(exact)}, rounded to ${money(amount)}`;
+  };
 
   /**
    * The rupee amount of ONE named discount, when the order stored it.
@@ -345,7 +368,7 @@ const OrderItems: React.FC<OrderItemsProps> = ({
    * a full-width blank band.
    */
   const Step: React.FC<{
-    n?: number | string; label: React.ReactNode; note?: React.ReactNode;
+    n?: number | string; label: React.ReactNode; note?: React.ReactNode | null;
     value?: number; tone?: 'plain' | 'credit' | 'subtotal' | 'total';
     taxable?: number | null; taxAmt?: number | null;
     info?: React.ReactNode;
@@ -695,7 +718,8 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                   <td className="border-l border-slate-300 px-2 py-3" />
                   <td className="whitespace-nowrap px-2 py-3 text-center text-base font-semibold tabular-nums">{totalQty}</td>
                   {show.orderDiscPct && (
-                    <td className="whitespace-nowrap border-l border-slate-300 px-2 py-3 text-right text-sm font-semibold tabular-nums text-emerald-700">
+                    <td className="whitespace-nowrap border-l border-slate-300 px-2 py-3 text-right text-sm font-semibold tabular-nums text-emerald-700"
+                      title="The share this order's total discount worked out to, after it was rounded to the rupee.">
                       {totalOrderDiscPct > 0.05 ? `${totalOrderDiscPct.toFixed(1)}%` : '—'}
                     </td>
                   )}
@@ -751,9 +775,12 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                       const priced = parts.map((part) => discountAmountFor(part));
                       return priced.every((a) => a != null)
                         ? parts.map((part, i) => (
-                            <Step key={`d${i}`} tone="credit" label={part} value={priced[i]} info={nextFact()} />
+                            <Step key={`d${i}`} tone="credit" label={part} value={priced[i]}
+                              note={roundingNote(part, priced[i])} info={nextFact()} />
                           ))
-                        : <Step tone="credit" label={parts.join(' · ')} value={orderDiscount} info={nextFact()} />;
+                        : <Step tone="credit" label={parts.join(' · ')} value={orderDiscount}
+                            note={parts.length === 1 ? roundingNote(parts[0], orderDiscount) : null}
+                            info={nextFact()} />;
                     })()}
 
                     {/* Charges carry their OWN taxable value + GST in the tax columns. */}

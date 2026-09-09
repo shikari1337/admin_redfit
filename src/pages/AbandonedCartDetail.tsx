@@ -29,8 +29,15 @@ interface CartCharges {
   shipping: number;
   codFee: number;
   discount: number;
+  /** Each discount the pricing brain applied, with its own reason. */
+  discountItems?: Array<{ amount: number; reason: string }>;
   couponCode?: string | null;
-  gst?: { rate: number; inclusive: boolean; amount: number } | null;
+  couponError?: string | null;
+  /** The order's real GST snapshot (same shape checkout returns). */
+  gst?: { taxType?: string; cgst?: number; sgst?: number; igst?: number } | null;
+  tax?: number;
+  /** False when the shopper never entered an address — place-of-supply unknown. */
+  addressKnown?: boolean;
   total: number;
   paymentMethod: 'cod' | 'prepaid';
   shippingWaived: boolean;
@@ -134,6 +141,11 @@ interface CartDetail {
   appliedCouponCode?: string | null;
   recoveryToken?: string | null;
   recoveryUrl?: string | null;
+  /** Set when this cart became an order — the proof behind "Recovered". */
+  orderId?: string | null;
+  orderStatus?: string | null;
+  orderedAt?: string | null;
+  salesAgentName?: string | null;
   lastActiveAt?: string;
   lastRecoveredAt?: string;
   lastRecoverySmsAt?: string;
@@ -493,6 +505,16 @@ const AbandonedCartDetail: React.FC = () => {
               <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${cart.isGuest ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
                 {cart.isGuest ? 'Guest' : 'Signed in'}
               </span>
+              {/* "Recovered" is only ever true because an order exists — name it. */}
+              {cart.orderId && (
+                <Link
+                  to={`/orders/${cart.orderId}`}
+                  className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-600 text-white hover:bg-emerald-700"
+                  title={cart.orderedAt ? `Ordered ${formatDate(cart.orderedAt)}` : undefined}
+                >
+                  {cart.orderId} →
+                </Link>
+              )}
             </div>
           </div>
           <div className="flex items-stretch shrink-0 ml-2">
@@ -682,24 +704,28 @@ const AbandonedCartDetail: React.FC = () => {
                 )}
               </>
             )}
-            {/* GST as this store actually charges it. Inclusive means the tax
-                is already inside the prices above, so it is shown as a
-                breakdown line, not added again to the total. */}
-            {cart.charges?.gst && (
+            {/* Every discount the pricing brain applied, named. Subtotal and
+                total can only differ for a reason that is on screen. */}
+            {(cart.charges?.discountItems ?? []).map((d, i) => (
+              <div key={i} className="flex justify-between text-sm text-emerald-700">
+                <span>{d.reason || 'Discount'}</span>
+                <span>-{formatMoney(d.amount)}</span>
+              </div>
+            ))}
+            {cart.charges?.tax ? (
               <div className="flex justify-between text-sm text-gray-600">
                 <span>
-                  GST @ {cart.charges.gst.rate}%{' '}
-                  <span className="text-xs text-gray-400">
-                    {cart.charges.gst.inclusive ? '(included above)' : '(added)'}
-                  </span>
+                  Incl. GST{cart.charges.gst?.taxType ? ` (${cart.charges.gst.taxType})` : ''}
+                  {cart.charges.gst?.taxType === 'IGST'
+                    ? '' : cart.charges.gst?.cgst != null ? ' — CGST + SGST' : ''}
                 </span>
-                <span>{formatMoney(cart.charges.gst.amount)}</span>
+                <span>{formatMoney(cart.charges.tax)}</span>
               </div>
-            )}
-            {cart.charges?.gst?.inclusive && (
+            ) : null}
+            {cart.charges && cart.charges.addressKnown === false && (
               <p className="text-[11px] text-gray-400">
-                Split into IGST or CGST+SGST at checkout — which one depends on the delivery
-                state, and this cart has no confirmed address yet.
+                No delivery address on this cart yet — GST is split into IGST or CGST+SGST once
+                the shopper enters one at checkout.
               </p>
             )}
             <div className="flex justify-between text-base font-bold text-gray-900 pt-1 border-t border-gray-200">
@@ -707,7 +733,7 @@ const AbandonedCartDetail: React.FC = () => {
               <span>{formatMoney(cart.charges?.total ?? cart.total)}</span>
             </div>
             <p className="text-[11px] text-gray-400 pt-1">
-              Estimate only — excludes GST and any address-dependent adjustments, resolved at real checkout.
+              Priced by the same engine as the shopper's cart and checkout, so these figures match what they see. Only the delivery address can still change them.
             </p>
           </div>
         </div>
@@ -997,6 +1023,25 @@ const AbandonedCartDetail: React.FC = () => {
           {/* Shopper journey — this store's slice of the central footprint */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-3">Shopper Journey</h2>
+            {/* This cart's own recovery-link click, pinned above the shopper's
+                general activity. `carts.last_recovered_at` records ONLY that the
+                link was opened — it is not the same fact as "Recovered" (which
+                means an order exists), and keeping the two visibly apart is the
+                whole point of showing it here. */}
+            {cart.lastRecoveredAt && (
+              <div className="mb-3 flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" />
+                <div>
+                  <div className="text-sm font-medium text-blue-900">Opened the recovery link</div>
+                  <div className="text-[11px] text-blue-700">
+                    {formatDate(cart.lastRecoveredAt)}
+                    {cart.orderId
+                      ? ` · then ordered (${cart.orderId})`
+                      : ' · has not ordered from it yet'}
+                  </div>
+                </div>
+              </div>
+            )}
             {journey === null ? (
               <div className="text-sm text-gray-400">Loading…</div>
             ) : journey.length === 0 ? (

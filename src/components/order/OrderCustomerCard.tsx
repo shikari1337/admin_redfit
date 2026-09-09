@@ -34,6 +34,12 @@ interface OrderCustomerCardProps {
   shippingAddress?: Record<string, any> | null;
   /** This order's value, to frame it against the customer's lifetime spend. */
   orderTotal?: number;
+  /** GSTIN entered for THIS order at checkout — a B2B buyer can supply a
+   *  different one per order (a branch office, a different registered
+   *  entity), so it is not always the same as the customer's own profile
+   *  GSTIN below. Shown wherever the customer is identified, not only in
+   *  Billing details (owner call — C3). */
+  customerGstin?: string | null;
   onWhatsAppClick?: (phone: string) => void;
 }
 
@@ -65,7 +71,7 @@ const Stat: React.FC<{ label: string; value: React.ReactNode; hint?: string; ton
 );
 
 const OrderCustomerCard: React.FC<OrderCustomerCardProps> = ({
-  customerId, shippingAddress, orderTotal, onWhatsAppClick,
+  customerId, shippingAddress, orderTotal, customerGstin, onWhatsAppClick,
 }) => {
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [loading, setLoading] = useState(false);
@@ -154,8 +160,16 @@ const OrderCustomerCard: React.FC<OrderCustomerCardProps> = ({
               </a>
             )}
           </div>
-          {profile?.gstin && (
-            <p className="mt-1 font-mono text-[11px] font-bold text-slate-600">GSTIN {profile.gstin}</p>
+          {/* This order's OWN GSTIN wins — a B2B buyer can supply a different
+              registered entity per order — falling back to the customer's own
+              profile GSTIN when this order carries none. */}
+          {(customerGstin || profile?.gstin) && (
+            <p className="mt-1 font-mono text-[11px] font-bold text-slate-600">
+              GSTIN {customerGstin || profile?.gstin}
+              {customerGstin && profile?.gstin && customerGstin !== profile.gstin && (
+                <span className="ml-1 font-sans font-medium text-slate-400">(this order)</span>
+              )}
+            </p>
           )}
         </div>
 

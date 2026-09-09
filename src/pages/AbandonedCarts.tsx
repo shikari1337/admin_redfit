@@ -32,6 +32,9 @@ interface CartRecord {
   orderId?: string | null;
   salesAgentName?: string | null;
   salesClaimStatus?: string | null;
+  /** Items added AFTER the order — bought, then kept shopping in the same
+   *  browser. Never part of the recovered sale. */
+  hasUnorderedItems?: boolean;
   user?: {
     _id: string;
     name?: string;
@@ -555,6 +558,11 @@ const AbandonedCarts: React.FC = () => {
                           >
                             → {cart.orderId}
                           </Link>
+                          {cart.hasUnorderedItems && (
+                            <div className="text-[11px] text-amber-700">
+                              + items added after this order — not part of it
+                            </div>
+                          )}
                           <div className="text-xs text-gray-500">
                             {cart.salesAgentName ? (
                               <>Credited: <span className="font-medium text-gray-700">{cart.salesAgentName}</span>

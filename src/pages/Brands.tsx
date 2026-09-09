@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import CompanyPicker from '../components/brands/CompanyPicker';
+import BrandLicenses from '../components/brands/BrandLicenses';
 import { FaPlus, FaSave, FaUndo, FaTrash, FaSearch, FaGripVertical, FaArrowUp, FaArrowDown, FaTimes, FaPen } from 'react-icons/fa';
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent,
@@ -41,6 +43,16 @@ interface Brand {
   preferenceRank?: number | null;
   isActive?: boolean;
   isFeatured?: boolean;
+  /** migration 165 — the short name a long brand is known by */
+  nickname?: string | null;
+  /** migration 165 — the companies behind the brand (parties.id) */
+  ownerPartyId?: string | null;
+  manufacturerPartyId?: string | null;
+  /** Resolved by the API's owner join, so the list needs no extra call. */
+  owner_name?: string | null;
+  owner_legal_name?: string | null;
+  owner_cin?: string | null;
+  manufacturer_name?: string | null;
 }
 
 const emptyForm = {
@@ -58,6 +70,11 @@ const emptyForm = {
   displayOrder: '',
   isActive: true,
   isFeatured: false,
+  // migration 165 — ownership. NULL stays NULL: "not recorded" is the honest
+  // state for most brands and must never be filled with a placeholder.
+  nickname: '',
+  ownerPartyId: null as string | null,
+  manufacturerPartyId: null as string | null,
 };
 
 const rankOf = (b: Brand): number | null => {
@@ -255,6 +272,11 @@ const Brands: React.FC = () => {
       displayOrder: brand.displayOrder !== undefined && brand.displayOrder !== null ? String(brand.displayOrder) : '',
       isActive: brand.isActive !== false,
       isFeatured: brand.isFeatured === true,
+      // migration 165. Both spellings because the API layer adds camelCase
+      // aliases beside the raw snake_case columns.
+      nickname: b.nickname || '',
+      ownerPartyId: b.ownerPartyId ?? b.owner_party_id ?? null,
+      manufacturerPartyId: b.manufacturerPartyId ?? b.manufacturer_party_id ?? null,
     });
     setError(null);
     setEditorOpen(true);
@@ -290,6 +312,11 @@ const Brands: React.FC = () => {
       displayOrder: formState.displayOrder ? Number(formState.displayOrder) : undefined,
       isActive: formState.isActive,
       isFeatured: formState.isFeatured,
+      nickname: orNull(formState.nickname),
+      // Sent even when null so CLEARING an owner actually clears the column —
+      // `orNull` exists for exactly this, and `undefined` would be dropped.
+      ownerPartyId: formState.ownerPartyId || null,
+      manufacturerPartyId: formState.manufacturerPartyId || null,
     };
 
     if (formState.slug?.trim()) {
@@ -675,13 +702,19 @@ const Brands: React.FC = () => {
           <form onSubmit={handleSubmit} className="flex flex-col h-full">
             <SheetHeader className="px-6 pt-6 pb-4 border-b text-left">
               <SheetTitle>{selectedId ? `Edit — ${formState.name || 'brand'}` : 'Create Brand'}</SheetTitle>
-              <SheetDescription className="flex items-center gap-2">
-                {selectedId ? (
-                  selectedRank !== null
-                    ? <><Badge variant="default" className="bg-emerald-600 hover:bg-emerald-700">#{selectedRank} preferred</Badge>
-                        <span>rank is managed on the Preference order tab</span></>
-                    : 'Not ranked — rank it on the Preference order tab'
-                ) : 'Fill the basics; images and SEO can come later.'}
+              {/* `asChild` so this renders a <div>, not Radix's default <p>:
+                  the Badge below is a <div>, and a block element inside a <p>
+                  is invalid HTML that React reports as a hydration error on
+                  every open of this editor. Pre-existing; fixed in passing. */}
+              <SheetDescription asChild>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  {selectedId ? (
+                    selectedRank !== null
+                      ? <><Badge variant="default" className="bg-emerald-600 hover:bg-emerald-700">#{selectedRank} preferred</Badge>
+                          <span>rank is managed on the Preference order tab</span></>
+                      : <span>Not ranked — rank it on the Preference order tab</span>
+                  ) : <span>Fill the basics; images and SEO can come later.</span>}
+                </div>
               </SheetDescription>
             </SheetHeader>
 
@@ -693,9 +726,10 @@ const Brands: React.FC = () => {
 
             <div className="flex-1 px-6 py-4">
               <Tabs defaultValue="details">
-                <TabsList className="grid w-full grid-cols-3">
+                <TabsList className="grid w-full grid-cols-4">
                   <TabsTrigger value="details">Details</TabsTrigger>
                   <TabsTrigger value="images">Images</TabsTrigger>
+                  <TabsTrigger value="ownership">Ownership</TabsTrigger>
                   <TabsTrigger value="seo">Content &amp; SEO</TabsTrigger>
                 </TabsList>
 
@@ -719,6 +753,18 @@ const Brands: React.FC = () => {
                         onChange={e => setFormState({ ...formState, slug: e.target.value })}
                         placeholder="Optional custom slug"
                       />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="nickname">Short name</Label>
+                      <Input
+                        id="nickname"
+                        value={formState.nickname}
+                        onChange={e => setFormState({ ...formState, nickname: e.target.value })}
+                        placeholder="e.g. Father Muller"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        What people actually call it, when the registered name is long.
+                      </p>
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="displayOrder">Tile order</Label>
@@ -801,6 +847,73 @@ const Brands: React.FC = () => {
                     />
                   </div>
                 </TabsContent>
+
+                <TabsContent value="ownership" forceMount className="data-[state=inactive]:hidden mt-4 space-y-5">
+
+                  <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
+
+                    A brand is intellectual property. Recording who owns it — and who is licensed
+
+                    to use it — is what lets the same company later appear as a supplier, a seller
+
+                    or a client without being typed in twice. Leave a field blank if you do not know:
+
+                    “not recorded” is a real answer and is stored as one.
+
+                  </div>
+
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                    <CompanyPicker
+
+                      label="Brand owner"
+
+                      hint="The company that owns the trademark."
+
+                      createRole="brand_owner"
+
+                      value={formState.ownerPartyId}
+
+                      onChange={(id) => setFormState({ ...formState, ownerPartyId: id })}
+
+                    />
+
+                    <CompanyPicker
+
+                      label="Manufacturer"
+
+                      hint="Who makes the goods, when that is a different company."
+
+                      createRole="manufacturer"
+
+                      value={formState.manufacturerPartyId}
+
+                      onChange={(id) => setFormState({ ...formState, manufacturerPartyId: id })}
+
+                    />
+
+                  </div>
+
+
+                  <div className="space-y-2">
+
+                    <Label>Licensed to</Label>
+
+                    <BrandLicenses
+
+                      brandId={selectedId}
+
+                      ownerPartyId={formState.ownerPartyId}
+
+                      canManage
+
+                    />
+
+                  </div>
+
+                </TabsContent>
+
 
                 <TabsContent value="seo" forceMount className="data-[state=inactive]:hidden mt-4 space-y-5">
                   <div className="space-y-2">

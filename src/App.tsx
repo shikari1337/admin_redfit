@@ -9,6 +9,7 @@ import AbandonedCarts from './pages/AbandonedCarts';
 import AbandonedCartDetail from './pages/AbandonedCartDetail';
 import Categories from './pages/Categories';
 import Brands from './pages/Brands';
+import Companies from './pages/Companies';
 import Attributes from './pages/Attributes';
 import SizeCharts from './pages/SizeCharts';
 import Tags from './pages/Tags';
@@ -407,6 +408,7 @@ function App() {
           <Route path="products/bundles/:id/edit" element={<ProtectedModuleRoute module="bundles"><BundleForm /></ProtectedModuleRoute>} />
           <Route path="products/categories" element={<Categories />} />
           <Route path="products/brands" element={<Brands />} />
+          <Route path="products/companies" element={<Companies />} />
           <Route path="products/attributes" element={<Attributes />} />
           <Route path="products/tags" element={<Tags />} />
           <Route path="products/size-charts" element={<ProtectedModuleRoute module="size_charts"><SizeCharts /></ProtectedModuleRoute>} />

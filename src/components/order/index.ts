@@ -29,3 +29,5 @@ export { default as OrderAddressPanel } from './OrderAddressPanel';
 
 export { default as RaiseRefundModal } from './RaiseRefundModal';
 export { OrderLinksCard } from './OrderLinksCard';
+export { default as OrderCommunicationLog } from './OrderCommunicationLog';
+export { default as ApplyOrderDiscountModal } from './ApplyOrderDiscountModal';

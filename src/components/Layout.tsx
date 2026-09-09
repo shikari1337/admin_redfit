@@ -335,6 +335,7 @@ const Layout: React.FC = () => {
             ...(canAccess('bundles') && hasPerm('products.read') ? [{ title: 'Bundles',             url: '/products/bundles' }] : []),
             { title: 'Categories',          url: '/products/categories' },
             { title: 'Brands',              url: '/products/brands' },
+            { title: 'Companies',           url: '/products/companies' },
             { title: 'Attributes',          url: '/products/attributes' },
             { title: 'Tags',                url: '/products/tags' },
             ...(canAccess('size_charts') && hasPerm('products.read') ? [{ title: 'Size Charts',         url: '/products/size-charts' }] : []),

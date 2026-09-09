@@ -79,6 +79,21 @@ const PaymentInformation: React.FC<PaymentInformationProps> = ({
   razorpayAuditResult,
 }) => {
   const hasManualPaymentDetails = !!(manualPaymentMethod || manualPaymentReference || manualPaymentNotes || manualPaymentMarkedAt);
+
+  /**
+   * What this order was ACTUALLY paid through, evidenced by the ids it carries.
+   *
+   * `orders.payment_gateway` is not reliably populated — live homeomead has
+   * completed orders holding a real `razorpay_order_id` + `razorpay_payment_id`
+   * with a NULL gateway. Gating the panel on that column hid every payment
+   * reference, and the Verify-with-Razorpay action with them. The ids are the
+   * proof; the column is only a label, so it is the fallback, not the gate.
+   */
+  const hasRazorpayRef = !!(razorpayOrderId || razorpayPaymentId);
+  const hasUpiRef = !!(upiPaymentId || upiPaymentLink || upiVerificationStatus || upiPaymentScreenshot);
+  const effectiveGateway = hasRazorpayRef ? 'razorpay'
+    : hasUpiRef ? 'upi'
+    : paymentGateway || null;
   const getVerificationStatusIcon = (status?: string) => {
     switch (status) {
       case 'verified':
@@ -125,14 +140,19 @@ const PaymentInformation: React.FC<PaymentInformationProps> = ({
           </div>
         </div>
 
-        {paymentGateway && (
+        {effectiveGateway && (
           <div className="border-t pt-3">
             <p className="text-sm text-gray-500 mb-1.5">Payment Gateway</p>
             <p className="font-semibold text-base mb-2.5">
-              {paymentGateway === 'razorpay' ? 'Razorpay' : paymentGateway === 'upi' ? 'UPI' : 'Manual'}
+              {effectiveGateway === 'razorpay' ? 'Razorpay' : effectiveGateway === 'upi' ? 'UPI' : 'Manual'}
+              {!paymentGateway && (
+                <span className="ml-2 text-xs font-medium text-slate-500">
+                  (identified from the payment reference)
+                </span>
+              )}
             </p>
 
-            {paymentGateway === 'razorpay' && (
+            {effectiveGateway === 'razorpay' && (
               <div className="space-y-2 bg-blue-50 p-3 rounded">
                 <div>
                   <p className="text-sm text-gray-600">Razorpay Order ID</p>
@@ -195,7 +215,7 @@ const PaymentInformation: React.FC<PaymentInformationProps> = ({
               </div>
             )}
 
-            {paymentGateway === 'upi' && (
+            {effectiveGateway === 'upi' && (
               <div className="space-y-2 bg-purple-50 p-3 rounded">
                 <div>
                   <p className="text-sm text-gray-600">UPI Transaction ID</p>
