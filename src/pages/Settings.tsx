@@ -38,6 +38,12 @@ const settingsSections = [
         path: '/settings/store-config',
       },
       {
+        title: 'Markets',
+        description: 'The regions you sell in — currency, countries, tax treatment, payment options and product exclusions per market. India plus any international markets you switch on',
+        icon: Globe,
+        path: '/settings/markets',
+      },
+      {
         title: 'Staff & Permissions',
         description: 'Manage staff accounts and their access permissions',
         icon: Users,

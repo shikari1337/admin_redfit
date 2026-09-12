@@ -41,6 +41,7 @@ import InvoiceSettings from './pages/InvoiceSettings';
 import Settings from './pages/Settings';
 import SettingsCenter from './pages/SettingsCenter';
 import ShippingSettings from './pages/ShippingSettings';
+import Markets from './pages/Markets';
 import Warehouses from './pages/Warehouses';
 import Shipments from './pages/Shipments';
 import Users from './pages/Users';
@@ -471,6 +472,7 @@ function App() {
           <Route path="settings/sms-templates" element={<SmsTemplates />} />
           <Route path="settings/cart-recovery-automation" element={<CartRecoveryAutomation />} />
           <Route path="settings/gst" element={<GstSettings />} />
+          <Route path="settings/markets" element={<Markets />} />
           <Route path="settings/order-numbering" element={<OrderNumbering />} />
           <Route path="settings/invoice" element={<InvoiceSettings />} />
           <Route path="settings/shipping" element={<ShippingSettings />} />
