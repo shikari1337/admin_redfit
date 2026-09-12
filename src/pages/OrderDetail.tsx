@@ -733,6 +733,17 @@ const OrderDetail: React.FC = () => {
     .filter((s, i, a) => s && a.indexOf(s) === i);
   // Same gate as "Edit items" — charges can only be waived while the order is
   // still unpaid, unshipped, and in an editable status.
+  /**
+   * Registered business name the invoice is raised to — written onto the
+   * order's billing address at checkout when the buyer asks for a GST invoice.
+   * Read from the order's OWN snapshot, never from the customer's global
+   * address book (that book spans every store on the platform).
+   */
+  const customerCompany: string | null =
+    (order?.billingAddress ?? order?.billing_address)?.company
+    ?? (order?.billingAddress ?? order?.billing_address)?.company_name
+    ?? null;
+
   const isOrderEditable = order.paymentStatus !== 'completed'
     && ['pending', 'confirmed', 'on_hold', 'processing'].includes(order.orderStatus)
     && !(order.shipments?.length);
@@ -1120,6 +1131,7 @@ const OrderDetail: React.FC = () => {
             warehouseId={order.warehouseId}
             gst={order.gst}
             customerGstin={order.customerGstin ?? order.customer_gstin}
+            customerCompany={customerCompany}
             onWhatsAppClick={handleWhatsAppClick}
             fulfillmentSlot={
               <OrderFulfillmentCard
@@ -1200,6 +1212,7 @@ const OrderDetail: React.FC = () => {
             gstin={order.gst?.storeGstin}
             taxType={order.gst?.taxType}
             customerGstin={order.customerGstin ?? order.customer_gstin}
+            customerCompany={customerCompany}
             canManage={hasPerm('orders.manage')}
             onSaved={fetchOrder}
           />

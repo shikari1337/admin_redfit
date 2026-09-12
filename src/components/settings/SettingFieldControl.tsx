@@ -10,7 +10,7 @@ import ImageInputWithActions from '@/components/common/ImageInputWithActions';
 export interface RegistryField {
   path: string;
   label: string;
-  type: 'boolean' | 'number' | 'string' | 'text' | 'select' | 'multiselect' | 'secret' | 'json' | 'image' | 'color' | 'tags';
+  type: 'boolean' | 'number' | 'string' | 'text' | 'select' | 'multiselect' | 'secret' | 'json' | 'image' | 'color' | 'tags' | 'date';
   description?: string;
   options?: FieldOption[];
   optionsSource?: string;
@@ -183,6 +183,20 @@ const SettingFieldControl: React.FC<Props> = ({ field, value, onChange, options,
         </div>
       );
 
+    case 'date':
+      // A CALENDAR DAY (`YYYY-MM-DD`), read by the backend in the STORE's
+      // timezone — never an instant, so nothing is converted on the way in or
+      // out and the value means the same day to every viewer (#216).
+      return (
+        <div className="flex items-center gap-2">
+          <Input id={id} type="date" className="h-9 max-w-[200px]" value={typeof value === 'string' ? value : ''}
+            disabled={isDisabled} onChange={(e) => onChange(e.target.value)} />
+          {!isDisabled && value ? (
+            <button type="button" onClick={() => onChange('')} className="text-xs text-muted-foreground underline hover:text-foreground">Clear</button>
+          ) : null}
+        </div>
+      );
+
     case 'image':
       return (
         <ImageInputWithActions value={value ?? ''} onChange={onChange} placeholder={field.placeholder ?? 'https://… or pick from the library'} folder={folder ?? 'settings'} disabled={isDisabled} />
@@ -288,6 +302,7 @@ export function summarizeField(field: RegistryField, value: any, secretSet?: boo
   if (field.type === 'secret') return secretSet ? 'set' : 'not set';
   if (value === undefined || value === null || value === '') return '—';
   if (field.type === 'boolean') return value === true ? 'On' : 'Off';
+  if (field.type === 'date') return String(value);
   if (field.type === 'number') return `${value}${field.unit ? ` ${field.unit}` : ''}`;
   if (field.type === 'select') { const o = (field.options ?? []).find((x) => String(x.value) === String(value)); return o ? o.label : String(value); }
   if (Array.isArray(value)) return `${value.length} item${value.length === 1 ? '' : 's'}`;

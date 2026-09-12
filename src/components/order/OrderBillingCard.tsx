@@ -41,6 +41,8 @@ interface Props {
    * carry the buyer's number at all.
    */
   customerGstin?: string | null;
+  /** Registered business name behind `customerGstin` (order's billing address). */
+  customerCompany?: string | null;
   canManage: boolean;
   onSaved: () => void;
 }
@@ -54,7 +56,7 @@ const dateForInput = (v?: string | null): string => {
 const OrderBillingCard: React.FC<Props> = ({
   orderId, invoiceNumber, invoiceDate, invoiceNumberSource,
   manualInvoiceUrl, manualInvoiceFilename, manualInvoiceUploadedBy,
-  gstin, taxType, customerGstin, canManage, onSaved,
+  gstin, taxType, customerGstin, customerCompany, canManage, onSaved,
 }) => {
   const { toast } = useToast();
   const [num, setNum] = React.useState(invoiceNumber ?? '');
@@ -137,7 +139,7 @@ const OrderBillingCard: React.FC<Props> = ({
 
         {/* Who the invoice is raised by, and under which tax treatment — the
             header facts of the document these fields number. */}
-        {(gstin || taxType || customerGstin) && (
+        {(gstin || taxType || customerGstin || customerCompany) && (
           <div className="space-y-1 rounded-md border bg-slate-50 px-2.5 py-1.5 text-xs">
             {gstin && (
               <div className="flex flex-wrap items-baseline gap-x-2">
@@ -153,6 +155,15 @@ const OrderBillingCard: React.FC<Props> = ({
                 <Badge variant="outline" className="border-emerald-300 bg-emerald-50 text-[9px] font-medium uppercase tracking-wide text-emerald-700">
                   GST input
                 </Badge>
+              </div>
+            )}
+            {/* The entity the invoice is addressed to — a GST invoice is raised
+                to the registered business, which is regularly not the name the
+                parcel ships to. */}
+            {customerCompany && (
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                <span className="font-medium text-slate-500">Billed to</span>
+                <span className="font-medium text-slate-900">{customerCompany}</span>
               </div>
             )}
           </div>

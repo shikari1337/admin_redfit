@@ -39,6 +39,11 @@ interface OrderItem {
   catalog_tax_rate?: number | string | null;
   catalogTaxRate?: number | string | null;
   quantity: number;
+  /** Units removed by a partial cancellation (migration 168). */
+  cancelled_quantity?: number;
+  cancelledQuantity?: number;
+  cancelled_reason?: string | null;
+  cancelledReason?: string | null;
   price: number | string;
   mrp?: number | string;
   originalPrice?: number;
@@ -260,6 +265,11 @@ const OrderItems: React.FC<OrderItemsProps> = ({
       attrs: attributePairs(item.attributes),
       price, qty, lineTotal, mrp, mrpDiscount, orderShare, discAmt, discPct, orderDiscPct,
       offRetailPct, rate, net, netRate, taxable, lineGst,
+      // Migration 168: a partially-cancelled line is no longer DELETED, so the
+      // desk can finally see what came off and why. `qty` still means "live",
+      // which is why every money figure above is unaffected.
+      cancelledQty: Number(item.cancelled_quantity ?? item.cancelledQuantity ?? 0) || 0,
+      cancelledReason: item.cancelled_reason ?? item.cancelledReason ?? null,
       retail: item.retailPrice ?? item.retail_price,
       source: item.priceSource ?? item.price_source,
       bundle: item.bundle_applied || item.bundleApplied,
@@ -640,6 +650,17 @@ const OrderItems: React.FC<OrderItemsProps> = ({
 
                       <td className="whitespace-nowrap px-2 py-3 text-center align-top text-base font-semibold tabular-nums text-slate-900">
                         {r.qty}
+                        {/* A partially-cancelled line survives now (migration 168)
+                            — before this it was deleted, so the desk could not
+                            see what came off without reading the order notes. */}
+                        {r.cancelledQty > 0 && (
+                          <div
+                            className="mt-0.5 text-xs font-semibold text-rose-600"
+                            title={r.cancelledReason ? `Reason: ${r.cancelledReason}` : 'Cancelled'}
+                          >
+                            {r.cancelledQty} cancelled
+                          </div>
+                        )}
                       </td>
 
                       {/* ── Order discount: the order-level total apportioned to this

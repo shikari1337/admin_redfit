@@ -54,25 +54,37 @@ const Pages: React.FC = () => {
     fetchPages();
   }, []);
 
-  const handleSeed = async () => {
-    const force = pages.length > 0;
+  /**
+   * Create any of the standard pages this store is missing — Home, About,
+   * Contact, FAQ and the four policy pages every storefront links to (Privacy,
+   * Terms, Return & Refund, Shipping). The policy pages arrive as DRAFTS holding
+   * a starter outline, so nothing unreviewed is ever published in the store's
+   * name; open one, write the policy, then publish it.
+   *
+   * `force` was previously chosen for the user (it turned itself on as soon as
+   * the store had any page) — so the only reachable action on a live store was
+   * the OVERWRITING one. It is now an explicit, separately-confirmed choice, and
+   * the backend refuses to overwrite a policy page at all.
+   */
+  const handleSeed = async (force = false) => {
     const msg = force
-      ? 'Update default pages (Home, About, Contact, FAQ) with fresh content? Existing pages with these slugs will be overwritten.'
-      : 'Create default pages (Home, About, Contact, FAQ)? This only runs when you have no pages.';
+      ? 'Overwrite Home, About, Contact and FAQ with fresh default content? Anything you have written on those four pages is replaced. (Your policy pages are never touched.)'
+      : 'Create the standard pages this store is missing — Home, About, Contact, FAQ and the Privacy, Terms, Return & Refund and Shipping policy pages?\n\nPages you already have are left exactly as they are, and the policy pages are created unpublished so you can write them before they go live.';
     if (!confirm(msg)) return;
     try {
       const response = await api.post(force ? '/pages/seed?force=true' : '/pages/seed');
       const data = response?.data?.data ?? response?.data;
+      const made: string[] = Array.isArray(data?.createdSlugs) ? data.createdSlugs : [];
       if (data?.created > 0 || data?.updated > 0) {
-        alert(`Success: ${data.created || 0} created, ${data.updated || 0} updated.`);
-      } else if (data?.skipped) {
-        alert('Pages already exist. Use "Update default pages" to refresh Home, About, Contact, FAQ.');
+        const lines = [`${data.created || 0} page(s) created${data.updated ? `, ${data.updated} updated` : ''}`];
+        if (made.length) lines.push('', ...made, '', 'The policy pages are unpublished — open each one, write your policy, then publish it.');
+        alert(lines.join('\n'));
       } else {
-        alert('No pages were seeded.');
+        alert('Nothing to add — this store already has all the standard pages.');
       }
       fetchPages();
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Failed to seed pages');
+      alert(err.response?.data?.message || 'Failed to add pages');
     }
   };
 
@@ -159,23 +171,32 @@ const Pages: React.FC = () => {
           <p className="text-muted-foreground text-sm mt-1">Manage your website pages</p>
         </div>
         {canManagePages && (
-          <Button asChild className="bg-red-600 hover:bg-red-700 text-white">
-            <Link to="/pages/new">
-              <FaPlus className="w-4 h-4 mr-2" />
-              Create Page
-            </Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {/* Reachable whatever the store already has — the old seed button lived
+                only in the empty state, so a store with pages could never add the
+                standard ones it was missing (every storefront links to the four
+                policy pages). Never overwrites. */}
+            <Button onClick={() => handleSeed(false)} variant="outline">
+              Add missing standard pages
+            </Button>
+            <Button asChild className="bg-red-600 hover:bg-red-700 text-white">
+              <Link to="/pages/new">
+                <FaPlus className="w-4 h-4 mr-2" />
+                Create Page
+              </Link>
+            </Button>
+          </div>
         )}
       </div>
 
       {pages.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center p-12 text-center space-y-4">
-            <p className="text-muted-foreground">No pages found. Seed default pages or create your first page.</p>
+            <p className="text-muted-foreground">No pages found. Add the standard pages or create your first page.</p>
             {canManagePages && (
               <div className="flex flex-wrap justify-center gap-3">
-                <Button onClick={handleSeed} variant="outline" className="border-green-600 text-green-600 hover:bg-green-50">
-                  {pages.length > 0 ? 'Update Default Pages' : 'Seed Default Pages'} (Home, About, Contact, FAQ)
+                <Button onClick={() => handleSeed(false)} variant="outline" className="border-green-600 text-green-600 hover:bg-green-50">
+                  Add standard pages (Home, About, Contact, FAQ + policy pages)
                 </Button>
                 <Button asChild className="bg-red-600 hover:bg-red-700">
                   <Link to="/pages/new">

@@ -52,6 +52,8 @@ interface OrderAddressPanelProps {
   gst?: GstInfo | null;
   /** Customer GSTIN the tax invoice is raised against (order column, not the address). */
   customerGstin?: string | null;
+  /** Registered business name the invoice is raised to. */
+  customerCompany?: string | null;
   onWhatsAppClick?: (phone: string) => void;
   /** Edit controls, supplied by the page so this component stays presentational. */
   shippingAction?: React.ReactNode;
@@ -131,7 +133,7 @@ const AddressBlock: React.FC<{
 };
 
 const OrderAddressPanel: React.FC<OrderAddressPanelProps> = ({
-  shippingAddress, billingAddress, warehouseId, customerGstin,
+  shippingAddress, billingAddress, warehouseId, customerGstin, customerCompany,
   onWhatsAppClick, shippingAction, billingAction, fulfillmentSlot,
 }) => {
   const warehouse = typeof warehouseId === 'object' && warehouseId ? warehouseId : null;
@@ -185,10 +187,11 @@ const OrderAddressPanel: React.FC<OrderAddressPanelProps> = ({
             {billing
               ? <AddressBlock address={billing} onWhatsAppClick={onWhatsAppClick} />
               : <p className="text-sm font-semibold text-slate-400">No billing address on this order.</p>}
-            {customerGstin && (
-              <p className="mt-2 rounded border border-slate-100 bg-slate-50 px-2 py-1 font-mono text-[11px] font-semibold text-slate-700">
-                Invoice GSTIN · {customerGstin}
-              </p>
+            {(customerGstin || customerCompany) && (
+              <div className="mt-2 rounded border border-slate-100 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700">
+                {customerCompany && <p>Billed to · {customerCompany}</p>}
+                {customerGstin && <p className="font-mono">Invoice GSTIN · {customerGstin}</p>}
+              </div>
             )}
           </div>
         </div>

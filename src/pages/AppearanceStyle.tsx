@@ -2,6 +2,7 @@ import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { FaArrowLeft, FaSave, FaGlobe, FaImage, FaPalette, FaFont, FaInstagram } from 'react-icons/fa';
 import ImageInputWithActions from '../components/common/ImageInputWithActions';
+import NoticePopupSection, { DEFAULT_NOTICE_POPUP, type NoticePopupForm } from '../components/appearance/NoticePopupSection';
 import { useSettingsSection } from '../hooks/useSettingsSection';
 
 interface FormData {
@@ -22,6 +23,8 @@ interface FormData {
   };
   instagram: { username: string; isEnabled: boolean };
   announcementBar: { text: string; bgColor: string; textColor: string; link: string; isEnabled: boolean };
+  /** Scheduled notice popup — the public `storePopup` setting (Settings Center 11.7). */
+  storePopup: NoticePopupForm;
 }
 
 const DEFAULT_FORM_DATA: FormData = {
@@ -38,10 +41,16 @@ const DEFAULT_FORM_DATA: FormData = {
   fonts: { fontFamily: 'Inter', headingFontFamily: '', bodyFontFamily: '' },
   instagram: { username: '', isEnabled: false },
   announcementBar: { text: 'Free Shipping on orders above ₹500', bgColor: '#f9fafb', textColor: '#111827', link: '', isEnabled: true },
+  storePopup: DEFAULT_NOTICE_POPUP,
 };
 
 const AppearanceStyle: React.FC = () => {
   const navigate = useNavigate();
+  // The store's today and the popup's live status — both RESOLVED by the backend
+  // (GET /settings/admin → resolveStorePopup) in the store's own timezone. The
+  // editor never works out the date itself (CLAUDE.md rule 8).
+  const [storeToday, setStoreToday] = React.useState('');
+  const [popupSavedStatus, setPopupSavedStatus] = React.useState('');
 
   const { formData, setFormData, loading, saving, handleSubmit } = useSettingsSection<FormData>({
     defaults: DEFAULT_FORM_DATA,
@@ -80,7 +89,32 @@ const AppearanceStyle: React.FC = () => {
         link: settings.announcementBar?.link || '',
         isEnabled: settings.announcementBar?.isEnabled !== false,
       },
+      // Field by field ON PURPOSE: the payload is the RESOLVED popup, which also
+      // carries the derived `isActive`/`status`/`today`. Spreading it would send
+      // those back on save and plant three keys nothing reads in the stored row.
+      storePopup: {
+        isEnabled: settings.storePopup?.isEnabled === true,
+        title: settings.storePopup?.title || '',
+        body: settings.storePopup?.body || '',
+        imageUrl: settings.storePopup?.imageUrl || '',
+        ctaLabel: settings.storePopup?.ctaLabel || '',
+        ctaUrl: settings.storePopup?.ctaUrl || '',
+        dismissLabel: settings.storePopup?.dismissLabel || DEFAULT_NOTICE_POPUP.dismissLabel,
+        startDate: settings.storePopup?.startDate || '',
+        endDate: settings.storePopup?.endDate || '',
+        frequency: settings.storePopup?.frequency || DEFAULT_NOTICE_POPUP.frequency,
+        placement: settings.storePopup?.placement || DEFAULT_NOTICE_POPUP.placement,
+        delaySeconds: Number.isFinite(Number(settings.storePopup?.delaySeconds))
+          ? Number(settings.storePopup.delaySeconds) : DEFAULT_NOTICE_POPUP.delaySeconds,
+        bgColor: settings.storePopup?.bgColor || DEFAULT_NOTICE_POPUP.bgColor,
+        textColor: settings.storePopup?.textColor || DEFAULT_NOTICE_POPUP.textColor,
+        accentColor: settings.storePopup?.accentColor || DEFAULT_NOTICE_POPUP.accentColor,
+      },
     }),
+    onLoaded: (raw) => {
+      setStoreToday(raw?.storePopup?.today || '');
+      setPopupSavedStatus(raw?.storePopup?.status || '');
+    },
     successMessage: 'Style settings saved! Your storefront will reflect these changes.',
     onError: (error: any) => alert(error?.response?.data?.message || 'Failed to save'),
   });
@@ -290,6 +324,13 @@ const AppearanceStyle: React.FC = () => {
             )}
           </div>
         </div>
+
+        <NoticePopupSection
+          value={formData.storePopup}
+          onChange={(field, v) => handleChange('storePopup', field as string, v)}
+          today={storeToday}
+          savedStatus={popupSavedStatus}
+        />
 
         <div className="flex justify-end gap-3">
           <button type="button" onClick={() => navigate('/appearance/pages')} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">

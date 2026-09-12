@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { FaCog, FaDownload, FaEye, FaSearch, FaSms, FaSyncAlt } from 'react-icons/fa';
 import { cartsAPI } from '../services/api';
@@ -49,6 +49,9 @@ const formatMoney = (value?: number | null) =>
     ? value.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 })
     : '—';
 
+/** Matches the admin Orders list, so paging feels the same across the panel. */
+const PAGE_SIZE = 50;
+
 const formatDate = (value?: string) =>
   value ? localeDateTime(value) : '—';
 
@@ -63,17 +66,32 @@ const AbandonedCarts: React.FC = () => {
   // they're hidden by default; staff can still opt back in to see them.
   const [includeGuests, setIncludeGuests] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
   const [cartSettings, setCartSettings] = useState<any>(null);
   const [savingSettings, setSavingSettings] = useState(false);
 
+  /**
+   * Monotonic request id. `page`, `search`, `status` and `includeGuests` can
+   * change in the same tick (searching from page 2 sets both), leaving two
+   * fetches in flight — and the one that resolved LAST won, not the one the
+   * user asked for. Live symptom: searching a customer from page 2 rendered
+   * page 2's unfiltered rows. Only the newest request may write state.
+   */
+  const requestRef = useRef(0);
+
   const fetchCarts = useCallback(async () => {
+    const reqId = ++requestRef.current;
     try {
       setLoading(true);
       setError(null);
       console.log('🔍 Fetching carts with params:', { status, search, includeGuests });
 
-      const data = await cartsAPI.listAdmin({ status, search, includeGuests });
+      const data = await cartsAPI.listAdmin({
+        status, search, includeGuests,
+        limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE,
+      });
       // Backend returns: { success: true, data: carts[] }
       // API interceptor normalizes to: carts[] or { data: carts[] }
       let cartsData: any[] = [];
@@ -94,15 +112,24 @@ const AbandonedCarts: React.FC = () => {
         userId: cart.userId ? String(cart.userId) : undefined,
       }));
       
-      console.log('✅ Sanitized carts:', { count: sanitizedCarts.length, sample: sanitizedCarts[0] });
+      // The interceptor unwraps { success, data, total } to the array itself and
+      // keeps `total` as a NON-ENUMERABLE property on it — same read as
+      // Orders.tsx. Falling back to the page length keeps the footer honest if
+      // an older backend is deployed without the count.
+      const resolvedTotal = Number(
+        (data as any)?.total ?? (cartsData as any)?.total ?? sanitizedCarts.length
+      );
+      if (reqId !== requestRef.current) return;   // superseded — drop it
       setCarts(sanitizedCarts);
+      setTotal(resolvedTotal);
     } catch (err: any) {
+      if (reqId !== requestRef.current) return;
       console.error('❌ Failed to load carts', err);
       setError(err.response?.data?.message || err.message || 'Failed to load carts');
     } finally {
-      setLoading(false);
+      if (reqId === requestRef.current) setLoading(false);
     }
-  }, [status, search, includeGuests]);
+  }, [status, search, includeGuests, page]);
 
   useEffect(() => {
     fetchCarts();
@@ -121,7 +148,9 @@ const AbandonedCarts: React.FC = () => {
 
   const handleSearch = async (event: React.FormEvent) => {
     event.preventDefault();
-    await fetchCarts();
+    // A new search starts at the first page; if we are already there, refetch
+    // directly (changing `page` to its current value re-renders nothing).
+    if (page !== 1) setPage(1); else await fetchCarts();
   };
 
   /** Load the store's cart timings the first time the panel is opened. */
@@ -335,7 +364,7 @@ const AbandonedCarts: React.FC = () => {
             <button
               key={t.key}
               type="button"
-              onClick={() => setStatus(t.key)}
+              onClick={() => { setStatus(t.key); setPage(1); }}
               aria-current={status === t.key ? 'page' : undefined}
               title={t.hint}
               className={`whitespace-nowrap border-b-2 px-1 pb-3 pt-2 text-sm font-medium transition-colors ${
@@ -345,9 +374,12 @@ const AbandonedCarts: React.FC = () => {
               }`}
             >
               {t.label}
+              {/* The TOTAL for this tab, not the current page's length — with
+                  paging, `carts.length` is just the page size (it read "50" on
+                  a tab holding 208). */}
               {status === t.key && (
                 <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
-                  {carts.length}
+                  {total || carts.length}
                 </span>
               )}
             </button>
@@ -367,7 +399,7 @@ const AbandonedCarts: React.FC = () => {
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by product name or recovery token"
+                placeholder="Search by customer name, phone, cart ID or product"
                 className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
               />
             </div>
@@ -383,7 +415,7 @@ const AbandonedCarts: React.FC = () => {
           <input
             type="checkbox"
             checked={includeGuests}
-            onChange={(e) => setIncludeGuests(e.target.checked)}
+            onChange={(e) => { setIncludeGuests(e.target.checked); setPage(1); }}
             className="rounded border-gray-300 text-red-600 focus:ring-red-500"
           />
           Show guest carts (no phone/email on file — can&apos;t be contacted)
@@ -660,6 +692,38 @@ const AbandonedCarts: React.FC = () => {
             </tbody>
           </table>
         </div>
+
+        {/* Same footer shape as the admin Orders and Customers lists. Hidden
+            when everything already fits on one page, so a store with 12 carts
+            never sees paging controls it has no use for. */}
+        {total > PAGE_SIZE && (
+          <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-3 py-2.5">
+            <span className="text-xs text-slate-500 tabular-nums">
+              Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total} carts
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1 || loading}
+                className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-md text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Previous
+              </button>
+              <span className="text-xs text-slate-500 tabular-nums">
+                Page {page} of {Math.max(1, Math.ceil(total / PAGE_SIZE))}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPage((p) => p + 1)}
+                disabled={page >= Math.ceil(total / PAGE_SIZE) || loading}
+                className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-md text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -3121,7 +3121,13 @@ export const cartsAPI = {
     const response = await api.put('/carts/admin/settings', data);
     return response.data?.data ?? response.data;
   },
-  listAdmin: async (params?: { status?: string; search?: string; includeGuests?: boolean }) => {
+  /** Paged by limit/offset — the same contract routes/orders.ts uses, so the
+   *  admin has one pagination shape, not two. `total` survives the response
+   *  interceptor as a non-enumerable property on the returned array. */
+  listAdmin: async (params?: {
+    status?: string; search?: string; includeGuests?: boolean;
+    limit?: number; offset?: number;
+  }) => {
     const response = await api.get('/carts/admin', { params });
     return response.data;
   },
