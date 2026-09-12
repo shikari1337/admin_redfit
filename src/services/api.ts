@@ -3960,6 +3960,32 @@ export const inventoryAPI = {
     const r = await api.put('/inventory/batch-pricing', config);
     return r.data?.data ?? r.data;
   },
+  // Market prices sheet (explicit per-market / per-country retail + B2B prices, mig 173).
+  getMarkets: async () => {
+    const r = await api.get('/settings/markets');
+    const v = r.data?.data?.value ?? r.data?.data ?? r.data;
+    return v && typeof v === 'object' ? v : null;
+  },
+  exportMarketPrices: async (opts: { market: string; country?: string; currency?: string; search?: string }) => {
+    const response = await api.get('/inventory/market-prices/export', {
+      params: { market: opts.market, ...(opts.country ? { country: opts.country } : {}), ...(opts.currency ? { currency: opts.currency } : {}), ...(opts.search ? { search: opts.search } : {}) },
+      responseType: 'blob', timeout: 600000,
+    });
+    return response.data as Blob;
+  },
+  downloadMarketPricesTemplate: async () => {
+    const response = await api.get('/inventory/market-prices/template', { responseType: 'blob' });
+    return response.data as Blob;
+  },
+  importMarketPrices: async (file: File, opts: { market: string; country?: string; currency?: string }) => {
+    const form = new FormData();
+    form.append('file', file);
+    const response = await api.post('/inventory/market-prices/import', form, {
+      params: { market: opts.market, ...(opts.country ? { country: opts.country } : {}), ...(opts.currency ? { currency: opts.currency } : {}) },
+      headers: { 'Content-Type': 'multipart/form-data' }, timeout: 600000,
+    });
+    return response.data;
+  },
   importBatches: async (file: File) => {
     const form = new FormData();
     form.append('file', file);
