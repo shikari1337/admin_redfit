@@ -3986,6 +3986,25 @@ export const inventoryAPI = {
     });
     return response.data;
   },
+  // Availability sheet (B2B-only SKUs + per-country block/allow rules, mig 174).
+  exportAvailability: async (opts: { search?: string } = {}) => {
+    const response = await api.get('/inventory/availability/export', {
+      params: { ...(opts.search ? { search: opts.search } : {}) }, responseType: 'blob', timeout: 600000,
+    });
+    return response.data as Blob;
+  },
+  downloadAvailabilityTemplate: async () => {
+    const response = await api.get('/inventory/availability/template', { responseType: 'blob' });
+    return response.data as Blob;
+  },
+  importAvailability: async (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    const response = await api.post('/inventory/availability/import', form, {
+      headers: { 'Content-Type': 'multipart/form-data' }, timeout: 600000,
+    });
+    return response.data;
+  },
   importBatches: async (file: File) => {
     const form = new FormData();
     form.append('file', file);

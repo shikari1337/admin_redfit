@@ -3,6 +3,7 @@ import { inventoryAPI } from '../services/api';
 import { Pagination } from '@/components/erp';
 import { Link } from 'react-router-dom';
 import MarketPricesBulkBar from '../components/inventory/MarketPricesBulkBar';
+import AvailabilityBulkBar from '../components/inventory/AvailabilityBulkBar';
 
 interface Valuation {
   grand_total?: number;
@@ -243,6 +244,12 @@ export default function Inventory() {
           the SKU sheet above. */}
       <div style={{ marginBottom: 16 }}>
         <MarketPricesBulkBar />
+      </div>
+
+      {/* Who may buy a SKU (B2B-only) and where it may be sold (country rules) —
+          hides the SKU from listings/PDP/checkout for the wrong viewer. */}
+      <div style={{ marginBottom: 16 }}>
+        <AvailabilityBulkBar />
       </div>
 
       {valuation && (
