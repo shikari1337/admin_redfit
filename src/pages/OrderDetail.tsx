@@ -8,7 +8,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ordersAPI, shippingAPI, paymentsAPI, shipmentsAPI, invoicesAPI } from '../services/api';
 import { formatDate } from '../utils/date';
-import { fmtRupees } from '../lib/money';
+import { fmtRupees, fmtCurrencyMinor } from '../lib/money';
 import { FaCheckCircle, FaEnvelope, FaFileInvoice, FaCreditCard, FaTruck, FaArrowLeft, FaDownload, FaWhatsapp, FaSms, FaChevronDown, FaMoneyCheckAlt, FaTag } from 'react-icons/fa';
 import {
   StatusBadge,
@@ -813,6 +813,34 @@ const OrderDetail: React.FC = () => {
           {(order.isFlagged ?? order.is_flagged) && (
             <Badge variant="outline" className="border-red-300 bg-red-50 font-medium text-red-700">Flagged</Badge>
           )}
+          {/* Market + presentment (mig 172) and the export tax treatment (the
+              order's own GST snapshot, never re-derived from the address). */}
+          {(() => {
+            const mkt = String(order.marketCode ?? order.market_code ?? '').toLowerCase();
+            const cur = String(order.currency ?? '').toUpperCase();
+            const pm = order.presentmentTotalMinor ?? order.presentment_total_minor;
+            const gw = String(order.paymentGateway ?? order.payment_gateway ?? '').toLowerCase();
+            const isExport = String(order.gst?.taxType ?? '').toUpperCase() === 'EXPORT';
+            return (
+              <>
+                {mkt && mkt !== 'in' && (
+                  <Badge variant="outline" className="border-sky-300 bg-sky-50 font-medium uppercase text-sky-700"
+                    title={`Placed on the ${mkt} market${cur && cur !== 'INR' && pm != null ? ` · paid ${fmtCurrencyMinor(pm, cur)} (booked ${fmtRupees(order.total)})` : ''}`}>
+                    {mkt}{cur && cur !== 'INR' && pm != null ? ` · ${fmtCurrencyMinor(pm, cur)}` : ''}
+                  </Badge>
+                )}
+                {isExport && (
+                  <Badge variant="outline" className="border-emerald-300 bg-emerald-50 font-medium text-emerald-800"
+                    title={`Zero-rated export${order.gst?.lutNumber ? ` under LUT ${order.gst.lutNumber}` : ''}${order.gst?.destinationCountry ? ` to ${order.gst.destinationCountry}` : ''}`}>
+                    Export{order.gst?.supplyType === 'EXPWP' ? ' · IGST paid' : ' · LUT'}{order.gst?.destinationCountry ? ` · ${order.gst.destinationCountry}` : ''}
+                  </Badge>
+                )}
+                {gw && !['razorpay', 'upi', 'manual', 'wallet', 'cod'].includes(gw) && (
+                  <Badge variant="outline" className="border-indigo-300 bg-indigo-50 font-medium capitalize text-indigo-700">{gw}</Badge>
+                )}
+              </>
+            );
+          })()}
           {/* Return window and money already returned — neither appears in the
               items table, so both stay on the bar. */}
           {(order.returnDeadline ?? order.return_deadline) && (
@@ -1339,6 +1367,9 @@ const OrderDetail: React.FC = () => {
                 paymentMethod={order.paymentMethod}
                 paymentStatus={order.paymentStatus}
                 paymentGateway={order.paymentGateway}
+                gatewayRef={order.gatewayRef ?? order.gateway_ref}
+                presentmentCurrency={order.currency}
+                presentmentTotalMinor={order.presentmentTotalMinor ?? order.presentment_total_minor}
                 razorpayOrderId={order.razorpayOrderId}
                 razorpayPaymentId={order.razorpayPaymentId}
                 razorpaySignature={order.razorpaySignature}

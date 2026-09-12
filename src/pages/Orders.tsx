@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ordersAPI, shippingAPI } from '../services/api';
 import { formatDate } from '../utils/date';
-import { fmtRupees } from '../lib/money';
+import { fmtRupees, fmtCurrencyMinor } from '../lib/money';
 import { FaTruck, FaWhatsapp, FaEye, FaDownload, FaPlus, FaSearchDollar, FaFileExcel } from 'react-icons/fa';
 import RecoverPaymentModal from '../components/order/RecoverPaymentModal';
 import ErpExportModal from '../components/order/ErpExportModal';
@@ -456,6 +456,20 @@ const Orders: React.FC = () => {
                       </TableCell>
                       <TableCell className="px-4 py-3 font-medium text-foreground">
                         {fmtRupees(order.total || 0)}
+                        {/* International order (mig 172): the shopper paid in their own
+                            currency — show it under the booked INR, plus the market. */}
+                        {(() => {
+                          const cur = String(order.currency ?? '').toUpperCase();
+                          const pm = order.presentmentTotalMinor ?? order.presentment_total_minor;
+                          const mkt = String(order.marketCode ?? order.market_code ?? '').toLowerCase();
+                          if ((!cur || cur === 'INR') && (!mkt || mkt === 'in')) return null;
+                          return (
+                            <div className="mt-0.5 flex items-center gap-1.5 text-[11px] font-normal text-muted-foreground">
+                              {cur && cur !== 'INR' && pm != null && <span>≈ {fmtCurrencyMinor(pm, cur)}</span>}
+                              {mkt && mkt !== 'in' && <Badge variant="outline" className="rounded-sm border-sky-300 bg-sky-50 px-1 py-0 text-[9px] uppercase tracking-wider text-sky-700">{mkt}</Badge>}
+                            </div>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell className="px-4 py-3">
                         <div className="flex flex-col gap-1 items-start">
