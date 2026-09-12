@@ -15,7 +15,7 @@ function monthRange(ym: string): { from: string; to: string } {
 
 /** One flat CSV row spanning both the B2B (invoice-wise) and B2CS sections. */
 interface Gstr1CsvRow {
-  section: 'B2B' | 'B2CS';
+  section: 'B2B' | 'B2CS' | 'EXP';
   gstin: string;
   order: string;
   date: string;
@@ -65,7 +65,18 @@ function buildCsvRows(draft: any): Gstr1CsvRow[] {
     taxable: r.taxableValue, cgst: r.cgst, sgst: r.sgst, igst: r.igst,
     invoiceValue: '' as const,
   }));
-  return [...b2b, ...b2cs];
+  const exp: Gstr1CsvRow[] = (draft.exp ?? []).flatMap((row: any) =>
+    (row.lines ?? []).map((l: any) => ({
+      section: 'EXP' as const,
+      gstin: '',
+      order: row.orderId ?? '',
+      date: row.documentDate ?? '',
+      pos: `${row.exportType} · ${row.destinationCountry}${row.shippingBillNo ? ` · SB ${row.shippingBillNo}` : ''}`,
+      ratePct: l.ratePct,
+      taxable: l.taxableValue, cgst: l.cgst, sgst: l.sgst, igst: l.igst,
+      invoiceValue: row.invoiceValue,
+    })));
+  return [...b2b, ...b2cs, ...exp];
 }
 
 const Gstr1: React.FC = () => {
@@ -167,6 +178,46 @@ const Gstr1: React.FC = () => {
               </table>
             </div>
           </div>
+
+          {(draft.exp?.length ?? 0) > 0 && (
+            <div className="rounded-xl border border-emerald-200 bg-white shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-100 px-4 py-3">
+                <span className="font-semibold text-gray-900">Exports — Table 6A ({draft.exp.length})</span>
+                {draft.summary?.exportsMissingShippingBill > 0 && (
+                  <span className="rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
+                    {draft.summary.exportsMissingShippingBill} without a shipping bill — enter it before filing
+                  </span>
+                )}
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="border-b border-gray-200 bg-gray-50 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                    <tr>
+                      <th className="px-4 py-2">Invoice</th><th className="px-4 py-2">Date</th><th className="px-4 py-2">Type</th>
+                      <th className="px-4 py-2">Destination</th><th className="px-4 py-2">LUT / Shipping bill</th>
+                      <th className="px-4 py-2 text-right">Taxable</th><th className="px-4 py-2 text-right">IGST</th>
+                      <th className="px-4 py-2 text-right">Invoice value</th><th className="px-4 py-2 text-right">Paid</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {draft.exp.map((r: any) => (
+                      <tr key={r.orderId}>
+                        <td className="px-4 py-1.5">{r.orderId}</td>
+                        <td className="px-4 py-1.5">{r.documentDate}</td>
+                        <td className="px-4 py-1.5">{r.exportType === 'WPAY' ? 'With IGST' : 'LUT (no IGST)'}</td>
+                        <td className="px-4 py-1.5">{r.destinationCountry}</td>
+                        <td className="px-4 py-1.5 font-mono text-xs">{r.lutNumber ?? '—'}{r.shippingBillNo ? ` · SB ${r.shippingBillNo}` : ''}</td>
+                        <td className="px-4 py-1.5 text-right font-mono">{fmtRupees(r.lines.reduce((s: number, l: any) => s + l.taxableValue, 0))}</td>
+                        <td className="px-4 py-1.5 text-right font-mono">{fmtRupees(r.lines.reduce((s: number, l: any) => s + l.igst, 0))}</td>
+                        <td className="px-4 py-1.5 text-right font-mono">{fmtRupees(r.invoiceValue)}</td>
+                        <td className="px-4 py-1.5 text-right font-mono text-xs text-gray-500">{r.currency && r.presentmentTotal != null ? `${r.currency} ${Number(r.presentmentTotal).toFixed(2)}` : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
             <div className="border-b border-gray-100 px-4 py-3 font-semibold text-gray-900">B2CS (unregistered, aggregated by place of supply × rate)</div>
