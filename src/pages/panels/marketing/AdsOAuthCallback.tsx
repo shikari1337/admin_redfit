@@ -21,6 +21,16 @@ const AdsOAuthCallback: React.FC = () => {
     const [platform, accountId] = state.split(':');
 
     if (errParam) { setStatus('error'); setMessage(`The platform returned an error: ${errParam}`); return; }
+    // Central callback shape: the core (api.gc.mw/oauth/callback/ads) already
+    // exchanged the code and saved the tokens; it sends us the outcome only.
+    if (params.get('done') === '1') {
+      const p = params.get('platform') ?? 'the platform';
+      setStatus('done');
+      setMessage(params.get('configured') === '1'
+        ? `Connected! ${p} tokens saved — live sync is now active for this account.`
+        : `Tokens saved. Add the remaining ${p} credentials (see the account form) to go fully live.`);
+      return;
+    }
     if (!code || !platform || !accountId) {
       setStatus('error'); setMessage('Missing code/state in the callback URL — start the Connect flow again from the Ads Manager.');
       return;

@@ -170,8 +170,9 @@ const AdsManager: React.FC = () => {
           <p className="rounded bg-blue-50 px-3 py-2 text-xs text-blue-700">
             OAuth flow: save the app credentials (Google: OAuth client id/secret + developer token · Meta: app id/secret ·
             Snapchat: client id/secret), then press <b>Connect (OAuth)</b> on the account — tokens are fetched and stored
-            automatically. Register <code>{`${window.location.origin}/panel/marketing/ads/oauth/callback`}</code> as the
-            redirect URI in the platform's app console.
+            automatically. The redirect URI is Growcord's single callback host
+            (<code>https://api.gc.mw/oauth/callback/ads</code>), registered once by the platform — nothing to
+            register per store.
           </p>
           <button onClick={saveAccount} disabled={!accForm.account_id}
             className="rounded bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">

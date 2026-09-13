@@ -40,6 +40,13 @@ const ConnectorCallback: React.FC = () => {
           : `The provider returned an error: ${errParam}`);
       return;
     }
+    // Central callback shape: the core (api.gc.mw/oauth/callback/connector/…)
+    // already exchanged the code on this store's DB and sent us the result.
+    if (params.get('connected') === '1') {
+      setStatus('done');
+      setMessage(`Connected ${provider} successfully.`);
+      return;
+    }
     if (!code || !state) {
       setStatus('error');
       setMessage('The callback URL is missing its code or state. Start the connection again from Platform Connections.');
