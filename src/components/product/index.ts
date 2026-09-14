@@ -12,7 +12,6 @@ export { default as ProductCustomerImages } from './ProductCustomerImages';
 export { default as ProductDisplayOptions } from './ProductDisplayOptions';
 export { default as ProductSingleProductDetails } from './ProductSingleProductDetails';
 export { default as ProductMediaPanel } from './ProductMediaPanel';
-export { default as ProductContentSections } from './ProductContentSections';
 export { default as ProductB2BPricing } from './ProductB2BPricing';
 export { default as ProductOffers } from './ProductOffers';
 export { default as ProductRelated } from './ProductRelated';

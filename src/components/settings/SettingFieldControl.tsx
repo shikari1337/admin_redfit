@@ -199,7 +199,8 @@ const SettingFieldControl: React.FC<Props> = ({ field, value, onChange, options,
 
     case 'image':
       return (
-        <ImageInputWithActions value={value ?? ''} onChange={onChange} placeholder={field.placeholder ?? 'https://… or pick from the library'} folder={folder ?? 'settings'} disabled={isDisabled} />
+        <ImageInputWithActions value={value ?? ''} onChange={onChange} placeholder={field.placeholder ?? 'https://… or pick from the library'} folder={folder ?? 'settings'} disabled={isDisabled}
+          spec={/logo/i.test(field.path) ? 'store.logo' : /favicon/i.test(field.path) ? 'store.favicon' : /og|share|social/i.test(field.path) ? 'product.og' : 'settings.image'} entity="store" />
       );
 
     case 'select': {

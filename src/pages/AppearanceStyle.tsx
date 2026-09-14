@@ -200,9 +200,9 @@ const AppearanceStyle: React.FC = () => {
             </div>
           </div>
           <div className="space-y-4">
-            <ImageInputWithActions value={formData.logo.logoUrl} onChange={(url) => handleChange('logo', 'logoUrl', url)} label="Main Logo" placeholder="https://..." />
-            <ImageInputWithActions value={formData.logo.faviconUrl} onChange={(url) => handleChange('logo', 'faviconUrl', url)} label="Favicon" placeholder="https://..." />
-            <ImageInputWithActions value={formData.logo.adminLogoUrl} onChange={(url) => handleChange('logo', 'adminLogoUrl', url)} label="Admin Logo" placeholder="https://..." />
+            <ImageInputWithActions value={formData.logo.logoUrl} onChange={(url) => handleChange('logo', 'logoUrl', url)} label="Main Logo" placeholder="https://..." spec="store.logo" folder="branding" entity="store" />
+            <ImageInputWithActions value={formData.logo.faviconUrl} onChange={(url) => handleChange('logo', 'faviconUrl', url)} label="Favicon" placeholder="https://..." spec="store.favicon" folder="branding" entity="store" referenceImages={formData.logo.logoUrl ? [formData.logo.logoUrl] : undefined} />
+            <ImageInputWithActions value={formData.logo.adminLogoUrl} onChange={(url) => handleChange('logo', 'adminLogoUrl', url)} label="Admin Logo" placeholder="https://..." spec="store.admin_logo" folder="branding" entity="store" referenceImages={formData.logo.logoUrl ? [formData.logo.logoUrl] : undefined} />
           </div>
         </div>
 

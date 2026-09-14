@@ -60,6 +60,21 @@ const DEFAULT_FORM_DATA = {
     useEnvVars: false,
     apiKey: '',
     isEnabled: false,
+    textModel: '',
+    imageModel: '',
+  },
+  // OpenAI / ChatGPT — same encrypted-at-rest treatment as gemini (settingsSecrets.ts).
+  openai: {
+    useEnvVars: false,
+    apiKey: '',
+    isEnabled: false,
+    textModel: '',
+    imageModel: '',
+  },
+  // Which configured provider writes text / makes images (registry 10.8).
+  aiPreferences: {
+    textProvider: 'auto',
+    imageProvider: 'auto',
   },
 };
 
@@ -80,6 +95,8 @@ const ApiIntegrationSettings: React.FC = () => {
   const [waStatus, setWaStatus] = useState<any | null>(null);
   const [waStatusLoading, setWaStatusLoading] = useState(false);
   const [waStatusError, setWaStatusError] = useState<string | null>(null);
+  const [waSubmitting, setWaSubmitting] = useState(false);
+  const [waSubmitResult, setWaSubmitResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [waEventsOpen, setWaEventsOpen] = useState(false);
 
   const {
@@ -95,6 +112,8 @@ const ApiIntegrationSettings: React.FC = () => {
         whatsapp: { ...DEFAULT_FORM_DATA.whatsapp },
         whatsapp_settings: { ...DEFAULT_FORM_DATA.whatsapp_settings },
         gemini: { ...DEFAULT_FORM_DATA.gemini },
+        openai: { ...DEFAULT_FORM_DATA.openai },
+        aiPreferences: { ...DEFAULT_FORM_DATA.aiPreferences },
       };
 
       if (settings.smtp) {
@@ -187,7 +206,24 @@ const ApiIntegrationSettings: React.FC = () => {
           ...settings.gemini,
           useEnvVars: settings.gemini.useEnvVars ?? false,
           apiKey: settings.gemini.apiKeySet ? '••••••••' : '',
+          textModel: settings.gemini.textModel || '',
+          imageModel: settings.gemini.imageModel || '',
         };
+      }
+
+      if (settings.openai) {
+        next.openai = {
+          ...DEFAULT_FORM_DATA.openai,
+          ...settings.openai,
+          useEnvVars: settings.openai.useEnvVars ?? false,
+          apiKey: settings.openai.apiKeySet ? '••••••••' : '',
+          textModel: settings.openai.textModel || '',
+          imageModel: settings.openai.imageModel || '',
+        };
+      }
+
+      if (settings.aiPreferences) {
+        next.aiPreferences = { ...DEFAULT_FORM_DATA.aiPreferences, ...settings.aiPreferences };
       }
 
       return next;
@@ -256,6 +292,11 @@ const ApiIntegrationSettings: React.FC = () => {
           ...data.gemini,
           apiKey: data.gemini.apiKey && !data.gemini.apiKey.startsWith('••••') ? data.gemini.apiKey : undefined,
         },
+        openai: {
+          ...data.openai,
+          apiKey: data.openai.apiKey && !data.openai.apiKey.startsWith('••••') ? data.openai.apiKey : undefined,
+        },
+        aiPreferences: data.aiPreferences,
       };
 
       await api.put('/settings', submitData);
@@ -278,6 +319,20 @@ const ApiIntegrationSettings: React.FC = () => {
       setWaStatusError(err?.response?.data?.message || err?.message || 'Failed to check WhatsApp status');
     } finally {
       setWaStatusLoading(false);
+    }
+  };
+
+  const submitWaTemplates = async () => {
+    setWaSubmitting(true);
+    setWaSubmitResult(null);
+    try {
+      const res: any = await smsTemplatesAPI.whatsappSubmitTemplates();
+      setWaSubmitResult({ ok: true, message: res?.message ?? 'Submitted for approval' });
+      await loadWaStatus(true);
+    } catch (err: any) {
+      setWaSubmitResult({ ok: false, message: err?.response?.data?.message || err?.message || 'Submission failed' });
+    } finally {
+      setWaSubmitting(false);
     }
   };
 
@@ -918,7 +973,7 @@ const ApiIntegrationSettings: React.FC = () => {
             {/*
               Live status, fetched from the WhatsApp platform itself — not the
               form above. Every event's template is fixed 1:1 by the platform
-              (whatsappapidocs/PUBLIC_API.md §6b); there is no per-event
+              (docs/reference/whatsappapidocs/PUBLIC_API.md §6b); there is no per-event
               template to "pick" here, only whether it is APPROVED and the
               number can actually send right now. This is what would have
               caught the 2026-08-28 incident immediately instead of a shopper
@@ -995,7 +1050,22 @@ const ApiIntegrationSettings: React.FC = () => {
                   {waStatus.ready < waStatus.total && (
                     <div className="flex items-start gap-2 p-3 rounded-md bg-amber-50 border border-amber-200 text-sm text-amber-800">
                       <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-                      <span>{waStatus.total - waStatus.ready} event(s) below are not yet approved — those specific notifications will fall back to SMS until Meta approves them.</span>
+                      <div className="flex-1 min-w-0">
+                        <span>{waStatus.total - waStatus.ready} event(s) below are not yet approved — those specific notifications will fall back to SMS until Meta approves them.</span>
+                        <div className="mt-2 flex items-center gap-2 flex-wrap">
+                          <Button type="button" size="sm" variant="outline" onClick={submitWaTemplates} disabled={waSubmitting}>
+                            {waSubmitting ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
+                            Submit missing templates to Meta
+                          </Button>
+                          <span className="text-xs">Approval usually takes minutes to a day; already-approved templates are left alone.</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {waSubmitResult && (
+                    <div className={`flex items-start gap-2 p-3 rounded-md border text-sm ${waSubmitResult.ok ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+                      {waSubmitResult.ok ? <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" /> : <XCircle className="h-4 w-4 mt-0.5 shrink-0" />}
+                      <span>{waSubmitResult.message}</span>
                     </div>
                   )}
 
@@ -1186,6 +1256,84 @@ const ApiIntegrationSettings: React.FC = () => {
                 Get your API key from <a href="https://makersuite.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Google AI Studio</a>
               </p>
             </div>
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Text model (optional)</label>
+                <Input value={formData.gemini.textModel} onChange={(e) => handleChange('gemini', 'textModel', e.target.value)} placeholder="Platform default" />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Image model (optional)</label>
+                <Input value={formData.gemini.imageModel} onChange={(e) => handleChange('gemini', 'imageModel', e.target.value)} placeholder="Platform default" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* OpenAI / ChatGPT */}
+        <Card>
+          <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="flex-shrink-0 w-12 h-12 bg-emerald-50 rounded-lg flex items-center justify-center">
+                <Bot className="w-6 h-6 text-emerald-700" />
+              </div>
+              <div>
+                <CardTitle>OpenAI (ChatGPT)</CardTitle>
+                <CardDescription>GPT models for product copy and gpt-image for pictures — alongside or instead of Gemini</CardDescription>
+              </div>
+            </div>
+            <div className="flex items-center gap-6">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox checked={formData.openai.useEnvVars} onCheckedChange={(checked) => handleChange('openai', 'useEnvVars', checked as boolean)} />
+                <span className="text-sm font-medium">Use Env Vars</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox checked={formData.openai.isEnabled} onCheckedChange={(checked) => handleChange('openai', 'isEnabled', checked as boolean)} />
+                <span className="text-sm font-medium">Enabled</span>
+              </label>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {formData.openai.useEnvVars && (
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-sm text-blue-800"><strong>Using Environment Variables:</strong> the key is read from the server (OPENAI_API_KEY)</p>
+              </div>
+            )}
+            <div className={formData.openai.useEnvVars ? 'space-y-2 md:w-1/2 opacity-50 pointer-events-none' : 'space-y-2 md:w-1/2'}>
+              <label className="text-sm font-medium text-foreground">API Key</label>
+              <Input type="password" value={formData.openai.apiKey} onChange={(e) => handleChange('openai', 'apiKey', e.target.value)}
+                placeholder={formData.openai.apiKey.startsWith('••••') ? 'Leave blank to keep current' : 'sk-…'} />
+              <p className="text-[10px] text-muted-foreground">Create a key at <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">platform.openai.com</a>. Stored encrypted; never shown again.</p>
+            </div>
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Text model (optional)</label>
+                <Input value={formData.openai.textModel} onChange={(e) => handleChange('openai', 'textModel', e.target.value)} placeholder="gpt-4.1-mini" />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Image model (optional)</label>
+                <Input value={formData.openai.imageModel} onChange={(e) => handleChange('openai', 'imageModel', e.target.value)} placeholder="gpt-image-1" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Which provider does what */}
+        <Card>
+          <CardHeader>
+            <CardTitle>AI provider preferences</CardTitle>
+            <CardDescription>Which switched-on provider writes text and which makes images. Automatic uses Gemini first for text and OpenAI first for images.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid md:grid-cols-2 gap-4">
+            {(['textProvider', 'imageProvider'] as const).map((k) => (
+              <div key={k} className="space-y-2">
+                <label className="text-sm font-medium text-foreground">{k === 'textProvider' ? 'Text (descriptions, SEO, FAQs)' : 'Images (banners, product scenes)'}</label>
+                <select className="w-full h-9 px-3 text-sm rounded-md border border-input bg-background" value={formData.aiPreferences[k]} onChange={(e) => handleChange('aiPreferences', k, e.target.value)}>
+                  <option value="auto">Automatic</option>
+                  <option value="gemini">Google Gemini</option>
+                  <option value="openai">OpenAI (ChatGPT)</option>
+                </select>
+              </div>
+            ))}
           </CardContent>
         </Card>
 

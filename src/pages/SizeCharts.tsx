@@ -533,7 +533,9 @@ const SizeCharts: React.FC = () => {
             <ImageInputWithActions
               value={formState.defaultImageUrl || ''}
               onChange={(url) => setFormState({ ...formState, defaultImageUrl: url })}
-              label="Default Image URL"
+              label="Default image"
+              spec="size_chart.image"
+              folder="size-charts"
               placeholder="https://example.com/size-chart.png"
             />
 
@@ -698,7 +700,10 @@ const SizeCharts: React.FC = () => {
                       <ImageInputWithActions
                         value={entry.imageUrl || ''}
                         onChange={(url) => handleEntryChange(index, 'imageUrl', url)}
-                        label="Image URL (Optional)"
+                        label="Image (optional)"
+                        spec="size_chart.image"
+                        folder="size-charts"
+                        compact
                         placeholder="Image URL for this size"
                         className="text-[11px]"
                       />

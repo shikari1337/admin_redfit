@@ -2900,6 +2900,11 @@ export const smsTemplatesAPI = {
     const response = await api.get('/sms-templates/whatsapp/live-status', { params: refresh ? { refresh: 'true' } : {} });
     return response.data;
   },
+  /** Submit notification templates that are not yet approved to Meta (idempotent). */
+  whatsappSubmitTemplates: async (events?: string[]) => {
+    const response = await api.post('/sms-templates/whatsapp/submit-templates', events?.length ? { events } : {});
+    return response.data;
+  },
 };
 
 export const smsConfigAPI = {

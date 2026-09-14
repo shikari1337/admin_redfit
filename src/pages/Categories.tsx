@@ -15,6 +15,8 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { categoriesAPI, attributesAPI } from '../services/api';
 import ImageInputWithActions from '../components/common/ImageInputWithActions';
+import { AiTextButton } from '../components/common/AiTextButton';
+import InfoTip from '../components/common/InfoTip';
 import IconPicker, { getIconComponent } from '../components/IconPicker';
 import CategoryFeaturedPicker, { FeaturedMode, FeaturedValue } from '../components/category/CategoryFeaturedPicker';
 import CategoryProductsPanel from '../components/category/CategoryProductsPanel';
@@ -607,7 +609,11 @@ const Categories: React.FC = () => {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="description">Description</Label>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="description" className="inline-flex items-center gap-1.5">Description <InfoTip text="Shown under the category heading on its page; also the default meta description." /></Label>
+                      <AiTextButton entity="category" entityId={selectedId || undefined} draft={() => formState} field="category.description" label="Category description"
+                        value={formState.description} onResult={(v) => setFormState({ ...formState, description: String(v) })} />
+                    </div>
                     <Textarea id="description" rows={3} value={formState.description}
                       onChange={(e) => setFormState({ ...formState, description: e.target.value })}
                       placeholder="Optional description" className="resize-y" />
@@ -635,14 +641,11 @@ const Categories: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="space-y-2">
-                    <Label>Category Image</Label>
-                    <ImageInputWithActions
-                      value={formState.imageUrl || ''}
-                      onChange={(url: string) => setFormState({ ...formState, imageUrl: url })}
-                      folder="categories"
-                      label="" placeholder="Image URL (https://...)" />
-                  </div>
+                  <ImageInputWithActions
+                    label="Category image" spec="category.image" entity="category" entityId={selectedId || undefined} draft={() => formState}
+                    value={formState.imageUrl || ''}
+                    onChange={(url: string) => setFormState({ ...formState, imageUrl: url })}
+                    folder="categories" placeholder="Image URL (https://...)" />
 
                   <div className="space-y-1.5">
                     <Label>Icon (optional)</Label>
@@ -687,7 +690,7 @@ const Categories: React.FC = () => {
                 <TabsContent value="seo" className="m-0 space-y-4">
                   <div className="space-y-2">
                     <div className="flex items-baseline justify-between">
-                      <Label htmlFor="metaTitle">Meta Title</Label>
+                      <span className="inline-flex items-center gap-2"><Label htmlFor="metaTitle">Meta Title</Label><AiTextButton entity="category" entityId={selectedId || undefined} draft={() => formState} field="category.meta_title" label="Meta title" value={formState.metaTitle} onResult={(v) => setFormState({ ...formState, metaTitle: String(v).slice(0, 60) })} /></span>
                       {/* The storefront appends " | <store name>" to whatever is
                           typed here, so the budget that matters is well under 60. */}
                       <span className={`text-[11px] tabular-nums ${
@@ -705,7 +708,7 @@ const Categories: React.FC = () => {
                   </div>
                   <div className="space-y-2">
                     <div className="flex items-baseline justify-between">
-                      <Label htmlFor="metaDesc">Meta Description</Label>
+                      <span className="inline-flex items-center gap-2"><Label htmlFor="metaDesc">Meta Description</Label><AiTextButton entity="category" entityId={selectedId || undefined} draft={() => formState} field="category.meta_description" label="Meta description" value={formState.metaDesc} onResult={(v) => setFormState({ ...formState, metaDesc: String(v).slice(0, 170) })} /></span>
                       <span className={`text-[11px] tabular-nums ${
                         formState.metaDesc.length > 160 ? 'text-orange-600' : 'text-muted-foreground'
                       }`}>
@@ -719,6 +722,8 @@ const Categories: React.FC = () => {
                   <div className="space-y-2">
                     <Label>Social Share Image (Open Graph)</Label>
                     <ImageInputWithActions
+                      spec="category.og" entity="category" entityId={selectedId || undefined} draft={() => formState}
+                      referenceImages={formState.imageUrl ? [formState.imageUrl] : undefined}
                       value={formState.ogImageUrl || ''}
                       onChange={(url: string) => setFormState({ ...formState, ogImageUrl: url })}
                       folder="categories"

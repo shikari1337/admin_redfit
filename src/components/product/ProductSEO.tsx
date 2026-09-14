@@ -3,6 +3,7 @@ import { FaExternalLinkAlt } from 'react-icons/fa';
 import { SeoFormState, SLUG_MAX_LENGTH, META_TITLE_LIMIT, META_DESCRIPTION_LIMIT } from '../../types/productForm';
 import { slugifyValue } from '../../utils/slugify';
 import ImageInputWithActions from '../common/ImageInputWithActions';
+import { AiTextButton } from '../common/AiTextButton';
 import { FieldGroup, Field, fieldInputCls, fieldTextareaCls, fieldInputErrorCls } from './FormField';
 
 interface ProductSEOProps {
@@ -13,6 +14,9 @@ interface ProductSEOProps {
   websiteUrl?: string; // Website URL from settings
   productId?: string; // Product ID for image generation
   productName?: string; // Product name for context
+  /** The unsaved form, for AI context. */
+  draft?: () => Record<string, any> | null | undefined;
+  productImages?: string[];
   onSkuChange: (sku: string) => void;
   onSlugChange: (slug: string) => void;
   onSlugReset: () => void;
@@ -35,6 +39,8 @@ const ProductSEO: React.FC<ProductSEOProps> = ({
   websiteUrl,
   productId,
   productName,
+  draft,
+  productImages,
   onSkuChange,
   onSlugChange,
   onSlugReset,
@@ -153,7 +159,9 @@ const ProductSEO: React.FC<ProductSEOProps> = ({
         <div className="space-y-5">
           <Field label="Meta title" htmlFor="seoMetaTitle" error={errors.metaTitle}
             help={`The clickable headline in Google — keep it under ${META_TITLE_LIMIT} characters.`}
-            labelRight={<span className="text-xs text-gray-400">{seoData.title.length}/{META_TITLE_LIMIT}</span>}>
+            labelRight={<span className="text-xs text-gray-400">{seoData.title.length}/{META_TITLE_LIMIT}</span>}
+            where="The blue headline in Google results and the browser tab."
+            ai={<AiTextButton entity="product" entityId={productId} draft={draft} field="product.meta_title" label="Meta title" value={seoData.title} onResult={(v) => updateSeoField('title', String(v).slice(0, META_TITLE_LIMIT))} />}>
             <input
               id="seoMetaTitle"
               type="text"
@@ -169,7 +177,9 @@ const ProductSEO: React.FC<ProductSEOProps> = ({
 
           <Field label="Meta description" htmlFor="seoMetaDescription" error={errors.metaDescription}
             help={`The short blurb under the title in Google — up to ${META_DESCRIPTION_LIMIT} characters.`}
-            labelRight={<span className="text-xs text-gray-400">{seoData.description.length}/{META_DESCRIPTION_LIMIT}</span>}>
+            labelRight={<span className="text-xs text-gray-400">{seoData.description.length}/{META_DESCRIPTION_LIMIT}</span>}
+            where="The grey snippet under the headline in Google results."
+            ai={<AiTextButton entity="product" entityId={productId} draft={draft} field="product.meta_description" label="Meta description" value={seoData.description} onResult={(v) => updateSeoField('description', String(v).slice(0, META_DESCRIPTION_LIMIT))} />}>
             <textarea
               id="seoMetaDescription"
               rows={3}
@@ -211,7 +221,8 @@ const ProductSEO: React.FC<ProductSEOProps> = ({
               </div>
 
               <Field label="Meta keywords" htmlFor="seoMetaKeywords"
-                help="Comma-separated keywords (optional — most search engines ignore these).">
+                help="Comma-separated keywords (optional — most search engines ignore these)."
+                ai={<AiTextButton entity="product" entityId={productId} draft={draft} field="product.keywords" label="Keywords" format="json" onResult={(v: any) => updateSeoField('keywords', (Array.isArray(v?.keywords) ? v.keywords : []).join(', '))} />}>
                 <input
                   id="seoMetaKeywords"
                   type="text"
@@ -224,7 +235,8 @@ const ProductSEO: React.FC<ProductSEOProps> = ({
 
               <div className="grid gap-4 md:grid-cols-2">
                 <Field label="Social share title" htmlFor="seoOgTitle"
-                  help="Title used when the link is shared on WhatsApp, Facebook etc.">
+                  help="Title used when the link is shared on WhatsApp, Facebook etc."
+                  ai={<AiTextButton entity="product" entityId={productId} draft={draft} field="product.og_title" label="Social share title" value={seoData.ogTitle} onResult={(v) => updateSeoField('ogTitle', String(v))} />}>
                   <input
                     id="seoOgTitle"
                     type="text"
@@ -237,7 +249,11 @@ const ProductSEO: React.FC<ProductSEOProps> = ({
                 <ImageInputWithActions
                   value={seoData.ogImage || ''}
                   onChange={(url) => updateSeoField('ogImage', url)}
-                  label="Social share image URL"
+                  label="Social share image"
+                  spec="product.og"
+                  folder="products/og"
+                  draft={draft}
+                  referenceImages={productImages}
                   placeholder="https://example.com/og-image.jpg"
                   productId={productId}
                   sectionId="seo"
@@ -247,7 +263,8 @@ const ProductSEO: React.FC<ProductSEOProps> = ({
               </div>
 
               <Field label="Social share description" htmlFor="seoOgDescription"
-                help="Description shown under the title when the link is shared.">
+                help="Description shown under the title when the link is shared."
+                ai={<AiTextButton entity="product" entityId={productId} draft={draft} field="product.og_description" label="Social share description" value={seoData.ogDescription} onResult={(v) => updateSeoField('ogDescription', String(v))} />}>
                 <textarea
                   id="seoOgDescription"
                   rows={2}

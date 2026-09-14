@@ -17,6 +17,14 @@ export default {
   	},
   	extend: {
   		colors: {
+  			// Growcord identity — the same forest green the suite panels and the
+  			// platform console wear (super-admin/tailwind.config.js). Used SPARINGLY
+  			// in the store admin: the ✨ AI affordances, the active section in the
+  			// Product Page Studio, info tips — accents, never the page chrome.
+  			brand: {
+  				50: '#eef5f1', 100: '#d8ebe2', 200: '#b3d6c6', 300: '#86bba5', 400: '#579c83',
+  				500: '#3b8068', 600: '#2e6a56', 700: '#265747', 800: '#1f463a', 900: '#18372e', 950: '#0e231c',
+  			},
   			border: 'hsl(var(--border))',
   			input: 'hsl(var(--input))',
   			ring: 'hsl(var(--ring))',

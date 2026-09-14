@@ -127,9 +127,11 @@ export const HeroBlockEditor: React.FC<{ data: any; onChange: (data: any) => voi
         onChange={(url) => onChange({ ...data, imageUrl: url })}
         label="Background Image"
         placeholder="Enter image URL or upload"
-        productId={pageId}
-        sectionId="hero"
-        fieldPath="imageUrl"
+        spec="page.hero"
+        entity="page"
+        entityId={pageId}
+        folder="pages"
+        local={{ heading: data?.title, subtitle: data?.subtitle }}
       />
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">Call to Action Text</label>
@@ -190,9 +192,11 @@ export const ImageBlockEditor: React.FC<{ data: any; onChange: (data: any) => vo
         onChange={(url) => onChange({ ...data, image: url })}
         label="Image"
         placeholder="Enter image URL or upload"
-        productId={pageId}
-        sectionId="image"
-        fieldPath="image"
+        spec="page.image"
+        entity="page"
+        entityId={pageId}
+        folder="pages"
+        local={{ alt: data?.alt }}
       />
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">Alt Text</label>
@@ -233,9 +237,11 @@ export const TextImageBlockEditor: React.FC<{ data: any; onChange: (data: any) =
         onChange={(url) => onChange({ ...data, image: url })}
         label="Image"
         placeholder="Enter image URL or upload"
-        productId={pageId}
-        sectionId="text-image"
-        fieldPath="image"
+        spec="page.image"
+        entity="page"
+        entityId={pageId}
+        folder="pages"
+        local={{ heading: data?.title, body: String(data?.content || '').replace(/<[^>]*>/g, ' ').slice(0, 200) }}
       />
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">Image Position</label>
@@ -263,7 +269,7 @@ export const FeaturesBlockEditor: React.FC<{ data: any; onChange: (data: any) =>
       items={data?.items}
       onChange={(items) => onChange({ ...data, items })}
       blank={() => ({ icon: '', iconName: '', title: '', description: '', image: '' })}
-      render={(item: any, set, i) => (
+      render={(item: any, set) => (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 items-end">
             <IconPicker
@@ -279,8 +285,8 @@ export const FeaturesBlockEditor: React.FC<{ data: any; onChange: (data: any) =>
           <TextField label="Title" value={item.title} onChange={(v) => set({ title: v })} placeholder="Feature title" />
           <HtmlField label="Description" value={item.description} onChange={(v) => set({ description: v })} minHeight={90} />
           <ImageInputWithActions value={item.image || ''} onChange={(url) => set({ image: url })}
-            label="Image (optional)" placeholder="Upload or paste URL"
-            productId={pageId} sectionId="features" fieldPath={'items.' + i + '.image'} />
+            label="Image (optional)" placeholder="Upload or paste URL" compact
+            spec="page.image" entity="page" entityId={pageId} folder="pages" local={{ title: item.title }} />
         </>
       )}
     />
@@ -300,7 +306,7 @@ export const CTABlockEditor: React.FC<{ data: any; onChange: (data: any) => void
     </div>
     <ImageInputWithActions value={data?.backgroundImage || ''} onChange={(url) => onChange({ ...data, backgroundImage: url })}
       label="Background Image (optional)" placeholder="Upload or paste URL"
-      productId={pageId} sectionId="cta" fieldPath="backgroundImage" />
+      spec="home.cta_bg" entity="page" entityId={pageId} folder="pages" local={{ heading: data?.title, subtitle: data?.subtitle }} />
   </div>
 );
 

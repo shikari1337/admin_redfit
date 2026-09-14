@@ -33,9 +33,16 @@ const STATUS_TONE: Record<string, any> = {
   completed: 'green', rejected: 'red', cancelled: 'neutral',
 };
 
+/**
+ * What the goods turned out to be. `expired` is deliberately separate from
+ * `damaged`: an expired pack is undamaged stock that may never be sold, and on
+ * a homeopathy catalogue "lost to expiry" and "lost to breakage" are different
+ * problems needing different fixes.
+ */
 const DISPOSITIONS = [
   { code: 'resellable', label: 'Good — back on sale', icon: Recycle, cls: 'text-green-700 border-green-300 hover:bg-green-50' },
   { code: 'damaged',    label: 'Damaged — hold',      icon: ShieldAlert, cls: 'text-amber-700 border-amber-300 hover:bg-amber-50' },
+  { code: 'expired',    label: 'Expired — hold',      icon: Clock, cls: 'text-orange-700 border-orange-300 hover:bg-orange-50' },
   { code: 'scrapped',   label: 'Destroy',             icon: Trash2, cls: 'text-red-700 border-red-300 hover:bg-red-50' },
 ];
 
@@ -62,7 +69,11 @@ const ReturnDetailPanel: React.FC<Props> = ({
   const [showReceive, setShowReceive] = useState(false);
   const [showSettle, setShowSettle] = useState(false);
   const [pickupOpen, setPickupOpen] = useState(false);
-  const [pickup, setPickup] = useState({ courierName: '', awb: '', mode: '' });
+  const [pickup, setPickup] = useState({ courierName: '', awb: '', mode: '', provider: 'shiprocket', qc: false });
+  /** How many units of each line the next decision applies to. Received goods
+   *  are rarely all one thing — 3 back, 2 fine and 1 broken is the normal case,
+   *  and an all-or-nothing button cannot express it. */
+  const [dispQty, setDispQty] = useState<Record<string, number>>({});
   const [flash, setFlash] = useState('');
 
   const lines: any[] = doc?.lines ?? [];
@@ -97,14 +108,18 @@ const ReturnDetailPanel: React.FC<Props> = ({
     setBusy('pickup'); setError('');
     try {
       const res = await api.post(`/returns/${doc.id}/pickup`, {
-        mode: pickup.mode || doc.return_mode || 'pickup',
+        provider: pickup.provider,
+        // Shiprocket collects from the customer — the other modes are records
+        // of an arrangement the store made off-system.
+        mode: pickup.provider === 'shiprocket' ? 'pickup' : (pickup.mode || doc.return_mode || 'pickup'),
         courierName: pickup.courierName.trim() || undefined,
         awb: pickup.awb.trim() || undefined,
+        qualityCheck: pickup.provider === 'shiprocket' ? pickup.qc : undefined,
       });
       const out = payload<any>(res);
       setPickupOpen(false);
-      setPickup({ courierName: '', awb: '', mode: '' });
-      setFlash(`Collection booked (attempt ${out?.attemptNo ?? 1}). It now shows on the shipments board.`);
+      setPickup({ courierName: '', awb: '', mode: '', provider: 'shiprocket', qc: false });
+      setFlash(out?.message ?? `Collection booked (attempt ${out?.attemptNo ?? 1}).`);
       await refresh();
     } catch (e: any) {
       setError(e?.response?.data?.message || 'Could not book the collection.');
@@ -117,10 +132,13 @@ const ReturnDetailPanel: React.FC<Props> = ({
       await api.post(`/returns/${doc.id}/items/${itemId}/disposition`, { disposition: code, qty }, {
         headers: { 'X-Idempotency-Key': `disp-${itemId}-${code}-${qty}` },
       });
+      setDispQty((q) => { const n = { ...q }; delete n[itemId]; return n; });
       await refresh();
-      setFlash(code === 'resellable'
-        ? 'Put back on sale.'
-        : code === 'damaged' ? 'Held out of sale as damaged.' : 'Written off.');
+      setFlash(
+        code === 'resellable' ? `${qty} unit(s) put back on sale.`
+        : code === 'damaged'  ? `${qty} unit(s) held out of sale as damaged.`
+        : code === 'expired'  ? `${qty} unit(s) held out of sale as expired.`
+        : `${qty} unit(s) written off.`);
     } catch (e: any) {
       setError(e?.response?.data?.message || 'Could not record that decision.');
     } finally { setBusy(''); }
@@ -237,26 +255,58 @@ const ReturnDetailPanel: React.FC<Props> = ({
               </div>
               {pickupOpen && (
                 <div className="mt-3 pt-3 border-t border-border grid sm:grid-cols-3 gap-2">
-                  <select value={pickup.mode}
-                          onChange={(e) => setPickup((p) => ({ ...p, mode: e.target.value }))}
-                          className="rounded-md border border-border bg-background px-2 py-1.5 text-sm">
-                    <option value="">How it comes back…</option>
-                    <option value="pickup">Courier collects it</option>
-                    <option value="self_ship">Customer ships it back</option>
-                    <option value="drop_off">Customer drops it off</option>
+                  {/* WHO carries it. Shiprocket actually books the reverse pickup
+                      and returns an AWB; the others only record an arrangement. */}
+                  <select value={pickup.provider}
+                          onChange={(e) => setPickup((p) => ({ ...p, provider: e.target.value }))}
+                          className="sm:col-span-3 rounded-md border border-border bg-background px-2 py-1.5 text-sm">
+                    <option value="shiprocket">Book with Shiprocket — they collect from the customer</option>
+                    <option value="manual">Record it myself (no courier is called)</option>
                   </select>
-                  <input placeholder="Courier (optional)" value={pickup.courierName}
-                         onChange={(e) => setPickup((p) => ({ ...p, courierName: e.target.value }))}
-                         className="rounded-md border border-border bg-background px-2 py-1.5 text-sm" />
-                  <input placeholder="AWB / tracking (optional)" value={pickup.awb}
-                         onChange={(e) => setPickup((p) => ({ ...p, awb: e.target.value }))}
-                         className="rounded-md border border-border bg-background px-2 py-1.5 text-sm" />
+
+                  {pickup.provider === 'shiprocket' ? (
+                    <>
+                      <label className="sm:col-span-3 flex items-start gap-2 text-xs text-muted-foreground">
+                        <input type="checkbox" checked={pickup.qc}
+                               onChange={(e) => setPickup((p) => ({ ...p, qc: e.target.checked }))}
+                               className="h-3.5 w-3.5 mt-0.5 accent-primary" />
+                        <span>
+                          <strong className="text-foreground">Check the item at the door.</strong>{' '}
+                          The rider inspects it against the product before accepting it — you find
+                          out at the customer&apos;s doorstep instead of at your dock.
+                        </span>
+                      </label>
+                      <p className="sm:col-span-3 text-xs text-muted-foreground">
+                        Shiprocket collects from the address on the order and delivers to your
+                        warehouse. The AWB comes back here and the collection appears on the
+                        shipments board. Nothing is added to stock until the goods arrive and you
+                        book them in.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <select value={pickup.mode}
+                              onChange={(e) => setPickup((p) => ({ ...p, mode: e.target.value }))}
+                              className="rounded-md border border-border bg-background px-2 py-1.5 text-sm">
+                        <option value="">How it comes back…</option>
+                        <option value="pickup">Courier collects it</option>
+                        <option value="self_ship">Customer ships it back</option>
+                        <option value="drop_off">Customer drops it off</option>
+                      </select>
+                      <input placeholder="Courier (optional)" value={pickup.courierName}
+                             onChange={(e) => setPickup((p) => ({ ...p, courierName: e.target.value }))}
+                             className="rounded-md border border-border bg-background px-2 py-1.5 text-sm" />
+                      <input placeholder="AWB / tracking (optional)" value={pickup.awb}
+                             onChange={(e) => setPickup((p) => ({ ...p, awb: e.target.value }))}
+                             className="rounded-md border border-border bg-background px-2 py-1.5 text-sm" />
+                    </>
+                  )}
                   <div className="sm:col-span-3 flex gap-2">
                     <button onClick={bookPickup} disabled={busy === 'pickup'}
                             className="px-3 py-1.5 text-sm rounded-md bg-primary text-primary-foreground font-medium
                                        hover:bg-primary/90 disabled:opacity-50 inline-flex items-center gap-2">
                       {busy === 'pickup' && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                      Book collection
+                      {pickup.provider === 'shiprocket' ? 'Book with Shiprocket' : 'Record collection'}
                     </button>
                     <button onClick={() => setPickupOpen(false)}
                             className="px-3 py-1.5 text-sm rounded-md border border-border hover:bg-muted">
@@ -331,14 +381,33 @@ const ReturnDetailPanel: React.FC<Props> = ({
                         <p className="text-xs text-muted-foreground mb-2">
                           {outstanding} unit{outstanding !== 1 ? 's' : ''} in quarantine — what condition?
                         </p>
-                        <div className="flex gap-2 flex-wrap">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {/* How many this decision covers. Defaults to everything
+                              still waiting, so the common case is one click. */}
+                          {outstanding > 1 && (
+                            <div className="inline-flex items-center gap-1 mr-1">
+                              <button type="button" aria-label="Fewer"
+                                      onClick={() => setDispQty((q) => ({
+                                        ...q, [l.id]: Math.max(1, (q[l.id] ?? outstanding) - 1) }))}
+                                      className="h-7 w-7 rounded-md border border-border hover:bg-muted">−</button>
+                              <span className="w-8 text-center text-xs font-semibold tabular-nums">
+                                {Math.min(dispQty[l.id] ?? outstanding, outstanding)}
+                              </span>
+                              <button type="button" aria-label="More"
+                                      onClick={() => setDispQty((q) => ({
+                                        ...q, [l.id]: Math.min(outstanding, (q[l.id] ?? outstanding) + 1) }))}
+                                      className="h-7 w-7 rounded-md border border-border hover:bg-muted">+</button>
+                              <span className="text-xs text-muted-foreground ml-1">of {outstanding}</span>
+                            </div>
+                          )}
                           {DISPOSITIONS.map((d) => {
                             const Icon = d.icon;
+                            const qty = Math.min(dispQty[l.id] ?? outstanding, outstanding);
                             return (
                               <button
                                 key={d.code}
                                 disabled={!!busy}
-                                onClick={() => disposition(l.id, d.code, outstanding)}
+                                onClick={() => disposition(l.id, d.code, qty)}
                                 className={`text-xs px-3 py-1.5 rounded-md border inline-flex items-center gap-1.5
                                             disabled:opacity-50 ${d.cls}`}
                               >

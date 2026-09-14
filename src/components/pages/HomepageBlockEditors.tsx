@@ -19,6 +19,8 @@ interface Field {
   label: string;
   type: FieldType;
   help?: string;
+  /** Image slot key (config/imageSpecs.ts) — sizes the hint, the check and the AI output. */
+  spec?: string;
   options?: { value: string; label: string }[];   // select
   itemFields?: Field[];           // list (array of objects)
   itemLabel?: string;             // list
@@ -71,7 +73,7 @@ const titleSub: Field[] = [
   { key: 'subtitle', label: 'Subtitle', type: 'text' },
 ];
 const bannerFields: Field[] = [
-  { key: 'imageUrl', label: 'Image URL', type: 'image' },
+  { key: 'imageUrl', label: 'Image', type: 'image', spec: 'home.promo' },
   { key: 'buttonUrl', label: 'Link URL', type: 'url' },
 ];
 const iconItem: Field[] = [
@@ -80,7 +82,7 @@ const iconItem: Field[] = [
   { key: 'desc', label: 'Description', type: 'text' },
 ];
 const splitSide: Field[] = [
-  { key: 'imageUrl', label: 'Image URL', type: 'image' },
+  { key: 'imageUrl', label: 'Image', type: 'image', spec: 'home.split' },
   { key: 'badge', label: 'Badge', type: 'text' },
   { key: 'title', label: 'Title', type: 'text' },
   { key: 'subtitle', label: 'Subtitle', type: 'text' },
@@ -91,7 +93,7 @@ const splitSide: Field[] = [
 export const HOMEPAGE_SCHEMAS: Record<string, Field[]> = {
   'hero-carousel': [
     { key: 'items', label: 'Slides', type: 'list', itemLabel: 'Slide', itemFields: [
-      { key: 'imageUrl', label: 'Image URL', type: 'image' },
+      { key: 'imageUrl', label: 'Image', type: 'image', spec: 'home.hero' },
       { key: 'buttonText', label: 'Button text', type: 'text' },
       { key: 'buttonUrl', label: 'Button link', type: 'url' },
     ] },
@@ -305,7 +307,10 @@ function FieldInput({ field, data, onChange }: { field: Field; data: any; onChan
         label={field.label}
         value={val ?? ''}
         onChange={(url) => set(url)}
-        folder="pages"
+        folder="banners"
+        spec={field.spec || 'home.promo'}
+        entity="store"
+        local={{ heading: data?.title, subtitle: data?.subtitle, badge: data?.badge }}
       />
     );
   }
