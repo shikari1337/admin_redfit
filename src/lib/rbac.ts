@@ -8,7 +8,9 @@
 export type ErpRole =
   | 'admin' | 'staff' | 'accountant' | 'auditor' | 'store_manager' | 'warehouse_manager'
   | 'marketing_manager' | 'warehouse_worker' | 'dispatcher' | 'purchasing_officer'
-  | 'pos_operator';
+  | 'pos_operator'
+  // Growcord Ship — the courier shop / aggregator organisation's own staff.
+  | 'ship_counter' | 'ship_ops' | 'ship_finance';
 
 export const ROLE_LABELS: Record<ErpRole, string> = {
   admin: 'Administrator',
@@ -22,12 +24,16 @@ export const ROLE_LABELS: Record<ErpRole, string> = {
   dispatcher: 'Dispatcher (shipments)',
   purchasing_officer: 'Purchasing Officer',
   pos_operator: 'POS Operator (counter sales)',
+  ship_counter: 'Ship Counter Clerk',
+  ship_ops: 'Ship Operations',
+  ship_finance: 'Ship Finance',
 };
 
 export const ASSIGNABLE_ROLES: ErpRole[] = [
   'staff', 'accountant', 'auditor', 'store_manager', 'warehouse_manager',
   'marketing_manager', 'warehouse_worker', 'dispatcher', 'purchasing_officer',
   'pos_operator',
+  'ship_counter', 'ship_ops', 'ship_finance',
 ];
 
 /**
@@ -83,12 +89,22 @@ const ROLE_PERMISSIONS: Record<ErpRole, string[]> = {
                        'reports.read'],
   pos_operator: ['orders.manage', 'products.read',
                  'customers.manage', 'inventory.read'],
+  // Growcord Ship. `ship.*` is the OPERATOR running the courier business, not a
+  // merchant booking its own parcels (that is `shipments.*`). Default-deny
+  // everywhere else: a Ship employee who reaches a merchant panel reads nothing.
+  // The counter clerk also needs the POS till, which is orders/customers.
+  ship_counter: ['ship.book', 'orders.manage', 'customers.manage', 'products.read'],
+  ship_ops: ['ship.ops', 'ship.book'],
+  ship_finance: ['ship.finance', 'ship.read', 'billing.read', 'accounting.read', 'reports.read'],
 };
 
 // `run` (payroll.run) implies payroll.read — mirrors the backend's IMPLIES_READ.
 // `grant` (partner.grant) likewise implies partner.read: you cannot sensibly
 // hand a partner a scope without being able to see the partnership.
-const IMPLIES_READ = ['manage', 'delete', 'post', 'adjust', 'receive', 'send', 'approve', 'run', 'grant'];
+// Growcord Ship's verbs (book/ops/finance/admin) are acts on the `ship` area, so
+// each implies ship.read — mirroring the backend's own IMPLIES_READ exactly.
+const IMPLIES_READ = ['manage', 'delete', 'post', 'adjust', 'receive', 'send', 'approve', 'run', 'grant',
+                      'book', 'ops', 'finance', 'admin'];
 
 function withImpliedReads(perms: string[]): string[] {
   const out = new Set(perms);
@@ -135,6 +151,12 @@ export const ROLE_WORKSPACES: Record<ErpRole, WorkspaceKey[]> = {
   dispatcher: ['orders'],
   purchasing_officer: ['purchasing'],
   pos_operator: ['orders'],
+  // Ship's people work in the Ship panel, not this admin. `orders`/`accounting`
+  // is only where "Exit" lands them; there is no `ship` workspace here and
+  // inventing one would be a shell with nothing in it.
+  ship_counter: ['orders'],
+  ship_ops: ['orders'],
+  ship_finance: ['accounting'],
 };
 
 export function workspacesFor(role?: string): WorkspaceKey[] {
