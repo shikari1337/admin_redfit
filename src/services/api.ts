@@ -1531,6 +1531,15 @@ export interface OrderCommunicationEntry {
   provider: string | null;
   provider_message_id: string | null;
   error: string | null;
+  /** Why the hub REFUSED to send — template missing, consent, quiet hours. */
+  skipped_reason?: string | null;
+  deferred_until?: string | null;
+  purpose_category?: string | null;
+  /** Catalogue title for the event ("Order Confirmation"). */
+  title?: string | null;
+  description?: string | null;
+  /** The template body this send used — the store's override, else the platform default. */
+  body?: string | null;
   actor_name: string | null;
   is_automated: boolean;
   created_at: string;
@@ -1560,12 +1569,18 @@ export interface OrderLinkGroup {
   label: string;
   purpose: string;
   longUrl: string;
-  channels: Record<'whatsapp' | 'sms' | 'email', OrderChannelLink>;
+  /**
+   * ONE short link for this destination. It used to be three (one per channel)
+   * for the same pay page, which left the desk choosing between near-identical
+   * URLs; the per-channel split still applies to messages the system sends
+   * itself, where it can actually say which one earned the click.
+   */
+  link: OrderChannelLink;
 }
 
 export const ordersAPI = {
   /**
-   * Every link this order can send a customer, one per channel.
+   * Every link this order can send a customer — one per destination.
    *
    * Separate from the order payload because minting them calls the shortener:
    * folding it into the order fetch would put a third-party round trip in front
@@ -1688,6 +1703,19 @@ export const ordersAPI = {
    *  reports the real provider error rather than a cheerful success. */
   notify: async (id: string, event: string, channel?: 'whatsapp' | 'sms' | 'email') => {
     const response = await api.post(`/orders/${id}/notify`, { event, channel });
+    return response.data;
+  },
+  /**
+   * The same message on SEVERAL channels at once — not the priority chain,
+   * which sends WhatsApp and only falls back to SMS if that failed.
+   *
+   * A COD pay-link is the case that needs it: the store wants the link in the
+   * customer's WhatsApp AND their inbox. Each channel is its own send with its
+   * own row in the order's Communication Log, so a partial success names
+   * exactly which one did not go and why.
+   */
+  notifyAll: async (id: string, event: string, channels: Array<'whatsapp' | 'sms' | 'email'>) => {
+    const response = await api.post(`/orders/${id}/notify`, { event, channels });
     return response.data;
   },
   // "Confirmed" and "Completed" are just status transitions handled by /status

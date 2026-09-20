@@ -1,89 +1,88 @@
 /**
- * Every link this order can send a customer — one per channel, ready to copy.
+ * Every link this order can send a customer — ONE per destination, ready to copy.
  *
  * Before this, "send the customer their payment link" meant copying a
  * 90-character signed URL out of the order payload and pasting it into WhatsApp
- * by hand. That link was untracked, and indistinguishable from the same link sent
- * by SMS an hour later, so nobody could say which message actually got paid.
+ * by hand. That link was untracked, so nobody could say which message got paid.
  *
- * Each row is a purpose (payment, tracking, invoice, abandoned cart) and each
- * column a channel, because the links genuinely differ: three short links to the
- * same pay page are what make "the WhatsApp nudge worked, the SMS did not" a
- * question with an answer.
+ * It then over-corrected: the card minted a SEPARATE short link per channel, so
+ * a COD order presented the desk with three near-identical URLs for one pay page
+ * and made them choose. Per-channel links are the right answer for messages the
+ * system SENDS — that is what makes "the WhatsApp nudge worked, the SMS was
+ * wasted" answerable — but a staff member copying a link has not picked a
+ * channel yet. Stamping one on records a guess as a fact.
  *
- * Loads with the order, so the short link is simply THERE when staff open the
- * page — the point of the card is that nobody has to think about it. The cost is
- * one shortener round trip the first time a given order is opened; the service
- * memoises long → short for 24h per store/channel/purpose, so every later view of
- * the same order is free, and the fetch is separate from the order payload so a
- * slow shortener never delays the page itself.
+ * So: one link per destination, minted on the `share` channel, which says
+ * exactly what it is. Automatic sends still shorten per channel, untouched.
+ *
+ * Loads with the order, so the link is simply THERE when staff open the page.
+ * The shortener memoises long → short for 24h per store/channel/purpose, so
+ * every later view of the same order is free, and the fetch is separate from
+ * the order payload so a slow shortener never delays the page itself.
  *
  * Two states are called out rather than hidden, both because a silent version
  * costs a real send:
  *   - `shortened: false` — the long URL is shown and works, but it is long.
- *   - SMS over 30 characters — the DLT gateway rejects the WHOLE message, so a
- *     "working" link that does not fit is worse than no link, and is flagged red.
+ *   - over 30 characters — the DLT gateway rejects the WHOLE SMS, so a
+ *     "working" link that does not fit is worse than no link.
  */
 import { useEffect, useState } from 'react';
-import { FaLink, FaWhatsapp, FaSms, FaEnvelope, FaRegCopy, FaCheck, FaExclamationTriangle } from 'react-icons/fa';
-import { ordersAPI, type OrderChannelLink, type OrderLinkGroup } from '../../services/api';
+import { FaLink, FaRegCopy, FaCheck, FaExclamationTriangle, FaExternalLinkAlt } from 'react-icons/fa';
+import { ordersAPI, type OrderLinkGroup } from '../../services/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 
-const CHANNELS = [
-  { key: 'whatsapp' as const, label: 'WhatsApp', Icon: FaWhatsapp, tone: 'text-green-600' },
-  { key: 'sms' as const, label: 'SMS', Icon: FaSms, tone: 'text-sky-600' },
-  { key: 'email' as const, label: 'Email', Icon: FaEnvelope, tone: 'text-slate-500' },
-];
-
-function ChannelCell({ link, channel }: { link?: OrderChannelLink; channel: 'whatsapp' | 'sms' | 'email' }) {
+function LinkRow({ group }: { group: OrderLinkGroup }) {
   const [copied, setCopied] = useState(false);
   const { toast } = useToast();
-
-  if (!link) return <td className="px-2 py-2 text-xs text-muted-foreground">—</td>;
-
-  // Only SMS is actually rejected over the DLT ceiling; flagging it on WhatsApp
-  // would be noise, and staff would learn to ignore the warning that matters.
-  const tooLongForSms = channel === 'sms' && !link.fits;
+  const link = group.link;
 
   const copy = async () => {
-    await navigator.clipboard.writeText(link.url);
+    await navigator.clipboard.writeText(link?.url ?? group.longUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
-    toast({ title: 'Link copied' });
+    toast({ title: `${group.label} copied` });
   };
 
+  const url = link?.url ?? group.longUrl;
+
   return (
-    <td className="px-2 py-2 align-top">
-      <div className="flex items-start gap-1.5">
-        <button
-          type="button"
-          onClick={copy}
-          title={link.shortened ? `Copy — full link: ${link.longUrl}` : 'Copy'}
-          className="shrink-0 rounded p-1 hover:bg-muted"
-          aria-label={`Copy ${channel} link`}
-        >
-          {copied ? <FaCheck className="h-3 w-3 text-emerald-600" /> : <FaRegCopy className="h-3 w-3" />}
-        </button>
-        <div className="min-w-0">
-          <p className="truncate font-mono text-xs" title={link.url}>{link.url}</p>
-          {tooLongForSms && (
-            <p className="mt-0.5 flex items-center gap-1 text-[11px] text-red-600">
-              <FaExclamationTriangle className="h-2.5 w-2.5 shrink-0" />
-              {link.url.length} chars — over the 30-char DLT slot, this SMS will be rejected
-            </p>
-          )}
-          {!link.shortened && (
-            <p className="mt-0.5 text-[11px] text-amber-600">
-              Not shortened{link.reason === 'disabled' ? ' — switched off for this store' : ''}
-              {link.reason === 'no_shortener' ? ' — no shortener configured' : ''}
-              {link.reason === 'provider_failed' ? ' — the shortener did not respond' : ''}
-            </p>
-          )}
-        </div>
+    <div className="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2.5">
+      <div className="min-w-0 flex-1">
+        <p className="text-[13px] font-semibold text-slate-800">{group.label}</p>
+        <p className="mt-0.5 truncate font-mono text-xs text-slate-600" title={link?.longUrl ?? group.longUrl}>
+          {url}
+        </p>
+        {link && !link.shortened && (
+          <p className="mt-1 text-[11px] text-amber-700">
+            Not shortened — this is the full link. It works, it is just long.
+          </p>
+        )}
+        {link?.shortened && !link.fits && (
+          <p className="mt-1 flex items-center gap-1 text-[11px] font-medium text-red-600">
+            <FaExclamationTriangle className="h-3 w-3" />
+            Over 30 characters — an SMS gateway will reject the whole message.
+          </p>
+        )}
       </div>
-    </td>
+
+      <div className="flex shrink-0 items-center gap-1">
+        <Button type="button" variant="outline" size="sm" className="h-7 px-2" onClick={copy}>
+          {copied ? <FaCheck className="h-3 w-3 text-emerald-600" /> : <FaRegCopy className="h-3 w-3" />}
+          <span className="ml-1.5 text-xs">{copied ? 'Copied' : 'Copy'}</span>
+        </Button>
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Open in a new tab"
+          className="rounded p-1.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+        >
+          <FaExternalLinkAlt className="h-3 w-3" />
+        </a>
+      </div>
+    </div>
   );
 }
 
@@ -121,17 +120,17 @@ export function OrderLinksCard({ orderId }: { orderId: string }) {
   }, [orderId]);
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <FaLink className="h-4 w-4 text-muted-foreground" /> Customer links
+    <Card className="shadow-sm">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 border-b bg-slate-50/80 px-4 py-2.5">
+        <CardTitle className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+          <FaLink className="h-3.5 w-3.5 text-slate-400" /> Customer links
         </CardTitle>
         <Button type="button" variant="outline" size="sm" className="h-7" disabled={loading} onClick={load}>
           {loading ? 'Loading…' : 'Refresh'}
         </Button>
       </CardHeader>
 
-      <CardContent>
+      <CardContent className="p-4">
         {loading && !links && (
           <p className="text-sm text-muted-foreground">Shortening this order's links…</p>
         )}
@@ -145,39 +144,13 @@ export function OrderLinksCard({ orderId }: { orderId: string }) {
         )}
 
         {links && links.length > 0 && (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-sm">
-              <thead>
-                <tr className="border-b text-left text-xs text-muted-foreground">
-                  <th className="px-2 py-2 font-medium">Link</th>
-                  {CHANNELS.map((c) => (
-                    <th key={c.key} className="px-2 py-2 font-medium">
-                      <span className="flex items-center gap-1.5">
-                        <c.Icon className={`h-3 w-3 ${c.tone}`} /> {c.label}
-                      </span>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {links.map((group) => (
-                  <tr key={group.key} className="border-b last:border-0 align-top">
-                    <td className="px-2 py-2">
-                      <p className="font-medium">{group.label}</p>
-                      <p className="truncate max-w-[220px] text-[11px] text-muted-foreground" title={group.longUrl}>
-                        {group.longUrl}
-                      </p>
-                    </td>
-                    {CHANNELS.map((c) => (
-                      <ChannelCell key={c.key} channel={c.key} link={group.channels?.[c.key]} />
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="space-y-2">
+            {links.map((group) => <LinkRow key={group.key} group={group} />)}
           </div>
         )}
       </CardContent>
     </Card>
   );
 }
+
+export default OrderLinksCard;

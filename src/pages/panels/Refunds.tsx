@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Undo2, Loader2, CheckCircle2, XCircle, Send, RotateCw, X, Plus, ShieldCheck, AlertTriangle,
+  ShieldAlert, KeyRound, Link2,
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { payload } from '@/lib/unwrap';
@@ -8,6 +9,7 @@ import {
   Page, PageHeader, Btn, FilterBar, Field, TextInput, SelectInput,
   StatCard, StatGrid, TableShell, THead, Th, TBody, Tr, Td, EmptyRow, EmptyState, Chip,
 } from '../../components/erp';
+import RefundDossier from '../../components/refunds/RefundDossier';
 
 /**
  * REFUND AUTOMATION (migration 081). The plain-language screen for "a prepaid
@@ -51,6 +53,12 @@ interface Refund {
   reference: string | null;
   approval_request_id: string | null;
   rejected_reason: string | null;
+  // Migration 210 — the break-glass register and the two links that were missing.
+  self_approved_reason?: string | null;
+  self_approved_at?: string | null;
+  other_approvers_at_approval?: number | null;
+  credit_note_id?: string | null;
+  return_id?: string | null;
   executed_at: string | null;
   created_at: string;
 }
@@ -68,7 +76,23 @@ interface Summary {
     autoRequestOnRto: boolean;
     autoRequestOnCreditNote: boolean;
     autoRequestOnCancellation: boolean;
+    requireSecondApprover?: boolean;
   };
+}
+
+/**
+ * Who — other than the person who raised it — could sign this refund off.
+ * `GET /refunds/:id/approvers`. The difference between "ask your manager" and
+ * "nobody here can approve this" is the whole reason this screen asks: telling
+ * an owner the first when they are in the second is how refunds sat in a queue
+ * for weeks.
+ */
+interface Approvers {
+  others: number;
+  otherEmails: string[];
+  deadlocked: boolean;
+  requireSecondApprover: boolean;
+  canSelfApprove: boolean;
 }
 
 /** One vocabulary for the pipeline, in shop English. */
@@ -112,6 +136,11 @@ const Refunds: React.FC = () => {
   const [reason, setReason] = useState('');
   const [reference, setReference] = useState('');
 
+  // Who could sign THIS refund, and the break-glass reason if nobody can.
+  const [approvers, setApprovers] = useState<Approvers | null>(null);
+  const [glassReason, setGlassReason] = useState('');
+  const [showDossier, setShowDossier] = useState(false);
+
   // "refund by hand" form
   const [creating, setCreating] = useState(false);
   const [orderNumber, setOrderNumber] = useState('');
@@ -130,6 +159,7 @@ const Refunds: React.FC = () => {
   const [policyOnCancel, setPolicyOnCancel] = useState(true);
   const [policyOnRto, setPolicyOnRto] = useState(true);
   const [policyOnCreditNote, setPolicyOnCreditNote] = useState(true);
+  const [policySecondApprover, setPolicySecondApprover] = useState(true);
 
   const err = (e: any) => setMsg(e?.response?.data?.message ?? e?.message ?? 'Something went wrong.');
 
@@ -142,16 +172,32 @@ const Refunds: React.FC = () => {
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [status]);
 
   const openDetail = async (id: string) => {
-    setMsg(''); setOk(''); setReason(''); setReference('');
-    try { setDetail(payload<Refund>(await api.get(`/refunds/${id}`))); setCreating(false); }
-    catch (e) { err(e); }
+    setMsg(''); setOk(''); setReason(''); setReference(''); setGlassReason('');
+    setApprovers(null); setShowDossier(false);
+    try {
+      const r = payload<Refund>(await api.get(`/refunds/${id}`));
+      setDetail(r); setCreating(false);
+      // Only a refund still waiting needs to know who could sign it. Asking on
+      // a completed one would put a dead-end warning on a finished refund.
+      if (r?.status === 'requested') {
+        api.get(`/refunds/${id}/approvers`)
+          .then((a) => setApprovers(payload<Approvers>(a)))
+          .catch(() => setApprovers(null));   // advice only — never blocks the screen
+      }
+    } catch (e) { err(e); }
   };
 
-  const act = async (verb: 'approve' | 'reject' | 'execute') => {
+  const act = async (verb: 'approve' | 'reject' | 'execute', selfApprove = false) => {
     if (!detail) return;
     setBusy(true); setMsg(''); setOk('');
     try {
-      const body = verb === 'execute' ? { reference: reference.trim() || null } : { reason: reason.trim() || null };
+      const body = verb === 'execute'
+        ? { reference: reference.trim() || null }
+        // BREAK THE GLASS: the reason is the record of WHY the two-person rule
+        // was stepped around, so it is sent as the decision's reason.
+        : selfApprove
+          ? { reason: glassReason.trim(), selfApprove: true }
+          : { reason: reason.trim() || null };
       const res = await api.post(`/refunds/${detail.id}/${verb}`, body);
       const m = (res as any)?.message ?? (res as any)?.data?.message;
       // The execute route answers 200 even when the gateway refused — read `ok`.
@@ -173,6 +219,7 @@ const Refunds: React.FC = () => {
         autoRequestOnCancellation: policyOnCancel,
         autoRequestOnRto: policyOnRto,
         autoRequestOnCreditNote: policyOnCreditNote,
+        requireSecondApprover: policySecondApprover,
       });
       setEditingPolicy(false);
       setOk('Refund rules saved.');
@@ -250,6 +297,9 @@ const Refunds: React.FC = () => {
           {' '}Cancelled paid orders {summary.config.autoRequestOnCancellation ? 'open a refund automatically' : 'do NOT open a refund automatically'};
           {' '}returned parcels {summary.config.autoRequestOnRto ? 'do too' : 'do not'};
           {' '}cash/bank credit notes {summary.config.autoRequestOnCreditNote ? 'do too' : 'do not'}.
+          {' '}{summary.config.requireSecondApprover !== false
+            ? 'A refund must be approved by someone other than the person who raised it.'
+            : 'Anyone who can approve refunds may approve their own.'}
           {' '}
           <button type="button" className="underline hover:text-gray-700"
             onClick={() => {
@@ -258,6 +308,7 @@ const Refunds: React.FC = () => {
               setPolicyOnCancel(summary.config.autoRequestOnCancellation !== false);
               setPolicyOnRto(summary.config.autoRequestOnRto !== false);
               setPolicyOnCreditNote(summary.config.autoRequestOnCreditNote !== false);
+              setPolicySecondApprover(summary.config.requireSecondApprover !== false);
             }}>
             Change
           </button>
@@ -291,6 +342,25 @@ const Refunds: React.FC = () => {
             <label className="flex items-center gap-2">
               <input type="checkbox" checked={policyOnCreditNote} onChange={(e) => setPolicyOnCreditNote(e.target.checked)} />
               A cash/bank-settled credit note opens a refund automatically
+            </label>
+          </div>
+          {/* The two-person rule. It is a real financial control, so it is
+              presented as one — switching it off is a decision the owner makes
+              deliberately, not a hidden default. A one-person store genuinely
+              cannot satisfy it, which is exactly why the switch exists. */}
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+            <label className="flex items-start gap-2 text-sm text-gray-800">
+              <input type="checkbox" className="mt-1" checked={policySecondApprover}
+                onChange={(e) => setPolicySecondApprover(e.target.checked)} />
+              <span>
+                <strong>A refund must be approved by a second person</strong>
+                <span className="mt-0.5 block text-xs text-gray-500">
+                  On by default. Whoever raises a refund cannot be the one who approves it.
+                  If you are the only person here who can approve refunds, nothing can ever be
+                  approved while this is on — switch it off, or approve each one yourself with a
+                  reason (which is recorded as an exception).
+                </span>
+              </span>
             </label>
           </div>
           <div className="flex gap-2">
@@ -355,6 +425,17 @@ const Refunds: React.FC = () => {
                 {detail.attempt_count > 0 && ` · ${detail.attempt_count} attempt(s)`}
               </div>
               {detail.reason && <div className="mt-1 text-xs text-gray-600">“{detail.reason}”</div>}
+              {/* The refund's OWN id. A refund with no gateway reference (store
+                  credit, an adjustment, one recorded by hand) previously had no
+                  quotable identifier anywhere on this screen. */}
+              <div className="mt-1 text-xs text-gray-400">
+                Refund id <code className="rounded bg-gray-100 px-1 py-0.5 text-[11px] text-gray-600">{detail.id}</code>
+              </div>
+              {detail.self_approved_at && (
+                <div className="mt-1 inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-800">
+                  <ShieldAlert className="h-3 w-3" />Approved by the person who raised it
+                </div>
+              )}
             </div>
             <Btn variant="ghost" onClick={() => setDetail(null)}><X className="h-4 w-4" />Close</Btn>
           </div>
@@ -378,10 +459,35 @@ const Refunds: React.FC = () => {
               Turned down{detail.rejected_reason ? `: ${detail.rejected_reason}` : '.'} No money went out.
             </div>
           )}
+          {/* WHO CAN SIGN THIS. The old strip said "a manager must approve
+              this" to every store — including one that has no second approver
+              at all, where that sentence sends the owner looking for a person
+              who does not exist. It now says which situation this store is in. */}
           {detail.status === 'requested' && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              Nothing has been paid yet. A manager must approve this before the money can leave.
-            </div>
+            approvers?.deadlocked ? (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                <div className="flex items-center gap-1.5 font-semibold">
+                  <ShieldAlert className="h-3.5 w-3.5" />Nobody else here can approve this refund
+                </div>
+                <p className="mt-1">
+                  You raised it, and no one else on this store holds a role that can sign it off — so the
+                  two-person rule cannot be satisfied as things stand. Nothing has been paid. You can:
+                </p>
+                <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                  <li>give someone else the manager role, and let them approve it; or</li>
+                  <li>switch off <strong>“a refund must be approved by a second person”</strong> in the refund rules above; or</li>
+                  <li>approve it yourself with a reason — recorded permanently as an exception.</li>
+                </ul>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                Nothing has been paid yet.{' '}
+                {approvers && approvers.others > 0
+                  ? <>Someone other than you must approve it first — {approvers.otherEmails.slice(0, 3).join(', ')}
+                      {approvers.others > 3 ? ` and ${approvers.others - 3} more` : ''} can.</>
+                  : <>It must be approved before the money can leave.</>}
+              </div>
+            )
           )}
 
           {canApprove && (
@@ -397,6 +503,36 @@ const Refunds: React.FC = () => {
                   <XCircle className="h-4 w-4" />Turn down
                 </Btn>
               </div>
+
+              {/* BREAK THE GLASS. Offered ONLY when the server says this store
+                  has no other approver and you are the owner who raised it —
+                  the one case the override exists for. The server re-checks all
+                  of that inside the transaction, so this button can never be
+                  the thing that authorises it. */}
+              {approvers?.canSelfApprove && (
+                <div className="mt-2 space-y-2 rounded-lg border border-amber-300 bg-amber-50/60 p-3">
+                  <div className="flex items-center gap-1.5 text-sm font-semibold text-amber-900">
+                    <KeyRound className="h-4 w-4" />Approve it yourself
+                  </div>
+                  <p className="text-xs text-amber-900">
+                    This steps around the two-person rule, so it is written permanently onto the refund
+                    with your name, the time, your reason, and the fact that no one else could sign it.
+                    It approves the refund — it does <strong>not</strong> send any money.
+                  </p>
+                  <Field label="Why are you approving your own refund? (a sentence, not a word)">
+                    <TextInput value={glassReason} onChange={(e) => setGlassReason(e.target.value)}
+                      placeholder="e.g. sole owner of this store, customer has been waiting since 18 Sept" />
+                  </Field>
+                  <Btn variant="outline" disabled={busy || glassReason.trim().length < 10}
+                    onClick={() => act('approve', true)}>
+                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+                    Approve as an exception
+                  </Btn>
+                  {glassReason.trim().length > 0 && glassReason.trim().length < 10 && (
+                    <p className="text-xs text-amber-700">A few more words — this is the record of why the rule was stepped around.</p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -422,6 +558,20 @@ const Refunds: React.FC = () => {
               </div>
             </div>
           )}
+
+          {/* EVERYTHING THIS REFUND IS CONNECTED TO — the order and its payment,
+              the credit note, the return, and the stock that actually came back.
+              Loaded on demand: it is several joins, and most visits to this
+              screen are just approving or sending. */}
+          <div className="border-t pt-3">
+            <button type="button"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-600 underline hover:text-gray-900"
+              onClick={() => setShowDossier((v) => !v)}>
+              <Link2 className="h-3.5 w-3.5" />
+              {showDossier ? 'Hide the full record' : 'Show the full record — order, credit note, return and stock'}
+            </button>
+            {showDossier && <div className="mt-3"><RefundDossier refundId={detail.id} /></div>}
+          </div>
         </div>
       )}
 
@@ -463,6 +613,13 @@ const Refunds: React.FC = () => {
                 <Td>
                   <Chip tone={STATUS_TONE[r.status] ?? 'default'}>{STATUS_LABEL[r.status] ?? r.status}</Chip>
                   {r.status === 'failed' && r.attempt_count > 1 && <span className="ml-1 text-xs text-red-600">{r.attempt_count} tries</span>}
+                  {/* An exception to the two-person rule is visible from the
+                      queue, not only once you open the refund. */}
+                  {r.self_approved_at && (
+                    <span className="ml-1 inline-flex items-center gap-0.5 text-xs text-amber-700" title="Approved by the person who raised it">
+                      <ShieldAlert className="h-3 w-3" />exception
+                    </span>
+                  )}
                 </Td>
                 <Td muted className="text-xs">{(r.created_at || '').replace('T', ' ').slice(0, 16)}</Td>
               </Tr>

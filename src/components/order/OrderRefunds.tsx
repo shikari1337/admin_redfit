@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Undo2 } from 'lucide-react';
+import { Undo2, ShieldAlert, Link2 } from 'lucide-react';
+import RefundDossier from '@/components/refunds/RefundDossier';
 
 export interface OrderRefundRow {
   id: string;
@@ -19,6 +20,16 @@ export interface OrderRefundRow {
   attempt_count: number;
   executed_at: string | null;
   created_at: string;
+  /**
+   * Migration 210. `self_approved_at` records an approval that stepped around
+   * the two-person rule; `credit_note_id`/`return_id` are the two links a
+   * refund was missing — the paperwork that reverses the GST and the goods that
+   * came back. All three ride `listRefunds`' own column list.
+   */
+  self_approved_at?: string | null;
+  self_approved_reason?: string | null;
+  credit_note_id?: string | null;
+  return_id?: string | null;
 }
 
 interface Props {
@@ -83,6 +94,9 @@ const SOURCE: Record<string, string> = {
  * unchanged.
  */
 const OrderRefunds: React.FC<Props> = ({ refunds, gatewayPaymentId }) => {
+  // Which refund's full record is expanded. One at a time — each one is a
+  // several-join read, and an order rarely has more than a couple of refunds.
+  const [open, setOpen] = useState<string | null>(null);
   if (!Array.isArray(refunds) || refunds.length === 0) return null;
 
   return (
@@ -99,7 +113,22 @@ const OrderRefunds: React.FC<Props> = ({ refunds, gatewayPaymentId }) => {
             <div key={r.id} className="rounded-md border p-3 text-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="font-semibold tabular-nums">{inr(r.amount_minor)}</span>
-                <Badge variant={s.variant}>{s.label}</Badge>
+                <div className="flex items-center gap-1.5">
+                  {/* An approval that stepped around the two-person rule is
+                      shown on the order itself, not only in the Refunds screen. */}
+                  {r.self_approved_at && (
+                    <Badge variant="outline" className="gap-1 border-amber-300 text-amber-800">
+                      <ShieldAlert className="h-3 w-3" />Self-approved
+                    </Badge>
+                  )}
+                  <Badge variant={s.variant}>{s.label}</Badge>
+                </div>
+              </div>
+              {/* The refund's OWN id, always — a store-credit or hand-recorded
+                  refund has no gateway reference, so without this it had no
+                  quotable identifier on the order at all. */}
+              <div className="mt-1 text-xs text-muted-foreground">
+                Refund id <code className="text-[11px]">{r.id}</code>
               </div>
               <div className="mt-1 text-muted-foreground">
                 {SOURCE[r.source] ?? r.source} · {METHOD[r.method] ?? r.method}
@@ -110,12 +139,15 @@ const OrderRefunds: React.FC<Props> = ({ refunds, gatewayPaymentId }) => {
                 {r.executed_at && <span>Sent {stamp(r.executed_at)}</span>}
               </div>
 
-              {/* THE refund id — the proof the money left, and the thing anyone
-                  reconciling against the gateway actually needs. */}
+              {/* The GATEWAY's refund id — the proof the money left, and the
+                  thing anyone reconciling against Razorpay actually needs. It
+                  is named for the gateway so it can never be confused with the
+                  refund's own id shown above: only one of them exists before
+                  the money moves. */}
               {r.gateway_refund_id && (
                 <div className="mt-2 space-y-0.5">
                   <div>
-                    <span className="text-muted-foreground">Refund ID: </span>
+                    <span className="text-muted-foreground">Gateway refund ID: </span>
                     <code className="text-xs">{r.gateway_refund_id}</code>
                     {r.gateway && <span className="text-xs text-muted-foreground"> ({r.gateway})</span>}
                   </div>
@@ -148,7 +180,23 @@ const OrderRefunds: React.FC<Props> = ({ refunds, gatewayPaymentId }) => {
                   {r.attempt_count > 1 && <> (attempt {r.attempt_count})</>}
                 </div>
               )}
+              {r.self_approved_at && r.self_approved_reason && (
+                <div className="mt-2 rounded bg-amber-50 p-2 text-xs text-amber-900">
+                  Approved by the person who raised it — “{r.self_approved_reason}”
+                </div>
+              )}
               {r.reason && <div className="mt-2 text-xs text-muted-foreground">{r.reason}</div>}
+
+              {/* The full record — credit note, return and the stock that came
+                  back — in the same component the Refunds screen uses, so the
+                  order page and that screen can never disagree. */}
+              <button type="button"
+                className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground underline hover:text-foreground"
+                onClick={() => setOpen((o) => (o === r.id ? null : r.id))}>
+                <Link2 className="h-3 w-3" />
+                {open === r.id ? 'Hide the full record' : 'Full record — credit note, return, stock'}
+              </button>
+              {open === r.id && <div className="mt-2"><RefundDossier refundId={r.id} /></div>}
             </div>
           );
         })}

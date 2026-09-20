@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, MessageSquare, Phone, CheckCircle2, AlertTriangle, XCircle, Send, Plug, Wand2 } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 
 type Channel = 'sms' | 'whatsapp';
 
@@ -90,6 +91,7 @@ const SmsTemplates: React.FC = () => {
   const [savingEvent, setSavingEvent] = useState<string | null>(null);
   const [testingEvent, setTestingEvent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
   const [notice, setNotice] = useState<string | null>(null);
   const [templates, setTemplates] = useState<TemplateForm[]>([]);
   const [originalTemplates, setOriginalTemplates] = useState<Record<string, TemplateForm>>({});
@@ -300,6 +302,79 @@ const SmsTemplates: React.FC = () => {
     modeChanged(originalConfig.test, config.test) || modeChanged(originalConfig.live, config.live)
   );
 
+  /**
+   * Which templates the WhatsApp gateway will actually accept.
+   *
+   * Asked of the gateway, not of our own catalogue: a template can exist here,
+   * be perfectly written, and still be refused at send time because Meta never
+   * approved it. That refusal is the single most common reason a customer is
+   * told nothing, and it had no representation on this screen.
+   */
+  const [liveStatus, setLiveStatus] = useState<any | null>(null);
+  const [liveBusy, setLiveBusy] = useState(false);
+  const [liveErr, setLiveErr] = useState<string | null>(null);
+
+  const liveApproved = React.useMemo(() => {
+    const set = new Set<string>();
+    for (const e of (liveStatus?.events ?? [])) {
+      if (String(e?.status ?? '').toUpperCase() === 'APPROVED') set.add(String(e.event ?? e.name));
+    }
+    return set;
+  }, [liveStatus]);
+
+  /** On this page, for this channel, with nothing approved to carry it. */
+  const liveMissing = React.useMemo(
+    () => (liveStatus ? templates.map((t) => t.event).filter((e) => !liveApproved.has(e)) : []),
+    [liveStatus, liveApproved, templates],
+  );
+
+  const loadLiveStatus = async (refresh = false) => {
+    setLiveBusy(true);
+    setLiveErr(null);
+    try {
+      const res: any = await smsTemplatesAPI.whatsappLiveStatus(refresh);
+      setLiveStatus(res?.data ?? res ?? {});
+    } catch (e: any) {
+      setLiveErr(e?.response?.data?.message || 'Could not reach the WhatsApp gateway to check template approval.');
+      setLiveStatus({});
+    } finally {
+      setLiveBusy(false);
+    }
+  };
+
+  const submitMissingTemplates = async () => {
+    setLiveBusy(true);
+    try {
+      const res: any = await smsTemplatesAPI.whatsappSubmitTemplates(liveMissing);
+      toast({ title: 'Sent to Meta for approval', description: res?.message || `${liveMissing.length} submitted.` });
+      await loadLiveStatus(true);
+    } catch (e: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Could not submit',
+        description: e?.response?.data?.message || 'The WhatsApp platform refused the submission.',
+      });
+    } finally {
+      setLiveBusy(false);
+    }
+  };
+
+  // Only the WhatsApp tab has an approval concept — SMS approval is DLT, which
+  // the provider-template linking below already covers.
+  useEffect(() => {
+    if (channel !== 'whatsapp') return;
+    let cancelled = false;
+    setLiveStatus(null);
+    smsTemplatesAPI.whatsappLiveStatus(false)
+      .then((res: any) => { if (!cancelled) setLiveStatus(res?.data ?? res ?? {}); })
+      .catch((e: any) => {
+        if (cancelled) return;
+        setLiveErr(e?.response?.data?.message || 'Could not reach the WhatsApp gateway to check template approval.');
+        setLiveStatus({});
+      });
+    return () => { cancelled = true; };
+  }, [channel]);
+
   const handleSmsConfigModeChange = (mode: 'test' | 'live', field: keyof SmsConfigMode, value: any) => {
     setConfig((p) => ({ ...p, [mode]: { ...p[mode], [field]: value } }));
   };
@@ -484,9 +559,57 @@ const SmsTemplates: React.FC = () => {
       )}
 
       {channel === 'whatsapp' && (
-        <div className="bg-muted/40 border rounded-lg p-4 text-sm text-muted-foreground">
-          WhatsApp uses templates approved in your WhatsApp Business account. Set the
-          <span className="font-mono"> template name</span> to the approved name.
+        <div className="space-y-3">
+          <div className="bg-muted/40 border rounded-lg p-4 text-sm text-muted-foreground">
+            WhatsApp uses templates approved in your WhatsApp Business account. Set the
+            <span className="font-mono"> template name</span> to the approved name.
+          </div>
+
+          {/* ── What the gateway ACTUALLY has ──
+              A message whose template Meta has not approved is refused at send
+              time, and until now nothing on this screen said which ones those
+              were: homeomead had 18 approved templates and was trying to send
+              `cod_confirm` and `payment_link`, neither of which existed — every
+              COD pay-link on WhatsApp failed with "Unknown event", visible
+              nowhere. The live list is fetched from the gateway itself, so it
+              is what will happen, not what we hope. */}
+          <div className="rounded-lg border p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold">Approved on your WhatsApp number</p>
+                <p className="text-xs text-muted-foreground">
+                  {liveStatus === null
+                    ? 'Checking with the gateway…'
+                    : liveErr
+                      ? liveErr
+                      : `${liveApproved.size} of ${templates.length} templates on this page are approved. A message with no approved template is refused before it is sent.`}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => loadLiveStatus(true)} disabled={liveBusy}>
+                  {liveBusy ? 'Checking…' : 'Re-check'}
+                </Button>
+                {liveMissing.length > 0 && (
+                  <Button type="button" size="sm" onClick={submitMissingTemplates} disabled={liveBusy}>
+                    Submit {liveMissing.length} missing to Meta
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {liveMissing.length > 0 && (
+              <div className="mt-3 rounded border border-amber-200 bg-amber-50 p-3">
+                <p className="text-xs font-semibold text-amber-900">
+                  No approved template — these will NOT send on WhatsApp:
+                </p>
+                <p className="mt-1 font-mono text-xs text-amber-800">{liveMissing.join(', ')}</p>
+                <p className="mt-1.5 text-[11px] text-amber-700">
+                  Submitting sends them to Meta for approval. Approval is Meta's decision and takes
+                  time; SMS and email are unaffected and keep working meanwhile.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
