@@ -4,6 +4,8 @@ import { api } from '../services/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import ImageInputWithActions from '../components/common/ImageInputWithActions';
+import { AiTextButton } from '../components/common/AiTextButton';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -209,7 +211,7 @@ const BlogForm: React.FC = () => {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="excerpt">Excerpt</Label>
+              <div className="flex items-center justify-between gap-2"><Label htmlFor="excerpt">Excerpt</Label><AiTextButton entity="blog" draft={() => ({ title: form.title, excerpt: form.excerpt, content: form.content })} field="blog.excerpt" label="Excerpt" value={form.excerpt} onResult={(v) => handleChange('excerpt', String(v))} /></div>
               <Textarea
                 id="excerpt"
                 rows={3}
@@ -221,7 +223,7 @@ const BlogForm: React.FC = () => {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="content">Content (HTML)</Label>
+              <div className="flex items-center justify-between gap-2"><Label htmlFor="content">Content (HTML)</Label><AiTextButton entity="blog" draft={() => ({ title: form.title, excerpt: form.excerpt, content: form.content })} field="blog.body" label="Post body" format="html" value={form.content} onResult={(v) => handleChange('content', String(v))} /></div>
               <Textarea
                 id="content"
                 rows={16}
@@ -289,23 +291,16 @@ const BlogForm: React.FC = () => {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="cover_image">Cover Image URL</Label>
-              <Input
-                id="cover_image"
-                value={form.cover_image}
-                onChange={e => handleChange('cover_image', e.target.value)}
-                placeholder="https://..."
-              />
-              {form.cover_image && (
-                <img
-                  src={form.cover_image}
-                  alt="Cover preview"
-                  className="mt-2 h-32 w-full object-cover rounded-md border"
-                  onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                />
-              )}
-            </div>
+            <ImageInputWithActions
+              label="Cover image"
+              spec="blog.cover"
+              entity="blog"
+              folder="blog"
+              draft={() => ({ title: form.title, excerpt: form.excerpt, content: form.content })}
+              value={form.cover_image}
+              onChange={(url) => handleChange('cover_image', url)}
+              placeholder="https://..."
+            />
 
             <div className="space-y-2">
               <Label htmlFor="tags">Tags (comma-separated)</Label>
@@ -326,7 +321,7 @@ const BlogForm: React.FC = () => {
           </CardHeader>
           <CardContent className="pt-6 space-y-5">
             <div className="space-y-2">
-              <Label htmlFor="seo_title">Meta Title</Label>
+              <div className="flex items-center justify-between gap-2"><Label htmlFor="seo_title">Meta Title</Label><AiTextButton entity="blog" draft={() => ({ title: form.title, excerpt: form.excerpt, content: form.content })} field="blog.title" label="Meta title" value={form.seo_title} onResult={(v) => handleChange('seo_title', String(v))} /></div>
               <Input
                 id="seo_title"
                 value={form.seo_title}
@@ -335,7 +330,7 @@ const BlogForm: React.FC = () => {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="seo_description">Meta Description</Label>
+              <div className="flex items-center justify-between gap-2"><Label htmlFor="seo_description">Meta Description</Label><AiTextButton entity="blog" draft={() => ({ title: form.title, excerpt: form.excerpt, content: form.content })} field="blog.excerpt" label="Meta description" value={form.seo_description} onResult={(v) => handleChange('seo_description', String(v))} /></div>
               <Textarea
                 id="seo_description"
                 rows={3}

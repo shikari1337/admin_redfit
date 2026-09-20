@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { FaTruck, FaRupeeSign, FaSpinner, FaPlane, FaBox, FaMoneyBillWave, FaClock, FaSync } from 'react-icons/fa';
+import { FaTruck, FaRupeeSign, FaSpinner, FaPlane, FaBox, FaMoneyBillWave, FaClock, FaSync, FaGlobe, FaExclamationTriangle } from 'react-icons/fa';
 import Modal from './Modal';
-import { shippingAPI, packagesAPI } from '../../services/api';
+import api, { shippingAPI, packagesAPI } from '../../services/api';
 
 interface Warehouse {
   _id: string;
@@ -569,6 +569,140 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
     return null;
   };
 
+  // ══ CUSTOMS (international orders only) ═══════════════════════════
+  //
+  // The modal resolves the ship-to country ITSELF from the order rather than
+  // taking a prop, because both call sites (OrderDetail, Shipments) build the
+  // create-shipment body from their own state and neither is edited by this
+  // change. For the same reason the panel SAVES the declaration to the order's
+  // customs DRAFT (`PUT /shipments/order/:id/customs`) instead of returning it
+  // through onSubmit — the backend binds that draft to the shipment it books.
+  // A form whose values nothing persists is worse than no form at all
+  // (COMMON_MISTAKES #248).
+  const [customsLoaded, setCustomsLoaded] = useState(false);
+  const [isIntl, setIsIntl] = useState(false);
+  const [destCountry, setDestCountry] = useState<string>('');
+  const [customsSaving, setCustomsSaving] = useState(false);
+  const [customsSaved, setCustomsSaved] = useState(false);
+  const [customsError, setCustomsError] = useState<string | null>(null);
+  const [csbType, setCsbType] = useState<'IV' | 'V'>('V');
+  const [incoterm, setIncoterm] = useState<'DAP' | 'DDP'>('DAP');
+  const [declaredCurrency, setDeclaredCurrency] = useState('USD');
+  const [declaredValue, setDeclaredValue] = useState('');
+  const [exportReason, setExportReason] = useState('SALE');
+  const [exportIdentity, setExportIdentity] = useState<{ iec: string; adCode: string; lutNumber: string }>({ iec: '', adCode: '', lutNumber: '' });
+  const [hsByLine, setHsByLine] = useState<Record<number, string>>({});
+  const [dgByLine, setDgByLine] = useState<Record<number, boolean>>({});
+
+  /** HS-6 = the first 6 digits of the line's own HSN (the ONE derivation rule). */
+  const hs6 = (hsn?: string | null): string => {
+    const digits = String(hsn ?? '').replace(/[^0-9]/g, '');
+    return digits.length >= 6 ? digits.slice(0, 6) : '';
+  };
+  /** Potency Q = mother tincture = an ethanol solution = dangerous goods. */
+  const lineIsDg = (item?: OrderItem): boolean => {
+    const attrs = (item?.attributes ?? {}) as Record<string, any>;
+    for (const [k, v] of Object.entries(attrs)) {
+      const key = String(k).toLowerCase();
+      const val = String(v ?? '').trim().toLowerCase();
+      if (!val) continue;
+      if (key.includes('potency') && (val === 'q' || val === '\u00f8')) return true;
+      if ((key.includes('form') || key.includes('type')) && val.replace(/[^a-z]/g, '') === 'mothertincture') return true;
+    }
+    return false;
+  };
+
+  useEffect(() => {
+    if (!isOpen || !orderId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        // The order tells us the destination; the settings tell us the export
+        // identity (4.5 gstConfig.export) — IEC/AD/LUT are NEVER typed here,
+        // they are shown read-only so the operator can see what will be filed.
+        const [orderRes, draftRes, settingsRes] = await Promise.all([
+          api.get(`/orders/${orderId}`).catch(() => null),
+          api.get(`/shipments/order/${orderId}/customs`).catch(() => null),
+          api.get('/settings/admin').catch(() => api.get('/settings').catch(() => null)),
+        ]);
+        if (cancelled) return;
+        const order = (orderRes?.data?.data ?? orderRes?.data) as any;
+        const draftPayload = (draftRes?.data?.data ?? draftRes?.data) as any;
+        // The SERVER decides whether this order is international — the same
+        // `isInternationalOrder` the booking itself runs. Re-deriving that rule
+        // in the browser would be a second definition of it (#35/#200 class);
+        // the local parse below is only the fallback for when the route is
+        // unreachable (an older backend, a network blip).
+        const addr = order?.shippingAddress ?? order?.shipping_address ?? {};
+        const raw = String(draftPayload?.destinationCountry ?? addr.country ?? addr.countryCode ?? '').trim();
+        const cc = !raw ? 'IN' : /^[A-Za-z]{2}$/.test(raw) ? raw.toUpperCase() : /^india$/i.test(raw) ? 'IN' : raw.toUpperCase().slice(0, 2);
+        setDestCountry(cc);
+        setIsIntl(draftPayload?.isInternational != null ? !!draftPayload.isInternational : cc !== 'IN');
+
+        const settings = (settingsRes?.data?.data ?? settingsRes?.data) as any;
+        const exp = settings?.gstConfig?.export ?? {};
+        setExportIdentity({ iec: exp.iec ?? '', adCode: exp.adCode ?? '', lutNumber: exp.lutNumber ?? '' });
+
+        const draft = draftPayload?.draft;
+        if (draft) {
+          if (draft.csb_type === 'IV' || draft.csb_type === 'V') setCsbType(draft.csb_type);
+          if (draft.incoterm === 'DDP') setIncoterm('DDP');
+          if (draft.declared_currency) setDeclaredCurrency(String(draft.declared_currency));
+          if (draft.declared_value_minor != null) setDeclaredValue((Number(draft.declared_value_minor) / 100).toFixed(2));
+          if (draft.export_reason) setExportReason(String(draft.export_reason));
+        } else {
+          // Default the declaration to what the shopper actually paid.
+          const cur = String(order?.currency ?? 'INR').toUpperCase();
+          setDeclaredCurrency(cur);
+          const minor = order?.presentmentTotalMinor ?? order?.presentment_total_minor;
+          setDeclaredValue(minor != null ? (Number(minor) / 100).toFixed(2) : Number(order?.total ?? 0).toFixed(2));
+        }
+      } catch {
+        // A customs panel that cannot load must never block a domestic booking.
+      } finally {
+        if (!cancelled) setCustomsLoaded(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isOpen, orderId]);
+
+  // HS + DG default from the catalogue every time the line selection changes.
+  useEffect(() => {
+    if (!isIntl) return;
+    setHsByLine((prev) => {
+      const next = { ...prev };
+      orderItems.forEach((it, idx) => {
+        if (next[idx] === undefined) next[idx] = hs6((it as any).catalog_hsn ?? (it as any).hsn_code ?? (it as any).hsnCode);
+      });
+      return next;
+    });
+    setDgByLine((prev) => {
+      const next = { ...prev };
+      orderItems.forEach((it, idx) => { if (next[idx] === undefined) next[idx] = lineIsDg(it); });
+      return next;
+    });
+  }, [isIntl, orderItems]);
+
+  const selectedDg = selectedItemIndices.some((i) => dgByLine[i]);
+  const missingHs = selectedItemIndices.filter((i) => !hsByLine[i]);
+
+  const saveCustoms = async () => {
+    setCustomsSaving(true); setCustomsError(null); setCustomsSaved(false);
+    try {
+      await api.put(`/shipments/order/${orderId}/customs`, {
+        csbType, incoterm, exportReason,
+        declaredCurrency: declaredCurrency.toUpperCase(),
+        declaredValueMinor: Math.round((parseFloat(declaredValue) || 0) * 100),
+        containsDg: selectedDg,
+      });
+      setCustomsSaved(true);
+    } catch (e: any) {
+      setCustomsError(e?.response?.data?.message ?? e?.message ?? 'Could not save the customs declaration');
+    } finally {
+      setCustomsSaving(false);
+    }
+  };
+
   const validationError = getValidationError();
   const isSubmitDisabled = loading || !!validationError;
 
@@ -992,6 +1126,135 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
                   </p>
                 </div>
               </div>
+
+              {/* ══ CUSTOMS — only for a destination outside India ═════════ */}
+              {customsLoaded && isIntl && (
+                <div className="mb-6 border-2 border-amber-300 bg-amber-50 rounded-xl p-5">
+                  <div className="flex items-center gap-2 mb-1">
+                    <FaGlobe className="text-amber-700" size={16} />
+                    <h4 className="text-base font-semibold text-gray-900">
+                      Customs declaration — export to {destCountry}
+                    </h4>
+                  </div>
+                  <p className="text-xs text-gray-600 mb-4">
+                    Saved against this order. It is attached to the shipment when you book, and it is
+                    what the commercial invoice, the packing list and GSTR-1 Table 6A read.
+                  </p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Declaration</label>
+                      <select
+                        value={csbType}
+                        onChange={(e) => { setCsbType(e.target.value as 'IV' | 'V'); setCustomsSaved(false); }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                      >
+                        <option value="V">CSB-V — commercial</option>
+                        <option value="IV">CSB-IV — gift / sample</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Incoterm</label>
+                      <select
+                        value={incoterm}
+                        onChange={(e) => { setIncoterm(e.target.value as 'DAP' | 'DDP'); setCustomsSaved(false); }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                      >
+                        <option value="DAP">DAP — buyer pays duty</option>
+                        <option value="DDP">DDP — we pay duty</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Declared currency</label>
+                      <input
+                        type="text" maxLength={3} value={declaredCurrency}
+                        onChange={(e) => { setDeclaredCurrency(e.target.value.toUpperCase()); setCustomsSaved(false); }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm uppercase"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Declared value</label>
+                      <input
+                        type="number" step="0.01" min="0" value={declaredValue}
+                        onChange={(e) => { setDeclaredValue(e.target.value); setCustomsSaved(false); }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mb-4">
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Reason for export</label>
+                    <input
+                      type="text" value={exportReason}
+                      onChange={(e) => { setExportReason(e.target.value); setCustomsSaved(false); }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                      placeholder="SALE"
+                    />
+                  </div>
+
+                  {/* HS per line — prefilled from the product's own HSN (first 6). */}
+                  <div className="mb-4">
+                    <div className="text-xs font-semibold text-gray-700 mb-2">HS codes on this parcel</div>
+                    <div className="space-y-2">
+                      {orderItems.map((item, idx) => (
+                        selectedItemIndices.includes(idx) ? (
+                          <div key={idx} className="flex items-center gap-2">
+                            <span className="flex-1 text-xs text-gray-800 truncate">
+                              {(item as any).catalog_name ?? item.productName ?? item.product_name ?? item.name}
+                              {dgByLine[idx] && (
+                                <span className="ml-2 px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-semibold">DG</span>
+                              )}
+                            </span>
+                            <input
+                              type="text" value={hsByLine[idx] ?? ''} maxLength={8}
+                              onChange={(e) => setHsByLine((p) => ({ ...p, [idx]: e.target.value.replace(/[^0-9]/g, '') }))}
+                              placeholder="HS-6"
+                              className={`w-28 px-2 py-1 border rounded text-xs ${hsByLine[idx] ? 'border-gray-300' : 'border-red-300 bg-red-50'}`}
+                            />
+                          </div>
+                        ) : null
+                      ))}
+                    </div>
+                    {missingHs.length > 0 && (
+                      <p className="text-[11px] text-red-700 mt-2">
+                        {missingHs.length} line(s) have no HS code. Set the HSN on the product so it fills in
+                        automatically — a line with no HS code is what gets a parcel held at customs.
+                      </p>
+                    )}
+                  </div>
+
+                  {selectedDg && (
+                    <div className="flex items-start gap-2 mb-4 p-3 rounded-lg bg-red-50 border border-red-200">
+                      <FaExclamationTriangle className="text-red-600 mt-0.5" size={14} />
+                      <p className="text-xs text-red-800">
+                        This parcel contains a <strong>mother tincture</strong> — an ethanol solution
+                        (UN1170, Class 3 flammable liquid). It may travel only by <strong>surface</strong>
+                        {' '}under the limited-quantity exemption; an air lane will be refused at booking.
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="text-[11px] text-gray-600 mb-4">
+                    <div>IEC: <strong>{exportIdentity.iec || '— not set'}</strong></div>
+                    <div>AD code: <strong>{exportIdentity.adCode || '— not set'}</strong></div>
+                    <div>LUT: <strong>{exportIdentity.lutNumber || '— not set'}</strong></div>
+                    <div className="mt-1 text-gray-500">
+                      From Settings ▸ GST engine &amp; exports (4.5). CSB-V needs both IEC and AD code.
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button" onClick={saveCustoms} disabled={customsSaving}
+                      className="px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-semibold disabled:opacity-50"
+                    >
+                      {customsSaving ? 'Saving…' : 'Save customs declaration'}
+                    </button>
+                    {customsSaved && <span className="text-xs text-green-700 font-semibold">Saved</span>}
+                    {customsError && <span className="text-xs text-red-700">{customsError}</span>}
+                  </div>
+                </div>
+              )}
 
               <label className="block text-base font-semibold text-gray-900 mb-4 flex items-center gap-2">
                 <FaTruck className="text-blue-600" size={16} />

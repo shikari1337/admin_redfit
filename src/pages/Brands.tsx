@@ -12,6 +12,8 @@ import { CSS } from '@dnd-kit/utilities';
 import { brandsAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import ImageInputWithActions from '../components/common/ImageInputWithActions';
+import { AiTextButton } from '../components/common/AiTextButton';
+import InfoTip from '../components/common/InfoTip';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -779,7 +781,11 @@ const Brands: React.FC = () => {
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="description">Description</Label>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="description" className="inline-flex items-center gap-1.5">Description <InfoTip text="Two or three sentences shown on the brand page and used as the default meta description." /></Label>
+                      <AiTextButton entity="brand" entityId={selectedId || undefined} draft={() => formState} field="brand.description" label="Brand description"
+                        value={formState.description} onResult={(v) => setFormState({ ...formState, description: String(v) })} />
+                    </div>
                     <Textarea
                       id="description"
                       rows={3}
@@ -810,42 +816,16 @@ const Brands: React.FC = () => {
                 </TabsContent>
 
                 <TabsContent value="images" forceMount className="data-[state=inactive]:hidden mt-4 space-y-5">
-                  <div className="space-y-2">
-                    <Label>Logo (square — header, product page)</Label>
-                    <ImageInputWithActions
-                      value={formState.logoUrl || ''}
-                      onChange={(url: string) => setFormState({ ...formState, logoUrl: url })}
-                      label=""
-                      placeholder="Logo URL (https://...)"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Main image (brand page hero / large cards)</Label>
-                    <ImageInputWithActions
-                      value={formState.imageUrl || ''}
-                      onChange={(url: string) => setFormState({ ...formState, imageUrl: url })}
-                      label=""
-                      placeholder="Main image URL (https://...)"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Banner (wide — brand page header)</Label>
-                    <ImageInputWithActions
-                      value={formState.bannerUrl || ''}
-                      onChange={(url: string) => setFormState({ ...formState, bannerUrl: url })}
-                      label=""
-                      placeholder="Banner URL (https://...)"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Thumbnail (small square — brand chips, grids)</Label>
-                    <ImageInputWithActions
-                      value={formState.thumbnailUrl || ''}
-                      onChange={(url: string) => setFormState({ ...formState, thumbnailUrl: url })}
-                      label=""
-                      placeholder="Thumbnail URL (https://...)"
-                    />
-                  </div>
+                  {/* Each slot names its image spec: the hint under the field, the
+                      upload check and the AI generator all size from it. */}
+                  <ImageInputWithActions label="Logo" spec="brand.logo" folder="brands" entity="brand" entityId={selectedId || undefined} draft={() => formState}
+                    value={formState.logoUrl || ''} onChange={(url: string) => setFormState({ ...formState, logoUrl: url })} placeholder="Logo URL (https://...)" />
+                  <ImageInputWithActions label="Main image" spec="brand.main" folder="brands" entity="brand" entityId={selectedId || undefined} draft={() => formState} referenceImages={formState.logoUrl ? [formState.logoUrl] : undefined}
+                    value={formState.imageUrl || ''} onChange={(url: string) => setFormState({ ...formState, imageUrl: url })} placeholder="Main image URL (https://...)" />
+                  <ImageInputWithActions label="Banner" spec="brand.banner" folder="brands" entity="brand" entityId={selectedId || undefined} draft={() => formState} referenceImages={formState.logoUrl ? [formState.logoUrl] : undefined}
+                    value={formState.bannerUrl || ''} onChange={(url: string) => setFormState({ ...formState, bannerUrl: url })} placeholder="Banner URL (https://...)" />
+                  <ImageInputWithActions label="Thumbnail" spec="brand.thumbnail" folder="brands" entity="brand" entityId={selectedId || undefined} draft={() => formState}
+                    value={formState.thumbnailUrl || ''} onChange={(url: string) => setFormState({ ...formState, thumbnailUrl: url })} placeholder="Thumbnail URL (https://...)" />
                 </TabsContent>
 
                 <TabsContent value="ownership" forceMount className="data-[state=inactive]:hidden mt-4 space-y-5">
@@ -917,7 +897,7 @@ const Brands: React.FC = () => {
 
                 <TabsContent value="seo" forceMount className="data-[state=inactive]:hidden mt-4 space-y-5">
                   <div className="space-y-2">
-                    <Label htmlFor="content">Brand story (shown on the brand page)</Label>
+                    <div className="flex items-center justify-between gap-2"><Label htmlFor="content">Brand story (shown on the brand page)</Label><AiTextButton entity="brand" entityId={selectedId || undefined} draft={() => formState} field="brand.content" label="Brand story" format="html" value={formState.content} onResult={(v) => setFormState({ ...formState, content: String(v) })} /></div>
                     <Textarea
                       id="content"
                       rows={6}
@@ -928,7 +908,7 @@ const Brands: React.FC = () => {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="metaTitle">Meta title</Label>
+                    <div className="flex items-center justify-between gap-2"><Label htmlFor="metaTitle">Meta title</Label><AiTextButton entity="brand" entityId={selectedId || undefined} draft={() => formState} field="brand.meta_title" label="Meta title" value={formState.metaTitle} onResult={(v) => setFormState({ ...formState, metaTitle: String(v) })} /></div>
                     <Input
                       id="metaTitle"
                       value={formState.metaTitle}
@@ -937,7 +917,7 @@ const Brands: React.FC = () => {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="metaDesc">Meta description</Label>
+                    <div className="flex items-center justify-between gap-2"><Label htmlFor="metaDesc">Meta description</Label><AiTextButton entity="brand" entityId={selectedId || undefined} draft={() => formState} field="brand.meta_description" label="Meta description" value={formState.metaDesc} onResult={(v) => setFormState({ ...formState, metaDesc: String(v) })} /></div>
                     <Textarea
                       id="metaDesc"
                       rows={2}
@@ -950,6 +930,7 @@ const Brands: React.FC = () => {
                   <div className="space-y-2">
                     <Label>Social share image (Open Graph)</Label>
                     <ImageInputWithActions
+                      spec="brand.og" folder="brands" entity="brand" entityId={selectedId || undefined} draft={() => formState} referenceImages={formState.logoUrl ? [formState.logoUrl] : undefined}
                       value={formState.ogImageUrl || ''}
                       onChange={(url: string) => setFormState({ ...formState, ogImageUrl: url })}
                       label=""

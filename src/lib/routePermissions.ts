@@ -138,6 +138,9 @@ export const ROUTE_PERMISSIONS: Record<string, string> = {
   '/settings/payment-gateways': 'settings.manage',
   '/settings/payment-discount': 'settings.manage',
   '/settings/gst': 'settings.manage',
+  // Markets (1.8) is viewable on settings.read; the page itself gates Save on
+  // settings.manage (mirrors the Settings Center's own read/write split).
+  '/settings/markets': 'settings.read',
   '/settings/tax-rules': 'settings.manage',
   '/settings/shipping': 'settings.manage',
   '/settings/packages': 'settings.manage',

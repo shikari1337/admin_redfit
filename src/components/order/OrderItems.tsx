@@ -114,6 +114,17 @@ const attributePairs = (attrs?: Record<string, string>): Array<[string, string]>
 
 const prettyAttr = (k: string) => k.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 const money = (n: number) => `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/**
+ * A discount percentage, stated EXACTLY.
+ *
+ * This used to be `toFixed(1)`, which turned an order-level share of 2.083%
+ * into "2.1%" and a coupon the store advertises as "2% off" into a number
+ * matching neither — the owner reported exactly that confusion. Two decimals
+ * with the trailing zeros trimmed says 20%, 2.08% and 6.5% without inventing
+ * precision the figure does not have.
+ */
+const pct = (n: number) => `${Number(n.toFixed(2))}%`;
 const dateTime = (d?: string | Date | null) => {
   if (!d) return null;
   const t = new Date(d);
@@ -231,6 +242,25 @@ const OrderItems: React.FC<OrderItemsProps> = ({
     const lineTotal = price * qty;
     const mrpDiscount = mrp !== undefined && mrp > price ? (mrp - price) * qty : 0;
     const orderShare = itemsValue > 0 ? (orderDiscount * lineTotal) / itemsValue : 0;
+    /**
+     * PER-UNIT twins of the two discounts.
+     *
+     * The row reads left to right as one calculation — MRP → line discount →
+     * Rate → order discount → Net rate — and every one of those is a per-UNIT
+     * figure, so the discounts between them must be per unit too. They were not:
+     * both cells rendered the whole LINE's discount next to a per-unit MRP and a
+     * per-unit rate. On this catalogue almost every line is qty 1, which hid it
+     * completely; at qty 2 the row said MRP ₹295, discount ₹118, rate ₹236 and
+     * subtracted to nothing. That is the "discount is just there as a show piece"
+     * the owner reported — the numbers were right, they were simply not the ones
+     * the arithmetic beside them needed.
+     *
+     * Qty now sits AFTER these columns, so everything left of it is per unit and
+     * everything right of it is line money. The totals row stays line money,
+     * because a column of summed per-unit prices would be a number nobody owes.
+     */
+    const mrpDiscountUnit = qty > 0 ? mrpDiscount / qty : 0;
+    const orderShareUnit = qty > 0 ? orderShare / qty : 0;
     const discAmt = mrpDiscount + orderShare;
     const baseValue = (mrp !== undefined && mrp > 0 ? mrp : price) * qty;
     const discPct = baseValue > 0 ? (mrpDiscount / baseValue) * 100 : 0;
@@ -264,6 +294,7 @@ const OrderItems: React.FC<OrderItemsProps> = ({
       form: item.attributes?.['product-form'] || null,
       attrs: attributePairs(item.attributes),
       price, qty, lineTotal, mrp, mrpDiscount, orderShare, discAmt, discPct, orderDiscPct,
+      mrpDiscountUnit, orderShareUnit,
       offRetailPct, rate, net, netRate, taxable, lineGst,
       // Migration 168: a partially-cancelled line is no longer DELETED, so the
       // desk can finally see what came off and why. `qty` still means "live",
@@ -494,16 +525,19 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                   <th rowSpan={2} className="min-w-[180px] px-2 py-2 align-bottom font-semibold">Product name</th>
                   {show.brand && <th rowSpan={2} className="w-[120px] px-2 py-2 align-bottom font-semibold">Brand</th>}
                   {show.variation && <th rowSpan={2} className="px-2 py-2 align-bottom font-semibold">Variation</th>}
-                  {show.mrp && <th rowSpan={2} className={TH}>MRP</th>}
+                  {show.mrp && <th rowSpan={2} className={TH} title="Printed price of ONE pack">MRP<span className="ml-1 font-normal normal-case tracking-normal text-slate-400">/unit</span></th>}
                   <th colSpan={lineDiscCols} className="whitespace-nowrap border-l border-slate-300 px-2 pb-0.5 pt-2 text-center font-semibold">
                     Line discount
                   </th>
-                  <th rowSpan={2} className={`border-l border-slate-300 ${TH}`}>Rate</th>
-                  <th rowSpan={2} className="whitespace-nowrap px-2 py-2 text-center align-bottom font-semibold">Qty</th>
+                  <th rowSpan={2} className={`border-l border-slate-300 ${TH}`} title="What one pack was charged at, after its own line discount">Rate<span className="ml-1 font-normal normal-case tracking-normal text-slate-400">/unit</span></th>
                   <th colSpan={orderDiscCols} className="whitespace-nowrap border-l border-slate-300 px-2 pb-0.5 pt-2 text-center font-semibold">
                     Order discount
                   </th>
-                  {show.netRate && <th rowSpan={2} className={`border-l border-slate-300 ${TH}`}>Net rate</th>}
+                  {show.netRate && <th rowSpan={2} className={`border-l border-slate-300 ${TH}`} title="One pack after the order-level discount share — this × Qty is the line total">Net rate<span className="ml-1 font-normal normal-case tracking-normal text-slate-400">/unit</span></th>}
+                  {/* Qty is the MULTIPLIER, so it sits between the per-unit block
+                      (MRP → discounts → Rate → Net rate) and the line money
+                      (Taxable → GST → Total). Owner's column order. */}
+                  <th rowSpan={2} className="whitespace-nowrap border-l border-slate-300 px-2 py-2 text-center align-bottom font-semibold">Qty</th>
                   {showTax && (
                     <>
                       <th rowSpan={2} className={`border-l border-slate-300 ${TH}`}>
@@ -517,9 +551,9 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                 </tr>
                 <tr className="border-b border-slate-200 bg-slate-100 text-left text-[10px] uppercase tracking-wider text-blue-700">
                   {show.lineDiscPct && <th className="whitespace-nowrap border-l border-slate-300 px-2 pb-2 text-right font-medium">%</th>}
-                  <th className={`whitespace-nowrap px-2 pb-2 text-right font-medium ${show.lineDiscPct ? '' : 'border-l border-slate-300'}`}>Amount</th>
+                  <th className={`whitespace-nowrap px-2 pb-2 text-right font-medium ${show.lineDiscPct ? '' : 'border-l border-slate-300'}`} title="Cut off ONE pack">₹/unit</th>
                   {show.orderDiscPct && <th className="whitespace-nowrap border-l border-slate-300 px-2 pb-2 text-right font-medium">%</th>}
-                  <th className={`whitespace-nowrap px-2 pb-2 text-right font-medium ${show.orderDiscPct ? '' : 'border-l border-slate-300'}`}>Amount</th>
+                  <th className={`whitespace-nowrap px-2 pb-2 text-right font-medium ${show.orderDiscPct ? '' : 'border-l border-slate-300'}`} title="This line's share of the order-level discount, per pack">₹/unit</th>
                   {showTax && (isIgst
                     ? <th className="whitespace-nowrap border-l border-slate-300 px-2 pb-2 text-right font-medium">IGST</th>
                     : <>
@@ -632,13 +666,15 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                       {/* ── Line discount: this pack's own MRP → rate cut ── */}
                       {show.lineDiscPct && (
                         <td className={`${NUM} border-l border-slate-100`}>
-                          {r.discPct > 0.05
-                            ? <span className="text-sm font-semibold text-emerald-700">{r.discPct.toFixed(1)}%</span>
+                          {r.discPct > 0.005
+                            ? <span className="text-sm font-semibold text-emerald-700">{pct(r.discPct)}</span>
                             : <span className="text-slate-300">—</span>}
                         </td>
                       )}
                       <td className={`${NUM} text-sm font-medium text-emerald-700 ${show.lineDiscPct ? '' : 'border-l border-slate-100'}`}>
-                        {r.mrpDiscount > 0.009 ? money(r.mrpDiscount) : <span className="text-slate-300">—</span>}
+                        {r.mrpDiscountUnit > 0.009
+                          ? <span title={r.qty > 1 ? `${money(r.mrpDiscount)} across ${r.qty} units` : undefined}>{money(r.mrpDiscountUnit)}</span>
+                          : <span className="text-slate-300">—</span>}
                       </td>
 
                       <td className={`${NUM} border-l border-slate-100`}>
@@ -648,7 +684,28 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                         )}
                       </td>
 
-                      <td className="whitespace-nowrap px-2 py-3 text-center align-top text-base font-semibold tabular-nums text-slate-900">
+                      {/* ── Order discount: the order-level total apportioned to this
+                             line, as a % of its RATE value ── */}
+                      {show.orderDiscPct && (
+                        <td className={`${NUM} border-l border-slate-100`}>
+                          {r.orderDiscPct > 0.005
+                            ? <span className="text-sm font-semibold text-emerald-700">{pct(r.orderDiscPct)}</span>
+                            : <span className="text-slate-300">—</span>}
+                        </td>
+                      )}
+                      <td className={`${NUM} text-sm font-medium text-emerald-700 ${show.orderDiscPct ? '' : 'border-l border-slate-100'}`}>
+                        {r.orderShareUnit > 0.009
+                          ? <span title={r.qty > 1 ? `${money(r.orderShare)} across ${r.qty} units` : undefined}>{money(r.orderShareUnit)}</span>
+                          : <span className="text-slate-300">—</span>}
+                      </td>
+
+                      {show.netRate && (
+                        <td className={`${NUM} border-l border-slate-100 text-sm font-semibold text-slate-800`}>
+                          {money(r.netRate)}
+                        </td>
+                      )}
+
+                      <td className="whitespace-nowrap border-l border-slate-100 px-2 py-3 text-center align-top text-base font-semibold tabular-nums text-slate-900">
                         {r.qty}
                         {/* A partially-cancelled line survives now (migration 168)
                             — before this it was deleted, so the desk could not
@@ -663,24 +720,6 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                         )}
                       </td>
 
-                      {/* ── Order discount: the order-level total apportioned to this
-                             line, as a % of its RATE value ── */}
-                      {show.orderDiscPct && (
-                        <td className={`${NUM} border-l border-slate-100`}>
-                          {r.orderDiscPct > 0.05
-                            ? <span className="text-sm font-semibold text-emerald-700">{r.orderDiscPct.toFixed(1)}%</span>
-                            : <span className="text-slate-300">—</span>}
-                        </td>
-                      )}
-                      <td className={`${NUM} text-sm font-medium text-emerald-700 ${show.orderDiscPct ? '' : 'border-l border-slate-100'}`}>
-                        {r.orderShare > 0.009 ? money(r.orderShare) : <span className="text-slate-300">—</span>}
-                      </td>
-
-                      {show.netRate && (
-                        <td className={`${NUM} border-l border-slate-100 text-sm font-semibold text-slate-800`}>
-                          {money(r.netRate)}
-                        </td>
-                      )}
 
                       {showTax && (
                         <>
@@ -730,24 +769,24 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                   )}
                   {show.lineDiscPct && (
                     <td className="whitespace-nowrap border-l border-slate-300 px-2 py-3 text-right text-sm font-semibold tabular-nums text-emerald-700">
-                      {totalDiscPct > 0.05 ? `${totalDiscPct.toFixed(1)}%` : '—'}
+                      {totalDiscPct > 0.005 ? pct(totalDiscPct) : '—'}
                     </td>
                   )}
                   <td className={`whitespace-nowrap px-2 py-3 text-right text-sm font-semibold tabular-nums text-emerald-700 ${show.lineDiscPct ? '' : 'border-l border-slate-300'}`}>
                     {totalLineDiscount > 0.009 ? money(totalLineDiscount) : '—'}
                   </td>
                   <td className="border-l border-slate-300 px-2 py-3" />
-                  <td className="whitespace-nowrap px-2 py-3 text-center text-base font-semibold tabular-nums">{totalQty}</td>
                   {show.orderDiscPct && (
                     <td className="whitespace-nowrap border-l border-slate-300 px-2 py-3 text-right text-sm font-semibold tabular-nums text-emerald-700"
                       title="The share this order's total discount worked out to, after it was rounded to the rupee.">
-                      {totalOrderDiscPct > 0.05 ? `${totalOrderDiscPct.toFixed(1)}%` : '—'}
+                      {totalOrderDiscPct > 0.005 ? pct(totalOrderDiscPct) : '—'}
                     </td>
                   )}
                   <td className={`whitespace-nowrap px-2 py-3 text-right text-sm font-semibold tabular-nums text-emerald-700 ${show.orderDiscPct ? '' : 'border-l border-slate-300'}`}>
                     {totalOrderShare > 0.009 ? money(totalOrderShare) : '—'}
                   </td>
                   {show.netRate && <td className="border-l border-slate-300 px-2 py-3" />}
+                  <td className="whitespace-nowrap border-l border-slate-300 px-2 py-3 text-center text-base font-semibold tabular-nums">{totalQty}</td>
                   {showTax && (
                     <>
                       <td className="whitespace-nowrap border-l border-slate-300 px-2 py-3 text-right text-base font-semibold tabular-nums text-slate-700">
@@ -883,7 +922,7 @@ const OrderItems: React.FC<OrderItemsProps> = ({
           <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 bg-white px-4 py-2.5 text-sm">
             <span className="font-semibold text-emerald-700">
               Customer saved {money(totalDiscount)}
-              {totalMrp > 0 && ` (${((totalDiscount / totalMrp) * 100).toFixed(1)}%)`}
+              {totalMrp > 0 && ` (${pct((totalDiscount / totalMrp) * 100)})`}
             </span>
           </div>
         )}

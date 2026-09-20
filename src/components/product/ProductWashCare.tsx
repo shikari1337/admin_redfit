@@ -117,6 +117,9 @@ const ProductWashCare: React.FC<ProductWashCareProps> = ({
                     value={instruction.iconUrl || ''}
                     onChange={(url) => updateInstruction(index, 'iconUrl', url)}
                     label=""
+                    spec="wash_care.icon"
+                    compact
+                    folder="products/icons"
                     placeholder="Paste or upload a custom icon image URL"
                     productId={productId}
                     sectionId="washCare"

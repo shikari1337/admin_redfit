@@ -64,7 +64,20 @@ export function normalizeContentBlocks(raw: any): any[] {
     // Drop non-objects and PDP layout rows ({sectionId, enabled, order}) —
     // a different concept that must never be edited/saved as content blocks.
     .filter((b: any) => b && typeof b === 'object' && typeof b.type === 'string')
-    .map((b: any) => {
+    .map((b: any) => withDisplay(b, normalizeOneBlock(b)));
+}
+
+/** The optional per-block `display` object (Product Page Studio) rides along untouched. */
+function withDisplay(raw: any, block: any): any {
+  if (raw && raw.display && typeof raw.display === 'object' && !Array.isArray(raw.display) && Object.keys(raw.display).length) {
+    return { ...block, display: raw.display };
+  }
+  return block;
+}
+
+function normalizeOneBlock(b: any): any {
+  {
+    {
       const d = b.data || {};
       switch (b.type) {
         case 'text':
@@ -135,7 +148,39 @@ export function normalizeContentBlocks(raw: any): any[] {
         default:
           return b; // unknown types pass through untouched (editor shows a label only)
       }
-    });
+    }
+  }
+}
+
+// ─── page sections (products.page_sections) ─────────────────────────────────
+
+export interface PageSectionRow { sectionId: string; enabled: boolean; order: number; customData?: any; display?: any; name?: string }
+
+/** Coerce whatever the row holds into the studio's shape; drops junk, keeps custom names. */
+export function normalizePageSections(raw: any): PageSectionRow[] {
+  let list = raw;
+  if (typeof list === 'string') { try { list = JSON.parse(list); } catch { return []; } }
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((s: any) => s && typeof s === 'object' && typeof s.sectionId === 'string' && s.sectionId.trim())
+    .map((s: any, i: number) => ({
+      sectionId: String(s.sectionId).trim(),
+      enabled: s.enabled !== false,
+      order: Number.isFinite(Number(s.order)) ? Number(s.order) : i,
+      ...(s.customData && typeof s.customData === 'object' ? { customData: s.customData } : {}),
+      ...(s.display && typeof s.display === 'object' && Object.keys(s.display).length ? { display: s.display } : {}),
+      ...(typeof s.name === 'string' && s.name.trim() ? { name: s.name.trim() } : {}),
+    }));
+}
+
+/** Studio shape → the row the storefronts read (same keys the retired Sections Manager wrote). */
+export function serializePageSections(sections: PageSectionRow[]): any[] {
+  return (sections || []).map((s) => ({
+    sectionId: s.sectionId, enabled: s.enabled !== false, order: s.order,
+    ...(s.customData !== undefined ? { customData: s.customData } : {}),
+    ...(s.display && Object.keys(s.display).length ? { display: s.display } : {}),
+    ...(s.name ? { name: s.name } : {}),
+  }));
 }
 
 const itemsOf = (b: any): any[] =>
@@ -157,6 +202,24 @@ export function serializeContentBlocks(blocks: any[]): any[] {
     return /<[a-z][\s\S]*>/i.test(s) ? { html: s, text: stripHtml(s) } : { text: s };
   };
   return (blocks || []).map((b: any) => {
+    const flat = serializeOneBlock(b);
+    // The studio's per-block display options (additive; older readers ignore them).
+    if (flat && typeof flat === 'object' && b?.display && typeof b.display === 'object' && Object.keys(b.display).length) {
+      return { ...flat, display: b.display };
+    }
+    return flat;
+  }).filter((b: any) => {
+    if (!b || typeof b !== 'object') return false;
+    if (b.type === 'text') return !!(b.title || b.html || b.text);
+    if (b.type === 'image_text') return !!(b.title || b.html || b.text || b.imageUrl);
+    if (b.type === 'video') return !!b.url;
+    if (b.type === 'image' || b.type === 'banner') return !!b.imageUrl;
+    if (b.type === 'comparison_table') return (b.rows?.length ?? 0) > 0 || (b.headers?.length ?? 0) > 0;
+    if (Array.isArray(b.items)) return b.items.length > 0;
+    return true;
+  });
+
+  function serializeOneBlock(b: any): any {
     const d = b?.data || {};
     switch (b?.type) {
       case 'text':
@@ -201,14 +264,5 @@ export function serializeContentBlocks(blocks: any[]): any[] {
       default:
         return b;
     }
-  }).filter((b: any) => {
-    if (!b || typeof b !== 'object') return false;
-    if (b.type === 'text') return !!(b.title || b.html);
-    if (b.type === 'image_text') return !!(b.title || b.html || b.imageUrl);
-    if (b.type === 'video') return !!b.url;
-    if (b.type === 'image' || b.type === 'banner') return !!b.imageUrl;
-    if (b.type === 'comparison_table') return (b.rows?.length ?? 0) > 0 || (b.headers?.length ?? 0) > 0;
-    if (Array.isArray(b.items)) return b.items.length > 0;
-    return true;
-  });
+  }
 }

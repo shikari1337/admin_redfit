@@ -440,7 +440,7 @@ function LinkEditFields({
 
       <div className="grid grid-cols-2 gap-2 items-start">
         <IconPicker value={link.icon || ''} onChange={(id) => onChange({ ...link, icon: id })} label="Icon" />
-        <ImageInputWithActions value={link.image || ''} onChange={(url) => onChange({ ...link, image: url })} label="Image (overrides icon)" />
+        <ImageInputWithActions value={link.image || ''} onChange={(url) => onChange({ ...link, image: url })} label="Image (overrides icon)" spec="menu.link_image" folder="menus" compact local={{ title: link.label }} />
       </div>
 
       <label className="flex items-center gap-1.5 text-[11px] text-gray-600 cursor-pointer">
@@ -1189,6 +1189,9 @@ const MegaMenuEditor: React.FC<MegaMenuEditorProps> = ({
                     value={featured.image}
                     onChange={(url) => setFeatured((f) => ({ ...f, image: url }))}
                     label="Card image"
+                    spec="menu.promo_card"
+                    folder="menus"
+                    local={{ heading: featured.title, kicker: featured.kicker }}
                   />
                   <div className="grid grid-cols-2 gap-2">
                     <div>

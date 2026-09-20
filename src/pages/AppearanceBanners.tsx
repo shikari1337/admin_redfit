@@ -1,6 +1,7 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { FaPlus, FaTrash, FaEdit, FaChevronUp, FaChevronDown, FaImage, FaTimes, FaArrowUp, FaArrowDown } from 'react-icons/fa';
-import { bannersAPI, uploadAPI } from '../services/api';
+import { bannersAPI } from '../services/api';
+import ImageInputWithActions from '../components/common/ImageInputWithActions';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -87,25 +88,8 @@ function ItemEditor({
   onMoveUp: () => void;
   onMoveDown: () => void;
 }) {
-  const fileRef = useRef<HTMLInputElement>(null);
-  const mobileFileRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
   const [expanded, setExpanded] = useState(index === 0);
 
-  async function handleImageUpload(file: File, field: 'imageUrl' | 'mobileImageUrl') {
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      const result = await uploadAPI.uploadSingle(file, 'banners');
-      const url = result?.url || result?.data?.url || result?.fileUrl || '';
-      onChange({ ...item, [field]: url });
-    } catch (e) {
-      console.error('Upload failed', e);
-    } finally {
-      setUploading(false);
-    }
-  }
 
   return (
     <div className="border border-gray-200 rounded-lg bg-white">
@@ -160,84 +144,16 @@ function ItemEditor({
       {/* Item body */}
       {expanded && (
         <div className="px-4 pb-4 border-t border-gray-100 pt-4 grid grid-cols-1 gap-4">
-          {/* Desktop image */}
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Desktop Image <span className="text-red-500">*</span></label>
-            {item.imageUrl ? (
-              <div className="relative inline-block">
-                <img src={item.imageUrl} alt="" className="h-24 rounded border border-gray-200 object-cover" />
-                <button
-                  className="absolute top-1 right-1 bg-white rounded-full p-0.5 shadow text-gray-500 hover:text-red-500"
-                  onClick={() => onChange({ ...item, imageUrl: '' })}
-                >
-                  <FaTimes size={10} />
-                </button>
-              </div>
-            ) : (
-              <button
-                className="flex items-center gap-2 px-3 py-2 border border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-blue-400 hover:text-blue-500 transition-colors"
-                onClick={() => fileRef.current?.click()}
-                disabled={uploading}
-              >
-                <FaImage size={14} />
-                {uploading ? 'Uploading…' : 'Upload image'}
-              </button>
-            )}
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) handleImageUpload(f, 'imageUrl');
-                e.target.value = '';
-              }}
-            />
-            <input
-              type="text"
-              value={item.imageUrl}
-              onChange={(e) => onChange({ ...item, imageUrl: e.target.value })}
-              placeholder="Or paste image URL"
-              className="mt-1.5 w-full text-xs border border-gray-200 rounded px-2 py-1.5 text-gray-600 focus:outline-none focus:border-blue-400"
-            />
-          </div>
-
-          {/* Mobile image */}
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Mobile Image <span className="text-gray-400 font-normal">(optional)</span></label>
-            {item.mobileImageUrl ? (
-              <div className="relative inline-block">
-                <img src={item.mobileImageUrl} alt="" className="h-16 rounded border border-gray-200 object-cover" />
-                <button
-                  className="absolute top-1 right-1 bg-white rounded-full p-0.5 shadow text-gray-500 hover:text-red-500"
-                  onClick={() => onChange({ ...item, mobileImageUrl: '' })}
-                >
-                  <FaTimes size={10} />
-                </button>
-              </div>
-            ) : (
-              <button
-                className="flex items-center gap-2 px-3 py-2 border border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-blue-400 hover:text-blue-500 transition-colors"
-                onClick={() => mobileFileRef.current?.click()}
-                disabled={uploading}
-              >
-                <FaImage size={14} />
-                Upload mobile image
-              </button>
-            )}
-            <input
-              ref={mobileFileRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) handleImageUpload(f, 'mobileImageUrl');
-                e.target.value = '';
-              }}
-            />
-          </div>
+          {/* Desktop + mobile images — the shared field: Upload · Library · AI · URL, sized for the hero slot. */}
+          <ImageInputWithActions
+            label="Desktop image" spec="home.hero" folder="banners" entity="store"
+            local={{ heading: item.title, subtitle: item.subtitle }}
+            value={item.imageUrl} onChange={(url) => onChange({ ...item, imageUrl: url })} />
+          <ImageInputWithActions
+            label="Mobile image (optional)" spec="home.hero_mobile" folder="banners" entity="store"
+            local={{ heading: item.title, subtitle: item.subtitle }}
+            referenceImages={item.imageUrl ? [item.imageUrl] : undefined}
+            value={item.mobileImageUrl || ''} onChange={(url) => onChange({ ...item, mobileImageUrl: url })} />
 
           {/* Title, subtitle, link */}
           <div className="grid grid-cols-2 gap-3">

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Switch } from '@/components/ui/switch';
+import InfoTip from '../common/InfoTip';
 
 /**
  * Shared field primitives for the product form ("dumb-human obvious" pass).
@@ -13,15 +14,15 @@ import { Switch } from '@/components/ui/switch';
 
 /** Canonical control styling for native inputs/selects. */
 export const fieldInputCls =
-  'w-full h-9 px-3 text-sm rounded-md border border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-red-400 focus:border-red-400 disabled:opacity-50 disabled:cursor-not-allowed';
+  'w-full h-9 px-3 text-sm rounded-md border border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-brand-400 disabled:opacity-50 disabled:cursor-not-allowed';
 
 /** Same styling for textareas (no fixed height). */
 export const fieldTextareaCls =
-  'w-full px-3 py-2 text-sm rounded-md border border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-red-400 focus:border-red-400 disabled:opacity-50 disabled:cursor-not-allowed';
+  'w-full px-3 py-2 text-sm rounded-md border border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-brand-400 disabled:opacity-50 disabled:cursor-not-allowed';
 
 /** Error-state variant — swap the border/ring red. */
 export const fieldInputErrorCls =
-  'w-full h-9 px-3 text-sm rounded-md border border-red-400 bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-red-400 focus:border-red-400';
+  'w-full h-9 px-3 text-sm rounded-md border border-red-400 bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-brand-400';
 
 export const FieldGroup: React.FC<{
   title: string;
@@ -52,15 +53,26 @@ export const Field: React.FC<{
   className?: string;
   /** Right-aligned element on the label row (e.g. a character counter). */
   labelRight?: React.ReactNode;
+  /** Behind the (i): what the field does and where it shows. Defaults to `help`. */
+  info?: React.ReactNode;
+  /** Where on the website this value appears (second line of the (i)). */
+  where?: React.ReactNode;
+  /** The ✨ control for this field (an <AiTextButton/>), rendered on the label row. */
+  ai?: React.ReactNode;
   children: React.ReactNode;
-}> = ({ label, help, required, error, htmlFor, className = '', labelRight, children }) => (
+}> = ({ label, help, required, error, htmlFor, className = '', labelRight, info, where, ai, children }) => (
   <div className={className}>
-    <div className="flex items-baseline justify-between gap-2 mb-1">
-      <label htmlFor={htmlFor} className="text-[13px] font-medium text-gray-700">
-        {label}
-        {required && <span className="text-red-500 ml-0.5">*</span>}
+    <div className="flex items-center justify-between gap-2 mb-1">
+      <label htmlFor={htmlFor} className="text-[13px] font-medium text-gray-700 inline-flex items-center gap-1.5">
+        <span>{label}{required && <span className="text-red-500 ml-0.5">*</span>}</span>
+        {(info || help) && <InfoTip text={info ?? help} where={where} />}
       </label>
-      {labelRight}
+      {(labelRight || ai) && (
+        <span className="inline-flex items-center gap-2">
+          {labelRight}
+          {ai}
+        </span>
+      )}
     </div>
     {children}
     {help && !error && <p className="text-xs text-gray-400 mt-1">{help}</p>}
@@ -74,13 +86,15 @@ export const SwitchRow: React.FC<{
   id: string;
   label: string;
   help?: string;
+  /** Behind the (i): the longer explanation and where it applies. */
+  info?: React.ReactNode;
   checked: boolean;
   onCheckedChange: (v: boolean) => void;
   disabled?: boolean;
-}> = ({ id, label, help, checked, onCheckedChange, disabled }) => (
+}> = ({ id, label, help, info, checked, onCheckedChange, disabled }) => (
   <div className="flex items-center justify-between gap-4 py-2.5 px-2 -mx-2 rounded-md hover:bg-gray-50 transition-colors">
     <label htmlFor={id} className="flex-1 min-w-0 cursor-pointer select-none">
-      <span className="block text-[13px] font-medium text-gray-700">{label}</span>
+      <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-gray-700">{label}{(info || help) && <InfoTip text={info ?? help} />}</span>
       {help && <span className="block text-xs text-gray-400 mt-0.5">{help}</span>}
     </label>
     <Switch
@@ -89,7 +103,7 @@ export const SwitchRow: React.FC<{
       onCheckedChange={onCheckedChange}
       disabled={disabled}
       aria-label={label}
-      className="shrink-0 data-[state=checked]:bg-red-600"
+      className="shrink-0 data-[state=checked]:bg-brand-600"
     />
   </div>
 );
@@ -115,7 +129,7 @@ export const Segmented: React.FC<{
           type="button"
           onClick={() => onChange(o.value)}
           aria-pressed={active}
-          className={`px-3 h-8 text-[13px] rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 ${
+          className={`px-3 h-8 text-[13px] rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 ${
             active
               ? 'bg-white text-gray-900 font-medium shadow-sm'
               : 'text-gray-500 hover:text-gray-800'

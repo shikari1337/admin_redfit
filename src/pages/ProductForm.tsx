@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
-import { useNavigate, useParams, useLocation } from 'react-router-dom';
+import { useNavigate, useParams, useLocation, useSearchParams } from 'react-router-dom';
 import {
   productsAPI, uploadAPI, categoriesAPI, sizeChartsAPI, specificationsAPI,
   tagsAPI, taxRulesAPI, brandsAPI, manufacturersAPI, returnPoliciesAPI, faqGroupsAPI, productConfigAPI,
@@ -8,7 +8,7 @@ import ProductComplianceSections, { ProductConfig, SpecSectionValue } from '../c
 import api from '../services/api';
 import {
   FaArrowLeft, FaCopy, FaDownload, FaInfoCircle, FaRupeeSign, FaImages, FaAlignLeft,
-  FaLayerGroup, FaLink, FaHandshake, FaBriefcaseMedical, FaSearch, FaCog,
+  FaLayerGroup, FaLink, FaHandshake, FaBriefcaseMedical, FaSearch, FaCog, FaMagic,
 } from 'react-icons/fa';
 import {
   ProductBasicInfo,
@@ -20,7 +20,6 @@ import {
   ProductWashCare,
   ProductDisplayOptions,
   ProductMediaPanel,
-  ProductContentSections,
   ProductB2BPricing,
   ProductOffers,
   ProductRelated,
@@ -32,10 +31,15 @@ import ProductVariantGroupPanel from '../components/product/ProductVariantGroupP
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
 import { FieldGroup, Field, SwitchRow, fieldInputCls } from '../components/product/FormField';
-import type { ContentBlock } from '../components/product/ProductContentSections';
+// Product Page Studio — ONE editor for products.aplus_content (highlight blocks)
+// + products.page_sections (layout / section text / display options). Replaces
+// the old A+ "Content" panel and the separate gear-icon Sections Manager.
+import type { ContentBlock, PageSection } from '../components/product/studio/types';
+import ProductPageStudio from '../components/product/studio/ProductPageStudio';
+import AiPageWizard, { type AiPageApplyPayload } from '../components/product/studio/AiPageWizard';
 import type { B2BPricingTier } from '../components/product/ProductB2BPricing';
 import type { ProductOffer } from '../components/product/ProductOffers';
-import { normalizeSpecifications, normalizeContentBlocks, serializeContentBlocks } from '../lib/productNormalize';
+import { normalizeSpecifications, normalizeContentBlocks, serializeContentBlocks, normalizePageSections, serializePageSections } from '../lib/productNormalize';
 import {
   CategoryOption,
   SizeChartEntry,
@@ -315,7 +319,21 @@ const ProductForm: React.FC = () => {
   const [showCreateTag, setShowCreateTag] = useState(false);
 
   // ── tab shell state ────────────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState<TabId>('general');
+  // `?tab=content` deep-links straight into the Page content studio (the
+  // Products list's page icon and the retired /sections route both land here).
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState<TabId>(() => {
+    const t = searchParams.get('tab') as TabId | null;
+    const known: TabId[] = ['general', 'pricing', 'media', 'content', 'variants', 'related', 'b2b', 'medical', 'seo', 'settings'];
+    return t && known.includes(t) ? t : 'general';
+  });
+  // Page layout (products.page_sections), edited in the Product Page Studio.
+  // Sent with the save ONLY once touched (pageSectionsDirty) so a product saved
+  // from another tab never has its layout rewritten — every row is otherwise
+  // persisted explicitly with its order so the studio and the frontends agree.
+  const [pageSections, setPageSections] = useState<PageSection[]>([]);
+  const [pageSectionsDirty, setPageSectionsDirty] = useState(false);
+  const [aiWizardOpen, setAiWizardOpen] = useState(false);
   // Unsaved-changes hint: ANY formData change after hydration marks the form
   // dirty (amber dot on Save; Cancel asks for confirmation).
   const [dirty, setDirty] = useState(false);
@@ -659,6 +677,8 @@ const ProductForm: React.FC = () => {
       setResolvedProductId(String(product.id || product._id || ''));
       // Additive backend field: present when this product is in a variant group.
       setVariantGroup(product.variant_group || null);
+      setPageSections(normalizePageSections(product.page_sections ?? product.pageSections));
+      setPageSectionsDirty(false);
       setSlug(product.slug ? String(product.slug) : slugifyValue(product.name || ''));
       setSlugManuallyEdited(true);
       setSeoData(seo);
@@ -1041,6 +1061,8 @@ const ProductForm: React.FC = () => {
         // renders. page_sections is PDP layout config (a different concept) —
         // it must NOT be overwritten with content blocks.
         aplusContent: serializeContentBlocks(fd.aplusContent),
+        // page_sections rides the same PUT, but only when the studio touched it.
+        ...(pageSectionsDirty ? { pageSections: serializePageSections(pageSections) } : {}),
         offers: fd.offers,
         crossSellIds: fd.crossSellIds, upsellIds: fd.upsellIds, fbtIds: fd.fbtIds,
         b2bPricing: fd.b2bPricing,
@@ -1096,7 +1118,7 @@ const ProductForm: React.FC = () => {
     { id: 'general', label: 'General', icon: FaInfoCircle },
     { id: 'pricing', label: 'Pricing & Tax', icon: FaRupeeSign },
     { id: 'media', label: 'Media', icon: FaImages },
-    ...(showContentTab ? [{ id: 'content' as TabId, label: 'Content', icon: FaAlignLeft }] : []),
+    ...(showContentTab ? [{ id: 'content' as TabId, label: 'Page content', icon: FaAlignLeft }] : []),
     ...(showVariantsTab ? [{ id: 'variants' as TabId, label: 'Variants', icon: FaLayerGroup }] : []),
     { id: 'related', label: 'Related', icon: FaLink },
     ...(canAccess('b2b') ? [{ id: 'b2b' as TabId, label: 'B2B', icon: FaHandshake }] : []),
@@ -1123,10 +1145,10 @@ const ProductForm: React.FC = () => {
           return (
             <label key={type}
               className={`flex items-start gap-3 p-3.5 rounded-lg cursor-pointer border transition-colors ${
-                selected ? 'border-red-400 bg-red-50/50 ring-1 ring-red-400' : 'border-gray-200 hover:bg-gray-50 hover:border-gray-300'}`}>
+                selected ? 'border-brand-400 bg-brand-50/60 ring-1 ring-brand-400' : 'border-gray-200 hover:bg-gray-50 hover:border-gray-300'}`}>
               <input type="radio" name="productType" value={type} checked={formData.productType === type}
                 onChange={() => setFormData(p => ({ ...p, productType: type, ...(type === 'single' ? { variations: [], attributeIds: [], selectedAttributeValues: {} } : {}) }))}
-                className="w-4 h-4 mt-0.5 text-red-600 focus:ring-red-400" />
+                className="w-4 h-4 mt-0.5 accent-brand-600" />
               <span className="min-w-0">
                 <span className="block text-sm font-medium text-gray-800">{type === 'single' ? 'Simple product' : 'Product with options'}</span>
                 <span className="block text-xs text-gray-500 mt-0.5">
@@ -1182,10 +1204,71 @@ const ProductForm: React.FC = () => {
 
   const tabContentCls = 'data-[state=inactive]:hidden mt-0 focus-visible:outline-none';
 
+  // ── Product Page Studio wiring ─────────────────────────────────────────────
+  // The AI's context for an UNSAVED product (and the freshest values for a
+  // saved one): the form's own fields plus the names behind the ids.
+  const buildAiDraft = () => {
+    const fd = formDataRef.current;
+    const catIds = new Set(fd.categories);
+    return {
+      name: fd.name, title: fd.title, sku: fd.sku,
+      description: fd.description, richDescription: fd.richDescription,
+      price: fd.price, originalPrice: fd.originalPrice,
+      brandName: availableBrands.find(b => b._id === fd.brandId)?.name,
+      categoryNames: availableCategories.filter(c => catIds.has(c._id)).map(c => c.name),
+      tagNames: availableTags.filter(t => fd.tags.includes(t._id)).map(t => t.name),
+      specifications: fd.specifications,
+      dosage: (fd as any).dosage, importantInfo: (fd as any).importantInfo,
+      images: fd.images, variations: fd.variations.slice(0, 40),
+    };
+  };
+  const storefrontUrl = websiteUrl && slug ? `${websiteUrl.replace(/\/+$/, '')}/product/${slug}` : undefined;
+
+  const applyAiPage = (p: AiPageApplyPayload) => {
+    applyFormData(prev => ({
+      ...prev,
+      ...(p.fields.name ? { name: p.fields.name } : {}),
+      ...(p.fields.title ? { title: p.fields.title } : {}),
+      ...(p.fields.description ? { description: p.fields.description } : {}),
+      ...(p.fields.richDescription ? { richDescription: p.fields.richDescription } : {}),
+      ...(p.fields.dosage ? { dosage: p.fields.dosage } : {}),
+      ...(p.fields.importantInfo ? { importantInfo: p.fields.importantInfo } : {}),
+      ...(p.fields.specifications ? { specifications: p.fields.specifications } : {}),
+      ...(p.blocks ? { aplusContent: p.blocks } : {}),
+      // Tag NAMES from the AI → ids of tags that already exist (unknown names are ignored).
+      ...(p.tags?.length ? { tags: Array.from(new Set([...prev.tags, ...availableTags.filter(t => p.tags!.some(n => n.toLowerCase() === t.name.toLowerCase())).map(t => t._id)])) } : {}),
+    }));
+    if (p.seo) {
+      setSeoData(s => ({
+        ...s, title: p.seo!.title || s.title, description: p.seo!.description || s.description, keywords: p.seo!.keywords || s.keywords,
+        ogTitle: s.ogTitle || p.seo!.ogTitle || '', ogDescription: s.ogDescription || p.seo!.ogDescription || '',
+      }));
+    }
+    if (p.faqs?.length) {
+      setPageSections(prev => {
+        const existing = prev.find(s => s.sectionId === 'faqs');
+        return [...prev.filter(s => s.sectionId !== 'faqs'), { sectionId: 'faqs', enabled: true, order: existing?.order ?? 60, customData: { items: p.faqs } }];
+      });
+      setPageSectionsDirty(true);
+    }
+    setActiveTab('content');
+  };
+
   return (
     <div className="w-full">
 
       {/* Modals */}
+      {canAccess('aplus_content') && (
+        <AiPageWizard
+          open={aiWizardOpen}
+          onClose={() => setAiWizardOpen(false)}
+          productId={resolvedProductId || undefined}
+          draft={buildAiDraft}
+          productImages={formData.images}
+          isMedical={canAccess('pharmacy_fields')}
+          onApply={applyAiPage}
+        />
+      )}
       {showCreateCategory && (
         <QuickCreateCategoryModal
           availableParents={availableCategories}
@@ -1233,6 +1316,12 @@ const ProductForm: React.FC = () => {
                 )}
               </div>
               <div className="flex items-center gap-2 shrink-0">
+                {canAccess('aplus_content') && (
+                  <button type="button" onClick={() => setAiWizardOpen(true)} title="Draft the whole product page with AI — you review before anything is applied"
+                    className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 border border-brand-200 bg-brand-50 text-brand-700 rounded text-sm hover:bg-brand-100 whitespace-nowrap">
+                    <FaMagic className="text-xs" /> AI page
+                  </button>
+                )}
                 {isEdit && (
                   <button type="button" onClick={handleExport}
                     className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 rounded text-sm text-gray-600 hover:bg-gray-50 whitespace-nowrap">
@@ -1250,9 +1339,9 @@ const ProductForm: React.FC = () => {
                   Cancel
                 </button>
                 <button type="submit" disabled={saving} title="Save (Ctrl+S)"
-                  className="relative px-5 py-1.5 bg-red-600 text-white rounded font-medium text-sm hover:bg-red-700 disabled:opacity-50 whitespace-nowrap">
+                  className="relative px-5 py-1.5 bg-brand-600 text-white rounded font-medium text-sm hover:bg-brand-700 disabled:opacity-50 whitespace-nowrap">
                   {saving ? 'Saving…' : isEdit ? 'Save' : 'Create Product'}
-                  <span className="ml-1.5 hidden md:inline text-[10px] font-normal text-red-200">Ctrl+S</span>
+                  <span className="ml-1.5 hidden md:inline text-[10px] font-normal text-brand-200">Ctrl+S</span>
                   {dirty && (
                     <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-400 ring-2 ring-white" title="Unsaved changes" />
                   )}
@@ -1326,6 +1415,8 @@ const ProductForm: React.FC = () => {
                   onDescriptionChange={v => setFormData(p => ({ ...p, description: v }))}
                   onRichDescriptionChange={v => setFormData(p => ({ ...p, richDescription: v }))}
                   errors={{ name: errors.name }}
+                  entityId={resolvedProductId || undefined}
+                  draft={buildAiDraft}
                 />
 
                 {isEdit && productTypeCard}
@@ -1536,6 +1627,8 @@ const ProductForm: React.FC = () => {
                 onVideoFileUpload={handleVideoFileUpload}
                 onAddVideoUrl={addVideoUrl}
                 errors={{ images: errors.images }}
+                aiEntityId={resolvedProductId || undefined}
+                aiDraft={buildAiDraft}
               />
             </div>
           </TabsContent>
@@ -1543,7 +1636,25 @@ const ProductForm: React.FC = () => {
           {/* ══ CONTENT ══════════════════════════════════════════════════════ */}
           {showContentTab && (
           <TabsContent value="content" forceMount className={tabContentCls}>
-            <div className="max-w-4xl space-y-4">
+            <div className="max-w-6xl space-y-4">
+              {/* THE page editor: sections + highlight blocks + display options, in one ordered list. */}
+              {canAccess('aplus_content') && (
+                <ProductPageStudio
+                  blocks={formData.aplusContent}
+                  onBlocksChange={blocks => applyFormData(p => ({ ...p, aplusContent: blocks }))}
+                  sections={pageSections}
+                  onSectionsChange={next => { setPageSections(next); setPageSectionsDirty(true); setDirty(true); }}
+                  productId={resolvedProductId || undefined}
+                  draft={buildAiDraft}
+                  productName={formData.name}
+                  productImages={formData.images}
+                  storefrontUrl={storefrontUrl}
+                  onGenerateWithAi={() => setAiWizardOpen(true)}
+                />
+              )}
+              {(canAccess('product_specifications') || canAccess('wash_care')) && (
+                <p className="text-[11px] uppercase tracking-wider text-gray-400 pt-2">Product data used by the page</p>
+              )}
               {canAccess('product_specifications') && (<>
               {/* Compliance & Specifications (config-driven by store vertical) */}
               <ProductComplianceSections
@@ -1606,30 +1717,6 @@ const ProductForm: React.FC = () => {
                 </div>
               </FieldGroup>
               </>)}
-
-              {/* A+ Content */}
-              {canAccess('aplus_content') && (
-              <>
-              <ProductContentSections
-                blocks={formData.aplusContent}
-                onChange={blocks => applyFormData(p => ({ ...p, aplusContent: blocks }))}
-                productId={id}
-              />
-              {/* These are two DIFFERENT things sharing one module: A+ blocks above
-                  are rich CONTENT (aplus_content column, "Product Highlights" on the
-                  PDP); the Sections Manager is PDP LAYOUT + per-section text
-                  (page_sections column, gear icon on the Products list). */}
-              {isEdit && (
-                <p className="text-xs text-gray-500 -mt-2">
-                  Looking to reorder / toggle the product page's sections (description, dosage, FAQs…)?{' '}
-                  <button type="button" onClick={() => navigate(`/products/${id}/sections`)}
-                    className="text-blue-600 hover:text-blue-800 font-medium underline-offset-2 hover:underline">
-                    Open the Page Sections manager →
-                  </button>
-                </p>
-              )}
-              </>
-              )}
 
               {/* Wash Care */}
               {canAccess('wash_care') && (
@@ -1774,7 +1861,8 @@ const ProductForm: React.FC = () => {
               <ProductSEO
                 sku={formData.sku} slug={slug} seoData={seoData}
                 showAdvancedSeo={showAdvancedSeo} websiteUrl={websiteUrl}
-                productId={id} productName={formData.name} showSku={false}
+                productId={resolvedProductId || undefined} productName={formData.name} showSku={false}
+                draft={buildAiDraft} productImages={formData.images}
                 onSkuChange={v => setFormData(p => ({ ...p, sku: v.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 48) }))}
                 onSlugChange={v => { setSlugManuallyEdited(true); setSlug(slugifyValue(v)); setErrors(prev => ({ ...prev, slug: '' })); }}
                 onSlugReset={() => { setSlug(slugifyValue(formData.name || '')); setSlugManuallyEdited(false); setErrors(prev => ({ ...prev, slug: '' })); }}
@@ -1802,7 +1890,7 @@ const ProductForm: React.FC = () => {
                 </div>
                 <p className="text-xs text-gray-500 mb-4">{formData.isActive ? 'Active — customers can see and buy this product.' : 'Draft — hidden from customers until you switch it on.'}</p>
                 <button type="submit" disabled={saving}
-                  className="w-full py-2 bg-red-600 text-white rounded-md font-medium text-sm hover:bg-red-700 disabled:opacity-50">
+                  className="w-full py-2 bg-brand-600 text-white rounded-md font-medium text-sm hover:bg-brand-700 disabled:opacity-50">
                   {saving ? 'Saving…' : isEdit ? 'Update Product' : 'Create Product'}
                 </button>
               </div>

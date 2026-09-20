@@ -33,7 +33,7 @@ export const TestimonialsBlockEditor: React.FC<EditorProps> = ({ data, onChange,
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 items-end">
             <NumberField label="Rating (1-5)" value={item.rating} onChange={(v) => set({ rating: v })} min={1} />
             <ImageInputWithActions value={item.avatar || ''} onChange={(url) => set({ avatar: url })}
-              label="Avatar" placeholder="Upload or paste URL" productId={pageId} sectionId="testimonials" fieldPath="avatar" />
+              label="Avatar" placeholder="Upload or paste URL" compact spec="page.avatar" entity="page" entityId={pageId} folder="pages" />
           </div>
         </>
       )}
@@ -47,7 +47,7 @@ export const VideoBlockEditor: React.FC<EditorProps> = ({ data, onChange, pageId
     <TextField label="Video URL" value={data?.url} onChange={(v) => onChange({ ...data, url: v })}
       placeholder="https://youtube.com/watch?v=... or an .mp4 URL" />
     <ImageInputWithActions value={data?.poster || ''} onChange={(url) => onChange({ ...data, poster: url })}
-      label="Poster / Thumbnail" placeholder="Upload or paste URL" productId={pageId} sectionId="video" fieldPath="poster" />
+      label="Poster / Thumbnail" placeholder="Upload or paste URL" spec="page.video_poster" entity="page" entityId={pageId} folder="pages" local={{ heading: data?.title }} />
     <HtmlField label="Caption" value={data?.caption} onChange={(v) => onChange({ ...data, caption: v })} minHeight={90} />
     <label className="flex items-center gap-2 text-sm text-gray-700">
       <input type="checkbox" checked={data?.autoplay === true}
@@ -66,10 +66,10 @@ export const GalleryBlockEditor: React.FC<EditorProps> = ({ data, onChange, page
       items={data?.images}
       onChange={(images) => onChange({ ...data, images })}
       blank={() => ({ url: '', alt: '', caption: '', link: '' })}
-      render={(item: any, set, i) => (
+      render={(item: any, set) => (
         <>
           <ImageInputWithActions value={item.url || ''} onChange={(url) => set({ url })}
-            label="Image" placeholder="Upload or paste URL" productId={pageId} sectionId="gallery" fieldPath={'images.' + i + '.url'} />
+            label="Image" placeholder="Upload or paste URL" compact spec="page.gallery" entity="page" entityId={pageId} folder="pages" local={{ alt: item.alt, caption: item.caption }} />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <TextField label="Alt text" value={item.alt} onChange={(v) => set({ alt: v })} placeholder="Describes the image" />
             <TextField label="Caption" value={item.caption} onChange={(v) => set({ caption: v })} placeholder="Shown under the image" />
@@ -111,7 +111,7 @@ export const TimelineBlockEditor: React.FC<EditorProps> = ({ data, onChange, pag
       items={data?.items}
       onChange={(items) => onChange({ ...data, items })}
       blank={() => ({ date: '', title: '', description: '', icon: '', image: '' })}
-      render={(item: any, set, i) => (
+      render={(item: any, set) => (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <TextField label="Date / Year" value={item.date} onChange={(v) => set({ date: v })} placeholder="2024" />
@@ -120,7 +120,7 @@ export const TimelineBlockEditor: React.FC<EditorProps> = ({ data, onChange, pag
           <HtmlField label="Description" value={item.description} onChange={(v) => set({ description: v })} minHeight={90} />
           <IconPicker value={item.icon} onChange={(icon) => set({ icon })} label="Icon" />
           <ImageInputWithActions value={item.image || ''} onChange={(url) => set({ image: url })}
-            label="Image (optional)" placeholder="Upload or paste URL" productId={pageId} sectionId="timeline" fieldPath={'items.' + i + '.image'} />
+            label="Image (optional)" placeholder="Upload or paste URL" compact spec="page.image" entity="page" entityId={pageId} folder="pages" local={{ title: item.title, date: item.date }} />
         </>
       )}
     />

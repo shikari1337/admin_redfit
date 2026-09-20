@@ -422,6 +422,7 @@ const Layout: React.FC = () => {
             { title: 'SMS / WhatsApp Templates', url: '/settings/sms-templates' },
             { title: 'Cart Recovery Automation', url: '/settings/cart-recovery-automation' },
             { title: 'GST Display',        url: '/settings/gst' },
+            { title: 'Markets',            url: '/settings/markets' },
             ...(canAccess('gst_tax') && hasPerm('settings.manage') ? [{ title: 'Tax Rules',        url: '/settings/tax-rules' }] : []),
             { title: 'Invoice',            url: '/settings/invoice' },
             { title: 'Order Numbering',    url: '/settings/order-numbering' },

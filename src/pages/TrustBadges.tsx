@@ -8,7 +8,8 @@ import {
   arrayMove, SortableContext, verticalListSortingStrategy, sortableKeyboardCoordinates, useSortable,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { trustBadgesAPI, uploadAPI } from '../services/api';
+import { trustBadgesAPI } from '../services/api';
+import ImageInputWithActions from '../components/common/ImageInputWithActions';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -76,7 +77,6 @@ const TrustBadges: React.FC = () => {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const sensors = useSensors(
@@ -104,21 +104,6 @@ const TrustBadges: React.FC = () => {
     setShowForm(true);
   };
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    try {
-      const res = await uploadAPI.uploadSingle(file, 'trust-badges');
-      const url = res?.url || res?.data?.url || res?.data?.data?.url;
-      if (url) setForm(f => ({ ...f, image_url: url }));
-    } catch {
-      setError('Image upload failed');
-    } finally {
-      setUploading(false);
-      e.target.value = '';
-    }
-  };
 
   const handleSave = async () => {
     if (!form.title.trim()) { setError('Title is required.'); return; }
@@ -225,14 +210,10 @@ const TrustBadges: React.FC = () => {
             <Label className="text-xs">Description (optional)</Label>
             <Textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="On orders above ₹499" rows={2} />
           </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Icon</Label>
-            <div className="flex items-center gap-3">
-              {form.image_url && <img src={form.image_url} alt="" className="h-10 w-10 rounded object-cover border" />}
-              <input type="file" accept="image/*" onChange={handleImageUpload} disabled={uploading} className="text-xs" />
-              {uploading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-            </div>
-          </div>
+          <ImageInputWithActions
+            label="Icon" spec="trust.icon" folder="trust-badges" entity="store" compact
+            local={{ title: form.title, description: form.description }}
+            value={form.image_url} onChange={(url) => setForm(f => ({ ...f, image_url: url }))} />
           <div className="flex items-center gap-2">
             <input type="checkbox" id="badge-active" checked={form.is_active} onChange={e => setForm(f => ({ ...f, is_active: e.target.checked }))} />
             <Label htmlFor="badge-active" className="text-xs font-normal cursor-pointer">Active</Label>

@@ -2,6 +2,7 @@ import React from 'react';
 import { FaCreditCard, FaImage, FaCheckCircle, FaClock, FaTimesCircle, FaMoneyCheckAlt, FaShieldAlt, FaExclamationTriangle } from 'react-icons/fa';
 import StatusBadge from './StatusBadge';
 import { formatDate } from '../../utils/date';
+import { fmtCurrencyMinor } from '../../lib/money';
 
 export interface RazorpayAuditResult {
   verified: boolean;
@@ -17,7 +18,12 @@ export interface RazorpayAuditResult {
 interface PaymentInformationProps {
   paymentMethod: 'cod' | 'prepaid';
   paymentStatus: string;
-  paymentGateway?: 'razorpay' | 'upi' | 'manual';
+  paymentGateway?: 'razorpay' | 'upi' | 'manual' | 'paypal' | string;
+  /** Adapter-backed gateways (PayPal, Stripe…): the settled payment id (mig 172 `orders.gateway_ref`). */
+  gatewayRef?: string | null;
+  /** Presentment memo (mig 172): what the shopper was charged, in their currency. */
+  presentmentCurrency?: string | null;
+  presentmentTotalMinor?: string | number | null;
   razorpayOrderId?: string;
   razorpayPaymentId?: string;
   razorpaySignature?: string;
@@ -60,6 +66,9 @@ const PaymentInformation: React.FC<PaymentInformationProps> = ({
   paymentMethod,
   paymentStatus,
   paymentGateway,
+  gatewayRef,
+  presentmentCurrency,
+  presentmentTotalMinor,
   razorpayOrderId,
   razorpayPaymentId,
   razorpaySignature,
@@ -144,7 +153,7 @@ const PaymentInformation: React.FC<PaymentInformationProps> = ({
           <div className="border-t pt-3">
             <p className="text-sm text-gray-500 mb-1.5">Payment Gateway</p>
             <p className="font-semibold text-base mb-2.5">
-              {effectiveGateway === 'razorpay' ? 'Razorpay' : effectiveGateway === 'upi' ? 'UPI' : 'Manual'}
+              {effectiveGateway === 'razorpay' ? 'Razorpay' : effectiveGateway === 'upi' ? 'UPI' : effectiveGateway === 'manual' ? 'Manual' : effectiveGateway === 'paypal' ? 'PayPal' : String(effectiveGateway).replace(/^\w/, (c) => c.toUpperCase())}
               {!paymentGateway && (
                 <span className="ml-2 text-xs font-medium text-slate-500">
                   (identified from the payment reference)
@@ -152,6 +161,20 @@ const PaymentInformation: React.FC<PaymentInformationProps> = ({
               )}
             </p>
 
+            {effectiveGateway !== 'razorpay' && effectiveGateway !== 'upi' && effectiveGateway !== 'manual' && (
+              <div className="space-y-2 bg-indigo-50 p-3 rounded">
+                <div>
+                  <p className="text-sm text-gray-600">Payment reference</p>
+                  <p className="font-mono text-sm">{gatewayRef || 'N/A'}</p>
+                </div>
+                {presentmentCurrency && String(presentmentCurrency).toUpperCase() !== 'INR' && presentmentTotalMinor != null && (
+                  <div>
+                    <p className="text-sm text-gray-600">Charged</p>
+                    <p className="text-sm font-semibold">{fmtCurrencyMinor(presentmentTotalMinor, String(presentmentCurrency))}</p>
+                  </div>
+                )}
+              </div>
+            )}
             {effectiveGateway === 'razorpay' && (
               <div className="space-y-2 bg-blue-50 p-3 rounded">
                 <div>

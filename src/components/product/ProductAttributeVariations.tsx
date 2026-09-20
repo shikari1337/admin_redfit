@@ -1713,7 +1713,7 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
                                     main product gallery, so variants get the exact same "choose
                                     from media library" option instead of file-upload-only. */}
                                 <div>
-                                  <ProductImageUpload
+                                  <ProductImageUpload spec="product.variant"
                                     images={variation.images || []}
                                     onImagesChange={imgs => handleVariationChange(variation.id, 'images', imgs)}
                                     onUpload={files => handleImageUpload(variation.id, files)}

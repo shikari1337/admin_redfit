@@ -8,8 +8,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ordersAPI, shippingAPI, paymentsAPI, shipmentsAPI, invoicesAPI } from '../services/api';
 import { formatDate } from '../utils/date';
-import { fmtRupees } from '../lib/money';
-import { FaCheckCircle, FaEnvelope, FaFileInvoice, FaCreditCard, FaTruck, FaArrowLeft, FaDownload, FaWhatsapp, FaSms, FaChevronDown, FaMoneyCheckAlt, FaTag } from 'react-icons/fa';
+import { fmtRupees, fmtCurrencyMinor } from '../lib/money';
+import { FaCheckCircle, FaEnvelope, FaFileInvoice, FaCreditCard, FaTruck, FaArrowLeft, FaDownload, FaWhatsapp, FaSms, FaChevronDown, FaMoneyCheckAlt, FaTag, FaPaperPlane } from 'react-icons/fa';
 import {
   StatusBadge,
   OrderItems,
@@ -48,7 +48,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
-  DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger,
+  DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 
@@ -448,6 +448,8 @@ const OrderDetail: React.FC = () => {
 
   /** On-demand order message on a chosen channel. */
   const [sendingNotify, setSendingNotify] = useState<string | null>(null);
+  /** Bumped after a manual send so the Communication Log refetches. */
+  const [commLogKey, setCommLogKey] = useState(0);
   const handleNotify = async (event: string, channel: 'whatsapp' | 'sms' | 'email', label: string) => {
     setSendingNotify(`${event}:${channel}`);
     try {
@@ -458,6 +460,45 @@ const OrderDetail: React.FC = () => {
         variant: 'destructive',
         title: `${label} not sent`,
         description: e?.response?.data?.message || `Could not send on ${channel}.`,
+      });
+    } finally {
+      setSendingNotify(null);
+    }
+  };
+
+  /**
+   * Send on WhatsApp, SMS and email together.
+   *
+   * The per-channel items below use the priority chain, which stops at the
+   * first channel that works — right for a status nudge, wrong for a payment
+   * link the store wants in front of the customer everywhere. The response
+   * carries one result PER CHANNEL, so a partial send says which one failed
+   * and what the provider said, instead of a flat "sent".
+   */
+  const handleNotifyAll = async (event: string, label: string) => {
+    const channels: Array<'whatsapp' | 'sms' | 'email'> = [];
+    if (order.shippingAddress?.mobileNumber) channels.push('whatsapp', 'sms');
+    if (order.shippingAddress?.email) channels.push('email');
+    if (!channels.length) {
+      toast({ variant: 'destructive', title: `${label} not sent`, description: 'This order has no phone number or email address.' });
+      return;
+    }
+    setSendingNotify(`${event}:all`);
+    try {
+      const res: any = await ordersAPI.notifyAll(id!, event, channels);
+      const failed = (res?.data?.failed ?? []) as Array<{ channel: string; error: string }>;
+      toast({
+        variant: failed.length ? 'default' : undefined,
+        title: failed.length ? `${label} partly sent` : `${label} sent`,
+        description: res?.message || `Sent on ${channels.join(', ')}.`,
+      });
+      // A send that went out belongs in the log the operator is looking at.
+      setCommLogKey((k) => k + 1);
+    } catch (e: any) {
+      toast({
+        variant: 'destructive',
+        title: `${label} not sent`,
+        description: e?.response?.data?.message || 'No channel could deliver this message.',
       });
     } finally {
       setSendingNotify(null);
@@ -813,6 +854,34 @@ const OrderDetail: React.FC = () => {
           {(order.isFlagged ?? order.is_flagged) && (
             <Badge variant="outline" className="border-red-300 bg-red-50 font-medium text-red-700">Flagged</Badge>
           )}
+          {/* Market + presentment (mig 172) and the export tax treatment (the
+              order's own GST snapshot, never re-derived from the address). */}
+          {(() => {
+            const mkt = String(order.marketCode ?? order.market_code ?? '').toLowerCase();
+            const cur = String(order.currency ?? '').toUpperCase();
+            const pm = order.presentmentTotalMinor ?? order.presentment_total_minor;
+            const gw = String(order.paymentGateway ?? order.payment_gateway ?? '').toLowerCase();
+            const isExport = String(order.gst?.taxType ?? '').toUpperCase() === 'EXPORT';
+            return (
+              <>
+                {mkt && mkt !== 'in' && (
+                  <Badge variant="outline" className="border-sky-300 bg-sky-50 font-medium uppercase text-sky-700"
+                    title={`Placed on the ${mkt} market${cur && cur !== 'INR' && pm != null ? ` · paid ${fmtCurrencyMinor(pm, cur)} (booked ${fmtRupees(order.total)})` : ''}`}>
+                    {mkt}{cur && cur !== 'INR' && pm != null ? ` · ${fmtCurrencyMinor(pm, cur)}` : ''}
+                  </Badge>
+                )}
+                {isExport && (
+                  <Badge variant="outline" className="border-emerald-300 bg-emerald-50 font-medium text-emerald-800"
+                    title={`Zero-rated export${order.gst?.lutNumber ? ` under LUT ${order.gst.lutNumber}` : ''}${order.gst?.destinationCountry ? ` to ${order.gst.destinationCountry}` : ''}`}>
+                    Export{order.gst?.supplyType === 'EXPWP' ? ' · IGST paid' : ' · LUT'}{order.gst?.destinationCountry ? ` · ${order.gst.destinationCountry}` : ''}
+                  </Badge>
+                )}
+                {gw && !['razorpay', 'upi', 'manual', 'wallet', 'cod'].includes(gw) && (
+                  <Badge variant="outline" className="border-indigo-300 bg-indigo-50 font-medium capitalize text-indigo-700">{gw}</Badge>
+                )}
+              </>
+            );
+          })()}
           {/* Return window and money already returned — neither appears in the
               items table, so both stay on the bar. */}
           {(order.returnDeadline ?? order.return_deadline) && (
@@ -886,6 +955,16 @@ const OrderDetail: React.FC = () => {
                   <DropdownMenuSub key={m.event}>
                     <DropdownMenuSubTrigger>{m.label}</DropdownMenuSubTrigger>
                     <DropdownMenuSubContent>
+                      {/* All three at once — what a payment link actually wants.
+                          The single-channel items below stop at the first channel
+                          that works. */}
+                      <DropdownMenuItem
+                        disabled={!order.shippingAddress?.mobileNumber && !order.shippingAddress?.email}
+                        onClick={() => handleNotifyAll(m.event, m.label)}>
+                        <FaPaperPlane className="mr-2 h-3.5 w-3.5 text-emerald-600" />
+                        <span className="font-medium">WhatsApp + SMS + Email</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
                       <DropdownMenuItem disabled={!order.shippingAddress?.mobileNumber}
                         onClick={() => handleNotify(m.event, 'whatsapp', m.label)}>
                         <FaWhatsapp className="mr-2 h-3.5 w-3.5 text-green-600" /> WhatsApp
@@ -1339,6 +1418,9 @@ const OrderDetail: React.FC = () => {
                 paymentMethod={order.paymentMethod}
                 paymentStatus={order.paymentStatus}
                 paymentGateway={order.paymentGateway}
+                gatewayRef={order.gatewayRef ?? order.gateway_ref}
+                presentmentCurrency={order.currency}
+                presentmentTotalMinor={order.presentmentTotalMinor ?? order.presentment_total_minor}
                 razorpayOrderId={order.razorpayOrderId}
                 razorpayPaymentId={order.razorpayPaymentId}
                 razorpaySignature={order.razorpaySignature}
@@ -1367,22 +1449,29 @@ const OrderDetail: React.FC = () => {
             gatewayPaymentId={order.razorpayPaymentId ?? order.razorpay_payment_id ?? null}
           />
 
-          {/* Every message this order has sent — staff-triggered and automated,
-              with the status the provider actually reported and who sent it. */}
-          <OrderCommunicationLog orderId={order._id || order.id} />
+          {/* ── The read-mostly tail ──
+              Four short panels that each used to take the full width of this
+              column and stack, so the page ended in a long ladder of mostly
+              empty cards with a screen of dead space beside them. They tile
+              two-up from `xl` instead — the log and the links are both lists of
+              a few lines, and Journey/Team were already paired.
 
-          {/* The links staff actually send — one per channel, so which message got
-              opened is answerable. Loads on demand: minting them calls the
-              shortener, and an order desk opens far more orders than it sends
-              links from. */}
-          <OrderLinksCard orderId={order.orderId ?? order.id ?? order._id} />
+              `items-start` throughout (C4): the grid's default stretch made the
+              shorter card match the taller one's height, which is what produced
+              the half-empty boxes. */}
+          <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+            {/* Every message this order has sent — staff-triggered and
+                automated, with the status the provider actually reported, what
+                the message said, and who sent it. */}
+            <OrderCommunicationLog key={commLogKey} orderId={order._id || order.id} />
 
-          {/* Marketing journey and sales ownership — independent read-mostly
-              panels, so they tile rather than stack. `items-start` (C4): the
-              default grid stretch was forcing the shorter card (Journey, often
-              just one line when there is no attribution) to match the taller
-              one's height, leaving a half-empty card with nothing in the gap. */}
-          <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
+            {/* The links staff actually send — ONE per destination. Loads on
+                demand: minting them calls the shortener, and an order desk opens
+                far more orders than it sends links from. */}
+            <OrderLinksCard orderId={order.orderId ?? order.id ?? order._id} />
+          </div>
+
+          <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
             <OrderJourneyCard attribution={order.attribution} />
             <OrderTeamCard
               orderId={order.id ?? order._id}

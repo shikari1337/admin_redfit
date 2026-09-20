@@ -1,6 +1,7 @@
 import React, { useRef } from 'react';
 import ProductImageUpload from './ProductImageUpload';
 import { FieldGroup } from './FormField';
+import type { AiEntity } from '../../lib/ai';
 
 interface ProductMediaPanelProps {
   images: string[];
@@ -21,6 +22,9 @@ interface ProductMediaPanelProps {
   onVideoFileUpload: (files: FileList) => void;
   onAddVideoUrl: () => void;
   errors?: { images?: string };
+  /** AI context for the generate actions. */
+  aiEntityId?: string | null;
+  aiDraft?: () => Record<string, any> | null | undefined;
 }
 
 const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
@@ -30,7 +34,10 @@ const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
   onImageUpload, onDescriptionImageUpload, onCustomerOrderImagesUpload,
   onVideoFileUpload, onAddVideoUrl,
   errors = {},
+  aiEntityId,
+  aiDraft,
 }) => {
+  const ai = { aiEntity: 'product' as AiEntity, aiEntityId, aiDraft };
   const videoInputRef = useRef<HTMLInputElement>(null);
 
   const removeVideo = (idx: number) => {
@@ -57,6 +64,8 @@ const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
           error={errors.images}
           multiple={true}
           label="Drop images or click to upload"
+          spec="product.gallery"
+          {...ai}
         />
       </FieldGroup>
 
@@ -71,6 +80,9 @@ const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
           multiple={false}
           label="Upload banner image"
           maxImages={1}
+          spec="product.description_banner"
+          folder="products/banners"
+          {...ai}
         />
       </FieldGroup>
 
@@ -127,6 +139,9 @@ const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
           uploading={!!uploadingCustomer}
           multiple={true}
           label="Upload customer photos"
+          spec="product.customer_photo"
+          folder="products/customers"
+          {...ai}
         />
       </FieldGroup>
 

@@ -273,7 +273,7 @@ const BundleForm: React.FC = () => {
               placeholder="Why these products work well together." />
           </div>
           <div>
-            <ImageInputWithActions value={image} onChange={setImage} label="Bundle image (optional)" placeholder="https://…"
+            <ImageInputWithActions value={image} onChange={setImage} label="Bundle image (optional)" placeholder="https://…" spec="bundle.image" folder="bundles" entity="generic" local={{ bundle: name }}
               contextData={name ? { productName: name } : undefined} />
           </div>
           <label className="inline-flex items-center text-sm text-gray-700">

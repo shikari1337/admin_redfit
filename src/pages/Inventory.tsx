@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { inventoryAPI } from '../services/api';
 import { Pagination } from '@/components/erp';
 import { Link } from 'react-router-dom';
+import MarketPricesBulkBar from '../components/inventory/MarketPricesBulkBar';
+import AvailabilityBulkBar from '../components/inventory/AvailabilityBulkBar';
 
 interface Valuation {
   grand_total?: number;
@@ -235,6 +237,19 @@ export default function Inventory() {
           </button>
           <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={handleImportFile} />
         </div>
+      </div>
+
+      {/* Explicit prices for the other markets (homeo.med etc.) — retail + B2B per
+          SKU in the market currency, optionally per country. Rupee prices stay on
+          the SKU sheet above. */}
+      <div style={{ marginBottom: 16 }}>
+        <MarketPricesBulkBar />
+      </div>
+
+      {/* Who may buy a SKU (B2B-only) and where it may be sold (country rules) —
+          hides the SKU from listings/PDP/checkout for the wrong viewer. */}
+      <div style={{ marginBottom: 16 }}>
+        <AvailabilityBulkBar />
       </div>
 
       {valuation && (

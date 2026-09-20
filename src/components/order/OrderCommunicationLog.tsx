@@ -51,11 +51,40 @@ const STATUS_LABEL: Record<string, string> = {
   failed: 'Failed',
   error: 'Failed',
   undelivered: "Didn't reach the provider",
+  skipped: 'Not sent',
+  deferred: 'Held back',
+};
+
+/**
+ * Why the hub refused to send, in the desk's language.
+ *
+ * `skipped` rows were invisible until now — the `communication_log` view
+ * filtered them out entirely — so a message blocked by a missing WhatsApp
+ * template looked exactly like a message nobody had tried to send. Naming the
+ * reason is the difference between "the customer wasn't told" and "the
+ * customer wasn't told BECAUSE this template isn't approved yet."
+ */
+const SKIP_REASON: Record<string, string> = {
+  // The hub's own vocabulary (services/comms/consent.ts BlockedReason).
+  consent_opted_out: 'The customer opted out of this kind of message.',
+  consent_missing: 'The customer has not opted in to this kind of message.',
+  suppressed: 'This address is on the store’s suppression list.',
+  quiet_hours: 'Held back by quiet hours — it goes out when the window opens.',
+  frequency_cap: 'Held back by the message frequency cap.',
+  outbound_disabled: 'Non-transactional sending is switched off for this store.',
+  channel_reserved: 'This channel is not available yet.',
+  // Template and credential refusals.
+  template_missing: 'No template for this message on this channel — add one in Settings ▸ Notification Templates.',
+  template_not_approved: 'The WhatsApp template exists but Meta has not approved it yet.',
+  no_template: 'No template for this message on this channel — add one in Settings ▸ Notification Templates.',
+  not_configured: 'This channel has no credentials configured for this store.',
+  switched_off: 'This channel is switched off for this store.',
 };
 
 const STATUS_VARIANT = (status: string): 'default' | 'secondary' | 'destructive' | 'outline' => {
   const s = status.toLowerCase();
   if (s === 'failed' || s === 'error' || s === 'undelivered') return 'destructive';
+  if (s === 'skipped' || s === 'deferred') return 'outline';
   if (s === 'delivered' || s === 'read') return 'default';
   if (s === 'sent' || s === 'accepted' || s === 'queued' || s === 'pending') return 'secondary';
   return 'outline';
@@ -135,11 +164,16 @@ const OrderCommunicationLog: React.FC<Props> = ({ orderId }) => {
               const statusKey = String(row.status || '').toLowerCase();
               const label = STATUS_LABEL[statusKey] ?? (row.status || 'Unknown');
               const failed = statusKey === 'failed' || statusKey === 'error' || statusKey === 'undelivered';
+              const blocked = statusKey === 'skipped' || statusKey === 'deferred';
+              const reasonKey = String(row.skipped_reason || '').toLowerCase();
+              const reason = blocked
+                ? (SKIP_REASON[reasonKey] ?? row.error ?? (reasonKey ? humanizeEvent(reasonKey) : 'No reason recorded'))
+                : null;
               return (
-                <li key={row.id} className="py-2 text-sm">
+                <li key={row.id} className="py-2.5 text-sm">
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <ch.Icon className={`h-3.5 w-3.5 shrink-0 ${ch.tone}`} />
-                    <span className="font-semibold text-slate-800">{humanizeEvent(row.event)}</span>
+                    <span className="font-semibold text-slate-800">{row.title || humanizeEvent(row.event)}</span>
                     <Badge variant={STATUS_VARIANT(row.status || '')}>{label}</Badge>
                     <span className="whitespace-nowrap text-xs font-bold tabular-nums text-slate-500">
                       {formatDateTime(row.created_at)}
@@ -150,9 +184,34 @@ const OrderCommunicationLog: React.FC<Props> = ({ orderId }) => {
                     {row.provider && <span>via {row.provider}</span>}
                     <span>{row.is_automated ? 'Automated' : (row.actor_name ? `by ${row.actor_name}` : 'by staff')}</span>
                   </div>
+
+                  {/* WHAT IT SAID. The hub stores no message body (a log is not a
+                      transcript), so this is the TEMPLATE the send used, with its
+                      placeholders intact — a record, not a reconstruction. */}
+                  {row.body && (
+                    <details className="mt-1.5 group">
+                      <summary className="cursor-pointer select-none text-xs font-medium text-slate-500 hover:text-slate-700">
+                        Message content
+                      </summary>
+                      <p className="mt-1 whitespace-pre-line rounded border border-slate-200 bg-slate-50 p-2 text-xs leading-relaxed text-slate-700">
+                        {row.body}
+                      </p>
+                      <p className="mt-1 text-[11px] text-slate-400">
+                        The template used. Placeholders were filled with this order's details when it was sent.
+                      </p>
+                    </details>
+                  )}
+
                   {/* The provider's OWN words on a failure, not a generic "error". */}
                   {failed && row.error && (
                     <p className="mt-1 rounded bg-destructive/10 p-1.5 text-xs text-destructive">{row.error}</p>
+                  )}
+
+                  {/* Why it never went out — the case that used to leave no trace. */}
+                  {blocked && (
+                    <p className="mt-1 rounded border border-amber-200 bg-amber-50 p-1.5 text-xs text-amber-800">
+                      {reason}
+                    </p>
                   )}
                 </li>
               );

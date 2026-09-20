@@ -19,6 +19,9 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import MediaPicker from '../common/MediaPicker';
+import AiImageDialog from '../common/AiImageDialog';
+import { useImageSpec, specHint } from '../../lib/imageSpecs';
+import type { AiEntity } from '../../lib/ai';
 
 interface ProductImageUploadProps {
   images: string[];
@@ -31,6 +34,12 @@ interface ProductImageUploadProps {
   maxImages?: number;
   /** Folder used by the media-library picker. */
   folder?: string;
+  /** Image slot key — prints the required size and sizes AI output. */
+  spec?: string;
+  /** AI context for the generate action. */
+  aiEntity?: AiEntity;
+  aiEntityId?: string | null;
+  aiDraft?: () => Record<string, any> | null | undefined;
 }
 
 interface SortableThumbProps {
@@ -93,7 +102,13 @@ const ProductImageUpload: React.FC<ProductImageUploadProps> = ({
   label = 'Product Images',
   maxImages,
   folder = 'products/gallery',
+  spec,
+  aiEntity = 'product',
+  aiEntityId,
+  aiDraft,
 }) => {
+  const [aiOpen, setAiOpen] = useState(false);
+  const slot = useImageSpec(spec);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -184,20 +199,26 @@ const ProductImageUpload: React.FC<ProductImageUploadProps> = ({
                   <p className="text-sm text-gray-600">
                     Click to upload {multiple ? 'images' : 'image'} or drag and drop
                   </p>
-                  <p className="text-xs text-gray-500 mt-1">Supports JPG, PNG, GIF up to 10MB</p>
+                  <p className="text-xs text-gray-500 mt-1">JPG, PNG, WebP or GIF — optimised to WebP on upload</p>
                 </>
               )}
             </label>
-            <button
-              type="button"
-              onClick={() => setPickerOpen(true)}
-              className="mt-2 text-xs text-blue-600 hover:text-blue-800 font-medium"
-            >
-              🖼 Choose from Media Library
-            </button>
+            <div className="mt-2 flex items-center justify-center gap-3">
+              <button type="button" onClick={() => setPickerOpen(true)} className="text-xs text-gray-700 hover:text-gray-900 font-medium underline-offset-2 hover:underline">
+                Choose from media library
+              </button>
+              <span className="text-gray-300">·</span>
+              <button type="button" onClick={() => setAiOpen(true)} className="text-xs text-brand-700 hover:text-brand-800 font-medium underline-offset-2 hover:underline">
+                ✨ Generate with AI
+              </button>
+            </div>
+            {spec && <p className="text-[11px] text-gray-500 mt-1.5">Best at {specHint(slot)}</p>}
           </div>
         )}
-        <MediaPicker open={pickerOpen} onClose={() => setPickerOpen(false)} onSelect={addFromLibrary} folder={folder} />
+        <MediaPicker open={pickerOpen} onClose={() => setPickerOpen(false)} onSelect={addFromLibrary} folder={folder} spec={spec}
+          entity={aiEntity} entityId={aiEntityId} draft={aiDraft} referenceImages={images.slice(0, 3)} />
+        <AiImageDialog open={aiOpen} onClose={() => setAiOpen(false)} onUse={addFromLibrary} slot={spec}
+          entity={aiEntity} entityId={aiEntityId} draft={aiDraft} referenceImages={images.slice(0, 3)} folder={folder} />
         {maxImages && images.length >= maxImages && (
           <p className="text-xs text-gray-500">Maximum {maxImages} images reached</p>
         )}

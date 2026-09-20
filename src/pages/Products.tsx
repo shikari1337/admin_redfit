@@ -1187,12 +1187,13 @@ const Products: React.FC = () => {
                           </Link>
                         </Button>
                       )}
-                      {/* Page Sections (page_sections column) is gated by the SAME
-                          module as A+ content — with it off the backend strips the
-                          save, so don't offer a dead editor. */}
+                      {/* Page content (page_sections + aplus_content) is gated by the
+                          aplus_content module — with it off the backend strips the
+                          save, so don't offer a dead editor. Opens the Product Page
+                          Studio tab of the product form directly. */}
                       {canManageProducts && canAccess('aplus_content') && (
-                        <Button variant="outline" size="sm" className="h-8 w-8 p-0" asChild title="Page sections (layout & section text)">
-                          <Link to={`/products/${product.slug || product._id}/sections`}>
+                        <Button variant="outline" size="sm" className="h-8 w-8 p-0" asChild title="Page content (sections, highlights, layout)">
+                          <Link to={`/products/${product.slug || product._id}/edit?tab=content`}>
                             <FaCog className="h-3.5 w-3.5" />
                           </Link>
                         </Button>

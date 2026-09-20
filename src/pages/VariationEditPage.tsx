@@ -889,7 +889,8 @@ const VariationEditPage: React.FC = () => {
           uploading={uploading}
           multiple
           label="Variant images"
-          folder="products"
+          folder="products/variations"
+          spec="product.variant"
         />
       </FieldGroup>
 

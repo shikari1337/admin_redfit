@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { FaPlus, FaSave, FaUndo, FaTrash, FaEdit, FaChevronDown, FaChevronRight, FaUpload } from 'react-icons/fa';
-import { attributesAPI, attributeValuesAPI, uploadAPI } from '../services/api';
+import { FaPlus, FaSave, FaUndo, FaTrash, FaEdit, FaChevronDown, FaChevronRight } from 'react-icons/fa';
+import { attributesAPI, attributeValuesAPI } from '../services/api';
+import ImageInputWithActions from '../components/common/ImageInputWithActions';
 import { slugifyValue } from '../utils/slugify';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -84,8 +85,6 @@ const Attributes: React.FC = () => {
   const [selectedValueId, setSelectedValueId] = useState<string | null>(null);
   const [attributeValues, setAttributeValues] = useState<Record<string, AttributeValue[]>>({});
   const [error, setError] = useState<string | null>(null);
-  const [uploadingImage, setUploadingImage] = useState(false);
-  const [uploadingAttributeImage, setUploadingAttributeImage] = useState(false);
 
   // Normalize ID to string — accepts MongoDB ObjectId (24 hex) and PostgreSQL UUID (36 chars)
   const normalizeId = (id: any): string | null => {
@@ -897,76 +896,13 @@ const Attributes: React.FC = () => {
                 placeholder="Optional description for this attribute"
               />
             </div>
-            {/* Image upload for attribute */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Image (Optional)
-              </label>
-              <div className="space-y-2">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={attributeFormState.imageUrl}
-                    onChange={(e) => handleAttributeFormChange('imageUrl', e.target.value)}
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                    placeholder="Enter image URL or upload image below"
-                  />
-                  <label className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
-                    <FaUpload />
-                    {uploadingAttributeImage ? 'Uploading...' : 'Upload'}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      disabled={uploadingAttributeImage}
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        
-                        setUploadingAttributeImage(true);
-                        setError(null);
-                        try {
-                          const response = await uploadAPI.uploadSingle(file, 'attributes');
-                          const imageUrl = response.data?.url || response.data?.data?.url || response.url;
-                          if (imageUrl) {
-                            handleAttributeFormChange('imageUrl', imageUrl);
-                          } else {
-                            throw new Error('No URL in upload response');
-                          }
-                        } catch (error: any) {
-                          console.error('Image upload error:', error);
-                          setError(error.response?.data?.message || error.message || 'Failed to upload image');
-                        } finally {
-                          setUploadingAttributeImage(false);
-                          // Reset input
-                          e.target.value = '';
-                        }
-                      }}
-                    />
-                  </label>
-                </div>
-                {attributeFormState.imageUrl && (
-                  <div className="relative inline-block">
-                    <img
-                      src={attributeFormState.imageUrl}
-                      alt="Preview"
-                      className="w-32 h-32 rounded border border-gray-300 object-cover"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = 'none';
-                      }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => handleAttributeFormChange('imageUrl', '')}
-                      className="absolute top-1 right-1 bg-red-600 text-white rounded-full p-1 hover:bg-red-700"
-                      title="Remove image"
-                    >
-                      <FaTrash size={12} />
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
+            {/* Image — same Upload · Library · AI · URL field as everywhere else */}
+            <ImageInputWithActions
+              label="Image (optional)" spec="attribute.image" folder="attributes" entity="generic"
+              local={{ attribute: attributeFormState.name }}
+              value={attributeFormState.imageUrl}
+              onChange={(url) => handleAttributeFormChange('imageUrl', url)}
+            />
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Order
@@ -1109,76 +1045,14 @@ const Attributes: React.FC = () => {
                     </div>
                   </div>
                 )}
-                {/* Image upload - available for all attribute values (especially useful for size charts) */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Image {attributes.find(a => normalizeId(a._id) === normalizeId(selectedAttributeId))?.type === 'image' ? '(Required)' : '(Optional - e.g., size chart image)'}
-                  </label>
-                  <div className="space-y-2">
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={valueFormState.imageUrl}
-                        onChange={(e) => setValueFormState(prev => ({ ...prev, imageUrl: e.target.value }))}
-                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
-                        placeholder="Enter image URL or upload image below"
-                      />
-                      <label className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 cursor-pointer flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
-                        <FaUpload />
-                        {uploadingImage ? 'Uploading...' : 'Upload'}
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          disabled={uploadingImage}
-                          onChange={async (e) => {
-                            const file = e.target.files?.[0];
-                            if (!file) return;
-                            
-                            setUploadingImage(true);
-                            setError(null);
-                            try {
-                              const response = await uploadAPI.uploadSingle(file, 'attributes');
-                              const imageUrl = response.data?.url || response.data?.data?.url || response.url;
-                              if (imageUrl) {
-                                setValueFormState(prev => ({ ...prev, imageUrl }));
-                              } else {
-                                throw new Error('No URL in upload response');
-                              }
-                            } catch (error: any) {
-                              console.error('Image upload error:', error);
-                              setError(error.response?.data?.message || error.message || 'Failed to upload image');
-                            } finally {
-                              setUploadingImage(false);
-                              // Reset input
-                              e.target.value = '';
-                            }
-                          }}
-                        />
-                      </label>
-                    </div>
-                    {valueFormState.imageUrl && (
-                      <div className="relative inline-block">
-                        <img
-                          src={valueFormState.imageUrl}
-                          alt="Preview"
-                          className="w-32 h-32 rounded border border-gray-300 object-cover"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).style.display = 'none';
-                          }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setValueFormState(prev => ({ ...prev, imageUrl: '' }))}
-                          className="absolute top-1 right-1 bg-red-600 text-white rounded-full p-1 hover:bg-red-700"
-                          title="Remove image"
-                        >
-                          <FaTrash size={12} />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                {/* Value image — swatch / size-chart picture, with the shared picker */}
+                <ImageInputWithActions
+                  label={attributes.find(a => normalizeId(a._id) === normalizeId(selectedAttributeId))?.type === 'image' ? 'Image (required)' : 'Image (optional — e.g. swatch or size chart)'}
+                  spec="attribute.value_image" folder="attributes" entity="generic"
+                  local={{ value: valueFormState.name }}
+                  value={valueFormState.imageUrl}
+                  onChange={(url) => setValueFormState(prev => ({ ...prev, imageUrl: url }))}
+                />
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Description

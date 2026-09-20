@@ -14,6 +14,19 @@ export function fmtRupees(rupees: number | string | null | undefined): string {
   return Number(rupees ?? 0).toLocaleString('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/**
+ * Any ISO currency (the presentment memo on international orders — mig 172:
+ * `orders.currency` + `presentment_total_minor`). INR stays `fmtRupees`; this
+ * exists so a USD/CAD figure is never printed with a ₹ sign. Minor units in.
+ */
+export function fmtCurrencyMinor(minor: string | number | null | undefined, currency: string, locale = 'en'): string {
+  const code = String(currency || 'INR').toUpperCase();
+  const digits = ['JPY', 'KRW', 'VND', 'CLP', 'ISK', 'HUF', 'TWD', 'UGX', 'XAF', 'XOF'].includes(code) ? 0 : ['BHD', 'KWD', 'OMR', 'JOD', 'TND'].includes(code) ? 3 : 2;
+  const n = Number(minor ?? 0) / 10 ** digits;
+  try { return n.toLocaleString(locale, { style: 'currency', currency: code, minimumFractionDigits: digits, maximumFractionDigits: digits }); }
+  catch { return `${code} ${n.toFixed(digits)}`; }
+}
+
 /** Same as `fmtRupees`, but nullish/NaN → "—" instead of "₹0.00". */
 export function fmtRupeesOrDash(rupees: number | string | null | undefined): string {
   if (rupees === null || rupees === undefined || Number.isNaN(Number(rupees))) return '—';
