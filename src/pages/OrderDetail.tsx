@@ -1242,7 +1242,212 @@ const OrderDetail: React.FC = () => {
 
           {/* Who invoices it · how it is numbered · how it ships — the three
               document facts, read together in one row (owner spec). */}
-          <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
+          {/* The invoice paperwork and the money that settled it, read side by
+              side. This row used to be Invoiced by | Billing | Shipping, three
+              cards of wildly different heights whose two short ones left a
+              ragged shelf of white; both of those are single-fact panels and now
+              live in the rail, which had nothing below the fold. */}
+          <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+            <OrderBillingCard
+              orderId={id!}
+              invoiceNumber={order.invoiceNumber ?? order.invoice_number}
+              invoiceDate={order.invoiceDate ?? order.invoice_date}
+              invoiceNumberSource={order.invoiceNumberSource ?? order.invoice_number_source}
+              manualInvoiceUrl={order.manualInvoiceUrl ?? order.manual_invoice_url}
+              manualInvoiceFilename={order.manualInvoiceFilename ?? order.manual_invoice_filename}
+              manualInvoiceUploadedBy={order.manualInvoiceUploadedBy ?? order.manual_invoice_uploaded_by}
+              gstin={order.gst?.storeGstin}
+              taxType={order.gst?.taxType}
+              customerGstin={order.customerGstin ?? order.customer_gstin}
+              customerCompany={customerCompany}
+              canManage={hasPerm('orders.manage')}
+              onSaved={fetchOrder}
+            />
+            <Card className="shadow-sm">
+              <CardContent className="p-0">
+                <PaymentInformation
+                  paymentMethod={order.paymentMethod}
+                  paymentStatus={order.paymentStatus}
+                  paymentGateway={order.paymentGateway}
+                  gatewayRef={order.gatewayRef ?? order.gateway_ref}
+                  presentmentCurrency={order.currency}
+                  presentmentTotalMinor={order.presentmentTotalMinor ?? order.presentment_total_minor}
+                  razorpayOrderId={order.razorpayOrderId}
+                  razorpayPaymentId={order.razorpayPaymentId}
+                  razorpaySignature={order.razorpaySignature}
+                  upiPaymentId={order.upiPaymentId}
+                  upiPaymentLink={order.upiPaymentLink}
+                  upiVerificationStatus={order.upiVerifyStatus ?? order.upi_verify_status ?? order.upiVerificationStatus}
+                  upiPaymentScreenshot={order.upiScreenshot ?? order.upi_screenshot ?? order.upiPaymentScreenshot}
+                  upiVerificationNotes={order.upiVerifyNotes ?? order.upi_verify_notes ?? order.upiVerificationNotes}
+                  manualPaymentMethod={order.manualPaymentMethod ?? order.manual_payment_method}
+                  manualPaymentReference={order.manualPaymentReference ?? order.manual_payment_reference}
+                  manualPaymentNotes={order.manualPaymentNotes ?? order.manual_payment_notes}
+                  manualPaymentMarkedBy={order.manualPaymentMarkedBy ?? order.manual_payment_marked_by}
+                  manualPaymentMarkedAt={order.manualPaymentMarkedAt ?? order.manual_payment_marked_at}
+                  legacyNotes={order.notes}
+                  onAuditRazorpay={hasPerm('orders.manage') ? handleAuditRazorpayPayment : undefined}
+                  auditingRazorpay={auditingRazorpay}
+                  razorpayAuditResult={razorpayAuditResult}
+                />
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Review-and-pay link — Shopify-style page the customer can open to
+              check the order and pay online (works for COD before dispatch too). */}
+          {payLink && (
+            <Card className="border-emerald-200 bg-emerald-50/40 shadow-sm">
+              <CardContent className="flex flex-wrap items-center justify-between gap-3 px-4 py-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-800">Customer payment / confirmation link</p>
+                  <p className="break-all font-mono text-xs text-slate-500">{payLink}</p>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <Button size="sm" variant="outline"
+                    onClick={() => { navigator.clipboard.writeText(payLink); toast({ title: 'Link copied' }); }}>
+                    Copy
+                  </Button>
+                  <Button size="sm" variant="outline" asChild>
+                    <a href={payLink} target="_blank" rel="noopener noreferrer">Open</a>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+
+          {/* Money that went BACK — refund id, rail, gateway reference and when.
+              Renders nothing when the order has no refunds. */}
+          <OrderRefunds
+            refunds={order.refunds}
+            gatewayPaymentId={order.razorpayPaymentId ?? order.razorpay_payment_id ?? null}
+          />
+
+          {/* ── The read-mostly tail ──
+              Four short panels that each used to take the full width of this
+              column and stack, so the page ended in a long ladder of mostly
+              empty cards with a screen of dead space beside them. They tile
+              two-up from `xl` instead — the log and the links are both lists of
+              a few lines, and Journey/Team were already paired.
+
+              `items-start` throughout (C4): the grid's default stretch made the
+              shorter card match the taller one's height, which is what produced
+              the half-empty boxes. */}
+          <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+            {/* Every message this order has sent — staff-triggered and
+                automated, with the status the provider actually reported, what
+                the message said, and who sent it. */}
+            <OrderCommunicationLog key={commLogKey} orderId={order._id || order.id} />
+
+            {/* The links staff actually send — ONE per destination. Loads on
+                demand: minting them calls the shortener, and an order desk opens
+                far more orders than it sends links from. */}
+            <OrderLinksCard orderId={order.orderId ?? order.id ?? order._id} />
+          </div>
+
+          <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+            <OrderJourneyCard attribution={order.attribution} />
+            <OrderTeamCard
+              orderId={order.id ?? order._id}
+              orderNumber={order.orderId}
+              salesAgentId={order.salesAgentId ?? order.sales_agent_id ?? null}
+              assignedTo={order.assignedTo ?? order.assigned_to ?? null}
+              assignedAt={order.assignedAt ?? order.assigned_at ?? null}
+              salesType={order.salesType ?? order.sales_type ?? null}
+              createdByUserId={order.userId ?? order.user_id ?? null}
+              createdByName_={order.createdByName ?? order.created_by_name ?? null}
+              salesAgentName={order.salesAgentName ?? order.sales_agent_name ?? null}
+              assignedToName={order.assignedToName ?? order.assigned_to_name ?? null}
+              salesperson={order.salesperson ?? null}
+              canManage={hasPerm('orders.manage')}
+              onChanged={fetchOrder}
+            />
+          </div>
+        </div>
+
+        {/* ── Side rail ──
+            STICKY, and that is the point. The wide column runs past 3,000px on a
+            real order while the rail held ~1,100px of content, so two thirds of
+            the page was a 256px strip of nothing. Two single-fact cards moved in
+            here to close the gap, and the rest is handled by letting the rail
+            travel: who the customer is, how risky the order looks and what has
+            happened to it stay on screen while the desk reads the items, the
+            paperwork and the message log.
+
+            `self-start` is load-bearing — a grid item stretches by default, and a
+            full-height rail has nothing left to stick to. The offset clears the
+            page's own sticky command bar. */}
+        <div className="space-y-4 xl:sticky xl:top-[150px] xl:self-start xl:max-h-[calc(100vh-170px)] xl:overflow-y-auto xl:pr-1">
+          <OrderCustomerCard
+            customerId={order.customerId ?? order.customer_id}
+            shippingAddress={order.shippingAddress || order.shipping_address}
+            orderTotal={Number(order.total) || 0}
+            customerGstin={order.customerGstin ?? order.customer_gstin}
+            onWhatsAppClick={handleWhatsAppClick}
+          />
+
+          {order.risk && (() => {
+            // Authenticity reads HIGHER = BETTER (100 = fully trustworthy).
+            const authenticity: number = order.risk.authenticity ?? Math.max(0, 100 - (order.risk.score ?? 0));
+            const tone = authenticity >= 80
+              ? { label: 'Authentic', text: 'text-emerald-700', chip: 'bg-emerald-100 text-emerald-700', bar: 'bg-emerald-500' }
+              : authenticity >= 50
+                ? { label: 'Review advised', text: 'text-amber-700', chip: 'bg-amber-100 text-amber-700', bar: 'bg-amber-500' }
+                : { label: 'High risk', text: 'text-red-700', chip: 'bg-red-100 text-red-700', bar: 'bg-red-500' };
+            const standing = order.risk.standing;
+            return (
+              <Card className="shadow-sm">
+                <CardHeader className="border-b bg-slate-50/80 px-4 py-2.5">
+                  <CardTitle className="flex items-center justify-between text-sm font-semibold uppercase tracking-wide text-slate-700">
+                    <span>Order authenticity</span>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${tone.chip}`}>
+                      {tone.label}
+                    </span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-4">
+                  <div className="mb-1 flex items-end justify-between">
+                    <span className={`text-3xl font-bold tabular-nums ${tone.text}`}>{authenticity}</span>
+                    <span className="mb-1 text-xs text-slate-400">/ 100</span>
+                  </div>
+                  <div className="mb-1 h-2 overflow-hidden rounded-full bg-slate-100">
+                    <div className={`h-full rounded-full ${tone.bar}`} style={{ width: `${Math.max(2, authenticity)}%` }} />
+                  </div>
+                  <div className="mb-3 flex justify-between text-[10px] text-slate-400">
+                    <span>Risky</span><span>Review</span><span>Authentic</span>
+                  </div>
+
+                  {order.risk.flags?.length > 0 ? (
+                    <ul className="space-y-1.5">
+                      {order.risk.flags.map((f: any, i: number) => (
+                        <li key={i} className="flex items-start gap-2 text-sm">
+                          <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
+                            f.severity === 'high' ? 'bg-red-500' : f.severity === 'medium' ? 'bg-amber-500' : 'bg-slate-400'
+                          }`} />
+                          <span className="text-slate-700">{f.message}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-emerald-700">No risk signals detected.</p>
+                  )}
+                  {standing && standing.totalOrders > 0 && (
+                    <p className="mt-3 border-t pt-3 text-xs text-slate-500">
+                      Platform history: {standing.totalOrders} order(s) across {standing.storeCount} store(s),
+                      {' '}{standing.totalCancelled} cancelled/returned.
+                    </p>
+                  )}
+                  {order.risk.ipGeo && (
+                    <p className="mt-2 text-xs text-slate-500">
+                      Order IP geolocates to {[order.risk.ipGeo.city, order.risk.ipGeo.region, order.risk.ipGeo.country].filter(Boolean).join(', ') || 'an unknown location'}.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })()}
+
             <Card className="shadow-sm">
               <CardHeader className="border-b bg-slate-50/80 px-4 py-2.5">
                 <CardTitle className="text-sm font-semibold uppercase tracking-wide text-slate-700">
@@ -1279,22 +1484,6 @@ const OrderDetail: React.FC = () => {
                 )}
               </CardContent>
             </Card>
-
-          <OrderBillingCard
-            orderId={id!}
-            invoiceNumber={order.invoiceNumber ?? order.invoice_number}
-            invoiceDate={order.invoiceDate ?? order.invoice_date}
-            invoiceNumberSource={order.invoiceNumberSource ?? order.invoice_number_source}
-            manualInvoiceUrl={order.manualInvoiceUrl ?? order.manual_invoice_url}
-            manualInvoiceFilename={order.manualInvoiceFilename ?? order.manual_invoice_filename}
-            manualInvoiceUploadedBy={order.manualInvoiceUploadedBy ?? order.manual_invoice_uploaded_by}
-            gstin={order.gst?.storeGstin}
-            taxType={order.gst?.taxType}
-            customerGstin={order.customerGstin ?? order.customer_gstin}
-            customerCompany={customerCompany}
-            canManage={hasPerm('orders.manage')}
-            onSaved={fetchOrder}
-          />
 
           <Card className="shadow-sm">
             <CardHeader className="border-b bg-slate-50/80 px-4 py-2.5">
@@ -1387,180 +1576,6 @@ const OrderDetail: React.FC = () => {
               )}
             </CardContent>
           </Card>
-
-          </div>
-
-          {/* Review-and-pay link — Shopify-style page the customer can open to
-              check the order and pay online (works for COD before dispatch too). */}
-          {payLink && (
-            <Card className="border-emerald-200 bg-emerald-50/40 shadow-sm">
-              <CardContent className="flex flex-wrap items-center justify-between gap-3 px-4 py-2">
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-slate-800">Customer payment / confirmation link</p>
-                  <p className="break-all font-mono text-xs text-slate-500">{payLink}</p>
-                </div>
-                <div className="flex shrink-0 gap-2">
-                  <Button size="sm" variant="outline"
-                    onClick={() => { navigator.clipboard.writeText(payLink); toast({ title: 'Link copied' }); }}>
-                    Copy
-                  </Button>
-                  <Button size="sm" variant="outline" asChild>
-                    <a href={payLink} target="_blank" rel="noopener noreferrer">Open</a>
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          <Card className="shadow-sm">
-            <CardContent className="p-0">
-              <PaymentInformation
-                paymentMethod={order.paymentMethod}
-                paymentStatus={order.paymentStatus}
-                paymentGateway={order.paymentGateway}
-                gatewayRef={order.gatewayRef ?? order.gateway_ref}
-                presentmentCurrency={order.currency}
-                presentmentTotalMinor={order.presentmentTotalMinor ?? order.presentment_total_minor}
-                razorpayOrderId={order.razorpayOrderId}
-                razorpayPaymentId={order.razorpayPaymentId}
-                razorpaySignature={order.razorpaySignature}
-                upiPaymentId={order.upiPaymentId}
-                upiPaymentLink={order.upiPaymentLink}
-                upiVerificationStatus={order.upiVerifyStatus ?? order.upi_verify_status ?? order.upiVerificationStatus}
-                upiPaymentScreenshot={order.upiScreenshot ?? order.upi_screenshot ?? order.upiPaymentScreenshot}
-                upiVerificationNotes={order.upiVerifyNotes ?? order.upi_verify_notes ?? order.upiVerificationNotes}
-                manualPaymentMethod={order.manualPaymentMethod ?? order.manual_payment_method}
-                manualPaymentReference={order.manualPaymentReference ?? order.manual_payment_reference}
-                manualPaymentNotes={order.manualPaymentNotes ?? order.manual_payment_notes}
-                manualPaymentMarkedBy={order.manualPaymentMarkedBy ?? order.manual_payment_marked_by}
-                manualPaymentMarkedAt={order.manualPaymentMarkedAt ?? order.manual_payment_marked_at}
-                legacyNotes={order.notes}
-                onAuditRazorpay={hasPerm('orders.manage') ? handleAuditRazorpayPayment : undefined}
-                auditingRazorpay={auditingRazorpay}
-                razorpayAuditResult={razorpayAuditResult}
-              />
-            </CardContent>
-          </Card>
-
-          {/* Money that went BACK — refund id, rail, gateway reference and when.
-              Renders nothing when the order has no refunds. */}
-          <OrderRefunds
-            refunds={order.refunds}
-            gatewayPaymentId={order.razorpayPaymentId ?? order.razorpay_payment_id ?? null}
-          />
-
-          {/* ── The read-mostly tail ──
-              Four short panels that each used to take the full width of this
-              column and stack, so the page ended in a long ladder of mostly
-              empty cards with a screen of dead space beside them. They tile
-              two-up from `xl` instead — the log and the links are both lists of
-              a few lines, and Journey/Team were already paired.
-
-              `items-start` throughout (C4): the grid's default stretch made the
-              shorter card match the taller one's height, which is what produced
-              the half-empty boxes. */}
-          <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
-            {/* Every message this order has sent — staff-triggered and
-                automated, with the status the provider actually reported, what
-                the message said, and who sent it. */}
-            <OrderCommunicationLog key={commLogKey} orderId={order._id || order.id} />
-
-            {/* The links staff actually send — ONE per destination. Loads on
-                demand: minting them calls the shortener, and an order desk opens
-                far more orders than it sends links from. */}
-            <OrderLinksCard orderId={order.orderId ?? order.id ?? order._id} />
-          </div>
-
-          <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
-            <OrderJourneyCard attribution={order.attribution} />
-            <OrderTeamCard
-              orderId={order.id ?? order._id}
-              orderNumber={order.orderId}
-              salesAgentId={order.salesAgentId ?? order.sales_agent_id ?? null}
-              assignedTo={order.assignedTo ?? order.assigned_to ?? null}
-              assignedAt={order.assignedAt ?? order.assigned_at ?? null}
-              salesType={order.salesType ?? order.sales_type ?? null}
-              createdByUserId={order.userId ?? order.user_id ?? null}
-              createdByName_={order.createdByName ?? order.created_by_name ?? null}
-              salesAgentName={order.salesAgentName ?? order.sales_agent_name ?? null}
-              assignedToName={order.assignedToName ?? order.assigned_to_name ?? null}
-              salesperson={order.salesperson ?? null}
-              canManage={hasPerm('orders.manage')}
-              onChanged={fetchOrder}
-            />
-          </div>
-        </div>
-
-        {/* ── Side rail ── */}
-        <div className="space-y-4">
-          <OrderCustomerCard
-            customerId={order.customerId ?? order.customer_id}
-            shippingAddress={order.shippingAddress || order.shipping_address}
-            orderTotal={Number(order.total) || 0}
-            customerGstin={order.customerGstin ?? order.customer_gstin}
-            onWhatsAppClick={handleWhatsAppClick}
-          />
-
-          {order.risk && (() => {
-            // Authenticity reads HIGHER = BETTER (100 = fully trustworthy).
-            const authenticity: number = order.risk.authenticity ?? Math.max(0, 100 - (order.risk.score ?? 0));
-            const tone = authenticity >= 80
-              ? { label: 'Authentic', text: 'text-emerald-700', chip: 'bg-emerald-100 text-emerald-700', bar: 'bg-emerald-500' }
-              : authenticity >= 50
-                ? { label: 'Review advised', text: 'text-amber-700', chip: 'bg-amber-100 text-amber-700', bar: 'bg-amber-500' }
-                : { label: 'High risk', text: 'text-red-700', chip: 'bg-red-100 text-red-700', bar: 'bg-red-500' };
-            const standing = order.risk.standing;
-            return (
-              <Card className="shadow-sm">
-                <CardHeader className="border-b bg-slate-50/80 px-4 py-2.5">
-                  <CardTitle className="flex items-center justify-between text-sm font-semibold uppercase tracking-wide text-slate-700">
-                    <span>Order authenticity</span>
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${tone.chip}`}>
-                      {tone.label}
-                    </span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-4">
-                  <div className="mb-1 flex items-end justify-between">
-                    <span className={`text-3xl font-bold tabular-nums ${tone.text}`}>{authenticity}</span>
-                    <span className="mb-1 text-xs text-slate-400">/ 100</span>
-                  </div>
-                  <div className="mb-1 h-2 overflow-hidden rounded-full bg-slate-100">
-                    <div className={`h-full rounded-full ${tone.bar}`} style={{ width: `${Math.max(2, authenticity)}%` }} />
-                  </div>
-                  <div className="mb-3 flex justify-between text-[10px] text-slate-400">
-                    <span>Risky</span><span>Review</span><span>Authentic</span>
-                  </div>
-
-                  {order.risk.flags?.length > 0 ? (
-                    <ul className="space-y-1.5">
-                      {order.risk.flags.map((f: any, i: number) => (
-                        <li key={i} className="flex items-start gap-2 text-sm">
-                          <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
-                            f.severity === 'high' ? 'bg-red-500' : f.severity === 'medium' ? 'bg-amber-500' : 'bg-slate-400'
-                          }`} />
-                          <span className="text-slate-700">{f.message}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-sm text-emerald-700">No risk signals detected.</p>
-                  )}
-                  {standing && standing.totalOrders > 0 && (
-                    <p className="mt-3 border-t pt-3 text-xs text-slate-500">
-                      Platform history: {standing.totalOrders} order(s) across {standing.storeCount} store(s),
-                      {' '}{standing.totalCancelled} cancelled/returned.
-                    </p>
-                  )}
-                  {order.risk.ipGeo && (
-                    <p className="mt-2 text-xs text-slate-500">
-                      Order IP geolocates to {[order.risk.ipGeo.city, order.risk.ipGeo.region, order.risk.ipGeo.country].filter(Boolean).join(', ') || 'an unknown location'}.
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })()}
 
           {/* What HAPPENED, then what was SAID about it (owner order): the
               timeline is the record, the notes are the commentary on it. */}

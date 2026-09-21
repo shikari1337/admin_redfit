@@ -125,6 +125,28 @@ const money = (n: number) => `₹${n.toLocaleString('en-IN', { minimumFractionDi
  * precision the figure does not have.
  */
 const pct = (n: number) => `${Number(n.toFixed(2))}%`;
+
+/**
+ * The product name WITHOUT the brand it is already sitting next to.
+ *
+ * Catalogue names are stored brand-first ("Dr. Willmar Schwabe India Berberis
+ * Vulgaris Mother Tincture Q 100 ML") and the brand is ALWAYS on the row anyway
+ * — its own column when there is room, a muted line inside this cell when there
+ * is not. So an eight-line order printed the same brand sixteen times and wrapped
+ * every product name onto three lines for no information at all.
+ *
+ * Conservative on purpose: it matches only a brand at the very START, needs a
+ * word boundary after it (so "Schwabe" never eats "SchwabeVita"), and if what
+ * is left would be empty or nearly so, the full name is kept.
+ */
+const stripLeadingBrand = (name: string, brand?: string | null): string => {
+  const n = String(name ?? '').trim();
+  const b = String(brand ?? '').trim();
+  if (!b || b.length < 3 || n.length <= b.length) return n;
+  if (n.slice(0, b.length).toLowerCase() !== b.toLowerCase()) return n;
+  const rest = n.slice(b.length).replace(/^[\s\-–—:,.]+/, '').trim();
+  return rest.length >= 3 ? rest : n;
+};
 const dateTime = (d?: string | Date | null) => {
   if (!d) return null;
   const t = new Date(d);
@@ -144,20 +166,51 @@ const dateTime = (d?: string | Date | null) => {
  * Columns are now rendered conditionally in JS from this one object, so a
  * hidden column simply does not exist and every span is derived, never typed.
  *
- * The thresholds are about the width the TABLE gets, not the viewport: it lives
- * in the page's 80% column behind a 256px sidebar, so 1730px of viewport is
- * ~1179px of table.
+ * These are the width the TABLE actually has (`useElementWidth` on the scroll
+ * container) — NOT the viewport. They used to be viewport numbers, which made
+ * every one of them ~580px optimistic, because the table sits in the page's 80%
+ * column behind a 256px app sidebar: a 1600px window gives it 1024px. The
+ * columns it decided it could afford then did not fit, and the overflow fell on
+ * the Total column at the right edge.
+ *
+ * Budget at the floor (SKU 64 · Product 200 · discount ₹ 78 · Rate 86 · order
+ * discount ₹ 78 · Qty 46 · Taxable 86 · GST 78 · Total 92) is ~810px with one
+ * GST column and ~890 with the CGST/SGST split; each threshold below adds the
+ * column it names to that.
  */
-const BP = { lineDiscPct: 1024, mrp: 1280, orderDiscPct: 1730, netRate: 1730, brand: 1900 } as const;
+const BP = { lineDiscPct: 880, mrp: 950, orderDiscPct: 1080, netRate: 1160, brand: 1280 } as const;
 
-function useViewportWidth(): number {
-  const [w, setW] = React.useState(() => (typeof window === 'undefined' ? 1440 : window.innerWidth));
-  React.useEffect(() => {
-    const onResize = () => setW(window.innerWidth);
-    onResize();
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
+/** Width the product column is allowed — see the header comment on it. */
+const PRODUCT_COL = 230;
+
+/**
+ * How wide THIS TABLE is — not how wide the window is.
+ *
+ * The column budget used to be measured against `window.innerWidth`, which was
+ * true when the table spanned the page. It does not: the order page is an 80/20
+ * grid, so at a 1600px window the table gets ~1024px. Every breakpoint was
+ * therefore ~580px optimistic, and the columns it kept could not fit — the Total
+ * column, the one number anybody is looking for, was clipped off the right edge.
+ *
+ * A ResizeObserver on the scroll container answers the question the layout
+ * actually asks, and keeps answering it when the rail collapses at `xl` or the
+ * browser's sidebar opens.
+ */
+function useElementWidth<T extends HTMLElement>(ref: React.RefObject<T | null>): number {
+  const [w, setW] = React.useState(0);
+  React.useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => setW(el.getBoundingClientRect().width);
+    measure();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure);
+      return () => window.removeEventListener('resize', measure);
+    }
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref]);
   return w;
 }
 
@@ -203,14 +256,19 @@ const OrderItems: React.FC<OrderItemsProps> = ({
   /** GST sub-columns: one for IGST, two for the CGST/SGST split. */
   const gstCols = isIgst ? 1 : 2;
 
-  const vw = useViewportWidth();
+  const scrollerRef = React.useRef<HTMLDivElement | null>(null);
+  const measured = useElementWidth(scrollerRef);
+  // Before the first measure there is no element to ask. Assume the common desk
+  // width rather than the narrowest layout, so the table does not visibly shed
+  // and regrow its columns on every load.
+  const tw = measured || 1024;
   const show = {
-    brand: vw >= BP.brand,
-    variation: vw >= BP.brand,
-    mrp: vw >= BP.mrp,
-    lineDiscPct: vw >= BP.lineDiscPct,
-    orderDiscPct: vw >= BP.orderDiscPct,
-    netRate: vw >= BP.netRate,
+    brand: tw >= BP.brand,
+    variation: tw >= BP.brand,
+    mrp: tw >= BP.mrp,
+    lineDiscPct: tw >= BP.lineDiscPct,
+    orderDiscPct: tw >= BP.orderDiscPct,
+    netRate: tw >= BP.netRate,
   };
   const lineDiscCols = show.lineDiscPct ? 2 : 1;
   const orderDiscCols = show.orderDiscPct ? 2 : 1;
@@ -229,7 +287,7 @@ const OrderItems: React.FC<OrderItemsProps> = ({
   const tailCols = (showTax ? 1 + gstCols : 0) + 1;
   /** Info pane (left) · label (middle) · the tail — always summing to exactly
    *  the number of columns the table is really rendering. */
-  const infoSpan = vw < 640 ? 1 : Math.max(1, Math.min(3, visibleCols - tailCols - 2));
+  const infoSpan = tw < 560 ? 1 : Math.max(1, Math.min(3, visibleCols - tailCols - 2));
   const labelSpan = Math.max(1, visibleCols - infoSpan - tailCols);
   /** The single product rate, when the order has exactly one — the only case in
    *  which a line WITHOUT its own tax rule can still be split honestly. */
@@ -287,6 +345,12 @@ const OrderItems: React.FC<OrderItemsProps> = ({
     return {
       item,
       name: item.catalog_name || item.catalogName || item.product_name || item.productName || 'Unnamed product',
+      // Name as SHOWN — see stripLeadingBrand. `name` itself stays whole for the
+      // image alt text and anything that needs the catalogue's own wording.
+      displayName: stripLeadingBrand(
+        item.catalog_name || item.catalogName || item.product_name || item.productName || 'Unnamed product',
+        item.catalog_brand || item.catalogBrand || item.attributes?.brand || null,
+      ),
       slug: item.product_slug ?? item.productSlug ?? null,
       sku: item.catalog_sku || item.catalogSku || item.sku || '—',
       hsn: item.catalog_hsn ?? item.catalogHsn ?? null,
@@ -399,8 +463,8 @@ const OrderItems: React.FC<OrderItemsProps> = ({
     retail: 'border-slate-200 bg-slate-100 text-slate-600',
   };
 
-  const NUM = 'whitespace-nowrap px-2 py-3 text-right align-top tabular-nums';
-  const TH = 'whitespace-nowrap px-2 py-2 text-right align-bottom font-semibold';
+  const NUM = 'whitespace-nowrap px-1.5 py-3 text-right align-top tabular-nums';
+  const TH = 'whitespace-nowrap px-1.5 py-2 text-right align-bottom font-semibold';
 
   /**
    * One row of the order ladder, aligned to the table's columns.
@@ -423,7 +487,15 @@ const OrderItems: React.FC<OrderItemsProps> = ({
         : 'bg-white'
     }>
       <td colSpan={infoSpan} className="px-3 py-2 align-middle">{info}</td>
-      <td colSpan={labelSpan} className="whitespace-nowrap px-2 py-2 text-right align-middle">
+      {/* NOT `whitespace-nowrap`. This cell spans most of the table and carries
+          the longest strings on the page ("Online payment discount (2% off) — 2%
+          of ₹1,644.00 = ₹32.88, rounded to ₹33.00"). Refusing to wrap made its
+          min-content the width of that whole sentence, which the browser then
+          shared out across the columns it spans — so a footnote was setting the
+          width of the Line discount and Order discount columns and pushing Qty,
+          Taxable and GST off the right edge. It wraps; the numbers beside it
+          still do not. */}
+      <td colSpan={labelSpan} className="px-2 py-2 text-right align-middle">
         <span className={`mr-2 text-xs font-semibold tabular-nums ${tone === 'total' ? 'text-blue-400' : 'text-slate-400'}`}>
           {n ?? ''}
         </span>
@@ -506,6 +578,12 @@ const OrderItems: React.FC<OrderItemsProps> = ({
           <span className="text-sm font-medium normal-case tracking-normal text-slate-400">
             {rows.length} line{rows.length === 1 ? '' : 's'} · {totalQty} unit{totalQty === 1 ? '' : 's'}
           </span>
+          {/* Said ONCE, here, instead of a "/unit" on four separate headers —
+              those labels were setting the width of columns holding "₹3.85" and
+              pushing Qty, Taxable and GST off the right edge. */}
+          <span className="hidden text-xs font-medium normal-case tracking-normal text-slate-400 sm:inline">
+            everything up to Qty is per unit · after it, per line
+          </span>
         </CardTitle>
         {headerAction}
       </CardHeader>
@@ -517,23 +595,30 @@ const OrderItems: React.FC<OrderItemsProps> = ({
              contribution and Layout's page container is a flex item
              (`min-width:auto`), so it grew and the whole PAGE scrolled sideways.
              See COMMON_MISTAKES #215. */
-          <div className="w-0 min-w-full overflow-x-auto">
+          <div ref={scrollerRef} className="w-0 min-w-full overflow-x-auto">
             <table className="w-full border-collapse text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-100 text-left text-[11px] uppercase tracking-wider text-blue-900">
                   <th rowSpan={2} className="whitespace-nowrap px-1.5 py-2 align-bottom font-semibold">SKU</th>
-                  <th rowSpan={2} className="min-w-[180px] px-2 py-2 align-bottom font-semibold">Product name</th>
+                  {/* CAPPED. Product name is the only content-sized column, so it
+                      took whatever it wanted (329px on a real order) and pushed
+                      the right-hand columns past the container — Qty, Taxable and
+                      GST off the edge. Bounded here and truncated in the cell, the
+                      whole calculation fits at a normal desk width; the full name
+                      stays in the tooltip and one click away on the storefront. */}
+                  <th rowSpan={2} style={{ width: PRODUCT_COL, maxWidth: PRODUCT_COL }}
+                    className="px-2 py-2 align-bottom font-semibold">Product name</th>
                   {show.brand && <th rowSpan={2} className="w-[120px] px-2 py-2 align-bottom font-semibold">Brand</th>}
                   {show.variation && <th rowSpan={2} className="px-2 py-2 align-bottom font-semibold">Variation</th>}
-                  {show.mrp && <th rowSpan={2} className={TH} title="Printed price of ONE pack">MRP<span className="ml-1 font-normal normal-case tracking-normal text-slate-400">/unit</span></th>}
+                  {show.mrp && <th rowSpan={2} className={TH} title="Printed price of ONE pack">MRP</th>}
                   <th colSpan={lineDiscCols} className="whitespace-nowrap border-l border-slate-300 px-2 pb-0.5 pt-2 text-center font-semibold">
-                    Line discount
+                    Line disc.
                   </th>
-                  <th rowSpan={2} className={`border-l border-slate-300 ${TH}`} title="What one pack was charged at, after its own line discount">Rate<span className="ml-1 font-normal normal-case tracking-normal text-slate-400">/unit</span></th>
+                  <th rowSpan={2} className={`border-l border-slate-300 ${TH}`} title="What one pack was charged at, after its own line discount">Rate</th>
                   <th colSpan={orderDiscCols} className="whitespace-nowrap border-l border-slate-300 px-2 pb-0.5 pt-2 text-center font-semibold">
-                    Order discount
+                    Order disc.
                   </th>
-                  {show.netRate && <th rowSpan={2} className={`border-l border-slate-300 ${TH}`} title="One pack after the order-level discount share — this × Qty is the line total">Net rate<span className="ml-1 font-normal normal-case tracking-normal text-slate-400">/unit</span></th>}
+                  {show.netRate && <th rowSpan={2} className={`border-l border-slate-300 ${TH}`} title="One pack after the order-level discount share — this × Qty is the line total">Net&nbsp;rate</th>}
                   {/* Qty is the MULTIPLIER, so it sits between the per-unit block
                       (MRP → discounts → Rate → Net rate) and the line money
                       (Taxable → GST → Total). Owner's column order. */}
@@ -541,8 +626,7 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                   {showTax && (
                     <>
                       <th rowSpan={2} className={`border-l border-slate-300 ${TH}`}>
-                        <span className="min-[1730px]:hidden">Taxable</span>
-                        <span className="hidden min-[1730px]:inline">Taxable value</span>
+                        {show.netRate ? 'Taxable value' : 'Taxable'}
                       </th>
                       <th colSpan={gstCols} className="whitespace-nowrap border-l border-slate-300 px-2 pb-0.5 pt-2 text-center font-semibold">GST</th>
                     </>
@@ -551,9 +635,9 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                 </tr>
                 <tr className="border-b border-slate-200 bg-slate-100 text-left text-[10px] uppercase tracking-wider text-blue-700">
                   {show.lineDiscPct && <th className="whitespace-nowrap border-l border-slate-300 px-2 pb-2 text-right font-medium">%</th>}
-                  <th className={`whitespace-nowrap px-2 pb-2 text-right font-medium ${show.lineDiscPct ? '' : 'border-l border-slate-300'}`} title="Cut off ONE pack">₹/unit</th>
+                  <th className={`whitespace-nowrap px-2 pb-2 text-right font-medium ${show.lineDiscPct ? '' : 'border-l border-slate-300'}`} title="Cut off ONE pack">₹</th>
                   {show.orderDiscPct && <th className="whitespace-nowrap border-l border-slate-300 px-2 pb-2 text-right font-medium">%</th>}
-                  <th className={`whitespace-nowrap px-2 pb-2 text-right font-medium ${show.orderDiscPct ? '' : 'border-l border-slate-300'}`} title="This line's share of the order-level discount, per pack">₹/unit</th>
+                  <th className={`whitespace-nowrap px-2 pb-2 text-right font-medium ${show.orderDiscPct ? '' : 'border-l border-slate-300'}`} title="This line's share of the order-level discount, per pack">₹</th>
                   {showTax && (isIgst
                     ? <th className="whitespace-nowrap border-l border-slate-300 px-2 pb-2 text-right font-medium">IGST</th>
                     : <>
@@ -571,48 +655,60 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                         {r.sku}
                       </td>
 
-                      <td className="px-2 py-3">
+                      <td style={{ width: PRODUCT_COL, maxWidth: PRODUCT_COL }} className="px-2 py-3">
                         <div className="flex items-start gap-3">
                           {/* `catalog_image` is the resolved VARIATION photo; `item.image`
                               is the cart-time snapshot which can hold the PARENT photo.
                               Hidden until Brand/Variation get their own columns — below
                               that the product column is the table's only slack, and the
                               thumbnail was spending 56px of it. */}
-                          {(r.item.catalog_image || r.item.image) ? (
+                          {show.brand && ((r.item.catalog_image || r.item.image) ? (
                             <img src={r.item.catalog_image || r.item.image} alt={r.name}
-                              className="hidden h-11 w-11 flex-shrink-0 rounded-md border border-slate-100 bg-slate-50 object-cover min-[1900px]:block" />
+                              className="h-11 w-11 flex-shrink-0 rounded-md border border-slate-100 bg-slate-50 object-cover" />
                           ) : (
-                            <div className="hidden h-11 w-11 flex-shrink-0 items-center justify-center rounded-md border border-slate-100 bg-slate-50 text-[9px] font-medium text-slate-400 min-[1900px]:flex">
+                            <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-md border border-slate-100 bg-slate-50 text-[9px] font-medium text-slate-400">
                               No img
                             </div>
-                          )}
+                          ))}
                           <div className="min-w-0">
                             {r.slug ? (
                               <a href={`${STOREFRONT_URL}/product/${r.slug}`}
                                 target="_blank" rel="noopener noreferrer"
-                                className="text-sm font-semibold leading-snug text-slate-900 hover:text-blue-700 hover:underline"
-                                title="Open on the website">
-                                {r.name}
+                                className="block truncate text-sm font-semibold leading-snug text-slate-900 hover:text-blue-700 hover:underline"
+                                title={r.name}>
+                                {r.displayName}
                               </a>
                             ) : (
-                              <p className="text-sm font-semibold leading-snug text-slate-900">{r.name}</p>
+                              <p className="truncate text-sm font-semibold leading-snug text-slate-900" title={r.name}>{r.displayName}</p>
                             )}
-                            <p className="mt-0.5 text-xs font-medium text-slate-500">
+                            <p className="mt-0.5 truncate text-xs font-medium text-slate-500">
                               {r.hsn
                                 ? <>HSN <span className="font-mono text-slate-700">{r.hsn}</span></>
                                 : <span className="text-amber-600">No HSN set</span>}
                               {r.rate != null && <span className="ml-2 text-slate-400">· GST {r.rate}%</span>}
                               {r.form && <span className="ml-2 text-slate-400">· {prettyAttr(r.form)}</span>}
                             </p>
-                            {/* Narrow viewports render Brand/Variation here instead. */}
-                            {!show.brand && r.brand && (
-                              <p className="mt-0.5 text-xs font-medium text-slate-400">{r.brand}</p>
-                            )}
-                            {!show.variation && r.attrs.length > 0 && (
-                              <p className="text-xs font-medium text-slate-500">
-                                {r.attrs.map(([k, v]) => `${prettyAttr(k)} ${v}`).join(' · ')}
+                            {/* When Brand and Variation have no columns of their own
+                                they fall back to here — on ONE line, not two. Five
+                                stacked metadata lines made every row ~165px tall, so
+                                an eight-line order was 1,300px of table for 8 facts. */}
+                            {(!show.brand && r.brand) || (!show.variation && r.attrs.length > 0) ? (
+                              <p className="mt-0.5 truncate text-xs font-medium text-slate-500"
+                                title={[!show.variation ? r.attrs.map(([k, v]) => `${prettyAttr(k)} ${v}`).join(' · ') : null,
+                                        !show.brand ? r.brand : null]
+                                        .filter(Boolean).join(' · ')}>
+                                {/* VARIATION FIRST. This line truncates, and potency is
+                                    what separates a 30C from a 200C on an eight-line
+                                    order — the brand is identical on every row of most
+                                    of them, so it is the part that can afford to be
+                                    cut. */}
+                                {!show.variation && r.attrs.length > 0 && (
+                                  <span className="text-slate-600">{r.attrs.map(([k, v]) => `${prettyAttr(k)} ${v}`).join(' · ')}</span>
+                                )}
+                                {!show.variation && r.attrs.length > 0 && !show.brand && r.brand && <span className="text-slate-300"> · </span>}
+                                {!show.brand && r.brand && <span className="text-slate-400">{r.brand}</span>}
                               </p>
-                            )}
+                            ) : null}
                             <div className="mt-1 flex flex-wrap items-center gap-1">
                               <Badge variant="outline" className={`text-[10px] font-semibold uppercase ${TIER_CLASS[tier.tone]}`}>
                                 {tier.label}
@@ -808,7 +904,7 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                       )}
                     </>
                   )}
-                  <td className="whitespace-nowrap border-l border-slate-300 px-2 py-3 text-right text-lg font-bold tabular-nums">
+                  <td className={`whitespace-nowrap border-l border-slate-300 px-1.5 py-3 text-right text-lg font-bold tabular-nums`}>
                     {money(totalNet)}
                   </td>
                 </tr>

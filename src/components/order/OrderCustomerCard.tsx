@@ -154,9 +154,15 @@ const OrderCustomerCard: React.FC<OrderCustomerCardProps> = ({
                 )}
               </>
             )}
+            {/* `min-w-0` + `truncate`: a long address ("9039432683+lalbahadursingh
+                @redfit.in") ran off the 256px rail and was cut mid-word with no
+                ellipsis, so it read as a DIFFERENT address rather than a shortened
+                one. The full value stays in the tooltip and in the mailto. */}
             {email && (
-              <a href={`mailto:${email}`} className="flex items-center gap-1.5 font-bold text-blue-700 hover:underline">
-                <FaEnvelope className="h-3 w-3" />{email}
+              <a href={`mailto:${email}`} title={email}
+                className="flex min-w-0 max-w-full items-center gap-1.5 font-bold text-blue-700 hover:underline">
+                <FaEnvelope className="h-3 w-3 shrink-0" />
+                <span className="truncate">{email}</span>
               </a>
             )}
           </div>
