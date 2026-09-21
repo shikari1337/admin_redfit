@@ -227,6 +227,51 @@ const OPAQUE_VALUE_KEYS = new Set([
 const snakeToCamel = (s: string): string => s.replace(/_([a-z0-9])/g, (_m, c: string) => c.toUpperCase());
 
 /**
+ * How long a BULK file transfer may take, as opposed to an ordinary API call.
+ *
+ * The instance default (120s) is sized for JSON round trips. A full-catalogue
+ * export is ~31MB over 44k SKUs — measured at 6.8s locally but 10.5s against
+ * production before a byte reaches the browser, and then however long the
+ * download itself takes on the customer's connection. At 120s a 31MB file
+ * needs a sustained ~260KB/s just to avoid a spurious timeout, and the error
+ * the user then sees is an axios "timeout exceeded" that names nothing.
+ *
+ * Every bulk endpoint must pass this; `exportExcel` was the one that did not.
+ */
+export const BULK_TRANSFER_TIMEOUT_MS = 600000;
+
+/**
+ * Read the real error message out of a FAILED BLOB REQUEST.
+ *
+ * With `responseType: 'blob'` axios hands back the ERROR body as a Blob too, so
+ * `err.response.data.message` is always undefined and a caller that reads it
+ * sees nothing — which is why "Failed to export inventory." was the only thing
+ * the Inventory page could ever say, whatever actually went wrong.
+ *
+ * Returns the server's own words when the body is JSON, else a reason derived
+ * from the transport (a timeout and a 500 are different problems and must not
+ * read the same). ONE definition — every blob download shares it.
+ */
+export async function blobErrorMessage(err: any, fallback: string): Promise<string> {
+  const data = err?.response?.data;
+  if (data instanceof Blob) {
+    try {
+      const text = await data.text();
+      const parsed = JSON.parse(text);
+      const msg = parsed?.message || parsed?.error?.message || parsed?.error;
+      if (msg) return String(msg);
+    } catch { /* not JSON — fall through to the transport reason */ }
+  }
+  if (err?.code === 'ECONNABORTED') {
+    return `${fallback} The request timed out before the file finished downloading.`;
+  }
+  const status = err?.response?.status;
+  if (status) return `${fallback} The server responded ${status}.`;
+  if (err?.message) return `${fallback} ${err.message}`;
+  return fallback;
+}
+
+/**
  * Normalize PostgreSQL responses for the MongoDB-era admin:
  *  1. add `_id` alias for `id`
  *  2. add camelCase aliases for every snake_case key (non-destructive — originals
@@ -3906,10 +3951,142 @@ export const packageBoxesAPI = {
 };
 
 // ─── INVENTORY API ────────────────────────────────────────────────────────────
+/**
+ * DOWNLOADS — the request system (migration 211).
+ *
+ * A big export is no longer a GET that blocks until the file is built. You ASK
+ * for it, the server builds it in the background, and it waits in a list you
+ * can come back to — so a 30MB catalogue export survives navigating away, and
+ * no request is held open for the 10s the build takes.
+ */
+export interface DataJob {
+  id: string;
+  direction: 'export' | 'import';
+  dataset: string;
+  status: 'queued' | 'running' | 'ready' | 'failed' | 'expired' | 'cancelled';
+  params?: Record<string, any>;
+  requested_by_name?: string | null;
+  file_name?: string | null;
+  file_size?: number | null;
+  source_name?: string | null;
+  total_rows?: number | null;
+  ok_rows?: number;
+  failed_rows?: number;
+  skipped_rows?: number;
+  unchanged_rows?: number;
+  detail?: string | null;
+  error?: string | null;
+  summary?: any;
+  finished_at?: string | null;
+  expires_at?: string | null;
+  download_count?: number;
+  created_at: string;
+}
+
+export interface SheetColumnHelp {
+  header: string;
+  role: 'key' | 'context' | 'instruct' | 'edit';
+  role_label: string;
+  required: 'yes' | 'no' | 'conditional';
+  required_when: string | null;
+  accepts: string;
+  format: string;
+  does: string;
+}
+
+export const exportsAPI = {
+  /** What can be downloaded, and every column's meaning. */
+  catalog: async (): Promise<{
+    format_note: string; blank_note: string;
+    datasets: Array<{ key: string; label: string; retention_days: number }>;
+    columns: { inventory: SheetColumnHelp[]; batches: SheetColumnHelp[] };
+  }> => {
+    const r = await api.get('/exports/catalog');
+    return r.data?.data ?? r.data;
+  },
+
+  /** Ask for a file. Returns at once with a queued job. */
+  request: async (dataset: string, params?: Record<string, any>): Promise<DataJob> => {
+    const r = await api.post('/exports', { dataset, params: params ?? {} });
+    return r.data?.data ?? r.data;
+  },
+
+  /**
+   * `unavailable` is returned by stores migration 211 has not reached yet —
+   * a state, not an error, so callers must check it rather than assume rows.
+   */
+  list: async (opts: { direction?: string; limit?: number; offset?: number } = {}):
+    Promise<{ rows: DataJob[]; total: number; unavailable?: boolean; reason?: string }> => {
+    const r = await api.get('/exports', { params: opts });
+    return r.data?.data ?? r.data;
+  },
+
+  get: async (id: string): Promise<DataJob> => {
+    const r = await api.get(`/exports/${id}`);
+    return r.data?.data ?? r.data;
+  },
+
+  /** The per-row log. `onlyProblems` is the view that matters on a big import. */
+  rows: async (id: string, opts: { onlyProblems?: boolean; limit?: number; offset?: number } = {}) => {
+    const r = await api.get(`/exports/${id}/rows`, { params: opts });
+    return r.data?.data ?? r.data;
+  },
+
+  download: async (id: string): Promise<{ blob: Blob; fileName: string }> => {
+    const r = await api.get(`/exports/${id}/download`, {
+      responseType: 'blob', timeout: BULK_TRANSFER_TIMEOUT_MS,
+    });
+    const cd = String(r.headers?.['content-disposition'] ?? '');
+    const m = cd.match(/filename="?([^";]+)"?/);
+    return { blob: r.data as Blob, fileName: m?.[1] || 'download.xlsx' };
+  },
+
+  retry: async (id: string): Promise<DataJob> => {
+    const r = await api.post(`/exports/${id}/retry`);
+    return r.data?.data ?? r.data;
+  },
+
+  remove: async (id: string): Promise<void> => { await api.delete(`/exports/${id}`); },
+};
+
+/** What the Inventory tiles state — one query, ledger-preferred figures. */
+export interface InventoryHealth {
+  skus: number;
+  active_skus: number;
+  units_on_hand: string;
+  units_legacy: string;
+  units_batched: string;
+  out_of_stock: number;
+  low_stock: number;
+  not_ledgered: number;
+  batch_tracked: number;
+  needs_reconciling: number;
+  over_batched: number;
+  expired_units: string;
+  expired_skus: number;
+  expiring_90d_skus: number;
+}
+
 export const inventoryAPI = {
-  list: async (params?: { page?: number; limit?: number; search?: string; lowStock?: boolean; outOfStock?: boolean }) => {
+  list: async (params?: {
+    page?: number; limit?: number; search?: string;
+    lowStock?: boolean; outOfStock?: boolean;
+    /** SKUs whose stock figures disagree — the reconciliation queue. */
+    mismatch?: boolean;
+    expiringDays?: number;
+  }) => {
     const response = await api.get('/inventory', { params });
     return response.data;
+  },
+  /** Counts + accurate unit totals for the page's tiles. */
+  health: async (): Promise<InventoryHealth> => {
+    const response = await api.get('/inventory/health');
+    return response.data?.data ?? response.data;
+  },
+  /** Everything about one SKU in ONE call — reconciliation, lots, movements. */
+  detail: async (variationId: string) => {
+    const response = await api.get(`/inventory/${variationId}/detail`);
+    return response.data?.data ?? response.data;
   },
   getById: async (id: string) => {
     const response = await api.get(`/inventory/${id}`);
@@ -3936,7 +4113,14 @@ export const inventoryAPI = {
     return response.data;
   },
   exportExcel: async (search?: string) => {
-    const response = await api.get('/inventory/export', { params: search ? { search } : {}, responseType: 'blob' });
+    // The full catalogue is ~31MB / 44k rows. Without its own timeout this ran
+    // on the 120s instance default while every other bulk call here passed
+    // 600s — the asymmetry behind "unable to export inventory".
+    const response = await api.get('/inventory/export', {
+      params: search ? { search } : {},
+      responseType: 'blob',
+      timeout: BULK_TRANSFER_TIMEOUT_MS,
+    });
     return response.data as Blob;
   },
   downloadTemplate: async () => {

@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
-import { inventoryAPI } from '../../services/api';
+import { inventoryAPI, exportsAPI } from '../../services/api';
+import DownloadsPanel from './DownloadsPanel';
 import { useAuth } from '../../contexts/AuthContext';
 import { Btn, SectionCard } from '../erp';
 
@@ -17,16 +18,6 @@ import { Btn, SectionCard } from '../erp';
  * column reads "update" (metadata only) and its Quantity column is blank.
  */
 
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
 
 interface ImportSummary {
   batches_created?: number;
@@ -50,25 +41,60 @@ const BatchBulkBar: React.FC<{ onImported?: () => void }> = ({ onImported }) => 
   const [includeUnbatched, setIncludeUnbatched] = useState(false);
   const [blankRows, setBlankRows] = useState(1);
   const [error, setError] = useState('');
+  // A queued job is not a downloaded file, so the bar says what happened and
+  // the Downloads list below is where the file actually arrives.
+  const [notice, setNotice] = useState('');
+  const [queued, setQueued] = useState(0);
   const [summary, setSummary] = useState<ImportSummary | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const today = new Date().toISOString().slice(0, 10);
+  /** Fallback path for a store the download queue has not reached yet. */
+  const directDownload = async (get: () => Promise<Blob>, filename: string) => {
+    try {
+      setNotice('Preparing your file… this one downloads directly, so please stay on this page.');
+      const blob = await get();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+      setNotice('');
+    } catch (e: any) {
+      setNotice('');
+      setError(e?.response?.data?.message ?? 'Could not download the file.');
+    }
+  };
 
+  // Both of these ASK for a file rather than waiting for one. The batch sheet
+  // is the biggest export on the platform (30.3MB with unbatched SKUs
+  // included), so holding the request open while it was built was the worst
+  // case of the problem the download queue exists to solve.
   const handleTemplate = async () => {
     setError(''); setBusy('template');
-    try { downloadBlob(await inventoryAPI.downloadBatchTemplate(), 'batch-inventory-template.xlsx'); }
-    catch (e: any) { setError(e?.response?.data?.message ?? 'Could not download the template.'); }
-    finally { setBusy(''); }
+    try {
+      await exportsAPI.request('batch_template');
+      setQueued((n) => n + 1);
+      setNotice('Preparing the template — it will appear under Downloads in a moment.');
+    } catch (e: any) {
+      if (e?.response?.status === 503) { await directDownload(() => inventoryAPI.downloadBatchTemplate(), 'batch-inventory-template.xlsx'); }
+      else setError(e?.response?.data?.message ?? 'Could not prepare the template.');
+    } finally { setBusy(''); }
   };
 
   const handleExport = async () => {
     setError(''); setBusy('export');
     try {
-      const blob = await inventoryAPI.exportBatches({ includeUnbatched, blankRowsPerSku: blankRows });
-      downloadBlob(blob, `batch-inventory-${today}.xlsx`);
+      await exportsAPI.request('batches', { includeUnbatched, blankRowsPerSku: blankRows });
+      setQueued((n) => n + 1);
+      setNotice('Building your batch sheet — it will appear under Downloads when it is ready. You can leave this page.');
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? 'Could not export batches.');
+      // Until the download queue reaches this store, export directly so the
+      // sheet is never simply unavailable.
+      if (e?.response?.status === 503) {
+        await directDownload(
+          () => inventoryAPI.exportBatches({ includeUnbatched, blankRowsPerSku: blankRows }),
+          `batch-inventory-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      } else setError(e?.response?.data?.message ?? 'Could not start the export.');
     } finally { setBusy(''); }
   };
 
@@ -141,7 +167,7 @@ const BatchBulkBar: React.FC<{ onImported?: () => void }> = ({ onImported }) => 
             )}
             <div className="mt-2 flex flex-wrap gap-2">
               <Btn variant="outline" onClick={handleExport} disabled={!!busy}>
-                {busy === 'export' ? 'Exporting…' : '⬇ Export batches'}
+                {busy === 'export' ? 'Requesting…' : '⬇ Export batches'}
               </Btn>
               <Btn variant="ghost" onClick={handleTemplate} disabled={!!busy}>
                 {busy === 'template' ? 'Preparing…' : 'Blank template instead'}
@@ -206,6 +232,15 @@ const BatchBulkBar: React.FC<{ onImported?: () => void }> = ({ onImported }) => 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-red-700">{error}</div>
       )}
+
+      {notice && (
+        <div className="rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-teal-800">{notice}</div>
+      )}
+
+      {/* Where a requested sheet actually arrives. It keeps building if this
+          page is closed, so the 30MB batch export is no longer lost by
+          navigating away mid-download. */}
+      <DownloadsPanel refreshToken={queued} />
 
       {summary && (summary.processed !== undefined || failed.length > 0) && (
         <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
