@@ -27,6 +27,12 @@ export interface AdminUser {
   effective_permissions?: string[];
   /** Panels this user may enter (commerce | orders | inventory | accounting). */
   workspaces?: string[];
+  /**
+   * This store's own public website, resolved by the server per store
+   * (`services/storeUrls.ts storeSiteUrl`). Read it through `lib/storefront.ts`,
+   * never a build-time env var — the admin is one build serving every store.
+   */
+  site_url?: string | null;
   isActive: boolean;
   lastLogin?: string;
 }

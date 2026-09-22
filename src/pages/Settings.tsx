@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useStoreSiteUrl } from '../lib/storefront';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Card, CardContent } from '@/components/ui/card';
@@ -248,9 +249,10 @@ const settingsSections = [
   },
 ];
 
-const STOREFRONT_URL = import.meta.env.VITE_STOREFRONT_URL || 'http://localhost:3000';
 
 const Settings: React.FC = () => {
+  /** This store's own website — from the server, per store (lib/storefront.ts). */
+  const siteUrl = useStoreSiteUrl();
   const navigate = useNavigate();
   const { canAccess, storeModules, user } = useAuth();
   const [tenantApiKeyInput, setTenantApiKeyInput] = useState('');
@@ -281,8 +283,15 @@ const Settings: React.FC = () => {
   const handleClearCache = async (path?: string) => {
     setCacheStatus('loading');
     setCacheMessage('');
+    // No resolvable website means there is no cache to clear — say so, rather
+    // than POSTing to localhost as this used to.
+    if (!siteUrl) {
+      setCacheStatus('error');
+      setCacheMessage('This store has no website address on record, so there is no cache to clear.');
+      return;
+    }
     try {
-      const res = await fetch(`${STOREFRONT_URL}/api/revalidate`, {
+      const res = await fetch(`${siteUrl}/api/revalidate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path }),
@@ -467,8 +476,8 @@ const Settings: React.FC = () => {
             )}
 
             <p className="text-xs text-muted-foreground">
-              Storefront URL: <code className="bg-muted px-1 rounded">{STOREFRONT_URL}</code>
-              {' — '}set <code className="bg-muted px-1 rounded">VITE_STOREFRONT_URL</code> in admin/.env to change this.
+              Website: <code className="bg-muted px-1 rounded">{siteUrl ?? 'not set'}</code>
+              {' — '}this store's own address, from its domain settings.
             </p>
           </CardContent>
         </Card>

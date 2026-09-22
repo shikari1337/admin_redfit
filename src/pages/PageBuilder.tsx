@@ -22,6 +22,7 @@
  * the global xss-clean escaping (COMMON_MISTAKES #20).
  */
 import React, { useEffect, useRef, useState } from 'react';
+import { useStoreSiteUrl, cmsPageUrl } from '../lib/storefront';
 import { Link, useParams } from 'react-router-dom';
 import grapesjs from 'grapesjs';
 import type { Editor } from 'grapesjs';
@@ -77,6 +78,8 @@ type EditTab = 'content' | 'style';
 type Device = 'desktop' | 'tablet' | 'mobile';
 
 const PageBuilder: React.FC = () => {
+  /** This store's own website — from the server, per store (lib/storefront.ts). */
+  const siteUrl = useStoreSiteUrl();
   const { id } = useParams<{ id: string }>();
   // The SERP preview shows the real "… | StoreName" suffix, so it needs the
   // store's actual name — already resolved by StoreContext, no extra fetch.
@@ -433,9 +436,9 @@ const PageBuilder: React.FC = () => {
         {saveMsg && (
           <span className={`text-xs font-semibold ${saveMsg === 'Saved!' ? 'text-emerald-400' : 'text-red-400'}`}>{saveMsg}</span>
         )}
-        {pageSlug && (
+        {cmsPageUrl(siteUrl, pageSlug) && (
           <a
-            href={`${(import.meta as any).env?.VITE_STOREFRONT_URL || 'http://localhost:3000'}/pages/${pageSlug}`}
+            href={cmsPageUrl(siteUrl, pageSlug)!}
             target="_blank"
             rel="noreferrer"
             className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors shrink-0"
@@ -505,7 +508,7 @@ const PageBuilder: React.FC = () => {
                 seo={seo}
                 isHomepage={isHomepage}
                 storeName={storeName}
-                storefrontUrl={(import.meta as any).env?.VITE_STOREFRONT_URL || 'http://localhost:3000'}
+                storefrontUrl={siteUrl ?? ''}
                 onChange={({ basics: b, seo: s }) => { setBasics(b); setSeo(s); setDirty(true); }}
               />
             </div>

@@ -8,6 +8,7 @@
  * below the fold and were routinely missed.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useStoreSiteUrl, categoryPageUrl } from '../lib/storefront';
 import {
   Plus, Save, RotateCcw, Trash2, Search, ChevronRight, ChevronDown,
   Star, EyeOff, FolderTree, ExternalLink, Filter as FilterIcon, Boxes, Circle,
@@ -115,13 +116,14 @@ const emptyForm = {
 const emptyFeatured: FeaturedValue = { mode: 'off', productIds: [], brandIds: [], limit: 10 };
 
 /** Where a saved category can be previewed. Same env var Settings/PageBuilder read. */
-const STOREFRONT_URL = (import.meta as any).env?.VITE_STOREFRONT_URL || 'http://localhost:3000';
 
 /** Read a field that may arrive camelCase (admin transform) or snake_case (raw row). */
 const pick = (o: any, camel: string, snake: string, fallback: any = undefined) =>
   o?.[camel] ?? o?.[snake] ?? fallback;
 
 const Categories: React.FC = () => {
+  /** This store's own website — from the server, per store (lib/storefront.ts). */
+  const siteUrl = useStoreSiteUrl();
   const { hasPerm } = useAuth();
   // Backend requires products.manage for create/update, products.delete for
   // removal (routes/categories.ts) — this page had NO client-side gating at
@@ -536,11 +538,11 @@ const Categories: React.FC = () => {
                     child categories had no idea which branch they were in. */}
                 <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
                   <span>{breadcrumb || 'Top level'}</span>
-                  {selectedId && savedSlug && (
+                  {selectedId && savedSlug && categoryPageUrl(siteUrl, savedSlug) && (
                     <>
                       <span className="opacity-50">·</span>
                       <a
-                        href={`${STOREFRONT_URL}/category/${savedSlug}`}
+                        href={categoryPageUrl(siteUrl, savedSlug)!}
                         target="_blank" rel="noopener noreferrer"
                         className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
                       >

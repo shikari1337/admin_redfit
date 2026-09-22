@@ -1,9 +1,9 @@
 import React from 'react';
+import { useStoreSiteUrl, productPageUrl } from '../../lib/storefront';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
 /** Same env var Settings / PageBuilder / Categories read for storefront links. */
-const STOREFRONT_URL = (import.meta as any).env?.VITE_STOREFRONT_URL || 'http://localhost:3000';
 import { deriveOrderMoney, type GstInfo } from '../../lib/orderMoney';
 
 interface OrderItem {
@@ -244,6 +244,8 @@ const OrderItems: React.FC<OrderItemsProps> = ({
   salesperson, importedFrom,
   onRemoveShipping, onRemoveCod, removingCharge,
 }) => {
+  /** This store's own website — from the server, per store (lib/storefront.ts). */
+  const siteUrl = useStoreSiteUrl();
   const lineTotals = (items ?? []).map((i) => (Number(i.price) || 0) * (Number(i.quantity) || 0));
   const itemsValue = lineTotals.reduce((s, v) => s + v, 0);
 
@@ -671,8 +673,8 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                             </div>
                           ))}
                           <div className="min-w-0">
-                            {r.slug ? (
-                              <a href={`${STOREFRONT_URL}/product/${r.slug}`}
+                            {productPageUrl(siteUrl, r.slug) ? (
+                              <a href={productPageUrl(siteUrl, r.slug)!}
                                 target="_blank" rel="noopener noreferrer"
                                 className="block truncate text-sm font-semibold leading-snug text-slate-900 hover:text-blue-700 hover:underline"
                                 title={r.name}>
