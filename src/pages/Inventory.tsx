@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 import { inventoryAPI, exportsAPI, blobErrorMessage, type InventoryHealth } from '../services/api';
 import { Pagination } from '@/components/erp';
 import { Link } from 'react-router-dom';
@@ -6,6 +6,7 @@ import MarketPricesBulkBar from '../components/inventory/MarketPricesBulkBar';
 import AvailabilityBulkBar from '../components/inventory/AvailabilityBulkBar';
 import DownloadsPanel from '../components/inventory/DownloadsPanel';
 import StockDetailDrawer from '../components/inventory/StockDetailDrawer';
+import UpdateStockDialog from '../components/inventory/UpdateStockDialog';
 
 interface Valuation {
   grand_total?: number;
@@ -14,9 +15,29 @@ interface Valuation {
 }
 
 
+/** One lot (batch) of a SKU, as the list attaches it with `includeLots`. */
+interface InventoryLot {
+  id: string;
+  batch_number: string;
+  qty_on_hand: number;
+  mrp: number | null;
+  selling_price: number | null;
+  mfg_date: string | null;
+  expiry_date: string | null;
+  purchase_date: string | null;
+  purchase_ref: string | null;
+  days_to_expiry: number | null;
+  placed_qty: number;
+}
+
 interface InventoryItem {
   _id: string;
   name: string;
+  productId?: string;
+  productSlug?: string | null;
+  /** This product's page on the store's own website (server-resolved; null = unknown). */
+  productUrl?: string | null;
+  lots?: InventoryLot[];
   productName?: string;
   variationName?: string | null;
   sku?: string;
@@ -71,10 +92,18 @@ export default function Inventory() {
   const [filter, setFilter] = useState<'all' | 'low' | 'out' | 'mismatch' | 'expiring'>('all');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const [editItem, setEditItem] = useState<InventoryItem | null>(null);
-  const [editStock, setEditStock] = useState('');
-  const [editReason, setEditReason] = useState('');
-  const [saving, setSaving] = useState(false);
+  // The Update-stock dialog: which SKU, and optionally which tab/lot to open on.
+  const [stockDialog, setStockDialog] = useState<{ id: string; name: string; tab?: any; lotId?: string } | null>(null);
+  // The store's own website (server-resolved per store — the admin is one build
+  // serving every store, so this can never be a build-time constant).
+  const [siteUrl, setSiteUrl] = useState<string | null>(null);
+  // Lots shown under every row, or only under rows opened one by one.
+  const [showAllLots, setShowAllLots] = useState<boolean>(() => {
+    try { return localStorage.getItem('inv_show_all_lots') === '1'; } catch { return false; }
+  });
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [chainCheck, setChainCheck] = useState<any>(null);
+  const [chainBusy, setChainBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [valuation, setValuation] = useState<Valuation | null>(null);
@@ -104,10 +133,13 @@ export default function Inventory() {
         // "Expiring" means a lot dated within 90 days — the window the batch
         // screen also uses, so the two pages can never mean different things.
         expiringDays: filter === 'expiring' ? 90 : undefined,
+        // Each row's lots, fetched for the whole page in ONE query server-side.
+        includeLots: true,
       });
       const list = Array.isArray(data) ? data : data?.products ?? data?.data ?? [];
       setItems(list);
       setTotal(data?.total ?? data?.pagination?.total ?? list.length);
+      setSiteUrl((data as any)?.site_url ?? null);
     } catch (err: any) {
       setError(err?.response?.data?.error?.message || 'Failed to load inventory');
     } finally {
@@ -235,36 +267,32 @@ export default function Inventory() {
     }
   };
 
-  const openEdit = (item: InventoryItem) => {
-    setEditItem(item);
-    setEditStock(String(item.stock ?? 0));
-    setEditReason('');
+  const toggleShowAll = () => {
+    setShowAllLots((v) => {
+      try { localStorage.setItem('inv_show_all_lots', v ? '0' : '1'); } catch { /* per-viewer convenience only */ }
+      return !v;
+    });
+  };
+  const toggleRow = (id: string) => setExpanded((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  /** Verify every SKU's stock-ledger chain — the same check the monitor runs. */
+  const verifyChain = async () => {
+    try {
+      setChainBusy(true);
+      setChainCheck(await inventoryAPI.verifyLedgerChain());
+    } catch (err: any) {
+      setChainCheck({ error: err?.response?.data?.message || 'Could not verify the ledger.' });
+    } finally {
+      setChainBusy(false);
+    }
   };
 
-  const handleSaveStock = async () => {
-    if (!editItem) return;
-    const newStock = parseInt(editStock, 10);
-    if (isNaN(newStock) || newStock < 0) {
-      setError('Please enter a valid stock quantity.');
-      return;
-    }
-    try {
-      setSaving(true);
-      setError(null);
-      await inventoryAPI.updateStock(editItem._id, {
-        stock: newStock,
-        ...(editReason ? { reason: editReason } : {}),
-      });
-      setSuccess('Stock updated successfully.');
-      setEditItem(null);
-      setTimeout(() => setSuccess(null), 3000);
-      loadInventory();
-    } catch (err: any) {
-      setError(err?.response?.data?.error?.message || 'Failed to update stock');
-    } finally {
-      setSaving(false);
-    }
-  };
+  const openStock = (item: InventoryItem, tab?: string, lotId?: string) =>
+    setStockDialog({ id: item._id, name: item.productName ?? item.name, tab, lotId });
 
   const getAvailableStock = (item: InventoryItem): number => {
     const s = item.availableStock ?? (item.stock ?? 0) - (item.reservedStock ?? 0);
@@ -305,6 +333,16 @@ export default function Inventory() {
           </p>
         </div>
         <div className="header-actions">
+          {siteUrl && (
+            <a className="btn btn-secondary" href={siteUrl} target="_blank" rel="noopener noreferrer"
+               title="Open this store's website in a new tab" data-testid="inv-view-website">
+              View website ↗
+            </a>
+          )}
+          <button className="btn btn-secondary" onClick={verifyChain} disabled={chainBusy} data-testid="inv-verify-chain"
+            title="Check that every stock movement is still exactly as recorded and linked to the one before it">
+            {chainBusy ? 'Verifying…' : '⛓ Verify ledger'}
+          </button>
           <button className="btn btn-secondary" onClick={handleTemplate}>Template</button>
           <button className="btn btn-secondary" onClick={handleExport} disabled={exporting}>
             {exporting ? 'Requesting…' : '⬇ Export to Excel'}
@@ -376,6 +414,33 @@ export default function Inventory() {
       )}
       {success && <div className="alert alert-success"><span>{success}</span></div>}
 
+      {/* The stock ledger is a hash chain (migration 215): every movement carries
+          a fingerprint of itself AND of the movement before it, so an entry that
+          was changed, removed or re-ordered afterwards shows up here. */}
+      {chainCheck && (
+        <div className={`chain-banner ${chainCheck.error || chainCheck.present === false ? 'muted' : chainCheck.ok ? 'good' : 'bad'}`}
+             data-testid="inv-chain-result">
+          <span>
+            {chainCheck.error
+              ? chainCheck.error
+              : chainCheck.present === false
+                ? (chainCheck.reason || 'The stock ledger is not chained on this store yet.')
+                : chainCheck.ok
+                  ? <>⛓ <strong>Ledger intact.</strong> {Number(chainCheck.entries).toLocaleString('en-IN')} stock movements across {Number(chainCheck.skus).toLocaleString('en-IN')} SKUs verified — each unchanged since it was recorded and linked to the one before it ({chainCheck.ms} ms).</>
+                  : <>⚠ <strong>The ledger does not verify.</strong>{' '}
+                      {[
+                        chainCheck.bad_hash ? `${chainCheck.bad_hash} movement(s) changed after they were recorded` : '',
+                        chainCheck.bad_seq ? `${chainCheck.bad_seq} gap(s) where a movement is missing` : '',
+                        chainCheck.bad_link ? `${chainCheck.bad_link} broken link(s)` : '',
+                        chainCheck.bad_head ? `${chainCheck.bad_head} SKU(s) whose latest movements were removed` : '',
+                        chainCheck.unchained ? `${chainCheck.unchained} movement(s) written with the safeguards off` : '',
+                        chainCheck.headless ? `${chainCheck.headless} SKU(s) with no chain anchor` : '',
+                      ].filter(Boolean).join(' · ')}. Open an affected SKU to see where.</>}
+          </span>
+          <button onClick={() => setChainCheck(null)} aria-label="Dismiss">×</button>
+        </div>
+      )}
+
       <div className="toolbar">
         <form onSubmit={handleSearch} className="search-form">
           <input
@@ -402,6 +467,10 @@ export default function Inventory() {
               {label}
             </button>
           ))}
+          <label className="lots-toggle" title="Show every SKU's batches under it">
+            <input type="checkbox" checked={showAllLots} onChange={toggleShowAll} data-testid="inv-show-all-lots" />
+            Show batches
+          </label>
         </div>
       </div>
 
@@ -420,6 +489,7 @@ export default function Inventory() {
             <table>
               <thead>
                 <tr>
+                  <th style={{ width: 28 }}></th>
                   <th>Product</th>
                   <th>SKU</th>
                   <th>Category</th>
@@ -444,16 +514,40 @@ export default function Inventory() {
                   const loose = item.unbatchedQty ?? 0;
                   const exp = item.nearestExpiry ?? null;
                   const expDays = exp ? Math.round((new Date(exp).getTime() - Date.now()) / 86400000) : null;
+                  const rowLots = item.lots ?? [];
+                  const isOpen = showAllLots || expanded.has(item._id);
+                  const siteHref = item.productUrl ?? siteUrl;
                   return (
-                    <tr key={item._id} className={item.stockMismatch ? 'row-warn' : ''}
-                        onClick={() => setOpenSku(item._id)} style={{ cursor: 'pointer' }}>
+                    <Fragment key={item._id}>
+                    <tr className={`${item.stockMismatch ? 'row-warn' : ''} ${isOpen && lots ? 'row-open' : ''}`}
+                        onClick={() => setOpenSku(item._id)} style={{ cursor: 'pointer' }} data-testid="inv-row">
+                      <td onClick={(e) => e.stopPropagation()}>
+                        {lots > 0 && (
+                          <button className="expander" aria-expanded={isOpen} data-testid="inv-row-expand"
+                            title={isOpen ? 'Hide batches' : `Show ${lots} batch(es)`}
+                            onClick={() => (showAllLots ? toggleShowAll() : toggleRow(item._id))}>
+                            {isOpen ? '▾' : '▸'}
+                          </button>
+                        )}
+                      </td>
                       <td>
                         <div className="product-cell">
                           {item.images?.[0] && (
                             <img src={item.images[0]} alt="" className="product-thumb" />
                           )}
                           <span className="product-names">
-                            <span className="product-name-main">{item.productName ?? item.name}</span>
+                            {/* The name opens the product on the store's own website.
+                                A product with no known page falls back to the site's
+                                homepage rather than a guessed link. */}
+                            {siteHref ? (
+                              <a className="product-name-main site-link" href={siteHref} target="_blank" rel="noopener noreferrer"
+                                 onClick={(e) => e.stopPropagation()} data-testid="inv-site-link"
+                                 title={item.productUrl ? 'Open this product on your website' : 'Open your website'}>
+                                {item.productName ?? item.name} <span className="ext">↗</span>
+                              </a>
+                            ) : (
+                              <span className="product-name-main">{item.productName ?? item.name}</span>
+                            )}
                             {item.variationName && item.variationName !== item.productName && (
                               <span className="product-name-sub">{item.variationName}</span>
                             )}
@@ -514,12 +608,82 @@ export default function Inventory() {
                         </span>
                       </td>
                       <td>
-                        <button className="btn btn-secondary btn-sm"
-                          onClick={(e) => { e.stopPropagation(); openEdit(item); }}>
-                          Update
+                        <button className="btn btn-secondary btn-sm" data-testid="inv-update-stock"
+                          onClick={(e) => { e.stopPropagation(); openStock(item); }}>
+                          Update stock
                         </button>
                       </td>
                     </tr>
+                    {/* ── The SKU's lots, right under it ───────────────────── */}
+                    {isOpen && lots > 0 && (
+                      <tr className="lot-row" data-testid="inv-lot-row">
+                        <td></td>
+                        <td colSpan={14}>
+                          <table className="lot-table">
+                            <thead>
+                              <tr>
+                                <th>Batch</th>
+                                <th className="num">Qty</th>
+                                <th className="num">Batch MRP</th>
+                                <th className="num">Batch price</th>
+                                <th>Mfg</th>
+                                <th>Expiry</th>
+                                <th>Purchased</th>
+                                <th className="num">In bins</th>
+                                <th></th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {rowLots.map((l) => {
+                                const d = l.days_to_expiry == null ? null : Number(l.days_to_expiry);
+                                const unplaced = Number(l.qty_on_hand) - Number(l.placed_qty || 0);
+                                return (
+                                  <tr key={l.id} data-testid="inv-lot">
+                                    <td className="mono">{l.batch_number}</td>
+                                    <td className="num"><strong>{Number(l.qty_on_hand).toLocaleString('en-IN')}</strong></td>
+                                    <td className="num">{money(l.mrp)}</td>
+                                    <td className="num">{l.selling_price == null ? <span className="dim" title="Sells at the catalogue price">catalogue</span> : money(l.selling_price)}</td>
+                                    <td>{l.mfg_date ?? <span className="dim">—</span>}</td>
+                                    <td className={d == null ? '' : d < 0 ? 'neg' : d < 90 ? 'warnText' : ''}>
+                                      {l.expiry_date ?? <span className="dim">—</span>}
+                                      {d != null && <span className="days"> {d < 0 ? `expired ${-d}d ago` : `${d}d`}</span>}
+                                    </td>
+                                    <td>
+                                      {l.purchase_date ?? <span className="dim">—</span>}
+                                      {l.purchase_ref && <span className="days"> · {l.purchase_ref}</span>}
+                                    </td>
+                                    <td className="num">
+                                      {Number(l.placed_qty || 0).toLocaleString('en-IN')}
+                                      {unplaced > 0 && Number(l.placed_qty || 0) > 0 && <span className="days"> ({unplaced} not put away)</span>}
+                                    </td>
+                                    <td className="lot-actions" onClick={(e) => e.stopPropagation()}>
+                                      <button onClick={() => openStock(item, 'count', l.id)}>Count</button>
+                                      <button onClick={() => openStock(item, 'remove', l.id)}>Write off</button>
+                                      <button onClick={() => openStock(item, 'edit', l.id)}>Edit</button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                              {loose !== 0 && (
+                                <tr className="loose-line">
+                                  <td className="dim">Not in a batch</td>
+                                  <td className={`num ${loose < 0 ? 'neg' : ''}`}>{loose.toLocaleString('en-IN')}</td>
+                                  <td colSpan={6} className="dim">
+                                    {loose < 0
+                                      ? 'The lots claim more units than are on hand — count the lots to correct it.'
+                                      : 'No expiry and no printed price of their own.'}
+                                  </td>
+                                  <td className="lot-actions" onClick={(e) => e.stopPropagation()}>
+                                    {loose > 0 && <button onClick={() => openStock(item, 'label')}>Label as lot</button>}
+                                  </td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   );
                 })}
               </tbody>
@@ -549,66 +713,60 @@ export default function Inventory() {
         )}
       </div>
 
-      <StockDetailDrawer variationId={openSku} onClose={() => setOpenSku(null)} />
+      <StockDetailDrawer
+        variationId={openSku}
+        onClose={() => setOpenSku(null)}
+        onUpdate={(id, name) => { setOpenSku(null); setStockDialog({ id, name }); }}
+      />
 
-      {editItem && (
-        <div className="modal-overlay" onClick={() => setEditItem(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Update Stock</h2>
-              <button className="close-btn" onClick={() => setEditItem(null)}>×</button>
-            </div>
-            <div className="modal-body">
-              <p className="product-name">{editItem.name}</p>
-              <div className="current-stock">
-                <span>Current stock: <strong>{editItem.onHand ?? editItem.stock ?? 0}</strong></span>
-                {(editItem.reservedStock ?? 0) > 0 && (
-                  <span className="reserved-note"> ({editItem.reservedStock} reserved)</span>
-                )}
-              </div>
-              {/* Typing over a SKU that is batch-tracked silently contradicts its
-                  lots. Say so before the edit, not after. */}
-              {(editItem.lotCount ?? 0) > 0 && (
-                <div className="modal-warn">
-                  This SKU is held as <strong>{editItem.lotCount} batch(es)</strong>
-                  {' '}({(editItem.batchedQty ?? 0).toLocaleString('en-IN')} units). Setting a total here
-                  does not tell the system which lot changed, so its expiry and printed-price
-                  tracking will no longer add up. Prefer <strong>Batches &amp; Expiry</strong> for
-                  batch-tracked stock.
-                </div>
-              )}
-              <div className="form-row">
-                <label>New Stock Quantity</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={editStock}
-                  onChange={e => setEditStock(e.target.value)}
-                  autoFocus
-                />
-              </div>
-              <div className="form-row">
-                <label>Reason (optional)</label>
-                <input
-                  type="text"
-                  placeholder="e.g. restock, damage, correction"
-                  value={editReason}
-                  onChange={e => setEditReason(e.target.value)}
-                />
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setEditItem(null)}>Cancel</button>
-              <button className="btn btn-primary" disabled={saving} onClick={handleSaveStock}>
-                {saving ? 'Saving…' : 'Update Stock'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <UpdateStockDialog
+        variationId={stockDialog?.id ?? null}
+        name={stockDialog?.name}
+        initialTab={stockDialog?.tab}
+        initialLotId={stockDialog?.lotId ?? null}
+        onClose={() => setStockDialog(null)}
+        onDone={(msg) => {
+          setSuccess(msg);
+          setTimeout(() => setSuccess(null), 6000);
+          loadInventory();
+          loadHealth();
+          loadValuation();
+        }}
+      />
 
       <style>{`
         .inv-page { padding: 20px 24px; max-width: 100%; margin: 0; }
+        /* Lots under their SKU. Indented and tinted so they read as PART of the row above. */
+        .expander { border: 1px solid #e2e8f0; background: #fff; border-radius: 6px; width: 22px; height: 22px;
+                    cursor: pointer; color: #475569; font-size: 11px; line-height: 1; padding: 0; }
+        .expander:hover { border-color: #94a3b8; }
+        .table-wrap tr.row-open td { border-bottom-color: transparent; }
+        .table-wrap tr.lot-row > td { background: #f8fafc; padding: 4px 12px 12px; }
+        .table-wrap tr.lot-row:hover > td { background: #f8fafc; }
+        .lot-table { width: 100%; border-collapse: collapse; font-size: 12.5px; background: #fff;
+                     border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
+        .lot-table th { background: #f1f5f9; padding: 6px 10px; font-size: 11px; font-weight: 600; color: #475569;
+                        border-bottom: 1px solid #e2e8f0; text-transform: uppercase; letter-spacing: .2px; }
+        .lot-table td { padding: 6px 10px; border-bottom: 1px solid #f1f5f9; }
+        .lot-table tr:last-child td { border-bottom: none; }
+        .lot-table .days { font-size: 11px; color: #94a3b8; }
+        .lot-table .loose-line td { background: #fcfcfd; font-style: italic; }
+        .lot-actions { white-space: nowrap; text-align: right; }
+        .lot-actions button { border: 1px solid #e2e8f0; background: #fff; border-radius: 6px; padding: 2px 8px;
+                              font-size: 11.5px; color: #334155; cursor: pointer; margin-left: 4px; }
+        .lot-actions button:hover { border-color: #0f766e; color: #0f766e; }
+        .lots-toggle { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; font-size: 0.8rem;
+                       color: #374151; cursor: pointer; user-select: none; }
+        .site-link { color: #0f172a; text-decoration: none; }
+        .site-link:hover { color: #2563eb; text-decoration: underline; }
+        .site-link .ext { font-size: 11px; color: #94a3b8; }
+        a.btn { text-decoration: none; display: inline-flex; align-items: center; }
+        .chain-banner { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;
+                        padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; font-size: 0.85rem; }
+        .chain-banner.good { background: #f0fdf4; border: 1px solid #86efac; color: #166534; }
+        .chain-banner.bad { background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; }
+        .chain-banner.muted { background: #f8fafc; border: 1px solid #e2e8f0; color: #475569; }
+        .chain-banner button { background: none; border: none; cursor: pointer; font-size: 1rem; color: inherit; }
         /* Accurate-figure tiles. The stat-btn ones are filters, so they look pressable. */
         .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 16px; }
         .stat { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border: 1px solid #e2e8f0;

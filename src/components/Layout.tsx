@@ -246,6 +246,7 @@ const Layout: React.FC = () => {
         ...(canAccess('wms') && hasPerm('inventory.read') ? [{ title: 'Warehouse Layout', url: '/panel/inventory/wms', icon: Warehouse }] : []),
         ...(canAccess('wms') && hasPerm('inventory.adjust') ? [{ title: 'Pick Lists', url: '/panel/inventory/pick-lists', icon: PackageSearch }] : []),
         ...(canAccess('wms') && hasPerm('inventory.adjust') ? [{ title: 'Cycle Counts', url: '/panel/inventory/counts', icon: Scale }] : []),
+        ...(canAccess('wms') && hasPerm('inventory.read') ? [{ title: 'Goods In & Stickers', url: '/panel/inventory/goods-in', icon: PackageSearch }] : []),
         ...(canAccess('wms') && hasPerm('inventory.read') ? [{ title: 'Barcodes & Labels', url: '/panel/inventory/labels', icon: FileText }] : []),
         ...(canAccess('reports') && hasPerm('reports.read') ? [{ title: 'Reports', url: '/panel/inventory/reports', icon: FileSpreadsheet }] : []),
         ...(hasPerm('inventory.read') ? [{ title: 'Outlets & Transfers', url: '/panel/inventory/outlets', icon: Store }] : []),

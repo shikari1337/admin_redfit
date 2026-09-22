@@ -156,6 +156,7 @@ import StockTransfers from './pages/panels/StockTransfers';
 import Consignment from './pages/panels/Consignment';
 import DistributorNetwork from './pages/panels/DistributorNetwork';
 import UomSettings from './pages/panels/UomSettings';
+import GoodsInLabels from './pages/panels/GoodsInLabels';
 import BillOfMaterials from './pages/panels/BillOfMaterials';
 import WorkOrders from './pages/panels/WorkOrders';
 import Approvals from './pages/panels/Approvals';
@@ -344,6 +345,7 @@ function App() {
           <Route path="panel/inventory/consignment" element={<Consignment />} />
           <Route path="panel/inventory/network" element={<DistributorNetwork />} />
           <Route path="panel/inventory/uom" element={<UomSettings />} />
+          <Route path="panel/inventory/goods-in" element={<GoodsInLabels />} />
           <Route path="panel/inventory/bom" element={<BillOfMaterials />} />
           <Route path="panel/inventory/work-orders" element={<WorkOrders />} />
           <Route path="panel/inventory/approvals" element={<Approvals />} />

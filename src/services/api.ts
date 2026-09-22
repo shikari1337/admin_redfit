@@ -332,7 +332,10 @@ const normalizeResponse = (response: any): any => {
       // are ADDED HERE ON PURPOSE: anything not named in this list is dropped
       // when the envelope is unwrapped, silently — the picker would simply never
       // appear and nothing would say why.
-      for (const key of ['channels', 'channelAccess'] as const) {
+      // `site_url` rides the inventory list: the store's own website, so a row
+      // can open its product on the real site (the admin is one build serving
+      // every store, so the address cannot be a build-time constant).
+      for (const key of ['channels', 'channelAccess', 'site_url'] as const) {
         if ((response as any)[key] !== undefined) {
           Object.defineProperty(extracted, key, {
             value: (response as any)[key], writable: true, enumerable: false, configurable: true,
@@ -1117,6 +1120,50 @@ export const brandsAPI = {
       return response.data;
     } catch (error: any) {
       safeError(error);
+    }
+  },
+  // ── Product display order (migration 214) ──────────────────────
+  /** This brand's products, already sorted by its current saved order
+   *  (ranked first, then A→Z for anything not yet placed). */
+  listProducts: async (brandId: string) => {
+    try {
+      const response = await api.get(`/brands/${brandId}/products`);
+      return response.data?.data ?? [];
+    } catch (error: any) {
+      safeError(error);
+    }
+  },
+  saveProductOrder: async (brandId: string, order: string[]) => {
+    try {
+      const response = await api.put(`/brands/${brandId}/products/order`, { order });
+      return response.data;
+    } catch (error: any) {
+      safeError(error);
+    }
+  },
+  exportProductOrder: async (brandId: string, brandSlug?: string) => {
+    const response = await api.get(`/brands/${brandId}/products/export`, { responseType: 'blob' });
+    const blob = response.data instanceof Blob ? response.data : new Blob([response.data], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${brandSlug || 'brand'}-product-order.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+  importProductOrder: async (brandId: string, file: File): Promise<{ matched: number; unmatched: number; totalRows: number }> => {
+    const form = new FormData();
+    form.append('file', file);
+    try {
+      const response = await api.post(`/brands/${brandId}/products/import`, form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      return response.data;
+    } catch (error: any) {
+      safeError(error);
+      throw error;
     }
   },
 };
@@ -4074,6 +4121,8 @@ export const inventoryAPI = {
     /** SKUs whose stock figures disagree — the reconciliation queue. */
     mismatch?: boolean;
     expiringDays?: number;
+    /** Attach each row's lots (the batches it is made of), fetched in one query. */
+    includeLots?: boolean;
   }) => {
     const response = await api.get('/inventory', { params });
     return response.data;
@@ -4083,16 +4132,39 @@ export const inventoryAPI = {
     const response = await api.get('/inventory/health');
     return response.data?.data ?? response.data;
   },
-  /** Everything about one SKU in ONE call — reconciliation, lots, movements. */
+  /** Everything about one SKU in ONE call — reconciliation, lots, movements, ledger chain. */
   detail: async (variationId: string) => {
     const response = await api.get(`/inventory/${variationId}/detail`);
+    return response.data?.data ?? response.data;
+  },
+  /**
+   * Move a SKU's loose stock by a DELTA (never an absolute): the server locks
+   * the SKU and applies it to the figure it trusts at that moment, so a sale in
+   * between is never overwritten. `reason_type` is the same closed list as
+   * updateStock's.
+   */
+  adjust: async (data: {
+    variation_id: string; product_id: string; qty_delta: number;
+    reason_type?: string; notes?: string; reference?: string;
+  }) => {
+    const response = await api.post('/inventory/adjust', data);
+    return response.data?.data ?? response.data;
+  },
+  /** Verify every SKU's stock-ledger chain in one pass (the monitor's I17, on demand). */
+  verifyLedgerChain: async () => {
+    const response = await api.get('/inventory/ledger-chain/verify');
     return response.data?.data ?? response.data;
   },
   getById: async (id: string) => {
     const response = await api.get(`/inventory/${id}`);
     return response.data;
   },
-  updateStock: async (id: string, data: { stock?: number; variationIndex?: number; variationStock?: number; reason?: string }) => {
+  /**
+   * Set a SKU's total. `reason_type` says WHY (count, damage, expiry, loss,
+   * received, returned, adjustment) — it becomes the ledger entry's movement
+   * type; `reason` is the free-text note beside it.
+   */
+  updateStock: async (id: string, data: { stock?: number; variationIndex?: number; variationStock?: number; reason?: string; reason_type?: string }) => {
     const response = await api.put(`/inventory/${id}`, data);
     return response.data;
   },
@@ -4267,9 +4339,18 @@ export const batchesAPI = {
     const r = await api.get(`/purchasing/batches/${id}/placement`);
     return r.data?.data ?? r.data;
   },
-  /** A physical count. Goes through the stock ledger server-side. */
-  setQuantity: async (id: string, qty: number, reason?: string) => {
-    const r = await api.put(`/purchasing/batches/${id}/quantity`, { qty, ...(reason ? { reason } : {}) });
+  /**
+   * Set a lot's quantity. Goes through the stock ledger server-side.
+   * `movementType` says WHY — a count (default), damage, expiry write-off or a
+   * plain adjustment — and becomes the ledger entry's movement type.
+   */
+  setQuantity: async (
+    id: string, qty: number, reason?: string,
+    movementType?: 'cycle_count_correction' | 'damage' | 'expiry_write_off' | 'adjustment',
+  ) => {
+    const r = await api.put(`/purchasing/batches/${id}/quantity`, {
+      qty, ...(reason ? { reason } : {}), ...(movementType ? { movementType } : {}),
+    });
     return r.data?.data ?? r.data;
   },
 };

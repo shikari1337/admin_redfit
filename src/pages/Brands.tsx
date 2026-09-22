@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import CompanyPicker from '../components/brands/CompanyPicker';
 import BrandLicenses from '../components/brands/BrandLicenses';
+import BrandProducts from '../components/brands/BrandProducts';
 import { FaPlus, FaSave, FaUndo, FaTrash, FaSearch, FaGripVertical, FaArrowUp, FaArrowDown, FaTimes, FaPen } from 'react-icons/fa';
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent,
@@ -728,9 +729,10 @@ const Brands: React.FC = () => {
 
             <div className="flex-1 px-6 py-4">
               <Tabs defaultValue="details">
-                <TabsList className="grid w-full grid-cols-4">
+                <TabsList className="grid w-full grid-cols-5">
                   <TabsTrigger value="details">Details</TabsTrigger>
                   <TabsTrigger value="images">Images</TabsTrigger>
+                  <TabsTrigger value="products">Products</TabsTrigger>
                   <TabsTrigger value="ownership">Ownership</TabsTrigger>
                   <TabsTrigger value="seo">Content &amp; SEO</TabsTrigger>
                 </TabsList>
@@ -826,6 +828,10 @@ const Brands: React.FC = () => {
                     value={formState.bannerUrl || ''} onChange={(url: string) => setFormState({ ...formState, bannerUrl: url })} placeholder="Banner URL (https://...)" />
                   <ImageInputWithActions label="Thumbnail" spec="brand.thumbnail" folder="brands" entity="brand" entityId={selectedId || undefined} draft={() => formState}
                     value={formState.thumbnailUrl || ''} onChange={(url: string) => setFormState({ ...formState, thumbnailUrl: url })} placeholder="Thumbnail URL (https://...)" />
+                </TabsContent>
+
+                <TabsContent value="products" forceMount className="data-[state=inactive]:hidden mt-4">
+                  <BrandProducts brandId={selectedId} brandSlug={formState.slug} canManage={canManageBrands} />
                 </TabsContent>
 
                 <TabsContent value="ownership" forceMount className="data-[state=inactive]:hidden mt-4 space-y-5">
