@@ -35,6 +35,12 @@ interface CartRecord {
   /** Items added AFTER the order — bought, then kept shopping in the same
    *  browser. Never part of the recovered sale. */
   hasUnorderedItems?: boolean;
+  /** What this shopper would actually PAY, priced by the server for THEM
+   *  (services/cartPricing.ts). The line prices below are what the browser
+   *  saved — retail, and well over the real charge for a B2B customer. */
+  customerTotal?: number | null;
+  priceBasis?: 'b2b' | 'retail' | null;
+  pricedAt?: string | null;
   user?: {
     _id: string;
     name?: string;
@@ -554,9 +560,18 @@ const AbandonedCarts: React.FC = () => {
                   // in step with the detail page's own total.
                   const lines = Array.isArray(cart.items) ? cart.items : [];
                   const itemCount = lines.length;
-                  const cartTotal = itemCount
+                  const savedTotal = itemCount
                     ? lines.reduce((sum, i) => sum + (Number(i.price) || 0) * (Number(i.quantity) || 0), 0)
                     : null;
+                  // The number to triage on is what the shopper PAYS: priced
+                  // by the server for them, cached on the cart. The saved line
+                  // prices are shown under it when the two differ (a B2B price
+                  // book runs ~25% under retail), so neither figure surprises
+                  // anyone on the checkout screen.
+                  const customerTotal = typeof cart.customerTotal === 'number' ? cart.customerTotal : null;
+                  const cartTotal = customerTotal ?? savedTotal;
+                  const differs = customerTotal != null && savedTotal != null
+                    && Math.abs(customerTotal - savedTotal) >= 1;
                   const itemSummary = lines.slice(0, 2).map((i) => i.productName).join(', ')
                     + (itemCount > 2 ? ` +${itemCount - 2} more` : '');
                   
@@ -638,6 +653,14 @@ const AbandonedCarts: React.FC = () => {
                       <div className="text-sm font-semibold text-slate-900 tabular-nums">
                         {cartTotal != null ? formatMoney(cartTotal) : '—'}
                       </div>
+                      {differs && (
+                        <div className="text-xs text-slate-500" title={`Priced for this customer${cart.priceBasis === 'b2b' ? ' on their B2B price book' : ''}. Saved line prices add up to ${formatMoney(savedTotal)}.`}>
+                          {cart.priceBasis === 'b2b' && (
+                            <span className="mr-1 inline-flex items-center rounded bg-indigo-100 px-1 py-0.5 text-[10px] font-medium text-indigo-800">B2B price</span>
+                          )}
+                          <span className="line-through">{formatMoney(savedTotal)}</span> list
+                        </div>
+                      )}
                       <div className="text-xs text-slate-500">
                         {itemCount} {itemCount === 1 ? 'line' : 'lines'}
                       </div>
