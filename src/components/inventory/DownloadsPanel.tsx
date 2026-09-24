@@ -33,14 +33,44 @@ function fmtWhen(iso?: string | null): string {
   return d.toLocaleDateString();
 }
 
-const STATUS_STYLE: Record<string, { bg: string; color: string; label: string }> = {
+/**
+ * The same six states read differently in the two directions: an export is
+ * BUILT, an import is APPLIED, and calling both "Building…" is how a person
+ * watching a 44,000-row import wonders what file is being made.
+ */
+const STATUS_STYLE: Record<string, { bg: string; color: string; label: string; importLabel?: string }> = {
   queued:    { bg: '#f1f5f9', color: '#475569', label: 'Waiting' },
-  running:   { bg: '#eff6ff', color: '#1d4ed8', label: 'Building…' },
-  ready:     { bg: '#f0fdf4', color: '#15803d', label: 'Ready' },
+  running:   { bg: '#eff6ff', color: '#1d4ed8', label: 'Building…', importLabel: 'Applying…' },
+  ready:     { bg: '#f0fdf4', color: '#15803d', label: 'Ready', importLabel: 'Done' },
   failed:    { bg: '#fef2f2', color: '#b91c1c', label: 'Failed' },
   expired:   { bg: '#fffbeb', color: '#b45309', label: 'Expired' },
   cancelled: { bg: '#f1f5f9', color: '#64748b', label: 'Cancelled' },
 };
+
+/** Plain words for a dataset key, so the row does not read like a column name. */
+const DATASET_LABEL: Record<string, string> = {
+  inventory: 'Inventory sheet',
+  inventory_template: 'Inventory template',
+  batches: 'Batches sheet',
+  batch_template: 'Batches template',
+  market_prices: 'Market prices',
+  availability: 'Availability',
+};
+
+/** Still going — the only state that has progress worth drawing. */
+const inFlight = (j: DataJob) => j.status === 'queued' || j.status === 'running';
+
+/**
+ * How far along, 0–100.
+ *
+ * A job with rows but no progress yet shows a sliver rather than an empty bar,
+ * because an empty bar and a broken bar look the same.
+ */
+function pct(j: DataJob): number {
+  const total = j.total_rows ?? 0;
+  if (!total) return 0;
+  return Math.min(100, Math.max(3, Math.round(((j.done_rows ?? 0) / total) * 100)));
+}
 
 export default function DownloadsPanel({ refreshToken }: { refreshToken?: number }) {
   const [jobs, setJobs] = useState<DataJob[]>([]);
@@ -121,7 +151,10 @@ export default function DownloadsPanel({ refreshToken }: { refreshToken?: number
     setExpanded(job.id);
     if (rowLog[job.id]) return;
     try {
-      const { rows } = await exportsAPI.rows(job.id, { onlyProblems: true, limit: 200 });
+      // Problems only when there ARE problems — otherwise show what the run did,
+      // so "Line by line" on a clean import is not an empty table.
+      const onlyProblems = ((job.failed_rows ?? 0) + (job.skipped_rows ?? 0)) > 0;
+      const { rows } = await exportsAPI.rows(job.id, { onlyProblems, limit: 200 });
       setRowLog((p) => ({ ...p, [job.id]: rows }));
     } catch { setRowLog((p) => ({ ...p, [job.id]: [] })); }
   };
@@ -133,9 +166,9 @@ export default function DownloadsPanel({ refreshToken }: { refreshToken?: number
     <div style={{ border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff', marginBottom: 16 }}>
       <div style={{ padding: '10px 14px', borderBottom: '1px solid #f1f5f9', display: 'flex',
                     alignItems: 'center', justifyContent: 'space-between' }}>
-        <strong style={{ fontSize: 14 }}>Downloads</strong>
+        <strong style={{ fontSize: 14 }}>Downloads &amp; imports</strong>
         <span style={{ fontSize: 12, color: '#64748b' }}>
-          Files you asked for. They keep building if you leave this page.
+          Files you asked for and sheets you sent back. Both keep going if you leave this page.
         </span>
       </div>
 
@@ -152,12 +185,15 @@ export default function DownloadsPanel({ refreshToken }: { refreshToken?: number
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', flexWrap: 'wrap' }}>
                 <span style={{ background: st.bg, color: st.color, fontSize: 11, fontWeight: 600,
                                padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>
-                  {st.label}
+                  {(job.direction === 'import' && st.importLabel) || st.label}
                 </span>
                 <div style={{ flex: 1, minWidth: 200 }}>
                   <div style={{ fontSize: 13, fontWeight: 500 }}>
-                    {job.direction === 'import' ? 'Import' : 'Export'} · {job.dataset.replace(/_/g, ' ')}
-                    {job.file_name ? <span style={{ color: '#64748b', fontWeight: 400 }}> · {job.file_name}</span> : null}
+                    {job.direction === 'import' ? 'Sent back' : 'Download'} ·{' '}
+                    {DATASET_LABEL[job.dataset] ?? job.dataset.replace(/_/g, ' ')}
+                    {job.source_name || job.file_name
+                      ? <span style={{ color: '#64748b', fontWeight: 400 }}> · {job.source_name || job.file_name}</span>
+                      : null}
                   </div>
                   <div style={{ fontSize: 12, color: '#64748b' }}>
                     {fmtWhen(job.created_at)}
@@ -165,10 +201,26 @@ export default function DownloadsPanel({ refreshToken }: { refreshToken?: number
                     {job.detail ? ` · ${job.detail}` : ''}
                     {job.error ? <span style={{ color: '#b91c1c' }}> · {job.error}</span> : null}
                   </div>
+                  {/* A 44,000-row import runs for minutes. Saying how far it has
+                      got is the difference between "working" and "stuck". */}
+                  {inFlight(job) && !!job.total_rows && (
+                    <div style={{ marginTop: 6 }}>
+                      <div style={{ height: 4, borderRadius: 999, background: '#e2e8f0', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${pct(job)}%`, background: '#1d4ed8',
+                                      transition: 'width .4s ease' }} />
+                      </div>
+                      <div style={{ fontSize: 11, color: '#64748b', marginTop: 3 }}>
+                        {(job.done_rows ?? 0).toLocaleString('en-IN')} of{' '}
+                        {(job.total_rows ?? 0).toLocaleString('en-IN')} row(s)
+                        {job.direction === 'import' ? ' applied' : ''}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div style={{ display: 'flex', gap: 6 }}>
-                  {job.status === 'ready' && (
+                  {/* An import produces no file — offering Download would 404. */}
+                  {job.status === 'ready' && job.direction === 'export' && (
                     <button onClick={() => handleDownload(job)} disabled={busy === job.id}
                       style={{ padding: '5px 12px', fontSize: 12, borderRadius: 6, border: 'none',
                                background: '#0f766e', color: '#fff', cursor: 'pointer' }}>
@@ -182,11 +234,14 @@ export default function DownloadsPanel({ refreshToken }: { refreshToken?: number
                       Try again
                     </button>
                   )}
-                  {problems > 0 && (
+                  {(problems > 0 || (job.direction === 'import' && job.status === 'ready')) && (
                     <button onClick={() => toggleLog(job)}
                       style={{ padding: '5px 12px', fontSize: 12, borderRadius: 6,
-                               border: '1px solid #fca5a5', background: '#fff', color: '#b91c1c', cursor: 'pointer' }}>
-                      {expanded === job.id ? 'Hide' : `${problems} problem${problems > 1 ? 's' : ''}`}
+                               border: `1px solid ${problems ? '#fca5a5' : '#cbd5e1'}`, background: '#fff',
+                               color: problems ? '#b91c1c' : '#475569', cursor: 'pointer' }}>
+                      {expanded === job.id
+                        ? 'Hide'
+                        : problems ? `${problems} problem${problems > 1 ? 's' : ''}` : 'Line by line'}
                     </button>
                   )}
                   <button onClick={() => handleRemove(job)} disabled={busy === job.id} title="Remove"
@@ -203,9 +258,9 @@ export default function DownloadsPanel({ refreshToken }: { refreshToken?: number
                     <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
                       <thead>
                         <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
-                          <th style={{ padding: '6px 8px' }}>Row</th>
+                          <th style={{ padding: '6px 8px' }}>Sheet line</th>
                           <th style={{ padding: '6px 8px' }}>What</th>
-                          <th style={{ padding: '6px 8px' }}>Why</th>
+                          <th style={{ padding: '6px 8px' }}>Outcome</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -213,7 +268,9 @@ export default function DownloadsPanel({ refreshToken }: { refreshToken?: number
                           <tr key={r.id} style={{ borderTop: '1px solid #f8fafc' }}>
                             <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>{r.row_number}</td>
                             <td style={{ padding: '6px 8px' }}>{r.ref ?? '—'}</td>
-                            <td style={{ padding: '6px 8px', color: '#b91c1c' }}>{r.message ?? r.outcome}</td>
+                            <td style={{ padding: '6px 8px', color: r.outcome === 'ok' ? '#15803d' : '#b91c1c' }}>
+                              {r.message ?? r.outcome}
+                            </td>
                           </tr>
                         ))}
                         {!(rowLog[job.id] ?? []).length && (

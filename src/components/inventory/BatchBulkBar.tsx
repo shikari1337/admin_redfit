@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
-import { inventoryAPI, exportsAPI } from '../../services/api';
+import { inventoryAPI, exportsAPI, type ImportResponse } from '../../services/api';
 import DownloadsPanel from './DownloadsPanel';
+import WhichSheetStrip from './WhichSheetStrip';
 import { useAuth } from '../../contexts/AuthContext';
 import { Btn, SectionCard } from '../erp';
 
@@ -20,6 +21,11 @@ import { Btn, SectionCard } from '../erp';
 
 
 interface ImportSummary {
+  sheet?: string;
+  sheet_label?: string;
+  updated?: number;
+  price_updated?: number;
+  b2b_updated?: number;
   batches_created?: number;
   batches_updated?: number;
   units_added?: number;
@@ -98,17 +104,44 @@ const BatchBulkBar: React.FC<{ onImported?: () => void }> = ({ onImported }) => 
     } finally { setBusy(''); }
   };
 
+  /**
+   * Send the filled-in sheet through the ONE import door.
+   *
+   * The server names the sheet from its header row, so an inventory file
+   * dropped here is applied by the SKU importer rather than refused — and a
+   * big one comes back as a queued job instead of dying at the 100s ceiling
+   * Cloudflare puts on any single response.
+   */
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (fileRef.current) fileRef.current.value = '';
     if (!file) return;
-    setError(''); setSummary(null); setBusy('import');
+    setError(''); setSummary(null); setNotice(''); setBusy('import');
     try {
-      const res = await inventoryAPI.importBatches(file);
-      setSummary((res?.data ?? res) as ImportSummary);
+      const res: ImportResponse = await inventoryAPI.importAny(file);
+      if (res?.queued) {
+        // Nothing is applied yet, so there is nothing to summarise — point at
+        // where the progress and the per-row log actually appear.
+        setQueued((n) => n + 1);
+        setNotice(res.message ?? 'Accepted — it is being applied in the background.');
+        return;
+      }
+      setSummary(res as ImportSummary);
+      if (res?.job_id) setQueued((n) => n + 1);
+      if (res?.sheet && res.sheet !== 'batches') {
+        setNotice(`That was the ${res.sheet_label ?? res.sheet} — sent to the right importer. `
+          + 'No stock was moved; that only happens on the Batches sheet.');
+      }
       onImported?.();
     } catch (err: any) {
       const d = err?.response?.data;
+      // 409 = another import is still being applied. A "wait a moment", not a
+      // failure — and the running job is in the list just below.
+      if (err?.response?.status === 409) {
+        setQueued((n) => n + 1);
+        setNotice(d?.message ?? 'Another import is still being applied.');
+        return;
+      }
       setError(d?.message ?? 'Could not import the file.');
       // A pre-flight rejection (wrong sheet, no usable rows) still carries the
       // per-row reasons — showing them is the difference between "it failed"
@@ -126,6 +159,8 @@ const BatchBulkBar: React.FC<{ onImported?: () => void }> = ({ onImported }) => 
   return (
     <SectionCard title="Batch-wise bulk update">
     <div className="space-y-3 text-sm">
+      {/* Which of the two sheets does what, in the same words on both pages. */}
+      <WhichSheetStrip here="batches" />
       {/* Export FIRST. The sheet is only safe to fill in when it already carries
           the Variation IDs, the current batches and the catalogue prices to
           compare against — so the flow is numbered rather than left to guess. */}
@@ -244,7 +279,14 @@ const BatchBulkBar: React.FC<{ onImported?: () => void }> = ({ onImported }) => 
 
       {summary && (summary.processed !== undefined || failed.length > 0) && (
         <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-          {summary.processed !== undefined && (
+          {summary.processed !== undefined && summary.sheet === 'inventory' && (
+            <div className="flex flex-wrap gap-x-5 gap-y-1 text-gray-800">
+              <span><strong>{summary.updated ?? 0}</strong> SKU(s) updated</span>
+              {!!summary.price_updated && <span>{summary.price_updated} price(s)</span>}
+              {!!summary.b2b_updated && <span>{summary.b2b_updated} wholesale price(s)</span>}
+            </div>
+          )}
+          {summary.processed !== undefined && summary.sheet !== 'inventory' && (
             <div className="flex flex-wrap gap-x-5 gap-y-1 text-gray-800">
               <span><strong>{summary.batches_created ?? 0}</strong> batch(es) created</span>
               <span><strong>{summary.batches_updated ?? 0}</strong> updated</span>
@@ -271,6 +313,8 @@ const BatchBulkBar: React.FC<{ onImported?: () => void }> = ({ onImported }) => 
               )}
               <p className="mt-1 text-xs text-gray-600">
                 Everything not listed here was applied — a bad row never rolls back the rest.
+                The same list, with its sheet line numbers, is kept under “Line by line” in
+                Downloads &amp; imports.
               </p>
             </div>
           )}

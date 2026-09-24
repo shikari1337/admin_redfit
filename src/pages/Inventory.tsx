@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
-import { inventoryAPI, exportsAPI, blobErrorMessage, type InventoryHealth } from '../services/api';
+import { inventoryAPI, exportsAPI, blobErrorMessage, type InventoryHealth, type ImportResponse } from '../services/api';
 import { Pagination } from '@/components/erp';
-import { Link } from 'react-router-dom';
 import MarketPricesBulkBar from '../components/inventory/MarketPricesBulkBar';
 import AvailabilityBulkBar from '../components/inventory/AvailabilityBulkBar';
 import DownloadsPanel from '../components/inventory/DownloadsPanel';
+import WhichSheetStrip from '../components/inventory/WhichSheetStrip';
 import StockDetailDrawer from '../components/inventory/StockDetailDrawer';
 import UpdateStockDialog from '../components/inventory/UpdateStockDialog';
 
@@ -228,6 +228,14 @@ export default function Inventory() {
     }
   };
 
+  /**
+   * Send whatever file was chosen — the ONE import door.
+   *
+   * The server names the sheet from its header row, so a batches file dropped
+   * here is applied by the batch importer rather than refused. A big sheet
+   * comes back as a queued job (202) and is applied in the background; a small
+   * one still answers with its real counts.
+   */
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -235,19 +243,51 @@ export default function Inventory() {
     try {
       setImporting(true);
       setError(null);
-      const res = await inventoryAPI.importExcel(file);
-      const r = res?.data ?? res;
+      const r: ImportResponse = await inventoryAPI.importAny(file);
+      const what = r?.sheet_label ?? 'sheet';
+
+      if (r?.queued) {
+        // Nothing has been applied yet, so there are no counts to report — say
+        // where they will appear instead of inventing a number.
+        setDownloadsToken((n) => n + 1);
+        setSuccess(r.message ?? `${what} accepted — it is being applied in the background.`);
+        return;
+      }
+
       // `failed` from the backend already folds in parse errors; fall back to the
       // separate arrays for older responses.
       const failed = Array.isArray(r?.failed) ? r.failed.length : ((r?.failed ?? 0) + (r?.parse_errors?.length ?? 0));
-      const extras = [
-        r?.price_updated ? `${r.price_updated} price${r.price_updated > 1 ? 's' : ''}` : '',
-        r?.b2b_updated ? `${r.b2b_updated} wholesale` : '',
-      ].filter(Boolean).join(', ');
-      setSuccess(
-        `Updated ${r?.updated ?? 0} SKU(s)${extras ? ` (${extras})` : ''}${failed ? `, ${failed} skipped` : ''}.`
-      );
-      setTimeout(() => setSuccess(null), 6000);
+      // The one door means this can be ANY sheet's answer, so read the one the
+      // server actually sent rather than assuming the SKU shape and printing
+      // "Updated 0 SKU(s)" for a file that did plenty.
+      const bits: string[] = [];
+      if (r?.message) {
+        // The warehouse sheets write their own sentence — do not paraphrase it.
+        setSuccess(`${what}: ${r.message}`);
+      } else if (r?.sheet === 'batches') {
+        if (r.batches_created) bits.push(`${r.batches_created} lot(s) created`);
+        if (r.batches_updated) bits.push(`${r.batches_updated} updated`);
+        if (r.units_added) bits.push(`+${r.units_added} units`);
+        if (r.units_removed) bits.push(`−${r.units_removed} units`);
+        setSuccess(`${what}: ${bits.join(', ') || 'nothing changed'}${failed ? `, ${failed} not applied` : ''}.`);
+      } else if (r?.updated !== undefined) {
+        if (r?.price_updated) bits.push(`${r.price_updated} price${r.price_updated > 1 ? 's' : ''}`);
+        if (r?.b2b_updated) bits.push(`${r.b2b_updated} wholesale`);
+        setSuccess(
+          `Updated ${r.updated ?? 0} SKU(s)${bits.length ? ` (${bits.join(', ')})` : ''}${failed ? `, ${failed} skipped` : ''}.`
+        );
+      } else {
+        // Market prices and availability report `processed`, not `updated`.
+        setSuccess(`${what}: ${r?.processed ?? 0} row(s) applied${failed ? `, ${failed} not applied` : ''}.`);
+      }
+      // Every run is a job row, so a failure has a line number waiting under
+      // Downloads — say so rather than leaving "12 skipped" as the whole story.
+      if (failed) {
+        setSuccess((prev) => `${prev ?? ''} Open “Line by line” under Downloads & imports`
+          + ' to see which rows, and why.');
+      }
+      setTimeout(() => setSuccess(null), 10000);
+      if (r?.job_id) setDownloadsToken((n) => n + 1);
       // Stock is no longer written from this sheet. A row that ASKED to change
       // it is reported rather than silently dropped — the round-trip case is
       // quiet, because the exported figure already matches what is stored.
@@ -255,12 +295,19 @@ export default function Inventory() {
       if (ignored.length) {
         setError(
           `${ignored.length} row(s) tried to set Stock, which this sheet no longer changes — `
-          + `quantity belongs to a batch. Use Batches & Expiry. First: ${ignored[0].ref}.`
+          + `quantity belongs to a batch. Use the Batches sheet. First: ${ignored[0].ref}.`
         );
       }
       loadInventory();
       loadValuation();
     } catch (err: any) {
+      // 409 = another import is still being applied. That is a "wait a moment",
+      // not a failure, and the running job's progress is right below.
+      if (err?.response?.status === 409) {
+        setDownloadsToken((n) => n + 1);
+        setSuccess(err?.response?.data?.message || 'Another import is still being applied.');
+        return;
+      }
       setError(err?.response?.data?.message || 'Failed to import file.');
     } finally {
       setImporting(false);
@@ -318,19 +365,7 @@ export default function Inventory() {
         <div>
           <h1>Inventory</h1>
           <p className="subtitle">Manage retail &amp; B2B pricing across all SKUs. Ask for an export, edit it, and send it back — blank cells are left unchanged. Downloads are prepared in the background, so you can leave this page.</p>
-          {/* This sheet carries ONE stock figure and ONE MRP per SKU, so it cannot
-              describe two batches of the same medicine printed at different MRPs.
-              Point at the sheet that can, rather than letting a merchant reach for
-              the wrong one (the batch importer refuses this file by name, but
-              finding the right surface should not need a failed import first). */}
-          <p className="subtitle" style={{ marginTop: 4 }}>
-            <strong>Stock is changed on the batch sheet, not here.</strong> Quantity belongs to a
-            batch — the lot it is in, its printed MRP and its expiry — so this sheet shows the
-            total and leaves it read-only.{' '}
-            <Link to="/panel/inventory/batches" style={{ color: '#2563eb' }}>
-              Open Batches &amp; Expiry
-            </Link>.
-          </p>
+
         </div>
         <div className="header-actions">
           {siteUrl && (
@@ -347,15 +382,21 @@ export default function Inventory() {
           <button className="btn btn-secondary" onClick={handleExport} disabled={exporting}>
             {exporting ? 'Requesting…' : '⬇ Export to Excel'}
           </button>
-          <button className="btn btn-primary" onClick={() => fileInputRef.current?.click()} disabled={importing}>
-            {importing ? 'Importing…' : '⬆ Import Excel'}
+          <button className="btn btn-primary" onClick={() => fileInputRef.current?.click()} disabled={importing}
+            title="Send back a filled-in sheet. Either sheet — it is routed to the right importer.">
+            {importing ? 'Sending…' : '⬆ Import Excel'}
           </button>
           <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={handleImportFile} />
         </div>
       </div>
 
-      {/* Files the user asked for. Present above everything else because it is
-          where an export now arrives — the button no longer hands back a file. */}
+      {/* Which of the two sheets does what, in the same words on both pages. */}
+      <WhichSheetStrip here="inventory" />
+
+      {/* Files the user asked for, and every import run. Present above
+          everything else because it is where an export now arrives — the
+          button no longer hands back a file — and where a queued import
+          reports its progress. */}
       <DownloadsPanel refreshToken={downloadsToken} />
 
       {/* ── THE TILES STATE THE ACCURATE FIGURE ────────────────────────────
