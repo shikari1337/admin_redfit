@@ -1396,6 +1396,7 @@ const OrderDetail: React.FC = () => {
               invoiceNumber={order.invoiceNumber ?? order.invoice_number}
               invoiceDate={order.invoiceDate ?? order.invoice_date}
               invoiceNumberSource={order.invoiceNumberSource ?? order.invoice_number_source}
+              creditNotes={order.creditNotes ?? order.credit_notes}
               manualInvoiceUrl={order.manualInvoiceUrl ?? order.manual_invoice_url}
               manualInvoiceFilename={order.manualInvoiceFilename ?? order.manual_invoice_filename}
               manualInvoiceUploadedBy={order.manualInvoiceUploadedBy ?? order.manual_invoice_uploaded_by}
