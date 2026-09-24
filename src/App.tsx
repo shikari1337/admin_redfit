@@ -67,6 +67,7 @@ import Channels from './pages/Channels';
 import ChannelAllocation from './pages/panels/ChannelAllocation';
 import ChannelMapping from './pages/ChannelMapping';
 import ChannelImport from './pages/ChannelImport';
+import ChannelDaily from './pages/ChannelDaily';
 import Layout from './components/Layout';
 import { ProtectedModuleRoute } from './components/ProtectedModuleRoute';
 import { ProtectedRoute } from './components/ProtectedRoute';
@@ -490,6 +491,7 @@ function App() {
           <Route path="channels/allocation" element={<ProtectedModuleRoute module="channel_sync"><ChannelAllocation /></ProtectedModuleRoute>} />
           <Route path="channels/mapping" element={<ProtectedModuleRoute module="channel_sync"><ChannelMapping /></ProtectedModuleRoute>} />
           <Route path="channels/import" element={<ProtectedModuleRoute module="channel_sync"><ChannelImport /></ProtectedModuleRoute>} />
+          <Route path="channels/daily" element={<ProtectedModuleRoute module="channel_sync"><ChannelDaily /></ProtectedModuleRoute>} />
           <Route path="marketing" element={<ProtectedModuleRoute module="marketing"><Marketing /></ProtectedModuleRoute>} />
           <Route path="blogs" element={<ProtectedModuleRoute module="blog"><Blogs /></ProtectedModuleRoute>} />
           <Route path="blogs/new" element={<ProtectedModuleRoute module="blog"><BlogForm /></ProtectedModuleRoute>} />

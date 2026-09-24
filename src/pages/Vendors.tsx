@@ -183,6 +183,7 @@ const Vendors: React.FC = () => {
               <TableHead>Vendor</TableHead>
               <TableHead>GST / PAN</TableHead>
               <TableHead>Commission</TableHead>
+              <TableHead>Terms</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Active</TableHead>
               <TableHead className="text-right">Actions</TableHead>
@@ -191,7 +192,7 @@ const Vendors: React.FC = () => {
           <TableBody>
             {paged.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                   No vendors found.
                 </TableCell>
               </TableRow>
@@ -221,6 +222,27 @@ const Vendors: React.FC = () => {
                     </TableCell>
                     <TableCell>
                       <span className="font-medium">{vendor.commission_pct ?? 0}%</span>
+                    </TableCell>
+                    {/* What was agreed with THIS supplier, and any licence about
+                        to run out. Both come composed from the server so this
+                        list and the vendor page can never word them differently. */}
+                    <TableCell>
+                      {Array.isArray(vendor.terms_summary) && vendor.terms_summary.length ? (
+                        <div className="text-xs text-muted-foreground max-w-[22rem]">
+                          {vendor.terms_summary.join(' · ')}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Not recorded</span>
+                      )}
+                      {Array.isArray(vendor.licences_expiring) && vendor.licences_expiring.length > 0 && (
+                        <div className="mt-1 text-xs font-medium text-amber-700">
+                          {vendor.licences_expiring.map((l: any) => (
+                            <div key={`${l.label}-${l.number}`}>
+                              {l.label} {l.daysLeft < 0 ? 'has expired' : `expires in ${l.daysLeft}d`}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell>
                       {canManage ? (

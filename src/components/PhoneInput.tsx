@@ -1,29 +1,18 @@
 import { useMemo } from 'react';
+import { COUNTRIES, type CountryRef } from '../lib/countries';
 
 /**
  * Phone input with a country-code (dial code) selector for the admin panel.
  * Controlled: pass `dialCode` (e.g. "+91") + `value` (national number); both come
  * back via `onChange`. Defaults to India (+91). The backend stores the dial code
  * alongside the number (see backend utils/phone.ts / dial_code columns).
+ *
+ * `COUNTRIES` is the shared list in `lib/countries.ts` (was its own 14-entry
+ * list here — L1-redundancy.md item 13); only `code`/`dial` are ever rendered
+ * below, so the richer shared shape is a drop-in.
  */
-export interface Country { code: string; dial: string; label: string; }
-
-export const COUNTRIES: Country[] = [
-  { code: 'IN', dial: '+91', label: 'India' },
-  { code: 'US', dial: '+1', label: 'USA / Canada' },
-  { code: 'GB', dial: '+44', label: 'UK' },
-  { code: 'AE', dial: '+971', label: 'UAE' },
-  { code: 'SA', dial: '+966', label: 'Saudi Arabia' },
-  { code: 'QA', dial: '+974', label: 'Qatar' },
-  { code: 'KW', dial: '+965', label: 'Kuwait' },
-  { code: 'SG', dial: '+65', label: 'Singapore' },
-  { code: 'MY', dial: '+60', label: 'Malaysia' },
-  { code: 'AU', dial: '+61', label: 'Australia' },
-  { code: 'NP', dial: '+977', label: 'Nepal' },
-  { code: 'BD', dial: '+880', label: 'Bangladesh' },
-  { code: 'LK', dial: '+94', label: 'Sri Lanka' },
-  { code: 'PK', dial: '+92', label: 'Pakistan' },
-];
+export type Country = CountryRef;
+export { COUNTRIES };
 
 export const DEFAULT_DIAL = '+91';
 

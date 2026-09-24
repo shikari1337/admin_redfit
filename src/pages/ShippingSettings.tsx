@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save, Truck, Warehouse, Loader2, MapPin, Plus, Pencil, Trash2, ShieldCheck, Copy, KeyRound } from 'lucide-react';
-import api, { shippingZonesAPI, pincodeZonesAPI, shippingAPI, type ShippingProviderStatus } from '../services/api';
+import api, { shippingZonesAPI, pincodeZonesAPI, shippingAPI, getApiBase, type ShippingProviderStatus } from '../services/api';
 import ConnectionStatus, { type ConnState } from '../components/common/ConnectionStatus';
 import { useSettingsSection } from '../hooks/useSettingsSection';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -377,9 +377,8 @@ const ShippingSettings: React.FC = () => {
   };
 
   // ── Webhook security helpers ────────────────────────────────────────────
-  const apiBase = (api.defaults.baseURL || '').replace(/\/$/, '');
   const webhookUrl = storeSlug
-    ? `${apiBase.startsWith('http') ? apiBase : window.location.origin + apiBase}/webhooks/shipping/track/${storeSlug}`
+    ? `${getApiBase()}/webhooks/shipping/track/${storeSlug}`
     : '';
 
   const copy = async (text: string, tag: string) => {

@@ -96,6 +96,9 @@ export const NodeDialog: React.FC<{
   const [maxUnits, setMaxUnits] = useState(node?.max_units != null ? String(node.max_units) : '');
   const [maxKg, setMaxKg] = useState(node?.max_weight_g != null ? String(num(node.max_weight_g) / 1000) : '');
   const [maxPallets, setMaxPallets] = useState(node?.max_pallets != null ? String(node.max_pallets) : '');
+  // Read by replenishment since migration 035 and written by nothing until now,
+  // so no suggestion could ever fire (W1.4.2).
+  const [minUnits, setMinUnits] = useState(node?.min_units != null ? String(node.min_units) : '');
   const [row, setRow] = useState(node?.grid_row != null ? String(node.grid_row) : '');
   const [col, setCol] = useState(node?.grid_col != null ? String(node.grid_col) : '');
   const [pickable, setPickable] = useState(node?.pickable ?? true);
@@ -116,6 +119,9 @@ export const NodeDialog: React.FC<{
     const b: any = { name: name.trim() || null };
     if (maxUnits.trim()) b.maxUnits = Math.max(1, parseInt(maxUnits)); else if (mode === 'edit') b.maxUnits = null;
     if (maxKg.trim()) b.maxWeightG = Math.round(Number(maxKg) * 1000); else if (mode === 'edit') b.maxWeightG = null;
+    // 0 is a real threshold here ("tell me the moment it is empty"), unlike a
+    // capacity of 0, so it is not clamped to 1.
+    if (minUnits.trim()) b.minUnits = Math.max(0, parseInt(minUnits)); else if (mode === 'edit') b.minUnits = null;
     if (!modelAvailable) {
       if (typed.trim()) b.maxVolumeMl = Math.round(Number(typed) * 1000); else if (mode === 'edit') b.maxVolumeMl = null;
       return b;
@@ -222,13 +228,23 @@ export const NodeDialog: React.FC<{
         )}
 
         {(storage || !modelAvailable) && (
-          <div className="grid grid-cols-3 gap-3">
-            <label><Label hint="optional">Max units</Label><input className={input} inputMode="numeric" value={maxUnits} onChange={(e) => setMaxUnits(e.target.value)} /></label>
-            <label><Label hint="load rating">Max weight kg</Label><input className={input} inputMode="decimal" value={maxKg} onChange={(e) => setMaxKg(e.target.value)} /></label>
-            {modelAvailable && st?.capacity === 'pallets' && (
-              <label><Label>Max pallets</Label><input className={input} inputMode="numeric" value={maxPallets} onChange={(e) => setMaxPallets(e.target.value)} /></label>
-            )}
-          </div>
+          <>
+            <div className="grid grid-cols-3 gap-3">
+              <label><Label hint="optional">Max units</Label><input className={input} inputMode="numeric" value={maxUnits} onChange={(e) => setMaxUnits(e.target.value)} /></label>
+              <label><Label hint="load rating">Max weight kg</Label><input className={input} inputMode="decimal" value={maxKg} onChange={(e) => setMaxKg(e.target.value)} /></label>
+              {modelAvailable && st?.capacity === 'pallets' && (
+                <label><Label>Max pallets</Label><input className={input} inputMode="numeric" value={maxPallets} onChange={(e) => setMaxPallets(e.target.value)} /></label>
+              )}
+            </div>
+            <label className="block">
+              <Label hint="refill below this">Min units</Label>
+              <input className={input} inputMode="numeric" value={minUnits} onChange={(e) => setMinUnits(e.target.value)} />
+              <p className="mt-1 text-[11px] text-slate-500">
+                When this slot drops below this many pieces it appears on the refill list. Leave it
+                blank and it never will.
+              </p>
+            </label>
+          </>
         )}
 
         {modelAvailable && storage && (

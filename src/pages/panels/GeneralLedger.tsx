@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { api } from '../../services/api';
+import { api, errorText as errMsg } from '../../services/api';
 import { payload } from '../../lib/unwrap';
 import {
   Page, PageHeader, SectionCard, Btn, StatCard, StatGrid,
@@ -22,7 +22,6 @@ const fyStart = (d = new Date()) => {
   return `${y}-04-01`;
 };
 
-const errMsg = (e: any) => e?.response?.data?.message ?? e?.response?.data?.error ?? e?.message ?? 'Something went wrong';
 
 // Client-side CSV of the ledger lines the page already holds (blanks zero amounts,
 // matching the on-screen table). The server export below carries the opening/closing rows.

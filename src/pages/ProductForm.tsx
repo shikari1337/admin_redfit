@@ -53,6 +53,7 @@ import {
 } from '../types/productForm';
 import { slugifyValue } from '../utils/slugify';
 import { useAuth } from '../contexts/AuthContext';
+import { UUID_RE } from '../lib/uuid';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -924,7 +925,7 @@ const ProductForm: React.FC = () => {
             };
             // Send the real UUID for existing variations so the backend UPDATES them
             // instead of re-INSERTing (which violates the unique SKU constraint).
-            if (v.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v.id))) pld.id = v.id;
+            if (v.id && UUID_RE.test(String(v.id))) pld.id = v.id;
             // Stock is LEDGERED — only send it when the operator changed it here.
             // Re-sending the loaded value on every save would book a movement
             // over whatever sold/arrived while the form was open. New variations

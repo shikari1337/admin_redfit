@@ -56,7 +56,28 @@ const Purchasing: React.FC = () => {
   const [error, setError] = useState('');
 
   // ── Top-level tab: purchase orders vs returns/debit notes ──────────────────
-  const [tab, setTab] = useState<'orders' | 'returns'>('orders');
+  const [tab, setTab] = useState<'orders' | 'returns' | 'deliveries' | 'receipts'>('orders');
+
+  /*
+   * ── THE INBOUND DESK (migration 216) ──────────────────────────────────────
+   * The FLOOR receives goods on `wms.gc.mw`; this desk is where the buyer sees
+   * what is coming, what turned up, whether anybody has signed it off, and the
+   * report that was filed. Everything here is a READ plus one write (the second
+   * signature) — the counting is the floor's job and stays there.
+   */
+  const [inbound, setInbound] = useState<{
+    shipments: boolean; vendorTerms: boolean; verification: boolean; evidence: boolean; withheld: string[];
+  } | null>(null);
+  const [shipments, setShipments] = useState<any[]>([]);
+  const [shipTotal, setShipTotal] = useState(0);
+  const [shipStatus, setShipStatus] = useState('announced');
+  const [receipts, setReceipts] = useState<any[]>([]);
+  const [receiptsLoading, setReceiptsLoading] = useState(false);
+  const [chain, setChain] = useState<any | null>(null);
+  const [threeWay, setThreeWay] = useState<any | null>(null);
+  const [inboundBusy, setInboundBusy] = useState('');
+  const [inboundMsg, setInboundMsg] = useState('');
+  const shipLc = useListControls({ pageSize: 25 });
 
   // ── Landed cost (per received GRN) ─────────────────────────────────────────
   const [lcForm, setLcForm] = useState<Record<string, { costType: string; amount: string; basis: string }>>({});
@@ -101,6 +122,89 @@ const Purchasing: React.FC = () => {
       .catch(() => {});
   }, []);
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [poLc.page, poLc.pageSize]);
+
+  // What this store can actually do, asked once. A capability it does not have
+  // comes back as a SENTENCE in `withheld` and is shown, never left as a blank
+  // card the reader has to interpret.
+  useEffect(() => {
+    api.get('/purchasing/inbound/meta')
+      .then((r) => setInbound(payload<any>(r) ?? null))
+      .catch(() => setInbound(null));
+  }, []);
+
+  const loadShipments = async () => {
+    try {
+      const res = await api.get('/purchasing/shipments', {
+        params: {
+          status: shipStatus || undefined,
+          limit: shipLc.pageSize, offset: (shipLc.page - 1) * shipLc.pageSize,
+        },
+      });
+      setShipments(res.data?.rows ?? []);
+      setShipTotal(res.data?.total ?? 0);
+    } catch { setShipments([]); setShipTotal(0); }
+  };
+  useEffect(() => {
+    if (tab === 'deliveries') void loadShipments();
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [tab, shipStatus, shipLc.page, shipLc.pageSize]);
+
+  /**
+   * Receipts are read off the purchase orders already loaded, because there is
+   * no `/purchasing/grn` list route and adding one for a page that shows the
+   * newest 25 orders would be a route with a single caller. Each row then opens
+   * its own chain with ONE call.
+   */
+  const loadReceipts = async () => {
+    setReceiptsLoading(true);
+    try { await loadReceiptsInner(); } finally { setReceiptsLoading(false); }
+  };
+  const loadReceiptsInner = async () => {
+    const rows: any[] = [];
+    for (const po of pos.slice(0, 25)) {
+      for (const g of (po.grns ?? [])) rows.push({ ...g, po_number: po.po_number, vendor_name: po.vendor_name });
+    }
+    if (rows.length) { setReceipts(rows); return; }
+    // The list route does not embed GRNs, so fall back to opening the POs that
+    // have actually been received against — at most a handful on one page.
+    const received = pos.filter((p: any) => ['partially_received', 'received', 'closed_short'].includes(p.status)).slice(0, 12);
+    const out: any[] = [];
+    for (const p of received) {
+      try {
+        const d = payload<any>(await api.get(`/purchasing/pos/${p.id}`));
+        for (const g of (d?.grns ?? [])) out.push({ ...g, po_id: p.id, po_number: d.po_number, vendor_name: d.vendor_name });
+      } catch { /* one unreadable order must not empty the whole list */ }
+    }
+    setReceipts(out);
+  };
+  useEffect(() => {
+    if (tab === 'receipts') void loadReceipts();
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [tab, pos]);
+
+  const openChain = async (grnId: string) => {
+    setChain(null); setThreeWay(null); setInboundMsg('');
+    setInboundBusy(grnId);
+    try {
+      const [c, t] = await Promise.all([
+        api.get(`/purchasing/inbound/chain/${grnId}`).then((r) => payload<any>(r)).catch(() => null),
+        api.get(`/purchasing/grn/${grnId}/three-way`).then((r) => payload<any>(r)).catch(() => null),
+      ]);
+      setChain(c); setThreeWay(t);
+    } finally { setInboundBusy(''); }
+  };
+
+  const signOff = async (grnId: string) => {
+    setInboundBusy(grnId); setInboundMsg('');
+    try {
+      const r = payload<any>(await api.post(`/purchasing/grn/${grnId}/verify`, {}));
+      setInboundMsg(`Signed off by ${r?.verifiedByName ?? 'you'}.`);
+      await openChain(grnId);
+      await loadReceipts();
+    } catch (e: any) {
+      setInboundMsg(e?.response?.data?.message || e?.message || 'It could not be signed off.');
+    } finally { setInboundBusy(''); }
+  };
 
   // Within-page filters (server exposes no PO/return filters yet).
   const filteredPos = useMemo(() => {
@@ -340,8 +444,211 @@ const Purchasing: React.FC = () => {
         }
       />
       <TabBar
-        tabs={[{ key: 'orders', label: 'Purchase orders' }, { key: 'returns', label: 'Returns / debit notes' }]}
-        active={tab} onChange={(k) => setTab(k as 'orders' | 'returns')} />
+        tabs={[
+          { key: 'orders', label: 'Purchase orders' },
+          { key: 'deliveries', label: 'Deliveries on the way' },
+          { key: 'receipts', label: 'Receipts' },
+          { key: 'returns', label: 'Returns / debit notes' },
+        ]}
+        active={tab} onChange={(k) => setTab(k as any)} />
+
+      {!!inbound?.withheld?.length && (tab === 'deliveries' || tab === 'receipts') && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          {inbound.withheld.map((w: string) => <div key={w}>{w}</div>)}
+        </div>
+      )}
+
+      {tab === 'deliveries' && (
+        <div className="space-y-3">
+          <FilterBar>
+            <Field label="Status">
+              <SelectInput value={shipStatus} onChange={(e) => { setShipStatus(e.target.value); shipLc.setPage(1); }}>
+                <option value="">All</option>
+                <option value="announced">Announced</option>
+                <option value="partially_received">Part received</option>
+                <option value="received">Received</option>
+                <option value="cancelled">Cancelled</option>
+              </SelectInput>
+            </Field>
+          </FilterBar>
+          <p className="text-sm text-gray-500">
+            What each supplier says is on its way — the invoice, the truck and what is on it. The dock receives
+            AGAINST one of these on the warehouse app, which is what pre-fills the count and gives the three-way
+            check an invoice to compare with.
+          </p>
+          <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+            <table className="min-w-full text-sm">
+              <THead>
+                <Th>Invoice</Th><Th>Supplier</Th><Th>Against</Th><Th>Transporter / LR</Th>
+                <Th>Cartons</Th><Th>Units</Th><Th>Expected</Th><Th>Status</Th><Th>Receipts</Th>
+              </THead>
+              <TBody>
+                {shipments.map((s2: any) => (
+                  <Tr key={s2.id}>
+                    <Td className="font-mono">{s2.invoice_number || '—'}</Td>
+                    <Td>{s2.vendor_name || '—'}</Td>
+                    <Td className="font-mono">{s2.po_number || '—'}</Td>
+                    <Td>{[s2.transporter, s2.lr_number].filter(Boolean).join(' · ') || '—'}</Td>
+                    <Td>{s2.cartons ?? '—'}</Td>
+                    <Td>{s2.units_shipped ?? 0}</Td>
+                    <Td>
+                      {s2.expected_date || '—'}
+                      {s2.days_late > 0 && <span className="ml-1 text-red-600">{s2.days_late}d late</span>}
+                    </Td>
+                    <Td><StatusChip status={s2.status} /></Td>
+                    <Td>{s2.receipt_count ?? 0}</Td>
+                  </Tr>
+                ))}
+                {!shipments.length && (
+                  <Tr><Td colSpan={9} className="text-gray-500">
+                    No supplier has announced a delivery with this status. A delivery is recorded at the dock, on the
+                    warehouse app, when the invoice arrives — or before it, if the supplier tells you it is coming.
+                  </Td></Tr>
+                )}
+              </TBody>
+            </table>
+          </div>
+          <Pagination page={shipLc.page} pageSize={shipLc.pageSize} total={shipTotal}
+            onPage={shipLc.setPage} onPageSize={shipLc.setPageSize} />
+        </div>
+      )}
+
+      {tab === 'receipts' && (
+        <div className="space-y-3">
+          <p className="text-sm text-gray-500">
+            Everything that has been counted in against the purchase orders on this page. Open one to see how the
+            goods, the order and the invoice compared, who signed it off, and the inspection report.{' '}
+            {/* Ruling WH13: the floor's home is the warehouse app; this desk links out to it. */}
+            <a className="text-blue-700 underline" href="https://wms.gc.mw/checker" target="_blank" rel="noreferrer">
+              Counting happens on the warehouse app
+            </a>.
+          </p>
+          {inboundMsg && <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm">{inboundMsg}</div>}
+          <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+            <table className="min-w-full text-sm">
+              <THead>
+                <Th>Receipt</Th><Th>Order</Th><Th>Supplier</Th><Th>Received</Th><Th>Signed off</Th><Th></Th>
+              </THead>
+              <TBody>
+                {receipts.map((g: any) => (
+                  <Tr key={g.id}>
+                    <Td className="font-mono">{g.grn_number}</Td>
+                    <Td className="font-mono">{g.po_number || '—'}</Td>
+                    <Td>{g.vendor_name || '—'}</Td>
+                    <Td>{String(g.received_at ?? '').slice(0, 10)}</Td>
+                    <Td>{g.verified_at
+                      ? <span className="text-green-700">{String(g.verified_at).slice(0, 10)}</span>
+                      : <span className="text-amber-700">waiting</span>}</Td>
+                    <Td>
+                      <Btn variant="ghost" onClick={() => void openChain(g.id)} disabled={inboundBusy === g.id}>
+                        {inboundBusy === g.id ? 'Opening…' : 'Open'}
+                      </Btn>
+                    </Td>
+                  </Tr>
+                ))}
+                {!receipts.length && (
+                  <Tr><Td colSpan={6} className="text-gray-500">
+                    {receiptsLoading
+                      ? 'Reading the receipts on this page…'
+                      : 'Nothing has been received against the orders on this page yet.'}
+                  </Td></Tr>
+                )}
+              </TBody>
+            </table>
+          </div>
+
+          {chain && (
+            <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="font-mono text-base">{chain.grn?.grn_number}</div>
+                  <div className="text-sm text-gray-500">
+                    {chain.grn?.vendor_name} · {chain.grn?.po_number}
+                    {chain.shipment?.invoice_number ? ` · invoice ${chain.shipment.invoice_number}` : ''}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {!chain.verification && hasPerm('purchasing.manage') && (
+                    <Btn onClick={() => void signOff(chain.grn.id)} disabled={inboundBusy === chain.grn.id}>
+                      Sign this delivery off
+                    </Btn>
+                  )}
+                  <Btn variant="ghost" onClick={() => { setChain(null); setThreeWay(null); }}>Close</Btn>
+                </div>
+              </div>
+
+              <ol className="space-y-1 text-sm">
+                {(chain.stages ?? []).map((st: any) => (
+                  <li key={st.key} className="flex gap-2">
+                    <span className={st.reached ? 'text-green-700' : 'text-gray-400'}>{st.reached ? '✓' : '○'}</span>
+                    <span className="min-w-[8rem] capitalize">{String(st.key).replace('_', ' ')}</span>
+                    <span className="text-gray-600">
+                      {st.detail}
+                      {st.who ? ` — ${st.who}` : ''}
+                      {st.at ? ` · ${String(st.at).slice(0, 16).replace('T', ' ')}` : ''}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+
+              {threeWay && (
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm">
+                  <div className="font-medium">{threeWay.verdict}</div>
+                  {(threeWay.lines ?? []).filter((l: any) => l.differences?.length).map((l: any) => (
+                    <div key={l.grn_item_id} className="mt-2">
+                      <span className="font-mono">{l.sku}</span>
+                      <ul className="ml-4 list-disc text-gray-600">
+                        {l.differences.map((d: any, i: number) => <li key={i}>{d.message}</li>)}
+                      </ul>
+                    </div>
+                  ))}
+                  {!!threeWay.withheld?.length && (
+                    <div className="mt-2 text-amber-800">{threeWay.withheld.join(' ')}</div>
+                  )}
+                </div>
+              )}
+
+              {!!(chain.inspections ?? []).length && (
+                <div className="text-sm">
+                  <div className="font-medium">Inspections</div>
+                  {chain.inspections.map((i: any) => (
+                    <div key={i.id} className="flex items-center gap-2">
+                      <span className="font-mono">{i.inspection_number || 'not signed off'}</span>
+                      <StatusChip status={i.status} />
+                      <a className="text-blue-700 underline"
+                        href={`/api/v1/purchasing/inspections/${i.id}/report.pdf`}
+                        target="_blank" rel="noreferrer">Inspection report (PDF)</a>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {!!(chain.pack_checks ?? []).length && (
+                <div className="text-sm">
+                  <div className="font-medium">Boxes opened and counted</div>
+                  {chain.pack_checks.map((c: any) => (
+                    <div key={c.id} className="text-gray-600">
+                      {c.uom_code} of {c.declared_factor}: opened {c.packs_opened} of {c.packs_received},
+                      found {c.counted_inner} where {c.expected_inner} was expected — {c.result}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {!!(chain.withheld ?? []).length && (
+                <div className="text-sm text-amber-800">{chain.withheld.join(' ')}</div>
+              )}
+
+              <p className="text-xs text-gray-500">
+                The counting itself happens on the warehouse app, where the person is standing next to the goods
+                (<a className="text-blue-700 underline" href="https://wms.gc.mw/checker" target="_blank" rel="noreferrer">
+                  open the dock
+                </a>). This page is the buyer&rsquo;s view of what they found.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       {tab === 'orders' && (<>
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
@@ -352,6 +659,34 @@ const Purchasing: React.FC = () => {
             <option value="">— vendor —</option>
             {vendors.map((v: any) => <option key={v.id ?? v._id} value={v.id ?? v._id}>{v.business_name ?? v.businessName}</option>)}
           </SelectInput>
+          {/*
+            What THIS order will inherit the moment it is created — shown before
+            it is raised, because the terms are what the supplier is being held
+            to and the buyer should not have to open the vendor page to see them.
+          */}
+          {(() => {
+            const v = vendors.find((x: any) => String(x.id ?? x._id) === String(vendorId));
+            if (!v) return null;
+            const summary: string[] = Array.isArray(v.terms_summary) ? v.terms_summary : [];
+            const expiring: any[] = Array.isArray(v.licences_expiring) ? v.licences_expiring : [];
+            return (
+              <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm">
+                <span className="font-medium">This order will carry:</span>{' '}
+                <span className="text-gray-700">
+                  {summary.length ? summary.join(' · ') : 'no terms are recorded for this supplier'}
+                </span>
+                {!!expiring.length && (
+                  <div className="mt-1 text-amber-700">
+                    {expiring.map((l) => (
+                      <div key={`${l.label}-${l.number}`}>
+                        {l.label} {l.number} {l.daysLeft < 0 ? 'has expired' : `expires in ${l.daysLeft} day(s)`}.
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           <div>
             <TextInput className="w-full" placeholder="Search SKU / product to add…" value={skuSearch}
               onChange={(e) => searchSkus(e.target.value)} />
@@ -435,9 +770,43 @@ const Purchasing: React.FC = () => {
               {detail.status === 'draft' && hasPerm('purchasing.manage') && (
                 <Btn size="sm" onClick={async () => { await api.post(`/purchasing/pos/${detail.id}/issue`); await openDetail(detail.id); await load(); }}>Issue</Btn>
               )}
+              {/* The document the supplier is actually sent — terms and all. */}
+              <a className="text-sm text-blue-700 underline"
+                href={`/api/v1/purchasing/pos/${detail.id}/pdf`} target="_blank" rel="noreferrer">
+                Print PO
+              </a>
               <Btn variant="ghost" size="sm" onClick={() => setDetail(null)}>Close</Btn>
             </div>
           </div>
+
+          {/*
+            The terms this ORDER promised — a snapshot taken from the supplier
+            when it was raised, so it never changes under an order already
+            placed. They print on the PO.
+          */}
+          {!!(detail.terms_summary ?? []).length && (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm">
+              <span className="font-medium">
+                Terms on this order{detail.terms_source === 'overridden' ? ' (changed for this order)' : ''}:
+              </span>{' '}
+              <span className="text-gray-700">{detail.terms_summary.join(' · ')}</span>
+            </div>
+          )}
+          {!!(detail.shipments ?? []).length && (
+            <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm">
+              <div className="font-medium">Deliveries the supplier has announced</div>
+              {detail.shipments.map((s2: any) => (
+                <div key={s2.id} className="text-gray-700">
+                  <span className="font-mono">{s2.invoice_number || 'no invoice number'}</span>
+                  {s2.invoice_date ? ` · ${s2.invoice_date}` : ''}
+                  {s2.transporter ? ` · ${s2.transporter}` : ''}
+                  {s2.lr_number ? ` · LR ${s2.lr_number}` : ''}
+                  {` · ${s2.units_shipped ?? 0} unit(s)`}
+                  {` · ${String(s2.status).replace('_', ' ')}`}
+                </div>
+              ))}
+            </div>
+          )}
           <table className="w-full text-sm">
             <THead sticky={false}>
               <Th>Item</Th><Th num>Ordered</Th><Th num>Received</Th><Th num>Unit cost</Th>

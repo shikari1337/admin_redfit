@@ -21,7 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 
 type Missing = { field: string; label: string };
 
-const TABS = ['Business', 'GST registrations', 'Bank', 'Numbering', 'Design', 'Wording'] as const;
+const TABS = ['Business', 'Licences', 'GST registrations', 'Bank', 'Numbering', 'Design', 'Wording'] as const;
 type Tab = typeof TABS[number];
 
 const Field: React.FC<{ label: string; hint?: string; children: React.ReactNode; required?: boolean; missing?: boolean }> =
@@ -45,6 +45,11 @@ const InvoiceSettings: React.FC = () => {
   const [original, setOriginal] = useState<string>('');
   const [missing, setMissing] = useState<Missing[]>([]);
   const [stateCodes, setStateCodes] = useState<Record<string, string>>({});
+  /** The licence vocabulary and the expiry countdown both come from the SERVER —
+   *  "has this drug licence expired" is a store-calendar question, and a browser
+   *  in another timezone must not be the thing that answers it (rule 8). */
+  const [licenceTypes, setLicenceTypes] = useState<Array<{ value: string; label: string }>>([]);
+  const [expiringLicences, setExpiringLicences] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const previewUrl = useRef<string | null>(null);
@@ -60,6 +65,8 @@ const InvoiceSettings: React.FC = () => {
       setOriginal(JSON.stringify(d.config));
       setMissing(d.missing ?? []);
       setStateCodes(d.state_codes ?? {});
+      setLicenceTypes(d.licence_types ?? []);
+      setExpiringLicences(d.expiring_licences ?? []);
     } catch (e: any) {
       setError(e?.response?.data?.message || 'Failed to load invoice settings');
     } finally { setLoading(false); }
@@ -114,6 +121,23 @@ const InvoiceSettings: React.FC = () => {
   }]);
   const patchReg = (i: number, k: string, v: any) =>
     setRegs(regs.map((r, idx) => (idx === i ? { ...r, [k]: v } : r)));
+
+  // ── Statutory licences ───────────────────────────────────────────────────
+  const licences: any[] = cfg?.seller?.licences ?? [];
+  const setLicences = (next: any[]) => set('seller.licences', next);
+  const addLicence = () => setLicences([...licences, {
+    id: `lic_${Date.now().toString(36)}`, type: 'drug_licence', label: '', number: '',
+    valid_till: '', show_on_documents: true,
+  }]);
+  const patchLicence = (i: number, k: string, v: any) =>
+    setLicences(licences.map((l, idx) => (idx === i ? { ...l, [k]: v } : l)));
+  const licenceTypeLabel = (t: string) => licenceTypes.find((x) => x.value === t)?.label ?? 'Licence';
+  /** The server's countdown for a licence already saved; a row typed just now has none yet. */
+  const licenceWarning = (l: any) => expiringLicences.find((x) => x.number && x.number === l.number);
+
+  /** `theme.titles.<kind>` is three levels deep; `set()` handles two. */
+  const setTitle = (kind: string, v: string) =>
+    setCfg((prev: any) => ({ ...prev, theme: { ...prev.theme, titles: { ...(prev.theme?.titles ?? {}), [kind]: v } } }));
 
   if (loading || !cfg) {
     return <div className="flex items-center justify-center p-16"><Loader2 className="h-7 w-7 animate-spin text-muted-foreground" /></div>;
@@ -222,6 +246,104 @@ const InvoiceSettings: React.FC = () => {
             <Field label="Country"><Input value={cfg.seller.country} onChange={(e) => set('seller.country', e.target.value)} /></Field>
             <Field label="Phone"><Input value={cfg.seller.phone} onChange={(e) => set('seller.phone', e.target.value)} /></Field>
             <Field label="Email"><Input value={cfg.seller.email} onChange={(e) => set('seller.email', e.target.value)} /></Field>
+          </CardContent>
+        </Card>
+      )}
+
+      {tab === 'Licences' && (
+        <Card>
+          <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <CardTitle className="text-base">Statutory licences</CardTitle>
+              <CardDescription>
+                FSSAI, drug licence, BIS, ISO — the numbers you trade under. They print on every
+                document you issue: invoices, proformas and credit notes. Add the expiry date and
+                this page warns you a month before one runs out.
+              </CardDescription>
+            </div>
+            <Button variant="outline" size="sm" onClick={addLicence}><Plus className="mr-1.5 h-4 w-4" /> Add licence</Button>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {expiringLicences.length > 0 && (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                <div className="flex items-center gap-2 font-medium">
+                  <AlertTriangle className="h-4 w-4" />
+                  {expiringLicences.some((l) => l.days_left < 0)
+                    ? 'A licence on your invoices has expired'
+                    : 'A licence on your invoices is about to expire'}
+                </div>
+                <ul className="mt-1.5 list-disc space-y-0.5 pl-6">
+                  {expiringLicences.map((l) => (
+                    <li key={l.id ?? l.number}>
+                      {l.label || licenceTypeLabel(l.type)} <span className="font-mono">{l.number}</span>
+                      {l.days_left < 0
+                        ? ` expired ${-l.days_left} day(s) ago`
+                        : l.days_left === 0 ? ' expires today' : ` expires in ${l.days_left} day(s)`}
+                      {' '}({l.valid_till})
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-1.5 text-[11px]">
+                  Renew it and update the date here, or switch it off until you do — an expired
+                  number printed on today's invoice is a compliance problem nobody notices.
+                </p>
+              </div>
+            )}
+
+            {licences.length === 0 && (
+              <p className="py-6 text-center text-sm text-muted-foreground">
+                No licences recorded. Nothing extra prints on your invoices.
+              </p>
+            )}
+
+            {licences.map((l, i) => {
+              const warn = licenceWarning(l);
+              return (
+                <div key={l.id ?? i} className={`rounded-lg border p-4 space-y-3 ${warn ? 'border-amber-300 bg-amber-50/40' : ''}`}>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <Select value={l.type || 'other'} onValueChange={(v) => patchLicence(i, 'type', v)}>
+                        <SelectTrigger className="w-[190px]"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {(licenceTypes.length ? licenceTypes : [{ value: 'other', label: 'Licence' }]).map((t) => (
+                            <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {warn && (
+                        <Badge variant="outline" className="border-amber-400 text-amber-800">
+                          {warn.days_left < 0 ? 'expired' : `${warn.days_left}d left`}
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <label className="flex items-center gap-1.5 text-xs">
+                        <Switch checked={l.show_on_documents !== false}
+                          onCheckedChange={(v) => patchLicence(i, 'show_on_documents', v)} />
+                        Print it
+                      </label>
+                      <Button variant="ghost" size="sm" className="text-red-600"
+                        onClick={() => setLicences(licences.filter((_, idx) => idx !== i))}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <Field label="Number" hint="Exactly as issued. A licence with no number is not saved.">
+                      <Input value={l.number ?? ''} onChange={(e) => patchLicence(i, 'number', e.target.value)}
+                        placeholder="e.g. 20B/DL/2024/0193" />
+                    </Field>
+                    <Field label="Valid until" hint="Leave blank if it does not expire.">
+                      <Input type="date" value={l.valid_till ?? ''} onChange={(e) => patchLicence(i, 'valid_till', e.target.value)} />
+                    </Field>
+                    <Field label="Printed as" hint={`Blank prints "${licenceTypeLabel(l.type)}".`}>
+                      <Input value={l.label ?? ''} onChange={(e) => patchLicence(i, 'label', e.target.value)}
+                        placeholder={licenceTypeLabel(l.type)} />
+                    </Field>
+                  </div>
+                </div>
+              );
+            })}
           </CardContent>
         </Card>
       )}
@@ -416,6 +538,81 @@ const InvoiceSettings: React.FC = () => {
               <Input value={cfg.theme.signature_url} onChange={(e) => set('theme.signature_url', e.target.value)} placeholder="data:image/png;base64,…" />
             </Field>
             <Field label="Signature label"><Input value={cfg.theme.signature_label} onChange={(e) => set('theme.signature_label', e.target.value)} /></Field>
+
+            {/* ── Columns ─────────────────────────────────────────────────── */}
+            <div className="md:col-span-2 space-y-3 border-t pt-4">
+              <div>
+                <p className="text-sm font-medium">Columns on the item table</p>
+                <p className="text-[11px] text-muted-foreground">
+                  A column appears only when a line actually has that value, so switching them all
+                  on costs a services business nothing — and a pharmacy's invoice grows Batch and
+                  Expiry without anybody configuring it.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-x-6 gap-y-2">
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch checked={cfg.theme.show_batch !== false} onCheckedChange={(v) => set('theme.show_batch', v)} /> Batch number
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch checked={cfg.theme.show_expiry !== false} onCheckedChange={(v) => set('theme.show_expiry', v)} /> Expiry
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch checked={cfg.theme.show_discount !== false} onCheckedChange={(v) => set('theme.show_discount', v)} /> Discount
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch checked={cfg.theme.show_mrp !== false} onCheckedChange={(v) => set('theme.show_mrp', v)} /> MRP under the rate
+                </label>
+              </div>
+            </div>
+
+            {/* ── Licences ────────────────────────────────────────────────── */}
+            <div className="md:col-span-2 grid gap-4 border-t pt-4 md:grid-cols-2">
+              <Field label="Print statutory licences" hint="Add them on the Licences tab.">
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch checked={cfg.theme.show_licences !== false} onCheckedChange={(v) => set('theme.show_licences', v)} />
+                  {licences.length ? `${licences.filter((l: any) => l.show_on_documents !== false).length} licence(s) will print` : 'None recorded yet'}
+                </label>
+              </Field>
+              <Field label="Where they print">
+                <Select value={cfg.theme.licence_position === 'footer' ? 'footer' : 'header'}
+                  onValueChange={(v) => set('theme.licence_position', v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="header">In the header, under the GSTIN</SelectItem>
+                    <SelectItem value="footer">In the footer, beside the terms</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+            </div>
+
+            {/* ── Free text + per-kind titles ─────────────────────────────── */}
+            <div className="md:col-span-2 grid gap-4 border-t pt-4 md:grid-cols-2">
+              <Field label="Line under your business name" hint="A tagline, a branch, or 'Original for recipient'.">
+                <Input value={cfg.theme.header_text ?? ''} maxLength={240}
+                  onChange={(e) => set('theme.header_text', e.target.value)} />
+              </Field>
+              <Field label="Line in the page footer" hint="Printed beside the declaration on every page.">
+                <Input value={cfg.theme.footer_text ?? ''} maxLength={400}
+                  onChange={(e) => set('theme.footer_text', e.target.value)} />
+              </Field>
+              <div className="md:col-span-2">
+                <p className="mb-2 text-sm font-medium">What each document is called</p>
+                <div className="grid gap-3 md:grid-cols-4">
+                  <Field label="Invoice"><Input placeholder={cfg.document_title || 'TAX INVOICE'}
+                    value={cfg.theme.titles?.invoice ?? ''} onChange={(e) => setTitle('invoice', e.target.value)} /></Field>
+                  <Field label="Proforma"><Input placeholder="PROFORMA INVOICE"
+                    value={cfg.theme.titles?.proforma ?? ''} onChange={(e) => setTitle('proforma', e.target.value)} /></Field>
+                  <Field label="Credit note"><Input placeholder="CREDIT NOTE"
+                    value={cfg.theme.titles?.credit_note ?? ''} onChange={(e) => setTitle('credit_note', e.target.value)} /></Field>
+                  <Field label="Purchase order"><Input placeholder="PURCHASE ORDER"
+                    value={cfg.theme.titles?.purchase_order ?? ''} onChange={(e) => setTitle('purchase_order', e.target.value)} /></Field>
+                </div>
+                <p className="mt-1.5 text-[11px] text-muted-foreground">
+                  Leave blank to keep the standard wording. The same layout prints all four — there
+                  is no second template to keep in step.
+                </p>
+              </div>
+            </div>
           </CardContent>
         </Card>
       )}

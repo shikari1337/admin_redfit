@@ -9,6 +9,8 @@ export type ErpRole =
   | 'admin' | 'staff' | 'accountant' | 'auditor' | 'store_manager' | 'warehouse_manager'
   | 'marketing_manager' | 'warehouse_worker' | 'dispatcher' | 'purchasing_officer'
   | 'pos_operator'
+  // Growcord Warehouse (program 11, W2) — the shift lead.
+  | 'warehouse_supervisor'
   // Growcord Ship — the courier shop / aggregator organisation's own staff.
   | 'ship_counter' | 'ship_ops' | 'ship_finance';
 
@@ -19,6 +21,7 @@ export const ROLE_LABELS: Record<ErpRole, string> = {
   auditor: 'Auditor (read-only)',
   store_manager: 'Store Manager',
   warehouse_manager: 'Warehouse Manager',
+  warehouse_supervisor: 'Warehouse Supervisor (shift lead)',
   marketing_manager: 'Marketing Manager',
   warehouse_worker: 'Warehouse Worker (scanner)',
   dispatcher: 'Dispatcher (shipments)',
@@ -31,8 +34,8 @@ export const ROLE_LABELS: Record<ErpRole, string> = {
 
 export const ASSIGNABLE_ROLES: ErpRole[] = [
   'staff', 'accountant', 'auditor', 'store_manager', 'warehouse_manager',
-  'marketing_manager', 'warehouse_worker', 'dispatcher', 'purchasing_officer',
-  'pos_operator',
+  'warehouse_supervisor', 'marketing_manager', 'warehouse_worker', 'dispatcher',
+  'purchasing_officer', 'pos_operator',
   'ship_counter', 'ship_ops', 'ship_finance',
 ];
 
@@ -58,7 +61,9 @@ const ROLE_PERMISSIONS: Record<ErpRole, string[]> = {
                'purchasing.read', 'inventory.read', 'settings.read'],
   auditor: ['accounting.read', 'gst.read', 'audit.read', 'orders.read',
             'reports.read', 'inventory.read', 'purchasing.read', 'billing.read',
-            'customers.read', 'products.read', 'settings.read'],
+            'customers.read', 'products.read', 'settings.read',
+            // Where the stock physically is, is audit evidence.
+            'warehouse.read'],
   store_manager: ['orders.manage', 'orders.delete', 'orders.approve', 'shipments.manage',
                   'returns.manage', 'products.manage', 'products.delete',
                   'content.manage', 'content.delete',
@@ -67,6 +72,10 @@ const ROLE_PERMISSIONS: Record<ErpRole, string[]> = {
                   'channels.manage', 'b2b.manage', 'b2b.delete',
                   'reports.read', 'purchasing.manage', 'settings.read',
                   'staff.read', 'billing.read',
+                  // READ only, mirroring their existing `inventory.read`: a
+                  // store manager must be able to see where stock is without
+                  // being able to re-plan the racking or accept a variance.
+                  'warehouse.read',
                   // Deliberate default (widen or narrow per store): running a
                   // partnership day to day is operational work, so `manage`
                   // (which implies `partner.read`) sits here — but `partner.grant`
@@ -76,14 +85,34 @@ const ROLE_PERMISSIONS: Record<ErpRole, string[]> = {
                   'partner.manage'],
   warehouse_manager: ['inventory.adjust', 'inventory.manage', 'orders.read',
                       'shipments.manage', 'returns.manage', 'reports.read',
-                      'purchasing.receive', 'products.read', 'settings.read'],
+                      'purchasing.receive', 'products.read', 'settings.read',
+                      // The floor, plus the two acts nobody below them may do:
+                      // accept a counted variance, and destroy value.
+                      'warehouse.operate', 'warehouse.manage',
+                      'warehouse.count_approve', 'warehouse.dispose'],
   marketing_manager: ['marketing.manage', 'marketing.send', 'marketing.delete',
                       'ads.manage', 'customers.read', 'reports.read',
                       'content.manage', 'content.delete', 'channels.read',
                       'products.read'],
-  warehouse_worker: ['inventory.adjust', 'products.read'],
+  // GATE WH6, taken 2026-09-24: the picker LOSES the blanket `inventory.adjust`
+  // and gets `warehouse.operate` instead. The whole of a picker's day — putaway,
+  // pick, move, count entry, pack — is `warehouse.operate`; writing stock off,
+  // accepting a variance and editing prices are not, and used to be one and the
+  // same permission. `/wms/*` accepts EITHER during the dual-accept window
+  // (W2.5), so nothing on the floor breaks the day this ships.
+  warehouse_worker: ['warehouse.operate', 'products.read'],
+  // The shift lead: the floor, plus accepting a counted variance (gate WH7 —
+  // the counter never accepts their own). Deliberately NOT `warehouse.dispose`:
+  // deciding that stock is worthless is the manager's call. `orders.read`
+  // because raising the day's picking wave reads the order book.
+  warehouse_supervisor: ['warehouse.operate', 'warehouse.count_approve',
+                         'orders.read', 'products.read', 'reports.read'],
+  // "read + pack": `warehouse.read` to see the floor, and the pack/dispatch
+  // routes they already reach through `shipments.manage`. Deliberately NOT
+  // `warehouse.operate` — that would also hand them picking, counting and
+  // moving stock, which is not a dispatcher's job.
   dispatcher: ['orders.read', 'shipments.manage', 'returns.read',
-               'inventory.read', 'customers.read'],
+               'inventory.read', 'customers.read', 'warehouse.read'],
   purchasing_officer: ['purchasing.manage', 'purchasing.receive',
                        'inventory.read', 'products.read', 'accounting.read',
                        'reports.read'],
@@ -104,7 +133,11 @@ const ROLE_PERMISSIONS: Record<ErpRole, string[]> = {
 // Growcord Ship's verbs (book/ops/finance/admin) are acts on the `ship` area, so
 // each implies ship.read — mirroring the backend's own IMPLIES_READ exactly.
 const IMPLIES_READ = ['manage', 'delete', 'post', 'adjust', 'receive', 'send', 'approve', 'run', 'grant',
-                      'book', 'ops', 'finance', 'admin'];
+                      'book', 'ops', 'finance', 'admin',
+                      // Growcord Warehouse. `operate` is a picker's whole day;
+                      // without the implied read they could pick a line they
+                      // cannot see. `count_approve`/`dispose` likewise.
+                      'operate', 'count_approve', 'dispose'];
 
 function withImpliedReads(perms: string[]): string[] {
   const out = new Set(perms);
@@ -146,6 +179,7 @@ export const ROLE_WORKSPACES: Record<ErpRole, WorkspaceKey[]> = {
   auditor: ['accounting'],
   store_manager: ['orders', 'commerce', 'purchasing', 'marketing'],
   warehouse_manager: ['inventory', 'orders', 'purchasing'],
+  warehouse_supervisor: ['inventory', 'orders'],
   marketing_manager: ['marketing', 'commerce'],
   warehouse_worker: ['inventory'],
   dispatcher: ['orders'],

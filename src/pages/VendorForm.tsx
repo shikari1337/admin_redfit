@@ -37,7 +37,44 @@ const VendorForm: React.FC = () => {
     tds_section: '',
     tds_rate_pct: '', // percent in the UI; stored as milli-percent (×1000)
     lower_deduction_cert: '',
+    // Terms and licences (migration 216). Every one of these DIFFERS per
+    // supplier — that is the whole point of the owner's ask — and a purchase
+    // order takes a snapshot of them the moment it is raised.
+    payment_terms_mode: '',
+    credit_limit: '',
+    payment_notes: '',
+    delivery_lead_days: '',
+    freight_terms: '',
+    incoterm: '',
+    default_transporter: '',
+    min_order_value: '',
+    delivery_notes: '',
+    default_currency: '',
+    gst_treatment: '',
+    drug_licence_no: '',
+    drug_licence_expiry: '',
+    fssai_licence_no: '',
+    fssai_licence_expiry: '',
   });
+  /**
+   * The term vocabulary comes from the SERVER (`GET /vendors/terms/meta`), so a
+   * word like "freight to pay" is defined once and this form cannot drift from
+   * what the API will accept. `available: false` means the store has not had
+   * migration 216 yet — the section then says so instead of saving into a void.
+   */
+  const [termsMeta, setTermsMeta] = useState<{
+    available: boolean;
+    paymentModes: { code: string; label: string; help?: string }[];
+    freightTerms: { code: string; label: string; help?: string }[];
+    gstTreatments: { code: string; label: string }[];
+  } | null>(null);
+  const [expiring, setExpiring] = useState<{ label: string; number: string; expiry: string; daysLeft: number }[]>([]);
+
+  useEffect(() => {
+    vendorsAPI.termsMeta()
+      .then((m: any) => setTermsMeta(m ?? null))
+      .catch(() => setTermsMeta(null));
+  }, []);
 
   useEffect(() => {
     if (!isEdit) return;
@@ -63,7 +100,23 @@ const VendorForm: React.FC = () => {
         tds_section: data.tds_section || '',
         tds_rate_pct: data.tds_rate_milli_pct != null ? String(Number(data.tds_rate_milli_pct) / 1000) : '',
         lower_deduction_cert: data.lower_deduction_cert || '',
+        payment_terms_mode: data.payment_terms_mode || '',
+        credit_limit: data.credit_limit_minor != null ? String(Number(data.credit_limit_minor) / 100) : '',
+        payment_notes: data.payment_notes || '',
+        delivery_lead_days: data.delivery_lead_days != null ? String(data.delivery_lead_days) : '',
+        freight_terms: data.freight_terms || '',
+        incoterm: data.incoterm || '',
+        default_transporter: data.default_transporter || '',
+        min_order_value: data.min_order_value_minor != null ? String(Number(data.min_order_value_minor) / 100) : '',
+        delivery_notes: data.delivery_notes || '',
+        default_currency: data.default_currency || '',
+        gst_treatment: data.gst_treatment || '',
+        drug_licence_no: data.drug_licence_no || '',
+        drug_licence_expiry: (data.drug_licence_expiry || '').slice(0, 10),
+        fssai_licence_no: data.fssai_licence_no || '',
+        fssai_licence_expiry: (data.fssai_licence_expiry || '').slice(0, 10),
       });
+      setExpiring(Array.isArray(data.licences?.expiring) ? data.licences.expiring : []);
     }).catch(() => setError('Failed to load vendor'))
       .finally(() => setLoading(false));
   }, [id, isEdit]);
@@ -89,16 +142,33 @@ const VendorForm: React.FC = () => {
       logo_url: form.logo_url.trim() || undefined,
       is_active: form.is_active,
     };
-    if (isEdit) {
-      payload.status = form.status;
-      // Tax & compliance — real vendor columns; updateVendor auto-whitelists them.
-      // `null` clears a column; the create route ignores these (fixed INSERT).
-      payload.payment_terms_days = form.payment_terms_days === '' ? null : parseInt(form.payment_terms_days, 10) || 0;
-      payload.msme_classification = form.msme_classification || null;
-      payload.udyam_number = form.udyam_number.trim() || null;
-      payload.tds_section = form.tds_section.trim() || null;
-      payload.tds_rate_milli_pct = form.tds_rate_pct === '' ? null : Math.round(Number(form.tds_rate_pct) * 1000);
-      payload.lower_deduction_cert = form.lower_deduction_cert.trim() || null;
+    if (isEdit) payload.status = form.status;
+    // Tax, compliance and terms. These used to be sent on EDIT only, because
+    // createVendor hand-listed 10 columns and silently dropped everything added
+    // after them (#199/#226). It introspects now, so a vendor created here keeps
+    // every field it was given the FIRST time.
+    payload.payment_terms_days = form.payment_terms_days === '' ? null : parseInt(form.payment_terms_days, 10) || 0;
+    payload.msme_classification = form.msme_classification || null;
+    payload.udyam_number = form.udyam_number.trim() || null;
+    payload.tds_section = form.tds_section.trim() || null;
+    payload.tds_rate_milli_pct = form.tds_rate_pct === '' ? null : Math.round(Number(form.tds_rate_pct) * 1000);
+    payload.lower_deduction_cert = form.lower_deduction_cert.trim() || null;
+    if (termsMeta?.available) {
+      payload.payment_terms_mode = form.payment_terms_mode || null;
+      payload.creditLimit = form.credit_limit === '' ? null : Number(form.credit_limit);
+      payload.payment_notes = form.payment_notes.trim() || null;
+      payload.delivery_lead_days = form.delivery_lead_days === '' ? null : parseInt(form.delivery_lead_days, 10) || 0;
+      payload.freight_terms = form.freight_terms || null;
+      payload.incoterm = form.incoterm.trim() || null;
+      payload.default_transporter = form.default_transporter.trim() || null;
+      payload.minOrderValue = form.min_order_value === '' ? null : Number(form.min_order_value);
+      payload.delivery_notes = form.delivery_notes.trim() || null;
+      payload.default_currency = form.default_currency.trim() || null;
+      payload.gst_treatment = form.gst_treatment || null;
+      payload.drug_licence_no = form.drug_licence_no.trim() || null;
+      payload.drug_licence_expiry = form.drug_licence_expiry || null;
+      payload.fssai_licence_no = form.fssai_licence_no.trim() || null;
+      payload.fssai_licence_expiry = form.fssai_licence_expiry || null;
     }
     // Bank details
     const bank: Record<string, string> = {};
@@ -279,13 +349,11 @@ const VendorForm: React.FC = () => {
 
         {/*
           Tax & Compliance — real vendor columns (payment terms, MSME/Udyam,
-          TDS). Shown on EDIT only: the create route uses a fixed INSERT and
-          cannot persist these, so we let the user create the vendor first, then
-          set them here. These also drive the Payables 43B(h) warning and the
-          26Q TDS register.
+          TDS). Shown on CREATE as well as EDIT now that createVendor
+          introspects its columns (#199/#226): what is typed here is saved the
+          FIRST time. These drive the Payables 43B(h) warning and 26Q register.
         */}
-        {isEdit && (
-          <div className="rounded-md border bg-card p-5 space-y-4">
+        <div className="rounded-md border bg-card p-5 space-y-4">
             <div>
               <h2 className="font-semibold text-base">Tax &amp; Compliance</h2>
               <p className="text-xs text-muted-foreground mt-0.5">
@@ -366,7 +434,177 @@ const VendorForm: React.FC = () => {
               </div>
             </div>
           </div>
-        )}
+
+        {/*
+          TERMS — the owner's ask A6, in his words: "vendor invoice with
+          payment/delivery terms; they differ per vendor". A purchase order
+          INHERITS what is set here the moment it is raised and may override it
+          on that one order; changing a supplier afterwards never rewrites an
+          order already placed. Everything on this card prints on the PO.
+        */}
+        <div className="rounded-md border bg-card p-5 space-y-4">
+          <div>
+            <h2 className="font-semibold text-base">Terms with this supplier</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              A purchase order takes a copy of these when it is raised, prints them, and can change them for that one
+              order. Editing them here never changes an order already placed.
+            </p>
+          </div>
+
+          {termsMeta && !termsMeta.available && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              Delivery terms and licences are not set up on this store yet, so nothing on this card can be saved.
+              Everything above saves as usual.
+            </div>
+          )}
+
+          {!!expiring.length && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              {expiring.map((l) => (
+                <div key={`${l.label}-${l.number}`}>
+                  <strong>{l.label} {l.number}</strong>{' '}
+                  {l.daysLeft < 0 ? `expired ${-l.daysLeft} day(s) ago` : `expires in ${l.daysLeft} day(s)`} ({l.expiry}).
+                </div>
+              ))}
+            </div>
+          )}
+
+          <fieldset disabled={!termsMeta?.available} className="space-y-4 disabled:opacity-60">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">When we pay</label>
+                <select
+                  value={form.payment_terms_mode}
+                  onChange={(e) => setForm((f) => ({ ...f, payment_terms_mode: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border rounded-md bg-background"
+                >
+                  <option value="">Not agreed</option>
+                  {(termsMeta?.paymentModes ?? []).map((m) => (
+                    <option key={m.code} value={m.code}>{m.label}</option>
+                  ))}
+                </select>
+                {form.payment_terms_mode === 'net_days' && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Set the number of days in <strong>Payment terms (days)</strong> above — it is the same figure the
+                    MSME 45-day warning reads, so it is only recorded once.
+                  </p>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Credit limit (₹)</label>
+                <input type="number" min="0" step="0.01" value={form.credit_limit}
+                  onChange={(e) => setForm((f) => ({ ...f, credit_limit: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border rounded-md bg-background" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Who pays the freight</label>
+                <select value={form.freight_terms}
+                  onChange={(e) => setForm((f) => ({ ...f, freight_terms: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border rounded-md bg-background">
+                  <option value="">Not agreed</option>
+                  {(termsMeta?.freightTerms ?? []).map((m) => (
+                    <option key={m.code} value={m.code}>{m.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Delivery time (days)</label>
+                <input type="number" min="0" max="365" value={form.delivery_lead_days}
+                  onChange={(e) => setForm((f) => ({ ...f, delivery_lead_days: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border rounded-md bg-background" />
+                <p className="text-xs text-muted-foreground mt-1">How long they usually take from the order date.</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Usual transporter</label>
+                <input type="text" maxLength={120} value={form.default_transporter}
+                  onChange={(e) => setForm((f) => ({ ...f, default_transporter: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border rounded-md bg-background" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Minimum order (₹)</label>
+                <input type="number" min="0" step="0.01" value={form.min_order_value}
+                  onChange={(e) => setForm((f) => ({ ...f, min_order_value: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border rounded-md bg-background" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">GST treatment</label>
+                <select value={form.gst_treatment}
+                  onChange={(e) => setForm((f) => ({ ...f, gst_treatment: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border rounded-md bg-background">
+                  <option value="">Not stated</option>
+                  {(termsMeta?.gstTreatments ?? []).map((m) => (
+                    <option key={m.code} value={m.code}>{m.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Currency</label>
+                  <input type="text" maxLength={3} placeholder="INR" value={form.default_currency}
+                    onChange={(e) => setForm((f) => ({ ...f, default_currency: e.target.value.toUpperCase() }))}
+                    className="w-full px-3 py-2 text-sm border rounded-md bg-background font-mono" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Incoterm</label>
+                  <input type="text" maxLength={12} placeholder="EXW / FOB / CIF" value={form.incoterm}
+                    onChange={(e) => setForm((f) => ({ ...f, incoterm: e.target.value.toUpperCase() }))}
+                    className="w-full px-3 py-2 text-sm border rounded-md bg-background font-mono" />
+                  <p className="text-xs text-muted-foreground mt-1">Imports only.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Note on payment</label>
+                <input type="text" value={form.payment_notes}
+                  onChange={(e) => setForm((f) => ({ ...f, payment_notes: e.target.value }))}
+                  placeholder="e.g. 2% off if paid within 10 days"
+                  className="w-full px-3 py-2 text-sm border rounded-md bg-background" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Note on delivery</label>
+                <input type="text" value={form.delivery_notes}
+                  onChange={(e) => setForm((f) => ({ ...f, delivery_notes: e.target.value }))}
+                  placeholder="e.g. deliveries accepted 9am–1pm only"
+                  className="w-full px-3 py-2 text-sm border rounded-md bg-background" />
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-sm font-semibold">Licences</h3>
+              <p className="text-xs text-muted-foreground mb-2">
+                Printed on the purchase order, and flagged here before they run out.
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Drug licence number</label>
+                  <input type="text" maxLength={60} value={form.drug_licence_no}
+                    onChange={(e) => setForm((f) => ({ ...f, drug_licence_no: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border rounded-md bg-background font-mono" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Valid until</label>
+                  <input type="date" value={form.drug_licence_expiry}
+                    onChange={(e) => setForm((f) => ({ ...f, drug_licence_expiry: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border rounded-md bg-background" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">FSSAI licence number</label>
+                  <input type="text" maxLength={60} value={form.fssai_licence_no}
+                    onChange={(e) => setForm((f) => ({ ...f, fssai_licence_no: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border rounded-md bg-background font-mono" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Valid until</label>
+                  <input type="date" value={form.fssai_licence_expiry}
+                    onChange={(e) => setForm((f) => ({ ...f, fssai_licence_expiry: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border rounded-md bg-background" />
+                </div>
+              </div>
+            </div>
+          </fieldset>
+        </div>
 
         <div className="flex items-center gap-3">
           <Button type="submit" disabled={saving} className="bg-primary hover:bg-primary/90 text-primary-foreground">

@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { shipmentsAPI, warehousesAPI } from '../services/api';
+import { shipmentsAPI, warehousesAPI, errorText } from '../services/api';
 import { FaSync, FaSpinner, FaLink } from 'react-icons/fa';
 import { ShipmentTabs, ShipmentFilters, ShipmentTable, PendingOrdersTable, PickupModal, BulkActionsBar, ReconcileModal, ShipmentDetailDrawer } from '../components/shipments';
 import type { TabType, StatusCounts, ReconcileResultData } from '../components/shipments';
@@ -477,8 +477,7 @@ const Shipments: React.FC = () => {
       fetchShipments();
     } catch (error: any) {
       console.error('Failed to create shipment:', error);
-      const errMsg = error.response?.data?.message || error.message || 'Failed to create shipment';
-      alert(`Error: ${errMsg}`);
+      alert(`Error: ${errorText(error, 'Failed to create shipment')}`);
     } finally {
       setCreatingShipment(false);
     }

@@ -31,3 +31,7 @@ export { default as RaiseRefundModal } from './RaiseRefundModal';
 export { OrderLinksCard } from './OrderLinksCard';
 export { default as OrderCommunicationLog } from './OrderCommunicationLog';
 export { default as ApplyOrderDiscountModal } from './ApplyOrderDiscountModal';
+// The WAREHOUSE card (pick/pack/parcel/label/where-to-find-it). Distinct from
+// `OrderFulfillmentCard` above, which is the SHIPMENT picture — hence the
+// unambiguous component name.
+export { WarehouseFulfilmentCard } from './FulfilmentCard';

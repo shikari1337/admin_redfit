@@ -38,6 +38,9 @@ import {
   OrderCustomerCard,
   OrderAddressPanel,
   RaiseRefundModal,
+  // The WAREHOUSE card — pick/pack/parcel/label/where-to-find-it. NOT
+  // `OrderFulfillmentCard` above (double "l"), which is the SHIPMENT picture.
+  WarehouseFulfilmentCard,
 } from '../components/order';
 import type { RazorpayAuditResult, RefundOutcome } from '../components/order';
 import { PickupModal } from '../components/shipments';
@@ -1200,6 +1203,12 @@ const OrderDetail: React.FC = () => {
                 </Button>
               ) : undefined}
           />
+
+          {/* WHERE IT IS, PHYSICALLY (W0.8.3 / plan §9). Directly under the
+              items table because it answers a question about those exact lines:
+              has the floor picked them, what box are they in, what does it
+              weigh, which bin and which batch. Reading it reserves nothing. */}
+          <WarehouseFulfilmentCard orderId={order._id || order.id} />
 
           {/* Ship-to and bill-to read together, with ships-from / invoiced-by /
               fulfilment as one footer strip — the three facts an invoice or a

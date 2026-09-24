@@ -12,6 +12,8 @@ import {
 } from '../../components/warehouse/layoutModel';
 import { RackElevation, FillLegend } from '../../components/warehouse/RackElevation';
 import { NodeDialog, RackBuilderDialog, StructureDialog, type NodeTarget } from '../../components/warehouse/LayoutDialogs';
+import FloorMap, { MapLegend, MODE_LABELS, type ColourMode, type MapNode } from '../../components/warehouse/FloorMap';
+import WarehouseSheets from '../../components/warehouse/WarehouseSheets';
 
 /**
  * Warehouse layout (program 11, docs/GROWCORD_WAREHOUSE_PLAN.md).
@@ -47,7 +49,14 @@ const WarehouseLayout: React.FC = () => {
   const [meta, setMeta] = useState<LayoutMeta | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [tab, setTab] = useState<'layout' | 'ops'>('layout');
+  const [tab, setTab] = useState<'layout' | 'map' | 'ops' | 'bulk'>('layout');
+  // ── the 2D map ──
+  const [mapData, setMapData] = useState<any | null>(null);
+  const [mapMode, setMapMode] = useState<ColourMode>('occupancy');
+  const [mapEdit, setMapEdit] = useState(false);
+  const [pickListId, setPickListId] = useState('');
+  const [pickLists, setPickLists] = useState<any[]>([]);
+  const [pickPath, setPickPath] = useState<string[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -200,6 +209,164 @@ const WarehouseLayout: React.FC = () => {
       await api.post('/wms/move', { variationId: r.variation_id, qty: r.suggested_qty ?? r.qty, fromBinId: r.from_bin_id, toBinId: r.to_bin_id, batchId: r.batch_id ?? null, reason });
       refresh(reason === 'replenishment' ? 'Replenished' : 'Re-slotted');
     } catch (e) { fail(e); }
+  };
+
+
+  // ══ The floor map ═════════════════════════════════════════════════════════
+  // One call for the whole facility (tree + geometry + occupancy), because the
+  // map colours every node at once and a per-node request is N round trips on a
+  // 5,000-slot warehouse (#128/#132).
+  const loadMap = async () => {
+    if (!whId) return;
+    try {
+      const r = await api.get(`/wms/warehouses/${whId}/layout`, { params: { limit: 5000 } });
+      setMapData(r.data?.data ?? r.data);
+    } catch (e) { fail(e); }
+  };
+  useEffect(() => { if (tab === 'map') { loadMap(); loadPickLists(); } }, [tab, whId]); // eslint-disable-line
+
+  const loadPickLists = async () => {
+    try {
+      const r = await api.get('/wms/pick-lists', { params: { status: 'open' } });
+      setPickLists(r.data?.rows ?? r.data?.data?.rows ?? []);
+    } catch { setPickLists([]); }
+  };
+  // The walking ORDER is the pick list's own — WS-C computes it; the map only
+  // draws what it is given, so the two can never disagree about the route.
+  const loadPickPath = async (id: string) => {
+    setPickListId(id);
+    if (!id) { setPickPath([]); return; }
+    try {
+      const r = await api.get(`/wms/pick-lists/${id}`);
+      const items = r.data?.data?.items ?? r.data?.items ?? [];
+      const seen = new Set<string>();
+      setPickPath(items.map((i: any) => i.location_id ?? i.bin_id).filter((b: string) => b && !seen.has(b) && seen.add(b)));
+    } catch { setPickPath([]); }
+  };
+
+  const placeNode = async (id: string, xMm: number, yMm: number) => {
+    try {
+      await api.patch(`/wms/locations/${id}`, { xMm, yMm });
+      setMapData((d: any) => d && ({
+        ...d,
+        nodes: d.nodes.map((n: MapNode) => n.id === id
+          ? { ...n, geometry: { ...n.geometry, xMm, yMm, placed: true } } : n),
+      }));
+    } catch (e) { fail(e); }
+  };
+  const rotateNode = async (id: string, deg: number) => {
+    try {
+      await api.patch(`/wms/locations/${id}`, { rotationDeg: deg });
+      setMapData((d: any) => d && ({
+        ...d, nodes: d.nodes.map((n: MapNode) => n.id === id ? { ...n, geometry: { ...n.geometry, rotationDeg: deg } } : n),
+      }));
+    } catch (e) { fail(e); }
+  };
+
+  const MapTab: React.FC = () => {
+    const nodes: MapNode[] = mapData?.nodes ?? [];
+    const unplaced = nodes.filter((n) => !n.geometry.placed && !n.geometry.onRack);
+    const sel = nodes.find((n) => n.id === selectedId) ?? null;
+    return (
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_290px]">
+        <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap gap-1">
+              {MODE_LABELS.map((m) => (
+                <button key={m.key} onClick={() => setMapMode(m.key)}
+                  className={`rounded-md px-2.5 py-1 text-xs font-medium ${mapMode === m.key ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
+                  {m.label}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2">
+              {pickLists.length > 0 && (
+                <select value={pickListId} onChange={(e) => loadPickPath(e.target.value)}
+                  className="rounded-md border border-slate-300 px-2 py-1 text-xs" aria-label="Show a pick list's route">
+                  <option value="">No route shown</option>
+                  {pickLists.map((p: any) => <option key={p.id} value={p.id}>Route for {p.code ?? p.id.slice(0, 8)}</option>)}
+                </select>
+              )}
+              {canEdit && (
+                <label className="flex items-center gap-1.5 text-xs text-slate-700">
+                  <input type="checkbox" checked={mapEdit} onChange={(e) => setMapEdit(e.target.checked)} />
+                  Move things around
+                </label>
+              )}
+            </div>
+          </div>
+
+          {mapData?.withheld?.length > 0 && (
+            <div className="mb-2 flex items-start gap-1.5 rounded border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span>{mapData.withheld.join(' ')}</span>
+            </div>
+          )}
+
+          <FloorMap
+            nodes={nodes} mode={mapMode} selectedId={selectedId}
+            onSelect={setSelectedId}
+            pickPath={pickPath}
+            onMove={mapEdit ? placeNode : undefined}
+            onRotate={mapEdit ? rotateNode : undefined}
+            height={560}
+          />
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <MapLegend mode={mapMode} />
+            {mapData && (
+              <span className="text-[11px] text-slate-500">
+                {mapData.totals.placed} of {mapData.totals.nodes} placed · {mapData.totals.storage} storage slots ·{' '}
+                {mapData.totals.units.toLocaleString('en-IN')} units
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          {sel && (
+            <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="font-mono text-sm font-semibold text-slate-900">{sel.code}</div>
+              {sel.name && <div className="text-xs text-slate-500">{sel.name}</div>}
+              <dl className="mt-2 space-y-1 text-xs">
+                <div className="flex justify-between"><dt className="text-slate-500">Level</dt><dd>{sel.levelCode}</dd></div>
+                <div className="flex justify-between"><dt className="text-slate-500">Holds</dt>
+                  <dd>{sel.nodeRole === 'storage' ? `${sel.occupancy.units} unit(s)` : `${sel.occupancy.subtreeUnits} inside`}</dd></div>
+                <div className="flex justify-between"><dt className="text-slate-500">How full</dt>
+                  <dd>{sel.occupancy.fillPct == null ? 'no limit set'
+                    : `${Math.round(sel.occupancy.fillPct * 100)}%${sel.occupancy.isFloor ? ' or more' : ''}`}</dd></div>
+                {sel.occupancy.earliestExpiryDays != null && (
+                  <div className="flex justify-between"><dt className="text-slate-500">Soonest expiry</dt>
+                    <dd>{sel.occupancy.earliestExpiryDays} day(s)</dd></div>
+                )}
+                <div className="flex justify-between"><dt className="text-slate-500">Position</dt>
+                  <dd>{sel.geometry.placed ? `${(sel.geometry.xMm! / 10).toFixed(0)}, ${(sel.geometry.yMm! / 10).toFixed(0)} cm`
+                    : sel.geometry.onRack ? `row ${sel.geometry.gridRow}, col ${sel.geometry.gridCol}` : 'not placed'}</dd></div>
+              </dl>
+              <button className="mt-2 w-full rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
+                onClick={() => setTab('layout')}>Open it in the layout</button>
+            </div>
+          )}
+
+          <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+            <h3 className="text-sm font-semibold text-slate-800">Not placed yet</h3>
+            <p className="mt-0.5 text-xs text-slate-500">
+              {unplaced.length
+                ? 'These have no position on the floor plan, so they are not drawn. Nothing is placed for you.'
+                : 'Everything with a position is on the map.'}
+            </p>
+            <div className="mt-2 max-h-72 space-y-0.5 overflow-y-auto">
+              {unplaced.slice(0, 200).map((n) => (
+                <button key={n.id} onClick={() => { setSelectedId(n.id); setTab('layout'); }}
+                  className="flex w-full items-center justify-between rounded px-2 py-1 text-left text-xs hover:bg-slate-100">
+                  <span className="truncate font-mono">{n.code}</span>
+                  <span className="shrink-0 text-[10px] text-slate-400">{n.levelCode}</span>
+                </button>
+              ))}
+              {unplaced.length > 200 && <p className="px-2 pt-1 text-[11px] text-slate-400">…and {unplaced.length - 200} more.</p>}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   // ── pieces ──
@@ -533,7 +700,19 @@ const WarehouseLayout: React.FC = () => {
         <StatCard label="Blocked" value={stats.blocked} tone={stats.blocked ? 'warn' : 'default'} sub="not used for putaway" />
       </StatGrid>
 
-      <TabBar tabs={[{ key: 'layout', label: 'Layout' }, { key: 'ops', label: 'Putaway & stock' }]} active={tab} onChange={(k) => setTab(k as any)} />
+      <TabBar tabs={[
+        { key: 'layout', label: 'Layout' },
+        { key: 'map', label: 'Floor map' },
+        { key: 'ops', label: 'Putaway & stock' },
+        { key: 'bulk', label: 'Bulk (Excel)' },
+      ]} active={tab} onChange={(k) => setTab(k as any)} />
+
+      {tab === 'map' && <MapTab />}
+      {tab === 'bulk' && (
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <WarehouseSheets canWrite={canEdit} warehouseCode={facility?.code ?? null} />
+        </div>
+      )}
 
       {tab === 'layout' && (
         <div className="grid gap-4 xl:grid-cols-[260px_minmax(0,1fr)_300px]">

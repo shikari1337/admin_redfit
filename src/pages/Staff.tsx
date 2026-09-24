@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { staffAPI } from '../services/api';
 import { ASSIGNABLE_ROLES, ROLE_LABELS } from '../lib/rbac';
 import PermissionPicker from '../components/PermissionPicker';
+import WarehouseAreaPicker, { type WarehouseAreaValue } from '../components/staff/WarehouseAreaPicker';
 import { useAuth } from '../contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -197,9 +198,18 @@ const Staff: React.FC = () => {
 
   // ── Edit permissions (modal) ──────────────────────────────────────────────
   const [editPerms, setEditPerms] = useState<string[]>([]);
+  // The second and third axes beside permissions (migration 217): which
+  // facility, and which part of it. EMPTY in both = everywhere.
+  const [editArea, setEditArea] = useState<WarehouseAreaValue>({ facilities: [], nodes: [] });
+  const [areaNote, setAreaNote] = useState<string>('');
   const openEdit = (member: any) => {
     setEditingStaff(member);
     setEditPerms([...(member.permissions || [])]);
+    setEditArea({
+      facilities: [...(member.warehouse_access || [])],
+      nodes: [...(member.warehouse_node_access || [])],
+    });
+    setAreaNote('');
   };
 
   /** Drops every EXTRA grant; the role's own baseline is untouched. */
@@ -211,8 +221,25 @@ const Staff: React.FC = () => {
     setSavingId(id);
     try {
       await staffAPI.update(id, { permissions: editPerms });
-      setStaff(prev => prev.map(s => (s._id || s.id) === id ? { ...s, permissions: editPerms } : s));
-      setEditingStaff(null);
+      // The warehouse scope is its own route (it validates ids and reports a
+      // store that has not received migration 217 yet), so a failure there must
+      // not be reported as a permission save that did not happen — or the other
+      // way round.
+      let areaOk = true;
+      try {
+        await staffAPI.setWarehouseAccess(id, {
+          warehouse_access: editArea.facilities,
+          warehouse_node_access: editArea.nodes,
+        });
+      } catch (e: any) {
+        areaOk = false;
+        setAreaNote(e?.response?.data?.message || 'The warehouse area could not be saved. Permissions were saved.');
+      }
+      setStaff(prev => prev.map(s => (s._id || s.id) === id
+        ? { ...s, permissions: editPerms,
+            ...(areaOk ? { warehouse_access: editArea.facilities, warehouse_node_access: editArea.nodes } : {}) }
+        : s));
+      if (areaOk) setEditingStaff(null);
     } catch { alert('Failed to save permissions.'); }
     finally { setSavingId(null); }
   };
@@ -508,11 +535,11 @@ const Staff: React.FC = () => {
           <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
-                <ShieldCheck className="h-5 w-5" /> Edit Permissions
+                <ShieldCheck className="h-5 w-5" /> Edit access
               </DialogTitle>
               <DialogDescription>
                 {editingStaff?.name} ({editingStaff?.email}) — role <strong>{ROLE_LABELS[(editingStaff?.role || 'staff') as keyof typeof ROLE_LABELS] ?? editingStaff?.role}</strong>.
-                Grant extra permissions on top of it below.
+                Grant extra permissions on top of it, and say where in the warehouse they may work.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 pt-2">
@@ -532,11 +559,23 @@ const Staff: React.FC = () => {
                 role={editingStaff?.role || 'staff'}
                 onChange={setEditPerms}
               />
+
+              {/* Where they may work — migration 217, plan §4.2, ask A10. */}
+              <div className="pt-4 border-t">
+                <h4 className="text-sm font-medium mb-2">Warehouse area</h4>
+                <WarehouseAreaPicker value={editArea} onChange={setEditArea} />
+                {areaNote && (
+                  <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 mt-2">
+                    {areaNote}
+                  </p>
+                )}
+              </div>
+
               <div className="flex gap-2 justify-end pt-2">
                 <Button variant="outline" onClick={() => setEditingStaff(null)}>Cancel</Button>
                 <Button onClick={saveEdit} disabled={savingId === (editingStaff?._id || editingStaff?.id)} className="gap-2">
                   {savingId === (editingStaff?._id || editingStaff?.id) && <Loader2 className="h-4 w-4 animate-spin" />}
-                  Save Permissions
+                  Save access
                 </Button>
               </div>
             </div>

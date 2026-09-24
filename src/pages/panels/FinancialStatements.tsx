@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { api } from '../../services/api';
+import { api, errorText as errMsg } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { payload } from '../../lib/unwrap';
 import {
@@ -27,7 +27,6 @@ const fyEndDefault = (d = new Date()) => {
   return `${y}-03-31`;
 };
 
-const errMsg = (e: any) => e?.response?.data?.message ?? e?.response?.data?.error ?? e?.message ?? 'Something went wrong';
 
 /** Drill from a statement line's account code into that account's ledger over the same window. */
 const glDrill = (code: string, opts: { from?: string; to?: string }) => {

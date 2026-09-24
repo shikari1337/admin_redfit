@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../services/api';
+import { UUID_RE } from '../../lib/uuid';
 
 /**
  * Inventory & ERP panel for ONE variation, mounted on the product-editing
@@ -24,7 +25,6 @@ interface Props {
   onStockChanged?: (newStock: number) => void;
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // The services/api axios instance unwraps {success,data} envelopes; siblings
 // like {success, rows} pass through. Handle both (COMMON_MISTAKES #30/#40).

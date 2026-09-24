@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { FaChevronDown, FaChevronUp } from 'react-icons/fa';
 import { attributesAPI, attributeValuesAPI } from '../../services/api';
+import { slugify } from '../../lib/slug';
 
 interface Attribute {
   _id: string;
@@ -129,8 +130,6 @@ const ProductAttributes: React.FC<ProductAttributesProps> = ({
       [attributeId]: newValues,
     });
   };
-
-  const slugify = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
   const handleAddValue = async (attr: Attribute) => {
     const raw = (newValueInput[attr._id] || '').trim();

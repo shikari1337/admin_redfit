@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { bundlesAPI, productsAPI } from '../services/api';
 import { FaArrowLeft, FaTrash, FaSearch } from 'react-icons/fa';
 import ImageInputWithActions from '../components/common/ImageInputWithActions';
+import { slugify as slugifyBase } from '../lib/slug';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Bundle editor — matches the PostgreSQL contract the backend actually stores:
@@ -14,8 +15,7 @@ import ImageInputWithActions from '../components/common/ImageInputWithActions';
 // searchable.)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const slugify = (v: string) =>
-  v.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+const slugify = (v: string) => slugifyBase(v, 60);
 
 const inr = (n: number) => `₹${(Number(n) || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 const productPrice = (p: any): number => Number(p.final_price ?? p.selling_price ?? p.price ?? 0);

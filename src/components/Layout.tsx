@@ -357,6 +357,9 @@ const Layout: React.FC = () => {
         ...(canAccess('channel_sync') && hasPerm('channels.read') ? [{
           title: 'Multi-Channel Sync', url: '/channels', icon: Plug, items: [
             { title: 'Channels', url: '/channels' },
+            // The daily job for a marketplace with no API (Tata 1mg, Healthmug):
+            // upload their orders, download their stock file.
+            { title: 'Daily file', url: '/channels/daily' },
             { title: 'Excel Import', url: '/channels/import' },
             { title: 'Mapping',  url: '/channels/mapping' },
             { title: 'Allocation',  url: '/channels/allocation' },

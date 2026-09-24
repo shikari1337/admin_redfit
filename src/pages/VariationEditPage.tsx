@@ -9,8 +9,8 @@ import { FieldGroup, Field, SwitchRow, fieldInputCls, fieldTextareaCls } from '.
 import RichTextEditor from '../components/common/RichTextEditor';
 import ProductImageUpload from '../components/product/ProductImageUpload';
 import { localeDate } from '../utils/date';
+import { UUID_RE } from '../lib/uuid';
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Coerce PG NUMERIC (the API returns it as a string) / mixed input to a finite number, else null. */
 const num = (v: any): number | null => {

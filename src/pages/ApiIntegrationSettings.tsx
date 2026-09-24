@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save, Mail, Facebook, CreditCard, MessageCircle, Bot, Loader2, BarChart3, Copy, Check, CheckCircle2, AlertTriangle, XCircle, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
 
-import api, { smsTemplatesAPI } from '../services/api';
+import api, { smsTemplatesAPI, getApiBase } from '../services/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,7 +39,10 @@ const DEFAULT_FORM_DATA = {
     accessToken: '',
     phoneNumberId: '',
     businessAccountId: '',
-    apiVersion: 'v21.0',
+    // Kept in sync by hand with META_GRAPH_VERSION in backend/src/config/meta.ts
+    // (the platform's one canonical Graph API version) — this store-editable
+    // WhatsApp Cloud API config has no live-served value to read it from.
+    apiVersion: 'v26.0',
     apiUrl: '',
     accountSid: '',
     authToken: '',
@@ -376,12 +379,11 @@ const ApiIntegrationSettings: React.FC = () => {
     }));
   };
 
-  // Same construction as ShippingSettings.tsx's Shiprocket webhook URL:
-  // api.defaults.baseURL already carries `/api/v{N}` — the webhook router is
-  // mounted alongside `/products`, `/orders`, etc, just under `/webhooks/payments`.
-  const apiBase = (api.defaults.baseURL || '').replace(/\/$/, '');
+  // getApiBase() (services/api.ts) is the one place the absolute API base is
+  // worked out; the webhook router is mounted alongside `/products`, `/orders`
+  // etc, just under `/webhooks/payments`.
   const razorpayWebhookUrl = storeSlug
-    ? `${apiBase.startsWith('http') ? apiBase : window.location.origin + apiBase}/webhooks/payments/razorpay/${storeSlug}`
+    ? `${getApiBase()}/webhooks/payments/razorpay/${storeSlug}`
     : '';
 
   const copyToClipboard = async (text: string, tag: string) => {

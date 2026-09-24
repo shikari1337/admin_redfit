@@ -19,6 +19,8 @@ export interface Loc {
   pickable: boolean;
   flags: Record<string, boolean> | null;
   max_units: number | null;
+  /** Refill threshold (migration 035). Read by replenishment; settable since W1.4.2. */
+  min_units?: number | null;
   max_weight_g: number | null;
   max_volume_ml: number | null;
   pick_sequence: number | null;
@@ -43,6 +45,13 @@ export interface Loc {
   grid_col?: number | null;
   max_pallets?: number | null;
   reach_height_mm?: number | null;
+  temperature_class?: string | null;
+  unit_of_capacity?: string | null;
+  /** Floor-plan position, in mm. NULL = not placed — never guessed (#226). */
+  x_mm?: number | null;
+  y_mm?: number | null;
+  rotation_deg?: number | null;
+  owner_party_id?: string | null;
 }
 
 export interface LevelDef { position: number; level_code: string; label: string; default_node_role: NodeRole }

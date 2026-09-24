@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { setStoreTimeZone } from '../utils/date';
+import { UUID_RE } from '../lib/uuid';
 
 // API Configuration
 // All requests go to the platform API domain for consistent tenant identification
@@ -764,6 +765,22 @@ export const staffAPI = {
   delete: async (id: string) => {
     await api.delete(`/staff/${id}`);
   },
+  /**
+   * WHICH FACILITY, and which part of it (migration 217 — the second and third
+   * axes beside `permissions`). The options come from the WMS, not from Staff,
+   * because they ARE the warehouse's own tree; an EMPTY list means everywhere.
+   */
+  warehouseAreas: async (): Promise<{
+    facilities: Array<{ id: string; name: string; code: string }>;
+    nodes: Array<{ id: string; code: string; warehouse_id: string; parent_id: string | null; kind: string; depth: number }>;
+  }> => {
+    const response = await api.get('/wms/team/areas');
+    return response.data?.data ?? response.data;
+  },
+  setWarehouseAccess: async (id: string, data: { warehouse_access?: string[]; warehouse_node_access?: string[] }) => {
+    const response = await api.put(`/staff/${id}/warehouse-access`, data);
+    return response.data?.data ?? response.data;
+  },
 };
 
 // AI API (Page Editor module - requires page_editor permission)
@@ -1008,6 +1025,50 @@ export const productsAPI = {
     return response.data?.data ?? response.data;
   },
 };
+
+/**
+ * The API's base URL, absolute, with no trailing slash — one definition
+ * (WS-L L.23).
+ *
+ * `api.defaults.baseURL` already carries `/api/v{N}`, and in development it is
+ * a RELATIVE path that the Vite proxy rewrites, so anything a human is meant to
+ * copy (a webhook URL to paste into Razorpay or Shiprocket) has to be made
+ * absolute against the current origin first. Two Settings pages worked that out
+ * for themselves, line for line; a third would have had to as well.
+ */
+export function getApiBase(): string {
+  const base = (api.defaults.baseURL || '').replace(/\/$/, '');
+  return base.startsWith('http') ? base : window.location.origin + base;
+}
+
+/**
+ * The message a human should be shown for a caught error — one definition
+ * (WS-L L.11). `errMsg` was hand-written in three panels with a body that
+ * predates the `{error:{…}}` unwrap below, so a module or permission refusal
+ * rendered as the literal "[object Object]" on those three screens and
+ * correctly everywhere else.
+ *
+ * This RETURNS a string and never throws, which is what a `catch` block that
+ * only wants to say something to the user needs. `safeError` below re-THROWS a
+ * normalised `Error` (carrying `status`/`code`) and is what an API wrapper
+ * needs; the two are different jobs, which is why one could not simply be
+ * pointed at the other.
+ */
+export function errorText(error: any, fallback = 'Something went wrong'): string {
+  const data = error?.response?.data;
+  if (data) {
+    const structured = data.error && typeof data.error === 'object' ? data.error : null;
+    const msg =
+      data.message ||
+      structured?.message ||
+      (typeof data.error === 'string' ? data.error : null) ||
+      data.errors?.[0]?.msg;
+    if (msg) return String(msg);
+  }
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === 'string' && error) return error;
+  return fallback;
+}
 
 // Categories API
 const safeError = (error: any) => {
@@ -1546,11 +1607,17 @@ export const vendorsAPI = {
       return data?.data || data;
     } catch (error: any) { safeError(error); }
   },
+  /**
+   * The vendor row now carries terms, licences and a TDS/MSME profile, and
+   * `createVendor` introspects its columns (#199/#226) — so the payload is
+   * deliberately open rather than a fixed literal that would have to be
+   * widened again with every migration. The server validates every term.
+   */
   create: async (data: {
     business_name: string; slug: string; gst_number?: string; pan_number?: string;
     bank_details?: Record<string, any>; commission_pct?: number; logo_url?: string;
     is_active?: boolean; customer_id?: string;
-  }) => {
+  } & Record<string, any>) => {
     try {
       const response = await api.post('/vendors', data);
       return response.data?.data || response.data;
@@ -1560,11 +1627,22 @@ export const vendorsAPI = {
     business_name: string; slug: string; gst_number: string; pan_number: string;
     bank_details: Record<string, any>; commission_pct: number; logo_url: string;
     is_active: boolean;
-  }>) => {
+  }> & Record<string, any>) => {
     try {
       const response = await api.put(`/vendors/${id}`, data);
       return response.data?.data || response.data;
     } catch (error: any) { safeError(error); }
+  },
+  /**
+   * The term vocabulary, from the server. Read once by the vendor form so a
+   * word like "freight to pay" is defined in ONE place; `available: false`
+   * means this store has not had migration 216 yet and the form says so.
+   */
+  termsMeta: async () => {
+    try {
+      const response = await api.get('/vendors/terms/meta');
+      return response.data?.data || response.data;
+    } catch (error: any) { safeError(error); return null; }
   },
   updateStatus: async (id: string, status: 'pending' | 'approved' | 'suspended' | 'rejected') => {
     try {
@@ -1670,7 +1748,109 @@ export interface OrderLinkGroup {
   link: OrderChannelLink;
 }
 
+/** `GET /orders/:id/fulfilment-guidance` — see `ordersAPI.fulfilmentGuidance`. */
+export interface FulfilmentGuidanceLocation {
+  location_id: string;
+  bin_code: string;
+  aisle_code: string | null;
+  pick_sequence: number | null;
+  batch_id: string | null;
+  batch_number: string | null;
+  expiry_date: string | null;
+  qty_here: number;
+  take: number;
+  walk_order: number;
+}
+
+export interface FulfilmentGuidanceLine {
+  order_item_id: string | null;
+  variation_id: string | null;
+  sku: string;
+  name: string;
+  ordered: number;
+  state: 'binned' | 'pool' | 'unknown_sku';
+  note: string | null;
+  locations: FulfilmentGuidanceLocation[];
+  binned_available: number;
+  pool_available: number | null;
+  pool_source: 'ledger' | 'legacy_column' | 'never_ledgered';
+  short: number;
+}
+
+export interface FulfilmentGuidanceParcel {
+  id: string;
+  parcel_code: string;
+  status: string;
+  weight_g: number | null;
+  tare_g: number | null;
+  box_name: string | null;
+  box_code: string | null;
+  length_cm: number | null;
+  breadth_cm: number | null;
+  height_cm: number | null;
+  packed_at: string | null;
+  packed_by_name: string | null;
+  awb: string | null;
+  shipment_number: string | null;
+  label_print_count: number | null;
+  label_printed_at: string | null;
+}
+
+export interface FulfilmentGuidance {
+  order_id: string;
+  order_number: string | null;
+  warehouse_id: string | null;
+  warehouse_name: string | null;
+  summary: string;
+  binned_lines: number;
+  pool_lines: number;
+  lines: FulfilmentGuidanceLine[];
+  pick: { status: string | null; reference: string | null; completed_at: string | null };
+  parcels: FulfilmentGuidanceParcel[];
+  withheld: string[];
+}
+
 export const ordersAPI = {
+  /**
+   * WHERE THIS ORDER'S GOODS PHYSICALLY ARE — bin, FEFO batch, walking order.
+   *
+   * Read-only and it never allocates: opening an order to see where its stock
+   * sits must not reserve it. A SKU that is not in a bin comes back with the
+   * plain sentence "not binned; stock is in the general pool" rather than an
+   * empty row, which on this store is the truthful answer for almost
+   * everything. `withheld[]` names anything the server could not read.
+   */
+  fulfilmentGuidance: async (orderId: string) => {
+    const response = await api.get(`/orders/${orderId}/fulfilment-guidance`);
+    // Both-ways: the shared interceptor usually unwraps `{success,data}` to
+    // `data` already (#228/#230's family), but every other reader in this file
+    // guards it and so does this one.
+    return (response.data?.data ?? response.data) as FulfilmentGuidance;
+  },
+  /**
+   * Open a parcel's 4×6 shipping label in a new tab.
+   *
+   * Through the shared axios client, so the tenant key, the bearer token and
+   * the base URL are the ones every other call uses. `blobErrorMessage` is the
+   * ONE reader of a failed blob body — without it a PDF route's error is an
+   * unreadable Blob and the page can only say "something went wrong" (#333).
+   */
+  openParcelLabel: async (parcelId: string): Promise<string | null> => {
+    try {
+      const response = await api.get(
+        `/wms/pack/parcels/${encodeURIComponent(parcelId)}/label.pdf`,
+        { responseType: 'blob' });
+      const blob = response.data instanceof Blob
+        ? response.data
+        : new Blob([response.data], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const w = window.open(url, '_blank', 'noopener');
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      return w ? null : 'Your browser blocked the label window — allow pop-ups for this site.';
+    } catch (err) {
+      return await blobErrorMessage(err, 'The label could not be printed.');
+    }
+  },
   /**
    * Every link this order can send a customer — one per destination.
    *
@@ -3983,7 +4163,14 @@ export const packageBoxesAPI = {
     const response = await api.get('/packages');
     return response.data;
   },
-  create: async (data: { name: string; length: number; breadth: number; height: number; weight?: number; description?: string }) => {
+  /**
+   * `name` is the only thing a box genuinely needs. The outer sides, the inner
+   * sides in mm, the empty weight, what it carries and what it costs are all
+   * optional, and an omitted key is left untouched by the server's merge — so a
+   * form that shows five fields cannot blank the other seven. The catalogue's
+   * own normaliser (`services/wms/boxCatalogue.ts`) is what reads them.
+   */
+  create: async (data: Record<string, unknown>) => {
     const response = await api.post('/packages', data);
     return response.data;
   },
@@ -4968,6 +5155,64 @@ export const channelsAPI = {
     try { const r = await api.get(`/channels/${channelId}/orders`); return r.data?.data ?? r.data ?? []; }
     catch (e: any) { safeError(e); return []; }
   },
+
+  // ── File-based channels: the daily file (WS-F) ─────────────────────────────
+  /** Everything the daily screen needs to describe one channel, in one call. */
+  fileConfig: async (channelId: string) => {
+    const r = await api.get(`/channels/${channelId}/file-config`);
+    return r.data?.data ?? r.data;
+  },
+  /**
+   * Upload today's order file and CREATE real orders.
+   * `dryRun` returns the plan (which orders, which are already ours, which SKUs
+   * are unknown) without writing anything.
+   */
+  importOrders: async (
+    channelId: string, file: File,
+    opts: { mapping: Record<string, string>; dryRun: boolean },
+  ) => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('purpose', 'orders');
+    form.append('createOrders', 'true');
+    form.append('dryRun', String(opts.dryRun));
+    form.append('mapping', JSON.stringify(opts.mapping));
+    const r = await api.post(`/channels/${channelId}/import/apply`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' }, timeout: 300000,
+    });
+    return r.data?.data ?? r.data;
+  },
+  /** Ask for today's stock file in the marketplace's own layout. */
+  requestInventoryFile: async (
+    channelId: string, opts: { format?: 'xlsx' | 'csv'; onlyMapped?: boolean; includeZero?: boolean } = {},
+  ) => {
+    const r = await api.post(`/channels/${channelId}/export/inventory`, opts, {
+      // A store whose database has no download queue yet gets the bytes back
+      // directly, so this call must be able to receive either shape.
+      responseType: 'arraybuffer', timeout: 300000, validateStatus: () => true,
+    });
+    const isJson = String(r.headers?.['content-type'] ?? '').includes('application/json');
+    if (isJson) {
+      const text = new TextDecoder().decode(r.data as ArrayBuffer);
+      const parsed = JSON.parse(text || '{}');
+      if (r.status >= 400) throw new Error(parsed?.message || 'The stock file could not be produced.');
+      return { queued: true, job: parsed?.data?.job ?? null };
+    }
+    if (r.status >= 400) throw new Error('The stock file could not be produced.');
+    const cd = String(r.headers?.['content-disposition'] ?? '');
+    const name = /filename="?([^";]+)"?/.exec(cd)?.[1] ?? 'channel-inventory.xlsx';
+    return { queued: false, blob: new Blob([r.data as ArrayBuffer]), fileName: name };
+  },
+  /** The files already produced for this channel. */
+  exportHistory: async (channelId: string) => {
+    try { const r = await api.get(`/channels/${channelId}/export/history`); return r.data?.data ?? { rows: [] }; }
+    catch (e: any) { safeError(e); return { rows: [] }; }
+  },
+  /** The orders this channel's files have produced. */
+  orderDocuments: async (channelId: string) => {
+    try { const r = await api.get(`/channels/${channelId}/order-documents`); return r.data?.data ?? { rows: [] }; }
+    catch (e: any) { safeError(e); return { rows: [] }; }
+  },
 };
 
 // ── Per-channel availability allocation ("virtual bins", migration 090) ───────
@@ -4985,7 +5230,7 @@ export const channelAllocationAPI = {
   },
   // Live "who gets what" for one SKU (accepts a SKU string or a variation id).
   preview: async (skuOrId: string) => {
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(skuOrId);
+    const isUuid = UUID_RE.test(skuOrId);
     const r = await api.get('/channel-allocations/preview', { params: isUuid ? { variationId: skuOrId } : { sku: skuOrId } });
     return r.data?.data;
   },
