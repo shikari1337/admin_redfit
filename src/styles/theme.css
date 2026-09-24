@@ -1,0 +1,440 @@
+/*
+ * Growcord theme — Growcord. GENERATED, do not edit.
+ *
+ * Source of the values: suite/packages/kit/src/theme.json (the kit copy is THE source).
+ * Regenerate + mirror:   node tools/theme/sync.mjs
+ * Verify nothing drifted: node tools/theme/sync.mjs --check
+ *
+ * THE one theme for every Growcord UI: the 14 suite panels, the store admin and the
+ * platform console. This JSON is the data of record; suite/packages/kit/src/theme.css is
+ * GENERATED from it by `node tools/theme/sync.mjs --build` and the copies in admin/ and
+ * super-admin/ are mirrored by `node tools/theme/sync.mjs`. Nothing is hand-kept in step:
+ * `--check` fails if any copy differs.
+ *
+ * Tokens are named by ROLE, never by colour. A ramp (n/b/g/w/d/i) is raw material; a role
+ * token is an alias into a ramp, so recolouring a store means changing a ramp, not hunting
+ * for every place a shade was used.
+ *
+ * Dark mode: every ramp's dark column is its light column REVERSED (50<->950). One rule,
+ * no second set of values: --good-bg (g-50) becomes the darkest tint, --good (g-600)
+ * becomes a bright green, --ink (n-900) becomes near-white. Tokens that are not ramp
+ * members carry explicit light/dark values.
+ *
+ * Light is the default. A dark theme comes from either the operating system (unless the
+ * viewer has explicitly asked for light) or `data-theme="dark"` on <html>.
+ */
+
+:root {
+    color-scheme: light dark;
+    accent-color: var(--accent);
+    /* Neutral — Warm green-grey. Canvas, ink, lines, table stripes. Tailwind gray/slate/zinc/neutral/stone. */
+    --n-50: #f7f8f6;
+    --n-100: #eff1ee;
+    --n-200: #e2e6e2;
+    --n-300: #cbd2cc;
+    --n-400: #9ba69f;
+    --n-500: #67736c;
+    --n-600: #545f59;
+    --n-700: #3e4944;
+    --n-800: #29322e;
+    --n-900: #1c2422;
+    --n-950: #111715;
+    /* Brand — Growcord forest green. The one accent: primary buttons, active nav, focus, links. Tailwind indigo/violet/purple/fuchsia/pink. */
+    --b-50: #eef5f1;
+    --b-100: #d8ebe2;
+    --b-200: #b3d6c6;
+    --b-300: #86bba5;
+    --b-400: #579c83;
+    --b-500: #3b8068;
+    --b-600: #2e6a56;
+    --b-700: #265747;
+    --b-800: #1f463a;
+    --b-900: #18372e;
+    --b-950: #0e231c;
+    /* Good — Success, in stock, paid, delivered. A fresher green than the brand so status never reads as chrome. Tailwind green/emerald/lime/teal. */
+    --g-50: #e9f7ef;
+    --g-100: #cbedd9;
+    --g-200: #9fdcbc;
+    --g-300: #6bc79b;
+    --g-400: #35ab77;
+    --g-500: #1c9260;
+    --g-600: #17784c;
+    --g-700: #136140;
+    --g-800: #114d34;
+    --g-900: #0e3d2b;
+    --g-950: #06231a;
+    /* Warn — Needs attention, pending, expiring, low stock. Tailwind amber/yellow/orange. */
+    --w-50: #fdf4e3;
+    --w-100: #fae5bd;
+    --w-200: #f5cd85;
+    --w-300: #eeb14b;
+    --w-400: #dd9420;
+    --w-500: #c07c0e;
+    --w-600: #a4650a;
+    --w-700: #83500a;
+    --w-800: #673f0b;
+    --w-900: #52320a;
+    --w-950: #2e1c05;
+    /* Bad — Failed, cancelled, out of stock, destructive actions. Tailwind red/rose. */
+    --d-50: #fdeeec;
+    --d-100: #fad9d5;
+    --d-200: #f4b4ad;
+    --d-300: #ea8880;
+    --d-400: #d95f55;
+    --d-500: #cc453a;
+    --d-600: #c0362c;
+    --d-700: #9c2a22;
+    --d-800: #7d221c;
+    --d-900: #661d18;
+    --d-950: #3a0f0c;
+    /* Info — Neutral notice, links inside prose, 'here is how this works'. Tailwind blue/sky/cyan. */
+    --i-50: #eaf1fa;
+    --i-100: #d1e2f6;
+    --i-200: #a6c6ec;
+    --i-300: #74a5dd;
+    --i-400: #5591d2;
+    --i-500: #2b6cb0;
+    --i-600: #22589a;
+    --i-700: #1c4880;
+    --i-800: #183a66;
+    --i-900: #152f52;
+    --i-950: #0c1b30;
+
+    /* Surfaces */
+    --bg: #f4f5f3;
+    --surface: #ffffff;
+    --surface-2: var(--n-50);
+    --surface-raised: #ffffff;
+    --scrim: rgb(20 32 27 / 0.42);
+
+    /* Ink */
+    --ink: var(--n-900);
+    --ink-soft: var(--n-600);
+    --ink-mute: var(--n-500);
+    --ink-inverse: #ffffff;
+
+    /* Lines */
+    --line: var(--n-200);
+    --line-strong: var(--n-300);
+    --focus: var(--accent);
+
+    /* Brand */
+    --accent: var(--b-600);
+    --accent-hover: var(--b-700);
+    --accent-ink: #ffffff;
+    --accent-soft: var(--b-50);
+
+    /* Semantic */
+    --good: var(--g-600);
+    --good-bg: var(--g-50);
+    --good-ink: var(--g-800);
+    --warn: var(--w-600);
+    --warn-bg: var(--w-50);
+    --warn-ink: var(--w-800);
+    --bad: var(--d-600);
+    --bad-bg: var(--d-50);
+    --bad-ink: var(--d-800);
+    --info: var(--i-600);
+    --info-bg: var(--i-50);
+    --info-ink: var(--i-800);
+
+    /* Sidebar rail */
+    --side: #13201b;
+    --side-ink: #a9b8b0;
+    --side-ink-strong: #ffffff;
+    --side-line: rgb(255 255 255 / 0.08);
+    --side-active: var(--accent);
+
+    /* Data visualisation — Eight categorical series, assigned by entity in this fixed order — never cycled or re-ranked by value. Colour-vision-deficiency safe in sequence. Same in both themes: a chart's series must not change identity when the lights go out. */
+    --viz-1: #2a78d6;
+    --viz-2: #eb6834;
+    --viz-3: #1baf7a;
+    --viz-4: #eda100;
+    --viz-5: #e87ba4;
+    --viz-6: #008300;
+    --viz-7: #4a3aa7;
+    --viz-8: #e34948;
+    --viz-grid: var(--n-200);
+    --viz-axis: var(--n-300);
+
+    /* Spacing */
+    --space-1: 0.25rem;
+    --space-2: 0.5rem;
+    --space-3: 0.75rem;
+    --space-4: 1rem;
+    --space-5: 1.5rem;
+    --space-6: 2rem;
+    --space-7: 2.5rem;
+    --space-8: 3rem;
+
+    /* Radius */
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-pill: 999px;
+
+    /* Shadow */
+    --shadow-1: 0 1px 2px rgb(20 32 27 / 0.06);
+    --shadow-2: 0 6px 16px -4px rgb(20 32 27 / 0.10), 0 2px 4px rgb(20 32 27 / 0.04);
+    --shadow-3: 0 20px 44px -12px rgb(20 32 27 / 0.25);
+
+    /* Typography */
+    --font: Inter, -apple-system, "Segoe UI", Roboto, "Noto Sans", Arial, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, "Noto Sans Mono", monospace;
+    --text-xs: 0.75rem;
+    --text-sm: 0.875rem;
+    --text-base: 1rem;
+    --text-lg: 1.125rem;
+    --text-xl: 1.25rem;
+    --text-2xl: 1.5rem;
+    --leading: 1.5;
+
+    /* Motion */
+    --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+    --dur: 160ms;
+    --dur-slow: 260ms;
+
+    /* Layering — The kit's existing scale, unchanged: a toast has to be readable over a dialog, so it sits above it. */
+    --z-drawer: 40;
+    --z-modal: 60;
+    --z-toast: 80;
+
+    /* Compatibility aliases — The names the three code bases already use. They point at the tokens above so no panel or page breaks, and so there is exactly one place to learn every name. New code uses the role names above. */
+    --ground: var(--bg);
+    --paper: var(--surface);
+    --paper-2: var(--surface-2);
+    --shadow: var(--shadow-2);
+    --radius: var(--radius-md);
+    --tint: color-mix(in oklab, var(--accent) 8%, transparent);
+    --tint-2: color-mix(in oklab, var(--accent) 16%, transparent);
+    --text: var(--ink);
+    --text-2: var(--ink-soft);
+    --text-3: var(--ink-mute);
+    --border: var(--line);
+    --border-strong: var(--line-strong);
+    --danger: var(--bad);
+    --danger-soft: var(--bad-bg);
+    --success: var(--good);
+    --warning: var(--warn);
+    --sidebar-bg: var(--side);
+    --sidebar-bg-2: #182822;
+    --sidebar-border: var(--side-line);
+    --sidebar-text: var(--side-ink);
+    --sidebar-text-active: #ffffff;
+    --sidebar-active-bg: color-mix(in srgb, var(--b-300) 18%, transparent);
+    --sidebar-hover-bg: rgb(255 255 255 / 0.05);
+    --shadow-sm: var(--shadow-1);
+    --shadow-md: var(--shadow-2);
+    --shadow-lg: var(--shadow-3);
+    --ring: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* The viewer asked for light: hold the light values whatever the OS says. */
+:root[data-theme="light"] { color-scheme: light; }
+
+/* The OS is dark and the viewer has not asked for light. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    /* Neutral */
+    --n-50: #111715;
+    --n-100: #1c2422;
+    --n-200: #29322e;
+    --n-300: #3e4944;
+    --n-400: #545f59;
+    --n-500: #67736c;
+    --n-600: #9ba69f;
+    --n-700: #cbd2cc;
+    --n-800: #e2e6e2;
+    --n-900: #eff1ee;
+    --n-950: #f7f8f6;
+    /* Brand */
+    --b-50: #0e231c;
+    --b-100: #18372e;
+    --b-200: #1f463a;
+    --b-300: #265747;
+    --b-400: #2e6a56;
+    --b-500: #3b8068;
+    --b-600: #579c83;
+    --b-700: #86bba5;
+    --b-800: #b3d6c6;
+    --b-900: #d8ebe2;
+    --b-950: #eef5f1;
+    /* Good */
+    --g-50: #06231a;
+    --g-100: #0e3d2b;
+    --g-200: #114d34;
+    --g-300: #136140;
+    --g-400: #17784c;
+    --g-500: #1c9260;
+    --g-600: #35ab77;
+    --g-700: #6bc79b;
+    --g-800: #9fdcbc;
+    --g-900: #cbedd9;
+    --g-950: #e9f7ef;
+    /* Warn */
+    --w-50: #2e1c05;
+    --w-100: #52320a;
+    --w-200: #673f0b;
+    --w-300: #83500a;
+    --w-400: #a4650a;
+    --w-500: #c07c0e;
+    --w-600: #dd9420;
+    --w-700: #eeb14b;
+    --w-800: #f5cd85;
+    --w-900: #fae5bd;
+    --w-950: #fdf4e3;
+    /* Bad */
+    --d-50: #3a0f0c;
+    --d-100: #661d18;
+    --d-200: #7d221c;
+    --d-300: #9c2a22;
+    --d-400: #c0362c;
+    --d-500: #cc453a;
+    --d-600: #d95f55;
+    --d-700: #ea8880;
+    --d-800: #f4b4ad;
+    --d-900: #fad9d5;
+    --d-950: #fdeeec;
+    /* Info */
+    --i-50: #0c1b30;
+    --i-100: #152f52;
+    --i-200: #183a66;
+    --i-300: #1c4880;
+    --i-400: #22589a;
+    --i-500: #2b6cb0;
+    --i-600: #5591d2;
+    --i-700: #74a5dd;
+    --i-800: #a6c6ec;
+    --i-900: #d1e2f6;
+    --i-950: #eaf1fa;
+
+    /* Surfaces */
+    --bg: #0f1413;
+    --surface: #171d1b;
+    --surface-raised: #1d2422;
+    --scrim: rgb(0 0 0 / 0.60);
+
+    /* Ink */
+    --ink-mute: #8e9a93;
+    --ink-inverse: #0f1413;
+
+    /* Brand */
+    --accent-ink: #0e231c;
+
+    /* Sidebar rail */
+    --side: #0b0f0e;
+    --side-ink: #b9c5bf;
+    --side-line: rgb(255 255 255 / 0.07);
+
+    /* Shadow */
+    --shadow-1: 0 1px 2px rgb(0 0 0 / 0.5);
+    --shadow-2: 0 6px 16px -4px rgb(0 0 0 / 0.55), 0 2px 4px rgb(0 0 0 / 0.4);
+    --shadow-3: 0 20px 44px -12px rgb(0 0 0 / 0.7);
+
+    /* Compatibility aliases */
+    --sidebar-bg-2: #121816;
+  }
+}
+
+/* The viewer asked for dark. */
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    /* Neutral */
+    --n-50: #111715;
+    --n-100: #1c2422;
+    --n-200: #29322e;
+    --n-300: #3e4944;
+    --n-400: #545f59;
+    --n-500: #67736c;
+    --n-600: #9ba69f;
+    --n-700: #cbd2cc;
+    --n-800: #e2e6e2;
+    --n-900: #eff1ee;
+    --n-950: #f7f8f6;
+    /* Brand */
+    --b-50: #0e231c;
+    --b-100: #18372e;
+    --b-200: #1f463a;
+    --b-300: #265747;
+    --b-400: #2e6a56;
+    --b-500: #3b8068;
+    --b-600: #579c83;
+    --b-700: #86bba5;
+    --b-800: #b3d6c6;
+    --b-900: #d8ebe2;
+    --b-950: #eef5f1;
+    /* Good */
+    --g-50: #06231a;
+    --g-100: #0e3d2b;
+    --g-200: #114d34;
+    --g-300: #136140;
+    --g-400: #17784c;
+    --g-500: #1c9260;
+    --g-600: #35ab77;
+    --g-700: #6bc79b;
+    --g-800: #9fdcbc;
+    --g-900: #cbedd9;
+    --g-950: #e9f7ef;
+    /* Warn */
+    --w-50: #2e1c05;
+    --w-100: #52320a;
+    --w-200: #673f0b;
+    --w-300: #83500a;
+    --w-400: #a4650a;
+    --w-500: #c07c0e;
+    --w-600: #dd9420;
+    --w-700: #eeb14b;
+    --w-800: #f5cd85;
+    --w-900: #fae5bd;
+    --w-950: #fdf4e3;
+    /* Bad */
+    --d-50: #3a0f0c;
+    --d-100: #661d18;
+    --d-200: #7d221c;
+    --d-300: #9c2a22;
+    --d-400: #c0362c;
+    --d-500: #cc453a;
+    --d-600: #d95f55;
+    --d-700: #ea8880;
+    --d-800: #f4b4ad;
+    --d-900: #fad9d5;
+    --d-950: #fdeeec;
+    /* Info */
+    --i-50: #0c1b30;
+    --i-100: #152f52;
+    --i-200: #183a66;
+    --i-300: #1c4880;
+    --i-400: #22589a;
+    --i-500: #2b6cb0;
+    --i-600: #5591d2;
+    --i-700: #74a5dd;
+    --i-800: #a6c6ec;
+    --i-900: #d1e2f6;
+    --i-950: #eaf1fa;
+
+    /* Surfaces */
+    --bg: #0f1413;
+    --surface: #171d1b;
+    --surface-raised: #1d2422;
+    --scrim: rgb(0 0 0 / 0.60);
+
+    /* Ink */
+    --ink-mute: #8e9a93;
+    --ink-inverse: #0f1413;
+
+    /* Brand */
+    --accent-ink: #0e231c;
+
+    /* Sidebar rail */
+    --side: #0b0f0e;
+    --side-ink: #b9c5bf;
+    --side-line: rgb(255 255 255 / 0.07);
+
+    /* Shadow */
+    --shadow-1: 0 1px 2px rgb(0 0 0 / 0.5);
+    --shadow-2: 0 6px 16px -4px rgb(0 0 0 / 0.55), 0 2px 4px rgb(0 0 0 / 0.4);
+    --shadow-3: 0 20px 44px -12px rgb(0 0 0 / 0.7);
+
+    /* Compatibility aliases */
+    --sidebar-bg-2: #121816;
+}

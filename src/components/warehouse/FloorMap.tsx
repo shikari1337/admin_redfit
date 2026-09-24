@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MapPin, Move, RotateCw, Maximize2, Crosshair, Route } from 'lucide-react';
+import { token } from '@/lib/theme';
 
 /**
  * THE 2D FLOOR MAP — the "visual building structure" of owner ask A6.
@@ -58,63 +59,76 @@ export interface MapNode {
   ownerPartyId?: string | null;
 }
 
-const OUTLINE = '#475569';
+/**
+ * The map paints into a <canvas>, and a canvas cannot read a CSS variable -
+ * `ctx.fillStyle = 'var(--good)'` is ignored and the slot comes out black. So
+ * every colour here is RESOLVED from the theme at draw time through
+ * `lib/theme.ts`, which reads the same tokens the rest of the admin uses. There
+ * is still exactly one place these colours are defined: theme.json.
+ */
 
-/** band → swatch. The BANDS come from the server; only these colours are ours. */
-export const FILL_SWATCH: Record<string, string> = {
-  empty: '#e2e8f0', low: '#22c55e', medium: '#f59e0b', high: '#ef4444', unmeasured: '#93c5fd',
-};
-export const EXPIRY_SWATCH: Record<string, string> = {
-  expired: '#7f1d1d', month: '#ef4444', quarter: '#f59e0b', half_year: '#facc15',
-  long: '#22c55e', undated: '#cbd5e1', empty: '#f1f5f9',
-};
-export const VELOCITY_SWATCH: Record<string, string> = {
-  fastest: '#4338ca', fast: '#6366f1', steady: '#a5b4fc', slow: '#e0e7ff',
-  still: '#f1f5f9', empty: '#f8fafc',
-};
+/** band -> swatch. The BANDS come from the server; only the colours are ours. */
+export const fillSwatch = (): Record<string, string> => ({
+  empty: token('line'), low: token('good'), medium: token('warn'),
+  high: token('bad'), unmeasured: token('info'),
+});
+export const expirySwatch = (): Record<string, string> => ({
+  expired: token('badInk'), month: token('bad'), quarter: token('warn'),
+  half_year: token('warnBg'), long: token('good'), undated: token('lineStrong'),
+  empty: token('surface2'),
+});
+export const velocitySwatch = (): Record<string, string> => ({
+  fastest: token('accentHover'), fast: token('accent'), steady: token('accentSoft'),
+  slow: token('surface2'), still: token('surface2'), empty: token('surface'),
+});
 
 /** Stable colour per owner, so the same client is the same colour every time. */
 function ownerColour(n: MapNode): string {
-  if (!n.ownerPartyId) return '#bae6fd';   // the store's own goods
+  if (!n.ownerPartyId) return token('infoBg');   // the store's own goods
   let h = 0;
   for (const c of n.ownerPartyId) h = (h * 31 + c.charCodeAt(0)) % 360;
   return `hsl(${h}, 62%, 62%)`;
 }
 
 export function colourFor(n: MapNode, mode: ColourMode): string {
-  if (n.status !== 'active') return mode === 'blocked' ? '#f43f5e' : '#e2e8f0';
+  if (n.status !== 'active') return mode === 'blocked' ? token('bad') : token('line');
   const o = n.occupancy;
   switch (mode) {
-    case 'expiry': return EXPIRY_SWATCH[o.expiryBand ?? 'empty'] ?? EXPIRY_SWATCH.empty;
-    case 'velocity': return VELOCITY_SWATCH[o.velocityBand ?? 'empty'] ?? VELOCITY_SWATCH.empty;
+    case 'expiry': { const s = expirySwatch(); return s[o.expiryBand ?? 'empty'] ?? s.empty; }
+    case 'velocity': { const s = velocitySwatch(); return s[o.velocityBand ?? 'empty'] ?? s.empty; }
     case 'owner': return ownerColour(n);
-    case 'blocked': return '#e2e8f0';
-    default: return FILL_SWATCH[o.fillBand ?? 'empty'] ?? FILL_SWATCH.empty;
+    case 'blocked': return token('line');
+    default: { const s = fillSwatch(); return s[o.fillBand ?? 'empty'] ?? s.empty; }
   }
 }
 
-export const LEGENDS: Record<ColourMode, Array<{ swatch: string; label: string }>> = {
-  occupancy: [
-    { swatch: '#e2e8f0', label: 'Empty' }, { swatch: '#22c55e', label: 'Room to spare' },
-    { swatch: '#f59e0b', label: 'Filling up' }, { swatch: '#ef4444', label: 'Nearly full' },
-    { swatch: '#93c5fd', label: 'Holds stock, no limit set' },
-  ],
-  expiry: [
-    { swatch: '#7f1d1d', label: 'Already expired' }, { swatch: '#ef4444', label: 'Within a month' },
-    { swatch: '#f59e0b', label: 'Within 3 months' }, { swatch: '#facc15', label: 'Within 6 months' },
-    { swatch: '#22c55e', label: 'Longer' }, { swatch: '#cbd5e1', label: 'No expiry recorded' },
-  ],
-  velocity: [
-    { swatch: '#4338ca', label: 'Sells fastest' }, { swatch: '#6366f1', label: 'Fast' },
-    { swatch: '#a5b4fc', label: 'Steady' }, { swatch: '#e0e7ff', label: 'Slow' },
-    { swatch: '#f1f5f9', label: 'Nothing sold in 90 days' },
-  ],
-  owner: [
-    { swatch: '#bae6fd', label: 'Your own goods' }, { swatch: 'hsl(200, 62%, 62%)', label: 'A client\'s goods' },
-  ],
-  blocked: [
-    { swatch: '#f43f5e', label: 'Blocked or being counted' }, { swatch: '#e2e8f0', label: 'In use' },
-  ],
+export const legendsFor = (): Record<ColourMode, Array<{ swatch: string; label: string }>> => {
+  const f = fillSwatch(), e = expirySwatch(), v = velocitySwatch();
+  return {
+    occupancy: [
+      { swatch: f.empty, label: 'Empty' }, { swatch: f.low, label: 'Room to spare' },
+      { swatch: f.medium, label: 'Filling up' }, { swatch: f.high, label: 'Nearly full' },
+      { swatch: f.unmeasured, label: 'Holds stock, no limit set' },
+    ],
+    expiry: [
+      { swatch: e.expired, label: 'Already expired' }, { swatch: e.month, label: 'Within a month' },
+      { swatch: e.quarter, label: 'Within 3 months' }, { swatch: e.half_year, label: 'Within 6 months' },
+      { swatch: e.long, label: 'Longer' }, { swatch: e.undated, label: 'No expiry recorded' },
+    ],
+    velocity: [
+      { swatch: v.fastest, label: 'Sells fastest' }, { swatch: v.fast, label: 'Fast' },
+      { swatch: v.steady, label: 'Steady' }, { swatch: v.slow, label: 'Slow' },
+      { swatch: v.still, label: 'Nothing sold in 90 days' },
+    ],
+    owner: [
+      { swatch: token('infoBg'), label: 'Your own goods' },
+      { swatch: 'hsl(200, 62%, 62%)', label: "A client's goods" },
+    ],
+    blocked: [
+      { swatch: token('bad'), label: 'Blocked or being counted' },
+      { swatch: token('line'), label: 'In use' },
+    ],
+  };
 };
 
 export interface FloorMapProps {
@@ -211,7 +225,7 @@ const FloorMap: React.FC<FloorMapProps> = ({
     // A metre grid, so distances on the map mean something.
     const step = 1000 * scale;
     if (step > 8) {
-      ctx.strokeStyle = '#eef2f7'; ctx.lineWidth = 1;
+      ctx.strokeStyle = token('line'); ctx.lineWidth = 1;
       for (let x = (pan.x % step + step) % step; x < box.w; x += step) {
         ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, box.h); ctx.stroke();
       }
@@ -230,11 +244,11 @@ const FloorMap: React.FC<FloorMapProps> = ({
       else ctx.translate(x, y);
       ctx.fillStyle = colourFor(p.n, mode);
       ctx.fillRect(0, 0, w, d);
-      ctx.strokeStyle = p.n.id === selectedId ? '#0f172a' : OUTLINE;
+      ctx.strokeStyle = p.n.id === selectedId ? token('ink') : token('inkSoft');
       ctx.lineWidth = p.n.id === selectedId ? 2.5 : 0.75;
       ctx.strokeRect(0, 0, w, d);
       if (w > 46 && d > 16) {
-        ctx.fillStyle = '#0f172a';
+        ctx.fillStyle = token('ink');
         ctx.font = `${Math.min(12, Math.max(9, d / 3))}px ui-monospace, monospace`;
         ctx.textBaseline = 'middle';
         ctx.fillText(p.n.code.slice(0, Math.floor(w / 7)), 4, d / 2);
@@ -337,11 +351,11 @@ const FloorMap: React.FC<FloorMapProps> = ({
           <>
             <polyline
               points={pathPoints.map((p) => `${p.x},${p.y}`).join(' ')}
-              fill="none" stroke="#0ea5e9" strokeWidth={2.5} strokeDasharray="7 5" strokeLinejoin="round" />
+              fill="none" stroke={token('info')} strokeWidth={2.5} strokeDasharray="7 5" strokeLinejoin="round" />
             {pathPoints.map((p, i) => (
               <g key={i}>
-                <circle cx={p.x} cy={p.y} r={10} fill="#0ea5e9" />
-                <text x={p.x} y={p.y + 3.5} textAnchor="middle" fontSize={10} fill="#fff" fontWeight="600">{i + 1}</text>
+                <circle cx={p.x} cy={p.y} r={10} fill={token('info')} />
+                <text x={p.x} y={p.y + 3.5} textAnchor="middle" fontSize={10} fill={token('inkInverse')} fontWeight="600">{i + 1}</text>
               </g>
             ))}
           </>
@@ -351,14 +365,14 @@ const FloorMap: React.FC<FloorMapProps> = ({
           const c = toPx(drag!.xMm, drag!.yMm);
           const w = dragNode.w * scale, d = dragNode.d * scale;
           return <rect x={c.x - w / 2} y={c.y - d / 2} width={w} height={d}
-                       fill="#0f172a22" stroke="#0f172a" strokeDasharray="4 3" />;
+                       fill={token('ink')} fillOpacity={0.13} stroke={token('ink')} strokeDasharray="4 3" />;
         })()}
 
         {hoverPx && hovered && !drag && (
           <rect x={hoverPx.x} y={hoverPx.y}
                 width={(hovered.geometry.wMm ?? DEFAULT_W) * scale}
                 height={(hovered.geometry.dMm ?? DEFAULT_D) * scale}
-                fill="none" stroke="#0f172a" strokeWidth={1.75} />
+                fill="none" stroke={token('ink')} strokeWidth={1.75} />
         )}
       </svg>
 
@@ -418,7 +432,7 @@ const FloorMap: React.FC<FloorMapProps> = ({
 
 export const MapLegend: React.FC<{ mode: ColourMode }> = ({ mode }) => (
   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600">
-    {LEGENDS[mode].map((l) => (
+    {legendsFor()[mode].map((l) => (
       <span key={l.label} className="inline-flex items-center gap-1">
         <span className="inline-block h-2.5 w-2.5 rounded-sm border border-slate-300" style={{ background: l.swatch }} />
         {l.label}

@@ -1,3 +1,4 @@
+import { vizSeries } from '@/lib/theme';
 import React from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
@@ -12,7 +13,8 @@ interface StatusPipelineProps {
     loading?: boolean;
 }
 
-const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d', '#ffc658', '#ef4444', '#14b8a6'];
+/* recharts writes these straight onto an SVG `fill` attribute, where `var()` is
+   not allowed, so the theme's eight series are resolved at render time. */
 
 /** Capitalize and beautify a snake_case status label */
 const formatLabel = (status: string): string =>
@@ -22,6 +24,8 @@ const StatusPipeline: React.FC<StatusPipelineProps> = ({ orderStats, shipmentSta
     if (loading) {
         return <div className="h-64 flex items-center justify-center bg-gray-50 rounded-lg">Loading pipeline...</div>;
     }
+
+    const series = vizSeries();
 
     const renderChart = (title: string, rawData: StatusData[]) => {
         // Filter out statuses with 0 count so the pie chart stays clean
@@ -44,14 +48,14 @@ const StatusPipeline: React.FC<StatusPipelineProps> = ({ orderStats, shipmentSta
                                     cy="50%"
                                     innerRadius={60}
                                     outerRadius={80}
-                                    fill="#8884d8"
+                                    fill={series[0]}
                                     paddingAngle={5}
                                     dataKey="count"
                                     nameKey="status"
                                     label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                                 >
                                     {data.map((_entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                        <Cell key={`cell-${index}`} fill={series[index % series.length]} />
                                     ))}
                                 </Pie>
                                 <Tooltip formatter={(value: number) => [value, 'Count']} />

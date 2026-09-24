@@ -47,7 +47,7 @@ const MODE_COPY: Record<PricingMode, { title: string; body: string; tone: string
   },
   full: {
     title: 'Batch pricing: full',
-    body: 'A sale is priced from the batch it is served from — first to expire. A batch with no price of its own falls back to the catalogue for that field. Nothing is worked out as a percentage.',
+    body: 'A sale is priced from the batch it is served from — first to expire. Retail shoppers pay the batch’s retail price; B2B accounts pay its B2B price (a contract, price list or tier price agreed with that buyer still wins). A batch with no price of its own falls back to the catalogue for that field. Nothing is worked out as a percentage.',
     tone: 'border-emerald-200 bg-emerald-50',
   },
 };
@@ -134,7 +134,7 @@ const Batches: React.FC = () => {
       const d = b.days_to_expiry;
       if (d != null && d < 0) expired++;
       else if (d != null && d <= days) expiring++;
-      const hasPrice = b.mrp != null || b.selling_price != null;
+      const hasPrice = b.mrp != null || b.selling_price != null || b.b2b_price != null;
       if (hasPrice) priced++;
       const unit = Number(b.selling_price ?? b.mrp ?? 0);
       if (unit > 0) value += unit * (Number(b.qty_on_hand) || 0);
@@ -150,7 +150,7 @@ const Batches: React.FC = () => {
       const d = b.days_to_expiry;
       if (view === 'expiring') return d != null && d >= 0 && d <= days;
       if (view === 'expired') return d != null && d < 0;
-      if (view === 'unpriced') return b.mrp == null && b.selling_price == null;
+      if (view === 'unpriced') return b.mrp == null && b.selling_price == null && b.b2b_price == null;
       return true;
     });
     out = [...out].sort((a, b) => {
@@ -173,9 +173,11 @@ const Batches: React.FC = () => {
       ['Purchase Date', (b) => b.purchase_date ?? ''], ['Purchase Ref', (b) => b.purchase_ref ?? ''],
       ['Mfg Date', (b) => b.mfg_date ?? ''], ['Expiry Date', (b) => b.expiry_date ?? ''],
       ['Days To Expiry', (b) => b.days_to_expiry ?? ''],
-      ['Batch MRP', (b) => b.mrp ?? ''], ['Batch Selling Price', (b) => b.selling_price ?? ''],
+      ['Batch MRP', (b) => b.mrp ?? ''], ['Batch Retail Price', (b) => b.selling_price ?? ''],
+      ['Batch B2B Price', (b) => b.b2b_price ?? ''],
       ['Catalogue MRP', (b) => b.catalogue_mrp ?? ''],
-      ['Catalogue Selling Price', (b) => b.catalogue_selling_price ?? ''],
+      ['Catalogue Retail Price', (b) => b.catalogue_selling_price ?? ''],
+      ['Catalogue B2B Price', (b) => b.catalogue_b2b_price ?? ''],
       ['Status', (b) => b.status],
     ];
     // A leading =+-@ turns a cell into a formula in Excel; prefix it so an
@@ -331,12 +333,12 @@ const Batches: React.FC = () => {
             <THead>
               <Th>Product</Th><Th>SKU</Th><Th>Batch</Th><Th num>Qty in batch</Th>
               <Th>Purchased</Th><Th>Expiry</Th><Th num>Days left</Th>
-              <Th num>Batch MRP</Th><Th num>Batch price</Th><Th num>Catalogue price</Th>
+              <Th num>Batch MRP</Th><Th num>Batch retail</Th><Th num>Batch B2B</Th><Th num>Catalogue</Th>
               <Th>Status</Th><Th> </Th>
             </THead>
             <TBody>
               {!loading && visible.length === 0 && (
-                <EmptyRow colSpan={12}>
+                <EmptyRow colSpan={13}>
                   {rows.length === 0
                     ? 'No batches yet — receive goods in Purchasing, add one above, or load them all at once with the Excel sheet.'
                     : 'No batches match these filters.'}
@@ -358,8 +360,13 @@ const Batches: React.FC = () => {
                   <Td num>
                     {money(b.selling_price) ?? <span className="text-gray-400">—</span>}
                   </Td>
-                  <Td num className="text-xs text-gray-500">
+                  <Td num>
+                    {money(b.b2b_price) ?? <span className="text-gray-400" title="No B2B price of its own — the SKU's B2B price applies.">—</span>}
+                  </Td>
+                  <Td num className="text-xs text-gray-500"
+                      title={`Catalogue retail ${money(b.catalogue_selling_price) ?? money(b.catalogue_mrp) ?? '—'} · catalogue B2B ${money(b.catalogue_b2b_price) ?? '—'}`}>
                     {money(b.catalogue_selling_price) ?? money(b.catalogue_mrp) ?? '—'}
+                    {b.catalogue_b2b_price != null && <span className="block text-[10px]">B2B {money(b.catalogue_b2b_price)}</span>}
                   </Td>
                   <Td><StatusChip status={b.status} /></Td>
                   <Td>
@@ -474,7 +481,8 @@ const GroupedBatches: React.FC<{
                           <tr key={b.id} className="cursor-pointer border-t border-gray-50 hover:bg-gray-50"
                               onClick={() => onPick({ ...b, sku: v.sku, product_name: p.product_name,
                                                       catalogue_mrp: v.catalogue_mrp,
-                                                      catalogue_selling_price: v.catalogue_selling_price })}>
+                                                      catalogue_selling_price: v.catalogue_selling_price,
+                                                      catalogue_b2b_price: v.catalogue_b2b_price })}>
                             <td className="py-1.5 pl-8 pr-3 font-mono font-medium">{b.batch_number}</td>
                             <td className="px-3 text-right tabular-nums">{b.qty_on_hand}</td>
                             <td className="whitespace-nowrap px-3 text-gray-600">{b.expiry_date ?? '—'}</td>
@@ -482,7 +490,8 @@ const GroupedBatches: React.FC<{
                               {b.days_to_expiry != null ? `${b.days_to_expiry}d` : '—'}
                             </td>
                             <td className="px-3 text-right tabular-nums">{b.mrp != null ? `\u20b9${Number(b.mrp).toFixed(2)}` : '—'}</td>
-                            <td className="px-3 text-right tabular-nums">{b.selling_price != null ? `\u20b9${Number(b.selling_price).toFixed(2)}` : '—'}</td>
+                            <td className="px-3 text-right tabular-nums" title="Batch retail price">{b.selling_price != null ? `\u20b9${Number(b.selling_price).toFixed(2)}` : '—'}</td>
+                            <td className="px-3 text-right tabular-nums" title="Batch B2B price">{b.b2b_price != null ? `\u20b9${Number(b.b2b_price).toFixed(2)}` : '—'}</td>
                             <td className="px-3 py-1.5">
                               {/* Where it physically is. Several bins is normal. */}
                               {b.placements?.length ? (
@@ -530,7 +539,7 @@ const AddBatchCard: React.FC<{ onDone: () => void }> = ({ onDone }) => {
   const [picked, setPicked] = useState<any | null>(null);
   const [f, setF] = useState<Record<string, string>>({
     batchNumber: '', qty: '', expiry: '', mfg: '', purchaseDate: '', purchaseRef: '',
-    mrp: '', sellingPrice: '', cost: '', supplierBatchRef: '',
+    mrp: '', sellingPrice: '', b2bPrice: '', cost: '', supplierBatchRef: '',
   });
   const [mode, setMode] = useState<'receive' | 'assign'>('receive');
   const [busy, setBusy] = useState(false);
@@ -559,7 +568,10 @@ const AddBatchCard: React.FC<{ onDone: () => void }> = ({ onDone }) => {
     }
     if (!f.batchNumber.trim() || !q || q <= 0) { setErr('Batch number and a quantity above 0 are required.'); return; }
     if (f.mrp && f.sellingPrice && Number(f.sellingPrice) > Number(f.mrp)) {
-      setErr(`Selling price ₹${f.sellingPrice} is above this batch's own MRP ₹${f.mrp}.`); return;
+      setErr(`Retail price ₹${f.sellingPrice} is above this batch's own MRP ₹${f.mrp}.`); return;
+    }
+    if (f.mrp && f.b2bPrice && Number(f.b2bPrice) > Number(f.mrp)) {
+      setErr(`B2B price ₹${f.b2bPrice} is above this batch's own MRP ₹${f.mrp}.`); return;
     }
     setBusy(true);
     try {
@@ -572,6 +584,7 @@ const AddBatchCard: React.FC<{ onDone: () => void }> = ({ onDone }) => {
         supplierBatchRef: f.supplierBatchRef.trim() || undefined,
         mrp: f.mrp || undefined,
         sellingPrice: f.sellingPrice || undefined,
+        b2bPrice: f.b2bPrice || undefined,
         unitCostRupees: mode === 'receive' && f.cost ? f.cost : undefined,
       });
       onDone();
@@ -619,8 +632,11 @@ const AddBatchCard: React.FC<{ onDone: () => void }> = ({ onDone }) => {
             <input className={inputCls} type="number" min={1} value={f.qty} onChange={set('qty')} /></label>
           <label className="block"><span className="mb-1 block text-xs font-medium text-gray-600">Printed MRP</span>
             <input className={inputCls} type="number" step="0.01" min="0" value={f.mrp} onChange={set('mrp')} /></label>
-          <label className="block"><span className="mb-1 block text-xs font-medium text-gray-600">Selling price</span>
+          <label className="block"><span className="mb-1 block text-xs font-medium text-gray-600">Retail price</span>
             <input className={inputCls} type="number" step="0.01" min="0" value={f.sellingPrice} onChange={set('sellingPrice')} /></label>
+          <label className="block"><span className="mb-1 block text-xs font-medium text-gray-600">B2B price</span>
+            <input className={inputCls} type="number" step="0.01" min="0" value={f.b2bPrice} onChange={set('b2bPrice')}
+              title="What a wholesale account pays for this lot. Blank = the SKU's B2B price." /></label>
           <label className="block"><span className="mb-1 block text-xs font-medium text-gray-600">Purchase date</span>
             <input className={inputCls} type="date" value={f.purchaseDate} onChange={set('purchaseDate')} /></label>
           <label className="block"><span className="mb-1 block text-xs font-medium text-gray-600">Manufactured</span>

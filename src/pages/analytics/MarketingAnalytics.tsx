@@ -32,9 +32,9 @@ const CHANNEL_LABEL: Record<string, string> = {
 
 const CHANNEL_COLOR: Record<string, string> = {
   google_ads: '#4285F4', meta_ads: '#0866FF', microsoft_ads: '#00A4EF', tiktok_ads: '#EE1D52',
-  organic_search: '#34A853', organic_social: '#8B5CF6', referral: '#F59E0B',
-  email: '#EC4899', sms: '#14B8A6', whatsapp: '#25D366', affiliate: '#6366F1',
-  direct: '#9CA3AF', other: '#6B7280',
+  organic_search: '#34A853', organic_social: 'var(--b-500)', referral: 'var(--w-500)',
+  email: 'var(--b-500)', sms: 'var(--g-500)', whatsapp: '#25D366', affiliate: 'var(--b-500)',
+  direct: 'var(--n-400)', other: 'var(--n-500)',
 };
 
 const inr = (n: number) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
@@ -61,7 +61,7 @@ const ShareBar: React.FC<{ rows: any[]; total: number }> = ({ rows, total }) => 
   <div className="space-y-2.5">
     {rows.map((r) => {
       const pct = total > 0 ? (r.revenue / total) * 100 : 0;
-      const color = CHANNEL_COLOR[r.channel] ?? '#6B7280';
+      const color = CHANNEL_COLOR[r.channel] ?? 'var(--n-500)';
       return (
         <div key={r.channel}>
           <div className="mb-1 flex items-center justify-between text-sm">
@@ -222,7 +222,7 @@ const MarketingAnalytics: React.FC = () => {
                         <td className="py-2 font-medium">{c.campaign}</td>
                         <td className="py-2">
                           <span className="inline-flex items-center gap-1.5">
-                            <span className="h-2 w-2 rounded-full" style={{ background: CHANNEL_COLOR[c.channel] ?? '#6B7280' }} />
+                            <span className="h-2 w-2 rounded-full" style={{ background: CHANNEL_COLOR[c.channel] ?? 'var(--n-500)' }} />
                             {label(c.channel)}
                           </span>
                         </td>

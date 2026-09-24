@@ -23,7 +23,7 @@ const FUNNEL_STEPS: Array<[key: string, label: string]> = [
 ];
 
 /** Sequential blue ramp (light) for the cohort heatmap — one hue, light→dark. */
-const SEQ = ['#f4f8fe', '#cde2fb', '#9ec5f4', '#6da7ec', '#3987e5', '#256abf', '#184f95'];
+const SEQ = ['var(--i-50)', 'var(--i-100)', 'var(--i-300)', 'var(--i-400)', 'var(--i-500)', 'var(--i-600)', 'var(--i-700)'];
 const seqFor = (pct: number) => SEQ[Math.min(SEQ.length - 1, Math.ceil((pct / 100) * (SEQ.length - 1)))];
 
 const GrowthAnalytics: React.FC = () => {
@@ -106,7 +106,7 @@ const GrowthAnalytics: React.FC = () => {
                     <div className="relative h-7 flex-1 rounded bg-gray-50">
                       <div className="h-7 rounded" style={{ width: `${widthPct}%`, background: SERIES[0], opacity: 1 - i * 0.09 }} />
                       <span className="absolute inset-y-0 left-2 flex items-center font-mono text-xs font-medium"
-                        style={{ color: widthPct > 22 ? '#ffffff' : INK.primary }}>
+                        style={{ color: widthPct > 22 ? 'var(--surface)' : INK.primary }}>
                         {val.toLocaleString('en-IN')}
                       </span>
                     </div>
@@ -209,7 +209,7 @@ const GrowthAnalytics: React.FC = () => {
                               <td key={off} className="px-1 py-0.5 text-center">
                                 <div className="rounded px-1.5 py-1 font-mono"
                                   title={cell ? `${cell.customers} customers · ${fmtRupees(cell.revenue)}` : 'no activity'}
-                                  style={{ background: bg, color: darkBg ? '#ffffff' : INK.primary }}>
+                                  style={{ background: bg, color: darkBg ? 'var(--surface)' : INK.primary }}>
                                   {cell ? `${Math.round(pct)}%` : '·'}
                                 </div>
                               </td>

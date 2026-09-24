@@ -153,10 +153,10 @@ const StoreConfiguration: React.FC = () => {
             <CardContent className="p-6 space-y-5">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Field label="Store / Brand Name" required>
-                  <Input value={cfg.business.name} onChange={(e) => set('business', { name: e.target.value })} placeholder="HomeoMead" />
+                  <Input value={cfg.business.name} onChange={(e) => set('business', { name: e.target.value })} placeholder="Homeomed" />
                 </Field>
                 <Field label="Legal Entity Name" hint="Shown on invoices & policies">
-                  <Input value={cfg.business.legalName} onChange={(e) => set('business', { legalName: e.target.value })} placeholder="HomeoMead Wellness Pvt. Ltd." />
+                  <Input value={cfg.business.legalName} onChange={(e) => set('business', { legalName: e.target.value })} placeholder="Homeomed Wellness Pvt. Ltd." />
                 </Field>
               </div>
               <Field label="Tagline">
@@ -168,7 +168,7 @@ const StoreConfiguration: React.FC = () => {
               </Field>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Field label="Website URL">
-                  <Input value={cfg.business.websiteUrl} onChange={(e) => set('business', { websiteUrl: e.target.value })} placeholder="https://homeomead.com" />
+                  <Input value={cfg.business.websiteUrl} onChange={(e) => set('business', { websiteUrl: e.target.value })} placeholder="https://homeomed.in" />
                 </Field>
                 <Field label="Logo URL" hint="Upload in Gallery, paste URL. Or set in Appearance → Style.">
                   <Input value={cfg.business.logoUrl} onChange={(e) => set('business', { logoUrl: e.target.value })} placeholder="https://cdn.…/logo.png" />
@@ -190,10 +190,10 @@ const StoreConfiguration: React.FC = () => {
             <CardContent className="p-6 space-y-5">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Field label="Support Email" required>
-                  <Input type="email" value={cfg.contact.email} onChange={(e) => set('contact', { email: e.target.value })} placeholder="support@homeomead.com" />
+                  <Input type="email" value={cfg.contact.email} onChange={(e) => set('contact', { email: e.target.value })} placeholder="support@homeomed.in" />
                 </Field>
                 <Field label="Sales Email" hint="Optional — for B2B / wholesale enquiries">
-                  <Input type="email" value={cfg.contact.salesEmail} onChange={(e) => set('contact', { salesEmail: e.target.value })} placeholder="sales@homeomead.com" />
+                  <Input type="email" value={cfg.contact.salesEmail} onChange={(e) => set('contact', { salesEmail: e.target.value })} placeholder="sales@homeomed.in" />
                 </Field>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

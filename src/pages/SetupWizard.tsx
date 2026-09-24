@@ -337,12 +337,12 @@ const SetupWizard: React.FC = () => {
                 <CardContent className="p-6 space-y-5">
                   <div className="space-y-2">
                     <Label htmlFor="w-storeName">Store Name <span className="text-destructive">*</span></Label>
-                    <Input id="w-storeName" value={cfg.business.name} onChange={e => set('business', { name: e.target.value })} placeholder="e.g. HomeoMead" />
+                    <Input id="w-storeName" value={cfg.business.name} onChange={e => set('business', { name: e.target.value })} placeholder="e.g. Homeomed" />
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="w-legalName">Legal Entity Name</Label>
-                      <Input id="w-legalName" value={cfg.business.legalName} onChange={e => set('business', { legalName: e.target.value })} placeholder="HomeoMead Wellness Pvt. Ltd." />
+                      <Input id="w-legalName" value={cfg.business.legalName} onChange={e => set('business', { legalName: e.target.value })} placeholder="Homeomed Wellness Pvt. Ltd." />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="w-tagline">Tagline</Label>

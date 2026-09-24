@@ -47,26 +47,26 @@ class ErrorBoundary extends Component<Props, State> {
           minHeight: '100vh',
           padding: '20px',
           fontFamily: 'system-ui',
-          backgroundColor: '#f3f4f6'
+          backgroundColor: 'var(--n-100)'
         }}>
           <div style={{
-            backgroundColor: 'white',
+            backgroundColor: 'var(--surface)',
             padding: '40px',
             borderRadius: '8px',
-            boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+            boxShadow: 'var(--shadow-2)',
             maxWidth: '600px',
             width: '100%'
           }}>
             <h1 style={{
               fontSize: '24px',
               fontWeight: 'bold',
-              color: '#ef4444',
+              color: 'var(--d-500)',
               marginBottom: '16px'
             }}>
               ⚠️ Application Error
             </h1>
             <p style={{
-              color: '#6b7280',
+              color: 'var(--n-500)',
               marginBottom: '24px',
               lineHeight: '1.6'
             }}>
@@ -74,13 +74,13 @@ class ErrorBoundary extends Component<Props, State> {
             </p>
             {this.state.error && (
               <div style={{
-                backgroundColor: '#fef2f2',
+                backgroundColor: 'var(--d-50)',
                 padding: '16px',
                 borderRadius: '4px',
                 marginBottom: '16px'
               }}>
                 <p style={{
-                  color: '#dc2626',
+                  color: 'var(--d-600)',
                   fontWeight: '600',
                   marginBottom: '8px'
                 }}>
@@ -90,18 +90,18 @@ class ErrorBoundary extends Component<Props, State> {
                   <details style={{
                     marginTop: '12px',
                     fontSize: '12px',
-                    color: '#6b7280'
+                    color: 'var(--n-500)'
                   }}>
                     <summary style={{
                       cursor: 'pointer',
                       marginBottom: '8px',
-                      color: '#9ca3af'
+                      color: 'var(--n-400)'
                     }}>
                       Stack Trace
                     </summary>
                     <pre style={{
-                      backgroundColor: '#1f2937',
-                      color: '#f3f4f6',
+                      backgroundColor: 'var(--n-800)',
+                      color: 'var(--n-100)',
                       padding: '12px',
                       borderRadius: '4px',
                       overflow: 'auto',
@@ -125,8 +125,8 @@ class ErrorBoundary extends Component<Props, State> {
                 window.location.reload();
               }}
               style={{
-                backgroundColor: '#ef4444',
-                color: 'white',
+                backgroundColor: 'var(--d-500)',
+                color: 'var(--ink-inverse)',
                 border: 'none',
                 padding: '12px 24px',
                 borderRadius: '6px',

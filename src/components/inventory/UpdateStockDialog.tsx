@@ -132,10 +132,10 @@ export default function UpdateStockDialog({
   // One form state per tab, so switching tabs never loses what was typed —
   // and all of it reset when the dialog opens for a different SKU.
   const blankRcv = () => ({
-    intoLot: true, batchNumber: '', qty: '', mrp: '', sellingPrice: '', mfgDate: '', expiryDate: '',
+    intoLot: true, batchNumber: '', qty: '', mrp: '', sellingPrice: '', b2bPrice: '', mfgDate: '', expiryDate: '',
     purchaseDate: todayIso(), purchaseRef: '', supplierBatchRef: '', unitCost: '', note: '',
   });
-  const blankLbl = () => ({ batchNumber: '', qty: '', mrp: '', sellingPrice: '', mfgDate: '', expiryDate: '', supplierBatchRef: '' });
+  const blankLbl = () => ({ batchNumber: '', qty: '', mrp: '', sellingPrice: '', b2bPrice: '', mfgDate: '', expiryDate: '', supplierBatchRef: '' });
   const [rcv, setRcv] = useState(blankRcv);
   const [rem, setRem] = useState({ source: '', qty: '', reason: 'damage', note: '' });
   const [cnt, setCnt] = useState({ lotId: '', qty: '', note: '' });
@@ -182,6 +182,7 @@ export default function UpdateStockDialog({
     if (first) {
       setEdt({
         lotId: first.id, batchNumber: first.batch_number ?? '', mrp: first.mrp ?? '', sellingPrice: first.selling_price ?? '',
+        b2bPrice: first.b2b_price ?? '',
         mfgDate: first.mfg_date ?? '', expiryDate: first.expiry_date ?? '', purchaseDate: first.purchase_date ?? '',
         purchaseRef: first.purchase_ref ?? '', supplierBatchRef: first.supplier_batch_ref ?? '',
       });
@@ -218,6 +219,7 @@ export default function UpdateStockDialog({
       await batchesAPI.create({
         variationId, batchNumber: rcv.batchNumber.trim(), qty: rcvQty, mode: 'receive',
         mrp: n(rcv.mrp) ?? undefined, sellingPrice: n(rcv.sellingPrice) ?? undefined,
+        b2bPrice: n(rcv.b2bPrice) ?? undefined,
         mfgDate: rcv.mfgDate || undefined, expiryDate: rcv.expiryDate || undefined,
         purchaseDate: rcv.purchaseDate || undefined, purchaseRef: rcv.purchaseRef.trim() || undefined,
         supplierBatchRef: rcv.supplierBatchRef.trim() || undefined,
@@ -274,6 +276,7 @@ export default function UpdateStockDialog({
     await batchesAPI.create({
       variationId, batchNumber: lbl.batchNumber.trim(), qty: lblQty, mode: 'assign',
       mrp: n(lbl.mrp) ?? undefined, sellingPrice: n(lbl.sellingPrice) ?? undefined,
+      b2bPrice: n(lbl.b2bPrice) ?? undefined,
       mfgDate: lbl.mfgDate || undefined, expiryDate: lbl.expiryDate || undefined,
       supplierBatchRef: lbl.supplierBatchRef.trim() || undefined,
     });
@@ -287,6 +290,7 @@ export default function UpdateStockDialog({
     if (!l) return;
     setEdt({
       lotId: l.id, batchNumber: l.batch_number ?? '', mrp: l.mrp ?? '', sellingPrice: l.selling_price ?? '',
+      b2bPrice: l.b2b_price ?? '',
       mfgDate: l.mfg_date ?? '', expiryDate: l.expiry_date ?? '', purchaseDate: l.purchase_date ?? '',
       purchaseRef: l.purchase_ref ?? '', supplierBatchRef: l.supplier_batch_ref ?? '',
     });
@@ -305,6 +309,7 @@ export default function UpdateStockDialog({
     cmp('batchNumber', edtLot.batch_number, edt.batchNumber);
     cmp('mrp', edtLot.mrp, edt.mrp, true);
     cmp('sellingPrice', edtLot.selling_price, edt.sellingPrice, true);
+    cmp('b2bPrice', edtLot.b2b_price, edt.b2bPrice, true);
     cmp('mfgDate', edtLot.mfg_date, edt.mfgDate);
     cmp('expiryDate', edtLot.expiry_date, edt.expiryDate);
     cmp('purchaseDate', edtLot.purchase_date, edt.purchaseDate);
@@ -418,8 +423,11 @@ export default function UpdateStockDialog({
                 {rcv.intoLot && (
                   <>
                     <Field label="Batch MRP (printed on pack)"><Input type="number" min={0} step="0.01" value={rcv.mrp} onChange={(e) => setRcv({ ...rcv, mrp: e.target.value })} /></Field>
-                    <Field label="Batch selling price" hint="Leave blank to sell at the catalogue price.">
+                    <Field label="Batch retail price" hint="Leave blank to sell at the catalogue price.">
                       <Input type="number" min={0} step="0.01" value={rcv.sellingPrice} onChange={(e) => setRcv({ ...rcv, sellingPrice: e.target.value })} />
+                    </Field>
+                    <Field label="Batch B2B price" hint="What a wholesale account pays for this lot. Blank = the SKU's B2B price.">
+                      <Input type="number" min={0} step="0.01" value={rcv.b2bPrice} onChange={(e) => setRcv({ ...rcv, b2bPrice: e.target.value })} />
                     </Field>
                     <Field label="Mfg date"><Input type="date" value={rcv.mfgDate} onChange={(e) => setRcv({ ...rcv, mfgDate: e.target.value })} /></Field>
                     <Field label="Expiry date"><Input type="date" value={rcv.expiryDate} onChange={(e) => setRcv({ ...rcv, expiryDate: e.target.value })} /></Field>
@@ -515,7 +523,8 @@ export default function UpdateStockDialog({
                 <Field label="Batch number *"><Input value={lbl.batchNumber} onChange={(e) => setLbl({ ...lbl, batchNumber: e.target.value })} autoFocus /></Field>
                 <Field label={`Units in this lot * (up to ${fmt(loose)})`}><Input type="number" min={1} max={loose} value={lbl.qty} onChange={(e) => setLbl({ ...lbl, qty: e.target.value })} /></Field>
                 <Field label="Batch MRP"><Input type="number" min={0} step="0.01" value={lbl.mrp} onChange={(e) => setLbl({ ...lbl, mrp: e.target.value })} /></Field>
-                <Field label="Batch selling price"><Input type="number" min={0} step="0.01" value={lbl.sellingPrice} onChange={(e) => setLbl({ ...lbl, sellingPrice: e.target.value })} /></Field>
+                <Field label="Batch retail price"><Input type="number" min={0} step="0.01" value={lbl.sellingPrice} onChange={(e) => setLbl({ ...lbl, sellingPrice: e.target.value })} /></Field>
+                <Field label="Batch B2B price"><Input type="number" min={0} step="0.01" value={lbl.b2bPrice} onChange={(e) => setLbl({ ...lbl, b2bPrice: e.target.value })} /></Field>
                 <Field label="Mfg date"><Input type="date" value={lbl.mfgDate} onChange={(e) => setLbl({ ...lbl, mfgDate: e.target.value })} /></Field>
                 <Field label="Expiry date"><Input type="date" value={lbl.expiryDate} onChange={(e) => setLbl({ ...lbl, expiryDate: e.target.value })} /></Field>
               </div>
@@ -535,7 +544,8 @@ export default function UpdateStockDialog({
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Batch number"><Input value={edt.batchNumber ?? ''} onChange={(e) => setEdt({ ...edt, batchNumber: e.target.value })} /></Field>
                 <Field label="Batch MRP"><Input type="number" min={0} step="0.01" value={edt.mrp ?? ''} onChange={(e) => setEdt({ ...edt, mrp: e.target.value })} /></Field>
-                <Field label="Batch selling price" hint="Blank = sell at the catalogue price."><Input type="number" min={0} step="0.01" value={edt.sellingPrice ?? ''} onChange={(e) => setEdt({ ...edt, sellingPrice: e.target.value })} /></Field>
+                <Field label="Batch retail price" hint="Blank = sell at the catalogue price."><Input type="number" min={0} step="0.01" value={edt.sellingPrice ?? ''} onChange={(e) => setEdt({ ...edt, sellingPrice: e.target.value })} /></Field>
+                <Field label="Batch B2B price" hint="Blank = the SKU's B2B price."><Input type="number" min={0} step="0.01" value={edt.b2bPrice ?? ''} onChange={(e) => setEdt({ ...edt, b2bPrice: e.target.value })} /></Field>
                 <Field label="Mfg date"><Input type="date" value={edt.mfgDate ?? ''} onChange={(e) => setEdt({ ...edt, mfgDate: e.target.value })} /></Field>
                 <Field label="Expiry date"><Input type="date" value={edt.expiryDate ?? ''} onChange={(e) => setEdt({ ...edt, expiryDate: e.target.value })} /></Field>
                 <Field label="Purchase date"><Input type="date" value={edt.purchaseDate ?? ''} onChange={(e) => setEdt({ ...edt, purchaseDate: e.target.value })} /></Field>

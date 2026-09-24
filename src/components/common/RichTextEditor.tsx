@@ -82,13 +82,13 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
         style={{ minHeight }}
       />
       <style>{`
-        .rte-surface:empty:before { content: attr(data-placeholder); color: #9ca3af; pointer-events: none; }
+        .rte-surface:empty:before { content: attr(data-placeholder); color: var(--n-400); pointer-events: none; }
         .rte-surface h2 { font-size: 1.15rem; font-weight: 700; margin: .5em 0 .25em; }
         .rte-surface h3 { font-size: 1rem; font-weight: 600; margin: .5em 0 .25em; }
         .rte-surface ul { list-style: disc; padding-left: 1.4em; }
         .rte-surface ol { list-style: decimal; padding-left: 1.4em; }
-        .rte-surface blockquote { border-left: 3px solid #e5e7eb; padding-left: .75em; color: #6b7280; margin: .5em 0; }
-        .rte-surface a { color: #2563eb; text-decoration: underline; }
+        .rte-surface blockquote { border-left: 3px solid var(--n-200); padding-left: .75em; color: var(--n-500); margin: .5em 0; }
+        .rte-surface a { color: var(--i-600); text-decoration: underline; }
       `}</style>
     </div>
   );

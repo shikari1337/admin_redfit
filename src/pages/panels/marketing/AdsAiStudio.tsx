@@ -185,7 +185,7 @@ const AdsAiStudio: React.FC = () => {
                 <>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <Field label="Business goal" k="goal" placeholder="Sell more mother tinctures this month" />
-                    <Field label="Brand name" k="brandName" placeholder="HomeoMead" />
+                    <Field label="Brand name" k="brandName" placeholder="Homeomed" />
                     <Field label="Landing page URL" k="landingUrl" placeholder="https://…" />
                     <Field label="Monthly budget (₹)" k="monthlyBudget" type="number" placeholder="30000" />
                     <label className="block">

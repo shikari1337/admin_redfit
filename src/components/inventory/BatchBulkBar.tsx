@@ -217,17 +217,22 @@ const BatchBulkBar: React.FC<{ onImported?: () => void }> = ({ onImported }) => 
             <div className="font-medium text-gray-900">Fill it in</div>
             <p className="mt-0.5 text-gray-600">
               One row per SKU <span className="font-mono">×</span> batch. Each row carries its own{' '}
-              <strong>Quantity</strong>, <strong>Batch MRP</strong> and{' '}
-              <strong>Batch Selling Price</strong>. To hold several batches of one product, repeat
-              the SKU on more rows with different <strong>Batch Numbers</strong>.
+              <strong>Quantity</strong>, <strong>Batch MRP</strong>, <strong>Batch Retail Price</strong>{' '}
+              and <strong>Batch B2B Price</strong> — the same three prices the Inventory sheet holds
+              per SKU, here per lot. To hold several batches of one product, repeat the SKU on more
+              rows with different <strong>Batch Numbers</strong>.
             </p>
             <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs">
               <div className="font-medium text-gray-700">How the price is decided</div>
               <div className="mt-1 text-gray-600">
-                Batch Selling Price → Batch MRP → Catalogue Selling Price → Catalogue MRP.
-                Leave the selling price blank and the batch sells at its own printed MRP.
-                Nothing is ever worked out as a percentage.
+                <strong>Retail:</strong> Batch Retail Price → Batch MRP → Catalogue Retail Price → Catalogue MRP.
+                Leave the retail price blank and the batch sells at its own printed MRP.
               </div>
+              <div className="mt-1 text-gray-600">
+                <strong>Wholesale:</strong> a contract, price list or tier price agreed with the buyer,
+                then Batch B2B Price → Catalogue B2B Price. Leave it blank and the SKU's own B2B price applies.
+              </div>
+              <div className="mt-1 text-gray-600">Nothing is ever worked out as a percentage.</div>
             </div>
             <p className="mt-2 text-gray-600">
               The <strong>Action</strong> column says what each row does —{' '}

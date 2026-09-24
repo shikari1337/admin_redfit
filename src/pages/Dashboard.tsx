@@ -30,7 +30,7 @@ const FunnelBars: React.FC<{
           <div className="relative h-7 flex-1 rounded bg-gray-50">
             <div className="h-7 rounded" style={{ width: `${widthPct}%`, background: SERIES[0], opacity: 1 - i * 0.09 }} />
             <span className="absolute inset-y-0 left-2 flex items-center font-mono text-xs font-medium"
-              style={{ color: widthPct > 22 ? '#ffffff' : INK.primary }}>
+              style={{ color: widthPct > 22 ? 'var(--surface)' : INK.primary }}>
               {val.toLocaleString('en-IN')}
             </span>
           </div>

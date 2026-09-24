@@ -79,7 +79,7 @@ const InventoryPanelDashboard: React.FC = () => {
                   ['Within 30 days', exp.within_30d, STATUS.serious],
                   ['31–90 days', exp.within_90d, STATUS.warning],
                   ['Later', exp.later, STATUS.good],
-                  ['No expiry set', exp.no_expiry, '#898781'],
+                  ['No expiry set', exp.no_expiry, 'var(--n-400)'],
                 ] as const).map(([label, n, color]) => (
                   <div key={label} className="flex items-center justify-between">
                     <span className="flex items-center gap-2 text-gray-700">

@@ -1,3 +1,4 @@
+import { token } from '@/lib/theme';
 import React, { useEffect, useState } from 'react';
 import { analyticsAPI } from '../../services/analyticsService';
 import { api } from '../../services/api';
@@ -86,11 +87,11 @@ const RealtimeAnalytics: React.FC = () => {
                                         <Geography
                                             key={geo.rsmKey}
                                             geography={geo}
-                                            fill="#D6D6DA"
-                                            stroke="#FFFFFF"
+                                            fill={token('line')}
+                                            stroke={token('surface')}
                                             style={{
                                                 default: { outline: "none" },
-                                                hover: { fill: "#F53", outline: "none" },
+                                                hover: { fill: token('accent'), outline: "none" },
                                                 pressed: { outline: "none" },
                                             }}
                                         />

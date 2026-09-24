@@ -1,3 +1,4 @@
+import { token } from '@/lib/theme';
 import React, { useEffect, useState } from 'react';
 import FilerobotImageEditor, { TABS, TOOLS } from 'react-filerobot-image-editor';
 import { X, Sparkles, Link2, Upload, LayoutGrid, Pencil, Check } from 'lucide-react';
@@ -183,7 +184,7 @@ const MediaPicker: React.FC<MediaPickerProps> = ({
             source={editing}
             onSave={(edited: any) => saveEdited(edited.imageBase64, edited.fullName || edited.name, edited.mimeType)}
             onClose={() => setEditing(null)}
-            annotationsCommon={{ fill: '#2e6a56' }}
+            annotationsCommon={{ fill: token('accent') }}
             tabsIds={[TABS.ADJUST, TABS.ANNOTATE, TABS.FINETUNE, TABS.FILTERS, TABS.RESIZE, TABS.WATERMARK]}
             defaultTabId={TABS.ADJUST}
             defaultToolId={TOOLS.CROP}

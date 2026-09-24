@@ -141,7 +141,7 @@ export async function resolveTenantFromDomain(): Promise<void> {
  * localStorage key for a runtime API-server-URL override. It WINS over the
  * build-time VITE_API_SERVER_URL, so a bad/misspelled deploy value can be fixed
  * from the browser WITHOUT a rebuild:
- *   localStorage.setItem('admin_api_server_url','https://api.homeomead.us'); location.reload()
+ *   localStorage.setItem('admin_api_server_url','https://api.gc.mw'); location.reload()
  */
 export const API_SERVER_URL_STORAGE_KEY = 'admin_api_server_url';
 

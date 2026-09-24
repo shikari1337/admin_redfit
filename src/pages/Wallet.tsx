@@ -1,3 +1,4 @@
+import { token } from '@/lib/theme';
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Loader2, Wallet as WalletIcon, AlertTriangle, Plus, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
@@ -162,7 +163,7 @@ const WalletPage: React.FC = () => {
           }
         },
         modal: { ondismiss: () => setRecharging(false) },
-        theme: { color: '#dc2626' },
+        theme: { color: token('accent') },
       });
       rzp.on('payment.failed', () => { setError('Payment failed. No amount was deducted from the wallet.'); setRecharging(false); });
       rzp.open();

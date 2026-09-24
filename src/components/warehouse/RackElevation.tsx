@@ -96,7 +96,7 @@ export const RackElevation: React.FC<{
                         onClick={() => onSelect(slot)}
                         style={{
                           width: cellW, height: cellH,
-                          ...(tone === 'blocked' ? { backgroundImage: 'repeating-linear-gradient(135deg, rgba(255,255,255,.12) 0 6px, transparent 6px 12px)' } : {}),
+                          ...(tone === 'blocked' ? { backgroundImage: 'repeating-linear-gradient(135deg, color-mix(in srgb, var(--surface) 12%, transparent) 0 6px, transparent 6px 12px)' } : {}),
                         }}
                         className={cn(
                           'relative overflow-hidden rounded-sm border text-left transition-shadow',

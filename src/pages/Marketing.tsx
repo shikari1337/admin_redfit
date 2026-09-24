@@ -155,7 +155,7 @@ export default function Marketing() {
       )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="bg-muted bg-opacity-50">
+        <TabsList className="bg-muted/50">
           <TabsTrigger value="campaigns" className="min-w-[120px]">
             Campaigns ({campaigns.length})
           </TabsTrigger>

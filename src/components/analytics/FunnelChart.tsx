@@ -1,3 +1,4 @@
+import { token } from '@/lib/theme';
 import React from 'react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell, CartesianGrid } from 'recharts';
 
@@ -34,7 +35,7 @@ const FunnelChart: React.FC<FunnelChartProps> = ({ data, loading }) => {
     const CustomTooltip = ({ active, payload, label }: any) => {
         if (active && payload && payload.length) {
             return (
-                <div className="bg-white p-3 border rounded shadow-lg">
+                <div className="bg-surface p-3 border border-line rounded shadow-md">
                     <p className="font-bold text-gray-800">{label}</p>
                     <p className="text-indigo-600 font-semibold">{payload[0].value.toLocaleString()}</p>
                     <p className="text-xs text-gray-500 mt-1">
@@ -58,7 +59,7 @@ const FunnelChart: React.FC<FunnelChartProps> = ({ data, loading }) => {
                         <Tooltip content={<CustomTooltip />} />
                         <Bar dataKey="count" radius={[0, 4, 4, 0]} barSize={30}>
                             {enrichedData.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={entry.fill || '#4F46E5'} fillOpacity={0.8 - (index * 0.1)} />
+                                <Cell key={`cell-${index}`} fill={entry.fill || token('accent')} fillOpacity={0.8 - (index * 0.1)} />
                             ))}
                         </Bar>
                     </BarChart>

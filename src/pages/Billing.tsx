@@ -224,37 +224,37 @@ export default function Billing() {
         .billing-page { padding: 24px; max-width: 1100px; margin: 0 auto; }
         .page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
         .page-header h1 { margin: 0 0 4px; font-size: 1.5rem; }
-        .subtitle { margin: 0; color: #666; font-size: 0.875rem; }
+        .subtitle { margin: 0; color: var(--n-500); font-size: 0.875rem; }
         .alert { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 0.875rem; }
-        .alert-error { background: #fef2f2; border: 1px solid #fca5a5; color: #dc2626; }
-        .alert-success { background: #f0fdf4; border: 1px solid #86efac; color: #16a34a; }
+        .alert-error { background: var(--d-50); border: 1px solid var(--d-300); color: var(--d-600); }
+        .alert-success { background: var(--g-50); border: 1px solid var(--g-300); color: var(--g-600); }
         .alert button { background: none; border: none; cursor: pointer; font-size: 1rem; }
         .loading { text-align: center; padding: 60px; }
-        .spinner { width: 32px; height: 32px; border: 3px solid #e5e7eb; border-top-color: #4f46e5; border-radius: 50%; animation: spin 0.7s linear infinite; margin: 0 auto; }
+        .spinner { width: 32px; height: 32px; border: 3px solid var(--n-200); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; margin: 0 auto; }
         @keyframes spin { to { transform: rotate(360deg); } }
-        .usage-card { background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); border-radius: 12px; padding: 24px; margin-bottom: 24px; color: #fff; }
+        .usage-card { background: linear-gradient(135deg, var(--accent) 0%, var(--accent) 100%); border-radius: 12px; padding: 24px; margin-bottom: 24px; color: var(--surface); }
         .usage-card h2 { margin: 0 0 4px; font-size: 1rem; font-weight: 600; opacity: 0.9; }
         .period { margin: 0 0 20px; font-size: 0.8rem; opacity: 0.75; }
         .usage-stats { display: flex; gap: 0; flex-wrap: wrap; }
-        .stat { flex: 1; min-width: 120px; padding: 0 20px; border-right: 1px solid rgba(255,255,255,0.2); }
+        .stat { flex: 1; min-width: 120px; padding: 0 20px; border-right: 1px solid color-mix(in srgb, var(--surface) 20%, transparent); }
         .stat:first-child { padding-left: 0; }
         .stat:last-child { border-right: none; }
         .stat-label { display: block; font-size: 0.75rem; opacity: 0.75; margin-bottom: 4px; }
         .stat-value { display: block; font-size: 1.2rem; font-weight: 700; }
         .stat-total .stat-value { font-size: 1.4rem; }
-        .invoices-section h2 { font-size: 1.1rem; margin: 0 0 16px; color: #374151; }
-        .empty { text-align: center; padding: 40px; color: #9ca3af; }
+        .invoices-section h2 { font-size: 1.1rem; margin: 0 0 16px; color: var(--n-700); }
+        .empty { text-align: center; padding: 40px; color: var(--n-400); }
         .table-wrap { overflow-x: auto; }
         table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
-        th { padding: 10px 12px; text-align: left; font-weight: 600; color: #374151; background: #f9fafb; border-bottom: 2px solid #e5e7eb; white-space: nowrap; }
-        td { padding: 10px 12px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; }
-        tr:hover td { background: #fafafa; }
+        th { padding: 10px 12px; text-align: left; font-weight: 600; color: var(--n-700); background: var(--n-50); border-bottom: 2px solid var(--n-200); white-space: nowrap; }
+        td { padding: 10px 12px; border-bottom: 1px solid var(--n-100); vertical-align: middle; }
+        tr:hover td { background: var(--n-50); }
         .status-pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
-        .paid-date { font-size: 0.75rem; color: #9ca3af; }
+        .paid-date { font-size: 0.75rem; color: var(--n-400); }
         .btn { padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; font-size: 0.875rem; }
         .btn-sm { padding: 4px 12px; font-size: 0.8rem; }
-        .btn-primary { background: #4f46e5; color: #fff; }
-        .btn-primary:hover { background: #4338ca; }
+        .btn-primary { background: var(--accent); color: var(--surface); }
+        .btn-primary:hover { background: var(--b-700); }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
       `}</style>
     </div>

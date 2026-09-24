@@ -359,7 +359,7 @@ const GoodsInLabels: React.FC = () => {
                       preview.sample.packOf && `PACK OF ${preview.sample.packOf}`].filter(Boolean).join('   ')}
                   </div>
                   {(preview.sample.extraLines ?? []).map((x: string) => <div key={x} className="text-[10px] text-slate-600">{x}</div>)}
-                  <div className="mt-2 h-10 rounded-sm" style={{ backgroundImage: 'repeating-linear-gradient(90deg,#111 0 2px,transparent 2px 4px,#111 4px 5px,transparent 5px 8px)' }} />
+                  <div className="mt-2 h-10 rounded-sm" style={{ backgroundImage: 'repeating-linear-gradient(90deg,var(--ink) 0 2px,transparent 2px 4px,var(--ink) 4px 5px,transparent 5px 8px)' }} />
                   <div className="text-center font-mono text-[10px]">{preview.sample.code}</div>
                 </div>
                 <div className="mt-2 text-center text-sm font-medium text-slate-800">{preview.total} sticker{preview.total === 1 ? '' : 's'} will print</div>

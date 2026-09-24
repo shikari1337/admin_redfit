@@ -1,34 +1,54 @@
 /**
- * Chart theme for panel dashboards — the dataviz skill's validated reference
- * palette (light mode). Slot ORDER is the CVD-safety mechanism: assign series
- * colors in this fixed order by entity, never cycled or re-ranked by value.
- * Status colors are reserved for state (never "series 4") and always ship with
- * an icon/label, never color alone.
+ * Chart theme for panel dashboards.
+ *
+ * The colours are no longer written here: they come from the one theme
+ * (`src/styles/theme.css`, mirrored from `suite/packages/kit/src/theme.json`) and
+ * are read through `src/lib/theme.ts`. Charts need RESOLVED values — recharts puts
+ * them on SVG `fill`/`stroke` attributes, where `var()` is not allowed — so each
+ * name below is a live getter rather than a stored string. Reading it is a cached
+ * Map lookup, and the cache is dropped when the theme changes, so a chart follows
+ * the theme without a reload.
+ *
+ * Slot ORDER is the colour-vision-deficiency safety mechanism: assign series
+ * colours in this fixed order by entity, never cycled or re-ranked by value.
+ * Status colours are reserved for state (never "series 4") and always ship with an
+ * icon or a label, never colour alone.
  */
-export const SERIES = [
-  '#2a78d6', // 1 blue
-  '#eb6834', // 2 orange
-  '#1baf7a', // 3 aqua
-  '#eda100', // 4 yellow
-  '#e87ba4', // 5 magenta
-  '#008300', // 6 green
-  '#4a3aa7', // 7 violet
-  '#e34948', // 8 red
-] as const;
+import { cssVar, token, vizSeries } from '@/lib/theme';
 
+/**
+ * The eight categorical series. Indexable and `.length`-able exactly as before —
+ * each read resolves from the theme, so consumers did not have to change.
+ */
+export const SERIES: readonly string[] = new Proxy([] as string[], {
+  get: (_t, prop) => {
+    const live = vizSeries();
+    const v = Reflect.get(live, prop, live);
+    return typeof v === 'function' ? v.bind(live) : v;
+  },
+  has: (_t, prop) => Reflect.has(vizSeries(), prop),
+  ownKeys: () => Reflect.ownKeys(vizSeries()),
+  getOwnPropertyDescriptor: (_t, prop) => {
+    const d = Reflect.getOwnPropertyDescriptor(vizSeries(), prop);
+    return d ? { ...d, configurable: true } : d;
+  },
+});
+
+/** State, never a series. Four steps from "fine" to "deal with this now". */
 export const STATUS = {
-  good: '#0ca30c',
-  warning: '#fab219',
-  serious: '#ec835a',
-  critical: '#d03b3b',
+  get good() { return token('good'); },
+  get warning() { return token('warn'); },
+  get serious() { return cssVar('--d-400'); },  // between attention and failure
+  get critical() { return token('bad'); },
 } as const;
 
+/** The non-data ink of a chart: labels, gridlines, the baseline. */
 export const INK = {
-  primary: '#0b0b0b',
-  secondary: '#52514e',
-  muted: '#898781',
-  grid: '#e1e0d9',
-  baseline: '#c3c2b7',
+  get primary() { return token('ink'); },
+  get secondary() { return token('inkSoft'); },
+  get muted() { return token('inkMute'); },
+  get grid() { return token('vizGrid'); },
+  get baseline() { return token('vizAxis'); },
 } as const;
 
 /** Compact Indian-locale number (12.3K, 1.2L style via en-IN compact). */

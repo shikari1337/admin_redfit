@@ -484,6 +484,8 @@ const OrderItems: React.FC<OrderItemsProps> = ({
     if (!source || source === 'retail') return null;
     if (source === 'manual') return 'Manual price';
     if (source === 'manual_discount') return 'Manual discount';
+    // The pricing batch's own wholesale price set the rate (migration 228).
+    if (source === 'batch') return 'Batch B2B price';
     return source.replace(/_/g, ' ');
   };
 

@@ -26,11 +26,11 @@ function previousRange(range: PanelRange): PanelRange | null {
 const Delta: React.FC<{ cur: number; prev: number | null }> = ({ cur, prev }) => {
   if (prev === null) return null;
   if (prev === 0 && cur === 0) return <span className="text-xs text-gray-400">—</span>;
-  if (prev === 0) return <span className="text-xs font-medium text-[#006300]">new</span>;
+  if (prev === 0) return <span className="text-xs font-medium text-good">new</span>;
   const pct = ((cur - prev) / prev) * 100;
   const up = pct >= 0;
   return (
-    <span className={`text-xs font-medium ${up ? 'text-[#006300]' : 'text-[#d03b3b]'}`}>
+    <span className={`text-xs font-medium ${up ? 'text-good' : 'text-bad'}`}>
       {up ? '▲' : '▼'} {Math.abs(pct).toFixed(1)}%
     </span>
   );

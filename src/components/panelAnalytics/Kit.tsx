@@ -3,6 +3,7 @@ import {
   ResponsiveContainer, ComposedChart, Line, Area, Bar, BarChart, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts';
+import { token } from '@/lib/theme';
 import { INK, SERIES, fmtBucket, fmtMoneyCompact, fmtCompact } from './vizTheme';
 import { StatCard, SectionCard } from '../erp';
 
@@ -109,7 +110,7 @@ export const Donut: React.FC<{
       <ResponsiveContainer width="55%" height={height}>
         <PieChart>
           <Pie data={rows} dataKey="value" nameKey="name" innerRadius="58%" outerRadius="85%"
-            paddingAngle={2} stroke="#ffffff" strokeWidth={2} isAnimationActive={false}>
+            paddingAngle={2} stroke={token('surface')} strokeWidth={2} isAnimationActive={false}>
             {rows.map((_, i) => <Cell key={i} fill={SERIES[i % SERIES.length]} />)}
           </Pie>
           <Tooltip

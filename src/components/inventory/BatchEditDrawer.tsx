@@ -21,6 +21,8 @@ export interface BatchRecord {
   qty_on_hand: number;
   mrp: number | string | null;
   selling_price: number | string | null;
+  /** This lot's own wholesale price (migration 228). null = the SKU's B2B price applies. */
+  b2b_price?: number | string | null;
   mfg_date: string | null;
   expiry_date: string | null;
   purchase_date: string | null;
@@ -32,6 +34,7 @@ export interface BatchRecord {
   days_to_expiry: number | null;
   catalogue_mrp?: number | string | null;
   catalogue_selling_price?: number | string | null;
+  catalogue_b2b_price?: number | string | null;
 }
 
 const money = (v: number | string | null | undefined) =>
@@ -72,6 +75,7 @@ const BatchEditDrawer: React.FC<{
       batchNumber: str(batch.batch_number),
       mrp: str(batch.mrp),
       sellingPrice: str(batch.selling_price),
+      b2bPrice: str(batch.b2b_price),
       mfgDate: str(batch.mfg_date),
       expiryDate: str(batch.expiry_date),
       purchaseDate: str(batch.purchase_date),
@@ -96,12 +100,15 @@ const BatchEditDrawer: React.FC<{
   // A selling price above this pack's own printed MRP is a typo or an illegal
   // sale — caught here as well as server-side so it never costs a round trip.
   const priceWarning = useMemo(() => {
-    const m = Number(form.mrp), s = Number(form.sellingPrice);
+    const m = Number(form.mrp), s = Number(form.sellingPrice), w = Number(form.b2bPrice);
     if (form.mrp && form.sellingPrice && Number.isFinite(m) && Number.isFinite(s) && m > 0 && s > m) {
-      return `Selling price ₹${s} is above this batch's own MRP ₹${m}.`;
+      return `Retail price ₹${s} is above this batch's own MRP ₹${m}.`;
+    }
+    if (form.mrp && form.b2bPrice && Number.isFinite(m) && Number.isFinite(w) && m > 0 && w > m) {
+      return `B2B price ₹${w} is above this batch's own MRP ₹${m}.`;
     }
     return '';
-  }, [form.mrp, form.sellingPrice]);
+  }, [form.mrp, form.sellingPrice, form.b2bPrice]);
 
   const expiryWarning = useMemo(() => {
     if (!form.expiryDate) return '';
@@ -123,6 +130,7 @@ const BatchEditDrawer: React.FC<{
         batchNumber: form.batchNumber.trim(),
         mrp: form.mrp === '' ? null : Number(form.mrp),
         sellingPrice: form.sellingPrice === '' ? null : Number(form.sellingPrice),
+        b2bPrice: form.b2bPrice === '' ? null : Number(form.b2bPrice),
         mfgDate: form.mfgDate || null,
         expiryDate: form.expiryDate || null,
         purchaseDate: form.purchaseDate || null,
@@ -155,8 +163,8 @@ const BatchEditDrawer: React.FC<{
     pricingMode === 'off'
       ? 'Batch pricing is off, so these prices are recorded but do not bill. Turn it on above to use them.'
       : pricingMode === 'mrp_only'
-        ? 'Batch pricing is on (MRP only): this MRP shows on the bill; the catalogue price is charged.'
-        : 'Batch pricing is on (full): this batch’s selling price is what customers are charged.';
+        ? 'Batch pricing is on (MRP only): this MRP shows on the bill; the catalogue prices are charged.'
+        : 'Batch pricing is on (full): retail shoppers pay this batch’s retail price and B2B accounts pay its B2B price.';
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label="Edit batch">
@@ -190,20 +198,25 @@ const BatchEditDrawer: React.FC<{
           <section>
             <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">This batch’s prices</h3>
             <p className="mb-2.5 text-[11px] leading-snug text-gray-500">{pricingLine}</p>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <Field label="Batch MRP" hint={`Printed on the pack. Catalogue: ${money(batch.catalogue_mrp)}`}>
                 <input className={input} type="number" step="0.01" min="0" inputMode="decimal"
                   value={val('mrp')} onChange={set('mrp')} disabled={!canEdit} placeholder="—" />
               </Field>
-              <Field label="Batch selling price" hint={`Blank ⇒ sells at the Batch MRP. Catalogue: ${money(batch.catalogue_selling_price)}`}>
+              <Field label="Batch retail price" hint={`Blank ⇒ sells at the Batch MRP. Catalogue: ${money(batch.catalogue_selling_price)}`}>
                 <input className={input} type="number" step="0.01" min="0" inputMode="decimal"
                   value={val('sellingPrice')} onChange={set('sellingPrice')} disabled={!canEdit} placeholder="—" />
               </Field>
+              <Field label="Batch B2B price" hint={`Blank ⇒ the SKU's B2B price. Catalogue: ${money(batch.catalogue_b2b_price)}`}>
+                <input className={input} type="number" step="0.01" min="0" inputMode="decimal"
+                  value={val('b2bPrice')} onChange={set('b2bPrice')} disabled={!canEdit} placeholder="—" />
+              </Field>
             </div>
             <p className="mt-2 text-[11px] leading-snug text-gray-500">
-              Price order: <strong>batch selling price → batch MRP → catalogue selling price →
-              catalogue MRP</strong>. Leave the selling price blank and this batch sells at its own
-              printed MRP. Nothing is worked out as a percentage of anything else.
+              Retail: <strong>batch retail price → batch MRP → catalogue retail price → catalogue
+              MRP</strong>. Wholesale: a contract, price list or tier price agreed with the buyer,
+              then <strong>batch B2B price → catalogue B2B price</strong>. Three stated numbers per
+              lot; nothing is worked out as a percentage of anything else.
             </p>
             {priceWarning && (
               <div className="mt-2 flex gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
