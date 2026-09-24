@@ -1814,15 +1814,21 @@ const OrderDetail: React.FC = () => {
         invoiceNumber={order.invoiceNumber ?? order.invoice_number ?? null}
         onCancelled={(r: any) => {
           const cn = r?.credit_note_outcome;
+          /**
+           * ⚠️ NEVER SAY "REFUNDED" UNLESS IT WENT. `cn.message` already carries
+           * the exact outcome — issued and sent, issued and waiting for a
+           * manager, or opened on a manual rail — so it is shown verbatim rather
+           * than summarised into something cheerier than the truth.
+           */
           toast({
             title: r?.fully_cancelled ? 'Order cancelled' : 'Items cancelled',
-            /* The credit note is the part worth saying out loud — it is a
-               statutory document that has just been issued in the store's name. */
             description: cn?.creditNote?.number
               ? cn.message
-              : r?.refund_delta > 0
-                ? `The order total dropped by ₹${Number(r.refund_delta).toFixed(2)}.`
-                : 'The order has been updated.',
+              : r?.refund_outcome?.message
+                ? r.refund_outcome.message
+                : r?.refund_delta > 0
+                  ? `The order total dropped by ₹${Number(r.refund_delta).toFixed(2)}.`
+                  : 'The order has been updated.',
           });
           fetchOrder();
         }}

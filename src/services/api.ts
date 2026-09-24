@@ -1770,6 +1770,19 @@ export interface CancelItemsPreview {
     settlement: 'bank' | 'credit_note';
     note: string;
   };
+  /**
+   * HOW the money can go back, resolved from the order's own payment.
+   * `null` when nothing was collected. `method: 'gateway'` is a real Razorpay
+   * reversal; every other rail needs a person to move the money.
+   */
+  refund_rail: {
+    method: 'gateway' | 'bank_transfer' | 'store_credit' | 'adjustment' | null;
+    reason: string | null;
+    automatic: boolean;
+    refundable: number;
+    /** True ⇒ confirming OPENS the refund; a manager still has to sign it off. */
+    needs_approval: boolean;
+  } | null;
   money_back_owed: boolean;
 }
 
@@ -1783,6 +1796,8 @@ export interface CancelItemsResult {
   credit_note_outcome?: {
     creditNote: { id: string; number: string; total: number; status: string } | null;
     openedRefund: boolean;
+    /** ⚠️ `sent: false` means the money has NOT gone back yet. */
+    refund: { id: string; status: string; method: string | null; sent: boolean; message: string } | null;
     reason: string;
     message: string;
   };
@@ -2025,7 +2040,12 @@ export const ordersAPI = {
   cancelItems: async (id: string, data: {
     lines: CancelLineInput[];
     reason?: string;
-    refund?: { mode?: string; reference?: string; adjustedOrderNumber?: string; reason?: string };
+    /**
+     * `mode: 'send'` approves and SENDS the refund now — for a Razorpay order
+     * that is a real gateway reversal. Anything else opens it and stops, which
+     * is the default: money never moves because nobody said so.
+     */
+    refund?: { mode?: 'send' | 'record_only'; reference?: string; adjustedOrderNumber?: string; reason?: string };
   }): Promise<CancelItemsResult> => {
     const response = await api.post(`/orders/${id}/cancel-items`, data);
     return response.data?.data ?? response.data;

@@ -73,6 +73,14 @@ const CancelItemsModal: React.FC<Props> = ({
 }) => {
   const [qty, setQty] = useState<Record<string, number>>({});
   const [reason, setReason] = useState('');
+  /**
+   * Does the operator want the money sent NOW, or just recorded?
+   *
+   * Default OFF. A cancellation and a refund are two decisions, and the second
+   * one moves real money out of the store's gateway account — it should be an
+   * explicit act, not something that happens because somebody cancelled a line.
+   */
+  const [sendRefund, setSendRefund] = useState(false);
   const [preview, setPreview] = useState<CancelItemsPreview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewing, setPreviewing] = useState(false);
@@ -120,7 +128,7 @@ const CancelItemsModal: React.FC<Props> = ({
 
   useEffect(() => {
     if (!isOpen) return;
-    setQty({}); setReason(''); setPreview(null); setPreviewError(null); setError(null);
+    setQty({}); setReason(''); setPreview(null); setPreviewError(null); setError(null); setSendRefund(false);
   }, [isOpen]);
 
   const selected: CancelLineInput[] = useMemo(
@@ -164,6 +172,7 @@ const CancelItemsModal: React.FC<Props> = ({
       const result = await ordersAPI.cancelItems(orderId, {
         lines: selected,
         reason: reason.trim() || undefined,
+        refund: { mode: sendRefund ? 'send' : 'record_only' },
       });
       onCancelled(result);
       onClose();
@@ -303,6 +312,48 @@ const CancelItemsModal: React.FC<Props> = ({
               <div className="flex gap-2 rounded-md bg-white px-3 py-2 text-xs text-slate-600">
                 <FaUndo className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                 <span>Nothing has been collected on this order yet, so the total simply drops — there is no money to send back.</span>
+              </div>
+            )}
+
+            {/* ── HOW THE MONEY GOES BACK ──────────────────────────────────
+                A credit note reverses the GST; it does not move cash. This is
+                the other half, and it has to be honest about three things: which
+                rail (a Razorpay reversal is not the same as "somebody will
+                transfer it"), whether it happens on confirm, and whether the
+                store's own approval policy will hold it anyway. */}
+            {preview.money_back_owed && preview.refund_amount > 0 && preview.refund_rail && (
+              <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
+                <div className="flex gap-2 text-xs text-slate-700">
+                  <FaUndo className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <div className="flex-1">
+                    <p className="font-semibold text-slate-800">
+                      {preview.refund_rail.method === 'gateway'
+                        ? 'Refund by reversing the original payment'
+                        : 'Refund by hand'}
+                    </p>
+                    <p className="mt-0.5 text-slate-600">{preview.refund_rail.reason}</p>
+
+                    {preview.refund_rail.automatic ? (
+                      <label className="mt-2 flex cursor-pointer items-start gap-2">
+                        <input type="checkbox" className="mt-0.5" checked={sendRefund}
+                          onChange={(e) => setSendRefund(e.target.checked)} />
+                        <span className="text-slate-700">
+                          Send the {inr(preview.refund_amount)} back now
+                          {preview.refund_rail.needs_approval && (
+                            <span className="ml-1 font-medium text-amber-700">
+                              — it will still need a manager&rsquo;s approval before the money leaves.
+                            </span>
+                          )}
+                        </span>
+                      </label>
+                    ) : (
+                      <p className="mt-1 text-slate-500">
+                        The refund will be opened and wait on the Refunds screen — this order has no
+                        online payment that can be reversed automatically.
+                      </p>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
 
