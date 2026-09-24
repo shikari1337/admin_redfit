@@ -23,9 +23,17 @@ interface ColumnHelp {
   accepts: string; format: string; does: string;
 }
 interface SheetDef {
-  key: string; label: string; dataset: string; template: string;
+  key: string; label: string; row_is?: string; dataset: string; template: string;
   importable: boolean; columns: ColumnHelp[];
 }
+
+/**
+ * The two sheets the owner asked for lead; the path-based pair below them says
+ * the same things the long way round and is marked Advanced on the server. The
+ * server sends them in this order, so the tabs are simply where the divider
+ * falls — nothing here decides what a sheet IS.
+ */
+const ADVANCED_FROM = 'locations';
 
 const ROLE_STYLE: Record<string, string> = {
   key: 'bg-slate-100 text-slate-600',
@@ -46,7 +54,7 @@ const Step: React.FC<{ n: number; title: string; children: React.ReactNode }> = 
 
 const WarehouseSheets: React.FC<{ canWrite: boolean; warehouseCode?: string | null }> = ({ canWrite, warehouseCode }) => {
   const [sheets, setSheets] = useState<SheetDef[] | null>(null);
-  const [active, setActive] = useState('locations');
+  const [active, setActive] = useState('warehouse-layout');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [result, setResult] = useState<any | null>(null);
@@ -61,7 +69,13 @@ const WarehouseSheets: React.FC<{ canWrite: boolean; warehouseCode?: string | nu
 
   useEffect(() => {
     api.get('/inventory/sheets')
-      .then((r) => setSheets(unwrap(r)?.sheets ?? []))
+      .then((r) => {
+        const list: SheetDef[] = unwrap(r)?.sheets ?? [];
+        setSheets(list);
+        // A server that predates the Warehouse layout sheet simply opens on
+        // whatever it does have, rather than on a tab that is not there.
+        setActive((cur) => (list.some((s) => s.key === cur) ? cur : (list[0]?.key ?? cur)));
+      })
       .catch(() => setSheets([]));
   }, []);
 
@@ -85,7 +99,9 @@ const WarehouseSheets: React.FC<{ canWrite: boolean; warehouseCode?: string | nu
       if (e?.response?.status === 503) {
         setQueued('The download queue is not switched on for this store yet, so the file is downloading directly.');
         try {
-          const d = await api.get(`/inventory/sheets/${sheet.key}/template`, { responseType: 'blob' });
+          const d = await api.get(`/inventory/sheets/${sheet.key}/template`, {
+            responseType: 'blob', params: warehouseCode ? { warehouseCode } : undefined,
+          });
           triggerDownload(d.data, `${sheet.key}-template.xlsx`);
         } catch { setError('Could not build the file.'); }
       } else setError(e?.response?.data?.message ?? 'Could not request the file.');
@@ -96,7 +112,12 @@ const WarehouseSheets: React.FC<{ canWrite: boolean; warehouseCode?: string | nu
     if (!sheet) return;
     setBusy('template'); setError('');
     try {
-      const r = await api.get(`/inventory/sheets/${sheet.key}/template`, { responseType: 'blob' });
+      const r = await api.get(`/inventory/sheets/${sheet.key}/template`, {
+        responseType: 'blob',
+        // So a building whose structure has a level the standard columns do not
+        // cover gets its own column for it on the blank template too.
+        params: warehouseCode ? { warehouseCode } : undefined,
+      });
       triggerDownload(r.data, `${sheet.key}-template.xlsx`);
     } catch { setError('Could not build the template.'); }
     finally { setBusy(''); }
@@ -131,12 +152,17 @@ const WarehouseSheets: React.FC<{ canWrite: boolean; warehouseCode?: string | nu
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
         {sheets.map((s) => (
-          <button key={s.key} onClick={() => { setActive(s.key); setResult(null); setError(''); setQueued(''); }}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium ${active === s.key ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
-            {s.label}
-          </button>
+          <React.Fragment key={s.key}>
+            {s.key === ADVANCED_FROM && sheets.some((x) => x.key !== ADVANCED_FROM) && (
+              <span className="mx-1 hidden h-5 w-px bg-slate-200 sm:block" aria-hidden />
+            )}
+            <button onClick={() => { setActive(s.key); setResult(null); setError(''); setQueued(''); }}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium ${active === s.key ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
+              {s.label}
+            </button>
+          </React.Fragment>
         ))}
       </div>
 
@@ -147,9 +173,12 @@ const WarehouseSheets: React.FC<{ canWrite: boolean; warehouseCode?: string | nu
               <h3 className="flex items-center gap-2 text-base font-semibold text-slate-900">
                 <FileSpreadsheet className="h-4 w-4 text-slate-500" />{sheet.label}
               </h3>
-              <p className="mt-0.5 text-xs text-slate-500">
+              {sheet.row_is && <p className="mt-1 max-w-3xl text-sm text-slate-700">{sheet.row_is}</p>}
+              <p className="mt-1 text-xs text-slate-500">
                 Downloads are always .xlsx. Uploads take .xlsx or .csv. A blank cell means
                 “leave unchanged”, so a file you did not edit changes nothing.
+                {warehouseCode && <> This file is for <b>{warehouseCode}</b>, and carries the levels that
+                building actually has.</>}
               </p>
             </div>
             <button onClick={() => setShowColumns((v) => !v)}
