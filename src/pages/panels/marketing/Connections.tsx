@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../../../services/api';
 import { useAuth } from '../../../contexts/AuthContext';
 import { payload } from '../../../lib/unwrap';
+import MetaWebhooksCard from './MetaWebhooksCard';
 
 /**
  * Platform Connections — the Site Kit-style hub.
@@ -150,13 +151,21 @@ const Connections: React.FC = () => {
   const chooseResource = async (conn: Connection, service: string, resource: any) => {
     setBusy(`${conn.id}:${service}`);
     try {
-      await api.put(`/connectors/${conn.id}/services/${service}`, {
+      const saved = payload<any>(await api.put(`/connectors/${conn.id}/services/${service}`, {
         isEnabled: true,
         externalResourceId: resource.id,
         externalResourceName: resource.name,
-      });
+      }));
       setPicking(null);
-      setInfo(`${service.replace(/_/g, ' ')} is now using “${resource.name}”.`);
+      // Meta: picking a Page installs the Growcord app on it so webhooks flow —
+      // say plainly when Meta refused, instead of a success line that hides it.
+      const sub = saved?.webhooks?.subscription;
+      if (sub && !sub.ok) {
+        setError(`${service.replace(/_/g, ' ')} is using “${resource.name}”, but Meta refused to install the app on the Page: ${sub.error}`);
+      } else {
+        setInfo(`${service.replace(/_/g, ' ')} is now using “${resource.name}”.`
+          + (sub?.ok ? ' Meta will now send its updates here.' : ''));
+      }
       await load();
     } catch (e: any) { setError(e?.response?.data?.message ?? e.message); }
     finally { setBusy(null); }
@@ -464,6 +473,11 @@ const Connections: React.FC = () => {
                   );
                 })}
               </div>
+
+              {/* ── Meta webhooks: assets receiving updates + recent notifications ── */}
+              {provider.key === 'meta' && conn && (
+                <MetaWebhooksCard canManage={canManage} refreshKey={connections} />
+              )}
 
               {/* ── Connect CTA for a brand-new provider ───────────── */}
               {!conn && canManage && (
