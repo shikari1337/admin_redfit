@@ -19,6 +19,9 @@ export { default as UpdateEmailModal } from './UpdateEmailModal';
 export { default as DeliveryStatusModal } from './DeliveryStatusModal';
 export { default as MarkAsPaidModal } from './MarkAsPaidModal';
 export { default as CancelOrderModal } from './CancelOrderModal';
+// Cancel PART of an order — some units of some lines, with the credit note and
+// refund it will raise shown before the operator commits.
+export { default as CancelItemsModal } from './CancelItemsModal';
 export type { RefundOutcome } from './CancelOrderModal';
 export { default as OrderRefunds } from './OrderRefunds';
 export { default as OrderProgressStepper } from './OrderProgressStepper';

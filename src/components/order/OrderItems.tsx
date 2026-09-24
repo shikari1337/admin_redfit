@@ -91,6 +91,14 @@ interface OrderItemsProps {
   onRemoveShipping?: () => void;
   onRemoveCod?: () => void;
   removingCharge?: 'shipping' | 'cod' | null;
+  /**
+   * Per-line shipment progress (`order.fulfillment.lines`). Present ⇒ the table
+   * grows a **Fulfilment** pair, Shipped / To ship, so a part-shipped order can
+   * be read down a column instead of by cross-referencing a card several
+   * screens away. Absent or empty ⇒ the columns never render and the layout is
+   * byte-for-byte what it was.
+   */
+  fulfilmentLines?: Array<{ sku: string; name: string; ordered: number; shipped: number; remaining: number }> | null;
 }
 
 /**
@@ -178,7 +186,10 @@ const dateTime = (d?: string | Date | null) => {
  * GST column and ~890 with the CGST/SGST split; each threshold below adds the
  * column it names to that.
  */
-const BP = { lineDiscPct: 880, mrp: 950, orderDiscPct: 1080, netRate: 1160, brand: 1280 } as const;
+const BP = {
+  /** Shipped / To ship. Low, because on a part-shipped order it is the
+   *  question being asked — it earns its width before Brand or Net rate do. */
+  fulfilment: 900, lineDiscPct: 880, mrp: 950, orderDiscPct: 1080, netRate: 1160, brand: 1280 } as const;
 
 /** Width the product column is allowed — see the header comment on it. */
 const PRODUCT_COL = 230;
@@ -242,7 +253,7 @@ const OrderItems: React.FC<OrderItemsProps> = ({
   subtotal, shipping = 0, total, gst, amountReceived, couponCode, discountReason, discountItems,
   orderNotes, paymentMethod, paymentGateway, placedAt, orderType, customerGstin,
   salesperson, importedFrom,
-  onRemoveShipping, onRemoveCod, removingCharge,
+  onRemoveShipping, onRemoveCod, removingCharge, fulfilmentLines,
 }) => {
   /** This store's own website — from the server, per store (lib/storefront.ts). */
   const siteUrl = useStoreSiteUrl();
@@ -264,7 +275,27 @@ const OrderItems: React.FC<OrderItemsProps> = ({
   // width rather than the narrowest layout, so the table does not visibly shed
   // and regrow its columns on every load.
   const tw = measured || 1024;
+  /**
+   * Shipment progress per line, keyed the way the backend keys it (SKU, else
+   * product name — `services/orderFulfillment.ts lineKey`). Built once so the
+   * row loop is a map lookup, not a find per line.
+   */
+  const fulfilByKey = React.useMemo(() => {
+    const m = new Map<string, { ordered: number; shipped: number; remaining: number }>();
+    for (const l of fulfilmentLines ?? []) {
+      const k = String(l.sku || l.name || '').trim();
+      if (k) m.set(k, { ordered: Number(l.ordered) || 0, shipped: Number(l.shipped) || 0, remaining: Number(l.remaining) || 0 });
+    }
+    return m;
+  }, [fulfilmentLines]);
+  /** Only worth two columns once something has actually shipped. */
+  const anyShipped = React.useMemo(
+    () => (fulfilmentLines ?? []).some((l) => Number(l.shipped) > 0),
+    [fulfilmentLines],
+  );
+
   const show = {
+    fulfilment: anyShipped && tw >= BP.fulfilment,
     brand: tw >= BP.brand,
     variation: tw >= BP.brand,
     mrp: tw >= BP.mrp,
@@ -283,6 +314,7 @@ const OrderItems: React.FC<OrderItemsProps> = ({
     + 2                                                 // Rate, Qty
     + orderDiscCols
     + (show.netRate ? 1 : 0)
+    + (show.fulfilment ? 2 : 0)                         // Shipped, To ship
     + (showTax ? 1 + gstCols : 0)                       // Taxable value, GST
     + 1;                                                // Total
   /** Cells the ladder fills on the right: Taxable + GST + Total. */
@@ -375,6 +407,10 @@ const OrderItems: React.FC<OrderItemsProps> = ({
 
   const sum = (f: (r: typeof rows[number]) => number) => rows.reduce((s, r) => s + f(r), 0);
   const totalQty = sum((r) => r.qty);
+  /** Units out and units still owed — summed from the SAME per-line record the
+   *  cells read, so the footer can never disagree with the column above it. */
+  const totalShipped = (fulfilmentLines ?? []).reduce((s, l) => s + (Number(l.shipped) || 0), 0);
+  const totalToShip = (fulfilmentLines ?? []).reduce((s, l) => s + (Number(l.remaining) || 0), 0);
   const totalGross = sum((r) => r.lineTotal);
   const totalDiscount = sum((r) => r.discAmt);
   const totalLineDiscount = sum((r) => r.mrpDiscount);
@@ -625,6 +661,14 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                       (MRP → discounts → Rate → Net rate) and the line money
                       (Taxable → GST → Total). Owner's column order. */}
                   <th rowSpan={2} className="whitespace-nowrap border-l border-slate-300 px-2 py-2 text-center align-bottom font-semibold">Qty</th>
+                  {/* WHICH UNITS HAVE ACTUALLY GONE OUT. A part-shipped order's
+                      first question, answerable down a column instead of by
+                      reading a card in the page footer. */}
+                  {show.fulfilment && (
+                    <th colSpan={2} className="whitespace-nowrap border-l border-slate-300 px-2 pb-0.5 pt-2 text-center font-semibold">
+                      Fulfilment
+                    </th>
+                  )}
                   {showTax && (
                     <>
                       <th rowSpan={2} className={`border-l border-slate-300 ${TH}`}>
@@ -640,6 +684,16 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                   <th className={`whitespace-nowrap px-2 pb-2 text-right font-medium ${show.lineDiscPct ? '' : 'border-l border-slate-300'}`} title="Cut off ONE pack">₹</th>
                   {show.orderDiscPct && <th className="whitespace-nowrap border-l border-slate-300 px-2 pb-2 text-right font-medium">%</th>}
                   <th className={`whitespace-nowrap px-2 pb-2 text-right font-medium ${show.orderDiscPct ? '' : 'border-l border-slate-300'}`} title="This line's share of the order-level discount, per pack">₹</th>
+                  {/* ⚠️ ORDER IS LOAD-BEARING. This row fills the colSpan groups
+                      of the row above, left to right: line discount, order
+                      discount, THEN fulfilment, then GST. Net rate and Qty are
+                      rowSpan={2} and take no cell here. */}
+                  {show.fulfilment && (
+                    <>
+                      <th className="whitespace-nowrap border-l border-slate-300 px-2 pb-2 text-center font-medium">Shipped</th>
+                      <th className="whitespace-nowrap px-2 pb-2 text-center font-medium">To ship</th>
+                    </>
+                  )}
                   {showTax && (isIgst
                     ? <th className="whitespace-nowrap border-l border-slate-300 px-2 pb-2 text-right font-medium">IGST</th>
                     : <>
@@ -818,6 +872,35 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                         )}
                       </td>
 
+                      {/* SHIPPED / TO SHIP — per line, from the order's own
+                          fulfilment record. "To ship" is coloured only when it
+                          is non-zero: on a fully-shipped line a green tick reads
+                          faster than a zero. */}
+                      {show.fulfilment && (() => {
+                        const f = fulfilByKey.get(r.sku !== '—' ? r.sku : r.name)
+                          ?? fulfilByKey.get(r.item.sku || '')
+                          ?? fulfilByKey.get(r.name);
+                        const shipped = f?.shipped ?? 0;
+                        const remaining = f ? f.remaining : r.qty;
+                        return (
+                          <>
+                            <td className="whitespace-nowrap border-l border-slate-100 px-2 py-3 text-center align-top text-sm font-semibold tabular-nums text-slate-700">
+                              {shipped > 0 ? shipped : <span className="text-slate-300">—</span>}
+                            </td>
+                            <td className="whitespace-nowrap px-2 py-3 text-center align-top text-sm font-semibold tabular-nums">
+                              {remaining > 0
+                                ? <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-800">{remaining}</span>
+                                /* A line cancelled to zero owes nothing — but it
+                                   did not SHIP either, and a green tick beside a
+                                   cancelled line reads as "delivered". */
+                                : r.qty === 0
+                                  ? <span className="text-slate-300" title="Cancelled — nothing to ship">—</span>
+                                  : <span className="text-emerald-600" title="Fully shipped">✓</span>}
+                            </td>
+                          </>
+                        );
+                      })()}
+
 
                       {showTax && (
                         <>
@@ -885,6 +968,18 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                   </td>
                   {show.netRate && <td className="border-l border-slate-300 px-2 py-3" />}
                   <td className="whitespace-nowrap border-l border-slate-300 px-2 py-3 text-center text-base font-semibold tabular-nums">{totalQty}</td>
+                  {show.fulfilment && (
+                    <>
+                      <td className="whitespace-nowrap border-l border-slate-300 px-2 py-3 text-center text-sm font-semibold tabular-nums text-slate-700">
+                        {totalShipped > 0 ? totalShipped : '—'}
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-3 text-center text-sm font-semibold tabular-nums">
+                        {totalToShip > 0
+                          ? <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-800">{totalToShip}</span>
+                          : <span className="text-emerald-600">✓</span>}
+                      </td>
+                    </>
+                  )}
                   {showTax && (
                     <>
                       <td className="whitespace-nowrap border-l border-slate-300 px-2 py-3 text-right text-base font-semibold tabular-nums text-slate-700">

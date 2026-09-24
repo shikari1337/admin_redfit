@@ -31,6 +31,7 @@ import {
   OrderProgressStepper,
   OrderTeamCard,
   CancelOrderModal,
+  CancelItemsModal,
   OrderRefunds,
   OrderCommunicationLog,
   ApplyOrderDiscountModal,
@@ -152,6 +153,7 @@ const OrderDetail: React.FC = () => {
   // Cancelling a PAID order decides where the customer's money goes — the
   // dialog asks, rather than the bare confirm() the other transitions use.
   const [showCancelModal, setShowCancelModal] = useState(false);
+  const [showCancelItems, setShowCancelItems] = useState(false);
   // Read-only re-check of an already-recorded Razorpay payment against
   // Razorpay itself (status + amount) — independent of order/payment status,
   // unlike "Verify Payment" above which only works while still pending.
@@ -536,6 +538,38 @@ const OrderDetail: React.FC = () => {
     }
   };
 
+  /** Has a tax invoice genuinely been issued? The number IS the issue. */
+  const invoiceIssued = !!(order?.invoiceNumber ?? order?.invoice_number);
+
+  /**
+   * ISSUE the tax invoice. Separate from downloading on purpose: this consumes a
+   * number from the gapless statutory series and freezes the document, so it is
+   * an ACT a person takes, not a side effect of looking.
+   */
+  const handleIssueInvoice = async () => {
+    setInvoiceBusy('issue');
+    try {
+      const res: any = await ordersAPI.issueInvoice(order._id || order.id);
+      toast({
+        title: res?.already_issued ? 'Already issued' : 'Tax invoice issued',
+        description: res?.already_issued
+          ? `This order already carries ${res?.invoice_number}.`
+          : `${res?.invoice_number} — the document is now fixed; corrections go on a credit note.`,
+      });
+      fetchOrder();
+    } catch (e: any) {
+      toast({
+        variant: 'destructive', title: 'Could not issue the invoice',
+        description: e?.response?.data?.message
+          || (e?.response?.data?.missing?.length
+            ? `Complete your invoice details first: ${e.response.data.missing.join(', ')}`
+            : 'Please try again'),
+      });
+    } finally {
+      setInvoiceBusy(null);
+    }
+  };
+
   const handleDownloadInvoice = async () => {
     setInvoiceBusy('download');
     try {
@@ -788,9 +822,28 @@ const OrderDetail: React.FC = () => {
     ?? (order?.billingAddress ?? order?.billing_address)?.company_name
     ?? null;
 
-  const isOrderEditable = order.paymentStatus !== 'completed'
+  /**
+   * ⚠️ THE SERVER DECIDES, and it now says so.
+   *
+   * `order.abilities` is resolved by `assertOrderMoneyEditable` /
+   * `assertCancelItemsAllowed` — the exact functions `PUT /:id/items` and
+   * `POST /:id/cancel-items` enforce. The hand-copied condition kept below is
+   * the FALLBACK for a backend that predates that block, so an older API never
+   * leaves the page with no buttons at all; when `abilities` is present it wins,
+   * which means the client can never be stricter or laxer than the route.
+   */
+  const legacyEditable = order.paymentStatus !== 'completed'
     && ['pending', 'confirmed', 'on_hold', 'processing'].includes(order.orderStatus)
     && !(order.shipments?.length);
+  const abilities = order.abilities ?? null;
+  const canEditItems = abilities ? abilities.edit_items?.allowed === true : legacyEditable;
+  const editItemsReason: string | null = abilities ? (abilities.edit_items?.reason ?? null) : null;
+  const canCancelItems = abilities
+    ? abilities.cancel_items?.allowed === true
+    : !['cancelled', 'returned', 'completed'].includes(order.orderStatus);
+  const cancelItemsReason: string | null = abilities ? (abilities.cancel_items?.reason ?? null) : null;
+  /** Charge waivers ride the items gate — same money, same rule. */
+  const isOrderEditable = canEditItems;
   // Any shipment not already in a final state (delivered/cancelled/returned/
   // RTO-settled) — the "Mark Delivered"/"Mark RTO" buttons only make sense
   // when there's something left to act on.
@@ -1002,9 +1055,35 @@ const OrderDetail: React.FC = () => {
                   <FaChevronDown className="ml-1 h-3 w-3" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
+              <DropdownMenuContent align="end" className="w-72">
+                {/* ── ISSUE ─────────────────────────────────────────────────
+                    The deliberate act that draws a number from the store's
+                    gapless statutory series and FREEZES the document. Viewing
+                    and downloading used to do this by themselves — including a
+                    customer opening their own unpaid order's PDF — which is why
+                    live homeomead carries 30 invoice numbers on orders that were
+                    later cancelled. Now nothing issues an invoice except this
+                    and sending one. */}
+                {invoiceIssued ? (
+                  <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                    Issued as <span className="font-mono font-medium text-foreground">{order.invoiceNumber ?? order.invoice_number}</span>
+                    <div className="mt-0.5">This document is fixed. Corrections go on a credit note.</div>
+                  </div>
+                ) : (
+                  <>
+                    <DropdownMenuItem onClick={handleIssueInvoice} disabled={!hasPerm('orders.manage')}>
+                      <FaFileInvoice className="mr-1.5 h-3.5 w-3.5" /> Issue tax invoice
+                    </DropdownMenuItem>
+                    <div className="px-2 pb-1.5 text-[11px] leading-snug text-muted-foreground">
+                      Not issued yet — the PDF prints as a <strong>proforma</strong> and no
+                      invoice number is used up until you issue it.
+                    </div>
+                  </>
+                )}
+                <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleDownloadInvoice}>
-                  <FaDownload className="mr-1.5 h-3.5 w-3.5" /> Download PDF
+                  <FaDownload className="mr-1.5 h-3.5 w-3.5" />
+                  {invoiceIssued ? 'Download PDF' : 'Download proforma PDF'}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => handleSendInvoice('email')} disabled={!order.shippingAddress?.email}>
                   <FaEnvelope className="mr-1.5 h-3.5 w-3.5" /> Send via Email
@@ -1195,14 +1274,67 @@ const OrderDetail: React.FC = () => {
               onRemoveShipping={isOrderEditable ? () => handleRemoveCharge('shipping') : undefined}
               onRemoveCod={isOrderEditable ? () => handleRemoveCharge('cod') : undefined}
               removingCharge={removingCharge}
-              /* Items are editable only while unpaid and unshipped. */
-              headerAction={isOrderEditable ? (
-                <Button size="sm" variant="outline" className="h-7 text-xs font-semibold"
-                  onClick={() => setShowEditItems(true)}>
-                  Edit items
-                </Button>
+              /* Per-line Shipped / To ship, from the order's own fulfilment
+                 record — the part-shipment question, answerable in the table. */
+              fulfilmentLines={order.fulfillment?.lines ?? null}
+              /**
+               * ── THE TWO ACTIONS, AND WHY ONE IS UNAVAILABLE ────────────────
+               * `abilities` comes from the SERVER, resolved by the very gates the
+               * write routes enforce. "Edit items" used to simply VANISH when the
+               * gate failed, so staff saw a button disappear and could not learn
+               * that a completed payment, an existing shipment or an issued
+               * invoice was the reason. It is now always rendered and, when
+               * refused, is disabled with the server's own sentence on hover.
+               *
+               * "Cancel items" is a SEPARATE action with a wider gate: a paid,
+               * shipped, invoiced order can still have an unshipped line dropped,
+               * which is exactly when a customer rings up asking for it.
+               */
+              headerAction={hasPerm('orders.manage') ? (
+                <div className="flex items-center gap-1.5">
+                  <Button size="sm" variant="outline" className="h-7 text-xs font-semibold"
+                    disabled={!canEditItems}
+                    title={editItemsReason ?? 'Change quantities, add or remove lines — repriced on save'}
+                    onClick={() => setShowEditItems(true)}>
+                    Edit items
+                  </Button>
+                  <Button size="sm" variant="outline"
+                    className="h-7 border-rose-200 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:text-slate-400"
+                    disabled={!canCancelItems}
+                    title={cancelItemsReason ?? 'Cancel some units of some lines — restocks and refunds exactly those'}
+                    onClick={() => setShowCancelItems(true)}>
+                    Cancel items
+                  </Button>
+                </div>
               ) : undefined}
           />
+
+          {/* WHY AN ACTION IS OFF, in the open rather than on hover only. Shown
+              once, under the table, when the desk cannot edit — because "the
+              button is greyed out and I do not know why" is the single most
+              common thing staff ask about this page. */}
+          {hasPerm('orders.manage') && !canEditItems && editItemsReason && (
+            <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+              <span className="font-semibold text-slate-700">Items cannot be re-priced:</span>{' '}
+              {editItemsReason}
+              {canCancelItems && ' You can still cancel individual lines.'}
+            </p>
+          )}
+
+          {/* WHAT IS IN WHICH PARCEL — directly under the lines it splits.
+              This used to be a cramped `inline` strip in the ADDRESS footer,
+              several screens below the table, so "which items shipped and which
+              are still to go" could not be read beside the items at all. The
+              table now carries Shipped / To ship per line; this carries the
+              other half — the parcels themselves, what each one holds, its AWB
+              and where it has got to. */}
+          {(order.shipments?.length || order.fulfillment?.partially_shipped) ? (
+            <OrderFulfillmentCard
+              fulfillment={order.fulfillment}
+              shipments={order.shipments}
+              sla={order.sla}
+            />
+          ) : null}
 
           {/* WHERE IT IS, PHYSICALLY (W0.8.3 / plan §9). Directly under the
               items table because it answers a question about those exact lines:
@@ -1221,11 +1353,13 @@ const OrderDetail: React.FC = () => {
             customerGstin={order.customerGstin ?? order.customer_gstin}
             customerCompany={customerCompany}
             onWhatsAppClick={handleWhatsAppClick}
+            /* The parcels themselves now live under the items table, where the
+               lines they split are. This keeps only the one-line progress +
+               dispatch-SLA summary, so the same fact is not rendered twice. */
             fulfillmentSlot={
               <OrderFulfillmentCard
                 variant="inline"
                 fulfillment={order.fulfillment}
-                shipments={order.shipments}
                 sla={order.sla}
               />
             }
@@ -1662,6 +1796,35 @@ const OrderDetail: React.FC = () => {
         orderId={id!}
         total={Number(order.total) || 0}
         onMarked={() => { toast({ title: 'Payment recorded', description: 'Order marked as paid.' }); fetchOrder(); }}
+      />
+
+      <CancelItemsModal
+        isOpen={showCancelItems}
+        onClose={() => setShowCancelItems(false)}
+        orderId={order._id || order.id}
+        orderNumber={order.orderId}
+        items={order.items ?? []}
+        /* Units a parcel already covers cannot be cancelled — the stepper caps
+           at the unshipped remainder so the server's refusal is rarely reached. */
+        shippedByKey={Array.isArray(order?.fulfillment?.lines)
+          ? Object.fromEntries(order.fulfillment.lines.map((l: any) =>
+              [String(l.sku || l.name || '').trim(), Number(l.shipped) || 0]))
+          : undefined}
+        invoiceNumber={order.invoiceNumber ?? order.invoice_number ?? null}
+        onCancelled={(r: any) => {
+          const cn = r?.credit_note_outcome;
+          toast({
+            title: r?.fully_cancelled ? 'Order cancelled' : 'Items cancelled',
+            /* The credit note is the part worth saying out loud — it is a
+               statutory document that has just been issued in the store's name. */
+            description: cn?.creditNote?.number
+              ? cn.message
+              : r?.refund_delta > 0
+                ? `The order total dropped by ₹${Number(r.refund_delta).toFixed(2)}.`
+                : 'The order has been updated.',
+          });
+          fetchOrder();
+        }}
       />
 
       <ApplyOrderDiscountModal

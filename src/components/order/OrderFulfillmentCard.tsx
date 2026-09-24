@@ -37,6 +37,7 @@ interface Props {
     partially_shipped: boolean;
     lines: FulfillmentLine[];
   } | null;
+  /** Omit to render the progress summary alone — the parcels live elsewhere. */
   shipments?: OrderShipmentRow[] | null;
   sla?: {
     hours: number;
@@ -151,13 +152,42 @@ const OrderFulfillmentCard: React.FC<Props> = ({ fulfillment, shipments, sla, va
                 style={{ width: `${Math.min(100, pct)}%` }}
               />
             </div>
-            {f.partially_shipped && (
-              <div className="mt-2 text-xs text-muted-foreground space-y-0.5">
-                {f.lines.filter((l) => l.remaining > 0).map((l) => (
-                  <div key={l.sku || l.name}>
-                    Awaiting shipment: <span className="font-medium text-foreground">{l.name}</span> × {l.remaining}
-                  </div>
-                ))}
+            {/* ── LINE BY LINE ────────────────────────────────────────────
+                What shipped and what is still owed, per item. The old version
+                printed only a list of "Awaiting shipment: X × 2" lines, so a
+                part-shipped order never showed what HAD gone — you could see
+                the debt but not the delivery. Rendered whenever anything has
+                shipped, not only on a partial, because "all 3 of 3 went in
+                parcel 1" is the answer to the same question. */}
+            {f.lines.length > 0 && (f.partially_shipped || f.shipped_qty > 0) && (
+              <div className="mt-3 overflow-hidden rounded-md border">
+                <table className="w-full text-xs">
+                  <thead className="bg-muted/60 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    <tr>
+                      <th className="px-2 py-1.5 text-left font-semibold">Item</th>
+                      <th className="px-2 py-1.5 text-center font-semibold">Ordered</th>
+                      <th className="px-2 py-1.5 text-center font-semibold">Shipped</th>
+                      <th className="px-2 py-1.5 text-center font-semibold">To ship</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {f.lines.map((l) => (
+                      <tr key={l.sku || l.name} className={l.remaining > 0 ? '' : 'text-muted-foreground'}>
+                        <td className="px-2 py-1.5">
+                          <span className="font-medium text-foreground">{l.name}</span>
+                          {l.sku && <span className="ml-1.5 font-mono text-[10px] text-muted-foreground">{l.sku}</span>}
+                        </td>
+                        <td className="px-2 py-1.5 text-center tabular-nums">{l.ordered}</td>
+                        <td className="px-2 py-1.5 text-center tabular-nums">{l.shipped || '—'}</td>
+                        <td className="px-2 py-1.5 text-center tabular-nums">
+                          {l.remaining > 0
+                            ? <span className="rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800">{l.remaining}</span>
+                            : <span className="font-semibold text-green-600" title="Fully shipped">✓</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>

@@ -1723,6 +1723,73 @@ export interface ApplyOrderDiscountResult {
   message: string;
 }
 
+/** One line a cancellation names. `sku` OR `variationId` identifies it. */
+export interface CancelLineInput {
+  sku?: string;
+  variationId?: string;
+  qty: number;
+  reason?: string;
+}
+
+/** What `POST /orders/:id/items/preview` answers — every figure server-computed. */
+export interface OrderItemsPreview {
+  lines: Array<{
+    product_id: string; variation_id: string | null; sku: string; product_name: string;
+    quantity: number; mrp: number; price: number; line_total: number; price_source: string | null;
+  }>;
+  subtotal: number; discount: number; tax: number;
+  shipping_cost: number; cod_fee: number; total: number;
+  current_total: number;
+  /** total − current_total. Negative = the order gets cheaper. */
+  difference: number;
+  /** null = the save is allowed; a string = why it is not. */
+  editable: string | null;
+}
+
+/**
+ * What `POST /orders/:id/cancel-items/preview` answers.
+ * `credit_note` is the part nobody could see before: whether cancelling will
+ * raise a GST credit note against an already-issued tax invoice.
+ */
+export interface CancelItemsPreview {
+  allowed: boolean;
+  blocked_reason: string | null;
+  cancels_everything: boolean;
+  lines: Array<{
+    sku: string; product_name: string;
+    cancel_qty: number; remaining_qty: number; restock_units: number;
+  }>;
+  units_cancelled: number;
+  current_total: number;
+  new_total: number;
+  refund_amount: number;
+  new_tax: number;
+  credit_note: {
+    will_raise: boolean;
+    against_invoice: string | null;
+    settlement: 'bank' | 'credit_note';
+    note: string;
+  };
+  money_back_owed: boolean;
+}
+
+/** What the real cancellation hands back. */
+export interface CancelItemsResult {
+  order_id?: string;
+  total?: number;
+  fully_cancelled?: boolean;
+  refund_delta?: number;
+  cancelled_lines?: Array<{ sku: string; product_name: string; cancelled: number; remaining: number }>;
+  credit_note_outcome?: {
+    creditNote: { id: string; number: string; total: number; status: string } | null;
+    openedRefund: boolean;
+    reason: string;
+    message: string;
+  };
+  restock_outcome?: any;
+  refund_outcome?: any;
+}
+
 /** One outbound link, shortened for one channel. */
 export interface OrderChannelLink {
   /** What to send: the short URL when shortening worked, the long one otherwise. */
@@ -1908,6 +1975,62 @@ export const ordersAPI = {
     const response = await api.put(`/orders/${id}/items`, data);
     return response.data;
   },
+  /**
+   * ISSUE the order's tax invoice — draw the number and freeze the document.
+   *
+   * Deliberately its own call, not a side effect of downloading: until
+   * migration 226 merely VIEWING an invoice allocated a number out of the
+   * store's gapless statutory series, so orders that were later cancelled (or
+   * never paid) burned real invoice numbers. Idempotent — issuing twice returns
+   * the same number and says `already_issued`.
+   */
+  issueInvoice: async (id: string): Promise<{ invoice_number: string; invoice_date: string; already_issued: boolean; order: any }> => {
+    const response = await api.post(`/invoices/order/${id}/issue`);
+    return response.data?.data ?? response.data;
+  },
+
+  /**
+   * WHAT `updateItems` WOULD DO — server-priced, writes nothing.
+   *
+   * Item prices come from the B2B/batch waterfall and GST from each line's own
+   * rate and place of supply, so the browser cannot compute the total it is
+   * about to commit. This runs the same two functions the save runs and returns
+   * their answer, which is what lets the edit dialog show a real figure.
+   */
+  previewItems: async (id: string, data: {
+    items: Array<{ productId: string; variationId?: string; sku?: string; quantity: number }>;
+    discount?: number; shippingCost?: number;
+  }): Promise<OrderItemsPreview> => {
+    const response = await api.post(`/orders/${id}/items/preview`, data);
+    return response.data?.data ?? response.data;
+  },
+
+  /**
+   * WHAT CANCELLING THESE LINES WOULD COST — writes nothing, restocks nothing.
+   * Answers the four questions the dialog has to put in front of a human:
+   * the new total, the refund, the units going back on the shelf, and whether a
+   * CREDIT NOTE will be raised because a tax invoice is already out.
+   */
+  previewCancelItems: async (id: string, lines: CancelLineInput[]): Promise<CancelItemsPreview> => {
+    const response = await api.post(`/orders/${id}/cancel-items/preview`, { lines });
+    return response.data?.data ?? response.data;
+  },
+
+  /**
+   * Cancel part of an order: some units of some lines. Restocks exactly those
+   * units, reprices the order, and — when a tax invoice has been issued —
+   * raises the credit note that corrects it (which also opens the refund, so
+   * the caller must not open a second one).
+   */
+  cancelItems: async (id: string, data: {
+    lines: CancelLineInput[];
+    reason?: string;
+    refund?: { mode?: string; reference?: string; adjustedOrderNumber?: string; reason?: string };
+  }): Promise<CancelItemsResult> => {
+    const response = await api.post(`/orders/${id}/cancel-items`, data);
+    return response.data?.data ?? response.data;
+  },
+
   /**
    * Apply a manual discount (percent / flat amount / coupon code) to an order
    * that is still unpaid and unshipped — the same gate `PUT /orders/:id/items`
@@ -4204,6 +4327,8 @@ export interface DataJob {
   file_size?: number | null;
   source_name?: string | null;
   total_rows?: number | null;
+  /** Rows applied so far — a queued import reports more than a spinner. */
+  done_rows?: number;
   ok_rows?: number;
   failed_rows?: number;
   skipped_rows?: number;
@@ -4211,10 +4336,30 @@ export interface DataJob {
   detail?: string | null;
   error?: string | null;
   summary?: any;
+  started_at?: string | null;
   finished_at?: string | null;
   expires_at?: string | null;
   download_count?: number;
   created_at: string;
+}
+
+/**
+ * What an import answers with — the SAME shape whichever sheet it was.
+ *
+ * `queued: true` means the file was accepted and is being applied in the
+ * background (over ~300 rows), so the counts are not here yet: they arrive on
+ * the job. Anything else is the old synchronous shape, unchanged.
+ */
+export interface ImportResponse {
+  queued?: boolean;
+  /** Which sheet the server recognised — 'inventory' | 'batches' | … */
+  sheet?: string;
+  sheet_label?: string;
+  job_id?: string | null;
+  job?: DataJob;
+  total_rows?: number;
+  message?: string;
+  [key: string]: any;
 }
 
 export interface SheetColumnHelp {
@@ -4386,6 +4531,29 @@ export const inventoryAPI = {
     const response = await api.get('/inventory/template', { responseType: 'blob' });
     return response.data as Blob;
   },
+  /**
+   * SEND ANY SHEET — the one import door.
+   *
+   * The server reads the header row, names the sheet and hands the file to that
+   * sheet's own importer, so an inventory file dropped on the Batches page (or
+   * the other way round) is applied instead of refused. Over ~300 rows it
+   * answers 202 with a job and the sheet is applied in the background: that is
+   * what stops a full-catalogue import dying at Cloudflare's 100s ceiling while
+   * the server carries on and quietly changes the figures minutes later.
+   *
+   * The long timeout still matters — a 30MB body has to finish uploading, and a
+   * small sheet is still applied inside the request.
+   */
+  importAny: async (file: File, params?: Record<string, any>): Promise<ImportResponse> => {
+    const form = new FormData();
+    form.append('file', file);
+    const response = await api.post('/inventory/import/any', form, {
+      headers: { 'Content-Type': 'multipart/form-data' }, timeout: 600000,
+      ...(params ? { params } : {}),
+    });
+    return (response.data?.data ?? response.data) as ImportResponse;
+  },
+  /** The SKU sheet's own door. Kept for callers that know what they are sending. */
   importExcel: async (file: File) => {
     const form = new FormData();
     form.append('file', file);

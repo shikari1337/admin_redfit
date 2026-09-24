@@ -9,7 +9,7 @@ import RecoverPaymentModal from '../components/order/RecoverPaymentModal';
 import ErpExportModal from '../components/order/ErpExportModal';
 import { getStatusColorClass } from '../components/order/StatusBadge';
 import { saveOrderNav } from '../lib/orderNav';
-import { Search } from 'lucide-react';
+import { Search, Columns3 as FaTableColumns } from 'lucide-react';
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +19,134 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast"; // Assuming useToast is available, fallback to alert if not
 import { FaCheckCircle } from 'react-icons/fa';
+
+/**
+ * THE OPTIONAL COLUMNS.
+ *
+ * The list showed seven columns — order, customer, amount, payment, status,
+ * date, actions — while the row it renders already carries the GST, the
+ * discount, the refund, the invoice number, the channel, the salesperson and
+ * (since the list decoration) how many lines and units it holds and how many of
+ * them have shipped. None of that was reachable without opening each order.
+ *
+ * ⚠️ ONE REGISTRY, so the header and the body can never drift apart — the same
+ * mistake `OrderItems` fixed in #215 by deriving every span from one object
+ * instead of keeping two hand-maintained lists in step. `cell` renders the body,
+ * the key renders the head, and `visibleCols` counts from the same array the
+ * empty/loading rows span.
+ */
+interface OptionalColumn {
+  key: string;
+  label: string;
+  /** On for a store that has never touched the picker. */
+  defaultOn: boolean;
+  align?: 'right' | 'center';
+  title?: string;
+  cell: (o: any) => React.ReactNode;
+}
+
+const num = (v: any) => Number(v) || 0;
+
+const OPTIONAL_COLUMNS: OptionalColumn[] = [
+  {
+    key: 'items', label: 'Items', defaultOn: true, align: 'center',
+    title: 'Lines and units on the order',
+    cell: (o) => {
+      const lines = num(o.lineCount ?? o.line_count);
+      const units = num(o.unitCount ?? o.unit_count);
+      const cancelled = num(o.cancelledUnits ?? o.cancelled_units);
+      if (!lines && !units) return <span className="text-muted-foreground">—</span>;
+      return (
+        <div className="leading-tight">
+          <div className="font-medium tabular-nums">{units}<span className="text-muted-foreground"> u</span></div>
+          <div className="text-[11px] text-muted-foreground tabular-nums">{lines} line{lines === 1 ? '' : 's'}</div>
+          {cancelled > 0 && (
+            <div className="text-[11px] font-semibold text-rose-600 tabular-nums">{cancelled} cancelled</div>
+          )}
+        </div>
+      );
+    },
+  },
+  {
+    key: 'fulfilment', label: 'Fulfilment', defaultOn: true, align: 'center',
+    title: 'How much of the order has actually gone out',
+    cell: (o) => {
+      const state = o.fulfilment ?? o.fulfillment_state;
+      const shipped = num(o.shippedUnits ?? o.shipped_units);
+      const left = num(o.unshippedUnits ?? o.unshipped_units);
+      const parcels = num(o.shipmentCount ?? o.shipment_count);
+      if (!state || state === 'none') return <span className="text-muted-foreground">—</span>;
+      const tone = state === 'shipped' ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+        : state === 'partial' ? 'border-blue-300 bg-blue-50 text-blue-700'
+        : 'border-amber-300 bg-amber-50 text-amber-800';
+      return (
+        <div className="leading-tight">
+          <Badge variant="outline" className={`px-1.5 py-0 text-[10px] font-semibold uppercase ${tone}`}>
+            {state === 'shipped' ? 'Shipped' : state === 'partial' ? 'Part' : 'To ship'}
+          </Badge>
+          {state === 'partial' && (
+            <div className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">{shipped} out · {left} left</div>
+          )}
+          {parcels > 1 && <div className="text-[11px] text-muted-foreground">{parcels} parcels</div>}
+        </div>
+      );
+    },
+  },
+  {
+    key: 'invoice', label: 'Invoice', defaultOn: false,
+    title: 'Tax invoice number, once one has been issued',
+    cell: (o) => {
+      const n = o.invoiceNumber ?? o.invoice_number;
+      return n
+        ? <span className="font-mono text-xs">{n}</span>
+        : <span className="text-[11px] italic text-muted-foreground">not issued</span>;
+    },
+  },
+  {
+    key: 'gst', label: 'GST', defaultOn: false, align: 'right',
+    title: 'Tax inside the order total',
+    cell: (o) => num(o.tax) > 0
+      ? <span className="tabular-nums">{fmtRupees(num(o.tax))}</span>
+      : <span className="text-muted-foreground">—</span>,
+  },
+  {
+    key: 'discount', label: 'Discount', defaultOn: false, align: 'right',
+    cell: (o) => num(o.discount) > 0
+      ? <span className="tabular-nums text-emerald-700">− {fmtRupees(num(o.discount))}</span>
+      : <span className="text-muted-foreground">—</span>,
+  },
+  {
+    key: 'refunded', label: 'Refunded', defaultOn: false, align: 'right',
+    title: 'Money already sent back on this order',
+    cell: (o) => num(o.refundedAmount ?? o.refunded_amount) > 0
+      ? <span className="tabular-nums font-medium text-rose-700">{fmtRupees(num(o.refundedAmount ?? o.refunded_amount))}</span>
+      : <span className="text-muted-foreground">—</span>,
+  },
+  {
+    key: 'salesperson', label: 'Sold by', defaultOn: false,
+    cell: (o) => {
+      const who = o.salesAgentName ?? o.sales_agent_name ?? o.salesperson;
+      return who ? <span className="text-xs">{who}</span> : <span className="text-muted-foreground">—</span>;
+    },
+  },
+  {
+    key: 'delivery', label: 'Delivered', defaultOn: false,
+    title: 'When it arrived, and when its return window closes',
+    cell: (o) => {
+      const d = o.deliveredAt ?? o.delivered_at;
+      const rd = o.returnDeadline ?? o.return_deadline;
+      if (!d) return <span className="text-muted-foreground">—</span>;
+      return (
+        <div className="leading-tight text-xs">
+          <div>{formatDate(d, 'MMM dd', '—')}</div>
+          {rd && <div className="text-[11px] text-muted-foreground">window {formatDate(rd, 'MMM dd', '')}</div>}
+        </div>
+      );
+    },
+  },
+];
+
+const COLUMN_PREF_KEY = 'orders.columns.v1';
 
 const Orders: React.FC = () => {
   const { canAccess, hasPerm } = useAuth();
@@ -31,6 +159,31 @@ const Orders: React.FC = () => {
   const canManageOrders = hasPerm('orders.manage');
   const canManageShipments = hasPerm('shipments.manage');
   const [orders, setOrders] = useState<any[]>([]);
+  /**
+   * Which optional columns are on. Remembered per browser — a packing desk and
+   * an accounts desk want different columns off the same list, and neither
+   * should have to re-pick them every morning. A malformed/blocked localStorage
+   * simply falls back to the defaults (never throws on read).
+   */
+  const [visibleCols, setVisibleCols] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(COLUMN_PREF_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed.filter((k) => OPTIONAL_COLUMNS.some((c) => c.key === k));
+      }
+    } catch { /* fall through to defaults */ }
+    return OPTIONAL_COLUMNS.filter((c) => c.defaultOn).map((c) => c.key);
+  });
+  const [showColumnPicker, setShowColumnPicker] = useState(false);
+  const activeCols = OPTIONAL_COLUMNS.filter((c) => visibleCols.includes(c.key));
+  const toggleCol = (key: string) => {
+    setVisibleCols((cur) => {
+      const next = cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key];
+      try { localStorage.setItem(COLUMN_PREF_KEY, JSON.stringify(next)); } catch { /* private mode */ }
+      return next;
+    });
+  };
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
   // Retail vs B2B tab — only meaningful (and only shown) when the B2B module is on.
@@ -357,6 +510,40 @@ const Orders: React.FC = () => {
         </div>
       )}
 
+      {/* WHICH COLUMNS. The list carries far more about an order than seven
+          columns can show, and different desks need different ones — so the
+          choice is the user's and it is remembered. */}
+      <div className="mb-2 flex items-center justify-end gap-2">
+        <div className="relative">
+          <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs"
+            onClick={() => setShowColumnPicker((v) => !v)}>
+            <FaTableColumns className="h-3 w-3" />
+            Columns
+            <span className="text-muted-foreground">({activeCols.length})</span>
+          </Button>
+          {showColumnPicker && (
+            <>
+              {/* Click-away. A plain overlay rather than a document listener so
+                  it cannot leak past unmount. */}
+              <div className="fixed inset-0 z-40" onClick={() => setShowColumnPicker(false)} />
+              <div className="absolute right-0 z-50 mt-1 w-60 rounded-md border bg-white p-2 shadow-lg">
+                <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Extra columns
+                </p>
+                {OPTIONAL_COLUMNS.map((c) => (
+                  <label key={c.key}
+                    className="flex cursor-pointer items-center gap-2 rounded px-1 py-1.5 text-sm hover:bg-muted/60"
+                    title={c.title}>
+                    <Checkbox checked={visibleCols.includes(c.key)} onCheckedChange={() => toggleCol(c.key)} />
+                    <span>{c.label}</span>
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
       <Card className="shadow-sm">
         <CardContent className="p-0">
           <div className="rounded-md border-0">
@@ -373,6 +560,12 @@ const Orders: React.FC = () => {
                   <TableHead className="font-semibold px-4 py-3">Order ID</TableHead>
                   <TableHead className="font-semibold px-4 py-3">Customer</TableHead>
                   <TableHead className="font-semibold px-4 py-3">Amount</TableHead>
+                  {activeCols.map((c) => (
+                    <TableHead key={c.key} title={c.title}
+                      className={`font-semibold px-4 py-3 ${c.align === 'right' ? 'text-right' : c.align === 'center' ? 'text-center' : ''}`}>
+                      {c.label}
+                    </TableHead>
+                  ))}
                   <TableHead className="font-semibold px-4 py-3">Payment</TableHead>
                   <TableHead className="font-semibold px-4 py-3">Status</TableHead>
                   <TableHead className="font-semibold px-4 py-3">Date</TableHead>
@@ -382,7 +575,7 @@ const Orders: React.FC = () => {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="h-48 text-center">
+                    <TableCell colSpan={8 + activeCols.length} className="h-48 text-center">
                       <div className="flex items-center justify-center">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
                       </div>
@@ -390,7 +583,7 @@ const Orders: React.FC = () => {
                   </TableRow>
                 ) : orders.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="h-48 text-center text-muted-foreground">
+                    <TableCell colSpan={8 + activeCols.length} className="h-48 text-center text-muted-foreground">
                       No orders found matching the filter criteria.
                     </TableCell>
                   </TableRow>
@@ -471,6 +664,12 @@ const Orders: React.FC = () => {
                           );
                         })()}
                       </TableCell>
+                      {activeCols.map((c) => (
+                        <TableCell key={c.key}
+                          className={`px-4 py-3 text-sm ${c.align === 'right' ? 'text-right' : c.align === 'center' ? 'text-center' : ''}`}>
+                          {c.cell(order)}
+                        </TableCell>
+                      ))}
                       <TableCell className="px-4 py-3">
                         <div className="flex flex-col gap-1 items-start">
                           <span className="text-xs text-muted-foreground uppercase font-semibold">
