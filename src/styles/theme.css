@@ -99,6 +99,18 @@
     --i-800: #183a66;
     --i-900: #152f52;
     --i-950: #0c1b30;
+    /* Growcord orange — The company's orange (growcord.in's stats band, orange-600). Highlights, offers and first-year price tags; a product may promote it to an accent. Tailwind orange. */
+    --o-50: #fff7ed;
+    --o-100: #ffedd5;
+    --o-200: #fed7aa;
+    --o-300: #fdba74;
+    --o-400: #fb923c;
+    --o-500: #f97316;
+    --o-600: #ea580c;
+    --o-700: #c2410c;
+    --o-800: #9a3412;
+    --o-900: #7c2d12;
+    --o-950: #431407;
 
     /* Surfaces */
     --bg: #f4f5f3;
@@ -309,6 +321,18 @@
     --i-800: #a6c6ec;
     --i-900: #d1e2f6;
     --i-950: #eaf1fa;
+    /* Growcord orange */
+    --o-50: #431407;
+    --o-100: #7c2d12;
+    --o-200: #9a3412;
+    --o-300: #c2410c;
+    --o-400: #ea580c;
+    --o-500: #f97316;
+    --o-600: #fb923c;
+    --o-700: #fdba74;
+    --o-800: #fed7aa;
+    --o-900: #ffedd5;
+    --o-950: #fff7ed;
 
     /* Surfaces */
     --bg: #0f1413;
@@ -413,6 +437,18 @@
     --i-800: #a6c6ec;
     --i-900: #d1e2f6;
     --i-950: #eaf1fa;
+    /* Growcord orange */
+    --o-50: #431407;
+    --o-100: #7c2d12;
+    --o-200: #9a3412;
+    --o-300: #c2410c;
+    --o-400: #ea580c;
+    --o-500: #f97316;
+    --o-600: #fb923c;
+    --o-700: #fdba74;
+    --o-800: #fed7aa;
+    --o-900: #ffedd5;
+    --o-950: #fff7ed;
 
     /* Surfaces */
     --bg: #0f1413;

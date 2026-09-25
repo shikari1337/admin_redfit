@@ -128,182 +128,624 @@
         "900": "#152f52",
         "950": "#0c1b30"
       }
+    },
+    {
+      "id": "o",
+      "label": "Growcord orange",
+      "role": "The company's orange (growcord.in's stats band, orange-600). Highlights, offers and first-year price tags; a product may promote it to an accent. Tailwind orange.",
+      "steps": {
+        "50": "#fff7ed",
+        "100": "#ffedd5",
+        "200": "#fed7aa",
+        "300": "#fdba74",
+        "400": "#fb923c",
+        "500": "#f97316",
+        "600": "#ea580c",
+        "700": "#c2410c",
+        "800": "#9a3412",
+        "900": "#7c2d12",
+        "950": "#431407"
+      }
     }
   ],
   "groups": [
     {
       "name": "Surfaces",
       "tokens": [
-        { "name": "--bg", "light": "#f4f5f3", "dark": "#0f1413", "role": "The page canvas behind every card." },
-        { "name": "--surface", "light": "#ffffff", "dark": "#171d1b", "role": "A card, a table, a panel — paper." },
-        { "name": "--surface-2", "ref": "--n-50", "role": "Inset fill: table stripe, field, code block, a quiet section." },
-        { "name": "--surface-raised", "light": "#ffffff", "dark": "#1d2422", "role": "Lifted over the page: popover, menu, dialog. Pair with --shadow-2." },
-        { "name": "--scrim", "light": "rgb(20 32 27 / 0.42)", "dark": "rgb(0 0 0 / 0.60)", "role": "The dimmer behind a dialog or drawer." }
+        {
+          "name": "--bg",
+          "light": "#f4f5f3",
+          "dark": "#0f1413",
+          "role": "The page canvas behind every card."
+        },
+        {
+          "name": "--surface",
+          "light": "#ffffff",
+          "dark": "#171d1b",
+          "role": "A card, a table, a panel — paper."
+        },
+        {
+          "name": "--surface-2",
+          "ref": "--n-50",
+          "role": "Inset fill: table stripe, field, code block, a quiet section."
+        },
+        {
+          "name": "--surface-raised",
+          "light": "#ffffff",
+          "dark": "#1d2422",
+          "role": "Lifted over the page: popover, menu, dialog. Pair with --shadow-2."
+        },
+        {
+          "name": "--scrim",
+          "light": "rgb(20 32 27 / 0.42)",
+          "dark": "rgb(0 0 0 / 0.60)",
+          "role": "The dimmer behind a dialog or drawer."
+        }
       ]
     },
     {
       "name": "Ink",
       "tokens": [
-        { "name": "--ink", "ref": "--n-900", "role": "Body text and headings." },
-        { "name": "--ink-soft", "ref": "--n-600", "role": "Secondary text, labels, captions." },
-        { "name": "--ink-mute", "light": "var(--n-500)", "dark": "#8e9a93", "role": "Hints and placeholders — the quietest text that still has to be read." },
-        { "name": "--ink-inverse", "light": "#ffffff", "dark": "#0f1413", "role": "Text on a solid dark fill." }
+        {
+          "name": "--ink",
+          "ref": "--n-900",
+          "role": "Body text and headings."
+        },
+        {
+          "name": "--ink-soft",
+          "ref": "--n-600",
+          "role": "Secondary text, labels, captions."
+        },
+        {
+          "name": "--ink-mute",
+          "light": "var(--n-500)",
+          "dark": "#8e9a93",
+          "role": "Hints and placeholders — the quietest text that still has to be read."
+        },
+        {
+          "name": "--ink-inverse",
+          "light": "#ffffff",
+          "dark": "#0f1413",
+          "role": "Text on a solid dark fill."
+        }
       ]
     },
     {
       "name": "Lines",
       "tokens": [
-        { "name": "--line", "ref": "--n-200", "role": "Every ordinary border and divider." },
-        { "name": "--line-strong", "ref": "--n-300", "role": "A border that has to be seen: hover, a field, a table head rule." },
-        { "name": "--focus", "ref": "--accent", "role": "The keyboard focus ring. One colour, everywhere." }
+        {
+          "name": "--line",
+          "ref": "--n-200",
+          "role": "Every ordinary border and divider."
+        },
+        {
+          "name": "--line-strong",
+          "ref": "--n-300",
+          "role": "A border that has to be seen: hover, a field, a table head rule."
+        },
+        {
+          "name": "--focus",
+          "ref": "--accent",
+          "role": "The keyboard focus ring. One colour, everywhere."
+        }
       ]
     },
     {
       "name": "Brand",
       "tokens": [
-        { "name": "--accent", "ref": "--b-600", "role": "The one brand colour: primary button, active nav, link, focus." },
-        { "name": "--accent-hover", "ref": "--b-700", "role": "The accent under the pointer or pressed." },
-        { "name": "--accent-ink", "light": "#ffffff", "dark": "#0e231c", "role": "Text and icons on a solid --accent fill." },
-        { "name": "--accent-soft", "ref": "--b-50", "role": "The accent as a background: selected row, menu hover, info tip." }
+        {
+          "name": "--accent",
+          "ref": "--b-600",
+          "role": "The one brand colour: primary button, active nav, link, focus."
+        },
+        {
+          "name": "--accent-hover",
+          "ref": "--b-700",
+          "role": "The accent under the pointer or pressed."
+        },
+        {
+          "name": "--accent-ink",
+          "light": "#ffffff",
+          "dark": "#0e231c",
+          "role": "Text and icons on a solid --accent fill."
+        },
+        {
+          "name": "--accent-soft",
+          "ref": "--b-50",
+          "role": "The accent as a background: selected row, menu hover, info tip."
+        }
       ]
     },
     {
       "name": "Semantic",
       "tokens": [
-        { "name": "--good", "ref": "--g-600", "role": "Success as a fill, dot or stroke; also readable as text on --surface." },
-        { "name": "--good-bg", "ref": "--g-50", "role": "Soft success background: badge, banner, row highlight." },
-        { "name": "--good-ink", "ref": "--g-800", "role": "Text on --good-bg." },
-        { "name": "--warn", "ref": "--w-600", "role": "Attention as a fill, dot or stroke." },
-        { "name": "--warn-bg", "ref": "--w-50", "role": "Soft attention background." },
-        { "name": "--warn-ink", "ref": "--w-800", "role": "Text on --warn-bg." },
-        { "name": "--bad", "ref": "--d-600", "role": "Failure and destructive actions as a fill, dot or stroke." },
-        { "name": "--bad-bg", "ref": "--d-50", "role": "Soft failure background." },
-        { "name": "--bad-ink", "ref": "--d-800", "role": "Text on --bad-bg." },
-        { "name": "--info", "ref": "--i-600", "role": "Neutral notice as a fill, dot or stroke." },
-        { "name": "--info-bg", "ref": "--i-50", "role": "Soft notice background." },
-        { "name": "--info-ink", "ref": "--i-800", "role": "Text on --info-bg." }
+        {
+          "name": "--good",
+          "ref": "--g-600",
+          "role": "Success as a fill, dot or stroke; also readable as text on --surface."
+        },
+        {
+          "name": "--good-bg",
+          "ref": "--g-50",
+          "role": "Soft success background: badge, banner, row highlight."
+        },
+        {
+          "name": "--good-ink",
+          "ref": "--g-800",
+          "role": "Text on --good-bg."
+        },
+        {
+          "name": "--warn",
+          "ref": "--w-600",
+          "role": "Attention as a fill, dot or stroke."
+        },
+        {
+          "name": "--warn-bg",
+          "ref": "--w-50",
+          "role": "Soft attention background."
+        },
+        {
+          "name": "--warn-ink",
+          "ref": "--w-800",
+          "role": "Text on --warn-bg."
+        },
+        {
+          "name": "--bad",
+          "ref": "--d-600",
+          "role": "Failure and destructive actions as a fill, dot or stroke."
+        },
+        {
+          "name": "--bad-bg",
+          "ref": "--d-50",
+          "role": "Soft failure background."
+        },
+        {
+          "name": "--bad-ink",
+          "ref": "--d-800",
+          "role": "Text on --bad-bg."
+        },
+        {
+          "name": "--info",
+          "ref": "--i-600",
+          "role": "Neutral notice as a fill, dot or stroke."
+        },
+        {
+          "name": "--info-bg",
+          "ref": "--i-50",
+          "role": "Soft notice background."
+        },
+        {
+          "name": "--info-ink",
+          "ref": "--i-800",
+          "role": "Text on --info-bg."
+        }
       ]
     },
     {
       "name": "Sidebar rail",
       "tokens": [
-        { "name": "--side", "light": "#13201b", "dark": "#0b0f0e", "role": "The dark navigation rail." },
-        { "name": "--side-ink", "light": "#a9b8b0", "dark": "#b9c5bf", "role": "Rail text." },
-        { "name": "--side-ink-strong", "light": "#ffffff", "dark": "#ffffff", "role": "Emphasised rail text: the product name, the active item. The rail is dark in both themes." },
-        { "name": "--side-line", "light": "rgb(255 255 255 / 0.08)", "dark": "rgb(255 255 255 / 0.07)", "role": "A divider inside the rail." },
-        { "name": "--side-active", "ref": "--accent", "role": "The active rail item's background." }
+        {
+          "name": "--side",
+          "light": "#13201b",
+          "dark": "#0b0f0e",
+          "role": "The dark navigation rail."
+        },
+        {
+          "name": "--side-ink",
+          "light": "#a9b8b0",
+          "dark": "#b9c5bf",
+          "role": "Rail text."
+        },
+        {
+          "name": "--side-ink-strong",
+          "light": "#ffffff",
+          "dark": "#ffffff",
+          "role": "Emphasised rail text: the product name, the active item. The rail is dark in both themes."
+        },
+        {
+          "name": "--side-line",
+          "light": "rgb(255 255 255 / 0.08)",
+          "dark": "rgb(255 255 255 / 0.07)",
+          "role": "A divider inside the rail."
+        },
+        {
+          "name": "--side-active",
+          "ref": "--accent",
+          "role": "The active rail item's background."
+        }
       ]
     },
     {
       "name": "Data visualisation",
       "note": "Eight categorical series, assigned by entity in this fixed order — never cycled or re-ranked by value. Colour-vision-deficiency safe in sequence. Same in both themes: a chart's series must not change identity when the lights go out.",
       "tokens": [
-        { "name": "--viz-1", "value": "#2a78d6", "role": "Series 1 (blue)." },
-        { "name": "--viz-2", "value": "#eb6834", "role": "Series 2 (orange)." },
-        { "name": "--viz-3", "value": "#1baf7a", "role": "Series 3 (aqua)." },
-        { "name": "--viz-4", "value": "#eda100", "role": "Series 4 (yellow)." },
-        { "name": "--viz-5", "value": "#e87ba4", "role": "Series 5 (magenta)." },
-        { "name": "--viz-6", "value": "#008300", "role": "Series 6 (green)." },
-        { "name": "--viz-7", "value": "#4a3aa7", "role": "Series 7 (violet)." },
-        { "name": "--viz-8", "value": "#e34948", "role": "Series 8 (red)." },
-        { "name": "--viz-grid", "ref": "--n-200", "role": "Chart gridline." },
-        { "name": "--viz-axis", "ref": "--n-300", "role": "Chart baseline and axis." }
+        {
+          "name": "--viz-1",
+          "value": "#2a78d6",
+          "role": "Series 1 (blue)."
+        },
+        {
+          "name": "--viz-2",
+          "value": "#eb6834",
+          "role": "Series 2 (orange)."
+        },
+        {
+          "name": "--viz-3",
+          "value": "#1baf7a",
+          "role": "Series 3 (aqua)."
+        },
+        {
+          "name": "--viz-4",
+          "value": "#eda100",
+          "role": "Series 4 (yellow)."
+        },
+        {
+          "name": "--viz-5",
+          "value": "#e87ba4",
+          "role": "Series 5 (magenta)."
+        },
+        {
+          "name": "--viz-6",
+          "value": "#008300",
+          "role": "Series 6 (green)."
+        },
+        {
+          "name": "--viz-7",
+          "value": "#4a3aa7",
+          "role": "Series 7 (violet)."
+        },
+        {
+          "name": "--viz-8",
+          "value": "#e34948",
+          "role": "Series 8 (red)."
+        },
+        {
+          "name": "--viz-grid",
+          "ref": "--n-200",
+          "role": "Chart gridline."
+        },
+        {
+          "name": "--viz-axis",
+          "ref": "--n-300",
+          "role": "Chart baseline and axis."
+        }
       ]
     },
     {
       "name": "Spacing",
       "tokens": [
-        { "name": "--space-1", "value": "0.25rem", "role": "4px — hairline gap, icon to label. In rem, so the scale follows the browser text size like Tailwind's own." },
-        { "name": "--space-2", "value": "0.5rem", "role": "Inside a control." },
-        { "name": "--space-3", "value": "0.75rem", "role": "Between fields." },
-        { "name": "--space-4", "value": "1rem", "role": "Card padding, the default gap." },
-        { "name": "--space-5", "value": "1.5rem", "role": "Between cards." },
-        { "name": "--space-6", "value": "2rem", "role": "Between sections." },
-        { "name": "--space-7", "value": "2.5rem", "role": "Page gutter." },
-        { "name": "--space-8", "value": "3rem", "role": "Between major regions." },
-        { "name": "--content-pad", "value": "2%", "role": "The shell's content padding, every panel and the admin (owner, Prompt 9). One token; pages never pin a width or cancel it." },
-        { "name": "--content-pad-phone", "value": "max(2%, 12px)", "role": "The same pad on a phone face: 2% of 390px is 8px, under the platform's phone gutter, so it has a floor (plan gate G10)." }
+        {
+          "name": "--space-1",
+          "value": "0.25rem",
+          "role": "4px — hairline gap, icon to label. In rem, so the scale follows the browser text size like Tailwind's own."
+        },
+        {
+          "name": "--space-2",
+          "value": "0.5rem",
+          "role": "Inside a control."
+        },
+        {
+          "name": "--space-3",
+          "value": "0.75rem",
+          "role": "Between fields."
+        },
+        {
+          "name": "--space-4",
+          "value": "1rem",
+          "role": "Card padding, the default gap."
+        },
+        {
+          "name": "--space-5",
+          "value": "1.5rem",
+          "role": "Between cards."
+        },
+        {
+          "name": "--space-6",
+          "value": "2rem",
+          "role": "Between sections."
+        },
+        {
+          "name": "--space-7",
+          "value": "2.5rem",
+          "role": "Page gutter."
+        },
+        {
+          "name": "--space-8",
+          "value": "3rem",
+          "role": "Between major regions."
+        },
+        {
+          "name": "--content-pad",
+          "value": "2%",
+          "role": "The shell's content padding, every panel and the admin (owner, Prompt 9). One token; pages never pin a width or cancel it."
+        },
+        {
+          "name": "--content-pad-phone",
+          "value": "max(2%, 12px)",
+          "role": "The same pad on a phone face: 2% of 390px is 8px, under the platform's phone gutter, so it has a floor (plan gate G10)."
+        }
       ]
     },
     {
       "name": "Radius",
       "tokens": [
-        { "name": "--radius-sm", "value": "6px", "role": "Badge, chip, small control." },
-        { "name": "--radius-md", "value": "8px", "role": "Button, input, select — the one control radius." },
-        { "name": "--radius-lg", "value": "12px", "role": "Card, dialog, panel." },
-        { "name": "--radius-pill", "value": "999px", "role": "Pill badge, avatar, toggle." }
+        {
+          "name": "--radius-sm",
+          "value": "6px",
+          "role": "Badge, chip, small control."
+        },
+        {
+          "name": "--radius-md",
+          "value": "8px",
+          "role": "Button, input, select — the one control radius."
+        },
+        {
+          "name": "--radius-lg",
+          "value": "12px",
+          "role": "Card, dialog, panel."
+        },
+        {
+          "name": "--radius-pill",
+          "value": "999px",
+          "role": "Pill badge, avatar, toggle."
+        }
       ]
     },
     {
       "name": "Shadow",
       "tokens": [
-        { "name": "--shadow-1", "light": "0 1px 2px rgb(20 32 27 / 0.06)", "dark": "0 1px 2px rgb(0 0 0 / 0.5)", "role": "A card resting on the page." },
-        { "name": "--shadow-2", "light": "0 6px 16px -4px rgb(20 32 27 / 0.10), 0 2px 4px rgb(20 32 27 / 0.04)", "dark": "0 6px 16px -4px rgb(0 0 0 / 0.55), 0 2px 4px rgb(0 0 0 / 0.4)", "role": "A popover or menu above the page." },
-        { "name": "--shadow-3", "light": "0 20px 44px -12px rgb(20 32 27 / 0.25)", "dark": "0 20px 44px -12px rgb(0 0 0 / 0.7)", "role": "A dialog or drawer over everything." }
+        {
+          "name": "--shadow-1",
+          "light": "0 1px 2px rgb(20 32 27 / 0.06)",
+          "dark": "0 1px 2px rgb(0 0 0 / 0.5)",
+          "role": "A card resting on the page."
+        },
+        {
+          "name": "--shadow-2",
+          "light": "0 6px 16px -4px rgb(20 32 27 / 0.10), 0 2px 4px rgb(20 32 27 / 0.04)",
+          "dark": "0 6px 16px -4px rgb(0 0 0 / 0.55), 0 2px 4px rgb(0 0 0 / 0.4)",
+          "role": "A popover or menu above the page."
+        },
+        {
+          "name": "--shadow-3",
+          "light": "0 20px 44px -12px rgb(20 32 27 / 0.25)",
+          "dark": "0 20px 44px -12px rgb(0 0 0 / 0.7)",
+          "role": "A dialog or drawer over everything."
+        }
       ]
     },
     {
       "name": "Typography",
       "tokens": [
-        { "name": "--font", "value": "Inter, -apple-system, \"Segoe UI\", Roboto, \"Noto Sans\", Arial, sans-serif", "role": "Every word on screen." },
-        { "name": "--mono", "value": "ui-monospace, \"Cascadia Mono\", Consolas, \"Noto Sans Mono\", monospace", "role": "SKU, id, code, anything meant to be compared character by character." },
-        { "name": "--text-xs", "value": "0.75rem", "role": "12px — badge, hint, table meta." },
-        { "name": "--text-sm", "value": "0.875rem", "role": "14px — the workhorse size: table cell, field, button." },
-        { "name": "--text-base", "value": "1rem", "role": "16px — body prose." },
-        { "name": "--text-lg", "value": "1.125rem", "role": "18px — card title." },
-        { "name": "--text-xl", "value": "1.25rem", "role": "20px — section title." },
-        { "name": "--text-2xl", "value": "1.5rem", "role": "24px — page title." },
-        { "name": "--leading", "value": "1.5", "role": "Default line height." }
+        {
+          "name": "--font",
+          "value": "Inter, -apple-system, \"Segoe UI\", Roboto, \"Noto Sans\", Arial, sans-serif",
+          "role": "Every word on screen."
+        },
+        {
+          "name": "--mono",
+          "value": "ui-monospace, \"Cascadia Mono\", Consolas, \"Noto Sans Mono\", monospace",
+          "role": "SKU, id, code, anything meant to be compared character by character."
+        },
+        {
+          "name": "--text-xs",
+          "value": "0.75rem",
+          "role": "12px — badge, hint, table meta."
+        },
+        {
+          "name": "--text-sm",
+          "value": "0.875rem",
+          "role": "14px — the workhorse size: table cell, field, button."
+        },
+        {
+          "name": "--text-base",
+          "value": "1rem",
+          "role": "16px — body prose."
+        },
+        {
+          "name": "--text-lg",
+          "value": "1.125rem",
+          "role": "18px — card title."
+        },
+        {
+          "name": "--text-xl",
+          "value": "1.25rem",
+          "role": "20px — section title."
+        },
+        {
+          "name": "--text-2xl",
+          "value": "1.5rem",
+          "role": "24px — page title."
+        },
+        {
+          "name": "--leading",
+          "value": "1.5",
+          "role": "Default line height."
+        }
       ]
     },
     {
       "name": "Motion",
       "tokens": [
-        { "name": "--ease", "value": "cubic-bezier(0.2, 0.7, 0.2, 1)", "role": "One easing curve for every transition." },
-        { "name": "--dur", "value": "160ms", "role": "One duration for a state change." },
-        { "name": "--dur-slow", "value": "260ms", "role": "Something entering or leaving the screen." }
+        {
+          "name": "--ease",
+          "value": "cubic-bezier(0.2, 0.7, 0.2, 1)",
+          "role": "One easing curve for every transition."
+        },
+        {
+          "name": "--dur",
+          "value": "160ms",
+          "role": "One duration for a state change."
+        },
+        {
+          "name": "--dur-slow",
+          "value": "260ms",
+          "role": "Something entering or leaving the screen."
+        }
       ]
     },
     {
       "name": "Layering",
       "note": "The kit's existing scale, unchanged: a toast has to be readable over a dialog, so it sits above it.",
       "tokens": [
-        { "name": "--z-drawer", "value": "40", "role": "A sidebar or slide-over." },
-        { "name": "--z-modal", "value": "60", "role": "A dialog and its backdrop." },
-        { "name": "--z-toast", "value": "80", "role": "A toast, above everything." }
+        {
+          "name": "--z-drawer",
+          "value": "40",
+          "role": "A sidebar or slide-over."
+        },
+        {
+          "name": "--z-modal",
+          "value": "60",
+          "role": "A dialog and its backdrop."
+        },
+        {
+          "name": "--z-toast",
+          "value": "80",
+          "role": "A toast, above everything."
+        }
       ]
     },
     {
       "name": "Compatibility aliases",
       "note": "The names the three code bases already use. They point at the tokens above so no panel or page breaks, and so there is exactly one place to learn every name. New code uses the role names above.",
       "tokens": [
-        { "name": "--ground", "ref": "--bg", "role": "kit — canvas." },
-        { "name": "--paper", "ref": "--surface", "role": "kit — card." },
-        { "name": "--paper-2", "ref": "--surface-2", "role": "kit — inset." },
-        { "name": "--shadow", "ref": "--shadow-2", "role": "kit — the one shadow it had." },
-        { "name": "--radius", "ref": "--radius-md", "role": "kit + super-admin — control radius." },
-        { "name": "--tint", "value": "color-mix(in oklab, var(--accent) 8%, transparent)", "role": "kit — accent wash." },
-        { "name": "--tint-2", "value": "color-mix(in oklab, var(--accent) 16%, transparent)", "role": "kit — stronger accent wash." },
-        { "name": "--text", "ref": "--ink", "role": "super-admin — body text." },
-        { "name": "--text-2", "ref": "--ink-soft", "role": "super-admin — secondary text." },
-        { "name": "--text-3", "ref": "--ink-mute", "role": "super-admin — hint text." },
-        { "name": "--border", "ref": "--line", "role": "super-admin — border." },
-        { "name": "--border-strong", "ref": "--line-strong", "role": "super-admin — strong border." },
-        { "name": "--danger", "ref": "--bad", "role": "super-admin — failure." },
-        { "name": "--danger-soft", "ref": "--bad-bg", "role": "super-admin — failure background." },
-        { "name": "--success", "ref": "--good", "role": "super-admin — success." },
-        { "name": "--warning", "ref": "--warn", "role": "super-admin — attention." },
-        { "name": "--sidebar-bg", "ref": "--side", "role": "super-admin — rail." },
-        { "name": "--sidebar-bg-2", "light": "#182822", "dark": "#121816", "role": "super-admin — rail gradient stop." },
-        { "name": "--sidebar-border", "ref": "--side-line", "role": "super-admin — rail divider." },
-        { "name": "--sidebar-text", "ref": "--side-ink", "role": "super-admin — rail text." },
-        { "name": "--sidebar-text-active", "light": "#ffffff", "dark": "#ffffff", "role": "super-admin — active rail text." },
-        { "name": "--sidebar-active-bg", "value": "color-mix(in srgb, var(--b-300) 18%, transparent)", "role": "super-admin — active rail background." },
-        { "name": "--sidebar-hover-bg", "value": "rgb(255 255 255 / 0.05)", "role": "super-admin — rail hover." },
-        { "name": "--shadow-sm", "ref": "--shadow-1", "role": "super-admin — resting shadow." },
-        { "name": "--shadow-md", "ref": "--shadow-2", "role": "super-admin — raised shadow." },
-        { "name": "--shadow-lg", "ref": "--shadow-3", "role": "super-admin — overlay shadow." },
-        { "name": "--ring", "value": "0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent)", "role": "super-admin — focus ring box-shadow." }
+        {
+          "name": "--ground",
+          "ref": "--bg",
+          "role": "kit — canvas."
+        },
+        {
+          "name": "--paper",
+          "ref": "--surface",
+          "role": "kit — card."
+        },
+        {
+          "name": "--paper-2",
+          "ref": "--surface-2",
+          "role": "kit — inset."
+        },
+        {
+          "name": "--shadow",
+          "ref": "--shadow-2",
+          "role": "kit — the one shadow it had."
+        },
+        {
+          "name": "--radius",
+          "ref": "--radius-md",
+          "role": "kit + super-admin — control radius."
+        },
+        {
+          "name": "--tint",
+          "value": "color-mix(in oklab, var(--accent) 8%, transparent)",
+          "role": "kit — accent wash."
+        },
+        {
+          "name": "--tint-2",
+          "value": "color-mix(in oklab, var(--accent) 16%, transparent)",
+          "role": "kit — stronger accent wash."
+        },
+        {
+          "name": "--text",
+          "ref": "--ink",
+          "role": "super-admin — body text."
+        },
+        {
+          "name": "--text-2",
+          "ref": "--ink-soft",
+          "role": "super-admin — secondary text."
+        },
+        {
+          "name": "--text-3",
+          "ref": "--ink-mute",
+          "role": "super-admin — hint text."
+        },
+        {
+          "name": "--border",
+          "ref": "--line",
+          "role": "super-admin — border."
+        },
+        {
+          "name": "--border-strong",
+          "ref": "--line-strong",
+          "role": "super-admin — strong border."
+        },
+        {
+          "name": "--danger",
+          "ref": "--bad",
+          "role": "super-admin — failure."
+        },
+        {
+          "name": "--danger-soft",
+          "ref": "--bad-bg",
+          "role": "super-admin — failure background."
+        },
+        {
+          "name": "--success",
+          "ref": "--good",
+          "role": "super-admin — success."
+        },
+        {
+          "name": "--warning",
+          "ref": "--warn",
+          "role": "super-admin — attention."
+        },
+        {
+          "name": "--sidebar-bg",
+          "ref": "--side",
+          "role": "super-admin — rail."
+        },
+        {
+          "name": "--sidebar-bg-2",
+          "light": "#182822",
+          "dark": "#121816",
+          "role": "super-admin — rail gradient stop."
+        },
+        {
+          "name": "--sidebar-border",
+          "ref": "--side-line",
+          "role": "super-admin — rail divider."
+        },
+        {
+          "name": "--sidebar-text",
+          "ref": "--side-ink",
+          "role": "super-admin — rail text."
+        },
+        {
+          "name": "--sidebar-text-active",
+          "light": "#ffffff",
+          "dark": "#ffffff",
+          "role": "super-admin — active rail text."
+        },
+        {
+          "name": "--sidebar-active-bg",
+          "value": "color-mix(in srgb, var(--b-300) 18%, transparent)",
+          "role": "super-admin — active rail background."
+        },
+        {
+          "name": "--sidebar-hover-bg",
+          "value": "rgb(255 255 255 / 0.05)",
+          "role": "super-admin — rail hover."
+        },
+        {
+          "name": "--shadow-sm",
+          "ref": "--shadow-1",
+          "role": "super-admin — resting shadow."
+        },
+        {
+          "name": "--shadow-md",
+          "ref": "--shadow-2",
+          "role": "super-admin — raised shadow."
+        },
+        {
+          "name": "--shadow-lg",
+          "ref": "--shadow-3",
+          "role": "super-admin — overlay shadow."
+        },
+        {
+          "name": "--ring",
+          "value": "0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent)",
+          "role": "super-admin — focus ring box-shadow."
+        }
       ]
     }
   ]
