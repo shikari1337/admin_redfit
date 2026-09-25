@@ -74,9 +74,9 @@ const SKIP_REASON: Record<string, string> = {
   outbound_disabled: 'Non-transactional sending is switched off for this store.',
   channel_reserved: 'This channel is not available yet.',
   // Template and credential refusals.
-  template_missing: 'No template for this message on this channel — add one in Settings ▸ Notification Templates.',
+  template_missing: 'No template for this message on this channel — add one in Settings ▸ Message templates.',
   template_not_approved: 'The WhatsApp template exists but Meta has not approved it yet.',
-  no_template: 'No template for this message on this channel — add one in Settings ▸ Notification Templates.',
+  no_template: 'No template for this message on this channel — add one in Settings ▸ Message templates.',
   not_configured: 'This channel has no credentials configured for this store.',
   switched_off: 'This channel is switched off for this store.',
 };
