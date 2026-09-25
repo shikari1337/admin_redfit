@@ -25,7 +25,20 @@ interface Address {
   pincode?: string;
   mobileNumber?: string; mobile_number?: string;
   email?: string;
+  landmark?: string;
+  /** The exact point the customer pinned at checkout ("Use my location") —
+   *  couriers use it for addresses that are ambiguous as text. */
+  latitude?: number | string | null;
+  longitude?: number | string | null;
 }
+
+/** The pinned point, when it is a real one (0,0 and junk are not). */
+const pinOf = (a: Address): { lat: number; lng: number } | null => {
+  const lat = Number(a.latitude), lng = Number(a.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return null;
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  return { lat, lng };
+};
 
 interface Warehouse {
   _id?: string;
@@ -71,9 +84,11 @@ const line = (a: Address) => [
   a.fullName || a.full_name,
   a.address,
   a.addressLine2 || a.address_line2,
+  a.landmark ? `Landmark: ${a.landmark}` : '',
   [a.district, a.state, a.pincode].filter(Boolean).join(' '),
   a.mobileNumber || a.mobile_number,
   a.email,
+  (() => { const p = pinOf(a); return p ? `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}` : ''; })(),
 ].filter(Boolean).join('\n');
 
 /** Copy the whole address as a courier/WhatsApp-pasteable block. */
@@ -103,6 +118,7 @@ const AddressBlock: React.FC<{
   const phone = address.mobileNumber || address.mobile_number;
   const name = address.fullName || address.full_name;
   const l2 = address.addressLine2 || address.address_line2;
+  const pin = pinOf(address);
   return (
     <div className="space-y-1 text-sm leading-relaxed">
       <p className="text-base font-bold leading-tight text-slate-900">{name || '—'}</p>
@@ -112,6 +128,17 @@ const AddressBlock: React.FC<{
         {[address.district, address.state].filter(Boolean).join(', ')}
         {address.pincode && <span className="ml-1.5 font-semibold tabular-nums text-slate-900">{address.pincode}</span>}
       </p>
+      {address.landmark && <p className="font-medium text-slate-600">Landmark: {address.landmark}</p>}
+      {pin && (
+        <p className="flex flex-wrap items-center gap-x-2 text-xs">
+          <FaMapMarkerAlt className="h-3 w-3 text-rose-600" />
+          <span className="font-semibold text-slate-700">Pinned location</span>
+          <span className="tabular-nums text-slate-600">{pin.lat.toFixed(6)}, {pin.lng.toFixed(6)}</span>
+          <a href={`https://www.google.com/maps/search/?api=1&query=${pin.lat},${pin.lng}`} target="_blank" rel="noopener noreferrer"
+            className="font-bold text-blue-700 hover:underline">Open in Maps</a>
+          <CopyButton text={`${pin.lat.toFixed(6)},${pin.lng.toFixed(6)}`} title="Copy coordinates" />
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1.5 text-xs">
         {phone && (
           <>
