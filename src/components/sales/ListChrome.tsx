@@ -236,6 +236,8 @@ export interface SegmentTab {
   title?: string;
   /** Draw a divider before this tab: it opens a new, independent group. */
   startsGroup?: boolean;
+  /** Greyed: shown for reference but not in force here (the `title` says why). Still pickable. */
+  muted?: boolean;
 }
 
 export const SegmentTabs: React.FC<{ tabs: SegmentTab[]; ariaLabel: string }> = ({ tabs, ariaLabel }) => {
@@ -250,13 +252,14 @@ export const SegmentTabs: React.FC<{ tabs: SegmentTab[]; ariaLabel: string }> = 
             type="button"
             role="tab"
             aria-selected={t.on}
+            data-muted={t.muted ? '' : undefined}
             title={t.title}
             onClick={t.onPick}
             className={`whitespace-nowrap border-b-2 px-3 py-2 text-sm transition-colors ${
               t.on
                 ? 'border-brand font-semibold text-ink'
                 : 'border-transparent font-medium text-ink-soft hover:border-line-strong hover:text-ink'
-            }`}
+            }${t.muted ? ' opacity-50' : ''}`}
           >
             {t.label}
           </button>

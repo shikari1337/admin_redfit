@@ -1032,7 +1032,7 @@ const ApiIntegrationSettings: React.FC = () => {
                     <CheckCircle2 className="h-4 w-4 shrink-0" />
                     <span>
                       Connected — <strong>{waStatus.registeredPhone || waStatus.phoneNumberId}</strong>.{' '}
-                      <strong>{waStatus.ready}/{waStatus.total}</strong> notification templates approved and ready to send.
+                      <strong>{waStatus.ready}/{waStatus.total}</strong> WhatsApp message templates approved and ready to send.
                       {waStatus.usingPlatformDefault && ' Using the platform\'s shared default key.'}
                     </span>
                   </div>

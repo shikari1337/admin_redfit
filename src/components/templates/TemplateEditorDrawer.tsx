@@ -211,7 +211,9 @@ const TemplateEditorDrawer: React.FC<{
     } finally { setSyncing(false); }
   };
 
-  const draft = dirty || storeLayer ? { subject, body } : null;
+  // The preview follows the editor AS YOU TYPE: any words in the box are rendered unsaved
+  // (`bodySource: 'draft'`); an empty box previews what a send would use now.
+  const draft = body.trim() ? { subject, body } : null;
   const quickText = fillExamples(body || (channel === 'whatsapp' ? (def.whatsapp?.preview || '') : growcord.body), def, { smsSignature: smsOwnHeader ? '' : '-GROWCORD' });
 
   return (

@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { formatDateTime } from '../utils/date';
 import SettingFieldControl, { summarizeField, type RegistryField, type FieldOption } from '../components/settings/SettingFieldControl';
-import MessageLayoutForm from '../components/settings/MessageLayoutForm';
+import MessageLayoutForm, { gateMessageLayoutDef } from '../components/settings/MessageLayoutForm';
 import {
   canonicalVariationName,
   DEFAULT_CATALOG_NAME_ORDER,
@@ -413,7 +413,9 @@ const ListRow: React.FC<{ def: RegistryDef; active: boolean; onSelect: () => voi
 
 /* ────────────────────────── editor ────────────────────────── */
 
-const Editor: React.FC<{ def: RegistryDef; all: RegistryDef[]; onSaved: (d: RegistryDef) => void; onJump: (key: string) => void }> = ({ def, all, onSaved, onJump }) => {
+const Editor: React.FC<{ def: RegistryDef; all: RegistryDef[]; onSaved: (d: RegistryDef) => void; onJump: (key: string) => void }> = ({ def: rawDef, all, onSaved, onJump }) => {
+  // 8.6: the SMS signature is read-only unless the server says the store may set it (G-M5).
+  const def = useMemo(() => gateMessageLayoutDef(rawDef), [rawDef]);
   const { toast } = useToast();
   const initial = useMemo(() => Object.fromEntries(def.fields.map((f) => [f.path, f.type === 'secret' ? '' : getPath(def.value, f.path)])), [def]);
   const [work, setWork] = useState<Record<string, any>>(initial);

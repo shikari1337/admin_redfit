@@ -53,3 +53,20 @@ const MessageLayoutForm: React.FC<{
 };
 
 export default MessageLayoutForm;
+
+/**
+ * Gate G-M5 on the generated form: the server says (in 8.6's own value) whether
+ * this store may set its SMS signature — only a store with its own registered DLT
+ * header may. When it may not, the field is READ-ONLY at "-GROWCORD" with the
+ * server's reason as its help. A read-only field is never dirty, so it is never
+ * sent; `smsSignatureEditable`/`smsSignatureReason` are not fields at all, so the
+ * save path cannot echo them back.
+ */
+export function gateMessageLayoutDef<T extends { key: string; value: any; fields: Array<{ path: string; readonly?: boolean; help?: string; description?: string }> }>(def: T): T {
+  if (def.key !== 'messageLayout' || def.value?.smsSignatureEditable !== false) return def;
+  const reason = String(def.value?.smsSignatureReason || 'Your store has no registered SMS sender (DLT header) of its own, so messages end with -GROWCORD.');
+  return {
+    ...def,
+    fields: def.fields.map((f) => (f.path === 'smsSignature' ? { ...f, readonly: true, help: reason, description: reason } : f)),
+  };
+}

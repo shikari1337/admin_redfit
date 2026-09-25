@@ -16,7 +16,7 @@ import SmsGatewayPanel from '@/components/templates/SmsGatewayPanel';
 import WhatsAppStatusPanel, { useWhatsAppLiveStatus, waNamesOf } from '@/components/templates/WhatsAppStatusPanel';
 import {
   CHANNEL_LABEL, CHANNEL_ORDER, KIND_HELP, KIND_LABEL, KIND_TONE, LAYER_FILTER_LABEL, LAYER_TONE,
-  approvalOf, layerOf, productLabel, productTabs, rowHaystack, type LayerKey,
+  PRODUCT_OFF_TIP, approvalOf, layerOf, productEnabled, productLabel, productTabs, rowHaystack, type LayerKey,
 } from '@/components/templates/model';
 
 /**
@@ -24,7 +24,7 @@ import {
  * per channel, with WHICH text goes out: Growcord's default (the catalogue,
  * in code) or the store's own override. docs/MESSAGE_TEMPLATES_PLAN.md §5.
  *
- * Rebuilt in place of the old "Notification Templates" page (same route, same
+ * Rebuilt in place of the old notification-templates page (same route, same
  * menu item). The SMS gateway credentials and DLT auto-map it carried live
  * behind "Gateway"; the WhatsApp gateway's live approval and "Submit missing
  * to Meta" live in the WhatsApp column header.
@@ -63,7 +63,9 @@ const SmsTemplates: React.FC = () => {
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  const tabs = useMemo(() => productTabs(cat), [cat]);
+  const [showAll, setShowAll] = useState(false);
+  const tabs = useMemo(() => productTabs(cat, showAll), [cat, showAll]);
+  const offCount = useMemo(() => productTabs(cat, true).length - productTabs(cat, false).length, [cat]);
   const product = params.get('product') && tabs.includes(params.get('product')!) ? params.get('product')! : (tabs[0] ?? 'commerce');
   const setProduct = (p: string) => { const n = new URLSearchParams(params); n.set('product', p); setParams(n, { replace: true }); };
 
@@ -149,9 +151,30 @@ const SmsTemplates: React.FC = () => {
       )}
       {error && <div className="rounded-md border border-bad bg-bad-bg px-3 py-2 text-sm text-bad-ink">{error}</div>}
 
-      <SegmentTabs ariaLabel="Product" tabs={tabs.map((p) => ({
-        key: p, label: productLabel(cat, p), on: p === product, onPick: () => { setProduct(p); clearAll(); },
-      }))} />
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <SegmentTabs ariaLabel="Product" tabs={tabs.map((p) => {
+            const off = !productEnabled(cat, p);
+            return {
+              key: p, label: productLabel(cat, p), on: p === product, muted: off,
+              title: off ? PRODUCT_OFF_TIP : undefined,
+              onPick: () => { setProduct(p); clearAll(); },
+            };
+          })} />
+        </div>
+        {offCount > 0 && (
+          <label className="flex cursor-pointer items-center gap-1.5 pb-2 text-xs text-ink-soft" title={PRODUCT_OFF_TIP}>
+            <input type="checkbox" checked={showAll} data-testid="show-all-products"
+              onChange={(e) => { setShowAll(e.target.checked); if (!e.target.checked && !productEnabled(cat, product)) setProduct('commerce'); }} />
+            Show all products ({offCount} off)
+          </label>
+        )}
+      </div>
+      {!productEnabled(cat, product) && (
+        <div className="rounded-md border border-line bg-surface-2 px-3 py-2 text-xs text-ink-soft">
+          {productLabel(cat, product)} is not switched on for this store (Settings 17.1). Nothing here sends until it is.
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         <SearchBox value={search} onChange={setSearch} placeholder="Search messages" className="w-72" />

@@ -35,18 +35,24 @@ const PRODUCT_NAMES: Record<string, string> = {
 export const productLabel = (cat: MsgCatalogue | null, product: string): string =>
   cat?.products.find((p) => p.product === product)?.label || PRODUCT_NAMES[product] || product;
 
+/** Is this product switched on for the store? The server decides (`products[].enabled`); unknown = on. */
+export const productEnabled = (cat: MsgCatalogue | null, product: string): boolean =>
+  cat?.products.find((p) => p.product === product)?.enabled !== false;
+
+export const PRODUCT_OFF_TIP = 'Not switched on for this store (Settings 17.1)';
+
 /**
- * The product tabs: what the server says the store has on, Commerce first.
- * A product with `enabled: false` is hidden; one the server did not qualify is
- * shown only when it actually has entries.
+ * The product tabs, Commerce first: the products the store has switched on,
+ * or — with `showAll` — every product in the catalogue (the page greys the
+ * ones that are off). A product only appears when it has entries.
  */
-export function productTabs(cat: MsgCatalogue | null): string[] {
+export function productTabs(cat: MsgCatalogue | null, showAll = false): string[] {
   if (!cat) return [];
   const withEntries = new Set(cat.entries.map((e) => e.def.product));
-  const listed = cat.products.filter((p) => p.enabled !== false).map((p) => p.product);
-  const all = [...new Set([...listed, ...[...withEntries].filter((p) => !cat.products.some((x) => x.product === p))])]
-    .filter((p) => withEntries.has(p) || listed.includes(p));
-  return all.sort((a, b) => (a === 'commerce' ? -1 : b === 'commerce' ? 1 : 0));
+  const order = [...cat.products.map((p) => p.product), ...[...withEntries].filter((p) => !cat.products.some((x) => x.product === p))];
+  return [...new Set(order)]
+    .filter((p) => withEntries.has(p) && (showAll || productEnabled(cat, p)))
+    .sort((a, b) => (a === 'commerce' ? -1 : b === 'commerce' ? 1 : 0));
 }
 
 /* ── layers ────────────────────────────────────────────────────────────────── */

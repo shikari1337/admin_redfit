@@ -5709,6 +5709,8 @@ export interface MsgCatalogue {
   entries: MsgCatalogueEntry[];
   /** Does this store have its own registered DLT header (gate G-M5)? */
   smsOwnHeader?: boolean;
+  /** Why the SMS signature is fixed at -GROWCORD, when it is. */
+  smsSignatureReason?: string;
   /** The store's resolved layout, as far as the catalogue reports it. */
   layout?: { source?: string; brandName?: string; smsSignature?: string } | null;
   /** Catalogue entries the server dropped as invalid (shown, never hidden). */
@@ -5763,7 +5765,8 @@ function msgNormaliseCatalogue(d: any): MsgCatalogue {
   });
   const products: MsgCatalogueProduct[] = (Array.isArray(d.products) ? d.products : []).map((p: any) =>
     typeof p === 'string' ? { product: p } : { product: p.product, label: p.label, enabled: p.enabled, count: p.count ?? p.events });
-  const own = d.smsOwnHeader ?? d.sms_own_header ?? d.layout?.hasOwnDltHeader ?? d.layout?.has_own_dlt_header;
+  // G-M5: the store may set its own SMS signature only with its own registered DLT header.
+  const own = d.smsSignatureEditable ?? d.smsOwnHeader ?? d.layout?.hasOwnDltHeader;
   return {
     products, entries,
     // Until the route says so outright, a store signature other than Growcord's
@@ -5771,6 +5774,7 @@ function msgNormaliseCatalogue(d: any): MsgCatalogue {
     smsOwnHeader: typeof own === 'boolean' ? own
       : (typeof d.layout?.smsSignature === 'string' ? d.layout.smsSignature.trim() !== '-GROWCORD' : undefined),
     layout: d.layout ?? null,
+    smsSignatureReason: typeof d.smsSignatureReason === 'string' ? d.smsSignatureReason : undefined,
     issues: Array.isArray(d.issues) ? d.issues : [],
   };
 }
@@ -5846,7 +5850,8 @@ export const messageTemplatesAPI = {
     const params = { key: p.key, channel: p.channel, layout: p.layout };
     if (p.draft) {
       try {
-        const r = await api.post('/comms/templates/preview', { ...params, draft: p.draft });
+        // Unsaved words: the server renders them (`bodySource: 'draft'`) and writes nothing.
+        const r = await api.post('/comms/templates/preview', { ...params, body: p.draft.body, subject: p.draft.subject, components: p.draft.components });
         return payload<MsgPreview>(r);
       } catch (e: any) {
         if (msgStatus(e) !== 404 && msgStatus(e) !== 405) throw e;
