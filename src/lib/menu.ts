@@ -294,7 +294,7 @@ export const MENU: MenuGroup[] = [
         { label: 'Contact Submissions', to: '/settings/contact', perm: 'settings.manage', tip: 'What people sent through the contact form.' },
         { label: 'Payment Methods & Discounts', to: '/settings/payment-discount', perm: 'settings.manage', tip: 'When COD is allowed, and prepaid discounts.' },
         { label: 'Payment Gateways', to: '/settings/payment-gateways', perm: 'settings.manage', tip: 'Razorpay, UPI and bank transfer.' },
-        { label: 'SMS / WhatsApp Templates', to: '/settings/sms-templates', perm: 'settings.manage', tip: 'The SMS and WhatsApp bodies the store sends.' },
+        { label: 'Message templates', to: '/settings/sms-templates', perm: 'settings.manage', tip: 'Every message the store sends, per channel — Growcord default or your own.' },
         { label: 'Cart Recovery Automation', to: '/settings/cart-recovery-automation', perm: 'settings.manage', tip: 'The messages sent when a cart is left behind.' },
         { label: 'GST Display', to: '/settings/gst', perm: 'settings.manage', tip: 'Whether prices include tax, and how it is shown.' },
         { label: 'Markets', to: '/settings/markets', perm: 'settings.read', tip: 'The countries you sell to and how they are priced.' },

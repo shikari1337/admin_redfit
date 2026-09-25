@@ -165,7 +165,7 @@ const MarketingSettings: React.FC = () => {
             WhatsApp / Email (SMTP) / Meta pixel credentials → <b>API Integrations</b>
           </Link>
           <Link className="rounded border p-3 hover:bg-gray-50" to="/settings/sms-templates">
-            SMS & WhatsApp operational templates (order updates, OTP) → <b>SMS / WhatsApp Templates</b>
+            SMS & WhatsApp operational templates (order updates, OTP) → <b>Message templates</b>
           </Link>
           <Link className="rounded border p-3 hover:bg-gray-50" to="/settings/wallet">
             Campaign billing balance → <b>Wallet</b>

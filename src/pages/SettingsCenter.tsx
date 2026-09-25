@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { formatDateTime } from '../utils/date';
 import SettingFieldControl, { summarizeField, type RegistryField, type FieldOption } from '../components/settings/SettingFieldControl';
+import MessageLayoutForm from '../components/settings/MessageLayoutForm';
 import {
   canonicalVariationName,
   DEFAULT_CATALOG_NAME_ORDER,
@@ -527,6 +528,9 @@ const Editor: React.FC<{ def: RegistryDef; all: RegistryDef[]; onSaved: (d: Regi
       {/* Catalogue naming (6.x): show what the config being edited actually
           produces, on a real SKU, before it is saved. */}
       {def.key === 'catalogNaming' && <CatalogNamingPreview def={def} work={work} />}
+
+      {/* Message layout (8.6): the frame every message is sent inside, drawn while it is typed. */}
+      {def.key === 'messageLayout' && <MessageLayoutForm def={def} work={work} />}
 
       {/* Related */}
       {related.length > 0 && (

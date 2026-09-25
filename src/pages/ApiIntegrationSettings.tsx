@@ -1060,6 +1060,9 @@ const ApiIntegrationSettings: React.FC = () => {
                             Submit missing templates to Meta
                           </Button>
                           <span className="text-xs">Approval usually takes minutes to a day; already-approved templates are left alone.</span>
+                          <button type="button" className="text-xs font-medium underline" onClick={() => navigate('/settings/sms-templates')}>
+                            Every message and its approval: Message templates
+                          </button>
                         </div>
                       </div>
                     </div>

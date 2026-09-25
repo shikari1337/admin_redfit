@@ -5659,3 +5659,254 @@ export const salesAPI = {
 };
 
 export default api;
+
+// ─── MESSAGE TEMPLATES (docs/MESSAGE_TEMPLATES_PLAN.md §2/§3/§5 — lane M-C) ──
+// One catalogue of every message every product sends: Growcord's own default
+// per channel (code, backend/src/config/messageTemplates/) and this store's
+// override (comms_template_versions → sms_templates). The server RESOLVES which
+// layer a send will use; this client only carries the answer.
+export type MsgChannel = 'email' | 'sms' | 'whatsapp' | 'push';
+export type MsgKind = 'authentication' | 'update' | 'marketing';
+export type MsgLayerSource = 'store_version' | 'store_sms' | 'growcord_default' | 'none';
+
+export interface MsgVariable { key: string; description: string; example: string }
+export interface MsgTemplateDef {
+  key: string; product: string; event: string; kind: MsgKind; audience: string;
+  title: string; description: string; trigger: string;
+  variables: MsgVariable[]; channels: MsgChannel[]; defaultOrder: MsgChannel[];
+  requiresOtp?: boolean; legacy?: true;
+  email?: { subject: string; preheader?: string; template: string; cta?: { label: string; urlVar: string } };
+  sms?: { body: string; encoding: 'gsm7' | 'ucs2'; dlt: { header: 'GRWCRD' | 'STORE'; templateId?: string; registered: boolean } };
+  whatsapp?: {
+    name: string; category: 'AUTHENTICATION' | 'UTILITY' | 'MARKETING'; language: string;
+    header?: { type: 'TEXT' | 'IMAGE' | 'DOCUMENT'; text?: string };
+    body: string; bodyVars: string[]; footer?: string;
+    buttons?: Array<{ type: 'URL' | 'QUICK_REPLY'; text: string; url?: string }>;
+    sample: string[]; preview: string;
+  };
+  push?: { title: string; body: string; url?: string };
+}
+export interface MsgResolvedLayer {
+  source: MsgLayerSource;
+  approvalStatus?: string | null;
+  approvalDetail?: string | null;
+  providerRef?: string | null;
+  version?: number | null;
+  /** The store's own body/subject when the layer is a store override. */
+  body?: string | null;
+  subject?: string | null;
+  components?: any[];
+  isActive?: boolean;
+  /** SMS only: which DLT header the store's text is registered under, if known. */
+  registeredUnder?: 'GRWCRD' | 'STORE' | null;
+  /** The key the store's row is stored under (bare legacy or namespaced). */
+  templateKey?: string | null;
+}
+export interface MsgCatalogueEntry { def: MsgTemplateDef; resolved: Partial<Record<MsgChannel, MsgResolvedLayer>> }
+export interface MsgCatalogueProduct { product: string; label?: string; enabled?: boolean; count?: number }
+export interface MsgCatalogue {
+  products: MsgCatalogueProduct[];
+  entries: MsgCatalogueEntry[];
+  /** Does this store have its own registered DLT header (gate G-M5)? */
+  smsOwnHeader?: boolean;
+  /** The store's resolved layout, as far as the catalogue reports it. */
+  layout?: { source?: string; brandName?: string; smsSignature?: string } | null;
+  /** Catalogue entries the server dropped as invalid (shown, never hidden). */
+  issues?: Array<{ key: string; level: string; message: string }>;
+  /** Set by THIS client when the catalogue route is not on the backend yet. */
+  degraded?: string;
+}
+export interface MsgPreview {
+  subject?: string | null; html?: string | null; text?: string | null;
+  components?: any[]; provider_ref?: string | null; providerRef?: string | null; approval?: any;
+  layoutSource?: 'store' | 'product' | 'growcord';
+  bodySource?: string;
+  /** Placeholders the example values did not supply — left visible, never blanked. */
+  missing?: string[];
+  /** Why a real send would SKIP this channel although words exist (e.g. SMS not DLT-registered). */
+  blocked?: string | null;
+  error?: string;
+}
+export interface MsgTestSendResult { ok: boolean; message: string; dispatchId?: string | null; status?: string | null; to?: string | null }
+
+const msgStatus = (e: any): number | undefined => e?.response?.status;
+const msgError = (e: any, fallback: string): string =>
+  e?.response?.data?.message || e?.response?.data?.error?.message || e?.message || fallback;
+
+const msgLayerFromLegacy = (s: unknown): MsgLayerSource =>
+  s === 'comms_version' || s === 'store_version' ? 'store_version'
+    : s === 'sms_templates' || s === 'store_sms' ? 'store_sms'
+      : s === 'catalog' || s === 'growcord_default' ? 'growcord_default' : 'none';
+
+/**
+ * The catalogue route's wire shape → the page's. The server sends each entry as
+ * the def itself plus `layers: { [channel]: { source, template_key, version,
+ * approval_status, provider_ref, is_active } }`; products as `{ product, events }`;
+ * the store's layout as `{ source, brandName, smsSignature }`.
+ */
+function msgNormaliseCatalogue(d: any): MsgCatalogue {
+  const entries: MsgCatalogueEntry[] = (Array.isArray(d.entries) ? d.entries : []).map((raw: any) => {
+    if (raw?.def) return raw as MsgCatalogueEntry;
+    const { layers, ...def } = raw ?? {};
+    const resolved: MsgCatalogueEntry['resolved'] = {};
+    for (const [ch, l] of Object.entries<any>(layers ?? {})) {
+      resolved[ch as MsgChannel] = {
+        source: msgLayerFromLegacy(l?.source), version: l?.version ?? null,
+        approvalStatus: l?.approval_status ?? l?.approvalStatus ?? null,
+        approvalDetail: l?.approval_detail ?? null,
+        providerRef: l?.provider_ref ?? l?.providerRef ?? null,
+        isActive: l?.is_active !== false, templateKey: l?.template_key ?? null,
+        registeredUnder: l?.registered_under ?? l?.registeredUnder ?? null,
+      };
+    }
+    return { def: def as MsgTemplateDef, resolved };
+  });
+  const products: MsgCatalogueProduct[] = (Array.isArray(d.products) ? d.products : []).map((p: any) =>
+    typeof p === 'string' ? { product: p } : { product: p.product, label: p.label, enabled: p.enabled, count: p.count ?? p.events });
+  const own = d.smsOwnHeader ?? d.sms_own_header ?? d.layout?.hasOwnDltHeader ?? d.layout?.has_own_dlt_header;
+  return {
+    products, entries,
+    // Until the route says so outright, a store signature other than Growcord's
+    // can only exist when the store registered its own DLT header (gate G-M5).
+    smsOwnHeader: typeof own === 'boolean' ? own
+      : (typeof d.layout?.smsSignature === 'string' ? d.layout.smsSignature.trim() !== '-GROWCORD' : undefined),
+    layout: d.layout ?? null,
+    issues: Array.isArray(d.issues) ? d.issues : [],
+  };
+}
+
+export const messageTemplatesAPI = {
+  /**
+   * `GET /comms/templates/catalogue?product=` — every def + the layer each of
+   * its channels resolves to for THIS store. When the route is not on the
+   * backend yet (404) this rebuilds the Commerce rows from the pre-catalogue
+   * `/comms/templates?channel=` listing and says so in `degraded` — the page
+   * states it rather than inventing the other products.
+   */
+  catalogue: async (product?: string): Promise<MsgCatalogue> => {
+    try {
+      const r = await api.get('/comms/templates/catalogue', { params: product ? { product } : {} });
+      const d = payload<any>(r) ?? {};
+      return msgNormaliseCatalogue(d);
+    } catch (e: any) {
+      if (msgStatus(e) !== 404) throw e;
+      return messageTemplatesAPI.legacyCatalogue();
+    }
+  },
+
+  /** Fallback: the pre-catalogue registry, commerce only, SMS + WhatsApp. */
+  legacyCatalogue: async (): Promise<MsgCatalogue> => {
+    const byKey = new Map<string, MsgCatalogueEntry>();
+    for (const channel of ['sms', 'whatsapp'] as const) {
+      let rows: any[] = [];
+      try { const r = await api.get('/comms/templates', { params: { channel } }); rows = payload<any[]>(r) ?? []; } catch { rows = []; }
+      for (const row of Array.isArray(rows) ? rows : []) {
+        const event = String(row.template_key ?? '');
+        if (!event) continue;
+        // The key stays the BARE legacy key here: a backend without the
+        // catalogue resolves bare keys only, so a version saved under
+        // `commerce.<event>` would be a row no send ever reads.
+        const key = event;
+        const existing = byKey.get(key);
+        const e: MsgCatalogueEntry = existing ?? {
+          def: {
+            key, product: 'commerce', event: event.replace(/^commerce\./, ''),
+            kind: row.category === 'authentication' ? 'authentication' : row.category === 'marketing' ? 'marketing' : 'update',
+            audience: 'customer', title: row.name || event, description: row.description || '', trigger: '',
+            variables: (row.variables ?? []).map((v: string) => ({ key: String(v), description: '', example: '' })),
+            channels: [], defaultOrder: [], requiresOtp: !!row.requires_otp,
+          },
+          resolved: {},
+        };
+        const src = msgLayerFromLegacy(row.source);
+        e.def.channels.push(channel);
+        const defaultBody = src === 'growcord_default' ? String(row.body ?? '') : '';
+        if (channel === 'sms') e.def.sms = { body: defaultBody, encoding: 'gsm7', dlt: { header: 'GRWCRD', registered: false } };
+        if (channel === 'whatsapp') e.def.whatsapp = { name: row.provider_ref || event, category: 'UTILITY', language: 'en', body: defaultBody, bodyVars: [], sample: [], preview: defaultBody };
+        e.resolved[channel] = {
+          source: src, approvalStatus: row.approval_status, approvalDetail: row.approval_detail,
+          providerRef: row.provider_ref, version: row.version,
+          body: src === 'growcord_default' ? null : row.body, subject: row.subject, components: row.components, isActive: row.is_active,
+        };
+        byKey.set(key, e);
+      }
+    }
+    return {
+      products: [{ product: 'commerce', label: 'Commerce', enabled: true }],
+      entries: [...byKey.values()],
+      degraded: 'This backend does not carry the full message catalogue yet, so only the store’s Commerce SMS and WhatsApp messages are listed. Email, push and the other products appear once it is updated.',
+    };
+  },
+
+  /**
+   * Rendered by the SERVER, inside the store's layout or Growcord's. A `draft`
+   * previews unsaved text; without one it renders what a send would use now.
+   */
+  preview: async (p: { key: string; channel: MsgChannel; layout: 'store' | 'growcord'; draft?: { subject?: string; body?: string; components?: any[] } }): Promise<MsgPreview> => {
+    const params = { key: p.key, channel: p.channel, layout: p.layout };
+    if (p.draft) {
+      try {
+        const r = await api.post('/comms/templates/preview', { ...params, draft: p.draft });
+        return payload<MsgPreview>(r);
+      } catch (e: any) {
+        if (msgStatus(e) !== 404 && msgStatus(e) !== 405) throw e;
+      }
+    }
+    const r = await api.get('/comms/templates/preview', { params });
+    return payload<MsgPreview>(r);
+  },
+
+  /** The server sends to the CALLER's own email/phone — never a typed recipient. */
+  testSend: async (key: string, channel: MsgChannel): Promise<MsgTestSendResult> => {
+    try {
+      const r = await api.post('/comms/templates/test-send', { key, channel });
+      const d = payload<any>(r) ?? {};
+      // The hub's own words: `detail` (plain, owner-safe), else its error / skip reason.
+      const ok = d.ok !== false && !['failed', 'skipped', 'refused', 'deferred'].includes(String(d.status ?? ''));
+      const words = d.detail || d.error || (d.skipped ? `Not sent: ${String(d.skipped).replace(/_/g, ' ')}` : '') || d.message;
+      return { ok, message: words || (ok ? 'Sent.' : 'Not sent.'), dispatchId: d.dispatchId ?? d.dispatch_id ?? null, status: d.status ?? null, to: d.to ?? null };
+    } catch (e: any) {
+      return { ok: false, message: msgError(e, 'The test send was refused.') };
+    }
+  },
+
+  /** Drop this store's override on one channel: sends fall back to Growcord's default. */
+  revert: async (key: string, channel: MsgChannel) => {
+    const r = await api.post(`/comms/templates/${encodeURIComponent(key)}/revert`, { channel });
+    return payload<any>(r);
+  },
+
+  /** Save = a NEW version (existing route). `category` is never sent — the server derives it. */
+  saveVersion: async (key: string, body: { channel: MsgChannel; subject?: string | null; body?: string | null; components?: any[]; variables?: string[]; providerRef?: string | null; activate?: boolean; name?: string | null }) => {
+    const r = await api.put(`/comms/templates/${encodeURIComponent(key)}`, body);
+    return payload<any>(r);
+  },
+
+  /**
+   * One channel's rows from the hub registry (`GET /comms/templates`): the
+   * store's own words live here (the catalogue route reports the layer, not
+   * the text). Matched to an entry by `catalog_key`, else `template_key`.
+   */
+  channelRows: async (channel: MsgChannel): Promise<any[]> => {
+    const r = await api.get('/comms/templates', { params: { channel } });
+    const d = payload<any>(r);
+    return Array.isArray(d) ? d : [];
+  },
+
+  versions: async (key: string, channel: MsgChannel): Promise<any[]> => {
+    const r = await api.get(`/comms/templates/${encodeURIComponent(key)}/versions`, { params: { channel } });
+    const d = payload<any>(r);
+    return Array.isArray(d) ? d : [];
+  },
+
+  syncApproval: async (channel: MsgChannel) => {
+    const r = await api.post('/comms/templates/sync-approval', { channel });
+    return payload<any>(r);
+  },
+
+  /** DLT CSV (sms) or Meta payloads (whatsapp) — a file, downloaded as-is. */
+  registrations: async (channel: 'sms' | 'whatsapp'): Promise<Blob> => {
+    const r = await api.get('/comms/templates/registrations', { params: { channel }, responseType: 'blob' });
+    return r.data as Blob;
+  },
+};
