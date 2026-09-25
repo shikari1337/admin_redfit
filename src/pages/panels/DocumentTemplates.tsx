@@ -8,6 +8,7 @@ import {
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow, EmptyState, Chip,
   ExportMenu, type CsvColumn,
 } from '../../components/erp';
+import InfoTip from '../../components/common/InfoTip';
 
 /**
  * Document template designer (migration 070). Plain-language screen:
@@ -120,9 +121,9 @@ const DocumentTemplates: React.FC = () => {
   return (
     <Page>
       <PageHeader
-        title="Document Templates"
+        title={<span className="inline-flex items-center gap-1.5">Document Templates <InfoTip text="Design how your printed documents look — logo, header, footer, terms, accent colour. Use the merge-field chips to drop in live values like the customer's name. Publish a version, then make it the Default that prints." /></span>}
         icon={FileText}
-        description="Design how your printed documents look — logo, header, footer, terms, accent colour. Use the merge-field chips to drop in live values like the customer's name. Publish a version, then make it the Default that prints."
+        description="How your printed documents look."
         actions={
           <div className="flex gap-2">
             <ExportMenu filename={`document-templates-${docType}`} columns={listCols} rows={list ?? []} canExport={hasPerm('settings.manage')} disabled={list == null} />

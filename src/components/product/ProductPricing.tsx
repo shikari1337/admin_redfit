@@ -4,6 +4,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { CalendarClock, ChevronRight, Layers } from "lucide-react";
 import { FieldGroup, Field } from './FormField';
+import { resolveTaxRate, describeTaxRate } from './taxRate';
+
+/** Which parts of the component to render. The product form shows each in its
+ *  own tab (Pricing · Tax · Stock) from this ONE component. */
+export type PricingSection = 'price' | 'codes' | 'tax' | 'stock' | 'size';
+const ALL_SECTIONS: PricingSection[] = ['price', 'codes', 'tax', 'stock', 'size'];
+
+/** % below MRP, one decimal when it matters — display only; resolvePrice stays the brain. */
+const pctOff = (value: number | null | undefined, mrp: number): string | null => {
+  if (value == null || !Number.isFinite(value) || !(mrp > 0) || !(value > 0) || value >= mrp) return null;
+  const p = (1 - value / mrp) * 100;
+  return `${Number.isInteger(Math.round(p * 10) / 10) ? Math.round(p) : (Math.round(p * 10) / 10)}% off MRP`;
+};
 
 const toLocalInputValue = (d: Date): string => {
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -52,6 +65,13 @@ interface ProductPricingProps {
   variationPriceSummary?: { min: number; max: number; count: number } | null;
   /** Jump to the Variants tab (where per-variant prices live). */
   onGoToVariants?: () => void;
+  /** Parts to render (default all). */
+  sections?: PricingSection[];
+  /** The simple product's flat wholesale price (from the B2B tab), shown beside the retail prices. */
+  b2bPrice?: number | null;
+  /** Show the B2B cell at all (the b2b module). */
+  showB2B?: boolean;
+  onGoToB2B?: () => void;
   errors: {
     price?: string;
     originalPrice?: string;
@@ -75,8 +95,12 @@ const ProductPricing: React.FC<ProductPricingProps> = ({
   onSkuChange, onHsnCodeChange, onTaxRuleIdChange, onStockChange,
   onWeightChange, onLengthChange, onBreadthChange, onHeightChange,
   isVariableProduct = false, variationPriceSummary = null, onGoToVariants,
+  sections = ALL_SECTIONS, b2bPrice = null, showB2B = false, onGoToB2B,
   errors,
 }) => {
+  const has = (x: PricingSection) => sections.includes(x);
+  const mrpNum = parseFloat(originalPrice) || 0;
+  const tax = resolveTaxRate(taxRules, taxRuleId || null, null);
   const [showSale, setShowSale] = React.useState(!!salePrice);
   // Variable products: product-level prices are only a fallback — collapsed by default.
   const [showFallbackPrices, setShowFallbackPrices] = React.useState(false);
@@ -85,24 +109,38 @@ const ProductPricing: React.FC<ProductPricingProps> = ({
   // (simple product) or inside the collapsed fallback section (variable product).
   const priceFields = (
     <>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <Field label="MRP (₹)" htmlFor="originalPrice" required error={errors.originalPrice}
-            help="Printed pack price — shown struck-through next to your price.">
+            help="The price printed on the pack; shown struck through.">
             <Input id="originalPrice" type="number" step="0.01" required value={originalPrice}
               onChange={e => onOriginalPriceChange(e.target.value)}
-              className={`h-9 text-sm ${errors.originalPrice ? 'border-red-400' : ''}`} placeholder="0.00" />
+              className={`h-9 text-sm tabular-nums ${errors.originalPrice ? 'border-red-400' : ''}`} placeholder="0.00" />
           </Field>
-          <Field label="Selling price (₹)" htmlFor="price" required error={errors.price}
-            help="What the customer actually pays.">
+          <Field label="Selling (₹)" htmlFor="price" required error={errors.price}
+            help="What a retail customer pays."
+            note={pctOff(parseFloat(price), mrpNum)}>
             <Input id="price" type="number" step="0.01" required value={price}
               onChange={e => onPriceChange(e.target.value)}
-              className={`h-9 text-sm ${errors.price ? 'border-red-400' : ''}`} placeholder="0.00" />
-            {price && originalPrice && parseFloat(price) < parseFloat(originalPrice) && (
-              <p className="text-xs text-green-600 font-medium mt-1">
-                {Math.round((1 - parseFloat(price) / parseFloat(originalPrice)) * 100)}% off
-              </p>
-            )}
+              className={`h-9 text-sm tabular-nums ${errors.price ? 'border-red-400' : ''}`} placeholder="0.00" />
           </Field>
+          <Field label="Sale (₹)" htmlFor="pfSalePrice" error={errors.salePrice}
+            help="A temporary lower price. Turn on “Run a sale” below to set its dates."
+            note={showSale ? pctOff(parseFloat(salePrice), mrpNum) : null}>
+            <Input id="pfSalePrice" type="number" step="0.01" value={salePrice} disabled={!showSale}
+              onChange={e => onSalePriceChange && onSalePriceChange(e.target.value)}
+              className="h-9 text-sm tabular-nums" placeholder={showSale ? '0.00' : 'No sale'} />
+          </Field>
+          {showB2B && (
+            <Field label="B2B (₹)" help="The flat wholesale price. Set on the B2B tab; tiers and contracts can override it."
+              note={pctOff(b2bPrice, mrpNum)}>
+              <div className="flex h-9 items-center justify-between gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 text-sm tabular-nums">
+                <span className={b2bPrice == null ? 'text-gray-400' : 'text-gray-900'}>{b2bPrice == null ? 'Not set' : b2bPrice.toFixed(2)}</span>
+                {onGoToB2B && (
+                  <button type="button" onClick={onGoToB2B} className="text-xs font-medium text-brand-700 hover:underline">Edit</button>
+                )}
+              </div>
+            </Field>
+          )}
         </div>
 
         {/* Sale Price */}
@@ -110,20 +148,14 @@ const ProductPricing: React.FC<ProductPricingProps> = ({
           <div className="flex items-center justify-between gap-4">
             <label htmlFor="pfSaleToggle" className="min-w-0 cursor-pointer select-none">
               <span className="block text-[13px] font-medium text-gray-700">Run a sale</span>
-              <span className="block text-xs text-gray-400 mt-0.5">Temporary offer price; needs a start time.</span>
+              <span className="block text-xs text-gray-400 mt-0.5">Opens the Sale price and its dates.</span>
             </label>
             <Switch id="pfSaleToggle" aria-label="Run a sale" checked={showSale}
-              className="shrink-0 data-[state=checked]:bg-red-600"
+              className="shrink-0 data-[state=checked]:bg-brand-600"
               onCheckedChange={v => { setShowSale(v); if (!v && onSalePriceChange) { onSalePriceChange(''); if (onSaleStartsAtChange) onSaleStartsAtChange(''); if (onSaleEndsAtChange) onSaleEndsAtChange(''); } }} />
           </div>
           {showSale && (
             <div className="mt-3 space-y-3 p-4 bg-orange-50 rounded-lg border border-orange-200">
-              <Field label="Sale price (₹)" htmlFor="pfSalePrice" error={errors.salePrice}
-                help="Must be lower than the selling price.">
-                <Input id="pfSalePrice" type="number" step="0.01" value={salePrice}
-                  onChange={e => onSalePriceChange && onSalePriceChange(e.target.value)}
-                  className="h-9 text-sm bg-white" placeholder="Discounted price" />
-              </Field>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Field label="Sale starts" htmlFor="pfSaleStartsAt" required error={errors.saleStartsAt}>
                   <div className="relative">
@@ -176,6 +208,7 @@ const ProductPricing: React.FC<ProductPricingProps> = ({
     <div className="space-y-5">
 
       {/* ── Prices ─────────────────────────────────────────────────────────── */}
+      {has('price') && (
       <FieldGroup title="Prices" description="What is printed on the pack and what the customer pays.">
         {isVariableProduct ? (
           <>
@@ -222,56 +255,56 @@ const ProductPricing: React.FC<ProductPricingProps> = ({
           </>
         ) : priceFields}
       </FieldGroup>
+      )}
 
-      {/* ── Codes & tax ────────────────────────────────────────────────────── */}
-      <FieldGroup title="Product codes & tax" description="Internal and tax identifiers for this product.">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Field label="SKU" htmlFor="sku" error={errors.sku}
-            help="Your internal code for this product.">
-            <Input id="sku" type="text" value={sku || ''}
-              onChange={e => { const v = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 48); onSkuChange(v); }}
-              className={`h-9 text-sm font-mono ${errors.sku ? 'border-red-400' : ''}`}
-              placeholder="AUTO-GENERATED" />
-            {/* P-… is the auto-generated placeholder series — merchants kept
-                reading the muted styling as "not editable" and shipping with it. */}
-            {sku?.startsWith('P-') && (
-              <p className="text-xs text-amber-600 mt-1">Auto-generated placeholder — type your real SKU (this is the sellable SKU for simple products).</p>
-            )}
-          </Field>
-          {showTaxFields && (
-            <Field label="HSN Code" htmlFor="hsnCode" error={errors.hsnCode}
-              help="4–8 digit GST classification code.">
-              <Input id="hsnCode" type="text" value={hsnCode}
-                onChange={e => onHsnCodeChange && onHsnCodeChange(e.target.value)}
-                className={`h-9 text-sm ${errors.hsnCode ? 'border-red-400' : ''}`} placeholder="e.g. 3004" />
-            </Field>
+      {/* ── Codes ─────────────────────────────────────────────────────────── */}
+      {has('codes') && (
+      <FieldGroup title="Codes" description="Your own identifier for this product.">
+        <Field label="SKU" htmlFor="sku" error={errors.sku}
+          help="Your internal code. For a simple product this is the code that is sold.">
+          <Input id="sku" type="text" value={sku || ''}
+            onChange={e => { const v = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 48); onSkuChange(v); }}
+            className={`h-9 text-sm font-mono md:w-80 ${errors.sku ? 'border-red-400' : ''}`}
+            placeholder="AUTO-GENERATED" />
+          {sku?.startsWith('P-') && (
+            <p className="text-xs text-amber-600 mt-1">Placeholder code — type your real SKU.</p>
           )}
-        </div>
-
-        {/* Tax Rule — gst_tax-gated like HSN */}
-        {showTaxFields && (
-          <div className="mt-4">
-            <Field label="Tax / GST rule" help="Which GST rate applies to this product at checkout.">
-              <Select value={taxRuleId || 'none'} onValueChange={val => onTaxRuleIdChange && onTaxRuleIdChange(val === 'none' ? '' : val)}>
-                <SelectTrigger className="h-9 text-sm" aria-label="Tax / GST rule"><SelectValue placeholder="Default / None" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Default / None</SelectItem>
-                  {taxRules.map(rule => {
-                    const key = rule._id || rule.id || rule.name;
-                    return <SelectItem key={key} value={key}>{rule.name}{rule.rate !== undefined ? ` — ${rule.rate}%` : ''}</SelectItem>;
-                  })}
-                </SelectContent>
-              </Select>
-            </Field>
-          </div>
-        )}
+        </Field>
       </FieldGroup>
+      )}
+
+      {/* ── Tax (gst_tax module) ─────────────────────────────────────────── */}
+      {has('tax') && showTaxFields && (
+      <FieldGroup title="GST" description="The code and rule that decide the tax on every invoice.">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field label="HSN code" htmlFor="hsnCode" error={errors.hsnCode}
+            help={isVariableProduct ? '4–8 digits. A variation with its own HSN overrides this.' : '4–8 digit GST classification code.'}>
+            <Input id="hsnCode" type="text" value={hsnCode}
+              onChange={e => onHsnCodeChange && onHsnCodeChange(e.target.value)}
+              className={`h-9 text-sm font-mono ${errors.hsnCode ? 'border-red-400' : ''}`} placeholder="e.g. 3004" />
+          </Field>
+          <Field label="Tax rule" help={isVariableProduct ? 'Applies to every variation that does not set its own.' : 'Which GST rate applies at checkout.'}
+            note={describeTaxRate(tax)}>
+            <Select value={taxRuleId || 'none'} onValueChange={val => onTaxRuleIdChange && onTaxRuleIdChange(val === 'none' ? '' : val)}>
+              <SelectTrigger className="h-9 text-sm" aria-label="Tax rule"><SelectValue placeholder="Store default" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Store default</SelectItem>
+                {taxRules.map(rule => {
+                  const key = rule._id || rule.id || rule.name;
+                  return <SelectItem key={key} value={key}>{rule.name}{rule.rate !== undefined ? ` — ${rule.rate}%` : ''}</SelectItem>;
+                })}
+              </SelectContent>
+            </Select>
+          </Field>
+        </div>
+      </FieldGroup>
+      )}
 
       {/* ── Stock ──────────────────────────────────────────────────────────── */}
-      {showStock && (
+      {has('stock') && showStock && (
         <FieldGroup title="Stock" description="How many units you have ready to sell.">
           <Field label="Stock quantity" htmlFor="stock"
-            help="For variation products, manage stock per variation instead. Changing stock here books a ledgered adjustment (visible in movement history) — unchanged values are never re-sent.">
+            help="A change here is recorded in the stock ledger as an adjustment. For batch-tracked stock use Inventory ▸ Batches.">
             <Input id="stock" type="number" min="0" step="1" value={stock ?? ''}
               onChange={e => { const v = e.target.value; onStockChange(v === '' ? undefined : Math.max(0, parseInt(v) || 0)); }}
               className="h-9 text-sm w-36" placeholder="0" />
@@ -280,6 +313,7 @@ const ProductPricing: React.FC<ProductPricingProps> = ({
       )}
 
       {/* ── Dimensions ─────────────────────────────────────────────────────── */}
+      {has('size') && (
       <FieldGroup title="Shipping size & weight" description="Packed size and weight — used to calculate shipping charges.">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           {[
@@ -296,6 +330,7 @@ const ProductPricing: React.FC<ProductPricingProps> = ({
           ))}
         </div>
       </FieldGroup>
+      )}
 
     </div>
   );

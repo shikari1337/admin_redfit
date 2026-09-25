@@ -9,6 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { localeDateTime } from '../utils/date';
+import InfoTip from '@/components/common/InfoTip';
+import { downloadCsv, type CsvColumn } from '@/lib/csv';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
@@ -43,6 +45,16 @@ interface Recharge {
 }
 
 const PAGE_SIZE = 20;
+
+/** The ledger as a spreadsheet — the same columns the table shows. */
+const WALLET_CSV_COLUMNS: CsvColumn<WalletTransaction>[] = [
+  { key: 'created_at', label: 'Date' },
+  { key: 'direction', label: 'In or out', format: (t) => (t.direction === 'credit' ? 'Top-up' : 'Charge') },
+  { key: 'category', label: 'Category', format: (t) => String(t.category ?? '').replace(/_/g, ' ') },
+  { key: 'note', label: 'Note', format: (t) => t.note ?? t.reference ?? '' },
+  { key: 'amount', label: 'Amount', format: (t) => Number(t.amount ?? 0).toFixed(2) },
+  { key: 'balance_after', label: 'Balance after', format: (t) => Number(t.balance_after ?? 0).toFixed(2) },
+];
 const SERVICE_LABELS: Record<string, string> = {
   sms: 'SMS', whatsapp: 'WhatsApp', email: 'Email', shipping: 'Shipping label', ai: 'AI generation',
 };
@@ -81,6 +93,8 @@ const WalletPage: React.FC = () => {
   const [pricing, setPricing] = useState<Record<string, number>>({});
   const [recharges, setRecharges] = useState<Recharge[]>([]);
   const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
+  /** `/wallet/transactions` filters on direction only, so this narrows the page. */
+  const [txFind, setTxFind] = useState('');
   const [txTotal, setTxTotal] = useState(0);
   const [txPage, setTxPage] = useState(1);
   const [directionFilter, setDirectionFilter] = useState<'' | 'credit' | 'debit'>('');
@@ -123,6 +137,13 @@ const WalletPage: React.FC = () => {
 
   useEffect(() => { loadOverview(); }, []);
   useEffect(() => { loadTransactions(txPage, directionFilter); }, [txPage, directionFilter]);
+
+  const shownTx = React.useMemo(() => {
+    const q = txFind.trim().toLowerCase();
+    if (!q) return transactions;
+    return transactions.filter((t) => [t.category, t.note, t.reference]
+      .some((v) => String(v ?? '').toLowerCase().includes(q)));
+  }, [transactions, txFind]);
 
   const handleRecharge = async () => {
     const amount = parseFloat(rechargeAmount);
@@ -184,7 +205,7 @@ const WalletPage: React.FC = () => {
   const totalPages = Math.max(1, Math.ceil(txTotal / PAGE_SIZE));
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="space-y-6">
       <div>
         <Button variant="ghost" size="sm" onClick={() => navigate('/settings')} className="text-muted-foreground mb-4">
           <ArrowLeft className="mr-2 h-4 w-4" />
@@ -300,9 +321,19 @@ const WalletPage: React.FC = () => {
 
       {/* Transaction ledger */}
       <Card>
-        <CardHeader className="pb-3 flex flex-row items-center justify-between space-y-0">
-          <CardTitle className="text-base">Transaction ledger</CardTitle>
-          <div className="flex gap-1">
+        <CardHeader className="pb-3 flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
+          <CardTitle className="text-base flex items-center gap-1.5">
+            Transaction ledger
+            <InfoTip
+              text="Every top-up and every charge, newest first. A CREDIT adds to your balance; a DEBIT is a message, label or AI call you were charged for."
+              where="Charges come from the service that used it — SMS, WhatsApp, email, shipping labels, AI." />
+          </CardTitle>
+          <div className="flex flex-wrap items-center gap-1">
+            <Input
+              className="h-7 w-48 text-xs"
+              placeholder="Find in this page…"
+              value={txFind}
+              onChange={(e) => setTxFind(e.target.value)} />
             {(['', 'credit', 'debit'] as const).map(d => (
               <Button
                 key={d || 'all'} size="sm" variant={directionFilter === d ? 'default' : 'outline'}
@@ -312,6 +343,11 @@ const WalletPage: React.FC = () => {
                 {d === '' ? 'All' : d === 'credit' ? 'Credits' : 'Debits'}
               </Button>
             ))}
+            <Button
+              size="sm" variant="outline" className="h-7 text-xs"
+              disabled={shownTx.length === 0}
+              onClick={() => downloadCsv(`wallet-transactions-page-${txPage}`, WALLET_CSV_COLUMNS, shownTx)}
+            >Export CSV</Button>
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -326,9 +362,15 @@ const WalletPage: React.FC = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {transactions.length === 0 ? (
-                <TableRow><TableCell colSpan={5} className="h-20 text-center text-muted-foreground">No transactions yet.</TableCell></TableRow>
-              ) : transactions.map(tx => (
+              {shownTx.length === 0 ? (
+                <TableRow><TableCell colSpan={5} className="h-20 text-center text-muted-foreground">
+                  {txFind && transactions.length > 0
+                    ? 'Nothing on this page matches what you typed.'
+                    : directionFilter
+                      ? `No ${directionFilter === 'credit' ? 'top-ups' : 'charges'} on this page.`
+                      : 'No transactions yet. Add money above and the first top-up appears here.'}
+                </TableCell></TableRow>
+              ) : shownTx.map(tx => (
                 <TableRow key={tx.id}>
                   <TableCell className="text-sm">{localeDateTime(tx.created_at, undefined, 'en-IN')}</TableCell>
                   <TableCell className="capitalize text-sm">{tx.category.replace(/_/g, ' ')}</TableCell>

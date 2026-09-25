@@ -160,7 +160,11 @@ const SmsTemplates: React.FC = () => {
         setConfig(next);
         setOriginalConfig({ ...next });
         setEnvironment(c?.environment === 'live' ? 'live' : 'test');
-        if (next.live.apiKeySet || next.test.apiKeySet) { testConnection(); }
+        // Deliberately NOT testing the connection here. This POSTs to the SMS
+        // provider, so merely OPENING the page used to spend a real API call
+        // against the gateway (and its rate limit) on every visit. The "Test
+        // connection" button beside the key is the one place it happens.
+
       } catch (err: any) {
         setError(err.message || 'Failed to load templates');
       } finally {
@@ -388,7 +392,7 @@ const SmsTemplates: React.FC = () => {
   );
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 pb-12">
+    <div className="space-y-6 pb-12">
       <div>
         <Button variant="ghost" size="sm" onClick={() => navigate('/settings')} className="text-muted-foreground mb-4">
           <FaArrowLeft className="mr-2 h-4 w-4" /> Back to Settings

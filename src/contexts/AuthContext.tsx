@@ -14,6 +14,9 @@ import {
   TENANT_API_KEY_STORAGE_KEY,
 } from '../services/api';
 import { effectivePermissionsFor, hasPermIn, workspacesFor } from '../lib/rbac';
+// WS-X: silent Growcord ID sign-in. Importing the module is also what lets the
+// framed prompt=none callback answer before React mounts.
+import { adoptGrowcordIdSession, signOutOfGrowcordId } from '../utils/growcordId';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -320,7 +323,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const session = loadSession();
     if (!session) {
-      setState(s => ({ ...s, isLoaded: true }));
+      // No stored session: before showing the login form, ask id.gc.mw
+      // (prompt=none) whether this person is already signed in there. With
+      // VITE_GROWCORD_ID_ISSUER unset this calls onDone straight away.
+      void adoptGrowcordIdSession(login, () => setState(s => ({ ...s, isLoaded: true })));
       return;
     }
     // Apply the stored API key to axios
@@ -367,6 +373,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
     setStoreModules({});
     setModulesLoaded(false);
+    signOutOfGrowcordId();
   }, []);
 
   const refreshUser = useCallback(async () => {

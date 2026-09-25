@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { api, searchAPI } from '../../services/api';
 import { localeDateTime } from '../../utils/date';
+import { ClipboardList } from 'lucide-react';
 import {
-  Page, PageHeader, Btn, StatusChip, TextInput,
-  TableShell, THead, Th, TBody, Tr, Td,
+  Page, PageHeader, Btn, StatusChip, TextInput, EmptyState,
+  TableShell, THead, Th, TBody, Tr, Td, FilterChips, downloadCsv, type ChipGroup,
 } from '../../components/erp';
+import InfoTip from '../../components/common/InfoTip';
 
 /**
  * Pick lists (WMS slice 2): FEFO-allocated from bins, ordered along the
@@ -18,6 +20,8 @@ const PickLists: React.FC = () => {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [creating, setCreating] = useState(false);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
   const [reference, setReference] = useState('');
   const [lines, setLines] = useState<{ sku: string; variationId?: string; label?: string; qty: string }[]>(
     [{ sku: '', qty: '1' }]);
@@ -75,15 +79,62 @@ const PickLists: React.FC = () => {
     } catch (e) { fail(e); }
   };
 
+  /** What the search box and the status chip leave on screen. */
+  const shown = React.useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return rows.filter((r: any) => {
+      if (q && !`${r.reference ?? ''} ${r.id}`.toLowerCase().includes(q)) return false;
+      if (statusFilter && r.status !== statusFilter) return false;
+      return true;
+    });
+  }, [rows, search, statusFilter]);
+
+  const chipGroups: ChipGroup[] = [{
+    key: 'status', label: 'Status', value: statusFilter, onChange: setStatusFilter,
+    options: Array.from(new Set(rows.map((r: any) => String(r.status || '')).filter(Boolean)))
+      .map((v) => ({ value: v, label: v.charAt(0).toUpperCase() + v.slice(1) })),
+  }];
+
+  const exportLists = () => downloadCsv(
+    `pick-lists-${new Date().toISOString().slice(0, 10)}.csv`,
+    [
+      { key: 'reference', label: 'Reference', format: (r: any) => r.reference ?? r.id },
+      { key: 'status', label: 'Status' },
+      { key: 'item_count', label: 'Lines' },
+      { key: 'done_count', label: 'Picked' },
+      { key: 'created_at', label: 'Created' },
+    ],
+    shown,
+  );
+
   return (
     <Page>
       <PageHeader
-        title="Pick Lists"
-        description="Allocated FEFO from bins, walked in serpentine pick-path order. Confirming a pick moves stock out of the bin; the bin re-check is done at confirm time."
-        actions={<Btn onClick={() => setCreating((v) => !v)}>{creating ? 'Close' : '+ New pick list'}</Btn>}
+        title="Pick lists"
+        icon={ClipboardList}
+        description="What to take off the shelves, in the order to walk them."
+        actions={
+          <>
+            <Btn variant="outline" onClick={exportLists} disabled={!shown.length}>Export</Btn>
+            <Btn onClick={() => setCreating((v) => !v)}>{creating ? 'Close' : '+ New pick list'}</Btn>
+          </>
+        }
       />
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
       {notice && <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</div>}
+
+      <div className="flex flex-wrap items-center gap-3">
+        <TextInput
+          placeholder="Search a reference…"
+          aria-label="Search pick lists"
+          data-testid="picklists-search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-64"
+        />
+        <FilterChips groups={chipGroups} onClearAll={() => setStatusFilter('')} />
+        <span className="ml-auto text-sm text-gray-500">{shown.length} of {rows.length}</span>
+      </div>
 
       {creating && (
         <div className="space-y-2 rounded-xl border border-gray-200 bg-white p-4 shadow-sm text-sm">
@@ -107,17 +158,34 @@ const PickLists: React.FC = () => {
         </div>
       )}
 
+      <p className="flex items-start gap-1.5 text-xs text-gray-500">
+        Stock is always allocated from the lot that expires first, and the shelf is re-checked at the
+        moment a pick is confirmed — so a list built this morning cannot send a picker to an empty bin.
+      </p>
+
       <div className="grid gap-4 lg:grid-cols-2">
         <TableShell>
           <table className="w-full text-sm">
             <THead>
-              <Th>Reference</Th><Th>Status</Th><Th num>Items</Th><Th>Created</Th>
+              <Th>Reference</Th><Th>Status</Th>
+              <Th num>Picked
+                <InfoTip text="Lines confirmed off the shelf, out of the lines on the list." />
+              </Th>
+              <Th>Created</Th>
             </THead>
             <TBody>
-              {rows.length === 0 && (
-                <tr><td colSpan={4} className="px-4 py-6 text-center text-gray-500">No pick lists yet.</td></tr>
+              {shown.length === 0 && (
+                <tr><td colSpan={4} className="p-0">
+                  <EmptyState
+                    icon={ClipboardList}
+                    title={rows.length ? 'Nothing matches' : 'No pick lists yet'}
+                    description={rows.length
+                      ? 'No pick list matches this search and this status.'
+                      : 'A pick list says what to take off the shelves for an order, oldest stock first. Create one above.'}
+                  />
+                </td></tr>
               )}
-              {rows.map((r: any) => (
+              {shown.map((r: any) => (
                 <Tr key={r.id} className="cursor-pointer" onClick={() => open(r.id)}>
                   <Td className="font-mono text-xs">{r.reference ?? r.id.slice(0, 8)}</Td>
                   <Td><StatusChip status={r.status} /></Td>

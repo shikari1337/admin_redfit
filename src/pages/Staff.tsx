@@ -24,6 +24,12 @@ import {
   UserPlus, Pencil, Trash2, Loader2, ShieldCheck, ShieldOff,
   Eye, EyeOff, AlertCircle, Info,
 } from 'lucide-react';
+import { toast } from '@/hooks/use-toast';
+
+/** A message that used to be a blocking alert() — now a toast (the shell mounts the Toaster). */
+const notify = (message: string) =>
+  toast({ title: message, variant: /fail|could not|error/i.test(message) ? 'destructive' : 'default' });
+
 
 // ─── Legacy module definitions (RETIRED — kept only for reading OLD grants) ───
 //
@@ -156,7 +162,7 @@ const Staff: React.FC = () => {
     try {
       await staffAPI.update(staffId, { isActive });
       setStaff(prev => prev.map(s => (s._id === staffId || s.id === staffId) ? { ...s, isActive } : s));
-    } catch { alert('Failed to update status'); }
+    } catch { notify('Failed to update status'); }
     finally { setSavingId(null); }
   };
 
@@ -192,7 +198,7 @@ const Staff: React.FC = () => {
     try {
       await staffAPI.delete(id);
       setStaff(prev => prev.filter(s => (s._id || s.id) !== id));
-    } catch { alert('Failed to delete staff member.'); }
+    } catch { notify('Failed to delete staff member.'); }
     finally { setDeleteTarget(null); }
   };
 
@@ -240,7 +246,7 @@ const Staff: React.FC = () => {
             ...(areaOk ? { warehouse_access: editArea.facilities, warehouse_node_access: editArea.nodes } : {}) }
         : s));
       if (areaOk) setEditingStaff(null);
-    } catch { alert('Failed to save permissions.'); }
+    } catch { notify('Failed to save permissions.'); }
     finally { setSavingId(null); }
   };
 

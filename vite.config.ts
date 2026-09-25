@@ -26,20 +26,26 @@ export default defineConfig({
         // tried (2026-08-03) and produced a react-vendor ↔ chart-vendor import
         // CYCLE ("Cannot access '$' before initialization", white admin).
         // Object form lists entry modules and lets rollup place shared deps
-        // acyclically. icons-vendor: the icon-picker's 9 full react-icons
-        // libraries + lucide (~11 MB min) — kept out of the main chunk so
-        // memory-capped CI builds don't OOM rendering one 15 MB chunk. Icon
-        // libs depend only on react, so this split cannot form a cycle.
+        // acyclically.
+        //
+        // `icons-vendor` is GONE (2026-09-25). Naming the nine react-icons
+        // families here made each barrel a chunk ENTRY, so all ~30,000 icons
+        // were emitted whether or not anything used them — 10.98 MB raw /
+        // 2.29 MB gzipped, and modulepreloaded on every page because the entry
+        // touched the chunk. `components/IconPicker.tsx` now loads each family
+        // through `import()`, so rollup emits a family only when it is asked
+        // for, and named `FaX`/`LucideX` imports across the pages tree-shake
+        // into the chunk that uses them.
+        // `clsx`, `tailwind-merge` and `cva` are named here on purpose. `clsx`
+        // is a recharts DEPENDENCY, so without a home of its own rollup put it
+        // inside `chart-vendor` — and `lib/utils.ts` (`cn()`, used by every
+        // shadcn component in the shell) then statically imported that chunk,
+        // which modulepreloaded all 443 kB of recharts on every first load for
+        // a 200-byte helper.
         manualChunks: {
           'react-vendor': ['react', 'react-dom', 'react-router-dom'],
           'chart-vendor': ['recharts'],
-          'utils-vendor': ['axios', 'date-fns'],
-          'icons-vendor': [
-            'react-icons/ai', 'react-icons/bi', 'react-icons/bs',
-            'react-icons/fa', 'react-icons/fi', 'react-icons/hi',
-            'react-icons/io5', 'react-icons/md', 'react-icons/tb',
-            'lucide-react',
-          ],
+          'utils-vendor': ['axios', 'date-fns', 'clsx', 'tailwind-merge', 'class-variance-authority'],
         },
       },
     },

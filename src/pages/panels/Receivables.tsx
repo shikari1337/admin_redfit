@@ -3,11 +3,12 @@ import { api } from '../../services/api';
 import { payload } from '../../lib/unwrap';
 import { useAuth } from '../../contexts/AuthContext';
 import {
-  Page, PageHeader, Field, TextInput, Chip, StatCard, StatGrid,
+  Page, PageHeader, Btn, Field, TextInput, Chip, StatCard, StatGrid,
   TableShell, THead, Th, TBody, Tr, Td, inr,
   FilterBar, SelectInput, SearchInput,
-  ExportMenu, Pagination, DrillLink, useListControls, type CsvColumn,
+  ExportMenu, Pagination, DrillLink, useListControls, TableSkeleton, type CsvColumn,
 } from '../../components/erp';
+import InfoTip from '../../components/common/InfoTip';
 
 /**
  * Receivables (AR) — "Money owed to you".
@@ -137,12 +138,13 @@ const Receivables: React.FC = () => {
         <Field label="Search customer" className="min-w-[220px] flex-1">
           <SearchInput placeholder="Name, company, GSTIN or phone…" value={lc.search} onChange={(e) => lc.setSearch(e.target.value)} />
         </Field>
-        <Field label="Ageing">
+        <Field label={<span className="inline-flex items-center gap-1">Ageing <InfoTip text="How long the money has been owed, counted from the order date. 90+ days is the bucket an accountant chases first and the one an auditor asks about." /></span>}>
           <SelectInput value={lc.status} onChange={(e) => lc.setStatus(e.target.value)}>
             <option value="">All customers</option>
             <option value="overdue90">Overdue 90+ only</option>
           </SelectInput>
         </Field>
+        {(lc.search || lc.status) && <Btn variant="ghost" onClick={() => { lc.setSearch(''); lc.setStatus(''); }}>Clear</Btn>}
       </FilterBar>
 
       <TableShell>
@@ -153,15 +155,13 @@ const Receivables: React.FC = () => {
             <Th num>Orders</Th>
             <Th>Oldest unpaid</Th>
             <Th>Ageing</Th>
-            <Th num>Outstanding</Th>
+            <Th num>Outstanding ₹</Th>
           </THead>
+          {loading && <TableSkeleton cols={6} rows={6} />}
           <TBody>
-            {loading && (
-              <tr><td colSpan={6} className="px-4 py-6 text-center text-gray-500">Loading…</td></tr>
-            )}
             {!loading && filtered.length === 0 && (
               <tr><td colSpan={6} className="px-4 py-6 text-center text-gray-500">
-                {customers.length === 0 ? 'Nothing outstanding — every customer is settled. 🎉' : 'No customers match your filters.'}
+                {customers.length === 0 ? 'Nothing outstanding — every customer is settled.' : 'No customers match your filters.'}
               </td></tr>
             )}
             {!loading && pageRows.map((c) => (
@@ -189,6 +189,19 @@ const Receivables: React.FC = () => {
               </Tr>
             ))}
           </TBody>
+          {!loading && filtered.length > 0 && (
+            <tfoot className="border-t-2 border-gray-200 bg-gray-50 text-sm font-semibold text-gray-900">
+              <tr>
+                <td className="px-4 py-2.5" colSpan={5}>
+                  {filtered.length} customer{filtered.length === 1 ? '' : 's'} owing
+                  {filtered.length !== customers.length ? ` (of ${customers.length})` : ''}
+                </td>
+                <td className="px-4 py-2.5 text-right font-mono tabular-nums">
+                  {inr(filtered.reduce((t, c) => t + Number(c.outstanding ?? 0), 0))}
+                </td>
+              </tr>
+            </tfoot>
+          )}
         </table>
       </TableShell>
 

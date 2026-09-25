@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { billingAPI } from '../services/api';
 import StatusBadge from '../components/order/StatusBadge';
 import { localeDate } from '../utils/date';
+import InfoTip from '@/components/common/InfoTip';
+import { downloadCsv, type CsvColumn } from '@/lib/csv';
 
 interface Invoice {
   _id: string;
@@ -26,8 +28,23 @@ interface UsageSummary {
   period?: { start: string; end: string };
 }
 
+/** The invoice list as a spreadsheet — the same columns the table shows. */
+const BILLING_CSV_COLUMNS: CsvColumn<Invoice>[] = [
+  { key: 'invoiceNumber', label: 'Invoice #', format: (i) => i.invoiceNumber ?? i._id.slice(-8) },
+  { key: 'period', label: 'Period', format: (i) => (i.period ? `${i.period.start} to ${i.period.end}` : '') },
+  { key: 'commissionAmount', label: 'Commission', format: (i) => Number(i.commissionAmount ?? 0).toFixed(2) },
+  { key: 'apiUsageAmount', label: 'API cost', format: (i) => Number(i.apiUsageAmount ?? 0).toFixed(2) },
+  { key: 'fixedFee', label: 'Fixed fee', format: (i) => Number(i.fixedFee ?? 0).toFixed(2) },
+  { key: 'totalAmount', label: 'Total', format: (i) => Number(i.totalAmount ?? 0).toFixed(2) },
+  { key: 'dueDate', label: 'Due', format: (i) => i.dueDate ?? '' },
+  { key: 'status', label: 'Status' },
+  { key: 'paidAt', label: 'Paid on', format: (i) => i.paidAt ?? '' },
+];
+
 export default function Billing() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [find, setFind] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [payingId, setPayingId] = useState<string | null>(null);
@@ -101,12 +118,26 @@ export default function Billing() {
 
   const fmt = (n?: number) => n != null ? `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—';
 
+  /** The invoices the table draws, and what they add up to. */
+  const shown = invoices.filter((inv) => {
+    if (statusFilter && inv.status !== statusFilter) return false;
+    const q = find.trim().toLowerCase();
+    if (!q) return true;
+    return [inv.invoiceNumber, inv._id, inv.status, inv.period?.start, inv.period?.end]
+      .some((v) => String(v ?? '').toLowerCase().includes(q));
+  });
+  const sum = (k: 'commissionAmount' | 'apiUsageAmount' | 'fixedFee' | 'totalAmount') =>
+    shown.reduce((t, i) => t + Number(i[k] ?? 0), 0);
+
   return (
     <div className="billing-page">
       <div className="page-header">
         <div>
-          <h1>Billing & Invoices</h1>
-          <p className="subtitle">View your usage, invoices and make payments.</p>
+          <h1>What Growcord charges you</h1>
+          <p className="subtitle">
+            This month so far, and every invoice Growcord has raised for your store. These are the
+            platform's bills to you — not the invoices you raise for your own customers.
+          </p>
         </div>
       </div>
 
@@ -140,7 +171,9 @@ export default function Billing() {
                   <span className="stat-value">{fmt(usage.estimatedCost)}</span>
                 </div>
                 <div className="stat">
-                  <span className="stat-label">Commission</span>
+                  <span className="stat-label">
+                    Commission <InfoTip className="align-baseline" text="A share of the orders that have been delivered AND are past their return window. A sale usually earns commission in a LATER month than the one it was placed in." />
+                  </span>
                   <span className="stat-value">{fmt(usage.commissionAmount)}</span>
                 </div>
                 <div className="stat">
@@ -156,9 +189,34 @@ export default function Billing() {
           )}
 
           <div className="invoices-section">
-            <h2>Invoices</h2>
-            {invoices.length === 0 ? (
-              <div className="empty"><p>No invoices found.</p></div>
+            <div className="section-head">
+              <h2>Invoices</h2>
+              <div className="section-actions">
+                <input
+                  className="find"
+                  placeholder="Find an invoice…"
+                  value={find}
+                  onChange={(e) => setFind(e.target.value)} />
+                <select className="find" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                  <option value="">Any status</option>
+                  <option value="pending">Pending</option>
+                  <option value="paid">Paid</option>
+                  <option value="overdue">Overdue</option>
+                  <option value="waived">Waived</option>
+                </select>
+                <button
+                  className="btn btn-sm btn-outline"
+                  disabled={shown.length === 0}
+                  onClick={() => downloadCsv('growcord-invoices', BILLING_CSV_COLUMNS, shown)}
+                >Export CSV</button>
+              </div>
+            </div>
+            {shown.length === 0 ? (
+              <div className="empty"><p>
+                {invoices.length === 0
+                  ? 'No invoices yet. Growcord raises one per month, once there is something to bill.'
+                  : 'No invoice matches those filters.'}
+              </p></div>
             ) : (
               <div className="table-wrap">
                 <table>
@@ -166,17 +224,17 @@ export default function Billing() {
                     <tr>
                       <th>Invoice #</th>
                       <th>Period</th>
-                      <th>Commission</th>
-                      <th>API Cost</th>
-                      <th>Fixed Fee</th>
-                      <th>Total</th>
-                      <th>Due Date</th>
+                      <th className="num">Commission ₹</th>
+                      <th className="num">API cost ₹</th>
+                      <th className="num">Fixed fee ₹</th>
+                      <th className="num">Total ₹</th>
+                      <th>Due</th>
                       <th>Status</th>
                       <th>Action</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {invoices.map(inv => {
+                    {shown.map(inv => {
                       return (
                         <tr key={inv._id}>
                           <td><strong>{inv.invoiceNumber ?? inv._id.slice(-8)}</strong></td>
@@ -185,10 +243,10 @@ export default function Billing() {
                               ? `${localeDate(inv.period.start)} – ${localeDate(inv.period.end)}`
                               : '—'}
                           </td>
-                          <td>{fmt(inv.commissionAmount)}</td>
-                          <td>{fmt(inv.apiUsageAmount)}</td>
-                          <td>{fmt(inv.fixedFee)}</td>
-                          <td><strong>{fmt(inv.totalAmount)}</strong></td>
+                          <td className="num">{fmt(inv.commissionAmount)}</td>
+                          <td className="num">{fmt(inv.apiUsageAmount)}</td>
+                          <td className="num">{fmt(inv.fixedFee)}</td>
+                          <td className="num"><strong>{fmt(inv.totalAmount)}</strong></td>
                           <td>{inv.dueDate ? localeDate(inv.dueDate) : '—'}</td>
                           <td>
                             <StatusBadge status={inv.status} type="billing" />
@@ -213,6 +271,16 @@ export default function Billing() {
                       );
                     })}
                   </tbody>
+                  <tfoot>
+                    <tr>
+                      <td colSpan={2}>{shown.length} invoice{shown.length === 1 ? '' : 's'}</td>
+                      <td className="num">{fmt(sum('commissionAmount'))}</td>
+                      <td className="num">{fmt(sum('apiUsageAmount'))}</td>
+                      <td className="num">{fmt(sum('fixedFee'))}</td>
+                      <td className="num"><strong>{fmt(sum('totalAmount'))}</strong></td>
+                      <td colSpan={3} />
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             )}
@@ -221,7 +289,7 @@ export default function Billing() {
       )}
 
       <style>{`
-        .billing-page { padding: 24px; max-width: 1100px; margin: 0 auto; }
+        .billing-page { padding: 0; }
         .page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
         .page-header h1 { margin: 0 0 4px; font-size: 1.5rem; }
         .subtitle { margin: 0; color: var(--n-500); font-size: 0.875rem; }
@@ -242,7 +310,13 @@ export default function Billing() {
         .stat-label { display: block; font-size: 0.75rem; opacity: 0.75; margin-bottom: 4px; }
         .stat-value { display: block; font-size: 1.2rem; font-weight: 700; }
         .stat-total .stat-value { font-size: 1.4rem; }
-        .invoices-section h2 { font-size: 1.1rem; margin: 0 0 16px; color: var(--n-700); }
+        .invoices-section h2 { font-size: 1.1rem; margin: 0; color: var(--n-700); }
+        .section-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 16px; }
+        .section-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+        .find { height: 32px; padding: 0 10px; font-size: 0.8125rem; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); }
+        .num { text-align: right; font-variant-numeric: tabular-nums; }
+        tfoot td { padding: 10px 12px; border-top: 2px solid var(--n-200); background: var(--n-50); font-weight: 600; }
+        .btn-outline { background: var(--surface); border: 1px solid var(--line); color: var(--ink); }
         .empty { text-align: center; padding: 40px; color: var(--n-400); }
         .table-wrap { overflow-x: auto; }
         table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }

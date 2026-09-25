@@ -5,6 +5,10 @@ import { warehousesAPI } from '../services/api';
 import PhoneInput from '../components/PhoneInput';
 import CarrierLocationMap from '../components/shipments/CarrierLocationMap';
 import { useAuth } from '../contexts/AuthContext';
+import {
+  Page, PageHeader, EmptyState, FilterChips, BlockSkeleton, downloadCsv, type ChipGroup,
+} from '@/components/erp';
+import { usePincodeLookup } from '../hooks/usePincodeLookup';
 
 interface Warehouse {
   _id: string;
@@ -52,6 +56,9 @@ const toIdString = (id: any): string => {
 
 const Warehouses: React.FC = () => {
   const navigate = useNavigate();
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [providerFilter, setProviderFilter] = useState('');
   const { hasPerm } = useAuth();
   // Backend (routes/warehouses.ts): create/update/sync-with-store -> inventory.manage,
   // delete -> inventory.delete. This page has no stock-adjust actions (those live on
@@ -242,6 +249,41 @@ const Warehouses: React.FC = () => {
     });
   };
 
+  /** What the search box and the chips leave on screen. */
+  const visibleWarehouses = React.useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return warehouses.filter((w) => {
+      if (q && !`${w.name} ${w.code} ${w.address?.city ?? ''} ${w.address?.pincode ?? ''}`.toLowerCase().includes(q)) return false;
+      if (statusFilter === 'active' && !w.isActive) return false;
+      if (statusFilter === 'inactive' && w.isActive) return false;
+      const sr = !!w.shippingProviders?.shiprocket?.enabled;
+      const dl = !!w.shippingProviders?.delhivery?.enabled;
+      if (providerFilter === 'shiprocket' && !sr) return false;
+      if (providerFilter === 'delhivery' && !dl) return false;
+      if (providerFilter === 'none' && (sr || dl)) return false;
+      return true;
+    });
+  }, [warehouses, search, statusFilter, providerFilter]);
+
+  /**
+   * Pincode -> city + state, the same India Post lookup the checkout and the
+   * manual-order form already use. It only fills a field that is empty or
+   * still holds what the lookup itself last put there, so a correction typed
+   * by hand is never overwritten (the ManualOrderCreate rule).
+   */
+  const pin = usePincodeLookup(formData.address.pincode, showForm);
+  const autofilled = React.useRef<{ city: string; state: string }>({ city: '', state: '' });
+  React.useEffect(() => {
+    if (!pin.result) return;
+    setFormData((prev) => {
+      const next = { ...prev, address: { ...prev.address } };
+      if (!next.address.city || next.address.city === autofilled.current.city) next.address.city = pin.result!.district;
+      if (!next.address.state || next.address.state === autofilled.current.state) next.address.state = pin.result!.state;
+      return next;
+    });
+    autofilled.current = { city: pin.result.district, state: pin.result.state };
+  }, [pin.result]);
+
   const handleChange = (field: string, value: any) => {
     if (field.includes('.')) {
       const [section, key, subKey] = field.split('.');
@@ -271,43 +313,83 @@ const Warehouses: React.FC = () => {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500"></div>
-      </div>
-    );
-  }
+  const chipGroups: ChipGroup[] = [
+    {
+      key: 'status', label: 'Status', value: statusFilter, onChange: setStatusFilter,
+      options: [{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }],
+    },
+    {
+      key: 'provider', label: 'Courier', value: providerFilter, onChange: setProviderFilter,
+      help: 'Which courier can collect from this address.',
+      options: [
+        { value: 'shiprocket', label: 'Shiprocket set up' },
+        { value: 'delhivery', label: 'Delhivery set up' },
+        { value: 'none', label: 'No courier yet' },
+      ],
+    },
+  ];
+
+  const exportWarehouses = () => downloadCsv(
+    `warehouses-${new Date().toISOString().slice(0, 10)}.csv`,
+    [
+      { key: 'name', label: 'Name' },
+      { key: 'code', label: 'Code' },
+      { key: 'city', label: 'City', format: (w: Warehouse) => w.address?.city ?? '' },
+      { key: 'state', label: 'State', format: (w: Warehouse) => w.address?.state ?? '' },
+      { key: 'pincode', label: 'Pincode', format: (w: Warehouse) => w.address?.pincode ?? '' },
+      { key: 'contact', label: 'Contact', format: (w: Warehouse) => w.contact?.name ?? '' },
+      { key: 'phone', label: 'Phone', format: (w: Warehouse) => w.contact?.phone ?? '' },
+      { key: 'gstin', label: 'GSTIN' },
+      { key: 'active', label: 'Active', format: (w: Warehouse) => (w.isActive ? 'Yes' : 'No') },
+    ],
+    visibleWarehouses,
+  );
 
   return (
-    <div className="max-w-7xl mx-auto">
-      <div className="mb-6">
-        <button
-          onClick={() => navigate('/settings')}
-          className="flex items-center text-gray-600 hover:text-gray-900 mb-4"
-        >
-          <FaArrowLeft className="mr-2" />
-          Back to Settings
-        </button>
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Warehouses</h1>
-            <p className="text-sm text-gray-600 mt-2">Manage warehouse locations and shipping provider configurations</p>
-          </div>
-          {canManageWarehouses && (
+    <Page width="full">
+      <PageHeader
+        title="Warehouses"
+        description="The addresses you ship from. Each one can have its own courier pickup set up."
+        actions={
+          <>
             <button
-              onClick={() => {
-                resetForm();
-                setEditingWarehouse(null);
-                setShowForm(true);
-              }}
-              className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+              onClick={() => navigate('/settings')}
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-line px-3 text-sm text-ink-soft hover:text-ink"
             >
-              <FaPlus className="w-4 h-4" />
-              Add Warehouse
+              <FaArrowLeft className="h-3 w-3" /> Settings
             </button>
-          )}
-        </div>
+            <button
+              onClick={exportWarehouses}
+              disabled={!visibleWarehouses.length}
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-line px-3 text-sm text-ink-soft hover:text-ink disabled:opacity-50"
+            >
+              Export
+            </button>
+            {canManageWarehouses && (
+              <button
+                onClick={() => { resetForm(); setEditingWarehouse(null); setShowForm(true); }}
+                className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+              >
+                <FaPlus className="h-3.5 w-3.5" /> Add warehouse
+              </button>
+            )}
+          </>
+        }
+      />
+
+      <div className="flex flex-wrap items-center gap-3">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by name, code or city…"
+          aria-label="Search warehouses"
+          data-testid="warehouses-search"
+          className="h-9 w-72 max-w-full rounded-lg border border-line bg-surface px-3 text-sm shadow-sm focus:border-line-strong focus:outline-none focus:ring-2 focus:ring-focus/30"
+        />
+        <FilterChips groups={chipGroups} onClearAll={() => { setStatusFilter(''); setProviderFilter(''); }} />
+        <span className="ml-auto text-sm text-ink-soft">
+          {visibleWarehouses.length} of {warehouses.length}
+        </span>
       </div>
 
       {showForm && (
@@ -338,7 +420,7 @@ const Warehouses: React.FC = () => {
                   value={formData.name}
                   onChange={(e) => handleChange('name', e.target.value)}
                   placeholder="Mumbai Warehouse"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-focus"
                 />
               </div>
               <div>
@@ -349,7 +431,7 @@ const Warehouses: React.FC = () => {
                   value={formData.code}
                   onChange={(e) => handleChange('code', e.target.value.toUpperCase())}
                   placeholder="WH001"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-focus"
                 />
               </div>
               <div className="md:col-span-2">
@@ -360,7 +442,7 @@ const Warehouses: React.FC = () => {
                   value={formData.address.line1}
                   onChange={(e) => handleChange('address.line1', e.target.value)}
                   placeholder="Street address"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-focus"
                 />
               </div>
               <div className="md:col-span-2">
@@ -370,7 +452,7 @@ const Warehouses: React.FC = () => {
                   value={formData.address.line2}
                   onChange={(e) => handleChange('address.line2', e.target.value)}
                   placeholder="Apartment, suite, etc."
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-focus"
                 />
               </div>
               <div>
@@ -381,7 +463,7 @@ const Warehouses: React.FC = () => {
                   value={formData.address.city}
                   onChange={(e) => handleChange('address.city', e.target.value)}
                   placeholder="Mumbai"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-focus"
                 />
               </div>
               <div>
@@ -392,11 +474,17 @@ const Warehouses: React.FC = () => {
                   value={formData.address.state}
                   onChange={(e) => handleChange('address.state', e.target.value)}
                   placeholder="Maharashtra"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-focus"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Pincode *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Pincode *
+                  {pin.loading && <span className="ml-2 text-xs font-normal text-ink-mute">looking up…</span>}
+                  {!pin.loading && pin.result && (
+                    <span className="ml-2 text-xs font-normal text-good-ink">city and state filled in</span>
+                  )}
+                </label>
                 <input
                   type="text"
                   required
@@ -404,7 +492,7 @@ const Warehouses: React.FC = () => {
                   value={formData.address.pincode}
                   onChange={(e) => handleChange('address.pincode', e.target.value)}
                   placeholder="400001"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-focus"
                 />
               </div>
               <div>
@@ -415,7 +503,7 @@ const Warehouses: React.FC = () => {
                   value={formData.contact.name}
                   onChange={(e) => handleChange('contact.name', e.target.value)}
                   placeholder="Warehouse Manager"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-focus"
                 />
               </div>
               <div>
@@ -438,7 +526,7 @@ const Warehouses: React.FC = () => {
                   value={formData.contact.email}
                   onChange={(e) => handleChange('contact.email', e.target.value)}
                   placeholder="warehouse@example.com"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-focus"
                 />
               </div>
               <div>
@@ -449,7 +537,7 @@ const Warehouses: React.FC = () => {
                   onChange={(e) => handleChange('gstin', e.target.value.toUpperCase())}
                   placeholder="e.g. 27AABCU9603R1ZM"
                   maxLength={15}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-focus"
                 />
                 <p className="text-xs text-gray-500 mt-1">GST Identification Number for this warehouse (used in GST Settings for billing)</p>
               </div>
@@ -461,7 +549,7 @@ const Warehouses: React.FC = () => {
                   value={formData.priority}
                   onChange={(e) => handleChange('priority', parseInt(e.target.value) || 0)}
                   placeholder="0 (lower = higher priority)"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-focus"
                 />
                 <p className="text-xs text-gray-500 mt-1">Lower number = higher priority for auto-selection</p>
               </div>
@@ -567,7 +655,7 @@ const Warehouses: React.FC = () => {
               {canManageWarehouses && (
                 <button
                   type="submit"
-                  className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+                  className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
                 >
                   <FaSave className="w-4 h-4" />
                   {editingWarehouse ? 'Update Warehouse' : 'Create Warehouse'}
@@ -579,7 +667,8 @@ const Warehouses: React.FC = () => {
       )}
 
       <div className="grid grid-cols-1 gap-4">
-        {warehouses.map((warehouse) => (
+        {loading && <BlockSkeleton lines={6} />}
+        {!loading && visibleWarehouses.map((warehouse) => (
           <div
             key={toIdString(warehouse._id) || warehouse.name}
             className={`bg-white rounded-lg shadow-sm border ${
@@ -723,27 +812,36 @@ const Warehouses: React.FC = () => {
           </div>
         ))}
 
-        {warehouses.length === 0 && (
-          <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
-            <FaWarehouse className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-            <p className="text-gray-600">No warehouses found</p>
-            {canManageWarehouses && (
-              <button
-                onClick={() => {
-                  resetForm();
-                  setEditingWarehouse(null);
-                  setShowForm(true);
-                }}
-                className="mt-4 flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 mx-auto"
-              >
-                <FaPlus className="w-4 h-4" />
-                Add First Warehouse
-              </button>
-            )}
+        {!loading && visibleWarehouses.length === 0 && (
+          <div className="rounded-lg border border-line bg-surface">
+            <EmptyState
+              icon={FaWarehouse as any}
+              title={warehouses.length ? 'Nothing matches' : 'No warehouses yet'}
+              description={warehouses.length
+                ? 'No warehouse matches this search and these filters.'
+                : 'A warehouse is an address you ship from. Add the first one to book a courier pickup.'}
+              action={warehouses.length
+                ? (
+                  <button
+                    onClick={() => { setSearch(''); setStatusFilter(''); setProviderFilter(''); }}
+                    className="inline-flex h-8 items-center rounded-lg border border-line px-3 text-sm"
+                  >
+                    Clear search and filters
+                  </button>
+                )
+                : canManageWarehouses ? (
+                  <button
+                    onClick={() => { resetForm(); setEditingWarehouse(null); setShowForm(true); }}
+                    className="inline-flex h-8 items-center gap-2 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground"
+                  >
+                    <FaPlus className="h-3 w-3" /> Add warehouse
+                  </button>
+                ) : undefined}
+            />
           </div>
         )}
       </div>
-    </div>
+    </Page>
   );
 };
 

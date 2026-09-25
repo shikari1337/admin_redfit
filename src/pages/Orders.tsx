@@ -4,19 +4,23 @@ import { useAuth } from '../contexts/AuthContext';
 import { ordersAPI, shippingAPI } from '../services/api';
 import { formatDate } from '../utils/date';
 import { fmtRupees, fmtCurrencyMinor } from '../lib/money';
-import { FaTruck, FaWhatsapp, FaEye, FaDownload, FaPlus, FaSearchDollar, FaFileExcel } from 'react-icons/fa';
+import { FaTruck, FaEye, FaDownload, FaPlus, FaSearchDollar, FaFileExcel } from 'react-icons/fa';
 import RecoverPaymentModal from '../components/order/RecoverPaymentModal';
 import ErpExportModal from '../components/order/ErpExportModal';
 import { getStatusColorClass } from '../components/order/StatusBadge';
 import { saveOrderNav } from '../lib/orderNav';
-import { Search, Columns3 as FaTableColumns } from 'lucide-react';
-import { Card, CardContent } from "@/components/ui/card";
+import { FilterChip, MenuChip, SearchBox, ListHeader, SavedViewBar, useSavedViews } from '../components/sales/ListChrome';
+import { Columns3 as FaTableColumns, MoreHorizontal, MessageCircle } from 'lucide-react';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
+  DropdownMenuSeparator, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { useListControls } from '../hooks/useListControls';
+import { DASHBOARD_PRESETS } from '../components/panelAnalytics/DateRangeBar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast"; // Assuming useToast is available, fallback to alert if not
 import { FaCheckCircle } from 'react-icons/fa';
 
@@ -201,6 +205,25 @@ const Orders: React.FC = () => {
   // way Customers.tsx does (plain useState + setTimeout), not useListControls.
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  /**
+   * PAYMENT and the two flags. All three are things the desk asks for every
+   * day — "what is unpaid", "what did somebody flag", "which of these are
+   * against a customer PO" — and none of them had a control, so the answer was
+   * to read 100 rows. They are applied to the page the server returned, and the
+   * strip says so, because a client-side narrowing of one page is not the same
+   * thing as a query and must not be shown as one.
+   */
+  /** Payment is a SERVER filter (`payment_status`) — the route has always taken it. */
+  const [paymentFilter, setPaymentFilter] = useState<'all' | 'completed' | 'pending' | 'failed' | 'refunded'>('all');
+  /** Fulfilment is decorated per page (decorateOrderListRows), so it narrows the loaded rows. */
+  const [fulfilFilter, setFulfilFilter] = useState<'all' | 'to_ship' | 'partial' | 'shipped'>('all');
+  /**
+   * The date window. State is `useListControls` (the one list state hook) and the
+   * presets are DateRangeBar's own — no new date component (Prompt 9 §5.2).
+   */
+  const dates = useListControls();
+  const [datePreset, setDatePreset] = useState<string>('all');
+  const [flagFilter, setFlagFilter] = useState<'all' | 'flagged' | 'po'>('all');
   // Same page size as before pagination existed (100) — adding page controls,
   // not shrinking how many orders staff see per screen.
   const [page, setPage] = useState(1);
@@ -234,11 +257,52 @@ const Orders: React.FC = () => {
   // result set can leave the page number pointing past the last real page.
   useEffect(() => {
     setPage(1);
-  }, [statusFilter, typeFilter, channelFilter, debouncedSearch]);
+  }, [statusFilter, typeFilter, channelFilter, paymentFilter, debouncedSearch, dates.from, dates.to]);
+
+  /** Filters that are applied to the page already fetched, not to the query. */
+  const onPageFiltered = React.useMemo(() => orders.filter((o: any) => {
+    const notes = String(o.notes ?? '');
+    if (flagFilter === 'flagged' && !(o.isFlagged ?? o.is_flagged)) return false;
+    if (flagFilter === 'po' && !/PO Ref:/i.test(notes)) return false;
+    const fs = String(o.fulfilment ?? o.fulfillment_state ?? 'none');
+    if (fulfilFilter === 'shipped' && fs !== 'shipped') return false;
+    if (fulfilFilter === 'partial' && fs !== 'partial') return false;
+    if (fulfilFilter === 'to_ship' && (fs === 'shipped' || fs === 'partial')) return false;
+    // The date window is a SERVER filter (GET /orders from/to, store-civil
+    // days), so it is not re-applied here.
+    return true;
+  }), [orders, flagFilter, fulfilFilter]);
+  const hidingOnPage = orders.length - onPageFiltered.length;
+
+  /** Every filter as one object — what a saved view is. */
+  const currentView = { statusFilter, typeFilter, channelFilter, paymentFilter, flagFilter, fulfilFilter, datePreset, search };
+  const { views, save: saveView, remove: removeView } = useSavedViews<typeof currentView>('orders');
+  const applyView = (v: typeof currentView) => {
+    setStatusFilter(v.statusFilter ?? 'all');
+    setTypeFilter((v.typeFilter ?? 'all') as any);
+    setChannelFilter(v.channelFilter ?? 'all');
+    setPaymentFilter((v.paymentFilter ?? 'all') as any);
+    setFlagFilter((v.flagFilter ?? 'all') as any);
+    setFulfilFilter((v.fulfilFilter ?? 'all') as any);
+    pickDate(v.datePreset ?? 'all');
+    setSearch(v.search ?? '');
+    setPage(1);
+  };
+  const clearFilters = () => applyView({
+    statusFilter: 'all', typeFilter: 'all', channelFilter: 'all',
+    paymentFilter: 'all', flagFilter: 'all', fulfilFilter: 'all', datePreset: 'all', search: '',
+  } as any);
+  /** A preset is recomputed when applied, so a saved "Past 7 days" means the last 7 days TODAY. */
+  function pickDate(key: string) {
+    setDatePreset(key);
+    const preset = DASHBOARD_PRESETS.find((x) => x.key === key);
+    const r = preset ? preset.range() : {};
+    dates.setRange(r.from ?? '', r.to ?? '');
+  }
 
   useEffect(() => {
     fetchOrders();
-  }, [statusFilter, typeFilter, channelFilter, debouncedSearch, page]);
+  }, [statusFilter, typeFilter, channelFilter, paymentFilter, debouncedSearch, page, dates.from, dates.to]);
 
   const fetchOrders = async () => {
     try {
@@ -247,6 +311,9 @@ const Orders: React.FC = () => {
       if (statusFilter !== 'all') params.status = statusFilter;
       if (typeFilter !== 'all') params.order_type = typeFilter;
       if (channelFilter !== 'all') params.channel = channelFilter;
+      if (paymentFilter !== 'all') params.payment_status = paymentFilter;
+      if (dates.from) params.from = dates.from;
+      if (dates.to) params.to = dates.to;
       if (debouncedSearch) params.search = debouncedSearch;
       const response = await ordersAPI.getAll({ ...params, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE });
 
@@ -382,381 +449,369 @@ const Orders: React.FC = () => {
   // components/order/StatusBadge.tsx centralizes for every other order/
   // payment-status display in the admin.
 
+  const anyFilter = statusFilter !== 'all' || paymentFilter !== 'all' || flagFilter !== 'all'
+    || typeFilter !== 'all' || channelFilter !== 'all' || fulfilFilter !== 'all' || datePreset !== 'all' || !!search;
+  const label = <T extends string>(list: ReadonlyArray<readonly [T, string]>, v: T) => list.find(([k]) => k === v)?.[1];
+  const STATUS: ReadonlyArray<readonly [string, string]> = [
+    ['pending', 'Pending'], ['confirmed', 'Confirmed'], ['processing', 'Processing'], ['on_hold', 'On hold'],
+    ['shipped', 'Shipped'], ['partially_delivered', 'Part delivered'], ['delivered', 'Delivered'],
+    ['completed', 'Completed'], ['cancelled', 'Cancelled'], ['returned', 'Returned'],
+  ];
+  const PAYMENT: ReadonlyArray<readonly [string, string]> = [
+    ['completed', 'Paid'], ['pending', 'Unpaid'], ['failed', 'Failed'], ['refunded', 'Refunded'],
+  ];
+  const FULFIL: ReadonlyArray<readonly [string, string]> = [
+    ['to_ship', 'To ship'], ['partial', 'Part shipped'], ['shipped', 'Shipped'],
+  ];
+  const TYPE: ReadonlyArray<readonly [string, string]> = [['retail', 'Retail'], ['b2b', 'Wholesale (B2B)']];
+  const shown = onPageFiltered;
+  const firstRow = total ? (page - 1) * PAGE_SIZE + 1 : 0;
+  const lastRow = Math.min(page * PAGE_SIZE, total);
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">Orders</h1>
-          <p className="text-muted-foreground mt-1 text-sm">
-            Manage and track customer orders, shipments, and statuses.
-            {total > 0 && <span className="ml-1.5">Total: <span className="font-semibold text-foreground">{total}</span></span>}
-          </p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {canManageOrders && (
-            <Button variant="default" size="sm" className="h-9 bg-green-600 hover:bg-green-700" asChild>
-              <Link to="/orders/new">
-                <FaPlus className="mr-1.5 h-3 w-3" /> Create Order
-              </Link>
-            </Button>
-          )}
-          {selectedIds.length > 0 && (
-            <Button variant="outline" size="sm" className="h-9" onClick={() => handleExport(true)} disabled={exporting}>
-              <FaDownload className="mr-1.5 h-3 w-3" />
-              Export {selectedIds.length} selected
-            </Button>
-          )}
-          <Button variant="outline" size="sm" className="h-9" onClick={() => handleExport(false)} disabled={exporting}>
-            <FaDownload className="mr-1.5 h-3 w-3" />
-            {exporting ? 'Exporting…' : 'Export all'}
+    <div className="space-y-4">
+      <ListHeader
+        title="Orders"
+        purpose="Every sale, wherever it came from — the website, the counter, the bulk portal or a phone call."
+        action={canManageOrders && (
+          <Button size="sm" className="h-9" asChild>
+            <Link to="/orders/new"><FaPlus className="mr-1.5 h-3 w-3" /> New order</Link>
           </Button>
-          <Button variant="outline" size="sm" className="h-9 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
-            onClick={() => setShowErpExport(true)}
-            title="Excel in the ERP's Order Items Export layout — since the last export, or a custom date range">
-            <FaFileExcel className="mr-1.5 h-3 w-3" />
-            Export for ERP
-          </Button>
-          {canManageOrders && (
-            <Button variant="outline" size="sm" className="h-9" onClick={() => setShowRecoverPayment(true)}
-              title="Recover a payment Razorpay shows as paid that never turned into an order">
-              <FaSearchDollar className="mr-1.5 h-3 w-3" />
-              Recover Payment
-            </Button>
-          )}
-          <div className="relative w-full sm:w-72">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by order #, SKU, name, email, or phone…"
-              className="h-9 pl-8"
-            />
+        )}
+      />
+
+      {/* ONE toolbar: search · every filter as a chip · columns · the ⋯ menu */}
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <SearchBox
+            value={search}
+            onChange={setSearch}
+            placeholder="Order #, SKU, product, customer name, email or phone"
+            label="Search orders"
+            className="w-full sm:w-96"
+          />
+          <div className="ml-auto flex items-center gap-2">
+            <div className="relative">
+              <Button variant="outline" size="sm" className="h-9 gap-1.5 text-xs"
+                onClick={() => setShowColumnPicker((v) => !v)}>
+                <FaTableColumns className="h-3 w-3" /> Columns
+                <span className="text-ink-mute tabular-nums">({activeCols.length})</span>
+              </Button>
+              {showColumnPicker && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowColumnPicker(false)} />
+                  <div className="absolute right-0 z-50 mt-1 w-60 rounded-md border border-line bg-surface-raised p-2 shadow-lg">
+                    <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-ink-mute">Extra columns</p>
+                    {OPTIONAL_COLUMNS.map((c) => (
+                      <label key={c.key} title={c.title}
+                        className="flex cursor-pointer items-center gap-2 rounded px-1 py-1.5 text-sm hover:bg-surface-2">
+                        <Checkbox checked={visibleCols.includes(c.key)} onCheckedChange={() => toggleCol(c.key)} />
+                        <span>{c.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="h-9 w-9 p-0" aria-label="More actions">
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-60">
+                <DropdownMenuLabel className="text-xs text-ink-mute">Export</DropdownMenuLabel>
+                <DropdownMenuItem onClick={() => handleExport(false)} disabled={exporting}>
+                  <FaDownload className="mr-2 h-3 w-3" /> {exporting ? 'Exporting…' : 'All orders (CSV)'}
+                </DropdownMenuItem>
+                {selectedIds.length > 0 && (
+                  <DropdownMenuItem onClick={() => handleExport(true)} disabled={exporting}>
+                    <FaDownload className="mr-2 h-3 w-3" /> {selectedIds.length} selected (CSV)
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem onClick={() => setShowErpExport(true)}>
+                  <FaFileExcel className="mr-2 h-3 w-3" /> For the ERP (Excel)
+                </DropdownMenuItem>
+                {canManageOrders && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setShowRecoverPayment(true)}>
+                      <FaSearchDollar className="mr-2 h-3 w-3" /> Recover a payment
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
-          <Select
-            value={statusFilter}
-            onValueChange={setStatusFilter}
-          >
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="All Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="confirmed">Confirmed</SelectItem>
-              <SelectItem value="processing">Processing</SelectItem>
-              <SelectItem value="on_hold">On Hold</SelectItem>
-              <SelectItem value="shipped">Shipped</SelectItem>
-              <SelectItem value="delivered">Delivered</SelectItem>
-              <SelectItem value="cancelled">Cancelled</SelectItem>
-            </SelectContent>
-          </Select>
         </div>
-      </div>
 
-      {/*
-        WHERE the sale came from. Shown only once a store genuinely has more than
-        one channel with orders on it — a website-only shop gets no extra chrome
-        it would never use. Separate from the Retail/B2B tabs below because they
-        answer a different question: this is the place, that is the price book.
-      */}
-      {channels.length > 1 && (
-        <div className="flex flex-wrap items-center gap-2 mb-4">
-          <span className="text-xs uppercase tracking-wide text-muted-foreground">Channel</span>
-          {([{ code: 'all', label: 'All channels' }, ...channels]).map(c => (
-            <button
-              key={c.code}
-              type="button"
-              title={(c as any).description}
-              onClick={() => { setChannelFilter(c.code); setPage(1); }}
-              className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
-                channelFilter === c.code
-                  ? 'border-primary bg-primary/10 text-primary'
-                  : 'border-border text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              {c.label}
-            </button>
-          ))}
-          {channelAccess.length > 0 && (
-            <span className="text-xs text-amber-600">
-              You can work orders from {channelAccess.length === 1 ? 'one channel' : `${channelAccess.length} channels`} only —
-              other channels' orders are not shown.
-            </span>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <MenuChip name="Status" value={label(STATUS, statusFilter)} options={STATUS}
+            current={statusFilter} onPick={(v) => setStatusFilter(v ?? 'all')} />
+          {channels.length > 1 && (
+            <MenuChip name="Channel" value={channels.find((c) => c.code === channelFilter)?.label}
+              options={channels.map((c) => [c.code, c.label] as const)}
+              current={channelFilter} onPick={(v) => setChannelFilter(v ?? 'all')} />
+          )}
+          {b2bEnabled && (
+            <MenuChip name="Type" value={label(TYPE, typeFilter)} options={TYPE}
+              current={typeFilter} onPick={(v) => setTypeFilter((v ?? 'all') as any)} />
+          )}
+          <MenuChip name="Date"
+            value={datePreset !== 'all' ? DASHBOARD_PRESETS.find((x) => x.key === datePreset)?.label : undefined}
+            options={DASHBOARD_PRESETS.map((x) => [x.key, x.label] as const)}
+            current={datePreset} onPick={(v) => pickDate(v ?? 'all')} />
+          <MenuChip name="Payment" value={label(PAYMENT, paymentFilter)} options={PAYMENT}
+            current={paymentFilter} onPick={(v) => setPaymentFilter((v ?? 'all') as any)} />
+          <MenuChip name="Fulfilment" value={label(FULFIL, fulfilFilter)} options={FULFIL}
+            current={fulfilFilter} onPick={(v) => setFulfilFilter((v ?? 'all') as any)}
+            hint="Worked out from the shipments on each order, so it narrows the orders on this page." />
+          <FilterChip on={flagFilter === 'flagged'} tone="warn"
+            onClick={() => setFlagFilter(flagFilter === 'flagged' ? 'all' : 'flagged')}>Flagged</FilterChip>
+          <FilterChip on={flagFilter === 'po'}
+            onClick={() => setFlagFilter(flagFilter === 'po' ? 'all' : 'po')}>Has a customer PO</FilterChip>
+          {anyFilter && (
+            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs text-ink-soft" onClick={clearFilters}>
+              Clear all
+            </Button>
           )}
         </div>
-      )}
 
-      {/* Retail / B2B tabs — shown only when the B2B module is enabled. */}
-      {b2bEnabled && (
-        <div className="flex items-center gap-1 mb-4 border-b border-border">
-          {([
-            { key: 'all', label: 'All Orders' },
-            { key: 'retail', label: 'Retail' },
-            { key: 'b2b', label: 'B2B / Wholesale' },
-          ] as const).map(t => (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => setTypeFilter(t.key)}
-              className={`px-4 py-2 text-sm font-medium -mb-px border-b-2 transition-colors ${
-                typeFilter === t.key
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-      )}
+        <SavedViewBar views={views} current={currentView} onApply={applyView}
+          onSave={saveView} onRemove={removeView} />
 
-      {/* WHICH COLUMNS. The list carries far more about an order than seven
-          columns can show, and different desks need different ones — so the
-          choice is the user's and it is remembered. */}
-      <div className="mb-2 flex items-center justify-end gap-2">
-        <div className="relative">
-          <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs"
-            onClick={() => setShowColumnPicker((v) => !v)}>
-            <FaTableColumns className="h-3 w-3" />
-            Columns
-            <span className="text-muted-foreground">({activeCols.length})</span>
-          </Button>
-          {showColumnPicker && (
-            <>
-              {/* Click-away. A plain overlay rather than a document listener so
-                  it cannot leak past unmount. */}
-              <div className="fixed inset-0 z-40" onClick={() => setShowColumnPicker(false)} />
-              <div className="absolute right-0 z-50 mt-1 w-60 rounded-md border bg-white p-2 shadow-lg">
-                <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Extra columns
-                </p>
-                {OPTIONAL_COLUMNS.map((c) => (
-                  <label key={c.key}
-                    className="flex cursor-pointer items-center gap-2 rounded px-1 py-1.5 text-sm hover:bg-muted/60"
-                    title={c.title}>
-                    <Checkbox checked={visibleCols.includes(c.key)} onCheckedChange={() => toggleCol(c.key)} />
-                    <span>{c.label}</span>
-                  </label>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
+        {channelAccess.length > 0 && (
+          <p className="text-xs text-warn-ink">
+            You work orders from {channelAccess.length === 1 ? 'one channel' : `${channelAccess.length} channels`} only —
+            other channels' orders are not shown.
+          </p>
+        )}
       </div>
 
-      <Card className="shadow-sm">
-        <CardContent className="p-0">
-          <div className="rounded-md border-0">
-            <Table>
-              <TableHeader className="bg-muted/50">
-                <TableRow>
-                  <TableHead className="w-10 px-4 py-3">
-                    <Checkbox
-                      checked={orders.length > 0 && selectedIds.length === orders.length}
-                      onCheckedChange={(checked: boolean | "indeterminate") =>
-                        setSelectedIds(checked ? orders.map(o => o._id) : [])}
-                    />
-                  </TableHead>
-                  <TableHead className="font-semibold px-4 py-3">Order ID</TableHead>
-                  <TableHead className="font-semibold px-4 py-3">Customer</TableHead>
-                  <TableHead className="font-semibold px-4 py-3">Amount</TableHead>
-                  {activeCols.map((c) => (
-                    <TableHead key={c.key} title={c.title}
-                      className={`font-semibold px-4 py-3 ${c.align === 'right' ? 'text-right' : c.align === 'center' ? 'text-center' : ''}`}>
-                      {c.label}
-                    </TableHead>
-                  ))}
-                  <TableHead className="font-semibold px-4 py-3">Payment</TableHead>
-                  <TableHead className="font-semibold px-4 py-3">Status</TableHead>
-                  <TableHead className="font-semibold px-4 py-3">Date</TableHead>
-                  <TableHead className="font-semibold px-4 py-3 text-right">Actions</TableHead>
+      <div className="w-0 min-w-full overflow-x-auto rounded-md border border-line bg-surface">
+        <Table>
+          <TableHeader className="bg-surface-2">
+            <TableRow>
+              <TableHead className="w-10 px-3 py-2.5">
+                <Checkbox
+                  checked={shown.length > 0 && selectedIds.length === shown.length}
+                  aria-label="Select every order on this page"
+                  onCheckedChange={(checked: boolean | "indeterminate") =>
+                    setSelectedIds(checked ? shown.map(o => o._id) : [])}
+                />
+              </TableHead>
+              <TableHead className="px-3 py-2.5 font-semibold text-ink-soft">Order</TableHead>
+              <TableHead className="px-3 py-2.5 font-semibold text-ink-soft">Type</TableHead>
+              <TableHead className="px-3 py-2.5 font-semibold text-ink-soft">Customer</TableHead>
+              <TableHead className="px-3 py-2.5 text-right font-semibold text-ink-soft">Amount</TableHead>
+              {activeCols.map((c) => (
+                <TableHead key={c.key} title={c.title}
+                  className={`px-3 py-2.5 font-semibold text-ink-soft ${c.align === 'right' ? 'text-right' : c.align === 'center' ? 'text-center' : ''}`}>
+                  {c.label}
+                </TableHead>
+              ))}
+              <TableHead className="px-3 py-2.5 font-semibold text-ink-soft">Payment</TableHead>
+              <TableHead className="px-3 py-2.5 font-semibold text-ink-soft">Status</TableHead>
+              <TableHead className="px-3 py-2.5 font-semibold text-ink-soft">Placed</TableHead>
+              <TableHead className="w-12 px-3 py-2.5"><span className="sr-only">Actions</span></TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              Array.from({ length: 8 }).map((_, i) => (
+                <TableRow key={`sk-${i}`}>
+                  <TableCell colSpan={9 + activeCols.length} className="px-3 py-3">
+                    <div className="h-4 w-full animate-pulse rounded bg-surface-2" />
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={8 + activeCols.length} className="h-48 text-center">
-                      <div className="flex items-center justify-center">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+              ))
+            ) : shown.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={9 + activeCols.length} className="h-40 text-center">
+                  <p className="text-sm font-medium text-ink">
+                    {total === 0 && !anyFilter ? 'No orders yet' : 'Nothing matches those filters'}
+                  </p>
+                  <p className="mt-1 text-xs text-ink-soft">
+                    {total === 0 && !anyFilter
+                      ? 'The first sale from the website, the counter or a phone call will land here.'
+                      : 'Clear a chip above, or search by order number, SKU, name, email or phone.'}
+                  </p>
+                  {anyFilter && (
+                    <Button size="sm" variant="outline" className="mt-2" onClick={clearFilters}>Clear the filters</Button>
+                  )}
+                </TableCell>
+              </TableRow>
+            ) : (
+              shown.map((order) => {
+                const phone = order.shippingAddress?.mobileNumber;
+                const b2b = (order.orderType ?? order.order_type) === 'b2b';
+                const tier = order.b2bTier ?? order.b2b_tier;
+                const channelCode = order.salesChannel ?? order.sales_channel;
+                const poRef = String(order.notes ?? '').match(/PO Ref:\s*([^\n]+)/i)?.[1]?.trim();
+                const canConfirm = canManageOrders && order.orderStatus === 'pending';
+                const confirmBlocked = order.paymentMethod === 'prepaid' && order.paymentStatus !== 'completed';
+                const canShip = canAccess('shipping') && canManageShipments
+                  && (order.orderStatus === 'confirmed' || order.orderStatus === 'processing');
+                return (
+                  <TableRow key={order._id} className="group hover:bg-surface-2">
+                    <TableCell className="px-3 py-2.5">
+                      <Checkbox
+                        checked={selectedIds.includes(order._id)}
+                        aria-label={`Select order ${order.orderId ?? ''}`}
+                        onCheckedChange={(checked: boolean | "indeterminate") => toggleSelect(order._id, checked as boolean)}
+                      />
+                    </TableCell>
+                    <TableCell className="px-3 py-2.5">
+                      <Link to={`/orders/${order._id}`}
+                        className="whitespace-nowrap font-medium tabular-nums text-ink hover:underline">
+                        {order.orderId || order._id?.substring(0, 8).toUpperCase()}
+                      </Link>
+                      <div className="mt-0.5 flex flex-wrap gap-1">
+                        {channelCode && channelCode !== 'online_store' && (
+                          <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
+                            {channels.find(c => c.code === channelCode)?.label ?? channelCode}
+                          </Badge>
+                        )}
+                        {(order.isFlagged ?? order.is_flagged) && (
+                          <Badge variant="outline" className="border-bad bg-bad-bg px-1.5 py-0 text-[10px] text-bad-ink">Flagged</Badge>
+                        )}
+                        {/Source:\s*Bulk Order Platform/i.test(String(order.notes ?? '')) && (
+                          <Badge variant="outline" className="border-warn bg-warn-bg px-1.5 py-0 text-[10px] text-warn-ink">Bulk platform</Badge>
+                        )}
+                        {poRef && (
+                          <Badge variant="outline" className="border-info bg-info-bg px-1.5 py-0 text-[10px] text-info-ink"
+                            title="The buyer's purchase-order reference">PO {poRef}</Badge>
+                        )}
                       </div>
                     </TableCell>
-                  </TableRow>
-                ) : orders.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={8 + activeCols.length} className="h-48 text-center text-muted-foreground">
-                      No orders found matching the filter criteria.
+                    <TableCell className="px-3 py-2.5">
+                      {b2b ? (
+                        <Badge variant="outline" className="whitespace-nowrap border-info bg-info-bg px-1.5 py-0 text-[10px] text-info-ink">
+                          B2B{tier ? ` · ${tier}` : ''}
+                        </Badge>
+                      ) : (
+                        <span className="text-xs text-ink-soft">Retail</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="px-3 py-2.5">
+                      <div className="font-medium text-ink">{order.shippingAddress?.fullName || 'Unknown customer'}</div>
+                      {phone && (
+                        <div className="flex items-center gap-1.5 text-xs tabular-nums text-ink-soft">
+                          {phone}
+                          <button type="button" onClick={() => handleWhatsAppClick(phone)}
+                            title="Message on WhatsApp" aria-label={`Message ${phone} on WhatsApp`}
+                            className="rounded p-0.5 text-ink-mute opacity-0 transition-opacity hover:text-good focus:opacity-100 group-hover:opacity-100">
+                            <MessageCircle className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap px-3 py-2.5 text-right font-medium tabular-nums text-ink">
+                      {fmtRupees(order.total || 0)}
+                      {(() => {
+                        const cur = String(order.currency ?? '').toUpperCase();
+                        const pm = order.presentmentTotalMinor ?? order.presentment_total_minor;
+                        const mkt = String(order.marketCode ?? order.market_code ?? '').toLowerCase();
+                        if ((!cur || cur === 'INR') && (!mkt || mkt === 'in')) return null;
+                        return (
+                          <div className="mt-0.5 text-[11px] font-normal text-ink-soft">
+                            {cur && cur !== 'INR' && pm != null && <span>≈ {fmtCurrencyMinor(pm, cur)}</span>}
+                            {mkt && mkt !== 'in' && <span className="ml-1 uppercase">{mkt}</span>}
+                          </div>
+                        );
+                      })()}
+                    </TableCell>
+                    {activeCols.map((c) => (
+                      <TableCell key={c.key}
+                        className={`px-3 py-2.5 text-sm ${c.align === 'right' ? 'text-right tabular-nums' : c.align === 'center' ? 'text-center' : ''}`}>
+                        {c.cell(order)}
+                      </TableCell>
+                    ))}
+                    <TableCell className="px-3 py-2.5">
+                      <div className="flex flex-col items-start gap-0.5">
+                        <span className="text-[11px] font-semibold uppercase text-ink-soft">
+                          {order.paymentMethod === 'cod' ? 'COD' : 'Prepaid'}
+                        </span>
+                        <Badge variant="outline" className={`rounded-sm border-transparent px-1.5 py-0 text-[10px] font-bold uppercase tracking-wider ${getStatusColorClass('payment', order.paymentStatus)}`}>
+                          {order.paymentStatus}
+                        </Badge>
+                      </div>
+                    </TableCell>
+                    <TableCell className="px-3 py-2.5">
+                      <Badge variant="outline" className={`whitespace-nowrap border-transparent text-[11px] font-bold uppercase tracking-wider ${getStatusColorClass('order', order.orderStatus)}`}>
+                        {String(order.orderStatus ?? '').replace(/_/g, ' ')}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap px-3 py-2.5 text-sm tabular-nums text-ink-soft">
+                      <div>{formatDate(order.createdAt ?? order.created_at, 'dd MMM yyyy', '—')}</div>
+                      <div className="text-xs text-ink">{formatDate(order.createdAt ?? order.created_at, 'hh:mm a', '')}</div>
+                    </TableCell>
+                    <TableCell className="px-3 py-2.5 text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0"
+                            aria-label={`Actions for order ${order.orderId ?? ''}`}>
+                            {confirmingOrder === order._id || sendingToShiprocket === order._id
+                              ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-line border-t-ink" />
+                              : <MoreHorizontal className="h-4 w-4" />}
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-52">
+                          <DropdownMenuItem asChild>
+                            <Link to={`/orders/${order._id}`}><FaEye className="mr-2 h-3.5 w-3.5" /> Open the order</Link>
+                          </DropdownMenuItem>
+                          {canConfirm && (
+                            <DropdownMenuItem disabled={confirmBlocked || confirmingOrder === order._id}
+                              onClick={() => handleConfirmOrder(order._id)}>
+                              <FaCheckCircle className="mr-2 h-3.5 w-3.5" />
+                              {confirmBlocked ? 'Confirm — waiting for payment' : 'Confirm order'}
+                            </DropdownMenuItem>
+                          )}
+                          {canShip && (
+                            <DropdownMenuItem disabled={sendingToShiprocket === order._id}
+                              onClick={() => handleSendToShiprocket(order._id)}>
+                              <FaTruck className="mr-2 h-3.5 w-3.5" /> Create shipment
+                            </DropdownMenuItem>
+                          )}
+                          {phone && (
+                            <DropdownMenuItem onClick={() => handleWhatsAppClick(phone)}>
+                              <MessageCircle className="mr-2 h-3.5 w-3.5" /> Message on WhatsApp
+                            </DropdownMenuItem>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </TableCell>
                   </TableRow>
-                ) : (
-                  orders.map((order) => (
-                    <TableRow key={order._id} className="hover:bg-muted/50 transition-colors">
-                      <TableCell className="px-4 py-3">
-                        <Checkbox
-                          checked={selectedIds.includes(order._id)}
-                          onCheckedChange={(checked: boolean | "indeterminate") => toggleSelect(order._id, checked as boolean)}
-                        />
-                      </TableCell>
-                      <TableCell className="font-medium px-4 py-3">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span>{order.orderId || order._id?.substring(0, 8).toUpperCase()}</span>
-                          {/* WHERE it came from. Rendered only when it is not the
-                              plain website order, so the common row stays quiet. */}
-                          {(order.salesChannel ?? order.sales_channel) &&
-                            (order.salesChannel ?? order.sales_channel) !== 'online_store' && (
-                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                              {channels.find(c => c.code === (order.salesChannel ?? order.sales_channel))?.label
-                                ?? (order.salesChannel ?? order.sales_channel)}
-                            </Badge>
-                          )}
-                          {/* Sale type at a glance — B2B (wholesale) vs retail. */}
-                          {(order.orderType ?? order.order_type) === 'b2b' ? (
-                            <Badge variant="outline" className="border-purple-300 bg-purple-50 text-purple-700 text-[10px] px-1.5 py-0">
-                              B2B{(order.b2bTier ?? order.b2b_tier) ? ` · ${order.b2bTier ?? order.b2b_tier}` : ''}
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-muted-foreground">Retail</Badge>
-                          )}
-                          {(order.isFlagged ?? order.is_flagged) && (
-                            <Badge variant="outline" className="border-red-300 bg-red-50 text-red-700 text-[10px] px-1.5 py-0">Flagged</Badge>
-                          )}
-                          {/* Placed via the storefront's Bulk Order Platform (marker in
-                              order notes, written by the portal's checkout hand-off). */}
-                          {/Source:\s*Bulk Order Platform/i.test(String(order.notes ?? '')) && (
-                            <Badge variant="outline" className="border-amber-400 bg-amber-50 text-amber-800 text-[10px] px-1.5 py-0">Bulk Platform</Badge>
-                          )}
-                          {(() => {
-                            const m = String(order.notes ?? '').match(/PO Ref:\s*([^\n]+)/i);
-                            return m ? (
-                              <Badge variant="outline" className="border-blue-300 bg-blue-50 text-blue-700 text-[10px] px-1.5 py-0" title="Buyer's purchase-order reference">
-                                PO: {m[1].trim()}
-                              </Badge>
-                            ) : null;
-                          })()}
-                        </div>
-                      </TableCell>
-                      <TableCell className="px-4 py-3">
-                        <div className="font-medium">{order.shippingAddress?.fullName || 'Unknown Customer'}</div>
-                        {order.shippingAddress?.mobileNumber && (
-                          <button
-                            onClick={() => handleWhatsAppClick(order.shippingAddress?.mobileNumber || '')}
-                            className="text-xs text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 mt-1 font-medium pb-1"
-                            title="Open WhatsApp"
-                          >
-                            <FaWhatsapp size={13} className="text-green-500" />
-                            {order.shippingAddress?.mobileNumber}
-                          </button>
-                        )}
-                      </TableCell>
-                      <TableCell className="px-4 py-3 font-medium text-foreground">
-                        {fmtRupees(order.total || 0)}
-                        {/* International order (mig 172): the shopper paid in their own
-                            currency — show it under the booked INR, plus the market. */}
-                        {(() => {
-                          const cur = String(order.currency ?? '').toUpperCase();
-                          const pm = order.presentmentTotalMinor ?? order.presentment_total_minor;
-                          const mkt = String(order.marketCode ?? order.market_code ?? '').toLowerCase();
-                          if ((!cur || cur === 'INR') && (!mkt || mkt === 'in')) return null;
-                          return (
-                            <div className="mt-0.5 flex items-center gap-1.5 text-[11px] font-normal text-muted-foreground">
-                              {cur && cur !== 'INR' && pm != null && <span>≈ {fmtCurrencyMinor(pm, cur)}</span>}
-                              {mkt && mkt !== 'in' && <Badge variant="outline" className="rounded-sm border-sky-300 bg-sky-50 px-1 py-0 text-[9px] uppercase tracking-wider text-sky-700">{mkt}</Badge>}
-                            </div>
-                          );
-                        })()}
-                      </TableCell>
-                      {activeCols.map((c) => (
-                        <TableCell key={c.key}
-                          className={`px-4 py-3 text-sm ${c.align === 'right' ? 'text-right' : c.align === 'center' ? 'text-center' : ''}`}>
-                          {c.cell(order)}
-                        </TableCell>
-                      ))}
-                      <TableCell className="px-4 py-3">
-                        <div className="flex flex-col gap-1 items-start">
-                          <span className="text-xs text-muted-foreground uppercase font-semibold">
-                            {order.paymentMethod === 'cod' ? 'COD' : 'Prepaid'}
-                          </span>
-                          <Badge variant="outline" className={`text-[10px] uppercase font-bold tracking-wider rounded-sm px-1.5 py-0 border-transparent ${getStatusColorClass('payment', order.paymentStatus)}`}>
-                            {order.paymentStatus}
-                          </Badge>
-                        </div>
-                      </TableCell>
-                      <TableCell className="px-4 py-3">
-                        <Badge variant="outline" className={`uppercase text-[11px] font-bold tracking-wider border-transparent ${getStatusColorClass('order', order.orderStatus)}`}>
-                          {order.orderStatus}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
-                        {/* Date AND time — ops needs to see when the order came in. */}
-                        <div>{formatDate(order.createdAt ?? order.created_at, 'MMM dd, yyyy', 'N/A')}</div>
-                        <div className="text-xs font-medium text-foreground">{formatDate(order.createdAt ?? order.created_at, 'hh:mm a', '')}</div>
-                      </TableCell>
-                      <TableCell className="px-4 py-3 text-right">
-                        <div className="flex items-center justify-end gap-2 isolate">
-                          {canManageOrders && order.orderStatus === 'pending' && (
-                            <Button
-                              variant="default"
-                              size="sm"
-                              title="Confirm Order"
-                              className="h-8 w-8 p-0 bg-green-600 hover:bg-green-700 rounded-full flex-shrink-0"
-                              onClick={() => handleConfirmOrder(order._id)}
-                              disabled={confirmingOrder === order._id || (order.paymentMethod === 'prepaid' && order.paymentStatus !== 'completed')}
-                            >
-                              {confirmingOrder === order._id ? (
-                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                              ) : (
-                                <FaCheckCircle size={14} />
-                              )}
-                            </Button>
-                          )}
-                          {canAccess('shipping') && canManageShipments && (order.orderStatus === 'confirmed' || order.orderStatus === 'processing') && (
-                            <Button
-                              variant="default"
-                              size="sm"
-                              className="h-8 gap-1.5 px-3 bg-blue-600 hover:bg-blue-700"
-                              onClick={() => handleSendToShiprocket(order._id)}
-                              disabled={sendingToShiprocket === order._id}
-                            >
-                              <FaTruck size={12} />
-                              <span className="hidden sm:inline">
-                                {sendingToShiprocket === order._id ? 'Sending...' : 'Shiprocket'}
-                              </span>
-                            </Button>
-                          )}
-                          <Button variant="outline" size="sm" className="h-8 px-3" asChild>
-                            <Link to={`/orders/${order._id}`}>
-                              <FaEye className="mr-1.5 h-3.5 w-3.5 text-muted-foreground" />
-                              View
-                            </Link>
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
+                );
+              })
+            )}
+          </TableBody>
+        </Table>
+      </div>
 
-      {total > PAGE_SIZE && (
-        <div className="flex items-center justify-between">
-          <div className="text-sm text-muted-foreground">
-            Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total} orders
-          </div>
+      {/* The count lives here, where the rows are — never as prose under the title. */}
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-ink-soft">
+        <div className="tabular-nums">
+          {total > 0
+            ? `Showing ${firstRow.toLocaleString('en-IN')}–${lastRow.toLocaleString('en-IN')} of ${total.toLocaleString('en-IN')}`
+            : 'No orders'}
+          {hidingOnPage > 0 && (
+            <span className="ml-1 text-warn-ink">· {hidingOnPage} on this page hidden by a filter</span>
+          )}
+        </div>
+        {total > PAGE_SIZE && (
           <div className="flex items-center gap-2">
-            <div className="text-sm text-muted-foreground mr-1">
-              Page {page} of {Math.max(1, Math.ceil(total / PAGE_SIZE))}
-            </div>
+            <span className="tabular-nums">Page {page} of {pages}</span>
             <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1 || loading}>
               Previous
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.min(Math.ceil(total / PAGE_SIZE), p + 1))} disabled={page >= Math.ceil(total / PAGE_SIZE) || loading}>
+            <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.min(pages, p + 1))} disabled={page >= pages || loading}>
               Next
             </Button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       <RecoverPaymentModal
         isOpen={showRecoverPayment}

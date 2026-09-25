@@ -7,6 +7,7 @@ import {
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow, Field, SelectInput, inrMinor,
   FilterBar, SearchInput, ExportMenu, Pagination, useListControls, type CsvColumn,
 } from '../../components/erp';
+import InfoTip from '../../components/common/InfoTip';
 
 /**
  * Bank Reconciliation — the month-end tick-off. The accountant uploads the
@@ -86,8 +87,8 @@ const BankRecon: React.FC = () => {
   return (
     <Page>
       <PageHeader
-        title="Bank Reconciliation"
-        description="Upload the statement you downloaded from your bank. We tick off every line that matches your books automatically, then help you clear the rest."
+        title={<span className="inline-flex items-center gap-1.5">Bank Reconciliation <InfoTip text="Upload the statement you downloaded from your bank. We tick off every line that matches your books automatically, then help you clear the rest." /></span>}
+        description="Upload a bank statement and match it to your books."
       />
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}

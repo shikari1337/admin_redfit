@@ -2,8 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { vendorsAPI } from '../services/api';
 import { Button } from '@/components/ui/button';
-import { Loader2 } from 'lucide-react';
+import { Loader2, AlertTriangle } from 'lucide-react';
 import { CustomFieldsCard } from '@/components/erp';
+import InfoTip from '../components/common/InfoTip';
+import VendorLicenceEditor, { type LicenceRow, type LicenceType } from '../components/vendor/VendorLicenceEditor';
+import { usePincodeLookup } from '../hooks/usePincodeLookup';
 
 const toSlug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
@@ -51,11 +54,21 @@ const VendorForm: React.FC = () => {
     delivery_notes: '',
     default_currency: '',
     gst_treatment: '',
-    drug_licence_no: '',
-    drug_licence_expiry: '',
-    fssai_licence_no: '',
-    fssai_licence_expiry: '',
+    // The legal identity of the company behind the supplier (migration 230).
+    // NULL/blank is the honest answer for a proprietorship, which most
+    // suppliers on a homeopathy store are — it is never a required field.
+    cin: '',
+    reg_line1: '', reg_line2: '', reg_city: '', reg_state: '', reg_pincode: '',
   });
+  /**
+   * EVERY licence, as a list (migration 230). The two single columns 216 gave
+   * (`drug_licence_no`, `fssai_licence_no`) are folded into this list by the
+   * server's one reader, so a supplier recorded before 230 opens with their
+   * licences already in it and saving simply writes them back as list entries.
+   */
+  const [licences, setLicences] = useState<LicenceRow[]>([]);
+  const [licenceTypes, setLicenceTypes] = useState<LicenceType[]>([]);
+  const [multiLicence, setMultiLicence] = useState(false);
   /**
    * The term vocabulary comes from the SERVER (`GET /vendors/terms/meta`), so a
    * word like "freight to pay" is defined once and this form cannot drift from
@@ -67,12 +80,18 @@ const VendorForm: React.FC = () => {
     paymentModes: { code: string; label: string; help?: string }[];
     freightTerms: { code: string; label: string; help?: string }[];
     gstTreatments: { code: string; label: string }[];
+    licenceTypes?: LicenceType[];
+    multiLicence?: boolean;
   } | null>(null);
   const [expiring, setExpiring] = useState<{ label: string; number: string; expiry: string; daysLeft: number }[]>([]);
 
   useEffect(() => {
     vendorsAPI.termsMeta()
-      .then((m: any) => setTermsMeta(m ?? null))
+      .then((m: any) => {
+        setTermsMeta(m ?? null);
+        setLicenceTypes(Array.isArray(m?.licenceTypes) ? m.licenceTypes : []);
+        setMultiLicence(Boolean(m?.multiLicence));
+      })
       .catch(() => setTermsMeta(null));
   }, []);
 
@@ -111,15 +130,50 @@ const VendorForm: React.FC = () => {
         delivery_notes: data.delivery_notes || '',
         default_currency: data.default_currency || '',
         gst_treatment: data.gst_treatment || '',
-        drug_licence_no: data.drug_licence_no || '',
-        drug_licence_expiry: (data.drug_licence_expiry || '').slice(0, 10),
-        fssai_licence_no: data.fssai_licence_no || '',
-        fssai_licence_expiry: (data.fssai_licence_expiry || '').slice(0, 10),
+        cin: data.cin || '',
+        reg_line1: data.registered_address?.line1 || '',
+        reg_line2: data.registered_address?.line2 || '',
+        reg_city: data.registered_address?.city || '',
+        reg_state: data.registered_address?.state || '',
+        reg_pincode: data.registered_address?.pincode || '',
       });
-      setExpiring(Array.isArray(data.licences?.expiring) ? data.licences.expiring : []);
+      // `licence_set.list` is the ONE composed list (230's list + the two 216
+      // columns + other_licences), so this editor never has to know there were
+      // ever three places a licence could be written.
+      const set = data.licence_set ?? {};
+      setLicences((Array.isArray(set.list) ? set.list : []).map((l: any) => ({
+        type: l.type ?? 'other', number: l.number ?? '',
+        label: l.label ?? '', issued_by: l.issued_by ?? '', state: l.state ?? '',
+        valid_from: (l.valid_from ?? '').slice(0, 10), valid_till: (l.valid_till ?? '').slice(0, 10),
+        daysLeft: l.daysLeft ?? null, status: l.status,
+      })));
+      if (typeof data.multi_licence === 'boolean') setMultiLicence(data.multi_licence);
+      const fromSet = [...(set.expired ?? []), ...(set.expiring ?? [])]
+        .map((l: any) => ({ label: l.title ?? l.type, number: l.number, expiry: l.valid_till, daysLeft: l.daysLeft ?? 0 }));
+      setExpiring(fromSet);
     }).catch(() => setError('Failed to load vendor'))
       .finally(() => setLoading(false));
   }, [id, isEdit]);
+
+  /**
+   * The registered office's city and state from the pincode — the SAME India
+   * Post lookup the storefront checkout and the manual-order composer use, so
+   * there is one lookup on this platform and not a third. A value somebody
+   * typed by hand is never overwritten; correcting the pincode re-fills.
+   */
+  const { result: regPin } = usePincodeLookup(form.reg_pincode);
+  const lastRegFill = React.useRef<{ city: string; state: string } | null>(null);
+  useEffect(() => {
+    if (!regPin) return;
+    setForm((f) => {
+      const last = lastRegFill.current;
+      const city = !f.reg_city || f.reg_city === last?.city ? regPin.district : f.reg_city;
+      const state = !f.reg_state || f.reg_state === last?.state ? regPin.state : f.reg_state;
+      lastRegFill.current = { city: regPin.district, state: regPin.state };
+      if (city === f.reg_city && state === f.reg_state) return f;
+      return { ...f, reg_city: city, reg_state: state };
+    });
+  }, [regPin]);
 
   const handleNameChange = (name: string) => {
     setForm((f) => ({ ...f, business_name: name, slug: f.slug || toSlug(name) }));
@@ -165,10 +219,24 @@ const VendorForm: React.FC = () => {
       payload.delivery_notes = form.delivery_notes.trim() || null;
       payload.default_currency = form.default_currency.trim() || null;
       payload.gst_treatment = form.gst_treatment || null;
-      payload.drug_licence_no = form.drug_licence_no.trim() || null;
-      payload.drug_licence_expiry = form.drug_licence_expiry || null;
-      payload.fssai_licence_no = form.fssai_licence_no.trim() || null;
-      payload.fssai_licence_expiry = form.fssai_licence_expiry || null;
+    }
+    // 230's own fields. Sent only when the store carries them, so an older
+    // store's save is byte-for-byte what it was; the server refuses them by
+    // name anyway and says so in `withheld`.
+    if (multiLicence) {
+      payload.cin = form.cin.trim() || null;
+      payload.licences = licences
+        .filter((l) => String(l.number ?? '').trim())
+        .map((l) => ({
+          type: l.type, number: String(l.number).trim(),
+          label: l.label || null, issued_by: l.issued_by || null, state: l.state || null,
+          valid_from: l.valid_from || null, valid_till: l.valid_till || null,
+        }));
+      const reg = {
+        line1: form.reg_line1.trim(), line2: form.reg_line2.trim(),
+        city: form.reg_city.trim(), state: form.reg_state.trim(), pincode: form.reg_pincode.trim(),
+      };
+      payload.registered_address = Object.values(reg).some(Boolean) ? reg : null;
     }
     // Bank details
     const bank: Record<string, string> = {};
@@ -263,6 +331,59 @@ const VendorForm: React.FC = () => {
                 />
               </div>
             </div>
+
+            <div>
+              <label className="mb-1 flex items-center gap-1 text-sm font-medium">
+                Company number (CIN)
+                <InfoTip text="The 21-character Corporate Identity Number the Registrar of Companies issues, e.g. U24239MH2005PTC123456. Leave it blank for a proprietorship or a partnership — most suppliers have none." />
+              </label>
+              <input
+                type="text"
+                value={form.cin}
+                disabled={!multiLicence}
+                onChange={(e) => setForm((f) => ({ ...f, cin: e.target.value.toUpperCase().replace(/\s+/g, '') }))}
+                maxLength={21}
+                placeholder="U24239MH2005PTC123456"
+                className="w-full rounded-md border border-input bg-surface px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
+              />
+              {form.cin.trim() !== '' && form.cin.trim().length !== 21 && (
+                <p className="mt-1 flex items-center gap-1 text-xs text-bad-ink">
+                  <AlertTriangle className="h-3 w-3" /> A CIN is exactly 21 characters — this one has {form.cin.trim().length}.
+                </p>
+              )}
+              {!multiLicence && (
+                <p className="mt-1 text-xs text-ink-soft">
+                  Not set up on this store yet, so it cannot be saved.
+                </p>
+              )}
+            </div>
+
+            <fieldset disabled={!multiLicence} className="disabled:opacity-60">
+              <legend className="mb-1 flex items-center gap-1 text-sm font-medium">
+                Registered office
+                <InfoTip text="The address on the supplier's own registration. It is printed on the purchase order so the document is addressed correctly." />
+              </legend>
+              <div className="grid grid-cols-2 gap-3">
+                <input type="text" value={form.reg_line1} placeholder="Address line 1"
+                  onChange={(e) => setForm((f) => ({ ...f, reg_line1: e.target.value }))}
+                  className="col-span-2 w-full rounded-md border border-input bg-surface px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+                <input type="text" value={form.reg_line2} placeholder="Address line 2"
+                  onChange={(e) => setForm((f) => ({ ...f, reg_line2: e.target.value }))}
+                  className="col-span-2 w-full rounded-md border border-input bg-surface px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+                <input type="text" value={form.reg_pincode} placeholder="Pincode" inputMode="numeric"
+                  onChange={(e) => setForm((f) => ({ ...f, reg_pincode: e.target.value.replace(/\D/g, '').slice(0, 6) }))}
+                  className="w-full rounded-md border border-input bg-surface px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+                <input type="text" value={form.reg_city} placeholder="City / district"
+                  onChange={(e) => setForm((f) => ({ ...f, reg_city: e.target.value }))}
+                  className="w-full rounded-md border border-input bg-surface px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+                <input type="text" value={form.reg_state} placeholder="State"
+                  onChange={(e) => setForm((f) => ({ ...f, reg_state: e.target.value }))}
+                  className="col-span-2 w-full rounded-md border border-input bg-surface px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+              </div>
+              <p className="mt-1 text-xs text-ink-soft">
+                The city and state fill themselves in from the pincode.
+              </p>
+            </fieldset>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -571,39 +692,15 @@ const VendorForm: React.FC = () => {
               </div>
             </div>
 
-            <div>
-              <h3 className="text-sm font-semibold">Licences</h3>
-              <p className="text-xs text-muted-foreground mb-2">
-                Printed on the purchase order, and flagged here before they run out.
-              </p>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Drug licence number</label>
-                  <input type="text" maxLength={60} value={form.drug_licence_no}
-                    onChange={(e) => setForm((f) => ({ ...f, drug_licence_no: e.target.value }))}
-                    className="w-full px-3 py-2 text-sm border rounded-md bg-background font-mono" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Valid until</label>
-                  <input type="date" value={form.drug_licence_expiry}
-                    onChange={(e) => setForm((f) => ({ ...f, drug_licence_expiry: e.target.value }))}
-                    className="w-full px-3 py-2 text-sm border rounded-md bg-background" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">FSSAI licence number</label>
-                  <input type="text" maxLength={60} value={form.fssai_licence_no}
-                    onChange={(e) => setForm((f) => ({ ...f, fssai_licence_no: e.target.value }))}
-                    className="w-full px-3 py-2 text-sm border rounded-md bg-background font-mono" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Valid until</label>
-                  <input type="date" value={form.fssai_licence_expiry}
-                    onChange={(e) => setForm((f) => ({ ...f, fssai_licence_expiry: e.target.value }))}
-                    className="w-full px-3 py-2 text-sm border rounded-md bg-background" />
-                </div>
-              </div>
-            </div>
           </fieldset>
+        </div>
+
+        {/* LICENCES — its own card, because it is not a commercial term: it is
+            what makes the supplier legally able to ship what is being ordered,
+            and it prints on the purchase order for exactly that reason. */}
+        <div className="rounded-md border border-line bg-surface p-5">
+          <VendorLicenceEditor
+            rows={licences} types={licenceTypes} available={multiLicence} onChange={setLicences} />
         </div>
 
         <div className="flex items-center gap-3">

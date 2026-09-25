@@ -14,6 +14,7 @@ import {
   type CatalogNamePart,
   type VariationNameParts,
 } from '@/lib/variationName';
+import { SETTINGS_AREA_LIST } from '@/lib/menu';
 
 /* ────────────────────────── types (mirror the backend registry) ────────────────────────── */
 
@@ -32,6 +33,25 @@ interface CenterView {
   groups: RegistryGroup[]; definitions: RegistryDef[]; pages: RegistryPage[];
   unregistered: Array<{ key: string; grp: string | null; is_public: boolean }>;
   meta: { slug: string | null; environment: 'live' | 'test'; timezone: string; permissions: string[] };
+}
+
+/**
+ * A setting's "full editor" is not always a page in THIS app: warehouse
+ * automation lives in the WMS panel and Playbooks in the CRM panel, and the
+ * registry now says so with an absolute address. A router `<Link to>` would
+ * have treated `https://wms.gc.mw/automation` as a path and 404'd inside the
+ * admin — which is what the two dead registry links did before (L5 §5).
+ */
+const isExternalPage = (path: string) => /^https?:\/\//i.test(path);
+
+const PageLink: React.FC<{ path: string; className?: string; children: React.ReactNode }> = ({ path, className, children }) =>
+  isExternalPage(path)
+    ? <a href={path} target="_blank" rel="noreferrer" className={className}>{children}</a>
+    : <Link to={path} className={className}>{children}</Link>;
+
+function openPage(path: string, navigate: (to: string) => void) {
+  if (isExternalPage(path)) window.open(path, '_blank', 'noopener');
+  else navigate(path);
 }
 
 const PAGES_GROUP = '__pages';
@@ -163,6 +183,25 @@ const SettingsCenter: React.FC = () => {
   }, [view]);
   const currentGroup = groups.find((g) => g.id === groupId);
 
+  /**
+   * The sidebar's Settings group lists these areas by number, from a mirror in
+   * `lib/menu.ts` (the same arrangement `lib/rbac.ts` has with the backend's
+   * roles). A mirror that silently drifts is worse than no mirror, so the one
+   * screen that holds BOTH lists says when they disagree.
+   */
+  const menuDrift = useMemo(() => {
+    if (!view) return [];
+    const live = new Map(view.groups.map((g) => [g.id, g.no] as const));
+    const out: string[] = [];
+    for (const m of SETTINGS_AREA_LIST) {
+      const no = live.get(m.id);
+      if (no === undefined) out.push(`${m.id} is no longer a group`);
+      else if (no !== m.no) out.push(`${m.id} is now ${no}, listed as ${m.no}`);
+    }
+    for (const g of view.groups) if (!SETTINGS_AREA_LIST.some((m) => m.id === g.id)) out.push(`${g.id} is missing`);
+    return out;
+  }, [view]);
+
   const listDefs = useMemo(() => {
     if (!view) return [];
     if (searching) {
@@ -217,7 +256,9 @@ const SettingsCenter: React.FC = () => {
   if (!view) return null;
 
   return (
-    <div className="-m-4 md:-m-6 lg:-m-8 flex h-[calc(100vh-3.5rem)] flex-col bg-white">
+    // Full-bleed, tied to the ONE shell padding token (plan §7) — not a copy of
+    // the old p-4/md:p-6/lg:p-8 numbers, which drifted the moment the shell changed.
+    <div className="-m-[var(--content-pad-phone)] md:-m-[var(--content-pad)] flex h-[calc(100vh-3.5rem)] flex-col bg-white">
       {/* ── Command bar ── */}
       <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-gray-200 px-4 py-2.5">
         <div className="relative min-w-[260px] flex-1 max-w-2xl">
@@ -233,6 +274,11 @@ const SettingsCenter: React.FC = () => {
           </Badge>
           <span>{view.meta.timezone}</span>
           <span>· {view.definitions.length} settings · {view.pages.length} pages</span>
+          {menuDrift.length > 0 && (
+            <span className="text-amber-700" title="admin/src/lib/menu.ts SETTINGS_AREA_LIST">
+              · sidebar list is out of date: {menuDrift.join(', ')}
+            </span>
+          )}
           <span className="hidden xl:inline">· Every item has a number — quote it when you ask for help.</span>
           <Button variant="ghost" size="sm" className="h-7 px-2" onClick={load} title="Reload"><RefreshCw className="h-3.5 w-3.5" /></Button>
         </div>
@@ -263,7 +309,7 @@ const SettingsCenter: React.FC = () => {
             </button>
           )}
           <div className="px-3 pt-3 text-[11px] text-muted-foreground">
-            <Link to="/settings/directory" className="underline">Classic settings directory</Link>
+            <Link to="/settings/directory" className="underline">Browser key &amp; website cache</Link>
           </div>
         </nav>
 
@@ -299,7 +345,7 @@ const SettingsCenter: React.FC = () => {
             <div className="px-2 py-2">
               <div className="px-2 pb-1 text-[11px] uppercase tracking-wide text-muted-foreground">Pages &amp; tools</div>
               {listPages.map((p) => (
-                <button key={p.path} onClick={() => navigate(p.path)} className="flex w-full items-start gap-2 rounded px-2 py-2 text-left hover:bg-gray-50">
+                <button key={p.path} onClick={() => openPage(p.path, navigate)} className="flex w-full items-start gap-2 rounded px-2 py-2 text-left hover:bg-gray-50">
                   <span className="mt-0.5 w-8 shrink-0 font-mono text-xs text-muted-foreground">{p.code}</span>
                   <div className="flex-1">
                     <div className="text-sm font-medium">{p.label}</div>
@@ -429,9 +475,10 @@ const Editor: React.FC<{ def: RegistryDef; all: RegistryDef[]; onSaved: (d: Regi
 
       {def.page && (
         <div className="mt-3">
-          <Link to={def.page.path} className="inline-flex items-center gap-1 text-sm text-primary underline">
+          <PageLink path={def.page.path} className="inline-flex items-center gap-1 text-sm text-primary underline">
             <ExternalLink className="h-3.5 w-3.5" /> {def.readonly ? 'Open the editor:' : 'Full editor:'} {def.page.label}
-          </Link>
+            {isExternalPage(def.page.path) && <span className="text-xs text-muted-foreground">(opens the panel)</span>}
+          </PageLink>
         </div>
       )}
 

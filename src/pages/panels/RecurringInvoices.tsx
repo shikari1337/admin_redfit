@@ -11,6 +11,7 @@ import {
 import type { Tone } from '../../components/erp';
 import { Repeat, Plus, ArrowLeft, Trash2, PlayCircle, Pause, Play, Ban } from 'lucide-react';
 import { localeDate, localeDateTime } from '../../utils/date';
+import InfoTip from '../../components/common/InfoTip';
 
 /**
  * Customer Recurring Invoices / Subscriptions (migration 098). Bill the same
@@ -238,9 +239,9 @@ const RecurringInvoices: React.FC = () => {
   // ═══════════════════════════════════════════════════════════════════ CREATE
   if (view === 'create') {
     return (
-      <Page width="narrow">
-        <PageHeader icon={Repeat} title="New recurring invoice"
-          description="Bill a customer automatically on a schedule. Each due date, we create a real order with the customer's authoritative pricing and GST."
+      <Page>
+        <PageHeader icon={Repeat} title={<span className="inline-flex items-center gap-1.5">New recurring invoice <InfoTip text="Bill a customer automatically on a schedule. Each due date, we create a real order with the customer's authoritative pricing and GST." /></span>}
+        description="Bill a customer automatically on a schedule."
           actions={<Btn variant="ghost" onClick={() => { resetForm(); setView('list'); }}><ArrowLeft className="h-4 w-4" /> Back</Btn>} />
         {err && <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{err}</div>}
 

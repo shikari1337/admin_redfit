@@ -8,7 +8,7 @@ import ProductComplianceSections, { ProductConfig, SpecSectionValue } from '../c
 import api from '../services/api';
 import {
   FaArrowLeft, FaCopy, FaDownload, FaInfoCircle, FaRupeeSign, FaImages, FaAlignLeft,
-  FaLayerGroup, FaLink, FaHandshake, FaBriefcaseMedical, FaSearch, FaCog, FaMagic,
+  FaLayerGroup, FaLink, FaHandshake, FaBriefcaseMedical, FaSearch, FaCog, FaMagic, FaFileInvoice, FaBoxes,
 } from 'react-icons/fa';
 import {
   ProductBasicInfo,
@@ -37,7 +37,9 @@ import { FieldGroup, Field, SwitchRow, fieldInputCls } from '../components/produ
 import type { ContentBlock, PageSection } from '../components/product/studio/types';
 import ProductPageStudio from '../components/product/studio/ProductPageStudio';
 import AiPageWizard, { type AiPageApplyPayload } from '../components/product/studio/AiPageWizard';
-import type { B2BPricingTier } from '../components/product/ProductB2BPricing';
+import { flatWholesalePrice, type B2BPricingTier } from '../components/product/ProductB2BPricing';
+import type { PricingSection } from '../components/product/ProductPricing';
+import ProductInventoryPanel from '../components/product/ProductInventoryPanel';
 import type { ProductOffer } from '../components/product/ProductOffers';
 import { normalizeSpecifications, normalizeContentBlocks, serializeContentBlocks, normalizePageSections, serializePageSections } from '../lib/productNormalize';
 import {
@@ -59,7 +61,7 @@ import { UUID_RE } from '../lib/uuid';
 
 /** The form's tab shell. Module-gated tabs (Content, Variants, B2B, Medical)
  *  are dropped from the bar entirely when hidden. */
-type TabId = 'general' | 'pricing' | 'media' | 'content' | 'variants' | 'related' | 'b2b' | 'medical' | 'seo' | 'settings';
+type TabId = 'general' | 'pricing' | 'tax' | 'stock' | 'media' | 'content' | 'variants' | 'related' | 'b2b' | 'medical' | 'seo' | 'settings';
 
 /** validateForm error key → the tab that hosts the failing field, so a failed
  *  save NAVIGATES to the right tab before scrolling. */
@@ -67,8 +69,9 @@ const ERROR_TAB_MAP: Record<string, TabId> = {
   name: 'general', categories: 'general', tags: 'general',
   variations: 'variants',
   price: 'pricing', originalPrice: 'pricing', salePrice: 'pricing',
-  saleStartsAt: 'pricing', saleEndsAt: 'pricing',
-  weight: 'pricing', length: 'pricing', breadth: 'pricing', height: 'pricing',
+  saleStartsAt: 'pricing', saleEndsAt: 'pricing', sku: 'pricing',
+  hsnCode: 'tax',
+  weight: 'stock', length: 'stock', breadth: 'stock', height: 'stock',
   images: 'media',
   sizeChart: 'related',
   slug: 'seo', metaTitle: 'seo', metaDescription: 'seo',
@@ -325,7 +328,7 @@ const ProductForm: React.FC = () => {
   const [searchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState<TabId>(() => {
     const t = searchParams.get('tab') as TabId | null;
-    const known: TabId[] = ['general', 'pricing', 'media', 'content', 'variants', 'related', 'b2b', 'medical', 'seo', 'settings'];
+    const known: TabId[] = ['general', 'pricing', 'tax', 'stock', 'media', 'content', 'variants', 'related', 'b2b', 'medical', 'seo', 'settings'];
     return t && known.includes(t) ? t : 'general';
   });
   // Page layout (products.page_sections), edited in the Product Page Studio.
@@ -357,7 +360,8 @@ const ProductForm: React.FC = () => {
   // away from Variable…) snap back to General instead of a blank page.
   useEffect(() => {
     const visible: Record<TabId, boolean> = {
-      general: true, pricing: true, media: true,
+      general: true, pricing: true, media: true, stock: true,
+      tax: canAccess('gst_tax'),
       content: canAccess('product_specifications') || canAccess('aplus_content') || canAccess('wash_care'),
       variants: formData.productType === 'variation' || !!variantGroup,
       related: true,
@@ -1106,7 +1110,7 @@ const ProductForm: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500" />
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-500" />
       </div>
     );
   }
@@ -1116,17 +1120,59 @@ const ProductForm: React.FC = () => {
   const showContentTab = canAccess('product_specifications') || canAccess('aplus_content') || canAccess('wash_care');
   const showVariantsTab = formData.productType === 'variation' || !!variantGroup;
   const visibleTabs: Array<{ id: TabId; label: string; icon: React.ComponentType<{ className?: string }> }> = [
-    { id: 'general', label: 'General', icon: FaInfoCircle },
-    { id: 'pricing', label: 'Pricing & Tax', icon: FaRupeeSign },
+    // Prompt 7 order: Identity · Pricing · Tax · Variations · Stock · Content · SEO.
+    // A tab that does not apply to THIS product (module off, simple product) is
+    // not drawn at all, rather than drawn empty.
+    { id: 'general', label: 'Identity', icon: FaInfoCircle },
+    { id: 'pricing', label: 'Pricing', icon: FaRupeeSign },
+    ...(canAccess('b2b') ? [{ id: 'b2b' as TabId, label: 'B2B', icon: FaHandshake }] : []),
+    ...(canAccess('gst_tax') ? [{ id: 'tax' as TabId, label: 'Tax', icon: FaFileInvoice }] : []),
+    ...(showVariantsTab ? [{ id: 'variants' as TabId, label: 'Variations', icon: FaLayerGroup }] : []),
+    { id: 'stock', label: 'Stock & size', icon: FaBoxes },
+    ...(canAccess('pharmacy_fields') ? [{ id: 'medical' as TabId, label: 'Medical', icon: FaBriefcaseMedical }] : []),
     { id: 'media', label: 'Media', icon: FaImages },
     ...(showContentTab ? [{ id: 'content' as TabId, label: 'Page content', icon: FaAlignLeft }] : []),
-    ...(showVariantsTab ? [{ id: 'variants' as TabId, label: 'Variants', icon: FaLayerGroup }] : []),
     { id: 'related', label: 'Related', icon: FaLink },
-    ...(canAccess('b2b') ? [{ id: 'b2b' as TabId, label: 'B2B', icon: FaHandshake }] : []),
-    ...(canAccess('pharmacy_fields') ? [{ id: 'medical' as TabId, label: 'Medical', icon: FaBriefcaseMedical }] : []),
     { id: 'seo', label: 'SEO', icon: FaSearch },
     { id: 'settings', label: 'Settings', icon: FaCog },
   ];
+
+  /**
+   * ProductPricing is ONE component holding prices, code, tax, stock and size;
+   * each tab asks it for its own sections, so every field keeps a single
+   * binding to formData however the tabs are arranged.
+   */
+  const renderPricing = (sections: PricingSection[]) => (
+    <ProductPricing
+      sections={sections}
+      price={formData.price} originalPrice={formData.originalPrice}
+      salePrice={formData.salePrice} saleStartsAt={formData.saleStartsAt} saleEndsAt={formData.saleEndsAt}
+      sku={formData.sku} hsnCode={formData.hsnCode} taxRuleId={formData.taxRuleId} taxRules={availableTaxRules}
+      showTaxFields={canAccess('gst_tax')}
+      isVariableProduct={formData.productType === 'variation'}
+      variationPriceSummary={variationPriceSummary}
+      onGoToVariants={() => setActiveTab('variants')}
+      showB2B={canAccess('b2b') && formData.productType === 'single'}
+      b2bPrice={flatWholesalePrice(formData.b2bPricing || [])}
+      onGoToB2B={() => setActiveTab('b2b')}
+      stock={formData.stock} showStock={formData.productType === 'single'}
+      weight={formData.weight} length={formData.length} breadth={formData.breadth} height={formData.height}
+      onPriceChange={v => { setFormData(p => ({ ...p, price: v })); setErrors(prev => ({ ...prev, price: '' })); }}
+      onOriginalPriceChange={v => { setFormData(p => ({ ...p, originalPrice: v })); setErrors(prev => ({ ...prev, originalPrice: '' })); }}
+      onSalePriceChange={v => setFormData(p => ({ ...p, salePrice: v }))}
+      onSaleStartsAtChange={v => setFormData(p => ({ ...p, saleStartsAt: v }))}
+      onSaleEndsAtChange={v => setFormData(p => ({ ...p, saleEndsAt: v }))}
+      onSkuChange={v => setFormData(p => ({ ...p, sku: v.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 48) }))}
+      onHsnCodeChange={v => setFormData(p => ({ ...p, hsnCode: v }))}
+      onTaxRuleIdChange={v => setFormData(p => ({ ...p, taxRuleId: v }))}
+      onStockChange={v => setFormData(p => ({ ...p, stock: v }))}
+      onWeightChange={v => setFormData(p => ({ ...p, weight: v }))}
+      onLengthChange={v => setFormData(p => ({ ...p, length: v }))}
+      onBreadthChange={v => setFormData(p => ({ ...p, breadth: v }))}
+      onHeightChange={v => setFormData(p => ({ ...p, height: v }))}
+      errors={errors}
+    />
+  );
 
   // Tabs that currently hold a failed validation — drives the red dot on the
   // xl sidebar rail (derived from the SAME errors + ERROR_TAB_MAP the save
@@ -1182,6 +1228,8 @@ const ProductForm: React.FC = () => {
       basePrice={parseFloat(formData.price) || 0}
       baseOriginalPrice={parseFloat(formData.originalPrice) || 0}
       availableBrands={availableBrands}
+      // Each variation's flat wholesale slab, shown beside its MRP and selling price.
+      b2bPriceFor={canAccess('b2b') ? (vid: string) => flatWholesalePrice(formData.b2bPricing || [], vid) : undefined}
       onRegenerateAllSkus={() => {
         const base = formData.sku || slug.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10) || 'PROD';
         setFormData(p => ({ ...p, variations: p.variations.map((v, i) => ({ ...v, sku: `${base}-${Object.keys(v.attributes).join('-').toUpperCase().slice(0, 20)}-${i + 1}`.slice(0, 48) })) }));
@@ -1300,7 +1348,7 @@ const ProductForm: React.FC = () => {
         <Tabs value={activeTab} onValueChange={v => setActiveTab(v as TabId)}>
 
           {/* ══ Sticky top bar + tab bar ══════════════════════════════════════ */}
-          <div className="sticky top-14 z-20 -mx-4 md:-mx-6 lg:-mx-8 -mt-4 md:-mt-6 lg:-mt-8 px-4 md:px-6 lg:px-8 pt-3 bg-gray-50/95 backdrop-blur supports-[backdrop-filter]:bg-gray-50/80 border-b border-gray-200 mb-5">
+          <div className="sticky top-14 z-20 pt-3 bg-gray-50/95 backdrop-blur supports-[backdrop-filter]:bg-gray-50/80 border-b border-gray-200 mb-5">
             <div className="flex items-center justify-between gap-4 pb-2">
               <div className="flex items-center gap-3 min-w-0">
                 <button type="button" onClick={handleCancel} className="text-gray-500 hover:text-gray-800 shrink-0" title="Back to products">
@@ -1380,7 +1428,7 @@ const ProductForm: React.FC = () => {
                       type="button"
                       onClick={() => setActiveTab(t.id)}
                       aria-current={active ? 'true' : undefined}
-                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 ${
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus ${
                         active
                           ? 'bg-gray-900 text-white font-medium shadow-sm'
                           : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
@@ -1458,7 +1506,7 @@ const ProductForm: React.FC = () => {
                     the storefront steps quantity by the pack size and orders are
                     enforced to pack multiples (B2B MOQ increments can require more). */}
                 <FieldGroup title="Pack size" description="Leave at 1 if this product is sold as a single unit.">
-                  <Field label="Units per pack / case" htmlFor="pfPackSize" help="How many units one pack contains.">
+                  <Field label="Pack size" htmlFor="pfPackSize" help="How many units one pack contains. Leave at 1 for a single unit.">
                     <div className="flex items-center gap-2">
                       <input id="pfPackSize" type="number" min="1" value={formData.packSize || 1}
                         onChange={e => setFormData(p => ({ ...p, packSize: Math.max(1, parseInt(e.target.value) || 1) }))}
@@ -1575,34 +1623,50 @@ const ProductForm: React.FC = () => {
             </div>
           </TabsContent>
 
-          {/* ══ PRICING & TAX ════════════════════════════════════════════════ */}
+          {/* ══ PRICING ══════════════════════════════════════════════════════ */}
           <TabsContent value="pricing" forceMount className={tabContentCls}>
-            <div className="max-w-3xl space-y-4">
-              <ProductPricing
-                price={formData.price} originalPrice={formData.originalPrice}
-                salePrice={formData.salePrice} saleStartsAt={formData.saleStartsAt} saleEndsAt={formData.saleEndsAt}
-                sku={formData.sku} hsnCode={formData.hsnCode} taxRuleId={formData.taxRuleId} taxRules={availableTaxRules}
-                showTaxFields={canAccess('gst_tax')}
-                isVariableProduct={formData.productType === 'variation'}
-                variationPriceSummary={variationPriceSummary}
-                onGoToVariants={() => setActiveTab('variants')}
-                stock={formData.stock} showStock={formData.productType === 'single'}
-                weight={formData.weight} length={formData.length} breadth={formData.breadth} height={formData.height}
-                onPriceChange={v => { setFormData(p => ({ ...p, price: v })); setErrors(prev => ({ ...prev, price: '' })); }}
-                onOriginalPriceChange={v => { setFormData(p => ({ ...p, originalPrice: v })); setErrors(prev => ({ ...prev, originalPrice: '' })); }}
-                onSalePriceChange={v => setFormData(p => ({ ...p, salePrice: v }))}
-                onSaleStartsAtChange={v => setFormData(p => ({ ...p, saleStartsAt: v }))}
-                onSaleEndsAtChange={v => setFormData(p => ({ ...p, saleEndsAt: v }))}
-                onSkuChange={v => setFormData(p => ({ ...p, sku: v.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 48) }))}
-                onHsnCodeChange={v => setFormData(p => ({ ...p, hsnCode: v }))}
-                onTaxRuleIdChange={v => setFormData(p => ({ ...p, taxRuleId: v }))}
-                onStockChange={v => setFormData(p => ({ ...p, stock: v }))}
-                onWeightChange={v => setFormData(p => ({ ...p, weight: v }))}
-                onLengthChange={v => setFormData(p => ({ ...p, length: v }))}
-                onBreadthChange={v => setFormData(p => ({ ...p, breadth: v }))}
-                onHeightChange={v => setFormData(p => ({ ...p, height: v }))}
-                errors={errors}
-              />
+            <div className="space-y-4">
+              {renderPricing(['price', 'codes'])}
+            </div>
+          </TabsContent>
+
+          {/* ══ TAX (gst_tax) ═══════════════════════════════════════════════ */}
+          {canAccess('gst_tax') && (
+          <TabsContent value="tax" forceMount className={tabContentCls}>
+            <div className="space-y-4">
+              {renderPricing(['tax'])}
+              {formData.productType === 'variation' && (
+                <p className="text-xs text-gray-500">
+                  Each variation can carry its own HSN and tax rule; the rate shown above is what a variation
+                  without its own rule is charged.
+                </p>
+              )}
+            </div>
+          </TabsContent>
+          )}
+
+          {/* ══ STOCK & SIZE ════════════════════════════════════════════════ */}
+          <TabsContent value="stock" forceMount className={tabContentCls}>
+            <div className="space-y-4">
+              {formData.productType === 'variation' && (
+                <FieldGroup title="Stock" description="A variable product keeps stock per variation.">
+                  <button type="button" onClick={() => setActiveTab('variants')}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
+                    Open Variations
+                  </button>
+                </FieldGroup>
+              )}
+              {renderPricing(['stock', 'size'])}
+              {/* A simple product is sold through its ONE variation row, so its
+                  live balances, lots and ledger are that row's — the same panel
+                  the variation editor mounts, nothing re-implemented. */}
+              {formData.productType === 'single' && formData.variations.length === 1
+                && UUID_RE.test(String(formData.variations[0]?.id || '')) && (
+                <ProductInventoryPanel
+                  variationId={String(formData.variations[0].id)}
+                  sku={formData.sku}
+                />
+              )}
             </div>
           </TabsContent>
 
@@ -1739,6 +1803,14 @@ const ProductForm: React.FC = () => {
               {errors.variations && (
                 <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3.5 py-2.5 font-medium">
                   {errors.variations}
+                </p>
+              )}
+              {/* Homeopathy axis rule (pharmacy stores): which attributes a form's
+                  variations are made of. Guidance only — the matrix below does the work. */}
+              {formData.productType === 'variation' && canAccess('pharmacy_fields') && (
+                <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-md px-3 py-2">
+                  <span className="font-medium text-gray-700">Axes by form:</span>{' '}
+                  Dilution (CH) — potency + volume · Mother tincture — volume · Biochemic / LATT — potency.
                 </p>
               )}
               {formData.productType === 'variation' ? (

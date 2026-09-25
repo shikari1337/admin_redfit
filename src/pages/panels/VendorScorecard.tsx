@@ -4,7 +4,9 @@ import { payload } from '../../lib/unwrap';
 import {
   Page, PageHeader, Btn, Field, TextInput, StatCard, StatGrid, StatusChip,
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow, SectionCard,
+  FilterChips, type ChipGroup,
 } from '../../components/erp';
+import InfoTip from '../../components/common/InfoTip';
 import type { Tone } from '../../components/erp';
 
 /**
@@ -86,6 +88,10 @@ const VendorScorecard: React.FC = () => {
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  // The list has no server-side search — it is one computed page of vendors,
+  // so narrowing it here is both correct and instant.
+  const [search, setSearch] = useState('');
+  const [gradeFilter, setGradeFilter] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -101,6 +107,24 @@ const VendorScorecard: React.FC = () => {
   useEffect(() => { load(); }, [load]);
 
   const gc = summary?.grade_counts ?? { A: 0, B: 0, C: 0, D: 0, NR: 0 };
+
+  /** What the search box and the grade chip leave on screen. */
+  const shown = React.useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return vendors.filter((v) => {
+      if (q && !`${v.vendor_name ?? ''} ${v.gst_number ?? ''}`.toLowerCase().includes(q)) return false;
+      if (gradeFilter && v.grade !== gradeFilter) return false;
+      return true;
+    });
+  }, [vendors, search, gradeFilter]);
+
+  const chipGroups: ChipGroup[] = [{
+    key: 'grade', label: 'Grade', value: gradeFilter, onChange: setGradeFilter,
+    help: 'A is a supplier to lean on. D is one to have a conversation about.',
+    options: (['A', 'B', 'C', 'D', 'NR'] as const)
+      .filter((g) => (gc[g] ?? 0) > 0)
+      .map((g) => ({ value: g, label: g === 'NR' ? 'Not rated yet' : `Grade ${g}`, hint: String(gc[g] ?? 0) })),
+  }];
 
   return (
     <Page>
@@ -118,6 +142,21 @@ const VendorScorecard: React.FC = () => {
       />
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+
+      <div className="flex flex-wrap items-center gap-3">
+        <TextInput
+          placeholder="Search a vendor name or GSTIN…"
+          aria-label="Search vendors"
+          data-testid="scorecard-search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-72"
+        />
+        <FilterChips groups={chipGroups} onClearAll={() => setGradeFilter('')} />
+        <span className="ml-auto text-sm text-gray-500">
+          {shown.length} of {vendors.length} vendor(s)
+        </span>
+      </div>
 
       {summary && (
         <StatGrid cols={4}>
@@ -145,20 +184,24 @@ const VendorScorecard: React.FC = () => {
             <Th className="w-10 text-right">#</Th>
             <Th>Vendor</Th>
             <Th>Grade</Th>
-            <Th className="text-right" title="Received on/before the promised date">On-time</Th>
-            <Th className="text-right" title="Units received vs ordered">Fill</Th>
-            <Th className="text-right" title="Units failed QC vs received">Reject</Th>
-            <Th className="text-right" title="Bill lines matching the PO price">Price acc.</Th>
-            <Th className="text-right" title="Avg days from order to receipt">Lead time</Th>
+            <Th className="text-right">On-time <InfoTip text="How often their delivery arrived on or before the date they promised." /></Th>
+            <Th className="text-right">Fill <InfoTip text="How much of what you ordered actually turned up." /></Th>
+            <Th className="text-right">Rejected <InfoTip text="How much of what turned up failed the goods-in check. Lower is better." /></Th>
+            <Th className="text-right">Price match <InfoTip text="How often their bill charged the price the purchase order agreed." /></Th>
+            <Th className="text-right">Lead time <InfoTip text="Average days from placing the order to the goods arriving." /></Th>
             <Th className="text-right">Purchases</Th>
             <Th></Th>
         </THead>
         <TBody>
           {loading && <EmptyRow colSpan={10}>Loading…</EmptyRow>}
-          {!loading && vendors.length === 0 && (
-            <EmptyRow colSpan={10}>No vendors with purchasing activity in this period.</EmptyRow>
+          {!loading && shown.length === 0 && (
+            <EmptyRow colSpan={10}>
+              {vendors.length
+                ? 'No vendor matches this search and this grade.'
+                : 'No vendor bought from in this period. Raise a purchase order and receive it, and the scores start here.'}
+            </EmptyRow>
           )}
-          {vendors.map((v, i) => (
+          {shown.map((v, i) => (
             <React.Fragment key={v.vendor_id}>
               <Tr className={`cursor-pointer ${v.grade === 'D' ? 'bg-red-50/40' : ''}`}
                 onClick={() => setSelected(selected === v.vendor_id ? null : v.vendor_id)}>

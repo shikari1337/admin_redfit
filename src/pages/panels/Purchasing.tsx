@@ -7,6 +7,7 @@ import {
   Page, PageHeader, Btn, StatusChip, TabBar, TextInput, SelectInput,
   THead, Th, TBody, Tr, Td,
   FilterBar, Field, SearchInput, ExportMenu, Pagination, useListControls, type CsvColumn,
+  FilterChips, type ChipGroup,
 } from '../../components/erp';
 
 // Client CSV of the loaded PO / return rows.
@@ -41,6 +42,11 @@ const Purchasing: React.FC = () => {
   // Server pagination for the PO + returns lists; search/status narrow the
   // loaded page (the /purchasing routes take limit/offset only — see report).
   const poLc = useListControls({ pageSize: 25 });
+  // Vendor and due-date chips. Like search and status they narrow the LOADED
+  // page only — GET /purchasing/pos takes no filter params yet (plan §5.4, G11),
+  // and the toolbar says so rather than pretending to be a server filter.
+  const [poVendor, setPoVendor] = useState('');
+  const [poDue, setPoDue] = useState('');
   const retLc = useListControls({ pageSize: 25 });
   const [detail, setDetail] = useState<any>(null);
   const [showNew, setShowNew] = useState(false);
@@ -212,9 +218,32 @@ const Purchasing: React.FC = () => {
     return pos.filter((p) => {
       const okQ = !q || [p.po_number, p.vendor_name].some((v) => String(v ?? '').toLowerCase().includes(q));
       const okS = !poLc.status || p.status === poLc.status;
-      return okQ && okS;
+      const okV = !poVendor || p.vendor_name === poVendor;
+      const open = Number(p.qty_open ?? 0) > 0 && !['cancelled', 'closed_short', 'received', 'draft'].includes(p.status);
+      const okD = !poDue
+        || (poDue === 'late' && open && Number(p.days_late ?? 0) > 0)
+        || (poDue === 'no_date' && open && !p.expected_date)
+        || (poDue === 'open' && open);
+      return okQ && okS && okV && okD;
     });
-  }, [pos, poLc.search, poLc.status]);
+  }, [pos, poLc.search, poLc.status, poVendor, poDue]);
+
+  const poChips: ChipGroup[] = [
+    {
+      key: 'vendor', label: 'Vendor', value: poVendor, onChange: setPoVendor,
+      options: Array.from(new Set(pos.map((p: any) => String(p.vendor_name || '')).filter(Boolean)))
+        .sort().map((v) => ({ value: v, label: v })),
+    },
+    {
+      key: 'due', label: 'Delivery', value: poDue, onChange: setPoDue,
+      help: 'Orders still waiting for goods.',
+      options: [
+        { value: 'open', label: 'Still expected' },
+        { value: 'late', label: 'Past the promised date' },
+        { value: 'no_date', label: 'No promised date' },
+      ],
+    },
+  ];
 
   const searchSkus = async (q: string) => {
     setSkuSearch(q);
@@ -519,6 +548,7 @@ const Purchasing: React.FC = () => {
             Everything that has been counted in against the purchase orders on this page. Open one to see how the
             goods, the order and the invoice compared, who signed it off, and the inspection report.{' '}
             {/* Ruling WH13: the floor's home is the warehouse app; this desk links out to it. */}
+            {/* TODO(T5 productLinks): route through productLinks.urlFor('wms', '/checker') */}
             <a className="text-blue-700 underline" href="https://wms.gc.mw/checker" target="_blank" rel="noreferrer">
               Counting happens on the warehouse app
             </a>.
@@ -639,6 +669,7 @@ const Purchasing: React.FC = () => {
                 <div className="text-sm text-amber-800">{chain.withheld.join(' ')}</div>
               )}
 
+              {/* TODO(T5 productLinks): route through productLinks.urlFor('wms', '/checker') */}
               <p className="text-xs text-gray-500">
                 The counting itself happens on the warehouse app, where the person is standing next to the goods
                 (<a className="text-blue-700 underline" href="https://wms.gc.mw/checker" target="_blank" rel="noreferrer">
@@ -734,13 +765,20 @@ const Purchasing: React.FC = () => {
             <option value="issued">Issued</option>
             <option value="partially_received">Partially received</option>
             <option value="received">Received</option>
+            <option value="closed_short">Closed short</option>
             <option value="cancelled">Cancelled</option>
           </SelectInput>
         </Field>
+        <FilterChips groups={poChips} onClearAll={() => { setPoVendor(''); setPoDue(''); }} />
       </FilterBar>
+      <p className="text-xs text-gray-500">Search and filters look through this page of orders ({pos.length} loaded).</p>
 
       <div className="divide-y divide-gray-100 rounded-xl border border-gray-200 bg-white shadow-sm">
-        {filteredPos.length === 0 && <div className="p-6 text-center text-sm text-gray-500">No purchase orders yet.</div>}
+        {filteredPos.length === 0 && (
+          <div className="p-6 text-center text-sm text-gray-500">
+            {pos.length ? 'No purchase order on this page matches the search and filters.' : 'No purchase orders yet.'}
+          </div>
+        )}
         {filteredPos.map((po: any) => (
           <button key={po.id} onClick={() => openDetail(po.id)}
             className="flex w-full items-center justify-between px-4 py-2.5 text-left text-sm hover:bg-gray-50/70">

@@ -2,15 +2,17 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { customersAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
-import { User, Phone, Mail, Search, ShoppingBag, Building2, Link2, Copy, Check, Loader2, Users2 } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
+import { User, Phone, Mail, ShoppingBag, Building2, Link2, Copy, Check, Loader2, Users2 } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
-import { Pagination } from '@/components/erp';
+import { Pagination, ExportMenu, type CsvColumn } from '@/components/erp';
+import { FilterChip, MenuChip, SearchBox, ListHeader } from '../components/sales/ListChrome';
+import InfoTip from '../components/common/InfoTip';
+import { exportsAPI } from '../services/api';
 import { fmtRupees } from '@/lib/money';
 import { localeDate } from '../utils/date';
 
@@ -28,6 +30,19 @@ interface StoreCustomer {
 
 const fmtDate = (v?: string | null) => (v ? localeDate(v, { day: '2-digit', month: 'short', year: 'numeric' }, 'en-IN') : '—');
 
+/** The directory as a file — the columns this page already holds, nothing invented. */
+const CUSTOMER_CSV_COLUMNS: CsvColumn<any>[] = [
+  { key: 'name', label: 'Name' },
+  { key: 'phone', label: 'Phone' },
+  { key: 'email', label: 'Email' },
+  { key: 'gstin', label: 'GSTIN' },
+  { key: 'order_count', label: 'Orders' },
+  { key: 'total_spent', label: 'Total spent' },
+  { key: 'last_order_at', label: 'Last order', format: (c: any) => fmtDate(c.last_order_at) },
+  { key: 'is_b2b', label: 'Type', format: (c: any) => (c.is_b2b ? 'Wholesale' : 'Retail') },
+  { key: 'b2b_tier', label: 'Tier' },
+];
+
 const Customers: React.FC = () => {
   const { hasPerm } = useAuth();
   // Backend (routes/customers.ts) has no delete route for individual customers — only
@@ -43,6 +58,18 @@ const Customers: React.FC = () => {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const limit = 20;
+  /**
+   * Who is on screen. Applied to the page the server returned — the directory
+   * is paged, so this narrows what you can see rather than running a new
+   * search, and the strip says so rather than letting a count look like a
+   * total.
+   */
+  const [kind, setKind] = useState<'all' | 'b2b' | 'retail'>('all');
+  const [activity, setActivity] = useState<'all' | 'ordered' | 'never'>('all');
+  /** Where the store first met them (acquisition_channel) — a SERVER filter, `?origin=`. */
+  const [origin, setOrigin] = useState<string>('all');
+  const [originOptions, setOriginOptions] = useState<Array<readonly [string, string]>>([]);
+  const [templateBusy, setTemplateBusy] = useState(false);
 
   // Customer-portal share link (B2B statements) — mirrors the Vendors page.
   const [portalLink, setPortalLink] = useState<{ name: string; url: string } | null>(null);
@@ -85,7 +112,7 @@ const Customers: React.FC = () => {
     (async () => {
       setLoading(true); setError(null);
       try {
-        const res = await customersAPI.getAll({ page, limit, search: debounced || undefined });
+        const res = await customersAPI.getAll({ page, limit, search: debounced || undefined, ...(origin !== 'all' ? { origin } : {}) } as any);
         if (!alive) return;
         // The axios interceptor unwraps { success, data, total } → the array itself
         // (with `total` preserved as a non-enumerable prop). Reading res.data on an
@@ -93,6 +120,11 @@ const Customers: React.FC = () => {
         const list = Array.isArray(res) ? res : (res?.data ?? []);
         setCustomers(list);
         setTotal((res as any)?.total ?? list.length);
+        // The origin vocabulary rides the envelope — never a second list of labels.
+        const ch = (res as any)?.channels;
+        if (Array.isArray(ch) && ch.length) {
+          setOriginOptions([...ch.map((c: any) => [String(c.code), String(c.label)] as const), ['unrecorded', 'Not recorded'] as const]);
+        }
       } catch (err: any) {
         if (!alive) return;
         // A disabled 'customers' module (unlikely — default on) returns 403.
@@ -101,41 +133,92 @@ const Customers: React.FC = () => {
       } finally { if (alive) setLoading(false); }
     })();
     return () => { alive = false; };
-  }, [page, debounced]);
+  }, [page, debounced, origin]);
+
+  const shown = customers.filter((c) => {
+    if (kind === 'b2b' && !c.is_b2b) return false;
+    if (kind === 'retail' && c.is_b2b) return false;
+    const orders = Number(c.order_count ?? 0);
+    if (activity === 'ordered' && orders < 1) return false;
+    if (activity === 'never' && orders > 0) return false;
+    return true;
+  });
+  const hiddenHere = customers.length - shown.length;
+  const anyFilter = kind !== 'all' || activity !== 'all' || origin !== 'all' || !!search;
+  const clearFilters = () => { setKind('all'); setActivity('all'); setOrigin('all'); setSearch(''); setPage(1); };
+
+  /**
+   * The blank sheet for a bulk load — through `data_jobs`, the ONE download
+   * queue, so a big file never holds a request open (#333). The IMPORT itself
+   * lives in Books ▸ Migrate, which already runs the dry-run/apply pass; a
+   * second importer here would be the duplication this platform keeps curing.
+   */
+  const downloadTemplate = async () => {
+    setTemplateBusy(true);
+    try {
+      await exportsAPI.request('migration_customers_template');
+      alert('The customer template is being prepared. It appears under Downloads when it is ready.');
+    } catch {
+      alert('The template could not be requested. It is also available in Books ▸ Migrate.');
+    } finally { setTemplateBusy(false); }
+  };
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Customers</h1>
-          <p className="text-sm text-muted-foreground mt-1">Shoppers who registered or ordered on your store.</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Link to="/customers/duplicates">
-            <Button variant="outline" size="sm">
-              <Users2 className="mr-1.5 h-3.5 w-3.5" /> Duplicate Accounts
-              {openDuplicates > 0 && <Badge variant="destructive" className="ml-1.5">{openDuplicates}</Badge>}
+    <div className="space-y-4">
+      <ListHeader
+        title="Customers"
+        purpose="Everyone who has registered or bought from this store, what they have spent, and which of them buy at wholesale."
+        aside={
+          <div className="flex flex-wrap items-center gap-2">
+            <ExportMenu filename="customers" columns={CUSTOMER_CSV_COLUMNS} rows={shown} canExport />
+            <Button variant="outline" size="sm" onClick={downloadTemplate} disabled={templateBusy}>
+              {templateBusy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+              Import template
             </Button>
-          </Link>
-          <div className="text-sm text-muted-foreground">
-            Total: <span className="font-semibold text-foreground">{total}</span>
+            <Link to="/customers/duplicates">
+              <Button variant="outline" size="sm">
+                <Users2 className="mr-1.5 h-3.5 w-3.5" /> Duplicate accounts
+                {openDuplicates > 0 && <Badge variant="destructive" className="ml-1.5">{openDuplicates}</Badge>}
+              </Button>
+            </Link>
           </div>
+        }
+      />
+
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-3">
+          <SearchBox
+            value={search}
+            onChange={setSearch}
+            placeholder="Search name, phone or email"
+            label="Search customers"
+          />
+          <span className="text-sm tabular-nums text-ink-soft">
+            {total.toLocaleString('en-IN')} customer{total === 1 ? '' : 's'}
+            {hiddenHere > 0 && <span className="ml-1 text-warn-ink">· {hiddenHere} on this page hidden by a filter</span>}
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <FilterChip on={kind === 'all' && activity === 'all'} onClick={clearFilters}>Everyone</FilterChip>
+          <FilterChip on={kind === 'b2b'} onClick={() => setKind(kind === 'b2b' ? 'all' : 'b2b')}>Wholesale</FilterChip>
+          <FilterChip on={kind === 'retail'} onClick={() => setKind(kind === 'retail' ? 'all' : 'retail')}>Retail</FilterChip>
+          <span className="mx-1 h-4 w-px bg-line" />
+          <FilterChip on={activity === 'ordered'} tone="good"
+            onClick={() => setActivity(activity === 'ordered' ? 'all' : 'ordered')}>Has ordered</FilterChip>
+          <FilterChip on={activity === 'never'}
+            onClick={() => setActivity(activity === 'never' ? 'all' : 'never')}>Never ordered</FilterChip>
+          <InfoTip text="Wholesale / Retail / ordered narrow the customers on THIS page. Search and Origin ask the server and cover every page." />
+          {originOptions.length > 0 && (
+            <MenuChip name="Origin" value={originOptions.find(([k]) => k === origin)?.[1]}
+              options={originOptions} current={origin}
+              onPick={(v) => { setOrigin(v ?? 'all'); setPage(1); }}
+              hint="Where the store first met this customer. Orders imported from an old system count as Imported history." />
+          )}
+          {anyFilter && (
+            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs text-ink-soft" onClick={clearFilters}>Clear all</Button>
+          )}
         </div>
       </div>
-
-      <Card>
-        <CardContent className="p-4">
-          <div className="relative max-w-sm">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by name, phone, or email…"
-              className="pl-8"
-            />
-          </div>
-        </CardContent>
-      </Card>
 
       {error && (
         <div className="bg-destructive/15 text-destructive border border-destructive/20 p-4 rounded-md text-sm">
@@ -150,9 +233,9 @@ const Customers: React.FC = () => {
               <TableRow>
                 <TableHead>Customer</TableHead>
                 <TableHead>Contact</TableHead>
-                <TableHead>Orders</TableHead>
-                <TableHead>Total Spent</TableHead>
-                <TableHead>Last Order</TableHead>
+                <TableHead className="text-right">Orders</TableHead>
+                <TableHead className="text-right">Total spent</TableHead>
+                <TableHead>Last order</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -162,12 +245,22 @@ const Customers: React.FC = () => {
                 <TableRow><TableCell colSpan={7} className="h-24 text-center">
                   <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-primary" />
                 </TableCell></TableRow>
-              ) : customers.length === 0 ? (
-                <TableRow><TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
-                  No customers yet. They appear here once someone registers or places an order on your store.
+              ) : shown.length === 0 ? (
+                <TableRow><TableCell colSpan={7} className="h-32 text-center">
+                  <p className="text-sm font-medium text-ink">
+                    {total === 0 ? 'No customers yet' : 'Nothing matches those filters'}
+                  </p>
+                  <p className="mt-1 text-xs text-ink-soft">
+                    {total === 0
+                      ? 'Somebody registering or placing an order is what puts them here.'
+                      : 'Clear a chip, or search by name, phone or email.'}
+                  </p>
+                  {total > 0 && (
+                    <Button size="sm" variant="outline" className="mt-2" onClick={clearFilters}>Clear the filters</Button>
+                  )}
                 </TableCell></TableRow>
               ) : (
-                customers.map((c) => (
+                shown.map((c) => (
                   <TableRow key={c.customer_id}>
                     <TableCell>
                       <div className="flex items-center gap-3">
@@ -192,12 +285,12 @@ const Customers: React.FC = () => {
                         {!c.phone && !c.email && <span className="text-muted-foreground">—</span>}
                       </div>
                     </TableCell>
-                    <TableCell>
-                      <span className="inline-flex items-center gap-1.5">
-                        <ShoppingBag className="h-3.5 w-3.5 text-muted-foreground" />{c.order_count ?? 0}
+                    <TableCell className="text-right">
+                      <span className="inline-flex items-center gap-1.5 tabular-nums">
+                        <ShoppingBag className="h-3.5 w-3.5 text-ink-mute" />{c.order_count ?? 0}
                       </span>
                     </TableCell>
-                    <TableCell className="font-medium">{fmtRupees(c.total_spent)}</TableCell>
+                    <TableCell className="text-right font-medium tabular-nums">{fmtRupees(c.total_spent)}</TableCell>
                     <TableCell className="text-muted-foreground text-sm">{fmtDate(c.last_order_at)}</TableCell>
                     <TableCell>
                       {c.is_b2b ? (
@@ -213,7 +306,7 @@ const Customers: React.FC = () => {
                           size="sm"
                           onClick={() => handlePortalLink(c)}
                           disabled={portalLoadingId === String(c.customer_id)}
-                          title="Create a no-login portal link the customer can open to see their balance & statement"
+                          title="A link the customer opens with no password, showing what they owe, every invoice and their statement"
                         >
                           {portalLoadingId === String(c.customer_id)
                             ? <Loader2 className="h-3.5 w-3.5 animate-spin" />

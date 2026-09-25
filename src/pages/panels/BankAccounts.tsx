@@ -7,6 +7,7 @@ import {
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow, Field, TextInput, SelectInput, inrMinor,
   FilterBar, SearchInput, ExportMenu, Pagination, useListControls, type CsvColumn,
 } from '../../components/erp';
+import InfoTip from '../../components/common/InfoTip';
 
 /**
  * Bank Accounts — the money hub. List every real-world account (bank / cash /
@@ -110,8 +111,8 @@ const BankAccounts: React.FC = () => {
   return (
     <Page>
       <PageHeader
-        title="Bank Accounts"
-        description="Every bank account, cash drawer and credit card in one place — with live balances. Record money in, money out, card charges and transfers; each posts to your books automatically."
+        title={<span className="inline-flex items-center gap-1.5">Bank Accounts <InfoTip text="Every bank account, cash drawer and credit card in one place — with live balances. Record money in, money out, card charges and transfers; each posts to your books automatically." /></span>}
+        description="Every bank, cash and card account with its live balance."
         actions={
           <>
             <ExportMenu filename="bank-accounts" columns={ACCOUNT_COLS} rows={filtered} disabled={accounts.length === 0} />

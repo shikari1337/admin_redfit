@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { api } from '../services/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,13 +20,22 @@ import {
 
 // ─── Step definitions ─────────────────────────────────────────────────────────
 
+/**
+ * The six steps, each naming the SETTINGS AREA it writes into.
+ *
+ * The wizard is a first-run path through settings that already exist; `area` is
+ * the registry group those settings live in for the rest of the store's life
+ * (`config/settingsRegistry.ts`, `docs/SETTINGS_CATALOG.md`). Showing it here is
+ * what stops the wizard being a parallel, unfindable copy of the settings — the
+ * merchant is told, on the step, by number, where to come back to.
+ */
 const STEPS = [
-  { id: 'store',    label: 'Store & Region', icon: Store,      description: 'Name, currency, country & reach' },
-  { id: 'contact',  label: 'Contact & Address', icon: Phone,   description: 'Email, phone & business address' },
-  { id: 'branding', label: 'Branding',      icon: Image,      description: 'Logo & colors' },
-  { id: 'tax',      label: 'Tax / GST',     icon: Receipt,    description: 'GSTIN & tax preferences' },
-  { id: 'payment',  label: 'Payment',       icon: CreditCard, description: 'Enable payment methods' },
-  { id: 'shipping', label: 'Shipping',      icon: Truck,      description: 'Shipping fees & COD' },
+  { id: 'store',    label: 'Store & Region', icon: Store,      description: 'Name, currency, country & reach', area: 'store', areaNo: 1, areaLabel: 'Store & identity' },
+  { id: 'contact',  label: 'Contact & Address', icon: Phone,   description: 'Email, phone & business address', area: 'store', areaNo: 1, areaLabel: 'Store & identity' },
+  { id: 'branding', label: 'Branding',      icon: Image,      description: 'Logo & colors', area: 'appearance', areaNo: 11, areaLabel: 'Appearance' },
+  { id: 'tax',      label: 'Tax / GST',     icon: Receipt,    description: 'GSTIN & tax preferences', area: 'tax', areaNo: 4, areaLabel: 'Tax & GST' },
+  { id: 'payment',  label: 'Payment',       icon: CreditCard, description: 'Enable payment methods', area: 'checkout', areaNo: 2, areaLabel: 'Checkout & payments' },
+  { id: 'shipping', label: 'Shipping',      icon: Truck,      description: 'Shipping fees & COD', area: 'shipping', areaNo: 3, areaLabel: 'Shipping & delivery' },
 ];
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -322,6 +331,13 @@ const SetupWizard: React.FC = () => {
             <div>
               <h2 className="text-2xl font-bold text-foreground">{STEPS[currentStep].label}</h2>
               <p className="text-muted-foreground text-sm mt-1">{STEPS[currentStep].description}</p>
+              <p className="mt-1 text-xs text-ink-mute">
+                Lives in Settings{' '}
+                <Link to={`/settings?group=${STEPS[currentStep].area}`} className="underline hover:text-ink">
+                  {STEPS[currentStep].areaNo}. {STEPS[currentStep].areaLabel}
+                </Link>{' '}
+                — change it any time.
+              </p>
             </div>
 
             {saveError && (

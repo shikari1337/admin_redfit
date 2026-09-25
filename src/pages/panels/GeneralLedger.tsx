@@ -4,9 +4,10 @@ import { api, errorText as errMsg } from '../../services/api';
 import { payload } from '../../lib/unwrap';
 import {
   Page, PageHeader, SectionCard, Btn, StatCard, StatGrid,
-  TableShell, THead, Th, TBody, Tr, Td, EmptyRow, TextInput, SelectInput, Field, inrMinor,
+  TableShell, THead, Th, TBody, Tr, Td, EmptyRow, TextInput, SelectInput, SearchInput, Field, inrMinor,
   ExportMenu, DrillLink, type CsvColumn,
 } from '../../components/erp';
+import InfoTip from '../../components/common/InfoTip';
 
 /**
  * General Ledger / Account Transactions — pick any chart-of-accounts account and
@@ -45,6 +46,8 @@ const GeneralLedger: React.FC = () => {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  /** Narrows the lines shown; the period totals stay whole-range and say so. */
+  const [find, setFind] = useState('');
 
   useEffect(() => {
     (async () => {
@@ -70,6 +73,14 @@ const GeneralLedger: React.FC = () => {
 
   const exportBase = `account-ledger-${accountCode}-${from}-to-${to}`;
 
+  const shownLines: any[] = React.useMemo(() => {
+    const q = find.trim().toLowerCase();
+    const lines = data?.lines ?? [];
+    if (!q) return lines;
+    return lines.filter((l: any) => [l.journalNumber, l.narration, l.documentType]
+      .some((v: any) => String(v ?? '').toLowerCase().includes(q)));
+  }, [data, find]);
+
   return (
     <Page>
       <PageHeader
@@ -78,7 +89,10 @@ const GeneralLedger: React.FC = () => {
       />
 
       <div className="flex flex-wrap items-end gap-3">
-        <Field label="Account" className="min-w-[16rem]">
+        <Field
+          label={<span className="inline-flex items-center gap-1">Account <InfoTip text="One account at a time — this is that account's own page in the ledger. Opening balance, every posted entry, closing balance." /></span>}
+          className="min-w-[18rem]"
+        >
           <SelectInput value={accountCode} onChange={(e) => setAccountCode(e.target.value)}>
             {accounts.length === 0 && <option value="">Loading accounts…</option>}
             {accounts.map((a) => (
@@ -89,6 +103,12 @@ const GeneralLedger: React.FC = () => {
         <Field label="From"><TextInput type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
         <Field label="To"><TextInput type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
         <Btn onClick={load} disabled={!accountCode}>Show</Btn>
+        <Field
+          className="min-w-[15rem]"
+          label={<span className="inline-flex items-center gap-1">Find an entry <InfoTip text="Narrows the entries shown below by journal number, narration or document type. It does not change the opening, closing or period totals — those are for the whole range." /></span>}
+        >
+          <SearchInput placeholder="Journal no., narration, type…" value={find} onChange={(e) => setFind(e.target.value)} />
+        </Field>
         <ExportMenu
           filename={exportBase}
           columns={ledgerCols}
@@ -128,8 +148,14 @@ const GeneralLedger: React.FC = () => {
                     <Td muted>{data.from}</Td><Td colSpan={3}>Opening balance</Td>
                     <Td /><Td /><Td num>{inrMinor(data.openingBalanceMinor)}</Td>
                   </Tr>
-                  {data.lines.length === 0 && <EmptyRow colSpan={7}>No transactions in this period.</EmptyRow>}
-                  {data.lines.map((l: any, i: number) => (
+                  {shownLines.length === 0 && (
+                    <EmptyRow colSpan={7}>
+                      {find && data.lines.length > 0
+                        ? 'No entry in this period matches what you typed.'
+                        : 'No transactions in this period. Try a wider date range, or another account.'}
+                    </EmptyRow>
+                  )}
+                  {shownLines.map((l: any, i: number) => (
                     <Tr key={`${l.journalId}-${i}`}>
                       <Td muted>{l.date}</Td>
                       <Td className="whitespace-nowrap">

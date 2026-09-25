@@ -7,6 +7,7 @@ import { api, searchAPI, blobErrorMessage, type SearchResult } from '../../servi
 import { payload } from '@/lib/unwrap';
 import { useAuth } from '../../contexts/AuthContext';
 import { Page, PageHeader, Btn } from '../../components/erp';
+import InfoTip from '../../components/common/InfoTip';
 
 /**
  * Goods in: packs, lots and stickers (program 11).
@@ -41,8 +42,12 @@ const Step: React.FC<{ n: number; title: string; hint?: string; children: React.
     {children}
   </section>
 );
-const L: React.FC<{ children: React.ReactNode; hint?: string }> = ({ children, hint }) => (
-  <span className="mb-1 block text-xs font-medium text-slate-700">{children}{hint && <span className="ml-1 font-normal text-slate-400">{hint}</span>}</span>
+const L: React.FC<{ children: React.ReactNode; hint?: string; tip?: string }> = ({ children, hint, tip }) => (
+  <span className="mb-1 block text-xs font-medium text-slate-700">
+    {children}
+    {hint && <span className="ml-1 font-normal text-slate-400">{hint}</span>}
+    {tip && <InfoTip className="ml-1" text={tip} />}
+  </span>
 );
 const dateOnly = (d: string | null | undefined) => (d ? String(d).slice(0, 10) : '');
 const errOf = (e: any) => e?.response?.data?.message ?? e?.message ?? 'Something went wrong';
@@ -196,7 +201,9 @@ const GoodsInLabels: React.FC = () => {
           <Step n={1} title="Which product came in?">
             <div className="relative">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
-              <input className={`${input} pl-8`} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Name or SKU — 3 letters or more" autoFocus />
+              <input className={`${input} pl-8`} value={q} onChange={(e) => setQ(e.target.value)}
+                aria-label="Search for the product that arrived" data-testid="goodsin-search"
+                placeholder="Name or SKU — 3 letters or more" autoFocus />
               {hits.length > 0 && (
                 <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg">
                   {hits.map((h) => (
@@ -221,8 +228,8 @@ const GoodsInLabels: React.FC = () => {
 
           <Step n={2} title="How did it come?" hint="packs or loose pieces" muted={!sku}>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              <label><L>Quantity received</L><input className={input} inputMode="numeric" value={qtyIn} onChange={(e) => setQtyIn(e.target.value)} disabled={!sku} /></label>
-              <label className="sm:col-span-2"><L>Unit</L>
+              <label><L tip="How many of the unit on the right arrived — 3 boxes, or 36 loose pieces.">Quantity received</L><input className={input} inputMode="numeric" value={qtyIn} onChange={(e) => setQtyIn(e.target.value)} disabled={!sku} /></label>
+              <label className="sm:col-span-2"><L tip="The thing you counted. A box of 12 is one pack; the 12 inside it are the pieces you sell.">Unit</L>
                 <select className={input} value={unitId} onChange={(e) => setUnitId(e.target.value)} disabled={!sku}>
                   {convs.map((c) => (
                     <option key={c.uom_id} value={c.uom_id} disabled={!c.is_base && !c.to_base_factor}>
@@ -283,7 +290,7 @@ const GoodsInLabels: React.FC = () => {
               <label className="block"><L>Batch number as printed</L><input className={`${input} font-mono`} value={carried} onChange={(e) => setCarried(e.target.value)} /></label>
             )}
             <div className="mt-3 grid grid-cols-3 gap-3">
-              <label><L hint="₹, as printed">MRP</L><input className={input} inputMode="decimal" value={mrp} onChange={(e) => setMrp(e.target.value)} disabled={!sku} /></label>
+              <label><L hint="₹, as printed" tip="The price printed on THIS pack. Two lots of the same medicine can carry different MRPs.">MRP</L><input className={input} inputMode="decimal" value={mrp} onChange={(e) => setMrp(e.target.value)} disabled={!sku} /></label>
               <label><L>Manufactured</L><input type="date" className={input} value={mfg} onChange={(e) => setMfg(e.target.value)} disabled={!sku} /></label>
               <label><L>Expires</L><input type="date" className={input} value={exp} onChange={(e) => setExp(e.target.value)} disabled={!sku} /></label>
             </div>
@@ -319,14 +326,14 @@ const GoodsInLabels: React.FC = () => {
 
           <Step n={isPack ? 5 : 4} title="Print" hint="one per piece, one per carton" muted={!canPrint}>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <label><L>Piece stickers</L><input className={input} inputMode="numeric" value={pieceCopies} onChange={(e) => setPieceCopies(e.target.value)} /></label>
+              <label><L tip="One per item you will sell. Filled in from what arrived; type over it to print fewer.">Piece stickers</L><input className={input} inputMode="numeric" value={pieceCopies} onChange={(e) => setPieceCopies(e.target.value)} /></label>
               {isPack && <label><L hint={`pack of ${factor}`}>Carton labels</L><input className={input} inputMode="numeric" value={cartonCopies} onChange={(e) => setCartonCopies(e.target.value)} /></label>}
               <label><L>Sticker size</L>
                 <select className={input} value={size} onChange={(e) => setSize(e.target.value)}>
                   <option value="50x25mm">50 × 25 mm</option><option value="2x1">2 × 1 in</option><option value="4x6">4 × 6 in</option>
                 </select>
               </label>
-              <label><L>Barcode shows</L>
+              <label><L tip="What the bars on the sticker encode. Use the lot number when a scan on the floor must identify the exact batch.">Barcode shows</L>
                 <select className={input} value={codeSource} onChange={(e) => setCodeSource(e.target.value)}>
                   <option value="barcode">Product barcode</option><option value="sku">SKU</option><option value="batch">Lot number</option>
                 </select>

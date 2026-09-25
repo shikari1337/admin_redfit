@@ -8,6 +8,7 @@ import {
   Page, PageHeader, SectionCard, Btn, Field, TextInput, ExportMenu,
   type CsvColumn,
 } from '../../components/erp';
+import InfoTip from '../../components/common/InfoTip';
 
 /** Accounting configuration: GL auto-posting, books lock + year-end close, series counters + statutory registry. */
 
@@ -120,8 +121,8 @@ const AccountingSettings: React.FC = () => {
   return (
     <Page>
       <PageHeader
-        title="Accounting Settings"
-        description="Configuration, the books lock and year-end close, series counters and the statutory rules this store runs on."
+        title={<span className="inline-flex items-center gap-1.5">Accounting Settings <InfoTip text="Configuration, the books lock and year-end close, series counters and the statutory rules this store runs on." /></span>}
+        description="Books lock, year-end close, number series and statutory rules."
       />
 
       {error && (

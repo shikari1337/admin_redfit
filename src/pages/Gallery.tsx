@@ -29,7 +29,7 @@ const Gallery: React.FC = () => {
   }, [resolution]);
 
   return (
-    <div className="max-w-7xl mx-auto">
+    <div>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Media library</h1>

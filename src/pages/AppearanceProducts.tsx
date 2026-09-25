@@ -87,7 +87,7 @@ const AppearanceProducts: React.FC = () => {
   }
 
   return (
-    <div className="max-w-4xl mx-auto p-6">
+    <div>
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate('/appearance/style')} className="text-gray-500 hover:text-gray-800">

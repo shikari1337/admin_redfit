@@ -11,7 +11,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useStoreSiteUrl, categoryPageUrl } from '../lib/storefront';
 import {
   Plus, Save, RotateCcw, Trash2, Search, ChevronRight, ChevronDown,
-  Star, EyeOff, FolderTree, ExternalLink, Filter as FilterIcon, Boxes, Circle,
+  Star, EyeOff, FolderTree, ExternalLink, Filter as FilterIcon, Boxes, Circle, Download,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { categoriesAPI, attributesAPI } from '../services/api';
@@ -30,6 +30,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Page, PageHeader, EmptyState, FilterChips, BlockSkeleton, downloadCsv, type ChipGroup,
+} from '@/components/erp';
 
 interface Category {
   _id: string;
@@ -143,6 +146,11 @@ const Categories: React.FC = () => {
   const [imageError, setImageError] = useState<string | null>(null);
   const [tab, setTab] = useState('basics');
   const [search, setSearch] = useState('');
+  // Tree filters (chips). Contextual: the Shelf chip only makes sense once a
+  // category somewhere has one, so it is dropped until then.
+  const [filterStatus, setFilterStatus] = useState('');
+  const [filterShelf, setFilterShelf] = useState('');
+  const [filterLevel, setFilterLevel] = useState('');
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   /**
    * Snapshot of the form as it was loaded, so an unsaved edit can be detected.
@@ -383,14 +391,31 @@ const Categories: React.FC = () => {
     return { roots: tops, childrenOf: kids };
   }, [categories, byId]);
 
+  /**
+   * A chip narrows the tree the same way the search box does — it produces a
+   * FLAT match list. That is deliberate: hiding a parent whose child matches
+   * would make the child unreachable, and keeping the parent visible would make
+   * the chip look broken. Flattening says exactly what matched.
+   */
+  const chipMatch = (c: Category): boolean => {
+    if (filterStatus && (filterStatus === 'active') !== (c.isActive !== false)) return false;
+    if (filterShelf === 'yes' && (c.featuredMode || 'off') === 'off') return false;
+    if (filterShelf === 'no' && (c.featuredMode || 'off') !== 'off') return false;
+    if (filterLevel === 'top' && c.parent) return false;
+    if (filterLevel === 'child' && !c.parent) return false;
+    return true;
+  };
+  const anyChip = !!(filterStatus || filterShelf || filterLevel);
+
   // Searching flattens the tree — matches are what matter, not their depth.
   const matches = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return null;
+    if (!q && !anyChip) return null;
     return categories.filter(
-      (c) => c.name.toLowerCase().includes(q) || (c.slug || '').toLowerCase().includes(q),
+      (c) => (!q || c.name.toLowerCase().includes(q) || (c.slug || '').toLowerCase().includes(q)) && chipMatch(c),
     );
-  }, [search, categories]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, categories, filterStatus, filterShelf, filterLevel]);
 
   const isFeatured = (c: Category) => (c.featuredMode || 'off') !== 'off';
 
@@ -451,21 +476,58 @@ const Categories: React.FC = () => {
     );
   };
 
+  const exportTree = () => {
+    const parentName = (c: Category) => (c.parent ? byId.get(String(c.parent))?.name ?? '' : '');
+    downloadCsv(
+      `categories-${new Date().toISOString().slice(0, 10)}.csv`,
+      [
+        { key: 'name', label: 'Name' },
+        { key: 'slug', label: 'Slug' },
+        { key: 'parent', label: 'Parent', format: (c: Category) => parentName(c) },
+        { key: 'active', label: 'Active', format: (c: Category) => (c.isActive !== false ? 'Yes' : 'No') },
+        { key: 'displayOrder', label: 'Display order' },
+        { key: 'featuredMode', label: 'Featured shelf' },
+      ],
+      categories,
+    );
+  };
+
+  const chipGroups: ChipGroup[] = [
+    {
+      key: 'status', label: 'Status', value: filterStatus, onChange: setFilterStatus,
+      options: [{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }],
+    },
+    {
+      key: 'level', label: 'Level', value: filterLevel, onChange: setFilterLevel,
+      options: [{ value: 'top', label: 'Top level' }, { value: 'child', label: 'Under a parent' }],
+    },
+    {
+      key: 'shelf', label: 'Featured shelf', value: filterShelf, onChange: setFilterShelf,
+      help: 'Categories that pin their own products to the top of the listing.',
+      options: categories.some(isFeatured)
+        ? [{ value: 'yes', label: 'Has a shelf' }, { value: 'no', label: 'No shelf' }]
+        : [],
+    },
+  ];
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap justify-between items-center gap-3">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Categories</h1>
-          <p className="text-muted-foreground">
-            Manage the storefront hierarchy, filters and featured products.
-          </p>
-        </div>
-        {canManageCategories && (
-          <Button onClick={() => { if (confirmDiscard()) resetForm(); }} className="flex items-center gap-2">
-            <Plus className="h-4 w-4" /> New Category
-          </Button>
-        )}
-      </div>
+    <Page width="full">
+      <PageHeader
+        title="Categories"
+        description="The shop's menu and browse structure. Pick one on the left to edit it."
+        actions={
+          <>
+            <Button variant="outline" size="sm" onClick={exportTree} disabled={!categories.length}>
+              <Download className="mr-2 h-4 w-4" /> Export
+            </Button>
+            {canManageCategories && (
+              <Button onClick={() => { if (confirmDiscard()) resetForm(); }} className="flex items-center gap-2">
+                <Plus className="h-4 w-4" /> New category
+              </Button>
+            )}
+          </>
+        }
+      />
 
       {error && (
         <div className="p-4 border border-destructive/50 bg-destructive/10 text-sm text-destructive rounded-md">
@@ -489,25 +551,41 @@ const Categories: React.FC = () => {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search name or slug…"
+                aria-label="Search categories"
+                data-testid="categories-search"
                 className="pl-9 h-9"
               />
             </div>
+            <FilterChips
+              groups={chipGroups}
+              onClearAll={() => { setFilterStatus(''); setFilterShelf(''); setFilterLevel(''); }}
+            />
           </CardHeader>
           <CardContent className="p-0">
             <div className="max-h-[640px] overflow-y-auto">
               {loading ? (
-                <div className="flex items-center justify-center p-12">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-                </div>
+                <BlockSkeleton lines={10} className="p-4" />
               ) : categories.length === 0 ? (
-                <div className="p-12 text-center text-sm text-muted-foreground">
-                  No categories yet — create one.
-                </div>
+                <EmptyState
+                  icon={FolderTree}
+                  title="No categories yet"
+                  description="Categories are how shoppers browse. Create the first one on the right."
+                />
               ) : matches ? (
                 matches.length === 0 ? (
-                  <div className="p-8 text-center text-sm text-muted-foreground">
-                    Nothing matches “{search}”.
-                  </div>
+                  <EmptyState
+                    icon={Search}
+                    title="Nothing matches"
+                    description={search ? `No category matches “${search}”.` : 'No category matches these filters.'}
+                    action={
+                      <Button
+                        variant="outline" size="sm"
+                        onClick={() => { setSearch(''); setFilterStatus(''); setFilterShelf(''); setFilterLevel(''); }}
+                      >
+                        Clear search and filters
+                      </Button>
+                    }
+                  />
                 ) : (
                   matches.map((c) => <Row key={c._id} c={c} depth={0} />)
                 )
@@ -851,7 +929,7 @@ const Categories: React.FC = () => {
           </CardContent>
         </Card>
       </div>
-    </div>
+    </Page>
   );
 };
 

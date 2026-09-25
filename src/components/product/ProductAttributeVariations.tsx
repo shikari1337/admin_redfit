@@ -57,7 +57,13 @@ interface ProductAttributeVariationsProps {
   productSlug?: string;
   /** Store brands — enables brand as a variation dimension (brand × attributes). */
   availableBrands?: Array<{ _id: string; name: string }>;
+  /** A variation's flat wholesale price (from the B2B slabs), for the side-by-side
+   *  B2B column. Omitted = the column is not drawn (b2b module off). Display only. */
+  b2bPriceFor?: (variationId: string) => number | null;
 }
+
+/** A saved variation (a real row id) is the only one a B2B slab can be bound to. */
+const UUID_LIKE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
   selectedAttributeIds,
@@ -75,7 +81,14 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
   uploading: _uploading,
   productSlug,
   availableBrands = [],
+  b2bPriceFor,
 }) => {
+  /** '12% off' beside a rate — display only; resolvePrice stays the brain. */
+  const offMrp = (v: number | null | undefined, mrp: number | null | undefined): string | null => {
+    if (v == null || !mrp || !(v > 0) || v >= mrp) return null;
+    const pct = (1 - v / mrp) * 100;
+    return `${Math.round(pct * 10) / 10}% off`;
+  };
   // Brand as a variation dimension. Initialised from any brands already on the variations.
   const [selectedBrandIds, setSelectedBrandIds] = useState<string[]>(
     () => Array.from(new Set((variations || []).map(v => v.brandId).filter(Boolean))) as string[]
@@ -1380,8 +1393,9 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
                     </th>
                     <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Variant</th>
                     <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">SKU</th>
-                    <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Price</th>
-                    <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Orig. Price</th>
+                    <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">MRP</th>
+                    <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Selling</th>
+                    {b2bPriceFor && <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">B2B</th>}
                     <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stock</th>
                     <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                     <th className="w-16 px-3 py-2.5"></th>
@@ -1390,7 +1404,7 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
                 <tbody className="divide-y divide-gray-100">
                   {pagedVariations.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="px-3 py-6 text-center text-xs text-gray-400">
+                      <td colSpan={b2bPriceFor ? 9 : 8} className="px-3 py-6 text-center text-xs text-gray-400">
                         No variants match your filter.
                       </td>
                     </tr>
@@ -1441,18 +1455,28 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
                           <td className="px-3 py-2.5">
                             <span className="text-xs font-mono text-gray-600">{variation.sku}</span>
                           </td>
-                          <td className="px-3 py-2.5">
-                            <span className="text-xs text-gray-800 font-medium">
-                              ₹{(variation.price ?? basePrice).toLocaleString('en-IN')}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2.5">
-                            <span className="text-xs text-gray-500">
-                              {(variation.originalPrice ?? baseOriginalPrice) > 0
-                                ? `₹${(variation.originalPrice ?? baseOriginalPrice).toLocaleString('en-IN')}`
-                                : '—'}
-                            </span>
-                          </td>
+                          {(() => {
+                            const mrp = (variation.originalPrice ?? baseOriginalPrice) || 0;
+                            const sell = variation.price ?? basePrice;
+                            const b2b = b2bPriceFor && UUID_LIKE.test(String(variation.id)) ? b2bPriceFor(String(variation.id)) : null;
+                            return (
+                              <>
+                                <td className="px-3 py-2.5 text-right tabular-nums">
+                                  <span className="text-xs text-gray-500">{mrp > 0 ? `₹${mrp.toLocaleString('en-IN')}` : '—'}</span>
+                                </td>
+                                <td className="px-3 py-2.5 text-right tabular-nums">
+                                  <span className="text-xs text-gray-800 font-medium">₹{Number(sell || 0).toLocaleString('en-IN')}</span>
+                                  {offMrp(Number(sell), mrp) && <span className="block text-[10px] text-green-700">{offMrp(Number(sell), mrp)}</span>}
+                                </td>
+                                {b2bPriceFor && (
+                                  <td className="px-3 py-2.5 text-right tabular-nums">
+                                    <span className={`text-xs ${b2b == null ? 'text-gray-300' : 'text-gray-800'}`}>{b2b == null ? '—' : `₹${b2b.toLocaleString('en-IN')}`}</span>
+                                    {offMrp(b2b, mrp) && <span className="block text-[10px] text-green-700">{offMrp(b2b, mrp)}</span>}
+                                  </td>
+                                )}
+                              </>
+                            );
+                          })()}
                           <td className="px-3 py-2.5">
                             <span className="text-xs text-gray-800">{variation.stock}</span>
                           </td>
@@ -1504,7 +1528,7 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
                         {/* Expanded edit panel */}
                         {isEditing && (
                           <tr ref={editRowRef}>
-                            <td colSpan={8} className="px-0 py-0 bg-gray-50 border-b border-gray-200">
+                            <td colSpan={b2bPriceFor ? 9 : 8} className="px-0 py-0 bg-gray-50 border-b border-gray-200">
                               <div className="px-6 py-5 border-l-4 border-blue-400">
                                 <div className="flex items-center justify-between mb-4">
                                   <h4 className="text-sm font-semibold text-gray-900">Edit variant</h4>
@@ -1530,13 +1554,14 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
                                     />
                                   </div>
                                   <div>
-                                    <label className="block text-xs font-medium text-gray-700 mb-1">Slug</label>
+                                    <label className="block text-xs font-medium text-gray-700 mb-1" title="Blank = made from brand, product, potency, size and SKU. A changed address keeps the old one working (it forwards).">Page address</label>
                                     <input
                                       type="text"
                                       value={variation.slug || ''}
                                       onChange={e => handleVariationChange(variation.id, 'slug', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-'))}
                                       className="w-full px-3 py-2 text-xs border border-gray-300 rounded-md font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                                      placeholder="e.g. abies-canadensis-ch-6c-30ml"
+                                      placeholder="made automatically"
+                                      maxLength={190}
                                     />
                                   </div>
                                 </div>

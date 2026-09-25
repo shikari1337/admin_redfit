@@ -8,7 +8,10 @@
     <meta name="theme-color" content="#111827" />
     <link rel="apple-touch-icon" href="/scanner-icon.svg" />
     <title>Growcord Admin Dashboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- No Tailwind Play CDN here. It never reads tailwind.config.js, so it
+         served a SECOND, un-themed palette beside the compiled stylesheet and
+         made the universal theme (docs/UI_THEME.md) non-authoritative. The
+         compiled CSS carries every class this app uses. -->
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>

@@ -16,6 +16,7 @@ import LoadingSpinner from '../components/LoadingSpinner';
 import { useAuth } from '../contexts/AuthContext';
 import { ExportMenu, Pagination, type CsvColumn } from '@/components/erp';
 import { getStatusColorClass } from '../components/order/StatusBadge';
+import { FilterChip, SearchBox, ListHeader } from '../components/sales/ListChrome';
 
 // Was a local palette — same colors now centralized in
 // components/order/StatusBadge.tsx's 'vendor' domain (2026-09-04).
@@ -32,6 +33,14 @@ const VENDOR_CSV_COLUMNS: CsvColumn<any>[] = [
   { key: 'payment_terms_days', label: 'Terms (days)' },
   { key: 'msme_classification', label: 'MSME class' },
   { key: 'udyam_number', label: 'Udyam' },
+  { key: 'cin', label: 'CIN' },
+  // Every licence on one line, so the export answers "who can ship what" too.
+  {
+    key: 'licences', label: 'Licences',
+    format: (v: any) => (Array.isArray(v.licences) ? v.licences : [])
+      .map((l: any) => `${l.title ?? l.type} ${l.number}${l.valid_till ? ` (to ${l.valid_till})` : ''}`)
+      .join(' | '),
+  },
 ];
 
 const PAGE_SIZE = 20;
@@ -48,6 +57,9 @@ const Vendors: React.FC = () => {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  /** Licence health — the buyer's real question before raising an order. */
+  const [licenceFilter, setLicenceFilter] = useState<'' | 'expiring' | 'expired'>('');
+  const [activeFilter, setActiveFilter] = useState<'' | 'active' | 'inactive'>('');
   const [page, setPage] = useState(1);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
@@ -79,13 +91,17 @@ const Vendors: React.FC = () => {
 
   useEffect(() => {
     loadVendors();
-  }, []);
+    // Licence expiry is not a column — it lives across three places and is
+    // resolved by the server's one reader — so that filter is a re-fetch, not
+    // a client-side test that would have to know all three.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [licenceFilter]);
 
   const loadVendors = async () => {
     setLoading(true);
     setError('');
     try {
-      const res = await vendorsAPI.list();
+      const res = await vendorsAPI.list(licenceFilter ? { licence: licenceFilter } : undefined);
       setVendors(Array.isArray(res) ? res : []);
     } catch (e: any) {
       setVendors([]);
@@ -117,10 +133,19 @@ const Vendors: React.FC = () => {
     }
   };
 
+  const term = search.trim().toLowerCase();
   const filtered = vendors.filter((v) => {
-    const matchSearch = !search || v.business_name?.toLowerCase().includes(search.toLowerCase()) || v.slug?.toLowerCase().includes(search.toLowerCase());
+    // Everything a buyer might paste into one box: name, code, GSTIN, PAN, CIN
+    // and a licence number. Searching only name+slug meant a licence number
+    // copied off a document found nothing.
+    const hay = [
+      v.business_name, v.slug, v.gst_number, v.pan_number, v.cin,
+      ...(Array.isArray(v.licences) ? v.licences.map((l: any) => l.number) : []),
+    ].filter(Boolean).join(' ').toLowerCase();
+    const matchSearch = !term || hay.includes(term);
     const matchStatus = !statusFilter || v.status === statusFilter;
-    return matchSearch && matchStatus;
+    const matchActive = !activeFilter || (activeFilter === 'active' ? v.is_active !== false : v.is_active === false);
+    return matchSearch && matchStatus && matchActive;
   });
   const pageStart = (page - 1) * PAGE_SIZE;
   const paged = filtered.slice(pageStart, pageStart + PAGE_SIZE);
@@ -135,17 +160,16 @@ const Vendors: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold tracking-tight">Vendors</h1>
-        <div className="flex items-center gap-2">
-          <ExportMenu filename="vendors" columns={VENDOR_CSV_COLUMNS} rows={filtered} canExport={hasPerm('purchasing.read')} />
-          {canManage && (
-            <Button asChild className="bg-primary hover:bg-primary/90 text-primary-foreground">
-              <Link to="/vendors/new"><FaPlus className="mr-2" /> Add Vendor</Link>
-            </Button>
-          )}
-        </div>
-      </div>
+      <ListHeader
+        title="Suppliers"
+        purpose="Who you buy from, on what terms, and which licences let them ship it."
+        aside={<ExportMenu filename="vendors" columns={VENDOR_CSV_COLUMNS} rows={filtered} canExport={hasPerm('purchasing.read')} />}
+        action={canManage && (
+          <Button asChild>
+            <Link to="/vendors/new"><FaPlus className="mr-2" /> Add a supplier</Link>
+          </Button>
+        )}
+      />
 
       {error && (
         <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -153,36 +177,53 @@ const Vendors: React.FC = () => {
         </div>
       )}
 
-      {/* Filters */}
-      <div className="flex items-center gap-3">
-        <input
-          type="text"
-          placeholder="Search vendors…"
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-          className="px-3 py-2 text-sm border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring w-60"
-        />
-        <select
-          value={statusFilter}
-          onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-          className="px-3 py-2 text-sm border border-input rounded-md bg-background"
-        >
-          <option value="">All Statuses</option>
-          <option value="pending">Pending</option>
-          <option value="approved">Approved</option>
-          <option value="suspended">Suspended</option>
-          <option value="rejected">Rejected</option>
-        </select>
-        <span className="text-sm text-muted-foreground">{filtered.length} vendor{filtered.length !== 1 ? 's' : ''}</span>
+      {/* Toolbar — search, then the filters as chips, then what is on screen */}
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-3">
+          <SearchBox
+            value={search}
+            onChange={(v) => { setSearch(v); setPage(1); }}
+            placeholder="Search name, code, GSTIN, PAN, CIN or a licence number"
+            label="Search suppliers"
+          />
+          <span className="text-sm tabular-nums text-ink-soft">
+            {filtered.length} of {vendors.length} supplier{vendors.length === 1 ? '' : 's'}
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <FilterChip on={!statusFilter && !activeFilter && !licenceFilter}
+            onClick={() => { setStatusFilter(''); setActiveFilter(''); setLicenceFilter(''); setPage(1); }}>All</FilterChip>
+          {(['approved', 'pending', 'suspended', 'rejected'] as const).map((st) => (
+            <FilterChip key={st} on={statusFilter === st}
+              onClick={() => { setStatusFilter(statusFilter === st ? '' : st); setPage(1); }}>
+              <span className="capitalize">{st}</span>
+            </FilterChip>
+          ))}
+          <span className="mx-1 h-4 w-px bg-line" />
+          <FilterChip on={activeFilter === 'active'}
+            onClick={() => { setActiveFilter(activeFilter === 'active' ? '' : 'active'); setPage(1); }}>Active</FilterChip>
+          <FilterChip on={activeFilter === 'inactive'}
+            onClick={() => { setActiveFilter(activeFilter === 'inactive' ? '' : 'inactive'); setPage(1); }}>Inactive</FilterChip>
+          <span className="mx-1 h-4 w-px bg-line" />
+          <FilterChip on={licenceFilter === 'expiring'} tone="warn"
+            onClick={() => { setLicenceFilter(licenceFilter === 'expiring' ? '' : 'expiring'); setPage(1); }}>
+            Licence running out
+          </FilterChip>
+          <FilterChip on={licenceFilter === 'expired'} tone="bad"
+            onClick={() => { setLicenceFilter(licenceFilter === 'expired' ? '' : 'expired'); setPage(1); }}>
+            Licence expired
+          </FilterChip>
+        </div>
       </div>
 
       <div className="rounded-md border bg-card shadow-sm">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Vendor</TableHead>
-              <TableHead>GST / PAN</TableHead>
-              <TableHead>Commission</TableHead>
+              <TableHead>Supplier</TableHead>
+              <TableHead>GSTIN · PAN · CIN</TableHead>
+              <TableHead>Licences</TableHead>
+              <TableHead className="text-right">Commission</TableHead>
               <TableHead>Terms</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Active</TableHead>
@@ -192,8 +233,15 @@ const Vendors: React.FC = () => {
           <TableBody>
             {paged.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
-                  No vendors found.
+                <TableCell colSpan={8} className="h-28 text-center">
+                  <p className="text-sm font-medium text-ink">
+                    {vendors.length ? 'Nothing matches those filters' : 'No suppliers yet'}
+                  </p>
+                  <p className="mt-1 text-xs text-ink-soft">
+                    {vendors.length
+                      ? 'Clear a chip above, or search by name, GSTIN or a licence number.'
+                      : 'Add the first supplier and every purchase order can be raised against them.'}
+                  </p>
                 </TableCell>
               </TableRow>
             ) : (
@@ -217,11 +265,28 @@ const Vendors: React.FC = () => {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <div className="text-sm">{vendor.gst_number || '—'}</div>
-                      <div className="text-xs text-muted-foreground">{vendor.pan_number || ''}</div>
+                      <div className="font-mono text-xs text-ink">{vendor.gst_number || '—'}</div>
+                      {vendor.pan_number && <div className="font-mono text-xs text-ink-soft">{vendor.pan_number}</div>}
+                      {vendor.cin && <div className="font-mono text-xs text-ink-soft">{vendor.cin}</div>}
                     </TableCell>
+                    {/* How many, and whether any of them is a problem — the
+                        question asked before a purchase order is raised. */}
                     <TableCell>
-                      <span className="font-medium">{vendor.commission_pct ?? 0}%</span>
+                      {Array.isArray(vendor.licences) && vendor.licences.length ? (
+                        <>
+                          <span className="text-sm tabular-nums text-ink">
+                            {vendor.licences.length} on file
+                          </span>
+                          <div className="text-[11px] text-ink-soft">
+                            {[...new Set(vendor.licences.map((l: any) => l.title ?? l.type))].slice(0, 3).join(' · ')}
+                          </div>
+                        </>
+                      ) : (
+                        <span className="text-xs text-ink-mute">None recorded</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <span className="font-medium tabular-nums">{vendor.commission_pct ?? 0}%</span>
                     </TableCell>
                     {/* What was agreed with THIS supplier, and any licence about
                         to run out. Both come composed from the server so this
@@ -235,10 +300,11 @@ const Vendors: React.FC = () => {
                         <span className="text-xs text-muted-foreground">Not recorded</span>
                       )}
                       {Array.isArray(vendor.licences_expiring) && vendor.licences_expiring.length > 0 && (
-                        <div className="mt-1 text-xs font-medium text-amber-700">
+                        <div className="mt-1 text-xs font-medium">
                           {vendor.licences_expiring.map((l: any) => (
-                            <div key={`${l.label}-${l.number}`}>
-                              {l.label} {l.daysLeft < 0 ? 'has expired' : `expires in ${l.daysLeft}d`}
+                            <div key={`${l.title ?? l.label}-${l.number}`}
+                                 className={(l.daysLeft ?? 0) < 0 ? 'text-bad-ink' : 'text-warn-ink'}>
+                              {l.title ?? l.label} {(l.daysLeft ?? 0) < 0 ? 'has expired' : `expires in ${l.daysLeft}d`}
                             </div>
                           ))}
                         </div>

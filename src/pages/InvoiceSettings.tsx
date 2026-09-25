@@ -144,16 +144,17 @@ const InvoiceSettings: React.FC = () => {
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5 pb-16">
+    <div className="space-y-5 pb-16">
       <div>
         <Button variant="ghost" size="sm" onClick={() => navigate('/settings')} className="mb-3 text-muted-foreground">
           <ArrowLeft className="mr-2 h-4 w-4" /> Back to Settings
         </Button>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2"><FileText className="h-5 w-5" /> Invoice</h1>
+            <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2"><FileText className="h-5 w-5" /> Invoice settings</h1>
             <p className="mt-1.5 text-sm text-muted-foreground">
-              Legal details, numbering and design for the tax invoices your customers receive.
+              Who you are, what you trade under, and how every tax document looks — invoice,
+              proforma and credit note all print from these settings.
             </p>
           </div>
           <div className="flex gap-2">
@@ -217,7 +218,18 @@ const InvoiceSettings: React.FC = () => {
             <Field label="GSTIN" required missing={isMissing('seller.gstin')} hint="Primary registration. Add more under GST registrations.">
               <Input value={cfg.seller.gstin} onChange={(e) => set('seller.gstin', e.target.value.toUpperCase())} placeholder="07AAAAA0000A1Z5" />
             </Field>
-            <Field label="PAN"><Input value={cfg.seller.pan} onChange={(e) => set('seller.pan', e.target.value.toUpperCase())} /></Field>
+            <Field label="PAN"><Input value={cfg.seller.pan} onChange={(e) => set('seller.pan', e.target.value.toUpperCase())} placeholder="AAAAA0000A" /></Field>
+            <Field
+              label="CIN"
+              hint="Company Identification Number, from your MCA certificate. A company or an LLP must print it on every bill; a proprietorship or a partnership has none — leave it blank and nothing prints."
+            >
+              <Input
+                value={cfg.seller.cin ?? ''}
+                onChange={(e) => set('seller.cin', e.target.value.toUpperCase())}
+                placeholder="U12345DL2020PTC123456"
+                maxLength={21}
+              />
+            </Field>
             <Field label="Address line 1" required missing={isMissing('seller.address_line1')}>
               <Input value={cfg.seller.address_line1} onChange={(e) => set('seller.address_line1', e.target.value)} />
             </Field>
@@ -254,11 +266,15 @@ const InvoiceSettings: React.FC = () => {
         <Card>
           <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <CardTitle className="text-base">Statutory licences</CardTitle>
+              <CardTitle className="text-base">
+                Statutory licences{licences.length > 0 && <span className="ml-2 text-xs font-normal text-muted-foreground">({licences.length})</span>}
+              </CardTitle>
               <CardDescription>
-                FSSAI, drug licence, BIS, ISO — the numbers you trade under. They print on every
-                document you issue: invoices, proformas and credit notes. Add the expiry date and
-                this page warns you a month before one runs out.
+                FSSAI, drug licences, BIS, ISO — the numbers you trade under. Add as many as you
+                hold: a pharmacy usually has <strong>several drug licences</strong> (one per form,
+                per premises or per state), and each gets its own row. They print on every document
+                you issue — invoices, proformas and credit notes. Add the expiry date and this page
+                warns you before one runs out.
               </CardDescription>
             </div>
             <Button variant="outline" size="sm" onClick={addLicence}><Plus className="mr-1.5 h-4 w-4" /> Add licence</Button>
@@ -310,10 +326,23 @@ const InvoiceSettings: React.FC = () => {
                           ))}
                         </SelectContent>
                       </Select>
-                      {warn && (
-                        <Badge variant="outline" className="border-amber-400 text-amber-800">
-                          {warn.days_left < 0 ? 'expired' : `${warn.days_left}d left`}
+                      {/* The store's own calendar decides this, so the badge shows
+                          exactly what the SERVER said — never a browser countdown. */}
+                      {warn && warn.days_left < 0 && (
+                        <Badge variant="outline" className="border-red-400 bg-red-50 text-red-700">
+                          expired {-warn.days_left} day(s) ago
                         </Badge>
+                      )}
+                      {warn && warn.days_left >= 0 && (
+                        <Badge variant="outline" className="border-amber-400 bg-amber-50 text-amber-800">
+                          {warn.days_left === 0 ? 'expires today' : `${warn.days_left} day(s) left`}
+                        </Badge>
+                      )}
+                      {!warn && l.valid_till && (
+                        <Badge variant="outline" className="text-muted-foreground">valid to {l.valid_till}</Badge>
+                      )}
+                      {!l.valid_till && (
+                        <Badge variant="outline" className="text-muted-foreground">no expiry</Badge>
                       )}
                     </div>
                     <div className="flex items-center gap-3">
@@ -333,14 +362,28 @@ const InvoiceSettings: React.FC = () => {
                       <Input value={l.number ?? ''} onChange={(e) => patchLicence(i, 'number', e.target.value)}
                         placeholder="e.g. 20B/DL/2024/0193" />
                     </Field>
+                    <Field label="Granted on" hint="The date on the certificate. Kept on file, never printed.">
+                      <Input type="date" value={l.issued_on ?? ''} onChange={(e) => patchLicence(i, 'issued_on', e.target.value)} />
+                    </Field>
                     <Field label="Valid until" hint="Leave blank if it does not expire.">
                       <Input type="date" value={l.valid_till ?? ''} onChange={(e) => patchLicence(i, 'valid_till', e.target.value)} />
+                    </Field>
+                    <Field label="Issued by" hint="Who granted it — a state FDA, a municipal body, a certification house.">
+                      <Input value={l.issuing_authority ?? ''} onChange={(e) => patchLicence(i, 'issuing_authority', e.target.value)}
+                        placeholder="e.g. Drugs Control Department, Delhi" />
+                    </Field>
+                    <Field label="Applies in" hint="Where it is valid. A drug licence is issued by a state and only covers that state.">
+                      <Input value={l.jurisdiction ?? ''} onChange={(e) => patchLicence(i, 'jurisdiction', e.target.value)}
+                        placeholder="e.g. Delhi" />
                     </Field>
                     <Field label="Printed as" hint={`Blank prints "${licenceTypeLabel(l.type)}".`}>
                       <Input value={l.label ?? ''} onChange={(e) => patchLicence(i, 'label', e.target.value)}
                         placeholder={licenceTypeLabel(l.type)} />
                     </Field>
                   </div>
+                  <Field label="Your own note" hint="Never printed. Where the paper copy is, who renews it, anything the desk needs.">
+                    <Input value={l.notes ?? ''} onChange={(e) => patchLicence(i, 'notes', e.target.value)} />
+                  </Field>
                 </div>
               );
             })}

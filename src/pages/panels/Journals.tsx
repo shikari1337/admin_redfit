@@ -9,6 +9,7 @@ import {
   StatusChip, TableShell, THead, Th, TBody, Tr, Td,
   ExportMenu, Pagination, AttachmentPanel, useListControls, type CsvColumn,
 } from '../../components/erp';
+import InfoTip from '../../components/common/InfoTip';
 
 interface JournalLine { accountCode: string; debit: string; credit: string; }
 
@@ -121,8 +122,8 @@ const Journals: React.FC = () => {
   return (
     <Page>
       <PageHeader
-        title="Journals"
-        description="Posted entries are immutable — corrections are reversal journals."
+        title={<span className="inline-flex items-center gap-1.5">Journals <InfoTip text="Posted entries are immutable — corrections are reversal journals." /></span>}
+        description="Every posted journal entry."
         actions={
           <div className="flex items-center gap-2">
             <ExportMenu filename="journals" columns={journalCols} rows={filtered} canExport={canRead} disabled={!filtered.length} />

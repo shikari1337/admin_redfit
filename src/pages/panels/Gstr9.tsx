@@ -8,6 +8,7 @@ import {
 } from '../../components/erp';
 import type { CsvColumn } from '../../components/erp';
 import { useGstRegistrations, RegistrationSelect } from './gstinFilter';
+import InfoTip from '../../components/common/InfoTip';
 
 interface RateWiseCsvRow { ratePct: number | string; taxableValue: number; igst: number; cgst: number; sgst: number; }
 // Annual-return figures are in RUPEE units → raw numbers in the CSV.
@@ -134,8 +135,8 @@ const Gstr9: React.FC = () => {
   return (
     <Page>
       <PageHeader
-        title="GSTR-9 (Annual Return) & GSTR-9C"
-        description="Your once-a-year GST summary — total sales, tax paid and input credit for the whole financial year — plus a reconciliation against your books. This is a DRAFT to review with your CA, not a filing."
+        title={<span className="inline-flex items-center gap-1.5">GSTR-9 (Annual Return) & GSTR-9C <InfoTip text="Your once-a-year GST summary — total sales, tax paid and input credit for the whole financial year — plus a reconciliation against your books. This is a DRAFT to review with your CA, not a filing." /></span>}
+        description="The yearly GST summary and its reconciliation — a draft."
         actions={
           <div className="flex items-end gap-2">
             <RegistrationSelect regs={regs} value={gstin} onChange={(g) => { setGstin(g); load(fy, g); }} />

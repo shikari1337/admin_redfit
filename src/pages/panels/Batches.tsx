@@ -5,8 +5,11 @@ import { useAuth } from '../../contexts/AuthContext';
 import {
   Page, PageHeader, TableShell, THead, Th, TBody, Td, EmptyRow, StatusChip,
   TextInput, SelectInput, Btn, SectionCard, StatCard, StatGrid,
+  FilterChips, downloadCsv, type ChipGroup,
 } from '../../components/erp';
+import InfoTip from '../../components/common/InfoTip';
 import BatchBulkBar from '../../components/inventory/BatchBulkBar';
+import SheetsBar from '../../components/inventory/SheetsBar';
 import BatchEditDrawer, { type BatchRecord } from '../../components/inventory/BatchEditDrawer';
 
 /**
@@ -34,20 +37,24 @@ interface PricingConfig {
 const money = (v: any) =>
   v == null || v === '' ? null : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 
+/**
+ * ONE line on screen per mode; the full explanation lives in the (i) beside it.
+ * The three paragraphs used to sit open above the table on every visit.
+ */
 const MODE_COPY: Record<PricingMode, { title: string; body: string; tone: string }> = {
   off: {
-    title: 'Batch pricing is off',
-    body: 'Every sale is priced from the catalogue. Batch MRPs and prices are still recorded, and appear on batch labels — they just do not affect what a customer is charged.',
+    title: 'Batch pricing is off — every sale is priced from the catalogue.',
+    body: 'Batch MRPs and prices are still recorded, and still print on batch labels. They just do not affect what a customer is charged.',
     tone: 'border-gray-200 bg-gray-50',
   },
   mrp_only: {
-    title: 'Batch pricing: printed MRP only',
-    body: 'The MRP printed on the pack being served shows on the bill and the invoice. What the customer is charged still comes from the catalogue.',
+    title: 'Showing the printed MRP of the batch being served.',
+    body: 'The MRP printed on the pack shows on the bill and the invoice. What the customer is charged still comes from the catalogue.',
     tone: 'border-blue-200 bg-blue-50',
   },
   full: {
-    title: 'Batch pricing: full',
-    body: 'A sale is priced from the batch it is served from — first to expire. Retail shoppers pay the batch’s retail price; B2B accounts pay its B2B price (a contract, price list or tier price agreed with that buyer still wins). A batch with no price of its own falls back to the catalogue for that field. Nothing is worked out as a percentage.',
+    title: 'Sales are billed from the batch they are served from.',
+    body: 'The batch is the first to expire. Retail shoppers pay its retail price; B2B accounts pay its B2B price, and a contract, price list or tier price agreed with that buyer still wins. A batch with no price of its own falls back to the catalogue for that field. Nothing is worked out as a percentage.',
     tone: 'border-emerald-200 bg-emerald-50',
   },
 };
@@ -166,40 +173,66 @@ const Batches: React.FC = () => {
     return out;
   }, [rows, filter, view, days, sort]);
 
-  const exportView = () => {
-    const cols: Array<[string, (b: any) => any]> = [
-      ['Product', (b) => b.product_name], ['SKU', (b) => b.sku],
-      ['Batch Number', (b) => b.batch_number], ['Qty In Batch', (b) => b.qty_on_hand],
-      ['Purchase Date', (b) => b.purchase_date ?? ''], ['Purchase Ref', (b) => b.purchase_ref ?? ''],
-      ['Mfg Date', (b) => b.mfg_date ?? ''], ['Expiry Date', (b) => b.expiry_date ?? ''],
-      ['Days To Expiry', (b) => b.days_to_expiry ?? ''],
-      ['Batch MRP', (b) => b.mrp ?? ''], ['Batch Retail Price', (b) => b.selling_price ?? ''],
-      ['Batch B2B Price', (b) => b.b2b_price ?? ''],
-      ['Catalogue MRP', (b) => b.catalogue_mrp ?? ''],
-      ['Catalogue Retail Price', (b) => b.catalogue_selling_price ?? ''],
-      ['Catalogue B2B Price', (b) => b.catalogue_b2b_price ?? ''],
-      ['Status', (b) => b.status],
-    ];
-    // A leading =+-@ turns a cell into a formula in Excel; prefix it so an
-    // exported product name can never execute (the bulk portal's own guard).
-    const cell = (v: any) => {
-      const t = v == null ? '' : String(v);
-      const safe = /^[=+\-@]/.test(t) ? `'${t}` : t;
-      return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
-    };
-    const csv = [cols.map((c) => c[0]).join(','),
-                 ...visible.map((b) => cols.map(([, get]) => cell(get(b))).join(','))].join('\n');
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
-    const a = document.createElement('a');
-    a.href = url; a.download = `batches-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-  };
+  /**
+   * This view, as a CSV. Goes through the shared client CSV path so the
+   * quoting, the UTF-8 BOM and the spreadsheet formula guard are the ones
+   * every other export in the admin uses (lib/csv.ts) — this page used to
+   * carry its own copy of all three.
+   */
+  const exportView = () => downloadCsv(
+    `batches-${new Date().toISOString().slice(0, 10)}.csv`,
+    [
+      { key: 'product_name', label: 'Product' },
+      { key: 'sku', label: 'SKU' },
+      { key: 'batch_number', label: 'Batch Number' },
+      { key: 'qty_on_hand', label: 'Qty In Batch' },
+      { key: 'purchase_date', label: 'Purchase Date' },
+      { key: 'purchase_ref', label: 'Purchase Ref' },
+      { key: 'mfg_date', label: 'Mfg Date' },
+      { key: 'expiry_date', label: 'Expiry Date' },
+      { key: 'days_to_expiry', label: 'Days To Expiry' },
+      { key: 'mrp', label: 'Batch MRP' },
+      { key: 'selling_price', label: 'Batch Retail Price' },
+      { key: 'b2b_price', label: 'Batch B2B Price' },
+      { key: 'catalogue_mrp', label: 'Catalogue MRP' },
+      { key: 'catalogue_selling_price', label: 'Catalogue Retail Price' },
+      { key: 'catalogue_b2b_price', label: 'Catalogue B2B Price' },
+      { key: 'status', label: 'Status' },
+    ],
+    visible,
+  );
 
   const expiryClass = (d: number | null) =>
     d == null ? '' : d < 0 ? 'bg-red-50' : d <= 30 ? 'bg-red-50/50' : d <= 90 ? 'bg-amber-50/50' : '';
 
   const mode: PricingMode = pricing?.mode ?? 'off';
   const copy = MODE_COPY[mode];
+
+  const batchChips: ChipGroup[] = [
+    {
+      key: 'view', label: 'Show', value: view === 'all' ? '' : view,
+      onChange: (v: string) => setView((v || 'all') as any),
+      options: [
+        { value: 'expiring', label: 'Expiring soon' },
+        { value: 'expired', label: 'Expired' },
+        { value: 'unpriced', label: 'No price of their own' },
+      ],
+    },
+    {
+      key: 'shape', label: 'Group', value: shape === 'flat' ? '' : shape,
+      onChange: (v: string) => setShape((v || 'flat') as any),
+      help: 'One medicine can have lots in several pack sizes.',
+      options: [{ value: 'grouped', label: 'By product and SKU' }],
+    },
+    {
+      key: 'sort', label: 'Sort', value: shape === 'grouped' ? '' : (sort === 'expiry' ? '' : sort),
+      onChange: (v: string) => setSort((v || 'expiry') as any),
+      options: shape === 'grouped' ? [] : [
+        { value: 'qty', label: 'Largest quantity first' },
+        { value: 'product', label: 'Product A to Z' },
+      ],
+    },
+  ];
 
   return (
     <Page>
@@ -227,18 +260,16 @@ const Batches: React.FC = () => {
       <div className={`rounded-xl border ${copy.tone} px-4 py-3`}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <Tag className="h-4 w-4 text-gray-500" />
+            <div className="flex flex-wrap items-center gap-2">
+              <Tag className="h-4 w-4 shrink-0 text-gray-500" />
               <span className="text-sm font-semibold text-gray-900">{copy.title}</span>
+              <InfoTip text={copy.body} />
+              {mode !== 'off' && (
+                <span className="text-xs text-gray-600">
+                  {pricing?.priced_batches ?? 0} batch(es) across {pricing?.priced_skus ?? 0} SKU(s) carry a price of their own.
+                </span>
+              )}
             </div>
-            <p className="mt-1 max-w-3xl text-xs leading-relaxed text-gray-600">{copy.body}</p>
-            {mode !== 'off' && (
-              <p className="mt-1.5 text-xs text-gray-600">
-                <strong>{pricing?.priced_batches ?? 0}</strong> batch(es) across{' '}
-                <strong>{pricing?.priced_skus ?? 0}</strong> SKU(s) currently carry a price of their own.
-                Everything else is priced from the catalogue.
-              </p>
-            )}
           </div>
           <div className="flex shrink-0 flex-col items-end gap-2">
             <SelectInput
@@ -278,6 +309,8 @@ const Batches: React.FC = () => {
           sub="at batch price, else batch MRP" />
       </StatGrid>
 
+      <SheetsBar here="batches" />
+
       {bulkOpen && <BatchBulkBar onImported={() => { load(); loadPricing(); }} />}
 
       {createOpen && canAdjust && (
@@ -285,33 +318,24 @@ const Batches: React.FC = () => {
       )}
 
       {/* ── Filters ─────────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-end gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <TextInput value={filter} onChange={(e) => setFilter(e.target.value)}
-          placeholder="Search product, SKU, batch or bill ref" className="w-72" />
-        <SelectInput value={view} onChange={(e) => setView(e.target.value as any)} className="w-48" aria-label="View">
-          <option value="all">All batches</option>
-          <option value="expiring">Expiring soon</option>
-          <option value="expired">Expired</option>
-          <option value="unpriced">No price of their own</option>
-        </SelectInput>
-        {(view === 'expiring' || view === 'all') && (
-          <label className="flex items-center gap-1.5 text-sm text-gray-700">
-            within
-            <TextInput type="number" min={0} value={days} className="w-20 text-right"
-              onChange={(e) => setDays(parseInt(e.target.value) || 0)} />
-            days
-          </label>
-        )}
-        <SelectInput value={shape} onChange={(e) => setShape(e.target.value as any)} className="w-40" aria-label="Shape">
-          <option value="flat">Flat: one row per batch</option>
-          <option value="grouped">By product &amp; SKU</option>
-        </SelectInput>
-        <SelectInput value={sort} onChange={(e) => setSort(e.target.value as any)} className="w-44"
-          aria-label="Sort" disabled={shape === 'grouped'}>
-          <option value="expiry">Soonest expiry first</option>
-          <option value="qty">Largest quantity first</option>
-          <option value="product">Product A–Z</option>
-        </SelectInput>
+          placeholder="Search product, SKU, batch or bill ref" aria-label="Search batches"
+          data-testid="batches-search" className="w-72" />
+        <FilterChips
+          groups={batchChips}
+          onClearAll={() => { setView('all'); setShape('flat'); setSort('expiry'); }}
+        >
+          {(view === 'expiring' || view === 'all') && (
+            <label className="flex items-center gap-1.5 text-xs text-gray-700">
+              within
+              <TextInput type="number" min={0} value={days} className="h-8 w-16 text-right"
+                aria-label="Days to expiry"
+                onChange={(e) => setDays(parseInt(e.target.value) || 0)} />
+              days
+            </label>
+          )}
+        </FilterChips>
         <span className="ml-auto text-sm text-gray-500">
           {loading ? 'Loading…' : `${visible.length} of ${rows.length} batch(es)`}
         </span>

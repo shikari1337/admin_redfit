@@ -7,6 +7,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { localeDate } from '../utils/date';
+import { FilterChip, SearchBox, ListHeader } from '../components/sales/ListChrome';
+import { ExportMenu, type CsvColumn } from '@/components/erp';
 import {
   Table,
   TableBody,
@@ -38,6 +40,36 @@ interface Coupon {
   updatedAt?: string;
 }
 
+/** The coupon list as a file — the columns the page already holds. */
+const COUPON_CSV_COLUMNS: CsvColumn<any>[] = [
+  { key: 'code', label: 'Code' },
+  { key: 'type', label: 'Type' },
+  { key: 'value', label: 'Value' },
+  { key: 'description', label: 'Description' },
+  { key: 'minPurchase', label: 'Minimum purchase' },
+  { key: 'maxDiscount', label: 'Maximum discount' },
+  { key: 'usageCount', label: 'Times used' },
+  { key: 'usageLimit', label: 'Usage limit' },
+  { key: 'validFrom', label: 'Valid from' },
+  { key: 'validUntil', label: 'Valid until' },
+  { key: 'isActive', label: 'Switched on', format: (c: any) => (c.isActive ? 'Yes' : 'No') },
+  { key: 'isPublic', label: 'Public', format: (c: any) => ((c.isPublic ?? c.is_public) ? 'Yes' : 'No') },
+];
+
+/** Where a coupon is in its life — the question the list is really asked. */
+type CouponState = 'live' | 'scheduled' | 'expired' | 'off' | 'used_up';
+function couponState(c: any): CouponState {
+  if (!c.isActive) return 'off';
+  const limit = Number(c.usageLimit ?? 0);
+  if (limit > 0 && Number(c.usageCount ?? 0) >= limit) return 'used_up';
+  const now = Date.now();
+  const from = c.validFrom ? Date.parse(c.validFrom) : NaN;
+  const until = c.validUntil ? Date.parse(c.validUntil) : NaN;
+  if (Number.isFinite(from) && from > now) return 'scheduled';
+  if (Number.isFinite(until) && until < now) return 'expired';
+  return 'live';
+}
+
 const Coupons: React.FC = () => {
   const navigate = useNavigate();
   const { hasPerm } = useAuth();
@@ -49,6 +81,8 @@ const Coupons: React.FC = () => {
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [state, setState] = useState<'' | CouponState>('');
 
   useEffect(() => {
     fetchCoupons();
@@ -135,26 +169,64 @@ const Coupons: React.FC = () => {
     }
   };
 
+  const term = search.trim().toLowerCase();
+  const shown = coupons.filter((c) => {
+    if (state && couponState(c) !== state) return false;
+    if (!term) return true;
+    return `${c.code ?? ''} ${c.description ?? ''}`.toLowerCase().includes(term);
+  });
+  /** One count per state, from the same function the chips filter by. */
+  const counts = coupons.reduce((acc, c) => {
+    const st = couponState(c); acc[st] = (acc[st] ?? 0) + 1; return acc;
+  }, {} as Record<CouponState, number>);
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-12">
-        <div className="text-muted-foreground animate-pulse">Loading coupons...</div>
+      <div className="space-y-3">
+        <div className="h-8 w-40 animate-pulse rounded bg-surface-2" />
+        {[0, 1, 2, 3, 4].map((i) => <div key={i} className="h-12 animate-pulse rounded bg-surface-2" />)}
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Coupons</h1>
-          <p className="text-sm text-muted-foreground mt-1">Manage store discount codes and offers</p>
-        </div>
-        {canManageCoupons && (
-          <Button onClick={() => navigate('/coupons/new')} className="bg-blue-600 hover:bg-blue-700 text-white">
-            <FaPlus className="mr-2 h-4 w-4" /> Create Coupon
+      <ListHeader
+        title="Coupons"
+        purpose="Discount codes a shopper can type at checkout — what each one gives, who may use it, and until when."
+        aside={<ExportMenu filename="coupons" columns={COUPON_CSV_COLUMNS} rows={shown} canExport />}
+        action={canManageCoupons && (
+          <Button onClick={() => navigate('/coupons/new')}>
+            <FaPlus className="mr-2 h-4 w-4" /> New coupon
           </Button>
         )}
+      />
+
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-3">
+          <SearchBox value={search} onChange={setSearch}
+            placeholder="Search by code or description" label="Search coupons" />
+          <span className="text-sm tabular-nums text-ink-soft">
+            {shown.length} of {coupons.length} coupon{coupons.length === 1 ? '' : 's'}
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <FilterChip on={!state} onClick={() => setState('')}>All</FilterChip>
+          <FilterChip on={state === 'live'} tone="good" count={counts.live}
+            onClick={() => setState(state === 'live' ? '' : 'live')}>Running now</FilterChip>
+          <FilterChip on={state === 'scheduled'} count={counts.scheduled}
+            onClick={() => setState(state === 'scheduled' ? '' : 'scheduled')}>Starts later</FilterChip>
+          <FilterChip on={state === 'expired'} tone="warn" count={counts.expired}
+            onClick={() => setState(state === 'expired' ? '' : 'expired')}>Finished</FilterChip>
+          <FilterChip on={state === 'used_up'} tone="warn" count={counts.used_up}
+            onClick={() => setState(state === 'used_up' ? '' : 'used_up')}>Fully used</FilterChip>
+          <FilterChip on={state === 'off'} count={counts.off}
+            onClick={() => setState(state === 'off' ? '' : 'off')}>Switched off</FilterChip>
+          {(state || search) && (
+            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs text-ink-soft"
+              onClick={() => { setState(''); setSearch(''); }}>Clear</Button>
+          )}
+        </div>
       </div>
 
       {error && (
@@ -179,14 +251,21 @@ const Coupons: React.FC = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {coupons.length === 0 ? (
+                {shown.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
-                      No coupons found. Create your first coupon!
+                    <TableCell colSpan={7} className="h-32 text-center">
+                      <p className="text-sm font-medium text-ink">
+                        {coupons.length === 0 ? 'No coupons yet' : 'Nothing matches those filters'}
+                      </p>
+                      <p className="mt-1 text-xs text-ink-soft">
+                        {coupons.length === 0
+                          ? 'A coupon is a code a shopper types at checkout. Make the first one and it appears here.'
+                          : 'Clear a chip above, or search by code.'}
+                      </p>
                     </TableCell>
                   </TableRow>
                 ) : (
-                  coupons.map((coupon) => {
+                  shown.map((coupon) => {
                     const couponId = typeof coupon._id === 'string' ? coupon._id : String(coupon._id || '');
                     return (
                       <TableRow key={couponId}>

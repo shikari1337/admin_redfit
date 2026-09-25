@@ -4,9 +4,10 @@ import { payload } from '../../lib/unwrap';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   Page, PageHeader, SectionCard, Btn, Chip,
-  TableShell, THead, Th, TBody, Tr, Td, EmptyRow, TextInput, SelectInput, Field, ExportMenu,
+  TableShell, THead, Th, TBody, Tr, Td, EmptyRow, TextInput, SelectInput, SearchInput, Field, ExportMenu,
 } from '../../components/erp';
 import type { CsvColumn } from '../../components/erp';
+import InfoTip from '../../components/common/InfoTip';
 
 /**
  * STATUTORY RATE CODES — the owner/CA screen for date-effective GST.
@@ -67,6 +68,9 @@ const GstRateCodes: React.FC = () => {
   const [saving, setSaving] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [openCode, setOpenCode] = useState<string | null>(null);
+  const [find, setFind] = useState('');
+  const shownRules = (data?.taxRules ?? []).filter((t: any) =>
+    !find.trim() || String(t.name ?? '').toLowerCase().includes(find.trim().toLowerCase()));
 
   const load = async (date = asOf) => {
     setLoading(true);
@@ -133,8 +137,8 @@ const GstRateCodes: React.FC = () => {
   return (
     <Page>
       <PageHeader
-        title="Statutory rate codes"
-        description="When the government changes a GST rate, documents automatically use the rate that was law on their date. Link each of your tax rules to the official rule it follows, and old invoices keep their old rate while new ones get the new one — without touching a single product."
+        title={<span className="inline-flex items-center gap-1.5">Statutory rate codes <InfoTip text="When the government changes a GST rate, documents automatically use the rate that was law on their date. Link each of your tax rules to the official rule it follows, and old invoices keep their old rate while new ones get the new one — without touching a single product." /></span>}
+        description="Link each tax rule to the official GST rate it follows."
         actions={
           <div className="flex flex-wrap items-end gap-2">
             <Field label="Check rates as on">
@@ -225,6 +229,9 @@ const GstRateCodes: React.FC = () => {
           />
         }
       >
+        <div className="mb-3 max-w-sm">
+          <SearchInput placeholder="Find a tax rule by name..." value={find} onChange={(e) => setFind(e.target.value)} />
+        </div>
         <TableShell>
           <table className="w-full text-sm">
             <THead>
@@ -238,7 +245,9 @@ const GstRateCodes: React.FC = () => {
               {loading && <EmptyRow colSpan={5}>Loading…</EmptyRow>}
               {!loading && (data?.taxRules.length ?? 0) === 0 &&
                 <EmptyRow colSpan={5}>No tax rules yet. Create them under Settings → Tax rules.</EmptyRow>}
-              {!loading && data?.taxRules.map((t) => (
+              {!loading && find && shownRules.length === 0 && (data?.taxRules.length ?? 0) > 0 &&
+                <EmptyRow colSpan={5}>No tax rule matches what you typed.</EmptyRow>}
+              {!loading && shownRules.map((t) => (
                 <Tr key={t.id}>
                   <Td className="font-medium">
                     {t.name}

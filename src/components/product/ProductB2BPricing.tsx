@@ -18,6 +18,25 @@ export interface B2BPricingTier {
   validUntil?: string;
 }
 
+/** The generic slab a simple product's ONE wholesale price binds to (any tier,
+ *  whole product, min qty 1, fixed) — defined once, read by this editor and by
+ *  the Pricing tab's side-by-side B2B cell. */
+export const isGenericFlat = (t: B2BPricingTier) =>
+  !t.tierName && (t.variationId == null || t.variationId === '') && Number(t.minQty) === 1 && t.priceType === 'fixed';
+export function flatWholesaleIndex(tiers: B2BPricingTier[]): number {
+  const i = tiers.findIndex((t) => isGenericFlat(t) && !t.maxQty);
+  return i === -1 ? tiers.findIndex(isGenericFlat) : i;
+}
+/** The flat wholesale price — of the whole product, or (given an id) of ONE
+ *  variation's own generic slab. Display only. */
+export function flatWholesalePrice(tiers: B2BPricingTier[], variationId?: string): number | null {
+  const i = variationId
+    ? tiers.findIndex((t) => t.variationId === variationId && !t.tierName && Number(t.minQty) === 1 && t.priceType === 'fixed')
+    : flatWholesaleIndex(tiers);
+  const v = i >= 0 ? Number(tiers[i].priceValue) : NaN;
+  return Number.isFinite(v) && v > 0 && tiers[i].isActive !== false ? v : null;
+}
+
 interface B2BContract {
   id: string;
   customer_id: string;
@@ -137,10 +156,7 @@ const ProductB2BPricing: React.FC<ProductB2BPricingProps> = ({ tiers, onChange, 
   // place, removed when cleared. The full editor stays available under
   // "Advanced".
   const isSimple = variations.length === 0;
-  const isGenericFlat = (t: B2BPricingTier) =>
-    !t.tierName && (t.variationId == null || t.variationId === '') && Number(t.minQty) === 1 && t.priceType === 'fixed';
-  let flatIdx = tiers.findIndex((t) => isGenericFlat(t) && !t.maxQty);
-  if (flatIdx === -1) flatIdx = tiers.findIndex(isGenericFlat);
+  let flatIdx = flatWholesaleIndex(tiers);
   const flatValue = flatIdx >= 0 ? tiers[flatIdx].priceValue : undefined;
 
   const setFlatPrice = (raw: string) => {

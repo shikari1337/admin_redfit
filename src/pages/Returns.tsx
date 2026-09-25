@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  RotateCcw, PackagePlus, Wallet, Clock, Search, RefreshCw, Camera,
+  RotateCcw, PackagePlus, Wallet, Clock, RefreshCw, Camera,
   AlertTriangle, ExternalLink, Loader2,
 } from 'lucide-react';
 import { api } from '../services/api';
@@ -10,6 +10,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { inr, Chip } from '../components/erp';
 import { formatDate } from '../utils/date';
 import ReturnDetailPanel from '../components/returns/ReturnDetailPanel';
+import { FilterChip, SearchBox } from '../components/sales/ListChrome';
+import { ExportMenu, type CsvColumn } from '@/components/erp';
 
 /**
  * THE RETURNS DESK.
@@ -50,6 +52,18 @@ const RESOLUTION_META: Record<string, { label: string; icon: React.ElementType; 
   store_credit: { label: 'Store credit', icon: Wallet,      tone: 'amber' },
   undecided:    { label: 'Undecided',    icon: Clock,       tone: 'neutral' },
 };
+
+/** The returns board as a file — the columns this page already shows. */
+const RETURN_CSV_COLUMNS: CsvColumn<any>[] = [
+  { key: 'return_number', label: 'Return' },
+  { key: 'order_number', label: 'Order' },
+  { key: 'customer_name', label: 'Customer' },
+  { key: 'reason', label: 'Reason' },
+  { key: 'resolution', label: 'Outcome' },
+  { key: 'status', label: 'Status' },
+  { key: 'total_value', label: 'Value' },
+  { key: 'created_at', label: 'Raised' },
+];
 
 const PAGE_SIZE = 50;
 
@@ -143,29 +157,22 @@ const Returns: React.FC = () => {
         ))}
       </div>
 
-      {/* Filters */}
-      <div className="flex gap-2 flex-wrap items-center">
-        <div className="relative flex-1 min-w-[220px] max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Return number, order, customer, SKU…"
-            className="w-full rounded-md border border-border bg-background pl-9 pr-3 py-2 text-sm
-                       focus:outline-none focus:ring-2 focus:ring-primary/40"
-          />
+      {/* Toolbar — search, the outcome as chips, and the view as a file */}
+      <div className="flex flex-wrap items-center gap-3">
+        <SearchBox value={search} onChange={setSearch}
+          placeholder="Return number, order, customer or SKU" label="Search returns"
+          className="w-full max-w-sm" />
+        <div className="flex flex-wrap items-center gap-1.5">
+          <FilterChip on={resolution === 'all'} onClick={() => setResolution('all')}>Any outcome</FilterChip>
+          <FilterChip on={resolution === 'refund'} onClick={() => setResolution(resolution === 'refund' ? 'all' : 'refund')}>Refund</FilterChip>
+          <FilterChip on={resolution === 'replacement'} onClick={() => setResolution(resolution === 'replacement' ? 'all' : 'replacement')}>Replacement</FilterChip>
+          <FilterChip on={resolution === 'store_credit'} onClick={() => setResolution(resolution === 'store_credit' ? 'all' : 'store_credit')}>Store credit</FilterChip>
+          <FilterChip on={resolution === 'undecided'} tone="warn" onClick={() => setResolution(resolution === 'undecided' ? 'all' : 'undecided')}>Not decided</FilterChip>
         </div>
-        <select
-          value={resolution}
-          onChange={(e) => setResolution(e.target.value)}
-          className="rounded-md border border-border bg-background px-3 py-2 text-sm"
-        >
-          <option value="all">Any outcome</option>
-          <option value="refund">Refund</option>
-          <option value="replacement">Replacement</option>
-          <option value="store_credit">Store credit</option>
-          <option value="undecided">Undecided</option>
-        </select>
+        <span className="ml-auto flex items-center gap-2">
+          <span className="text-sm tabular-nums text-ink-soft">{total} return{total === 1 ? '' : 's'}</span>
+          <ExportMenu filename="returns" columns={RETURN_CSV_COLUMNS} rows={rows} canExport />
+        </span>
       </div>
 
       {error && (

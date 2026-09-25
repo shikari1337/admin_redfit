@@ -4,6 +4,12 @@ import { FaArrowLeft, FaSave, FaGlobe, FaImage, FaPalette, FaFont, FaInstagram }
 import ImageInputWithActions from '../components/common/ImageInputWithActions';
 import NoticePopupSection, { DEFAULT_NOTICE_POPUP, type NoticePopupForm } from '../components/appearance/NoticePopupSection';
 import { useSettingsSection } from '../hooks/useSettingsSection';
+import { toast } from '@/hooks/use-toast';
+
+/** A message that used to be a blocking alert() — now a toast (the shell mounts the Toaster). */
+const notify = (message: string) =>
+  toast({ title: message, variant: /fail|could not|error/i.test(message) ? 'destructive' : 'default' });
+
 
 interface FormData {
   general: { websiteUrl: string; siteName: string; siteDescription: string };
@@ -116,7 +122,7 @@ const AppearanceStyle: React.FC = () => {
       setPopupSavedStatus(raw?.storePopup?.status || '');
     },
     successMessage: 'Style settings saved! Your storefront will reflect these changes.',
-    onError: (error: any) => alert(error?.response?.data?.message || 'Failed to save'),
+    onError: (error: any) => notify(error?.response?.data?.message || 'Failed to save'),
   });
 
   const handleChange = (section: keyof FormData, field: string, value: any) => {
@@ -135,7 +141,7 @@ const AppearanceStyle: React.FC = () => {
   }
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div>
       <div className="mb-6">
         <button onClick={() => navigate('/appearance/pages')} className="flex items-center text-gray-600 hover:text-gray-900 mb-4">
           <FaArrowLeft className="mr-2" />

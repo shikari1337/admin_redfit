@@ -8,6 +8,7 @@ import {
   FilterBar, Field, TextInput, SelectInput, SearchInput, TabBar, inrMinor,
   ExportMenu, Pagination, useListControls, type CsvColumn,
 } from '../../components/erp';
+import InfoTip from '../../components/common/InfoTip';
 
 /**
  * BANK RULES — "teach it once, and next month's statement files itself".
@@ -193,8 +194,8 @@ const BankRules: React.FC = () => {
   return (
     <Page>
       <PageHeader
-        title="Bank Rules"
-        description="Every month the same lines appear — rent, bank charges, Razorpay payouts. Teach it once, and new statements categorise themselves."
+        title={<span className="inline-flex items-center gap-1.5">Bank Rules <InfoTip text="Every month the same lines appear — rent, bank charges, Razorpay payouts. Teach it once, and new statements categorise themselves." /></span>}
+        description="Teach recurring statement lines once; new statements categorise themselves."
         actions={canPost && (
           <>
             <Btn variant="outline" onClick={applyToUncategorised} disabled={applying}>

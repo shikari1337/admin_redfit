@@ -1592,7 +1592,10 @@ export const attributeValuesAPI = {
 
 // Vendors API
 export const vendorsAPI = {
-  list: async (params?: { status?: string; is_active?: boolean; search?: string }) => {
+  // `state` (GST state code) and `licence` ('expiring' | 'expired') are server
+  // filters too — the open shape keeps this in step with the route instead of
+  // forcing a type edit for every filter the buyer's list grows.
+  list: async (params?: { status?: string; is_active?: boolean; search?: string } & Record<string, any>) => {
     try {
       const response = await api.get('/vendors', { params });
       const data = response.data;
@@ -5446,6 +5449,212 @@ export const settingsRegistryAPI = {
   update: async (key: string, patch: Record<string, any>) => {
     const response = await api.put(`/settings/registry/${encodeURIComponent(key)}`, patch);
     return response.data;
+  },
+};
+
+/**
+ * DOCUMENT KERNEL (migration 156) — invoices, proformas and credit notes that
+ * are NOT orders. One API object for the admin's accounting desk; the Books
+ * panel talks to the same routes through its own kit.
+ *
+ * Money in and out is RUPEES on the wire and PAISE (`*_minor`, as strings) in
+ * every total the server sends back — the browser never adds tax up itself
+ * (`preview` is the live rail the composer reads).
+ */
+export interface DocumentLineDraft {
+  description: string;
+  item_kind?: string;
+  item_ref?: string | null;
+  /** HSN (goods) or SAC (services). */
+  tax_code?: string | null;
+  quantity: number | string;
+  unit?: string | null;
+  unit_price?: number | string;
+  discount?: number | string;
+  tax_rate?: number | string | null;
+  batch_number?: string | null;
+  expiry_date?: string | null;
+}
+
+export interface DocumentDraft {
+  kind: string;
+  document_date?: string;
+  due_date?: string | null;
+  party_kind?: string;
+  party_ref?: string | null;
+  party: {
+    name?: string; company?: string; gstin?: string | null; email?: string; phone?: string;
+    address?: { line1?: string; line2?: string; city?: string; state?: string; pincode?: string; country?: string };
+  };
+  place_of_supply?: string | null;
+  tax_inclusive?: boolean;
+  lines: DocumentLineDraft[];
+  notes?: string | null;
+  terms?: string | null;
+}
+
+// The admin interceptor unwraps {success,data}; `payload` reads both shapes.
+import { payload } from '@/lib/unwrap';
+
+export const documentsAPI = {
+  /** Kinds, statuses and sorts this store may raise — drives the filter chips. */
+  meta: async () => payload(await api.get('/documents/kinds')),
+
+  list: async (params: Record<string, any> = {}) => {
+    // The interceptor unwraps {success,data,total} to the array and keeps
+    // `total` on it as a non-enumerable property; `payload` reads either shape.
+    const r = await api.get('/documents', { params });
+    const rows = payload<any[]>(r);
+    const arr = Array.isArray(rows) ? rows : [];
+    return { rows: arr, total: Number((rows as any)?.total ?? (r.data as any)?.total ?? arr.length) };
+  },
+  get: async (id: string) => payload(await api.get(`/documents/${id}`)),
+
+  /** The number the next issue WOULD take. A preview: nothing is reserved. */
+  nextNumber: async (kind: string, date?: string) =>
+    payload(await api.get('/documents/next-number', { params: { kind, date } })),
+
+  /** Server-computed totals for a form in progress. The one derivation. */
+  preview: async (draft: DocumentDraft) => payload(await api.post('/documents/preview', draft)),
+
+  /** What this party was last charged for each thing (issued/paid invoices only). */
+  lastRates: async (partyRef: string) =>
+    payload(await api.get('/documents/last-rates', { params: { party_ref: partyRef } })) ?? [],
+
+  create: async (draft: DocumentDraft) => payload(await api.post('/documents', draft)),
+  update: async (id: string, draft: DocumentDraft) => payload(await api.put(`/documents/${id}`, draft)),
+  issue: async (id: string, body: Record<string, any> = {}) => payload(await api.post(`/documents/${id}/issue`, body)),
+  cancel: async (id: string, reason?: string) => payload(await api.post(`/documents/${id}/cancel`, { reason })),
+  markPaid: async (id: string, body: Record<string, any> = {}) => payload(await api.post(`/documents/${id}/paid`, body)),
+  send: async (id: string, body: Record<string, any> = {}) => payload(await api.post(`/documents/${id}/send`, body)),
+  /** What the Send dialog prefills and what could stop a send — reads only. */
+  sendOptions: async (id: string) => payload(await api.get(`/documents/${id}/send-options`)),
+  /**
+   * Every hub dispatch recorded against this document. (The route's `sends`
+   * sibling does not survive the interceptor's unwrap — read `doc.meta.sends`
+   * off the document itself for the document's own send log.)
+   */
+  dispatches: async (id: string): Promise<any[]> => {
+    const rows = payload<any[]>(await api.get(`/documents/${id}/dispatches`));
+    return Array.isArray(rows) ? rows : [];
+  },
+  creditNote: async (id: string, body: Record<string, any>) => payload(await api.post(`/documents/${id}/credit-note`, body)),
+  /** Proforma → the real tax invoice, carrying its lines. `issue: true` numbers it now. */
+  convert: async (id: string, body: { documentDate?: string; issue?: boolean } = {}) =>
+    payload(await api.post(`/documents/${id}/convert`, body)),
+
+  pdf: async (id: string): Promise<Blob> =>
+    (await api.get(`/documents/${id}/pdf`, { responseType: 'blob' })).data as Blob,
+};
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * SALES DESK (lane T1) — the invoicing composer's own calls.
+ *
+ * Appended, never woven into the objects above: three lanes append to this
+ * file at once and a reformatted block is a merge conflict nobody can read.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/** One line as the SERVER priced it — every figure on the composer comes from here. */
+export interface ManualOrderPreviewLine {
+  product_id: string;
+  variation_id?: string | null;
+  product_name: string;
+  sku: string;
+  quantity: number;
+  /** MRP of the pack, as the catalogue holds it. */
+  mrp?: number | string | null;
+  /** What this line is actually charged, per unit. */
+  price: number | string;
+  /** The rate the price book resolved before any override on this line. */
+  listed_price?: number | null;
+  /** Retail unit price — what a non-B2B buyer would pay. */
+  retail_price?: number | string | null;
+  /** Which rule set the price: retail · tier · slab_* · contract · manual … */
+  price_source?: string | null;
+  attributes?: Record<string, any> | null;
+  /** Resolved variation-first from the catalogue, never typed. */
+  catalog_hsn?: string | null;
+  catalog_tax_rate?: number | null;
+  /** The lot FEFO will serve this line from. */
+  fefo_batch_number?: string | null;
+  fefo_expiry_date?: string | null;
+  fefo_qty_on_hand?: number | null;
+  /** How far below the resolved rate this line is being sold, in %. */
+  effective_discount_pct?: number;
+}
+
+export interface ManualOrderPreview {
+  items: ManualOrderPreviewLine[];
+  subtotal: number;
+  discount: number;
+  shipping_cost: number;
+  cod_fee: number;
+  tax: number;
+  total: number;
+  gst: any;
+  scope: 'retail' | 'b2b';
+  place_of_supply: string;
+  b2b: any;
+  sales_channel: string;
+  commission: { tier: string | null; reason: string; evidence?: any };
+  saved: false;
+}
+
+/** A line resolved out of an uploaded order sheet, ready for the basket. */
+export interface SheetResolvedLine {
+  productId: string;
+  variationId?: string;
+  sku: string;
+  name: string;
+  mrp?: number;
+  price: number;
+  stock?: number;
+  attributes?: Record<string, any>;
+  quantity: number;
+  unitPrice?: number;
+  discountPercent?: number;
+  /** Which row(s) of the spreadsheet became this line. */
+  sheetLines: number[];
+}
+
+export const salesAPI = {
+  /**
+   * WHAT THIS ORDER WOULD COST — and it writes nothing.
+   *
+   * The composer never adds money up in the browser: it sends the basket here
+   * on every change and renders the answer. Same body as `createManual`, same
+   * `priceStaffOrder` behind it, so the figure on screen is the figure that
+   * will be charged (docs/CHECKOUT_LOGIC.md §0).
+   */
+  previewManualOrder: async (payload: Record<string, any>): Promise<ManualOrderPreview> => {
+    const r = await api.post('/orders/manual/preview', payload);
+    return (r.data?.data ?? r.data) as ManualOrderPreview;
+  },
+
+  /** The four columns of the bulk-add sheet, with what each one does. */
+  orderSheetColumns: async (): Promise<Array<{ header: string; required: boolean; help: string }>> => {
+    const r = await api.get('/orders/manual/lines/sheet-columns');
+    return (r.data?.data ?? r.data)?.columns ?? [];
+  },
+
+  /**
+   * Turn an uploaded .xlsx/.csv into basket lines. Resolves only — the prices
+   * still come from the preview above. A SKU that does not exist comes back in
+   * `problems` with its spreadsheet line number; it is never dropped.
+   */
+  orderLinesFromSheet: async (file: File): Promise<{
+    lines: SheetResolvedLine[];
+    problems: Array<{ line: number; sku: string; reason: string }>;
+    read: number; matched: number; headers: string[];
+  }> => {
+    const form = new FormData();
+    form.append('file', file);
+    // The shared client defaults to JSON; without this multer receives no file (400).
+    const r = await api.post('/orders/manual/lines/from-sheet', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: BULK_TRANSFER_TIMEOUT_MS,
+    });
+    return r.data?.data ?? r.data;
   },
 };
 

@@ -106,7 +106,7 @@ const ConnectorInsights: React.FC = () => {
   if (loading) return <div className="p-8 text-sm text-gray-500">Loading insights…</div>;
 
   return (
-    <div className="mx-auto max-w-6xl p-6">
+    <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Search, Analytics &amp; Shopping</h1>

@@ -6,10 +6,13 @@ import {
 import { api } from '../../services/api';
 import { payload } from '@/lib/unwrap';
 import {
-  Page, PageHeader, Btn, FilterBar, Field, TextInput, SelectInput,
+  Page, PageHeader, Btn, FilterBar, Field, TextInput, SelectInput, SearchInput,
   StatCard, StatGrid, TableShell, THead, Th, TBody, Tr, Td, EmptyRow, EmptyState, Chip,
+  ExportMenu, TableSkeleton, type CsvColumn,
 } from '../../components/erp';
+import InfoTip from '../../components/common/InfoTip';
 import RefundDossier from '../../components/refunds/RefundDossier';
+import { exportsAPI } from '../../services/api';
 
 /**
  * REFUND AUTOMATION (migration 081). The plain-language screen for "a prepaid
@@ -33,6 +36,22 @@ const inr = (minor: any) => {
   const n = Number(minor);
   return Number.isFinite(n) ? `₹${(n / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—';
 };
+
+/** The queue as a spreadsheet — the same columns, in the same order. */
+const REFUND_CSV_COLUMNS: CsvColumn<any>[] = [
+  { key: 'created_at', label: 'Opened', format: (r) => String(r.created_at ?? '').slice(0, 10) },
+  { key: 'order_number', label: 'Order', format: (r) => r.order_number ?? '' },
+  { key: 'customer_name', label: 'Customer', format: (r) => r.customer_name ?? '' },
+  { key: 'amount_minor', label: 'Amount', money: true },
+  { key: 'method', label: 'How' },
+  { key: 'status', label: 'Where it is' },
+  { key: 'source', label: 'Why' },
+  { key: 'reason', label: 'Reason', format: (r) => r.reason ?? '' },
+  { key: 'reference', label: 'Reference', format: (r) => r.reference ?? '' },
+  { key: 'gateway_refund_id', label: 'Gateway refund id', format: (r) => r.gateway_refund_id ?? '' },
+  { key: 'executed_at', label: 'Paid out', format: (r) => String(r.executed_at ?? '').slice(0, 10) },
+  { key: 'gateway_error', label: 'Problem', format: (r) => r.gateway_error ?? r.rejected_reason ?? '' },
+];
 
 interface Refund {
   id: string;
@@ -127,6 +146,9 @@ const Refunds: React.FC = () => {
   const [list, setList] = useState<Refund[] | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [status, setStatus] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [find, setFind] = useState('');
   const [detail, setDetail] = useState<Refund | null>(null);
   const [msg, setMsg] = useState('');
   const [ok, setOk] = useState('');
@@ -164,12 +186,28 @@ const Refunds: React.FC = () => {
   const err = (e: any) => setMsg(e?.response?.data?.message ?? e?.message ?? 'Something went wrong.');
 
   const load = () => {
-    api.get('/refunds', { params: status ? { status } : {} })
+    setList(null);
+    api.get('/refunds', { params: { ...(status ? { status } : {}), ...(from ? { from } : {}), ...(to ? { to } : {}) } })
       .then((r) => setList(payload<Refund[]>(r) ?? []))
-      .catch(err);
+      .catch((e) => { setList([]); err(e); });
     api.get('/refunds/summary').then((r) => setSummary(payload<Summary>(r))).catch(() => {});
   };
-  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [status]);
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [status, from, to]);
+
+  /**
+   * `/refunds` filters on status and date, not on text, so this narrows the
+   * rows already fetched — and the label says so rather than implying a
+   * whole-ledger search that is not happening.
+   */
+  const shown = React.useMemo(() => {
+    const q = find.trim().toLowerCase();
+    if (!q || !list) return list ?? [];
+    return list.filter((r) => [r.order_number, r.customer_name, r.reason, r.reference, r.gateway_refund_id]
+      .some((v) => String(v ?? '').toLowerCase().includes(q)));
+  }, [list, find]);
+
+  const shownTotal = React.useMemo(
+    () => shown.reduce((s, r) => s + Number(r.amount_minor ?? 0), 0), [shown]);
 
   const openDetail = async (id: string) => {
     setMsg(''); setOk(''); setReason(''); setReference(''); setGlassReason('');
@@ -577,6 +615,12 @@ const Refunds: React.FC = () => {
 
       {/* QUEUE */}
       <FilterBar>
+        <Field
+          className="min-w-[16rem]"
+          label={<span className="inline-flex items-center gap-1">Find <InfoTip text="Narrows the refunds already listed by order number, customer, reason or reference. Use Show and the dates to change what is fetched." /></span>}
+        >
+          <SearchInput placeholder="Order, customer, reason, reference…" value={find} onChange={(e) => setFind(e.target.value)} />
+        </Field>
         <Field label="Show">
           <SelectInput value={status} onChange={(e) => setStatus(e.target.value)}>
             {STATUS_FILTERS.map((s) => (
@@ -584,6 +628,29 @@ const Refunds: React.FC = () => {
             ))}
           </SelectInput>
         </Field>
+        <Field label={<span className="inline-flex items-center gap-1">Opened from <InfoTip text="When the refund was RAISED — not when the money went out. A request with no paid-out date is money you still owe." /></span>}>
+          <TextInput type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+        </Field>
+        <Field label="to"><TextInput type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
+        {(find || status || from || to) && (
+          <Btn variant="ghost" onClick={() => { setFind(''); setStatus(''); setFrom(''); setTo(''); }}>Clear</Btn>
+        )}
+        <div className="ml-auto flex items-end gap-2">
+          <ExportMenu filename="refunds" columns={REFUND_CSV_COLUMNS} rows={shown} canExport={shown.length > 0} />
+          <Btn
+            variant="outline"
+            title="Build the whole refund register as an Excel workbook. It appears in Downloads when it is ready."
+            onClick={async () => {
+              setMsg(''); setOk('');
+              try {
+                await exportsAPI.request('refunds', { status: status || undefined, from: from || undefined, to: to || undefined });
+                setOk('Building your workbook — it will appear in Downloads when it is ready.');
+              } catch (e: any) { err(e); }
+            }}
+          >
+            Export all
+          </Btn>
+        </div>
       </FilterBar>
 
       <TableShell>
@@ -591,17 +658,18 @@ const Refunds: React.FC = () => {
           <THead>
             <Th>Order / customer</Th><Th>Why</Th><Th num>Amount</Th><Th>How</Th><Th>Where it is</Th><Th>Opened</Th>
           </THead>
+          {list == null && <TableSkeleton cols={6} rows={5} />}
           <TBody>
-            {list == null ? (
-              <EmptyRow colSpan={6}>Loading refunds…</EmptyRow>
-            ) : list.length === 0 ? (
+            {list != null && shown.length === 0 ? (
               <EmptyRow colSpan={6}>
                 <EmptyState
-                  title="No refunds to deal with"
-                  description="When a prepaid parcel comes back or you issue a cash credit note, the refund shows up here automatically."
+                  title={find || status || from || to ? 'Nothing matches those filters' : 'No refunds to deal with'}
+                  description={find || status || from || to
+                    ? 'Clear the filters to see every refund.'
+                    : 'When a prepaid parcel comes back or you issue a cash credit note, the refund shows up here automatically.'}
                 />
               </EmptyRow>
-            ) : list.map((r) => (
+            ) : shown.map((r) => (
               <Tr key={r.id} className="cursor-pointer" onClick={() => openDetail(r.id)}>
                 <Td>
                   {r.order_number || '—'}
@@ -625,6 +693,17 @@ const Refunds: React.FC = () => {
               </Tr>
             ))}
           </TBody>
+          {shown.length > 0 && (
+            <tfoot className="border-t-2 border-gray-200 bg-gray-50 text-sm font-semibold text-gray-900">
+              <tr>
+                <td className="px-4 py-2.5" colSpan={2}>
+                  {shown.length} refund{shown.length === 1 ? '' : 's'}{find && list ? ` of ${list.length}` : ''}
+                </td>
+                <td className="px-4 py-2.5 text-right tabular-nums">{inr(shownTotal)}</td>
+                <td colSpan={3} />
+              </tr>
+            </tfoot>
+          )}
         </table>
       </TableShell>
     </Page>

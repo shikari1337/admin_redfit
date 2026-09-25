@@ -7,6 +7,7 @@ import {
   StatusChip, TableShell, THead, Th, TBody, Tr, Td,
   ExportMenu, Pagination, DrillLink, useListControls, type CsvColumn,
 } from '../../components/erp';
+import InfoTip from '../../components/common/InfoTip';
 
 interface Account {
   id: string;
@@ -120,8 +121,8 @@ const ChartOfAccounts: React.FC = () => {
   return (
     <Page>
       <PageHeader
-        title="Chart of Accounts"
-        description="The seeded double-entry spine is locked; add, rename or retire your own accounts. Deactivated accounts keep their history but take no new posts."
+        title={<span className="inline-flex items-center gap-1.5">Chart of Accounts <InfoTip text="The seeded double-entry spine is locked; add, rename or retire your own accounts. Deactivated accounts keep their history but take no new posts." /></span>}
+        description="Your accounts — add, rename or retire your own."
         actions={
           <div className="flex items-center gap-2">
             <ExportMenu filename="chart-of-accounts" columns={coaCols} rows={filtered} disabled={!filtered.length} />

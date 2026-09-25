@@ -29,10 +29,22 @@ export type CsvColumn<T> = {
 /** UTF-8 byte-order mark — makes Excel open the file as UTF-8 (₹/Devanagari survive). */
 const BOM = '﻿';
 
-/** RFC-4180 escape one cell: quote when it holds a comma / quote / CR / LF; double embedded quotes. */
+/**
+ * RFC-4180 escape one cell: quote when it holds a comma / quote / CR / LF;
+ * double embedded quotes.
+ *
+ * FORMULA INJECTION: Excel and Sheets execute a cell that begins `=`, `+`, `-`
+ * or `@`, so a product name somebody typed can run when the export is opened.
+ * A leading apostrophe makes the cell literal. It is applied ONLY to text that
+ * is not itself a number — `-50` must stay the number minus fifty, which is why
+ * the ad-hoc guard some pages carried (a bare `/^[=+\-@]/`) could not be lifted
+ * here unchanged.
+ */
+const NUMERIC = /^-?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
 function escapeCell(value: unknown): string {
   if (value === null || value === undefined) return '';
-  const s = typeof value === 'object' ? JSON.stringify(value) : String(value);
+  let s = typeof value === 'object' ? JSON.stringify(value) : String(value);
+  if (/^[=+\-@\t\r]/.test(s) && !NUMERIC.test(s)) s = `'${s}`;
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 

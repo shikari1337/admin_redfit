@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FaArrowLeft, FaSave, FaPlus, FaTrash } from 'react-icons/fa';
 import { productsAPI, uploadAPI, taxRulesAPI, brandsAPI, categoriesAPI } from '../services/api';
+import { resolveTaxRate, describeTaxRate } from '../components/product/taxRate';
 import type { ProductVariation } from '../types/productForm';
 import { useAuth } from '../contexts/AuthContext';
 import ProductInventoryPanel from '../components/product/ProductInventoryPanel';
@@ -145,6 +146,11 @@ const VariationEditPage: React.FC = () => {
   // resolved to the array index after the product loads. A bare number is still
   // accepted so old /variations/0/edit links keep working.
   const resolvedIdx = useRef<number>(-1);
+  // The variation exactly as loaded — a save sends only fields that differ
+  // from it. Re-sending the whole loaded row silently reverted anything an
+  // import or another tab changed since this page opened (the full-object
+  // overwrite class, COMMON_MISTAKES #199/#223).
+  const loadedRef = useRef<Record<string, any> | null>(null);
   const resolveIdx = (vars: any[]): number => {
     const key = decodeURIComponent(variationKey ?? '');
     let i = vars.findIndex((x: any) =>
@@ -177,7 +183,9 @@ const VariationEditPage: React.FC = () => {
       }
       // P1: the raw row is snake_case — normalize into the camel keys the page
       // binds so saved values actually display (price, originalPrice, …).
-      setVariation(normalizeVariationRow(v, idx) as ProductVariation);
+      const loaded = normalizeVariationRow(v, idx) as ProductVariation;
+      loadedRef.current = JSON.parse(JSON.stringify(loaded));
+      setVariation(loaded);
       // Seed the flat wholesale input from this variation's generic slab
       // (variation-scoped, no tier, min_qty 1, fixed) — first match wins.
       const slabRows: Slab[] = (prod?.b2bPricing ?? prod?.b2b_pricing ?? []).map(normalizeSlab);
@@ -223,9 +231,17 @@ const VariationEditPage: React.FC = () => {
     try {
       const idx = resolvedIdx.current;
       const varUuid = String(variation.id || '');
-      // Body = the existing row merged with the edited fields. Per-variation
-      // categories only when the user touched them (server REPLACES on presence).
-      const varBody: any = { ...((product.variations || [])[idx] || {}), ...variation };
+      // Body = ONLY the fields edited since load (a partial update — the
+      // endpoint SETs just the keys it receives). An unsaved row (no UUID)
+      // still needs the whole object for the product PUT below.
+      const changed: any = {};
+      const before = loadedRef.current || {};
+      for (const [k, val] of Object.entries(variation)) {
+        if (JSON.stringify(val) !== JSON.stringify((before as any)[k])) changed[k] = val;
+      }
+      const varBody: any = UUID_RE.test(varUuid)
+        ? changed
+        : { ...((product.variations || [])[idx] || {}), ...variation };
       if (catDirty) varBody.categories = catSelection.map(c => c.id);
       else delete varBody.categories;
 
@@ -256,8 +272,10 @@ const VariationEditPage: React.FC = () => {
         await productsAPI.update(product._id, { b2bPricing: kept });
       }
       navigate(`/products/${productSlug}/edit`);
-    } catch {
-      alert('Failed to save variation');
+    } catch (err: any) {
+      // The server names the reason — a slug already in use, a malformed one.
+      const msg = err?.response?.data?.error?.message || err?.response?.data?.message || err?.message;
+      alert(msg ? `Could not save this variant: ${msg}` : 'Failed to save variation');
     } finally {
       setSaving(false);
     }
@@ -356,7 +374,7 @@ const VariationEditPage: React.FC = () => {
   const hasOwnSalePrice = num(v.salePrice) != null;
 
   return (
-    <div className="max-w-4xl mx-auto p-6 space-y-5">
+    <div className="p-6 space-y-5">
       {/* ══ Sticky header: back · name · SKU · effective price · Save ═══════ */}
       <div className="sticky top-14 z-20 -mx-6 -mt-6 px-6 py-3 bg-gray-50/95 backdrop-blur supports-[backdrop-filter]:bg-gray-50/80 border-b border-gray-200">
         <div className="flex items-center justify-between gap-4">
@@ -424,14 +442,20 @@ const VariationEditPage: React.FC = () => {
                 placeholder="e.g. Abies canadensis CH 30C 30ml"
               />
             </Field>
-            <Field label="Slug" htmlFor="vSlug" help="The URL piece for this variant — lowercase letters, numbers and dashes.">
+            <Field
+              label="Page address"
+              htmlFor="vSlug"
+              help="This variant's own web address. Leave it blank and it is made from brand, product, potency, size and SKU. If you change it, the old address keeps working — it forwards to the new one."
+            >
               <input
                 id="vSlug" type="text"
                 value={v.slug || ''}
                 onChange={e => handleChange('slug', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-'))}
                 className={`${fieldInputCls} font-mono`}
-                placeholder="e.g. abies-canadensis-ch-30c-30ml"
+                placeholder="made automatically"
+                maxLength={190}
               />
+              {v.slug ? <p className="mt-1 text-xs text-gray-500 font-mono break-all">/{v.slug}</p> : null}
             </Field>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -626,7 +650,12 @@ const VariationEditPage: React.FC = () => {
                   placeholder={prodHsn ? `Inherits ${prodHsn}` : 'e.g. 3004'}
                 />
               </Field>
-              <Field label="Tax rule" htmlFor="vTaxRule" help="GST vs IGST is auto-determined from the delivery address.">
+              <Field
+                label="Tax rule"
+                htmlFor="vTaxRule"
+                // Same resolver as the product form: variation rule → product rule → store default.
+                note={describeTaxRate(resolveTaxRate(taxRules, product?.tax_rule_id ?? product?.taxRuleId, v.taxRuleId))}
+              >
                 <select
                   id="vTaxRule"
                   value={v.taxRuleId || ''}

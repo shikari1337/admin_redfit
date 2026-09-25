@@ -72,7 +72,11 @@ function pct(j: DataJob): number {
   return Math.min(100, Math.max(3, Math.round(((j.done_rows ?? 0) / total) * 100)));
 }
 
-export default function DownloadsPanel({ refreshToken }: { refreshToken?: number }) {
+export default function DownloadsPanel({
+  refreshToken,
+  /** Mounted inside another card (SheetsBar): drop this panel's own frame. */
+  embedded = false,
+}: { refreshToken?: number; embedded?: boolean }) {
   const [jobs, setJobs] = useState<DataJob[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [unavailable, setUnavailable] = useState(false);
@@ -163,11 +167,13 @@ export default function DownloadsPanel({ refreshToken }: { refreshToken?: number
   if (!jobs.length && !error) return null;
 
   return (
-    <div style={{ border: '1px solid var(--n-200)', borderRadius: 8, background: 'var(--surface)', marginBottom: 16 }}>
-      <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--n-100)', display: 'flex',
-                    alignItems: 'center', justifyContent: 'space-between' }}>
-        <strong style={{ fontSize: 14 }}>Downloads &amp; imports</strong>
-        <span style={{ fontSize: 12, color: 'var(--n-500)' }}>
+    <div style={embedded
+      ? { borderTop: '1px solid var(--n-200)', background: 'var(--surface)' }
+      : { border: '1px solid var(--n-200)', borderRadius: 8, background: 'var(--surface)', marginBottom: 16 }}>
+      <div style={{ padding: '8px 14px', borderBottom: '1px solid var(--n-100)', display: 'flex',
+                    alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+        <strong style={{ fontSize: 13 }}>Downloads &amp; imports</strong>
+        <span style={{ fontSize: 11.5, color: 'var(--n-500)' }}>
           Files you asked for and sheets you sent back. Both keep going if you leave this page.
         </span>
       </div>

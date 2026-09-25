@@ -8,6 +8,7 @@ import {
 } from '../../components/erp';
 import type { CsvColumn } from '../../components/erp';
 import { useGstRegistrations, RegistrationSelect } from './gstinFilter';
+import InfoTip from '../../components/common/InfoTip';
 
 function monthRange(ym: string): { from: string; to: string } {
   const [y, m] = ym.split('-').map(Number);
@@ -70,8 +71,8 @@ const Gstr3b: React.FC = () => {
   return (
     <Page>
       <PageHeader
-        title="GSTR-3B Summary"
-        description="A read-only monthly check of tax collected vs input credit — for reconciling against your books before you file on the GST portal. This is not a filing."
+        title={<span className="inline-flex items-center gap-1.5">GSTR-3B Summary <InfoTip text="A read-only monthly check of tax collected vs input credit — for reconciling against your books before you file on the GST portal. This is not a filing." /></span>}
+        description="Tax collected vs input credit for the month — a check, not a filing."
         actions={
           <div className="flex items-end gap-2">
             <RegistrationSelect regs={regs} value={gstin} onChange={(g) => { setGstin(g); load(month, g); }} />

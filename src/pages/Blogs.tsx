@@ -11,6 +11,12 @@ import { FaPlus, FaEdit, FaTrash, FaToggleOn, FaToggleOff } from 'react-icons/fa
 import StatusBadge from '../components/order/StatusBadge';
 import { Pagination } from '@/components/erp';
 import { formatDate } from '../utils/date';
+import { toast } from '@/hooks/use-toast';
+
+/** A message that used to be a blocking alert() — now a toast (the shell mounts the Toaster). */
+const notify = (message: string) =>
+  toast({ title: message, variant: /fail|could not|error/i.test(message) ? 'destructive' : 'default' });
+
 
 interface BlogPost {
   id: string;
@@ -92,7 +98,7 @@ const Blogs: React.FC = () => {
       await api.delete(`/blog-posts/${post.id}`);
       fetchPosts();
     } catch (err: any) {
-      alert(err?.response?.data?.message || 'Failed to delete post');
+      notify(err?.response?.data?.message || 'Failed to delete post');
     }
   };
 
@@ -102,12 +108,12 @@ const Blogs: React.FC = () => {
       await api.put(`/blog-posts/${post.id}`, { status: newStatus });
       fetchPosts();
     } catch (err: any) {
-      alert(err?.response?.data?.message || 'Failed to update status');
+      notify(err?.response?.data?.message || 'Failed to update status');
     }
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
+    <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground">Blog Posts</h1>

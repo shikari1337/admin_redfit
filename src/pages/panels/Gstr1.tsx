@@ -6,6 +6,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { Page, PageHeader, Btn, TextInput, ExportMenu } from '../../components/erp';
 import type { CsvColumn } from '../../components/erp';
 import { useGstRegistrations, RegistrationSelect } from './gstinFilter';
+import InfoTip from '../../components/common/InfoTip';
 
 function monthRange(ym: string): { from: string; to: string } {
   const [y, m] = ym.split('-').map(Number);
@@ -103,8 +104,8 @@ const Gstr1: React.FC = () => {
   return (
     <Page>
       <PageHeader
-        title="GSTR-1 Draft"
-        description="Outward supplies from order GST snapshots. DRAFT for review — filing goes through your CA/GSP."
+        title={<span className="inline-flex items-center gap-1.5">GSTR-1 Draft <InfoTip text="Outward supplies from order GST snapshots. DRAFT for review — filing goes through your CA/GSP." /></span>}
+        description="Outward supplies for the period — a draft to review."
         actions={
           <div className="flex items-end gap-2">
             <RegistrationSelect regs={regs} value={gstin} onChange={(g) => { setGstin(g); load(month, g); }} />

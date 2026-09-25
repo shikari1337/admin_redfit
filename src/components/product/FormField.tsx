@@ -59,8 +59,11 @@ export const Field: React.FC<{
   where?: React.ReactNode;
   /** The ✨ control for this field (an <AiTextButton/>), rendered on the label row. */
   ai?: React.ReactNode;
+  /** A short LIVE fact shown under the control (a computed rate, a discount).
+   *  Static help belongs in `help`, which is shown only behind the (i). */
+  note?: React.ReactNode;
   children: React.ReactNode;
-}> = ({ label, help, required, error, htmlFor, className = '', labelRight, info, where, ai, children }) => (
+}> = ({ label, help, required, error, htmlFor, className = '', labelRight, info, where, ai, note, children }) => (
   <div className={className}>
     <div className="flex items-center justify-between gap-2 mb-1">
       <label htmlFor={htmlFor} className="text-[13px] font-medium text-gray-700 inline-flex items-center gap-1.5">
@@ -75,7 +78,8 @@ export const Field: React.FC<{
       )}
     </div>
     {children}
-    {help && !error && <p className="text-xs text-gray-400 mt-1">{help}</p>}
+    {/* Prompt 7: help is a tooltip, never a paragraph under every field. */}
+    {note && !error && <p className="text-xs text-gray-500 mt-1">{note}</p>}
     {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
   </div>
 );

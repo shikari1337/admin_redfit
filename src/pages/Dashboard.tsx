@@ -8,6 +8,8 @@ import { fmtRupees } from '../lib/money';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { useAuth } from '../contexts/AuthContext';
 import { inventoryAPI } from '../services/api';
+import { ChevronDown } from 'lucide-react';
+import RoleHome from '../components/home/RoleHome';
 
 /**
  * Narrowing funnel bar — the same visual GrowthAnalytics uses for the
@@ -70,15 +72,22 @@ const ProductRow: React.FC<{ id: string; name: string; sku?: string; sub: React.
 );
 
 /**
- * Store-health home dashboard. `commerce` (sales/orders/traffic, B2B/B2C and
- * payment splits, top sellers) is always fetched — it's the store owner's
- * baseline view and was never gated. Every OTHER section (Q&A, reviews,
- * low-stock, shipping funnel, marketing funnel + campaigns, GA4) only fetches
- * once the store's module map has loaded AND the signed-in role actually has
- * the matching module + permission — a `staff` user landing here by default
- * has no `marketing.read`, so that section simply never fires a doomed request.
+ * Store performance — the charts that used to BE the home page.
+ *
+ * It is no longer what `/dashboard` opens on: the home now leads with the work
+ * (`components/home/RoleHome.tsx`) and this sits underneath, mounted only when
+ * somebody asks for it. That is not a demotion — it is ~10 requests, several of
+ * them charts, which nobody should pay for before they have seen what needs
+ * doing.
+ *
+ * `commerce` (sales/orders/traffic, B2B/B2C and payment splits, top sellers) is
+ * always fetched. Every OTHER section (Q&A, reviews, low-stock, shipping funnel,
+ * marketing funnel + campaigns, GA4) only fetches once the store's module map
+ * has loaded AND the signed-in role actually has the matching module +
+ * permission — a `staff` user has no `marketing.read`, so that section simply
+ * never fires a doomed request.
  */
-const Dashboard: React.FC = () => {
+const StorePerformance: React.FC = () => {
   const { range, preset, setPreset, custom, setCustom } = useDateRange('today', DASHBOARD_PRESETS);
   const { hasPerm, canAccess, modulesLoaded } = useAuth();
 
@@ -328,6 +337,52 @@ const Dashboard: React.FC = () => {
             </div>
           )}
         </>
+      )}
+    </div>
+  );
+};
+
+/**
+ * `/dashboard` — the home. The work first, the numbers under it, and the full
+ * performance view one click away for whoever wants it.
+ */
+const Dashboard: React.FC = () => {
+  const { hasPerm } = useAuth();
+  const [showPerformance, setShowPerformance] = useState(false);
+  // Only an order-reader has anything to see in here; the panel's own first
+  // call is `/analytics/panels/commerce`, which needs `orders.read`.
+  const canSeePerformance = hasPerm('orders.read');
+
+  return (
+    <div className="space-y-8">
+      <RoleHome />
+      {canSeePerformance && (
+        <section>
+          {showPerformance ? (
+            <>
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-ink-mute">Store performance</h2>
+                <button
+                  type="button"
+                  onClick={() => setShowPerformance(false)}
+                  className="text-xs text-ink-mute underline hover:text-ink"
+                >
+                  Hide
+                </button>
+              </div>
+              <StorePerformance />
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowPerformance(true)}
+              className="flex w-full items-center justify-between rounded-xl border border-line bg-surface px-4 py-3 text-sm text-ink-soft hover:bg-surface-2"
+            >
+              <span>Store performance — sales, funnels, top sellers, stock</span>
+              <ChevronDown className="size-4 text-ink-mute" />
+            </button>
+          )}
+        </section>
       )}
     </div>
   );

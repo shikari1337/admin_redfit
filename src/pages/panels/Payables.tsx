@@ -5,6 +5,7 @@ import {
   Page, PageHeader, Btn, Field, TextInput, SelectInput, SearchInput, Chip, StatCard, StatGrid,
   TableShell, THead, Th, TBody, Tr, Td, inr, ExportMenu, Pagination, type CsvColumn,
 } from '../../components/erp';
+import InfoTip from '../../components/common/InfoTip';
 
 /**
  * Payables (AP) — "Money you owe your vendors", with the MSME 43B(h) warning
@@ -148,8 +149,8 @@ const Payables: React.FC = () => {
   return (
     <Page>
       <PageHeader
-        title="Payables (AP)"
-        description="Money you owe your vendors — with the MSME 45-day (Section 43B(h)) warning. Older-than-45-day dues to Micro/Small vendors are not tax-deductible until you pay them."
+        title={<span className="inline-flex items-center gap-1.5">Payables (AP) <InfoTip text="Money you owe your vendors — with the MSME 45-day (Section 43B(h)) warning. Older-than-45-day dues to Micro/Small vendors are not tax-deductible until you pay them." /></span>}
+        description="What you owe your vendors, and how long it has been owed."
         actions={
           <div className="flex items-end gap-2">
             <Field label="As of"><TextInput type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} /></Field>

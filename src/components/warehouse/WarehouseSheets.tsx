@@ -152,15 +152,42 @@ const WarehouseSheets: React.FC<{ canWrite: boolean; warehouseCode?: string | nu
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-1.5">
+      {/*
+        ONE LIST, not a row of ten unlabelled tabs.
+        A tab said only the sheet's name, so choosing between "Locations",
+        "Location capacity" and "Warehouse layout" meant clicking each in turn
+        to read what a row of it is. Every sheet now states that on the line you
+        pick it from, and the pair that says the same thing the long way round
+        is marked as the advanced route rather than sitting in the same row.
+      */}
+      <div className="overflow-hidden rounded-lg border border-slate-200">
         {sheets.map((s) => (
           <React.Fragment key={s.key}>
             {s.key === ADVANCED_FROM && sheets.some((x) => x.key !== ADVANCED_FROM) && (
-              <span className="mx-1 hidden h-5 w-px bg-slate-200 sm:block" aria-hidden />
+              <div className="border-y border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                The same thing, one level at a time
+              </div>
             )}
-            <button onClick={() => { setActive(s.key); setResult(null); setError(''); setQueued(''); }}
-              className={`rounded-md px-3 py-1.5 text-sm font-medium ${active === s.key ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
-              {s.label}
+            <button
+              onClick={() => { setActive(s.key); setResult(null); setError(''); setQueued(''); }}
+              aria-current={active === s.key}
+              className={`flex w-full items-start gap-3 border-b border-slate-100 px-3 py-2 text-left last:border-b-0 ${
+                active === s.key ? 'bg-slate-900/[0.04]' : 'hover:bg-slate-50'
+              }`}
+            >
+              <span
+                className={`mt-0.5 h-2 w-2 shrink-0 rounded-full ${active === s.key ? 'bg-slate-900' : 'bg-slate-300'}`}
+                aria-hidden
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium text-slate-900">{s.label}</span>
+                {s.row_is && <span className="block truncate text-xs text-slate-500">{s.row_is}</span>}
+              </span>
+              {!s.importable && (
+                <span className="mt-0.5 shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
+                  download only
+                </span>
+              )}
             </button>
           </React.Fragment>
         ))}

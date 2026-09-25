@@ -10,6 +10,7 @@ import {
   Page, PageHeader, Btn, SectionCard, TableShell, THead, Th, TBody, Tr, Td, EmptyRow,
   ExportMenu, SearchInput, type CsvColumn,
 } from '../../components/erp';
+import InfoTip from '../../components/common/InfoTip';
 
 /**
  * Document Library — a Zoho Documents-style general file cabinet for the store's
@@ -169,8 +170,8 @@ const DocumentLibrary: React.FC = () => {
   return (
     <Page>
       <PageHeader
-        title="Document Library"
-        description="Your store's file cabinet — agreements, licences, certificates and scanned documents, organised in folders. Separate from generated invoices and record attachments."
+        title={<span className="inline-flex items-center gap-1.5">Document Library <InfoTip text="Your store's file cabinet — agreements, licences, certificates and scanned documents, organised in folders. Separate from generated invoices and record attachments." /></span>}
+        description="Your file cabinet — agreements, licences, certificates."
         actions={
           <div className="flex gap-2">
             <ExportMenu filename={`documents-${selectedName}`} columns={fileCols} rows={visibleFiles} canExport={canRead} disabled={loadingFiles} />

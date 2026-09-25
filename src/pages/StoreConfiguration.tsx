@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { api } from '../services/api';
 import { useSettingsSection } from '../hooks/useSettingsSection';
 import { Button } from '@/components/ui/button';
@@ -101,7 +101,7 @@ const StoreConfiguration: React.FC = () => {
   }
 
   return (
-    <div className="max-w-4xl mx-auto pb-24">
+    <div className="pb-24">
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
         <div>
@@ -124,6 +124,19 @@ const StoreConfiguration: React.FC = () => {
             {saving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Check className="h-4 w-4" /> Save changes</>}
           </Button>
         </div>
+      </div>
+
+      {/* The rest of the store's identity lives on two other screens, and people
+          looked for it here first. Say where, rather than leaving them to find
+          out that CIN and the drug licence are printed from the invoice. */}
+      <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-line bg-surface-2 px-4 py-2.5 text-sm text-ink-soft">
+        <span>Also part of who you are:</span>
+        <Link to="/settings/invoice" className="underline hover:text-ink" title="CIN and licences are kept with the invoice settings">
+          Invoice — GSTIN, CIN, FSSAI and drug licences printed on every bill
+        </Link>
+        <Link to="/products/companies" className="underline hover:text-ink">
+          Companies — the legal entities behind your brands
+        </Link>
       </div>
 
       {error && (
@@ -450,7 +463,7 @@ const StoreConfiguration: React.FC = () => {
 
       {/* Sticky save bar */}
       <div className="fixed bottom-0 left-0 right-0 border-t bg-background/95 backdrop-blur px-4 py-3 z-20">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
+        <div className="flex items-center justify-between">
           <span className="text-xs text-muted-foreground">
             Saved as public store settings — the storefront reads these live.
           </span>

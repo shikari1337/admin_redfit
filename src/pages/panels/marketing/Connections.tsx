@@ -194,7 +194,7 @@ const Connections: React.FC = () => {
   if (loading) return <div className="p-8 text-sm text-gray-500">Loading connections…</div>;
 
   return (
-    <div className="mx-auto max-w-5xl p-6">
+    <div>
       <div className="mb-6">
         <h1 className="text-2xl font-bold">Platform Connections</h1>
         <p className="mt-1 text-sm text-gray-600">

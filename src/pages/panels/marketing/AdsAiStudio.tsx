@@ -141,7 +141,7 @@ const AdsAiStudio: React.FC = () => {
     );
 
   return (
-    <div className="mx-auto max-w-6xl p-6">
+    <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">AI Ads Studio</h1>

@@ -1,219 +1,236 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
+const Login = React.lazy(() => import('./pages/Login'));
+const Dashboard = React.lazy(() => import('./pages/Dashboard'));
 
-import Products from './pages/Products';
-import Bundles from './pages/Bundles';
-import AbandonedCarts from './pages/AbandonedCarts';
-import AbandonedCartDetail from './pages/AbandonedCartDetail';
-import Categories from './pages/Categories';
-import Brands from './pages/Brands';
-import Companies from './pages/Companies';
-import Attributes from './pages/Attributes';
-import SizeCharts from './pages/SizeCharts';
-import Tags from './pages/Tags';
-import TagForm from './pages/TagForm';
-import Specifications from './pages/Specifications';
-import SpecificationForm from './pages/SpecificationForm';
-import Orders from './pages/Orders';
-import ProductForm from './pages/ProductForm';
-import ProductImportExport from './pages/ProductImportExport';
-import BundleForm from './pages/BundleForm';
-import OrderDetail from './pages/OrderDetail';
-import ManualOrderCreate from './pages/ManualOrderCreate';
-import FAQs from './pages/FAQs';
-import Reviews from './pages/Reviews';
-import ProductQA from './pages/ProductQA';
-import Wishlist from './pages/Wishlist';
-import Coupons from './pages/Coupons';
-import CouponForm from './pages/CouponForm';
-import ProductSectionsManager from './pages/ProductSectionsManager';
-import ContactSettings from './pages/ContactSettings';
-import PaymentDiscountSettings from './pages/PaymentDiscountSettings';
-import SmsTemplates from './pages/SmsTemplates';
-import CartRecoveryAutomation from './pages/CartRecoveryAutomation';
-import ApiIntegrationSettings from './pages/ApiIntegrationSettings';
-import PaymentGatewaySettings from './pages/PaymentGatewaySettings';
-import GstSettings from './pages/GstSettings';
-import OrderNumbering from './pages/OrderNumbering';
-import InvoiceSettings from './pages/InvoiceSettings';
-import Settings from './pages/Settings';
-import SettingsCenter from './pages/SettingsCenter';
-import ShippingSettings from './pages/ShippingSettings';
-import Markets from './pages/Markets';
-import Warehouses from './pages/Warehouses';
-import Shipments from './pages/Shipments';
-import Users from './pages/Users';
-import UserDetail from './pages/UserDetail';
-import Customers from './pages/Customers';
-import CustomerDuplicates from './pages/CustomerDuplicates';
-import Gallery from './pages/Gallery';
-import Logs from './pages/Logs';
-import Pages from './pages/Pages';
-import PageForm from './pages/PageForm';
+const Products = React.lazy(() => import('./pages/Products'));
+const Bundles = React.lazy(() => import('./pages/Bundles'));
+const AbandonedCarts = React.lazy(() => import('./pages/AbandonedCarts'));
+const AbandonedCartDetail = React.lazy(() => import('./pages/AbandonedCartDetail'));
+const Categories = React.lazy(() => import('./pages/Categories'));
+const Brands = React.lazy(() => import('./pages/Brands'));
+const Companies = React.lazy(() => import('./pages/Companies'));
+const Attributes = React.lazy(() => import('./pages/Attributes'));
+const SizeCharts = React.lazy(() => import('./pages/SizeCharts'));
+const Tags = React.lazy(() => import('./pages/Tags'));
+const TagForm = React.lazy(() => import('./pages/TagForm'));
+const Specifications = React.lazy(() => import('./pages/Specifications'));
+const SpecificationForm = React.lazy(() => import('./pages/SpecificationForm'));
+const Orders = React.lazy(() => import('./pages/Orders'));
+const ProductForm = React.lazy(() => import('./pages/ProductForm'));
+const ProductImportExport = React.lazy(() => import('./pages/ProductImportExport'));
+const BundleForm = React.lazy(() => import('./pages/BundleForm'));
+const OrderDetail = React.lazy(() => import('./pages/OrderDetail'));
+const ManualOrderCreate = React.lazy(() => import('./pages/ManualOrderCreate'));
+const FAQs = React.lazy(() => import('./pages/FAQs'));
+const Reviews = React.lazy(() => import('./pages/Reviews'));
+const ProductQA = React.lazy(() => import('./pages/ProductQA'));
+const Wishlist = React.lazy(() => import('./pages/Wishlist'));
+const Coupons = React.lazy(() => import('./pages/Coupons'));
+const CouponForm = React.lazy(() => import('./pages/CouponForm'));
+const ProductSectionsManager = React.lazy(() => import('./pages/ProductSectionsManager'));
+const ContactSettings = React.lazy(() => import('./pages/ContactSettings'));
+const PaymentDiscountSettings = React.lazy(() => import('./pages/PaymentDiscountSettings'));
+const SmsTemplates = React.lazy(() => import('./pages/SmsTemplates'));
+const CartRecoveryAutomation = React.lazy(() => import('./pages/CartRecoveryAutomation'));
+const ApiIntegrationSettings = React.lazy(() => import('./pages/ApiIntegrationSettings'));
+const PaymentGatewaySettings = React.lazy(() => import('./pages/PaymentGatewaySettings'));
+const GstSettings = React.lazy(() => import('./pages/GstSettings'));
+const OrderNumbering = React.lazy(() => import('./pages/OrderNumbering'));
+const InvoiceSettings = React.lazy(() => import('./pages/InvoiceSettings'));
+const Settings = React.lazy(() => import('./pages/Settings'));
+const SettingsCenter = React.lazy(() => import('./pages/SettingsCenter'));
+const ShippingSettings = React.lazy(() => import('./pages/ShippingSettings'));
+const Markets = React.lazy(() => import('./pages/Markets'));
+const Warehouses = React.lazy(() => import('./pages/Warehouses'));
+const Shipments = React.lazy(() => import('./pages/Shipments'));
+const Users = React.lazy(() => import('./pages/Users'));
+const UserDetail = React.lazy(() => import('./pages/UserDetail'));
+const Customers = React.lazy(() => import('./pages/Customers'));
+const CustomerDuplicates = React.lazy(() => import('./pages/CustomerDuplicates'));
+const Gallery = React.lazy(() => import('./pages/Gallery'));
+const Logs = React.lazy(() => import('./pages/Logs'));
+const Pages = React.lazy(() => import('./pages/Pages'));
+const PageForm = React.lazy(() => import('./pages/PageForm'));
 // Lazy: GrapesJS is ~1 MB gzip and only this route needs it.
 const PageBuilder = React.lazy(() => import('./pages/PageBuilder'));
-import AppearanceMenus from './pages/AppearanceMenus';
-import AppearanceStyle from './pages/AppearanceStyle';
-import Themes from './pages/Themes';
-import ThemeCustomizer from './pages/ThemeCustomizer';
-import AppearanceProducts from './pages/AppearanceProducts';
-import TrustBadges from './pages/TrustBadges';
-import AppearanceBanners from './pages/AppearanceBanners';
-import Leads from './pages/Leads';
-import Staff from './pages/Staff';
-import Channels from './pages/Channels';
-import ChannelAllocation from './pages/panels/ChannelAllocation';
-import ChannelMapping from './pages/ChannelMapping';
-import ChannelImport from './pages/ChannelImport';
-import ChannelDaily from './pages/ChannelDaily';
+const AppearanceMenus = React.lazy(() => import('./pages/AppearanceMenus'));
+const AppearanceStyle = React.lazy(() => import('./pages/AppearanceStyle'));
+const Themes = React.lazy(() => import('./pages/Themes'));
+const ThemeCustomizer = React.lazy(() => import('./pages/ThemeCustomizer'));
+const AppearanceProducts = React.lazy(() => import('./pages/AppearanceProducts'));
+const TrustBadges = React.lazy(() => import('./pages/TrustBadges'));
+const AppearanceBanners = React.lazy(() => import('./pages/AppearanceBanners'));
+const Leads = React.lazy(() => import('./pages/Leads'));
+const Staff = React.lazy(() => import('./pages/Staff'));
+const Channels = React.lazy(() => import('./pages/Channels'));
+const ChannelAllocation = React.lazy(() => import('./pages/panels/ChannelAllocation'));
+const ChannelMapping = React.lazy(() => import('./pages/ChannelMapping'));
+const ChannelImport = React.lazy(() => import('./pages/ChannelImport'));
+const ChannelDaily = React.lazy(() => import('./pages/ChannelDaily'));
 import Layout from './components/Layout';
-import { ProtectedModuleRoute } from './components/ProtectedModuleRoute';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
-import AnalyticsDashboard from './pages/analytics/AnalyticsDashboard';
-import StoreAnalytics from './pages/analytics/StoreAnalytics';
-import UserAnalytics from './pages/analytics/UserAnalytics';
-import RealtimeAnalytics from './pages/analytics/RealtimeAnalytics';
-import CustomAnalytics from './pages/analytics/CustomAnalytics';
-import MarketingAnalytics from './pages/analytics/MarketingAnalytics';
-import Modules from './pages/Modules';
-import PackageBoxes from './pages/PackageBoxes';
-import B2B from './pages/B2B';
-import Marketing from './pages/Marketing';
-import Billing from './pages/Billing';
-import Inventory from './pages/Inventory';
-import VariationEditPage from './pages/VariationEditPage';
-import Blogs from './pages/Blogs';
-import BlogForm from './pages/BlogForm';
-import Returns from './pages/Returns';
-import TaxRules from './pages/TaxRules';
-import ReturnPolicies from './pages/ReturnPolicies';
-import Manufacturers from './pages/Manufacturers';
-import VariantLinkGroups from './pages/VariantLinkGroups';
-import Vendors from './pages/Vendors';
-import VendorForm from './pages/VendorForm';
-import SetupWizard from './pages/SetupWizard';
-import StoreConfiguration from './pages/StoreConfiguration';
-import Wallet from './pages/Wallet';
-import Seo from './pages/Seo';
+const AnalyticsDashboard = React.lazy(() => import('./pages/analytics/AnalyticsDashboard'));
+const StoreAnalytics = React.lazy(() => import('./pages/analytics/StoreAnalytics'));
+const UserAnalytics = React.lazy(() => import('./pages/analytics/UserAnalytics'));
+const RealtimeAnalytics = React.lazy(() => import('./pages/analytics/RealtimeAnalytics'));
+const CustomAnalytics = React.lazy(() => import('./pages/analytics/CustomAnalytics'));
+const MarketingAnalytics = React.lazy(() => import('./pages/analytics/MarketingAnalytics'));
+const Modules = React.lazy(() => import('./pages/Modules'));
+const PackageBoxes = React.lazy(() => import('./pages/PackageBoxes'));
+const B2B = React.lazy(() => import('./pages/B2B'));
+const Marketing = React.lazy(() => import('./pages/Marketing'));
+const Billing = React.lazy(() => import('./pages/Billing'));
+const Inventory = React.lazy(() => import('./pages/Inventory'));
+const VariationEditPage = React.lazy(() => import('./pages/VariationEditPage'));
+const Blogs = React.lazy(() => import('./pages/Blogs'));
+const BlogForm = React.lazy(() => import('./pages/BlogForm'));
+const Returns = React.lazy(() => import('./pages/Returns'));
+const TaxRules = React.lazy(() => import('./pages/TaxRules'));
+const ReturnPolicies = React.lazy(() => import('./pages/ReturnPolicies'));
+const Manufacturers = React.lazy(() => import('./pages/Manufacturers'));
+const VariantLinkGroups = React.lazy(() => import('./pages/VariantLinkGroups'));
+const Vendors = React.lazy(() => import('./pages/Vendors'));
+const VendorForm = React.lazy(() => import('./pages/VendorForm'));
+const SetupWizard = React.lazy(() => import('./pages/SetupWizard'));
+const StoreConfiguration = React.lazy(() => import('./pages/StoreConfiguration'));
+const Wallet = React.lazy(() => import('./pages/Wallet'));
+const Seo = React.lazy(() => import('./pages/Seo'));
 
 // ERP panels (per-role workspaces)
-import AccountingDashboard from './pages/panels/AccountingDashboard';
-import Expenses from './pages/panels/Expenses';
-import RecurringInvoices from './pages/panels/RecurringInvoices';
-import FixedAssets from './pages/panels/FixedAssets';
-import TrialBalance from './pages/panels/TrialBalance';
-import Journals from './pages/panels/Journals';
-import ChartOfAccounts from './pages/panels/ChartOfAccounts';
-import OpeningBalances from './pages/panels/OpeningBalances';
-import Gstr1 from './pages/panels/Gstr1';
-import RateCheck from './pages/panels/RateCheck';
-import VendorBills from './pages/panels/VendorBills';
-import Payables from './pages/panels/Payables';
-import Receivables from './pages/panels/Receivables';
-import PaymentsReceived from './pages/panels/PaymentsReceived';
-import Dunning from './pages/panels/Dunning';
-import CreditControl from './pages/panels/CreditControl';
-import Tds from './pages/panels/Tds';
-import TcsRegister from './pages/panels/TcsRegister';
-import ScheduledJobs from './pages/panels/ScheduledJobs';
-import ReportSchedules from './pages/panels/ReportSchedules';
-import Reconciliation from './pages/panels/Reconciliation';
-import BankRecon from './pages/panels/BankRecon';
-import BankRules from './pages/panels/BankRules';
-import BankAccounts from './pages/panels/BankAccounts';
-import Einvoicing from './pages/panels/Einvoicing';
-import AuditTrail from './pages/panels/AuditTrail';
-import AccountingSettings from './pages/panels/AccountingSettings';
-import InventoryPanelDashboard from './pages/panels/InventoryPanelDashboard';
-import Purchasing from './pages/panels/Purchasing';
-import VendorScorecard from './pages/panels/VendorScorecard';
-import OrdersPanelDashboard from './pages/panels/OrdersPanelDashboard';
-import SalesTeam from './pages/panels/SalesTeam';
-import Ewb from './pages/panels/Ewb';
-import Quotations from './pages/panels/Quotations';
-import SalesDocuments from './pages/panels/SalesDocuments';
-import Itc2b from './pages/panels/Itc2b';
-import Batches from './pages/panels/Batches';
-import WarehouseLayout from './pages/panels/WarehouseLayout';
-import PickLists from './pages/panels/PickLists';
-import CycleCounts from './pages/panels/CycleCounts';
-import LabelsBarcodes from './pages/panels/LabelsBarcodes';
-import Reports from './pages/panels/Reports';
-import Reorder from './pages/panels/Reorder';
-import Gstr3b from './pages/panels/Gstr3b';
-import Gstr9 from './pages/panels/Gstr9';
-import DocumentLibrary from './pages/panels/DocumentLibrary';
-import HsnSummary from './pages/panels/HsnSummary';
-import SeriesGaps from './pages/panels/SeriesGaps';
-import GstRateCodes from './pages/panels/GstRateCodes';
-import FxRates from './pages/panels/FxRates';
-import FinancialStatements from './pages/panels/FinancialStatements';
-import GeneralLedger from './pages/panels/GeneralLedger';
-import Outlets from './pages/panels/Outlets';
-import StockTransfers from './pages/panels/StockTransfers';
-import Consignment from './pages/panels/Consignment';
-import DistributorNetwork from './pages/panels/DistributorNetwork';
-import UomSettings from './pages/panels/UomSettings';
-import GoodsInLabels from './pages/panels/GoodsInLabels';
-import BillOfMaterials from './pages/panels/BillOfMaterials';
-import WorkOrders from './pages/panels/WorkOrders';
-import Approvals from './pages/panels/Approvals';
-import ReturnsRto from './pages/panels/ReturnsRto';
-import CodReconciliation from './pages/panels/CodReconciliation';
-import WeightDisputes from './pages/panels/WeightDisputes';
-import Refunds from './pages/panels/Refunds';
-import WorkflowRules from './pages/panels/WorkflowRules';
-import DocumentTemplates from './pages/panels/DocumentTemplates';
-import CustomFields from './pages/panels/CustomFields';
-import MarketplaceSettlements from './pages/panels/MarketplaceSettlements';
-import ScannerShell from './pages/scanner/ScannerShell';
-import ScanLookup from './pages/scanner/ScanLookup';
-import ScanPutaway from './pages/scanner/ScanPutaway';
-import ScanPick from './pages/scanner/ScanPick';
-import ScanMove from './pages/scanner/ScanMove';
-import ScanCount from './pages/scanner/ScanCount';
-import PosSurface from './pages/pos/PosSurface';
-import VendorPortal from './pages/vendor/VendorPortal';
-import CustomerPortal from './pages/customer/CustomerPortal';
-import PartnerPortal from './pages/partner/PartnerPortal';
-import SetupGuide from './pages/SetupGuide';
+const AccountingDashboard = React.lazy(() => import('./pages/panels/AccountingDashboard'));
+const Expenses = React.lazy(() => import('./pages/panels/Expenses'));
+const RecurringInvoices = React.lazy(() => import('./pages/panels/RecurringInvoices'));
+const FixedAssets = React.lazy(() => import('./pages/panels/FixedAssets'));
+const TrialBalance = React.lazy(() => import('./pages/panels/TrialBalance'));
+const Journals = React.lazy(() => import('./pages/panels/Journals'));
+const ChartOfAccounts = React.lazy(() => import('./pages/panels/ChartOfAccounts'));
+const OpeningBalances = React.lazy(() => import('./pages/panels/OpeningBalances'));
+const Gstr1 = React.lazy(() => import('./pages/panels/Gstr1'));
+const RateCheck = React.lazy(() => import('./pages/panels/RateCheck'));
+const VendorBills = React.lazy(() => import('./pages/panels/VendorBills'));
+const Payables = React.lazy(() => import('./pages/panels/Payables'));
+const Receivables = React.lazy(() => import('./pages/panels/Receivables'));
+const ProformaInvoices = React.lazy(() => import('./pages/panels/ProformaInvoices'));
+const PaymentsReceived = React.lazy(() => import('./pages/panels/PaymentsReceived'));
+const Dunning = React.lazy(() => import('./pages/panels/Dunning'));
+const CreditControl = React.lazy(() => import('./pages/panels/CreditControl'));
+const Tds = React.lazy(() => import('./pages/panels/Tds'));
+const TcsRegister = React.lazy(() => import('./pages/panels/TcsRegister'));
+const ScheduledJobs = React.lazy(() => import('./pages/panels/ScheduledJobs'));
+const ReportSchedules = React.lazy(() => import('./pages/panels/ReportSchedules'));
+const Reconciliation = React.lazy(() => import('./pages/panels/Reconciliation'));
+const BankRecon = React.lazy(() => import('./pages/panels/BankRecon'));
+const BankRules = React.lazy(() => import('./pages/panels/BankRules'));
+const BankAccounts = React.lazy(() => import('./pages/panels/BankAccounts'));
+const Einvoicing = React.lazy(() => import('./pages/panels/Einvoicing'));
+const AuditTrail = React.lazy(() => import('./pages/panels/AuditTrail'));
+const AccountingSettings = React.lazy(() => import('./pages/panels/AccountingSettings'));
+const InventoryPanelDashboard = React.lazy(() => import('./pages/panels/InventoryPanelDashboard'));
+const Purchasing = React.lazy(() => import('./pages/panels/Purchasing'));
+const VendorScorecard = React.lazy(() => import('./pages/panels/VendorScorecard'));
+const OrdersPanelDashboard = React.lazy(() => import('./pages/panels/OrdersPanelDashboard'));
+const SalesTeam = React.lazy(() => import('./pages/panels/SalesTeam'));
+const Ewb = React.lazy(() => import('./pages/panels/Ewb'));
+const Quotations = React.lazy(() => import('./pages/panels/Quotations'));
+const SalesDocuments = React.lazy(() => import('./pages/panels/SalesDocuments'));
+const Itc2b = React.lazy(() => import('./pages/panels/Itc2b'));
+const Batches = React.lazy(() => import('./pages/panels/Batches'));
+const WarehouseLayout = React.lazy(() => import('./pages/panels/WarehouseLayout'));
+const PickLists = React.lazy(() => import('./pages/panels/PickLists'));
+const CycleCounts = React.lazy(() => import('./pages/panels/CycleCounts'));
+const LabelsBarcodes = React.lazy(() => import('./pages/panels/LabelsBarcodes'));
+const Reports = React.lazy(() => import('./pages/panels/Reports'));
+const Reorder = React.lazy(() => import('./pages/panels/Reorder'));
+const Gstr3b = React.lazy(() => import('./pages/panels/Gstr3b'));
+const Gstr9 = React.lazy(() => import('./pages/panels/Gstr9'));
+const DocumentLibrary = React.lazy(() => import('./pages/panels/DocumentLibrary'));
+const HsnSummary = React.lazy(() => import('./pages/panels/HsnSummary'));
+const SeriesGaps = React.lazy(() => import('./pages/panels/SeriesGaps'));
+const GstRateCodes = React.lazy(() => import('./pages/panels/GstRateCodes'));
+const FxRates = React.lazy(() => import('./pages/panels/FxRates'));
+const FinancialStatements = React.lazy(() => import('./pages/panels/FinancialStatements'));
+const GeneralLedger = React.lazy(() => import('./pages/panels/GeneralLedger'));
+const Outlets = React.lazy(() => import('./pages/panels/Outlets'));
+const StockTransfers = React.lazy(() => import('./pages/panels/StockTransfers'));
+const Consignment = React.lazy(() => import('./pages/panels/Consignment'));
+const DistributorNetwork = React.lazy(() => import('./pages/panels/DistributorNetwork'));
+const UomSettings = React.lazy(() => import('./pages/panels/UomSettings'));
+const GoodsInLabels = React.lazy(() => import('./pages/panels/GoodsInLabels'));
+const BillOfMaterials = React.lazy(() => import('./pages/panels/BillOfMaterials'));
+const WorkOrders = React.lazy(() => import('./pages/panels/WorkOrders'));
+const Approvals = React.lazy(() => import('./pages/panels/Approvals'));
+const ReturnsRto = React.lazy(() => import('./pages/panels/ReturnsRto'));
+const CodReconciliation = React.lazy(() => import('./pages/panels/CodReconciliation'));
+const WeightDisputes = React.lazy(() => import('./pages/panels/WeightDisputes'));
+const Refunds = React.lazy(() => import('./pages/panels/Refunds'));
+const WorkflowRules = React.lazy(() => import('./pages/panels/WorkflowRules'));
+const DocumentTemplates = React.lazy(() => import('./pages/panels/DocumentTemplates'));
+const CustomFields = React.lazy(() => import('./pages/panels/CustomFields'));
+const MarketplaceSettlements = React.lazy(() => import('./pages/panels/MarketplaceSettlements'));
+const ScannerShell = React.lazy(() => import('./pages/scanner/ScannerShell'));
+const ScanLookup = React.lazy(() => import('./pages/scanner/ScanLookup'));
+const ScanPutaway = React.lazy(() => import('./pages/scanner/ScanPutaway'));
+const ScanPick = React.lazy(() => import('./pages/scanner/ScanPick'));
+const ScanMove = React.lazy(() => import('./pages/scanner/ScanMove'));
+const ScanCount = React.lazy(() => import('./pages/scanner/ScanCount'));
+const PosSurface = React.lazy(() => import('./pages/pos/PosSurface'));
+const VendorPortal = React.lazy(() => import('./pages/vendor/VendorPortal'));
+const CustomerPortal = React.lazy(() => import('./pages/customer/CustomerPortal'));
+const PartnerPortal = React.lazy(() => import('./pages/partner/PartnerPortal'));
+const SetupGuide = React.lazy(() => import('./pages/SetupGuide'));
 // Marketing panel (docs/MARKETING_PANEL.md)
-import MarketingDashboard from './pages/panels/marketing/MarketingDashboard';
-import MarketingCampaigns from './pages/panels/marketing/MarketingCampaigns';
-import MarketingTemplates from './pages/panels/marketing/MarketingTemplates';
-import MarketingAudiences from './pages/panels/marketing/MarketingAudiences';
-import MarketingAutomation from './pages/panels/marketing/MarketingAutomation';
-import AdsManager from './pages/panels/marketing/AdsManager';
-import AdsAudiences from './pages/panels/marketing/AdsAudiences';
-import Connections from './pages/panels/marketing/Connections';
-import ConnectorCallback from './pages/panels/marketing/ConnectorCallback';
-import ConnectorInsights from './pages/panels/marketing/ConnectorInsights';
-import GoogleReviews from './pages/panels/marketing/GoogleReviews';
-import AdsAiStudio from './pages/panels/marketing/AdsAiStudio';
-import MarketingAnalyticsHub from './pages/panels/marketing/MarketingAnalyticsHub';
-import MarketingCompliance from './pages/panels/marketing/MarketingCompliance';
-import MarketingSettings from './pages/panels/marketing/MarketingSettings';
-import AdsOAuthCallback from './pages/panels/marketing/AdsOAuthCallback';
-import MarketingPerformance from './pages/panels/marketing/MarketingPerformance';
-import GrowthAnalytics from './pages/panels/marketing/GrowthAnalytics';
+const MarketingDashboard = React.lazy(() => import('./pages/panels/marketing/MarketingDashboard'));
+const MarketingCampaigns = React.lazy(() => import('./pages/panels/marketing/MarketingCampaigns'));
+const MarketingTemplates = React.lazy(() => import('./pages/panels/marketing/MarketingTemplates'));
+const MarketingAudiences = React.lazy(() => import('./pages/panels/marketing/MarketingAudiences'));
+const MarketingAutomation = React.lazy(() => import('./pages/panels/marketing/MarketingAutomation'));
+const AdsManager = React.lazy(() => import('./pages/panels/marketing/AdsManager'));
+const AdsAudiences = React.lazy(() => import('./pages/panels/marketing/AdsAudiences'));
+const Connections = React.lazy(() => import('./pages/panels/marketing/Connections'));
+const ConnectorCallback = React.lazy(() => import('./pages/panels/marketing/ConnectorCallback'));
+const ConnectorInsights = React.lazy(() => import('./pages/panels/marketing/ConnectorInsights'));
+const GoogleReviews = React.lazy(() => import('./pages/panels/marketing/GoogleReviews'));
+const AdsAiStudio = React.lazy(() => import('./pages/panels/marketing/AdsAiStudio'));
+const MarketingAnalyticsHub = React.lazy(() => import('./pages/panels/marketing/MarketingAnalyticsHub'));
+const MarketingCompliance = React.lazy(() => import('./pages/panels/marketing/MarketingCompliance'));
+const MarketingSettings = React.lazy(() => import('./pages/panels/marketing/MarketingSettings'));
+const AdsOAuthCallback = React.lazy(() => import('./pages/panels/marketing/AdsOAuthCallback'));
+const MarketingPerformance = React.lazy(() => import('./pages/panels/marketing/MarketingPerformance'));
+const GrowthAnalytics = React.lazy(() => import('./pages/panels/marketing/GrowthAnalytics'));
 import { useAuth } from './contexts/AuthContext';
-import { WORKSPACES, WorkspaceKey, ROLE_SURFACE, ErpRole } from './lib/rbac';
+import { ROLE_SURFACE, ErpRole } from './lib/rbac';
 import { PRODUCT, IS_SUITE } from './lib/product';
 import RouteGuard from './components/RouteGuard';
 
-/** Lands every user on THEIR surface: worker → scanner, cashier → POS,
- *  accountant → Accounting panel, warehouse manager → Inventory… */
+/** A full-screen route's own loading frame (it has no Layout to provide one). */
+const FullScreenFallback = (
+  <div className="flex h-screen items-center justify-center">
+    <div className="h-10 w-10 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+  </div>
+);
+const FullScreen: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <React.Suspense fallback={FullScreenFallback}>{children}</React.Suspense>
+);
+
+/**
+ * Where `/` lands.
+ *
+ * Device-first roles keep their own surface: scanning and selling at a counter
+ * are the whole job, and a dashboard detour is a tap they cannot afford.
+ * EVERYONE ELSE now lands on `/dashboard`, which is role-aware in itself
+ * (`components/home/RoleHome.tsx`) — it used to bounce through a "workspace"
+ * table to one of six panel dashboards, which is how an accountant ended up on
+ * a page of charts instead of the invoices waiting for them.
+ */
 function RoleHome() {
-  const { workspaces, user } = useAuth();
+  const { user } = useAuth();
   const surface = ROLE_SURFACE[user?.role as ErpRole];
   if (surface) return <Navigate to={surface} replace />;
   // Single-product build (VITE_PRODUCT) lands on that product's home.
   if (!IS_SUITE) return <Navigate to={PRODUCT.home} replace />;
-  const first = (workspaces[0] ?? 'commerce') as WorkspaceKey;
-  return <Navigate to={WORKSPACES[first]?.home ?? '/dashboard'} replace />;
+  return <Navigate to="/dashboard" replace />;
 }
 
 function App() {
@@ -222,13 +239,13 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/login" element={<Login />} />
+        <Route path="/login" element={<FullScreen><Login /></FullScreen>} />
         {/* Setup wizard — full-screen, no sidebar, still protected */}
         <Route
           path="/setup"
           element={
             <ProtectedRoute>
-              <SetupWizard />
+              <RouteGuard><FullScreen><SetupWizard /></FullScreen></RouteGuard>
             </ProtectedRoute>
           }
         />
@@ -237,7 +254,7 @@ function App() {
           path="/themes/:id/customize"
           element={
             <ProtectedRoute>
-              <ThemeCustomizer />
+              <RouteGuard><FullScreen><ThemeCustomizer /></FullScreen></RouteGuard>
             </ProtectedRoute>
           }
         />
@@ -246,11 +263,7 @@ function App() {
           path="/pages/:id/builder"
           element={
             <ProtectedRoute>
-              <RouteGuard>
-                <React.Suspense fallback={<div className="h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-500" /></div>}>
-                  <PageBuilder />
-                </React.Suspense>
-              </RouteGuard>
+              <RouteGuard><FullScreen><PageBuilder /></FullScreen></RouteGuard>
             </ProtectedRoute>
           }
         />
@@ -259,31 +272,31 @@ function App() {
           path="/scan"
           element={
             <ProtectedRoute>
-              <RouteGuard><ScannerShell /></RouteGuard>
+              <RouteGuard><FullScreen><ScannerShell /></FullScreen></RouteGuard>
             </ProtectedRoute>
           }
         >
-          <Route index element={<ScanLookup />} />
-          <Route path="putaway" element={<ScanPutaway />} />
-          <Route path="pick" element={<ScanPick />} />
-          <Route path="move" element={<ScanMove />} />
-          <Route path="count" element={<ScanCount />} />
+          <Route index element={<FullScreen><ScanLookup /></FullScreen>} />
+          <Route path="putaway" element={<FullScreen><ScanPutaway /></FullScreen>} />
+          <Route path="pick" element={<FullScreen><ScanPick /></FullScreen>} />
+          <Route path="move" element={<FullScreen><ScanMove /></FullScreen>} />
+          <Route path="count" element={<FullScreen><ScanCount /></FullScreen>} />
         </Route>
         {/* POS — full-screen counter-sales surface */}
         <Route
           path="/pos"
           element={
             <ProtectedRoute>
-              <RouteGuard><PosSurface /></RouteGuard>
+              <RouteGuard><FullScreen><PosSurface /></FullScreen></RouteGuard>
             </ProtectedRoute>
           }
         />
         {/* Vendor portal — PUBLIC, no login: the URL token is the access (spec §12) */}
-        <Route path="/vendor/:token" element={<VendorPortal />} />
+        <Route path="/vendor/:token" element={<FullScreen><VendorPortal /></FullScreen>} />
         {/* Customer portal (B2B statements) — PUBLIC, no login: the URL token is the access (spec §12) */}
-        <Route path="/customer/:token" element={<CustomerPortal />} />
+        <Route path="/customer/:token" element={<FullScreen><CustomerPortal /></FullScreen>} />
         {/* Franchise/partner portal — PUBLIC, no login: shelf + self-reported sales + money (spec §5/§12) */}
-        <Route path="/partner/:token" element={<PartnerPortal />} />
+        <Route path="/partner/:token" element={<FullScreen><PartnerPortal /></FullScreen>} />
         <Route
           path="/"
           element={
@@ -314,6 +327,7 @@ function App() {
           <Route path="panel/accounting/payables" element={<Payables />} />
           <Route path="panel/accounting/receivables" element={<Receivables />} />
           <Route path="panel/accounting/payments-received" element={<PaymentsReceived />} />
+          <Route path="panel/accounting/proforma" element={<ProformaInvoices />} />
           <Route path="panel/accounting/recurring-invoices" element={<RecurringInvoices />} />
           <Route path="panel/accounting/dunning" element={<Dunning />} />
           <Route path="panel/customers/credit" element={<CreditControl />} />
@@ -327,7 +341,7 @@ function App() {
           <Route path="panel/accounting/bank-accounts" element={<BankAccounts />} />
           <Route path="panel/accounting/bank-recon" element={<BankRecon />} />
           <Route path="panel/accounting/bank-rules" element={<BankRules />} />
-          <Route path="panel/accounting/einvoicing" element={<ProtectedModuleRoute module="einvoicing"><Einvoicing /></ProtectedModuleRoute>} />
+          <Route path="panel/accounting/einvoicing" element={<Einvoicing />} />
           <Route path="panel/accounting/audit" element={<AuditTrail />} />
           <Route path="panel/accounting/settings" element={<AccountingSettings />} />
           <Route path="panel/accounting/documents" element={<DocumentLibrary />} />
@@ -369,31 +383,31 @@ function App() {
           <Route path="panel/accounting/settlements" element={<MarketplaceSettlements />} />
           <Route path="setup-guide" element={<SetupGuide />} />
           {/* Marketing panel — module-gated (marketing); ads pages also need ads_management */}
-          <Route path="panel/marketing" element={<ProtectedModuleRoute module="marketing"><MarketingDashboard /></ProtectedModuleRoute>} />
-          <Route path="panel/marketing/performance" element={<ProtectedModuleRoute module="marketing"><MarketingPerformance /></ProtectedModuleRoute>} />
-          <Route path="panel/marketing/growth" element={<ProtectedModuleRoute module="marketing"><GrowthAnalytics /></ProtectedModuleRoute>} />
-          <Route path="panel/marketing/campaigns" element={<ProtectedModuleRoute module="marketing"><MarketingCampaigns /></ProtectedModuleRoute>} />
+          <Route path="panel/marketing" element={<MarketingDashboard />} />
+          <Route path="panel/marketing/performance" element={<MarketingPerformance />} />
+          <Route path="panel/marketing/growth" element={<GrowthAnalytics />} />
+          <Route path="panel/marketing/campaigns" element={<MarketingCampaigns />} />
           {/* One dedicated panel per channel (sms | whatsapp | email | push) —
               same component, which reads :channel and locks itself to it. */}
-          <Route path="panel/marketing/campaigns/:channel" element={<ProtectedModuleRoute module="marketing"><MarketingCampaigns /></ProtectedModuleRoute>} />
-          <Route path="panel/marketing/templates" element={<ProtectedModuleRoute module="marketing"><MarketingTemplates /></ProtectedModuleRoute>} />
-          <Route path="panel/marketing/audiences" element={<ProtectedModuleRoute module="marketing"><MarketingAudiences /></ProtectedModuleRoute>} />
-          <Route path="panel/marketing/automation" element={<ProtectedModuleRoute module="marketing"><MarketingAutomation /></ProtectedModuleRoute>} />
-          <Route path="panel/marketing/ads" element={<ProtectedModuleRoute module="ads_management"><AdsManager /></ProtectedModuleRoute>} />
-          <Route path="panel/marketing/ads/audiences" element={<ProtectedModuleRoute module="ads_management"><AdsAudiences /></ProtectedModuleRoute>} />
-          <Route path="panel/marketing/ads/oauth/callback" element={<ProtectedModuleRoute module="ads_management"><AdsOAuthCallback /></ProtectedModuleRoute>} />
+          <Route path="panel/marketing/campaigns/:channel" element={<MarketingCampaigns />} />
+          <Route path="panel/marketing/templates" element={<MarketingTemplates />} />
+          <Route path="panel/marketing/audiences" element={<MarketingAudiences />} />
+          <Route path="panel/marketing/automation" element={<MarketingAutomation />} />
+          <Route path="panel/marketing/ads" element={<AdsManager />} />
+          <Route path="panel/marketing/ads/audiences" element={<AdsAudiences />} />
+          <Route path="panel/marketing/ads/oauth/callback" element={<AdsOAuthCallback />} />
           {/* Connector platform (migration 114) — one identity per provider, many services. */}
-          <Route path="panel/marketing/connections" element={<ProtectedModuleRoute module="connectors"><Connections /></ProtectedModuleRoute>} />
-          <Route path="panel/marketing/connections/callback" element={<ProtectedModuleRoute module="connectors"><ConnectorCallback /></ProtectedModuleRoute>} />
-          <Route path="panel/marketing/connections/insights" element={<ProtectedModuleRoute module="connectors"><ConnectorInsights /></ProtectedModuleRoute>} />
+          <Route path="panel/marketing/connections" element={<Connections />} />
+          <Route path="panel/marketing/connections/callback" element={<ConnectorCallback />} />
+          <Route path="panel/marketing/connections/insights" element={<ConnectorInsights />} />
           {/* Google Business Profile reviews — gated on the `connectors` module
               because the sync lives on the connector identity; the PUBLIC
               storefront read is gated on `reviews` instead (routes/reviews.ts). */}
-          <Route path="panel/marketing/google-reviews" element={<ProtectedModuleRoute module="connectors"><GoogleReviews /></ProtectedModuleRoute>} />
-          <Route path="panel/marketing/ads/ai-studio" element={<ProtectedModuleRoute module="ads_management"><AdsAiStudio /></ProtectedModuleRoute>} />
-          <Route path="panel/marketing/analytics" element={<ProtectedModuleRoute module="marketing"><MarketingAnalyticsHub /></ProtectedModuleRoute>} />
-          <Route path="panel/marketing/compliance" element={<ProtectedModuleRoute module="marketing"><MarketingCompliance /></ProtectedModuleRoute>} />
-          <Route path="panel/marketing/settings" element={<ProtectedModuleRoute module="marketing"><MarketingSettings /></ProtectedModuleRoute>} />
+          <Route path="panel/marketing/google-reviews" element={<GoogleReviews />} />
+          <Route path="panel/marketing/ads/ai-studio" element={<AdsAiStudio />} />
+          <Route path="panel/marketing/analytics" element={<MarketingAnalyticsHub />} />
+          <Route path="panel/marketing/compliance" element={<MarketingCompliance />} />
+          <Route path="panel/marketing/settings" element={<MarketingSettings />} />
           <Route path="analytics" element={<Navigate to="/analytics/dashboard" replace />} />
           <Route path="analytics/dashboard" element={<AnalyticsDashboard />} />
           <Route path="analytics/store" element={<StoreAnalytics />} />
@@ -407,15 +421,15 @@ function App() {
           <Route path="products/:id/edit" element={<ProductForm />} />
           <Route path="products/:id/sections" element={<ProductSectionsManager />} />
           <Route path="products/:productSlug/variations/:variationKey/edit" element={<VariationEditPage />} />
-          <Route path="products/bundles" element={<ProtectedModuleRoute module="bundles"><Bundles /></ProtectedModuleRoute>} />
-          <Route path="products/bundles/new" element={<ProtectedModuleRoute module="bundles"><BundleForm /></ProtectedModuleRoute>} />
-          <Route path="products/bundles/:id/edit" element={<ProtectedModuleRoute module="bundles"><BundleForm /></ProtectedModuleRoute>} />
+          <Route path="products/bundles" element={<Bundles />} />
+          <Route path="products/bundles/new" element={<BundleForm />} />
+          <Route path="products/bundles/:id/edit" element={<BundleForm />} />
           <Route path="products/categories" element={<Categories />} />
           <Route path="products/brands" element={<Brands />} />
           <Route path="products/companies" element={<Companies />} />
           <Route path="products/attributes" element={<Attributes />} />
           <Route path="products/tags" element={<Tags />} />
-          <Route path="products/size-charts" element={<ProtectedModuleRoute module="size_charts"><SizeCharts /></ProtectedModuleRoute>} />
+          <Route path="products/size-charts" element={<SizeCharts />} />
           <Route path="products/specifications" element={<Specifications />} />
           <Route path="products/specifications/new" element={<SpecificationForm />} />
           <Route path="products/specifications/:id/edit" element={<SpecificationForm />} />
@@ -427,7 +441,7 @@ function App() {
           <Route path="orders/abandoned-carts" element={<AbandonedCarts />} />
           <Route path="orders/abandoned-carts/:id" element={<AbandonedCartDetail />} />
           <Route path="orders/:id" element={<OrderDetail />} />
-          <Route path="shipments" element={<ProtectedModuleRoute module="shipping"><Shipments /></ProtectedModuleRoute>} />
+          <Route path="shipments" element={<Shipments />} />
           <Route path="customers" element={<Customers />} />
           <Route path="customers/duplicates" element={<CustomerDuplicates />} />
           <Route path="users" element={<Users />} />
@@ -438,12 +452,12 @@ function App() {
           <Route path="users/:id" element={<UserDetail />} />
           <Route path="logs" element={<Logs />} />
           <Route path="faqs" element={<FAQs />} />
-          <Route path="reviews" element={<ProtectedModuleRoute module="reviews"><Reviews /></ProtectedModuleRoute>} />
-          <Route path="questions" element={<ProtectedModuleRoute module="product_qa"><ProductQA /></ProtectedModuleRoute>} />
-          <Route path="wishlists" element={<ProtectedModuleRoute module="wishlist"><Wishlist /></ProtectedModuleRoute>} />
-          <Route path="coupons" element={<ProtectedModuleRoute module="coupons"><Coupons /></ProtectedModuleRoute>} />
-          <Route path="coupons/new" element={<ProtectedModuleRoute module="coupons"><CouponForm /></ProtectedModuleRoute>} />
-          <Route path="coupons/:id/edit" element={<ProtectedModuleRoute module="coupons"><CouponForm /></ProtectedModuleRoute>} />
+          <Route path="reviews" element={<Reviews />} />
+          <Route path="questions" element={<ProductQA />} />
+          <Route path="wishlists" element={<Wishlist />} />
+          <Route path="coupons" element={<Coupons />} />
+          <Route path="coupons/new" element={<CouponForm />} />
+          <Route path="coupons/:id/edit" element={<CouponForm />} />
           <Route path="appearance" element={<Navigate to="/appearance/pages" replace />} />
           <Route path="appearance/menus" element={<AppearanceMenus />} />
           <Route path="appearance/banners" element={<AppearanceBanners />} />
@@ -458,9 +472,9 @@ function App() {
           <Route
             path="leads"
             element={
-              <ProtectedModuleRoute module="crm">
+              
                 <Leads />
-              </ProtectedModuleRoute>
+              
             }
           />
           <Route path="settings" element={<SettingsCenter />} />
@@ -484,22 +498,22 @@ function App() {
           <Route path="settings/wallet" element={<Wallet />} />
           <Route path="seo" element={<Seo />} />
           <Route path="settings/billing" element={<Billing />} />
-          <Route path="warehouses" element={<ProtectedModuleRoute module="inventory"><Warehouses /></ProtectedModuleRoute>} />
-          <Route path="inventory" element={<ProtectedModuleRoute module="inventory"><Inventory /></ProtectedModuleRoute>} />
-          <Route path="b2b" element={<ProtectedModuleRoute module="b2b"><B2B /></ProtectedModuleRoute>} />
-          <Route path="channels" element={<ProtectedModuleRoute module="channel_sync"><Channels /></ProtectedModuleRoute>} />
-          <Route path="channels/allocation" element={<ProtectedModuleRoute module="channel_sync"><ChannelAllocation /></ProtectedModuleRoute>} />
-          <Route path="channels/mapping" element={<ProtectedModuleRoute module="channel_sync"><ChannelMapping /></ProtectedModuleRoute>} />
-          <Route path="channels/import" element={<ProtectedModuleRoute module="channel_sync"><ChannelImport /></ProtectedModuleRoute>} />
-          <Route path="channels/daily" element={<ProtectedModuleRoute module="channel_sync"><ChannelDaily /></ProtectedModuleRoute>} />
-          <Route path="marketing" element={<ProtectedModuleRoute module="marketing"><Marketing /></ProtectedModuleRoute>} />
-          <Route path="blogs" element={<ProtectedModuleRoute module="blog"><Blogs /></ProtectedModuleRoute>} />
-          <Route path="blogs/new" element={<ProtectedModuleRoute module="blog"><BlogForm /></ProtectedModuleRoute>} />
-          <Route path="blogs/:id/edit" element={<ProtectedModuleRoute module="blog"><BlogForm /></ProtectedModuleRoute>} />
-          <Route path="returns" element={<ProtectedModuleRoute module="returns"><Returns /></ProtectedModuleRoute>} />
-          <Route path="settings/tax-rules" element={<ProtectedModuleRoute module="gst_tax"><TaxRules /></ProtectedModuleRoute>} />
-          <Route path="settings/return-policies" element={<ProtectedModuleRoute module="returns"><ReturnPolicies /></ProtectedModuleRoute>} />
-          <Route path="settings/manufacturers" element={<ProtectedModuleRoute module="manufacturers"><Manufacturers /></ProtectedModuleRoute>} />
+          <Route path="warehouses" element={<Warehouses />} />
+          <Route path="inventory" element={<Inventory />} />
+          <Route path="b2b" element={<B2B />} />
+          <Route path="channels" element={<Channels />} />
+          <Route path="channels/allocation" element={<ChannelAllocation />} />
+          <Route path="channels/mapping" element={<ChannelMapping />} />
+          <Route path="channels/import" element={<ChannelImport />} />
+          <Route path="channels/daily" element={<ChannelDaily />} />
+          <Route path="marketing" element={<Marketing />} />
+          <Route path="blogs" element={<Blogs />} />
+          <Route path="blogs/new" element={<BlogForm />} />
+          <Route path="blogs/:id/edit" element={<BlogForm />} />
+          <Route path="returns" element={<Returns />} />
+          <Route path="settings/tax-rules" element={<TaxRules />} />
+          <Route path="settings/return-policies" element={<ReturnPolicies />} />
+          <Route path="settings/manufacturers" element={<Manufacturers />} />
           <Route path="products/variant-link-groups" element={<VariantLinkGroups />} />
           <Route path="vendors" element={<Vendors />} />
           <Route path="vendors/new" element={<VendorForm />} />

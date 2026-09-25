@@ -1,11 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { api } from '../../services/api';
+import { api, exportsAPI } from '../../services/api';
 import { payload } from '../../lib/unwrap';
 import {
   Page, PageHeader, SectionCard, Btn, StatusChip,
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow,
   FilterBar, Field, TextInput, SelectInput, SearchInput, inr,
+  ExportMenu, type CsvColumn,
 } from '../../components/erp';
+import InfoTip from '../../components/common/InfoTip';
 import type { Tone } from '../../components/erp';
 import { FileText, Plus, ArrowLeft, Download, Trash2, ShoppingCart } from 'lucide-react';
 
@@ -22,6 +24,15 @@ interface Line { productId: string; variationId: string | null; sku: string; nam
 const STATUS_TONE: Record<string, Tone> = {
   draft: 'amber', sent: 'blue', accepted: 'green', converted: 'green', expired: 'red', cancelled: 'red',
 };
+
+/** The list as a spreadsheet — the same columns, in the same order. */
+const QUOTE_CSV_COLUMNS: CsvColumn<any>[] = [
+  { key: 'quote_number', label: 'Quotation #' },
+  { key: 'customer_name', label: 'Customer', format: (r) => r.customer_name ?? '' },
+  { key: 'status', label: 'Status' },
+  { key: 'valid_until', label: 'Valid until', format: (r) => r.valid_until ?? '' },
+  { key: 'total', label: 'Total', format: (r) => Number(r.total ?? 0).toFixed(2) },
+];
 const StatusPill: React.FC<{ status: string }> = ({ status }) =>
   <StatusChip status={status} tone={STATUS_TONE[status] ?? 'neutral'} />;
 
@@ -33,6 +44,8 @@ const Quotations: React.FC = () => {
   // ── List ──
   const [rows, setRows] = useState<any[]>([]);
   const [statusFilter, setStatusFilter] = useState('');
+  /** `/quotations` filters on status only, so this narrows the rows on screen. */
+  const [find, setFind] = useState('');
   const [loading, setLoading] = useState(false);
 
   const loadList = async () => {
@@ -45,6 +58,13 @@ const Quotations: React.FC = () => {
     finally { setLoading(false); }
   };
   useEffect(() => { if (view === 'list') loadList(); /* eslint-disable-next-line */ }, [view, statusFilter]);
+
+  const shownQuotes: any[] = React.useMemo(() => {
+    const q = find.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r: any) => [r.quote_number, r.customer_name, r.customer_phone]
+      .some((v: any) => String(v ?? '').toLowerCase().includes(q)));
+  }, [rows, find]);
 
   // ── Detail ──
   const [detail, setDetail] = useState<any>(null);
@@ -174,7 +194,7 @@ const Quotations: React.FC = () => {
   // ─────────────────────────────────────────────────────────────────────────
   if (view === 'create') {
     return (
-      <Page width="narrow">
+      <Page>
         <PageHeader icon={FileText} title="New quotation"
           description="Build a price quote with the customer's real pricing. Prices are calculated on the server (B2B pricing applies when you attach a known customer)."
           actions={<Btn variant="ghost" onClick={() => { resetForm(); setView('list'); }}><ArrowLeft className="h-4 w-4" /> Back</Btn>} />
@@ -364,27 +384,55 @@ const Quotations: React.FC = () => {
         actions={<Btn variant="primary" onClick={() => { resetForm(); setErr(''); setMsg(''); setView('create'); }}><Plus className="h-4 w-4" /> New quotation</Btn>} />
       {err && <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{err}</div>}
 
-      <SectionCard title="All quotations" action={
-        <FilterBar>
-          <Field label="Status">
-            <SelectInput value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-              <option value="">All</option>
-              {['draft', 'sent', 'accepted', 'converted', 'expired', 'cancelled'].map((s) => <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>)}
-            </SelectInput>
-          </Field>
-        </FilterBar>
-      }>
-        <TableShell>
+      <SectionCard title="All quotations" flush>
+        <div className="border-b border-gray-100 px-5 py-3">
+          <FilterBar>
+            <Field
+              className="min-w-[16rem] flex-1"
+              label={<span className="inline-flex items-center gap-1">Find <InfoTip text="Narrows the quotations listed by number or customer." /></span>}
+            >
+              <SearchInput placeholder="Quotation number or customer…" value={find} onChange={(e) => setFind(e.target.value)} />
+            </Field>
+            <Field label="Status">
+              <SelectInput value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                <option value="">All</option>
+                {['draft', 'sent', 'accepted', 'converted', 'expired', 'cancelled'].map((s) => <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>)}
+              </SelectInput>
+            </Field>
+            {(find || statusFilter) && <Btn variant="ghost" onClick={() => { setFind(''); setStatusFilter(''); }}>Clear</Btn>}
+            <div className="ml-auto flex items-end gap-2">
+              <ExportMenu filename="quotations" columns={QUOTE_CSV_COLUMNS} rows={shownQuotes} canExport={shownQuotes.length > 0} />
+              <Btn
+                variant="outline"
+                title="Build the whole quotation register as an Excel workbook. It appears in Downloads when it is ready."
+                onClick={async () => {
+                  setErr(''); setMsg('');
+                  try {
+                    await exportsAPI.request('quotations', { status: statusFilter || undefined });
+                    setMsg('Building your workbook — it will appear in Downloads when it is ready.');
+                  } catch (e: any) { setErr(e?.response?.data?.message ?? e.message); }
+                }}
+              >
+                <Download className="h-4 w-4" /> Export all
+              </Btn>
+            </div>
+          </FilterBar>
+        </div>
+        <TableShell className="rounded-none border-0 shadow-none">
           <table className="w-full text-sm">
             <THead>
               <Th>Quotation #</Th><Th>Customer</Th><Th>Status</Th><Th>Valid until</Th><Th num>Total</Th><Th></Th>
             </THead>
             <TBody>
               {loading && <EmptyRow colSpan={6}>Loading…</EmptyRow>}
-              {!loading && rows.length === 0 && (
-                <EmptyRow colSpan={6}>No quotations yet. Click "New quotation" to build one.</EmptyRow>
+              {!loading && shownQuotes.length === 0 && (
+                <EmptyRow colSpan={6}>
+                  {find || statusFilter
+                    ? 'Nothing matches those filters.'
+                    : 'No quotations yet. Use "New quotation" to build one.'}
+                </EmptyRow>
               )}
-              {!loading && rows.map((r: any) => (
+              {!loading && shownQuotes.map((r: any) => (
                 <Tr key={r.id}>
                   <Td className="font-mono text-xs">{r.quote_number}</Td>
                   <Td>{r.customer_name || <span className="text-gray-400">Walk-in</span>}</Td>
@@ -395,6 +443,15 @@ const Quotations: React.FC = () => {
                 </Tr>
               ))}
             </TBody>
+            {!loading && shownQuotes.length > 0 && (
+              <tfoot className="border-t-2 border-gray-200 bg-gray-50 text-sm font-semibold text-gray-900">
+                <tr>
+                  <td className="px-4 py-2.5" colSpan={4}>{shownQuotes.length} quotation{shownQuotes.length === 1 ? '' : 's'}</td>
+                  <td className="px-4 py-2.5 text-right tabular-nums">{inr(shownQuotes.reduce((s: number, r: any) => s + Number(r.total ?? 0), 0))}</td>
+                  <td />
+                </tr>
+              </tfoot>
+            )}
           </table>
         </TableShell>
       </SectionCard>

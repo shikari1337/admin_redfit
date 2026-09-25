@@ -166,6 +166,8 @@
     --space-6: 2rem;
     --space-7: 2.5rem;
     --space-8: 3rem;
+    --content-pad: 2%;
+    --content-pad-phone: max(2%, 12px);
 
     /* Radius */
     --radius-sm: 6px;

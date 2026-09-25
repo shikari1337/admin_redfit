@@ -6,8 +6,11 @@ import { formatDate, localeDate } from '../../utils/date';
 import {
   Page, PageHeader, Btn, StatCard, StatGrid, StatusChip, TabBar,
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow, inrMinor, AttachmentPanel,
-  FilterBar, Field, SelectInput, ExportMenu, Pagination, useListControls, type CsvColumn,
+  FilterBar, Field, TextInput, SelectInput, SearchInput, ExportMenu, Pagination,
+  useListControls, TableSkeleton, type CsvColumn,
 } from '../../components/erp';
+import InfoTip from '../../components/common/InfoTip';
+import ScanBillButton, { type ScanProposal } from '../../components/accounting/ScanBillButton';
 
 /**
  * Expenses & Bank Book — the shop accountant's day-to-day: record rent /
@@ -70,6 +73,14 @@ const Expenses: React.FC = () => {
   const [saving, setSaving] = useState(false);
   // Which expense's attachments (receipts/PDFs) are open below the table.
   const [attachFor, setAttachFor] = useState<{ id: string; number: string } | null>(null);
+  const [loadingRows, setLoadingRows] = useState(true);
+  /** What the bill scan proposed, kept beside the form so the person can see
+   *  what was read off the paper and what it could not be sure about. */
+  const [scanned, setScanned] = useState<{ p: ScanProposal; fileName: string } | null>(null);
+  /** `/expenses` filters on date, category and paid-from — not on text — so this
+   *  box narrows the rows ALREADY on screen and says so, rather than pretending
+   *  to search the whole ledger. */
+  const [find, setFind] = useState('');
 
   // Server-side filters + pagination (the /expenses route supports
   // from/to/category/paidFrom/limit/offset and returns a total).
@@ -78,6 +89,7 @@ const Expenses: React.FC = () => {
   const [paidFrom, setPaidFrom] = useState('');
 
   const loadExpenses = async () => {
+    setLoadingRows(true);
     try {
       const params: Record<string, string | number> = {
         limit: lc.pageSize, offset: (lc.page - 1) * lc.pageSize,
@@ -92,6 +104,7 @@ const Expenses: React.FC = () => {
       setTotal(d.total ?? 0);
       setMonthly(d.monthly ?? []);
     } catch (e: any) { setError(e?.response?.data?.message ?? e.message); }
+    finally { setLoadingRows(false); }
   };
 
   useEffect(() => {
@@ -128,6 +141,41 @@ const Expenses: React.FC = () => {
     catch (e: any) { setError(e?.response?.data?.message ?? e.message); }
   };
 
+  /**
+   * A scan fills the form and opens it — it never saves. Everything the model
+   * was unsure of is left as the form's own default, and the strip above the
+   * form names what it read so the person is checking, not trusting.
+   */
+  const applyProposal = (p: ScanProposal) => {
+    setError('');
+    setForm((f) => ({
+      ...f,
+      expenseDate: p.expense_date || f.expenseDate,
+      category: p.category || f.category,
+      vendorName: p.vendor_name || '',
+      description: p.description || '',
+      amountRupees: p.amount_rupees ? String(p.amount_rupees) : '',
+      hasGst: (p.gst_rupees ?? 0) > 0,
+      gstRupees: p.gst_rupees ? String(p.gst_rupees) : '',
+      gstType: p.gst_type ?? 'cgst_sgst',
+    }));
+    setShowNew(true);
+  };
+
+  /** The rows the table actually draws, and what they add up to. */
+  const shownRows = React.useMemo(() => {
+    const q = find.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((e: any) => [e.expense_number, e.vendor_name, e.description, e.category_label]
+      .some((v) => String(v ?? '').toLowerCase().includes(q)));
+  }, [rows, find]);
+
+  const pageSums = React.useMemo(() => shownRows.reduce((a: any, e: any) => ({
+    amount: a.amount + Number(e.amount_minor ?? 0),
+    gst: a.gst + Number(e.gst_minor ?? 0),
+    total: a.total + Number(e.total_minor ?? 0),
+  }), { amount: 0, gst: 0, total: 0 }), [shownRows]);
+
   const paidChip = (v: string) =>
     v === 'unpaid'
       ? <StatusChip status="unpaid" />
@@ -141,7 +189,8 @@ const Expenses: React.FC = () => {
         actions={tab === 'expenses' && (
           <div className="flex items-center gap-2">
             <ExportMenu filename="expenses" columns={EXPENSE_CSV_COLUMNS} rows={rows} canExport={canRead} />
-            {canPost && <Btn onClick={() => setShowNew((s) => !s)}>{showNew ? 'Close' : '+ Record expense'}</Btn>}
+            {canPost && <Btn variant="outline" onClick={() => { setScanned(null); setShowNew((s) => !s); }}>{showNew ? 'Close' : 'Record by hand'}</Btn>}
+            {canPost && <ScanBillButton onProposal={(p, fileName) => { applyProposal(p); setScanned({ p, fileName }); }} />}
           </div>
         )}
       />
@@ -160,41 +209,49 @@ const Expenses: React.FC = () => {
 
       {tab === 'expenses' ? (
         <>
+          {scanned && canPost && (
+            <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+              <div className="font-medium">Read from “{scanned.fileName}” — check it before you save.</div>
+              <div className="mt-1 flex flex-wrap gap-x-5 gap-y-1 text-xs">
+                {scanned.p.bill_no && <span>Bill no. <span className="font-mono">{scanned.p.bill_no}</span></span>}
+                {scanned.p.vendor_gstin && <span>Their GSTIN <span className="font-mono">{scanned.p.vendor_gstin}</span></span>}
+                {!scanned.p.date_from_bill && <span>No date on the bill — today's has been used.</span>}
+                {scanned.p.confidence != null && <span>Confidence {Math.round(scanned.p.confidence * 100)}%</span>}
+              </div>
+              {(scanned.p.warnings ?? []).length > 0 && (
+                <ul className="mt-1.5 list-disc space-y-0.5 pl-5 text-xs">
+                  {(scanned.p.warnings ?? []).map((w, i) => <li key={i}>{w}</li>)}
+                </ul>
+              )}
+              <div className="mt-1.5 text-xs">Nothing has been saved yet — the form below is filled in, and “Record expense” is still what records it.</div>
+            </div>
+          )}
+
           {showNew && canPost && (
             <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm space-y-4 text-sm">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                <label className="space-y-1">
-                  <span className="text-gray-600">Date</span>
-                  <input type="date" value={form.expenseDate}
-                    onChange={(e) => setForm((f) => ({ ...f, expenseDate: e.target.value }))}
-                    className="w-full rounded border px-2 py-1.5" />
-                </label>
-                <label className="space-y-1">
-                  <span className="text-gray-600">Category</span>
-                  <select value={form.category}
-                    onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
-                    className="w-full rounded border px-2 py-1.5">
+                <Field label="Date">
+                  <TextInput type="date" className="w-full" value={form.expenseDate}
+                    onChange={(e) => setForm((f) => ({ ...f, expenseDate: e.target.value }))} />
+                </Field>
+                <Field label={<span className="inline-flex items-center gap-1">Category <InfoTip text="The category decides which expense account the journal posts to, so pick the nearest one rather than inventing a word." /></span>}>
+                  <SelectInput className="w-full" value={form.category}
+                    onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}>
                     {cats.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
-                  </select>
-                </label>
-                <label className="space-y-1">
-                  <span className="text-gray-600">Paid to (name)</span>
-                  <input placeholder="Landlord, power board, courier…" value={form.vendorName}
-                    onChange={(e) => setForm((f) => ({ ...f, vendorName: e.target.value }))}
-                    className="w-full rounded border px-2 py-1.5" />
-                </label>
-                <label className="space-y-1 sm:col-span-2 lg:col-span-2">
-                  <span className="text-gray-600">Description *</span>
-                  <input placeholder="What was this expense for?" value={form.description}
-                    onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                    className="w-full rounded border px-2 py-1.5" />
-                </label>
-                <label className="space-y-1">
-                  <span className="text-gray-600">Amount (₹, before GST)</span>
-                  <input type="number" min={0} step="0.01" value={form.amountRupees}
-                    onChange={(e) => setForm((f) => ({ ...f, amountRupees: e.target.value }))}
-                    className="w-full rounded border px-2 py-1.5 text-right" />
-                </label>
+                  </SelectInput>
+                </Field>
+                <Field label="Paid to (name)">
+                  <TextInput className="w-full" placeholder="Landlord, power board, courier…" value={form.vendorName}
+                    onChange={(e) => setForm((f) => ({ ...f, vendorName: e.target.value }))} />
+                </Field>
+                <Field label="Description *" className="sm:col-span-2">
+                  <TextInput className="w-full" placeholder="What was this expense for?" value={form.description}
+                    onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
+                </Field>
+                <Field label={<span className="inline-flex items-center gap-1">Amount before GST <InfoTip text="The value of the goods or service alone, in rupees. Put the tax in the GST box below, so your books and your GST return agree." /></span>}>
+                  <TextInput type="number" min={0} step="0.01" className="w-full text-right" value={form.amountRupees}
+                    onChange={(e) => setForm((f) => ({ ...f, amountRupees: e.target.value }))} />
+                </Field>
               </div>
 
               <div className="rounded-lg border border-gray-100 bg-gray-50/60 p-3 space-y-3">
@@ -205,21 +262,17 @@ const Expenses: React.FC = () => {
                 </label>
                 {form.hasGst && (
                   <div className="flex flex-wrap items-end gap-4">
-                    <label className="space-y-1">
-                      <span className="text-gray-600">GST amount (₹)</span>
-                      <input type="number" min={0} step="0.01" value={form.gstRupees}
-                        onChange={(e) => setForm((f) => ({ ...f, gstRupees: e.target.value }))}
-                        className="w-32 rounded border px-2 py-1.5 text-right" />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-gray-600">GST kind</span>
-                      <select value={form.gstType}
-                        onChange={(e) => setForm((f) => ({ ...f, gstType: e.target.value as any }))}
-                        className="rounded border px-2 py-1.5">
+                    <Field label="GST amount">
+                      <TextInput type="number" min={0} step="0.01" className="w-32 text-right" value={form.gstRupees}
+                        onChange={(e) => setForm((f) => ({ ...f, gstRupees: e.target.value }))} />
+                    </Field>
+                    <Field label={<span className="inline-flex items-center gap-1">GST kind <InfoTip text="Local when the supplier is in your own state (CGST + SGST). Inter-state when they are not (IGST). Their bill says which." /></span>}>
+                      <SelectInput value={form.gstType}
+                        onChange={(e) => setForm((f) => ({ ...f, gstType: e.target.value as any }))}>
                         <option value="cgst_sgst">Local (CGST + SGST)</option>
                         <option value="igst">Inter-state (IGST)</option>
-                      </select>
-                    </label>
+                      </SelectInput>
+                    </Field>
                     <label className="flex max-w-xs items-start gap-2">
                       <input type="checkbox" checked={form.itcEligible} className="mt-1"
                         onChange={(e) => setForm((f) => ({ ...f, itcEligible: e.target.checked }))} />
@@ -233,16 +286,14 @@ const Expenses: React.FC = () => {
               </div>
 
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <label className="space-y-1">
-                  <span className="text-gray-600">Paid from</span>
-                  <select value={form.paidFrom}
-                    onChange={(e) => setForm((f) => ({ ...f, paidFrom: e.target.value as any }))}
-                    className="rounded border px-2 py-1.5">
+                <Field label="Paid from">
+                  <SelectInput value={form.paidFrom}
+                    onChange={(e) => setForm((f) => ({ ...f, paidFrom: e.target.value as any }))}>
                     <option value="bank">Bank</option>
                     <option value="cash">Cash</option>
                     <option value="unpaid">Not paid yet (record as payable)</option>
-                  </select>
-                </label>
+                  </SelectInput>
+                </Field>
                 <Btn onClick={submit}
                   disabled={saving || !form.description.trim() || !(Number(form.amountRupees) > 0)}>
                   {saving ? 'Saving…' : 'Record expense'}
@@ -252,6 +303,12 @@ const Expenses: React.FC = () => {
           )}
 
           <FilterBar>
+            <Field
+              className="min-w-[15rem]"
+              label={<span className="inline-flex items-center gap-1">Find in this page <InfoTip text="Narrows the rows already on screen by number, who you paid or what it was for. To search the whole ledger, use the date, category and paid-from filters beside it." /></span>}
+            >
+              <SearchInput placeholder="Number, paid to, description…" value={find} onChange={(e) => setFind(e.target.value)} />
+            </Field>
             <Field label="Category">
               <SelectInput value={category} onChange={(e) => { setCategory(e.target.value); lc.setPage(1); }}>
                 <option value="">All categories</option>
@@ -266,8 +323,11 @@ const Expenses: React.FC = () => {
                 <option value="unpaid">Unpaid (payable)</option>
               </SelectInput>
             </Field>
-            <Field label="From"><input type="date" value={lc.from} onChange={(e) => lc.setFrom(e.target.value)} className="rounded border px-2 py-1.5 text-sm" /></Field>
-            <Field label="To"><input type="date" value={lc.to} onChange={(e) => lc.setTo(e.target.value)} className="rounded border px-2 py-1.5 text-sm" /></Field>
+            <Field label="From"><TextInput type="date" value={lc.from} onChange={(e) => lc.setFrom(e.target.value)} /></Field>
+            <Field label="To"><TextInput type="date" value={lc.to} onChange={(e) => lc.setTo(e.target.value)} /></Field>
+            {(find || category || paidFrom || lc.from || lc.to) && (
+              <Btn variant="ghost" onClick={() => { setFind(''); setCategory(''); setPaidFrom(''); lc.setFrom(''); lc.setTo(''); }}>Clear</Btn>
+            )}
           </FilterBar>
 
           {monthly.length > 0 && (
@@ -286,9 +346,18 @@ const Expenses: React.FC = () => {
                 <Th num>Amount</Th><Th num>GST</Th><Th num>Total</Th><Th>Paid from</Th>
                 {canPost && <Th num>Action</Th>}
               </THead>
+              {loadingRows && <TableSkeleton cols={canPost ? 10 : 9} rows={6} />}
               <TBody>
-                {rows.length === 0 && <EmptyRow colSpan={canPost ? 10 : 9}>No expenses recorded yet.</EmptyRow>}
-                {rows.map((e: any) => (
+                {!loadingRows && shownRows.length === 0 && (
+                  <EmptyRow colSpan={canPost ? 10 : 9}>
+                    {rows.length > 0
+                      ? 'Nothing on this page matches what you typed.'
+                      : (lc.from || lc.to || category || paidFrom)
+                        ? 'No expenses match those filters.'
+                        : `No expenses recorded yet.${canPost ? ' Scan a bill, or record one by hand.' : ''}`}
+                  </EmptyRow>
+                )}
+                {!loadingRows && shownRows.map((e: any) => (
                   <Tr key={e.id}>
                     <Td className="font-mono">
                       <button
@@ -319,6 +388,20 @@ const Expenses: React.FC = () => {
                   </Tr>
                 ))}
               </TBody>
+              {!loadingRows && shownRows.length > 0 && (
+                <tfoot className="border-t-2 border-gray-200 bg-gray-50 text-sm font-semibold text-gray-900">
+                  <tr>
+                    <td className="px-4 py-2.5" colSpan={5}>
+                      {find ? `${shownRows.length} of ${rows.length} on this page` : `This page (${rows.length} of ${total})`}
+                    </td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">{inrMinor(pageSums.amount)}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">{inrMinor(pageSums.gst)}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">{inrMinor(pageSums.total)}</td>
+                    <td />
+                    {canPost && <td />}
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </TableShell>
           <Pagination page={lc.page} pageSize={lc.pageSize} total={total} onPage={lc.setPage} onPageSize={lc.setPageSize} />

@@ -1,12 +1,16 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { productsAPI, categoriesAPI, brandsAPI, attributesAPI, attributeValuesAPI } from '../services/api';
 import { FaPlus, FaTrash, FaCog, FaCopy } from 'react-icons/fa';
-import { Pencil, Download, Upload, Loader2, ChevronDown, Search, X, FileSpreadsheet } from 'lucide-react';
-import LoadingSpinner from '../components/LoadingSpinner';
+import { Pencil, Download, Upload, Loader2, ChevronDown, Search, X, FileSpreadsheet, PackageSearch } from 'lucide-react';
 import { fmtRupees } from '../lib/money';
-import { Pagination } from '@/components/erp';
+import {
+  Page, PageHeader, Pagination, EmptyState,
+  FilterChips, ColumnChooser, useColumnChoice, TableSkeleton,
+  type ChipGroup, type ColumnDef,
+} from '@/components/erp';
+import InfoTip from '@/components/common/InfoTip';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -466,6 +470,124 @@ function downloadFaqsTemplate(): void {
 
 const PAGE_SIZE = 20;
 
+/**
+ * THE TABLE'S COLUMNS — one fact each, so a column can be scanned down.
+ *
+ * The old table crammed the SKU under the name and the MRP under the price,
+ * which meant neither could be compared row to row. `defaultHidden` keeps the
+ * default view calm; the column chooser brings the rest back, per viewer.
+ */
+const COLUMNS: ColumnDef[] = [
+  { key: 'product', label: 'Product', always: true },
+  { key: 'sku', label: 'SKU' },
+  { key: 'brand', label: 'Brand' },
+  { key: 'type', label: 'Type', defaultHidden: true },
+  { key: 'price', label: 'Price' },
+  { key: 'mrp', label: 'MRP', defaultHidden: true },
+  { key: 'categories', label: 'Categories' },
+  { key: 'stock', label: 'Stock' },
+  { key: 'hsn', label: 'HSN', defaultHidden: true },
+  { key: 'tax', label: 'Tax rule', defaultHidden: true },
+  { key: 'status', label: 'Status', always: true },
+];
+
+/** Right-aligned, tabular — money and counts only. */
+const NUM_COLS = new Set(['price', 'mrp', 'stock']);
+
+/** Tooltips instead of a paragraph under the header. */
+const COL_HELP: Record<string, string> = {
+  price: 'What a retail customer pays today, including any live sale price.',
+  mrp: 'The printed price the shop strikes through.',
+  stock: 'Whether this product, or any of its variations, has stock. Open the product for the figure per SKU.',
+  hsn: 'The tax code on the invoice. A product whose variations each have their own HSN shows "per variation".',
+  tax: 'The GST rule that sets this product’s rate. Blank means the store default applies.',
+  type: 'Simple: one thing to buy. Variable: several potencies or pack sizes under one product.',
+};
+
+/** One cell. Kept at module level so the table body stays readable. */
+function renderCell(key: string, p: any): React.ReactNode {
+  switch (key) {
+    case 'product':
+      return (
+        <div className="flex items-center gap-3">
+          {p.images?.[0] ? (
+            <div className="h-10 w-10 flex-shrink-0 overflow-hidden rounded-md bg-muted">
+              <img
+                src={p.images[0]} alt="" className="h-full w-full object-cover"
+                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+              />
+            </div>
+          ) : (
+            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md bg-muted text-[10px] text-ink-mute">
+              No image
+            </div>
+          )}
+          <span className="font-medium text-foreground">{p.name || 'Unnamed product'}</span>
+        </div>
+      );
+    case 'sku':
+      return <span className="font-mono text-xs text-ink-soft">{p.sku || '—'}</span>;
+    case 'brand':
+      return p.brand_name || (typeof p.brand === 'object' ? p.brand?.name : '') || <span className="text-ink-mute">—</span>;
+    case 'type':
+      return <span className="text-xs text-ink-soft">{p.product_type === 'variation' ? 'Variable' : 'Simple'}</span>;
+    case 'price':
+      return fmtRupees(p.price ?? 0);
+    case 'mrp':
+      return (p.originalPrice ?? 0) > 0
+        ? <span className="text-ink-soft">{fmtRupees(p.originalPrice)}</span>
+        : <span className="text-ink-mute">—</span>;
+    case 'hsn':
+      return p.hsn_code
+        ? <span className="font-mono text-xs">{p.hsn_code}</span>
+        : p.product_type === 'variation'
+          ? <span className="text-xs text-ink-mute">per variation</span>
+          : <span className="text-ink-mute">—</span>;
+    case 'tax':
+      return p.tax_rule_id ? <span className="text-xs">Set</span> : <span className="text-xs text-ink-mute">Store default</span>;
+    case 'stock':
+      return p.in_stock
+        ? <span className="text-good-ink">In stock</span>
+        : <span className="text-bad-ink">Out</span>;
+    case 'status':
+      return (
+        <Badge
+          variant={p.isActive ? 'default' : 'destructive'}
+          className={p.isActive ? 'border-good-200 bg-good/15 text-good-ink hover:bg-good/25' : ''}
+        >
+          {p.isActive ? 'Active' : 'Inactive'}
+        </Badge>
+      );
+    case 'categories': {
+      const cats: any[] = p.categories || [];
+      const featId = p.featuredCategory ? String(p.featuredCategory) : null;
+      const parentCats = cats.filter((c: any) => !c.parent);
+      const featCat = featId ? cats.find((c: any) => String(c._id) === featId && c.parent) : null;
+      const visible = [...parentCats, ...(featCat ? [featCat] : [])];
+      if (!visible.length && cats.length) visible.push(cats[0]);
+      if (!visible.length) return <span className="text-xs text-ink-mute">Unassigned</span>;
+      return (
+        <div className="flex flex-wrap gap-1">
+          {visible.map((cat: any, i: number) => {
+            const isFeatured = !!featId && String(cat._id) === featId;
+            return (
+              <Badge
+                variant="secondary" key={`${p._id}-cat-${i}`}
+                className={`text-xs font-normal ${isFeatured ? 'border-warn-400 bg-warn-bg text-warn-ink' : ''}`}
+                title={isFeatured ? 'The category this product is featured in' : undefined}
+              >
+                {isFeatured && '★ '}{cat?.name || cat?.slug || 'Category'}
+              </Badge>
+            );
+          })}
+        </div>
+      );
+    }
+    default:
+      return null;
+  }
+}
+
 type ImportType = 'products' | 'specs' | 'washcare' | 'faqs';
 
 const IMPORT_LABELS: Record<ImportType, string> = {
@@ -503,29 +625,56 @@ const Products: React.FC = () => {
   // Pagination + filter state
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const [selectedCategory, setSelectedCategory] = useState('');
   const [topCategories, setTopCategories] = useState<Array<{ _id: string; name: string; slug: string }>>([]);
+  const [productForms, setProductForms] = useState<Array<{ slug: string; name: string }>>([]);
+  const cols = useColumnChoice('products', COLUMNS);
+
+  /**
+   * FILTERS LIVE IN THE URL.
+   *
+   * A filtered list is then linkable, survives a refresh and comes back from
+   * the browser's Back button — and "why is this list empty?" is answerable by
+   * reading the address bar. `?search=` was already honoured (other screens
+   * drill through to a SKU); every chip now joins it.
+   */
+  const [sp, setSp] = useSearchParams();
+  const q = (k: string) => sp.get(k) ?? '';
+  const missing = useMemo(() => (sp.get('missing') || '').split(',').filter(Boolean), [sp]);
+  const setFilter = (patch: Record<string, string | string[]>) => {
+    const next = new URLSearchParams(sp);
+    for (const [k, v] of Object.entries(patch)) {
+      const value = Array.isArray(v) ? v.join(',') : v;
+      if (value) next.set(k, value); else next.delete(k);
+    }
+    setSp(next, { replace: true });
+    setPage(1);
+  };
+  const clearFilters = () => {
+    const next = new URLSearchParams();
+    const s = sp.get('search'); if (s) next.set('search', s);
+    setSp(next, { replace: true });
+    setPage(1);
+  };
+  const activeFilterCount =
+    ['status', 'category', 'brand', 'form', 'stock', 'sort'].filter((k) => q(k)).length + missing.length;
 
   // Search — debounced, 3-char minimum (matches the project's search convention elsewhere).
-  // Seeded from `?search=` so other screens can drill through to a specific SKU
-  // (Wishlist demand, the Q&A inbox) instead of making the user retype it.
-  const initialSearch = new URLSearchParams(window.location.search).get('search') ?? '';
-  const [searchInput, setSearchInput] = useState(initialSearch);
-  const [search, setSearch] = useState(initialSearch.trim().length >= 3 ? initialSearch.trim() : '');
+  const [searchInput, setSearchInput] = useState(() => sp.get('search') ?? '');
+  const search = (sp.get('search') ?? '').trim().length >= 3 ? (sp.get('search') ?? '').trim() : '';
   useEffect(() => {
     const t = setTimeout(() => {
-      const q = searchInput.trim();
-      setSearch(q.length >= 3 ? q : '');
-      setPage(1);
+      if ((sp.get('search') ?? '') !== searchInput) setFilter({ search: searchInput });
     }, 300);
     return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchInput]);
 
   const toggleSelect = (id: string) => setSelectedIds((prev) => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
   const toggleSelectAll = () => setSelectedIds(products.every((p) => selectedIds.has(p._id)) ? new Set() : new Set(products.map((p) => p._id)));
   const allSelected = products.length > 0 && products.every((p) => selectedIds.has(p._id));
 
-  // Load top-level categories for filter + all brands for bulk assign
+  // What the chips can offer. A list that comes back empty simply removes its
+  // chip (FilterChips drops a group with no options) — no dead dropdowns.
   useEffect(() => {
     categoriesAPI.list().then((res: any) => {
       let cats: any[] = Array.isArray(res) ? res : (res?.data || res?.data?.data || []);
@@ -536,11 +685,19 @@ const Products: React.FC = () => {
       const list: any[] = Array.isArray(res) ? res : (res?.data || []);
       setAllBrands(list.map((b: any) => ({ _id: String(b._id || b.id || ''), name: b.name || '' })));
     }).catch(() => {});
+    // Product form is a card axis on this catalogue (brand + form group the
+    // storefront's cards). A store that does not use it gets no Form chip.
+    attributeValuesAPI.getByAttributeSlug('product-form', { isActive: true })
+      .then((vals: any[]) => setProductForms(
+        (vals || []).map((v) => ({ slug: String(v.slug || ''), name: String(v.name || v.slug || '') }))
+          .filter((v) => v.slug)))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
-    fetchProducts(page, selectedCategory, search);
-  }, [page, selectedCategory, search]);
+    fetchProducts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, sp]);
 
   const sanitizeProduct = (product: any): any => {
     const sanitized = { ...product };
@@ -569,12 +726,19 @@ const Products: React.FC = () => {
     return sanitized;
   };
 
-  const fetchProducts = async (pageNum = 1, catSlug = '', searchQuery = '') => {
+  /** Every chip becomes one query param. The URL is the single source. */
+  const fetchProducts = async () => {
     try {
       setLoading(true);
-      const params: any = { page: pageNum, limit: PAGE_SIZE };
-      if (catSlug) params.categorySlug = catSlug;
-      if (searchQuery) params.search = searchQuery;
+      const params: any = { page, limit: PAGE_SIZE };
+      if (search) params.search = search;
+      if (q('category')) params.categorySlug = q('category');
+      if (q('brand')) params.brand = q('brand');
+      if (q('status')) params.active = q('status') === 'active' ? 'true' : 'false';
+      if (q('stock')) params.inStock = q('stock') === 'in' ? 'true' : 'false';
+      if (q('sort')) params.sort = q('sort');
+      if (q('form')) params.attributes = JSON.stringify({ 'product-form': q('form') });
+      if (missing.length) params.missing = missing.join(',');
       const response = await productsAPI.getAll(params);
       let list: any[] = Array.isArray(response) ? response : (response?.data?.data || response?.data || []);
       setProducts(list.map(sanitizeProduct));
@@ -615,7 +779,7 @@ const Products: React.FC = () => {
     if (!confirm('Are you sure you want to delete this product?')) return;
     try {
       await productsAPI.delete(id);
-      fetchProducts(page, selectedCategory, search);
+      fetchProducts();
     } catch (error) {
       alert('Failed to delete product');
     }
@@ -738,11 +902,32 @@ const Products: React.FC = () => {
     try {
       const ids = Array.from(selectedIds);
       await Promise.all(ids.map((id) => productsAPI.update(id, { brand: bulkBrand })));
-      fetchProducts(page, selectedCategory, search);
+      fetchProducts();
       setSelectedIds(new Set());
       setBulkBrand('');
     } catch {
       alert('Failed to assign brand to some products.');
+    } finally {
+      setBulkAssigning(false);
+    }
+  };
+
+  /**
+   * Put the selected products on, or take them off, the website. The same
+   * `products.manage` write the Status switch on the product form makes — this
+   * is only the bulk door to it, which the list never had.
+   */
+  const handleBulkActive = async (isActive: boolean) => {
+    if (selectedIds.size === 0) return;
+    const verb = isActive ? 'Show' : 'Hide';
+    if (!confirm(`${verb} ${selectedIds.size} product${selectedIds.size !== 1 ? 's' : ''} on the website?`)) return;
+    setBulkAssigning(true);
+    try {
+      await Promise.all(Array.from(selectedIds).map((id) => productsAPI.update(id, { isActive })));
+      fetchProducts();
+      setSelectedIds(new Set());
+    } catch {
+      alert('Some products could not be changed. Reload and check which.');
     } finally {
       setBulkAssigning(false);
     }
@@ -911,7 +1096,7 @@ const Products: React.FC = () => {
       else                               result = await handleImportProducts(rows);
 
       setImportResult(result);
-      if (importType === 'products') { fetchProducts(1, selectedCategory); setPage(1); }
+      if (importType === 'products') { setPage(1); fetchProducts(); }
     } catch (err) {
       console.error('Import failed:', err);
       alert('Import failed. Check the file format.');
@@ -921,102 +1106,147 @@ const Products: React.FC = () => {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <LoadingSpinner size="lg" color="primary" text="Loading products..." />
-      </div>
-    );
-  }
+  // ── The toolbar's chips. A group with no options is dropped by FilterChips,
+  //    so a store with no brands (or no product-form axis) never sees a dead
+  //    dropdown — that is what makes the row contextual.
+  const chipGroups: ChipGroup[] = [
+    {
+      key: 'status', label: 'Status', value: q('status'),
+      onChange: (v: string) => setFilter({ status: v }),
+      options: [
+        { value: 'active', label: 'Active', hint: 'on the website' },
+        { value: 'inactive', label: 'Inactive', hint: 'hidden' },
+      ],
+    },
+    {
+      key: 'category', label: 'Category', value: q('category'),
+      onChange: (v: string) => setFilter({ category: v }),
+      options: topCategories.map((c) => ({ value: c.slug, label: c.name })),
+    },
+    {
+      key: 'brand', label: 'Brand', value: q('brand'),
+      onChange: (v: string) => setFilter({ brand: v }),
+      options: allBrands.map((b) => ({ value: b._id, label: b.name })),
+    },
+    {
+      key: 'form', label: 'Form', value: q('form'),
+      onChange: (v: string) => setFilter({ form: v }),
+      help: 'Dilution, mother tincture, tablet…',
+      options: productForms.map((f) => ({ value: f.slug, label: f.name })),
+    },
+    {
+      key: 'stock', label: 'Stock', value: q('stock'),
+      onChange: (v: string) => setFilter({ stock: v }),
+      help: 'The product itself, or any of its variations.',
+      options: [
+        { value: 'in', label: 'In stock' },
+        { value: 'out', label: 'Out of stock' },
+      ],
+    },
+    {
+      key: 'missing', label: 'Needs filling in', value: missing, multiple: true,
+      onChange: (v: string[]) => setFilter({ missing: v }),
+      help: 'Products still missing something. Pick two to see the ones missing both.',
+      options: [
+        { value: 'images', label: 'No image' },
+        { value: 'hsn', label: 'No HSN code' },
+        { value: 'tax_rule', label: 'No tax rule' },
+        { value: 'b2b_price', label: 'No wholesale price' },
+      ],
+    },
+    {
+      key: 'sort', label: 'Sort', value: q('sort'),
+      onChange: (v: string) => setFilter({ sort: v }),
+      options: [
+        { value: 'newest', label: 'Newest first' },
+        { value: 'oldest', label: 'Oldest first' },
+        { value: 'name-asc', label: 'Name A to Z' },
+        { value: 'name-desc', label: 'Name Z to A' },
+        { value: 'price-asc', label: 'Price low to high' },
+        { value: 'price-desc', label: 'Price high to low' },
+      ],
+    },
+  ];
+
+  const visibleCols = COLUMNS.filter((c) => cols.shows(c.key));
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold tracking-tight">Products</h1>
-        <div className="flex items-center gap-2">
-          <input ref={fileInputRef} type="file" accept=".csv" className="hidden" onChange={handleImportFile} />
+    <Page width="full">
+      <PageHeader
+        title="Products"
+        description="Everything the shop sells. Open one to edit its details, prices, variations and page."
+        actions={
+          <>
+            <input ref={fileInputRef} type="file" accept=".csv" className="hidden" onChange={handleImportFile} />
 
-          {/* Import dropdown */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" disabled={importing}>
-                {importing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
-                {importing ? `Importing ${IMPORT_LABELS[importType]}…` : 'Import'} <ChevronDown className="ml-1 h-3 w-3" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {(['products', 'specs', 'washcare', 'faqs'] as ImportType[]).map((type) => (
-                <DropdownMenuItem
-                  key={type}
-                  onClick={() => { setImportType(type); setTimeout(() => fileInputRef.current?.click(), 0); }}
-                >
-                  {IMPORT_LABELS[type]}
-                  {importType === type && !importing && <span className="ml-auto text-xs text-muted-foreground">last used</span>}
+            {/* IMPORT — one control. The workbook is the whole catalogue; the
+                four CSVs below it each change one part of existing products. */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" disabled={importing}>
+                  {importing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+                  {importing ? `Importing ${IMPORT_LABELS[importType]}…` : 'Import'} <ChevronDown className="ml-1 h-3 w-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                <DropdownMenuItem asChild>
+                  <Link to="/products/import-export">
+                    <FileSpreadsheet className="mr-2 h-4 w-4" /> Catalogue workbook (.xlsx)
+                  </Link>
                 </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                <DropdownMenuSeparator />
+                {(['products', 'specs', 'washcare', 'faqs'] as ImportType[]).map((type) => (
+                  <DropdownMenuItem
+                    key={type}
+                    onClick={() => { setImportType(type); setTimeout(() => fileInputRef.current?.click(), 0); }}
+                  >
+                    {IMPORT_LABELS[type]} (.csv)
+                  </DropdownMenuItem>
+                ))}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={downloadTemplate}>Blank products template</DropdownMenuItem>
+                <DropdownMenuItem onClick={downloadSpecsTemplate}>Blank specifications template</DropdownMenuItem>
+                <DropdownMenuItem onClick={downloadWashCareTemplate}>Blank wash-care template</DropdownMenuItem>
+                <DropdownMenuItem onClick={downloadFaqsTemplate}>Blank FAQs template</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
 
-          {/* Export dropdown */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" disabled={exporting || products.length === 0}>
-                {exporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-                Export <ChevronDown className="ml-1 h-3 w-3" />
+            {/* EXPORT — one control, three scopes. */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" disabled={exporting}>
+                  {exporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                  Export <ChevronDown className="ml-1 h-3 w-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                <DropdownMenuItem onClick={() => handleExport('all')}>
+                  Whole catalogue — workbook (.xlsx)
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => handleExport('page')} disabled={products.length === 0}>
+                  This page ({products.length}) — .csv
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleExport('selected')} disabled={selectedIds.size === 0}>
+                  Selected ({selectedIds.size}) — .csv
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {canManageProducts && (
+              <Button asChild>
+                <Link to="/products/new"><FaPlus className="mr-2" /> Add product</Link>
               </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => handleExport('page')}>
-                This page ({products.length})
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleExport('selected')} disabled={selectedIds.size === 0}>
-                Selected ({selectedIds.size})
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleExport('all')}>
-                All products — full workbook (.xlsx)
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {/* Templates dropdown */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">
-                <Download className="mr-2 h-4 w-4" />
-                Templates <ChevronDown className="ml-1 h-3 w-3" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={downloadTemplate}>Products template</DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={downloadSpecsTemplate}>Specs template</DropdownMenuItem>
-              <DropdownMenuItem onClick={downloadWashCareTemplate}>Wash care template</DropdownMenuItem>
-              <DropdownMenuItem onClick={downloadFaqsTemplate}>FAQs template</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {/* Full linked workbook (all data + column mapping) */}
-          <Button asChild variant="outline" size="sm">
-            <Link to="/products/import-export">
-              <FileSpreadsheet className="mr-2 h-4 w-4" /> Bulk Workbook
-            </Link>
-          </Button>
-
-          {canManageProducts && (
-            <Button asChild className="bg-primary hover:bg-primary/90 text-primary-foreground">
-              <Link to="/products/new">
-                <FaPlus className="mr-2" /> Add Product
-              </Link>
-            </Button>
-          )}
-        </div>
-      </div>
+            )}
+          </>
+        }
+      />
 
       {importResult && (
-        <div className={`rounded-md border p-4 text-sm ${importResult.errors.length > 0 ? 'border-yellow-300 bg-yellow-50 text-yellow-800' : 'border-green-300 bg-green-50 text-green-800'}`}>
+        <div className={`rounded-md border p-4 text-sm ${importResult.errors.length > 0 ? 'border-warn-300 bg-warn-bg text-warn-ink' : 'border-good-300 bg-good-bg text-good-ink'}`}>
           <div className="flex items-start justify-between">
             <div>
-              <p className="font-semibold mb-1">{IMPORT_LABELS[importType]} import complete</p>
+              <p className="mb-1 font-semibold">{IMPORT_LABELS[importType]} import complete</p>
               <p>
                 {importType === 'products'
                   ? `${importResult.created} created, ${importResult.updated} updated`
@@ -1024,31 +1254,65 @@ const Products: React.FC = () => {
                 {importResult.errors.length > 0 ? `, ${importResult.errors.length} failed` : ''}
               </p>
               {importResult.errors.length > 0 && (
-                <ul className="mt-2 space-y-0.5 list-disc list-inside text-xs">
+                <ul className="mt-2 list-inside list-disc space-y-0.5 text-xs">
                   {importResult.errors.slice(0, 10).map((e, i) => <li key={i}>{e}</li>)}
                   {importResult.errors.length > 10 && <li>…and {importResult.errors.length - 10} more</li>}
                 </ul>
               )}
             </div>
-            <button onClick={() => setImportResult(null)} className="text-current opacity-50 hover:opacity-100 ml-4">✕</button>
+            <button onClick={() => setImportResult(null)} className="ml-4 text-current opacity-50 hover:opacity-100">✕</button>
           </div>
         </div>
       )}
 
-      {/* Selection bar */}
+      {/* ── TOOLBAR: search · count · chips · columns ─────────────────────── */}
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative w-80 max-w-full">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-mute" />
+            <input
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Search by name or SKU…"
+              aria-label="Search products"
+              data-testid="products-search"
+              className="h-9 w-full rounded-lg border border-line bg-surface pl-8 pr-8 text-sm shadow-sm focus:border-line-strong focus:outline-none focus:ring-2 focus:ring-focus/30"
+            />
+            {searchInput && (
+              <button
+                type="button" aria-label="Clear search" onClick={() => setSearchInput('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-mute hover:text-ink"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          <span className="text-sm text-ink-soft" data-testid="products-count">
+            {loading ? 'Counting…' : `${total.toLocaleString('en-IN')} product${total !== 1 ? 's' : ''}`}
+            {activeFilterCount > 0 && !loading && <span className="text-ink-mute"> matching your filters</span>}
+          </span>
+          <div className="ml-auto flex items-center gap-2">
+            <ColumnChooser columns={COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />
+          </div>
+        </div>
+
+        <FilterChips groups={chipGroups} onClearAll={clearFilters} />
+      </div>
+
+      {/* Bulk actions — only when something is selected. */}
       {selectedIds.size > 0 && (
-        <div className="flex flex-wrap items-center gap-3 px-4 py-2 bg-primary/10 rounded-md border border-primary/20 text-sm">
-          <span className="font-medium text-primary">{selectedIds.size} selected</span>
+        <div className="flex flex-wrap items-center gap-3 rounded-md border border-brand/20 bg-brand/10 px-4 py-2 text-sm">
+          <span className="font-medium text-brand-700">{selectedIds.size} selected</span>
           <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleExport('selected')} disabled={exporting}>
             <Download className="mr-1 h-3 w-3" /> Export selected
           </Button>
-          {/* Bulk assign brand */}
-          {allBrands.length > 0 && (
+          {allBrands.length > 0 && canManageProducts && (
             <div className="flex items-center gap-1">
               <select
                 value={bulkBrand}
                 onChange={(e) => setBulkBrand(e.target.value)}
-                className="h-7 px-2 text-xs border border-input rounded bg-background"
+                aria-label="Assign a brand to the selected products"
+                className="h-7 rounded border border-line bg-surface px-2 text-xs"
               >
                 <option value="">Assign brand…</option>
                 {allBrands.map((b) => <option key={b._id} value={b._id}>{b.name}</option>)}
@@ -1058,176 +1322,134 @@ const Products: React.FC = () => {
               </Button>
             </div>
           )}
-          <button className="ml-auto text-xs text-muted-foreground hover:text-foreground" onClick={() => setSelectedIds(new Set())}>Clear</button>
+          {canManageProducts && (
+            <>
+              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleBulkActive(true)} disabled={bulkAssigning}>
+                Activate
+              </Button>
+              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleBulkActive(false)} disabled={bulkAssigning}>
+                Deactivate
+              </Button>
+            </>
+          )}
+          <button className="ml-auto text-xs text-ink-soft hover:text-ink" onClick={() => setSelectedIds(new Set())}>Clear</button>
         </div>
       )}
 
-      {/* Filters */}
-      <div className="flex items-center gap-3">
-        <div className="relative w-72 max-w-full">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <input
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Search products by name or SKU… (min 3 letters)"
-            className="w-full pl-8 pr-8 py-2 text-sm border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-          />
-          {searchInput && (
-            <button
-              type="button"
-              onClick={() => setSearchInput('')}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          )}
-        </div>
-        <select
-          value={selectedCategory}
-          onChange={(e) => { setSelectedCategory(e.target.value); setPage(1); }}
-          className="px-3 py-2 text-sm border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-        >
-          <option value="">All Categories</option>
-          {topCategories.map((cat) => (
-            <option key={cat._id} value={cat.slug}>{cat.name}</option>
-          ))}
-        </select>
-        {total > 0 && (
-          <span className="text-sm text-muted-foreground">{total} product{total !== 1 ? 's' : ''}</span>
-        )}
-      </div>
-
       <div className="rounded-md border bg-card shadow-sm">
         <Table>
-          <TableHeader>
+          <TableHeader className="sticky top-0 z-10 bg-surface-2">
             <TableRow>
               <TableHead className="w-10">
-                <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} className="rounded border-gray-300 cursor-pointer" />
+                <input
+                  type="checkbox" checked={allSelected} onChange={toggleSelectAll}
+                  aria-label="Select every product on this page"
+                  className="cursor-pointer rounded border-line"
+                />
               </TableHead>
-              <TableHead>Product</TableHead>
-              <TableHead>Price</TableHead>
-              <TableHead>Categories</TableHead>
-              <TableHead>Status</TableHead>
+              {visibleCols.map((c) => (
+                <TableHead key={c.key} className={NUM_COLS.has(c.key) ? 'text-right' : undefined}>
+                  {c.label}
+                  {COL_HELP[c.key] && <InfoTip className="ml-1" text={COL_HELP[c.key]} />}
+                </TableHead>
+              ))}
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
-          <TableBody>
-            {products.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6} className="h-24 text-center">
-                  {search ? `No products found for "${search}".` : 'No products found.'}
-                </TableCell>
-              </TableRow>
-            ) : (
-              products.map((product) => (
-                <TableRow key={product._id} className={selectedIds.has(product._id) ? 'bg-muted/50' : ''}>
-                  <TableCell className="w-10">
-                    <input type="checkbox" checked={selectedIds.has(product._id)} onChange={() => toggleSelect(product._id)} className="rounded border-gray-300 cursor-pointer" />
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-4">
-                      {product.images?.[0] ? (
-                        <div className="h-12 w-12 rounded-md overflow-hidden bg-muted flex-shrink-0">
-                          <img src={product.images[0]} alt={product.name} className="h-full w-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                        </div>
-                      ) : (
-                        <div className="h-12 w-12 rounded-md bg-muted flex items-center justify-center text-muted-foreground text-xs">No img</div>
-                      )}
-                      <div className="flex flex-col">
-                        <span className="font-medium text-foreground">{product.name || 'Unnamed Product'}</span>
-                        <span className="text-xs text-muted-foreground tracking-wider">SKU: {product.sku || product._id}</span>
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="font-medium">{fmtRupees(product.price ?? 0)}</div>
-                    {(product.originalPrice ?? 0) > 0 && <div className="text-xs text-muted-foreground line-through">{fmtRupees(product.originalPrice)}</div>}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {(() => {
-                        const cats: any[] = product.categories || [];
-                        const featId = product.featuredCategory ? String(product.featuredCategory) : null;
-                        // Parent categories = no parent field (top-level)
-                        const parentCats = cats.filter((c: any) => !c.parent);
-                        // Featured category (if not already in parent list)
-                        const featCat = featId ? cats.find((c: any) => String(c._id) === featId && c.parent) : null;
-                        const visible = [...parentCats, ...(featCat ? [featCat] : [])];
-                        if (!visible.length && cats.length) {
-                          // Fallback: show first category if none qualify
-                          visible.push(cats[0]);
-                        }
-                        return visible.length ? (
-                          visible.map((cat: any, i: number) => {
-                            const name = cat?.name || cat?.slug || 'Category';
-                            const isFeatured = featId && String(cat._id) === featId;
-                            return (
-                              <Badge variant="secondary" key={`${product._id}-cat-${i}`} className={`text-xs font-normal ${isFeatured ? 'border-yellow-400 text-yellow-700 bg-yellow-50' : ''}`}>
-                                {isFeatured && '★ '}{name}
-                              </Badge>
-                            );
-                          })
-                        ) : (
-                          <span className="text-xs text-muted-foreground">Unassigned</span>
-                        );
-                      })()}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={product.isActive ? "default" : "destructive"} className={product.isActive ? "bg-green-500/15 text-green-700 hover:bg-green-500/25 border-green-200" : ""}>
-                      {product.isActive ? 'Active' : 'Inactive'}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center justify-end gap-1">
-                      {canManageProducts && (
-                        <Button variant="outline" size="sm" className="h-8 w-8 p-0" asChild title="Edit product">
-                          <Link to={`/products/${product.slug || product._id}/edit`}>
-                            <Pencil className="h-3.5 w-3.5" />
-                          </Link>
-                        </Button>
-                      )}
-                      {/* Page content (page_sections + aplus_content) is gated by the
-                          aplus_content module — with it off the backend strips the
-                          save, so don't offer a dead editor. Opens the Product Page
-                          Studio tab of the product form directly. */}
-                      {canManageProducts && canAccess('aplus_content') && (
-                        <Button variant="outline" size="sm" className="h-8 w-8 p-0" asChild title="Page content (sections, highlights, layout)">
-                          <Link to={`/products/${product.slug || product._id}/edit?tab=content`}>
-                            <FaCog className="h-3.5 w-3.5" />
-                          </Link>
-                        </Button>
-                      )}
-                      {canManageProducts && (
-                        <Button
-                          variant="outline" size="sm" className="h-8 w-8 p-0" title="Duplicate product"
-                          onClick={() => handleDuplicate(product._id)} disabled={duplicatingId === product._id}
-                        >
-                          {duplicatingId === product._id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FaCopy className="h-3.5 w-3.5" />}
-                        </Button>
-                      )}
-                      {canDeleteProducts && (
-                        <Button
-                          variant="outline" size="sm"
-                          className="h-8 w-8 p-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                          title="Delete product"
-                          onClick={() => handleDelete(product._id)}
-                        >
-                          <FaTrash className="h-3.5 w-3.5" />
-                        </Button>
-                      )}
-                    </div>
+
+          {loading ? (
+            <TableSkeleton cols={visibleCols.length + 2} rows={8} />
+          ) : (
+            <TableBody>
+              {products.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={visibleCols.length + 2} className="p-0">
+                    <EmptyState
+                      icon={PackageSearch}
+                      title={search || activeFilterCount ? 'Nothing matches' : 'No products yet'}
+                      description={
+                        search || activeFilterCount
+                          ? 'No product matches this search and these filters.'
+                          : 'Add your first product, or bring the catalogue in from a workbook.'
+                      }
+                      action={
+                        search || activeFilterCount ? (
+                          <Button variant="outline" size="sm" onClick={() => { setSearchInput(''); clearFilters(); }}>
+                            Clear search and filters
+                          </Button>
+                        ) : canManageProducts ? (
+                          <Button asChild size="sm"><Link to="/products/new">Add a product</Link></Button>
+                        ) : undefined
+                      }
+                    />
                   </TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
+              ) : (
+                products.map((product) => (
+                  <TableRow key={product._id} className={selectedIds.has(product._id) ? 'bg-muted/50' : ''}>
+                    <TableCell className="w-10">
+                      <input
+                        type="checkbox" checked={selectedIds.has(product._id)} onChange={() => toggleSelect(product._id)}
+                        aria-label={`Select ${product.name || 'product'}`}
+                        className="cursor-pointer rounded border-line"
+                      />
+                    </TableCell>
+
+                    {visibleCols.map((c) => (
+                      <TableCell key={c.key} className={NUM_COLS.has(c.key) ? 'text-right tabular-nums' : undefined}>
+                        {renderCell(c.key, product)}
+                      </TableCell>
+                    ))}
+
+                    <TableCell>
+                      <div className="flex items-center justify-end gap-1">
+                        {canManageProducts && (
+                          <Button variant="outline" size="sm" className="h-8 w-8 p-0" asChild title="Edit product">
+                            <Link to={`/products/${product.slug || product._id}/edit`}>
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Link>
+                          </Button>
+                        )}
+                        {/* Page content (page_sections + aplus_content) is gated by the
+                            aplus_content module — with it off the backend strips the
+                            save, so don't offer a dead editor. */}
+                        {canManageProducts && canAccess('aplus_content') && (
+                          <Button variant="outline" size="sm" className="h-8 w-8 p-0" asChild title="Page content (sections, highlights, layout)">
+                            <Link to={`/products/${product.slug || product._id}/edit?tab=content`}>
+                              <FaCog className="h-3.5 w-3.5" />
+                            </Link>
+                          </Button>
+                        )}
+                        {canManageProducts && (
+                          <Button
+                            variant="outline" size="sm" className="h-8 w-8 p-0" title="Duplicate product"
+                            onClick={() => handleDuplicate(product._id)} disabled={duplicatingId === product._id}
+                          >
+                            {duplicatingId === product._id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FaCopy className="h-3.5 w-3.5" />}
+                          </Button>
+                        )}
+                        {canDeleteProducts && (
+                          <Button
+                            variant="outline" size="sm"
+                            className="h-8 w-8 p-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                            title="Delete product"
+                            onClick={() => handleDelete(product._id)}
+                          >
+                            <FaTrash className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          )}
         </Table>
       </div>
 
-      {/* Pagination */}
       <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPage={setPage} variant="numbered" />
-    </div>
+    </Page>
   );
 };
 

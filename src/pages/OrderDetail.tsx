@@ -46,6 +46,7 @@ import {
 import type { RazorpayAuditResult, RefundOutcome } from '../components/order';
 import { PickupModal } from '../components/shipments';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import InfoTip from '../components/common/InfoTip';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -1544,7 +1545,10 @@ const OrderDetail: React.FC = () => {
               <Card className="shadow-sm">
                 <CardHeader className="border-b bg-slate-50/80 px-4 py-2.5">
                   <CardTitle className="flex items-center justify-between text-sm font-semibold uppercase tracking-wide text-slate-700">
-                    <span>Order authenticity</span>
+                    <span className="flex items-center gap-1.5">
+                      Order authenticity
+                      <InfoTip text="A score out of 100 from signals on the order itself — the address, the payment, the customer's history across every store on the platform. It advises; it never blocks an order." />
+                    </span>
                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${tone.chip}`}>
                       {tone.label}
                     </span>
@@ -1594,8 +1598,9 @@ const OrderDetail: React.FC = () => {
 
             <Card className="shadow-sm">
               <CardHeader className="border-b bg-slate-50/80 px-4 py-2.5">
-                <CardTitle className="text-sm font-semibold uppercase tracking-wide text-slate-700">
+                <CardTitle className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-700">
                   Invoiced by
+                  <InfoTip text="The GSTIN and the place of supply frozen onto this order when it was placed. Changing the store's details later never rewrites what an issued invoice said." />
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-2 p-4 text-sm">
@@ -1631,8 +1636,9 @@ const OrderDetail: React.FC = () => {
 
           <Card className="shadow-sm">
             <CardHeader className="border-b bg-slate-50/80 px-4 py-2.5">
-              <CardTitle className="text-sm font-semibold uppercase tracking-wide text-slate-700">
+              <CardTitle className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-700">
                 Shipping &amp; tracking
+                <InfoTip text="The carrier, the waybill and where the parcel is. A parcel booked outside this system can be linked here by pasting its AWB." />
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 p-4">
@@ -1711,7 +1717,7 @@ const OrderDetail: React.FC = () => {
               {!order.shipmentId && !(order.shiprocketShipmentId ?? order.shiprocket_shipment_id) && (
                 <div className="border-t pt-2.5">
                   <p className="mb-2 text-xs text-slate-500">
-                    Shipped straight from the carrier&apos;s own dashboard? Paste the AWB to link it here.
+                    Booked outside this system? Paste the AWB.
                   </p>
                   <Button variant="outline" size="sm" className="h-8" onClick={handleAttachAwb} disabled={attachingAwb}>
                     {attachingAwb ? 'Attaching…' : 'AWB'}

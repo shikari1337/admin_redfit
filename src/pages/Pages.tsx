@@ -15,6 +15,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { toast } from '@/hooks/use-toast';
+
+/** A message that used to be a blocking alert() — now a toast (the shell mounts the Toaster). */
+const notify = (message: string) =>
+  toast({ title: message, variant: /fail|could not|error/i.test(message) ? 'destructive' : 'default' });
+
 
 interface Page {
   _id: string;
@@ -78,13 +84,13 @@ const Pages: React.FC = () => {
       if (data?.created > 0 || data?.updated > 0) {
         const lines = [`${data.created || 0} page(s) created${data.updated ? `, ${data.updated} updated` : ''}`];
         if (made.length) lines.push('', ...made, '', 'The policy pages are unpublished — open each one, write your policy, then publish it.');
-        alert(lines.join('\n'));
+        notify(lines.join('\n'));
       } else {
-        alert('Nothing to add — this store already has all the standard pages.');
+        notify('Nothing to add — this store already has all the standard pages.');
       }
       fetchPages();
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Failed to add pages');
+      notify(err.response?.data?.message || 'Failed to add pages');
     }
   };
 
@@ -105,7 +111,7 @@ const Pages: React.FC = () => {
       setPages(list);
     } catch (error: any) {
       console.error('Failed to fetch pages:', error);
-      alert(error.response?.data?.message || 'Failed to fetch pages');
+      notify(error.response?.data?.message || 'Failed to fetch pages');
       setPages([]);
     } finally {
       setLoading(false);
@@ -117,11 +123,11 @@ const Pages: React.FC = () => {
     
     try {
       await api.delete(`/pages/${id}`);
-      alert('Page deleted successfully');
+      notify('Page deleted successfully');
       fetchPages();
     } catch (error: any) {
       console.error('Failed to delete page:', error);
-      alert(error.response?.data?.message || 'Failed to delete page');
+      notify(error.response?.data?.message || 'Failed to delete page');
     }
   };
 
@@ -136,7 +142,7 @@ const Pages: React.FC = () => {
       fetchPages();
     } catch (error: any) {
       console.error('Failed to update page:', error);
-      alert(error.response?.data?.message || 'Failed to update page');
+      notify(error.response?.data?.message || 'Failed to update page');
     }
   };
 
@@ -151,7 +157,7 @@ const Pages: React.FC = () => {
       fetchPages();
     } catch (error: any) {
       console.error('Failed to update page:', error);
-      alert(error.response?.data?.message || 'Failed to update page');
+      notify(error.response?.data?.message || 'Failed to update page');
     }
   };
 

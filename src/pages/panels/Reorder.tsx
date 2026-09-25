@@ -5,6 +5,7 @@ import {
   Page, PageHeader, SectionCard, Btn, StatCard, StatGrid,
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow, TabBar,
   FilterBar, Field, TextInput, SearchInput, StatusChip, EmptyState, inrMinor,
+  FilterChips, downloadCsv, type ChipGroup,
 } from '../../components/erp';
 import { PackageSearch, ChevronDown, ChevronRight } from 'lucide-react';
 
@@ -24,6 +25,10 @@ const Reorder: React.FC = () => {
 
   // ── Reorder report ──
   const [report, setReport] = useState<any>(null);
+  // The report is ONE computed list (every SKU below its reorder point), so
+  // narrowing it in the browser is exact, not an approximation of a server filter.
+  const [rq, setRq] = useState('');
+  const [rVendor, setRVendor] = useState('');
   const [loading, setLoading] = useState(false);
   const [draftResult, setDraftResult] = useState<any>(null);
   const [creating, setCreating] = useState(false);
@@ -156,6 +161,35 @@ const Reorder: React.FC = () => {
     setMappings(payload<any>(await api.get('/reorder/vendors', { params: { variationId: sel!.id } })) ?? []);
   };
 
+  const reportRows: any[] = (report?.rows ?? []).filter((r: any) => {
+    const q = rq.trim().toLowerCase();
+    if (q && !`${r.productName ?? r.product_name ?? ''} ${r.sku ?? ''}`.toLowerCase().includes(q)) return false;
+    if (rVendor === '__none' && r.preferredVendorName) return false;
+    if (rVendor && rVendor !== '__none' && r.preferredVendorName !== rVendor) return false;
+    return true;
+  });
+  const reportChips: ChipGroup[] = [{
+    key: 'vendor', label: 'Preferred vendor', value: rVendor, onChange: setRVendor,
+    options: [
+      ...Array.from(new Set((report?.rows ?? []).map((r: any) => String(r.preferredVendorName || '')).filter(Boolean)))
+        .sort().map((v) => ({ value: v as string, label: v as string })),
+      ...((report?.rows ?? []).some((r: any) => !r.preferredVendorName) ? [{ value: '__none', label: 'No preferred vendor' }] : []),
+    ],
+  }];
+  const exportReport = () => downloadCsv(
+    `reorder-${new Date().toISOString().slice(0, 10)}.csv`,
+    [
+      { key: 'productName', label: 'Product', format: (r: any) => r.productName ?? r.product_name ?? '' },
+      { key: 'sku', label: 'SKU' },
+      { key: 'onHand', label: 'On hand' },
+      { key: 'available', label: 'Available' },
+      { key: 'reorderPoint', label: 'Reorder point' },
+      { key: 'orderQty', label: 'Order qty', format: (r: any) => r.orderQty ?? r.suggestedQty },
+      { key: 'preferredVendorName', label: 'Preferred vendor' },
+    ],
+    reportRows,
+  );
+
   return (
     <Page>
       <PageHeader
@@ -277,6 +311,13 @@ const Reorder: React.FC = () => {
                     </>}
               </div>
             )}
+            <div className="flex flex-wrap items-center gap-3">
+              <SearchInput placeholder="Search product or SKU…" aria-label="Search the reorder list"
+                data-testid="reorder-search" value={rq} onChange={(e) => setRq(e.target.value)} className="w-72" />
+              <FilterChips groups={reportChips} onClearAll={() => setRVendor('')} />
+              <span className="ml-auto text-sm text-gray-500">{reportRows.length} of {report?.rows?.length ?? 0}</span>
+              <Btn variant="outline" size="sm" onClick={exportReport} disabled={!reportRows.length}>Export</Btn>
+            </div>
             <TableShell>
               <table className="w-full text-sm">
               <THead>
@@ -295,7 +336,10 @@ const Reorder: React.FC = () => {
                 {!loading && (!report || report.rows.length === 0) && (
                   <EmptyRow colSpan={14}>Nothing to reorder — every managed SKU is above its reorder point. Set thresholds under "Thresholds &amp; vendors".</EmptyRow>
                 )}
-                {!loading && report?.rows.map((r: any) => {
+                {!loading && report && report.rows.length > 0 && reportRows.length === 0 && (
+                  <EmptyRow colSpan={14}>No row matches this search and this vendor.</EmptyRow>
+                )}
+                {!loading && reportRows.map((r: any) => {
                   const hist = HISTORY_LABEL[r.historyQuality] ?? HISTORY_LABEL.none;
                   const open = openWhy === r.variationId;
                   return (

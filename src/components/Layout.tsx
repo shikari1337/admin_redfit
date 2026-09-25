@@ -1,5 +1,18 @@
-import React, { useEffect, useState } from 'react';
-import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+/**
+ * The admin shell.
+ *
+ * It used to build the navigation itself: six `menuGroups` arrays, one per
+ * "workspace", 380 of this file's 545 lines, each re-declaring the same routes
+ * with their own gating conditions, selected by tabs in the header. The menu now
+ * lives in `lib/menu.ts` and renders in `app-sidebar.tsx`; this file is the
+ * frame around it — header, banners, breadcrumb, route guard, outlet.
+ *
+ * The workspace tabs are gone with the arrays. They were a second navigation
+ * axis on top of the sidebar: you had to know which of six menus a page lived in
+ * before you could look for it, and the same page lived in up to four.
+ */
+import React, { useEffect, useMemo, useState } from 'react';
+import { Outlet, useNavigate, useLocation, Link } from 'react-router-dom';
 import PageTransitionLoader from './PageTransitionLoader';
 import { AppSidebar } from './app-sidebar';
 import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
@@ -7,49 +20,57 @@ import StoreSwitcher from './StoreSwitcher';
 import { getDomainStore } from '../services/api';
 import NotificationBell from './NotificationBell';
 import { useAuth } from '../contexts/AuthContext';
-import {
-  Home, ShoppingCart, Truck, Warehouse, Users,
-  Megaphone, Ticket, Star, HelpCircle, Palette, FileText, Settings,
-  UserCheck, Images, Package2, LineChart, Building2, ShieldCheck,
-  BookOpen, RotateCcw, Store, Plug,
-  Rss, PackageSearch, Scale, FileSpreadsheet, ArrowLeftRight, Wallet, Boxes, Hammer, Bell,
-  Handshake, SlidersHorizontal, Undo2, Network, CalendarClock, Coins, Mail,
-  FolderArchive, Repeat, Sparkles, MessageCircleQuestion, Heart,
-} from 'lucide-react';
 import { SetupBanner } from './SetupBanner';
 import { TestModeBanner } from './TestModeBanner';
 import RouteGuard from './RouteGuard';
 import AccessNotice from './AccessNotice';
-import { WORKSPACES, WorkspaceKey, workspaceFromPath } from '../lib/rbac';
-import { PRODUCT, IS_SUITE, productAllowsWorkspace } from '../lib/product';
+import { PRODUCT, IS_SUITE } from '../lib/product';
+import { MENU, OFF_MENU, routeBase } from '../lib/menu';
+import { visibleMenu } from './menu/menuAccess';
+import { ThemeToggle, Banners, CommandPalette, HotkeySheet, useShellHotkeys, useDocumentTitle } from './menu/ShellChrome';
+import { Search } from 'lucide-react';
+import { Toaster } from '@/components/ui/toaster';
+
+/** "Sell · Orders · Order #SM-9188" — the trail, from the one menu definition. */
+function useTrail(pathname: string): Array<{ label: string; to?: string }> {
+  let best: { group: string; sub: string; item: string; to: string } | null = null;
+  let bestLen = -1;
+  // Pages that left the sidebar (Prompt 9) still get a trail: their own name,
+  // under "Commerce", rather than a blank header.
+  const sources = [...MENU.map((g) => ({ label: g.label, subs: g.subs })), { label: 'Commerce', subs: [{ label: 'Commerce', items: OFF_MENU }] }];
+  for (const g of sources) {
+    for (const s of g.subs) {
+      for (const i of s.items) {
+        if (i.external) continue;
+        for (const route of [i.to, ...(i.owns ?? [])]) {
+          const p = routeBase(route);
+          if (!p.startsWith('/')) continue;
+          if ((pathname === p || pathname.startsWith(p + '/')) && p.length > bestLen) {
+            best = { group: g.label, sub: s.label, item: i.label, to: i.to };
+            bestLen = p.length;
+          }
+        }
+      }
+    }
+  }
+  if (!best) return [];
+  const trail: Array<{ label: string; to?: string }> = [{ label: best.group }];
+  if (best.sub !== best.item) trail.push({ label: best.sub });
+  trail.push({ label: best.item, to: best.to });
+  // The last URL segment when we are deeper than the item itself (an order, a
+  // product) — the page's own header names the record; this just shows depth.
+  const itemBase = routeBase(best.to);
+  if (pathname.length > itemBase.length) {
+    const tail = pathname.slice(itemBase.length).split('/').filter(Boolean);
+    for (const seg of tail) trail.push({ label: seg.replace(/-/g, ' ') });
+  }
+  return trail;
+}
 
 const Layout: React.FC = () => {
-  const { user, canAccess, hasPerm, workspaces, isAuthenticated, logout } = useAuth();
+  const { user, canAccess, hasPerm, isAuthenticated, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  // Sticky workspace: /panel/* paths pin their workspace; other paths keep the
-  // last one (sessionStorage) so leaving a panel page doesn't bounce the tabs.
-  const [stickyWorkspace, setStickyWorkspace] = useState<WorkspaceKey>(() => {
-    const fromPath = workspaceFromPath(window.location.pathname);
-    const candidate = window.location.pathname.startsWith('/panel/')
-      ? fromPath
-      : ((sessionStorage.getItem('active_workspace') as WorkspaceKey) || fromPath);
-    // Single-product build (VITE_PRODUCT) pins to that product's workspace.
-    return productAllowsWorkspace(candidate) ? candidate : (PRODUCT.workspaces?.[0] ?? candidate);
-  });
-  useEffect(() => {
-    if (location.pathname.startsWith('/panel/')) {
-      const w = workspaceFromPath(location.pathname);
-      setStickyWorkspace(w);
-      sessionStorage.setItem('active_workspace', w);
-    }
-  }, [location.pathname]);
-  const selectWorkspace = (w: WorkspaceKey) => {
-    setStickyWorkspace(w);
-    sessionStorage.setItem('active_workspace', w);
-    navigate(WORKSPACES[w]?.home ?? '/dashboard');
-  };
-  const activeWorkspace: WorkspaceKey = stickyWorkspace;
 
   // Redirect to login if auth is lost mid-session (token expired etc.)
   useEffect(() => {
@@ -68,476 +89,113 @@ const Layout: React.FC = () => {
     email: user?.email,
   };
 
-  // ── Panel switching lives in the TOP HEADER as tabs (one click, always
-  // visible) — the old sidebar "Panels" group was easy to miss. A panel tab
-  // shows only when the role has the workspace AND its module is enabled.
-  const moduleForWorkspace: Record<WorkspaceKey, string | null> = {
-    commerce: null, orders: 'orders', inventory: 'inventory', purchasing: 'purchasing',
-    accounting: 'accounting', marketing: 'marketing',
-  };
-  const headerTabs = (workspaces as WorkspaceKey[])
-    .filter((w) => WORKSPACES[w])
-    .filter((w) => {
-      const mod = moduleForWorkspace[w];
-      return !mod || canAccess(mod);
-    })
-    .filter((w) => productAllowsWorkspace(w)) // single-product build hides other workspaces
-    .map((w) => ({ key: w, title: WORKSPACES[w].title, home: WORKSPACES[w].home }));
-  const switcherGroup: { title: string; items: any[] }[] = [];
+  const trail = useTrail(location.pathname);
+  const productName = IS_SUITE ? 'Growcord Commerce' : PRODUCT.name;
+  useDocumentTitle(productName, trail);
 
-  // ── BOOKS (accounting workspace) — Zoho-style grouped IA ────────────────────
-  // Two independent gates: module bought (canAccess) AND user permitted (hasPerm).
-  // When either fails, every group is empty and the workspace shows nothing.
-  const acct = canAccess('accounting') && hasPerm('accounting.read');
-  const accountingMenu = !acct ? [] : [
-    {
-      title: 'Overview',
-      items: [
-        { title: 'Dashboard', url: '/panel/accounting', icon: Home },
-        { title: 'Financial Statements', url: '/panel/accounting/statements', icon: LineChart },
-      ],
-    },
-    {
-      title: 'Sales',
-      items: [
-        { title: 'Receivables (AR)', url: '/panel/accounting/receivables', icon: FileText },
-        { title: 'Payments Received', url: '/panel/accounting/payments-received', icon: Wallet },
-        ...(canAccess('subscriptions') ? [{ title: 'Recurring Invoices', url: '/panel/accounting/recurring-invoices', icon: Repeat }] : []),
-        { title: 'Payment Reminders', url: '/panel/accounting/dunning', icon: Bell },
-        { title: 'Marketplace Payouts', url: '/panel/accounting/settlements', icon: Store },
-      ],
-    },
-    {
-      title: 'Purchases',
-      items: [
-        { title: 'Vendor Bills (AP)', url: '/panel/accounting/bills', icon: FileText },
-        { title: 'Payables (AP)', url: '/panel/accounting/payables', icon: FileText },
-        { title: 'Expenses & Bank Book', url: '/panel/accounting/expenses', icon: Wallet },
-        ...(hasPerm('purchasing.read') ? [{ title: 'Vendors', url: '/vendors', icon: Building2 }] : []),
-      ],
-    },
-    {
-      title: 'Banking',
-      items: [
-        { title: 'Bank Accounts', url: '/panel/accounting/bank-accounts', icon: Wallet },
-        { title: 'Bank Reconciliation', url: '/panel/accounting/bank-recon', icon: ArrowLeftRight },
-        { title: 'Bank Rules', url: '/panel/accounting/bank-rules', icon: ArrowLeftRight },
-        { title: 'Currencies & FX', url: '/panel/accounting/fx', icon: Coins },
-      ],
-    },
-    {
-      title: 'Accountant',
-      items: [
-        { title: 'Chart of Accounts', url: '/panel/accounting/chart-of-accounts', icon: BookOpen },
-        { title: 'Manual Journals', url: '/panel/accounting/journals', icon: BookOpen },
-        { title: 'Opening Balances', url: '/panel/accounting/opening-balances', icon: Scale },
-        { title: 'Trial Balance', url: '/panel/accounting/trial-balance', icon: Scale },
-        { title: 'General Ledger', url: '/panel/accounting/general-ledger', icon: BookOpen },
-        { title: 'Fixed Assets', url: '/panel/accounting/assets', icon: Building2 },
-        { title: 'Reconciliation', url: '/panel/accounting/reconciliation', icon: Scale },
-        { title: 'Number Series & Gaps', url: '/panel/accounting/series-gaps', icon: FileSpreadsheet },
-      ],
-    },
-    {
-      title: 'Filing & Compliance',
-      items: [
-        {
-          title: 'GST Returns', url: '/panel/accounting/gstr1', icon: FileSpreadsheet, items: [
-            { title: 'GSTR-1 Draft',    url: '/panel/accounting/gstr1' },
-            { title: 'GSTR-3B Summary', url: '/panel/accounting/gstr3b' },
-            { title: 'GSTR-9 (Annual)', url: '/panel/accounting/gstr9' },
-            { title: 'HSN Summary',     url: '/panel/accounting/hsn-summary' },
-            { title: 'ITC / GSTR-2B',   url: '/panel/accounting/itc' },
-          ],
-        },
-        ...(canAccess('einvoicing') && hasPerm('gst.read') ? [{ title: 'E-invoicing (IRN)', url: '/panel/accounting/einvoicing', icon: FileSpreadsheet }] : []),
-        {
-          title: 'Direct Taxes', url: '/panel/accounting/tds', icon: ShieldCheck, items: [
-            { title: 'TDS (26Q / 27Q)', url: '/panel/accounting/tds' },
-            { title: 'TCS (s.206C)',    url: '/panel/accounting/tcs' },
-          ],
-        },
-        {
-          title: 'GST Rates', url: '/panel/accounting/rate-check', icon: ShieldCheck, items: [
-            { title: 'GST Rate Check',      url: '/panel/accounting/rate-check' },
-            { title: 'Statutory Rate Codes', url: '/panel/accounting/rate-codes' },
-          ],
-        },
-      ],
-    },
-    {
-      title: 'Setup',
-      items: [
-        ...(hasPerm('content.read') ? [{ title: 'Document Library', url: '/panel/accounting/documents', icon: FolderArchive }] : []),
-        ...(hasPerm('settings.manage') ? [{ title: 'Document Templates', url: '/panel/settings/templates', icon: FileText }] : []),
-        ...(hasPerm('settings.manage') ? [{ title: 'Custom Fields', url: '/panel/settings/custom-fields', icon: SlidersHorizontal }] : []),
-        { title: 'Scheduled Jobs', url: '/panel/accounting/scheduled-jobs', icon: CalendarClock },
-        { title: 'Scheduled Reports', url: '/panel/accounting/report-schedules', icon: Mail },
-        ...(hasPerm('audit.read') ? [{ title: 'Audit Trail', url: '/panel/accounting/audit', icon: ShieldCheck }] : []),
-        { title: 'Settings', url: '/panel/accounting/settings', icon: Settings },
-      ],
-    },
-  ];
-
-  const marketingMenu = [
-    {
-      title: 'Marketing',
-      // Module toggle wins: marketing off → panel empty (APIs 403 anyway)
-      items: !canAccess('marketing') || !hasPerm('marketing.read') ? [] : [
-        { title: 'Dashboard', url: '/panel/marketing', icon: Home },
-        { title: 'Performance (CMO)', url: '/panel/marketing/performance', icon: LineChart },
-        { title: 'Growth & Funnel', url: '/panel/marketing/growth', icon: LineChart },
-        { title: 'Campaigns', url: '/panel/marketing/campaigns', icon: Megaphone },
-        { title: 'Templates', url: '/panel/marketing/templates', icon: FileText },
-        { title: 'Audiences & Lists', url: '/panel/marketing/audiences', icon: Users },
-        { title: 'Automation', url: '/panel/marketing/automation', icon: ArrowLeftRight },
-        ...(canAccess('crm') && hasPerm('marketing.read') ? [{ title: 'CRM', url: '/leads', icon: UserCheck }] : []),
-        ...(canAccess('coupons') && hasPerm('marketing.read') ? [{ title: 'Coupons', url: '/coupons', icon: Ticket }] : []),
-        ...(canAccess('ads_management') && hasPerm('ads.read') ? [
-          { title: 'Ads Manager', url: '/panel/marketing/ads', icon: LineChart },
-          { title: 'AI Ads Studio', url: '/panel/marketing/ads/ai-studio', icon: Sparkles },
-          { title: 'Custom Audiences', url: '/panel/marketing/ads/audiences', icon: Users },
-        ] : []),
-        // Connector platform: one Google/Meta identity unlocking many services.
-        ...(canAccess('connectors') && hasPerm('settings.read') ? [
-          { title: 'Platform Connections', url: '/panel/marketing/connections', icon: Plug },
-          { title: 'Search & Analytics', url: '/panel/marketing/connections/insights', icon: LineChart },
-        ] : []),
-        // Google reviews: reading/curating them is CONTENT work, so it needs
-        // content.read rather than the settings.read the credential screens
-        // above use (#53 — canAccess is the module question, hasPerm the
-        // authorization one; both are required).
-        ...(canAccess('connectors') && hasPerm('content.read') ? [
-          { title: 'Google Reviews', url: '/panel/marketing/google-reviews', icon: Star },
-        ] : []),
-        { title: 'Analytics', url: '/panel/marketing/analytics', icon: LineChart },
-        { title: 'Compliance & Consent', url: '/panel/marketing/compliance', icon: ShieldCheck },
-        ...(hasPerm('marketing.manage') ? [{ title: 'Settings', url: '/panel/marketing/settings', icon: Settings }] : []),
-      ],
-    },
-    ...switcherGroup,
-  ];
-
-  const purchasingMenu = [
-    {
-      title: 'Purchasing',
-      items: !canAccess('purchasing') || !hasPerm('purchasing.read') ? [] : [
-        { title: 'Purchase Orders & GRNs', url: '/panel/purchasing', icon: Store },
-        ...(hasPerm('purchasing.read') ? [{ title: 'Vendor Scorecard', url: '/panel/purchasing/scorecard', icon: LineChart }] : []),
-        ...(hasPerm('purchasing.read') ? [{ title: 'Vendors', url: '/vendors', icon: Building2 }] : []),
-        ...(hasPerm('accounting.read') ? [{ title: 'Vendor Bills (3-way match)', url: '/panel/accounting/bills', icon: FileText }] : []),
-        { title: 'Batches & Expiry', url: '/panel/inventory/batches', icon: PackageSearch },
-        ...(canAccess('wms') && hasPerm('inventory.read') ? [{ title: 'Barcodes & Labels', url: '/panel/inventory/labels', icon: FileText }] : []),
-      ],
-    },
-    ...switcherGroup,
-  ];
-
-  const inventoryMenu = [
-    {
-      title: 'Inventory',
-      items: [
-        { title: 'Dashboard', url: '/panel/inventory', icon: Home },
-        { title: 'Stock Levels', url: '/inventory', icon: PackageSearch },
-        ...(hasPerm('purchasing.read') && canAccess('purchasing') ? [{ title: 'Purchasing', url: '/panel/inventory/purchasing', icon: Store }] : []),
-        ...(hasPerm('purchasing.read') && canAccess('purchasing') ? [{ title: 'Vendor Scorecard', url: '/panel/purchasing/scorecard', icon: LineChart }] : []),
-        ...(hasPerm('inventory.read') ? [{ title: 'Reorder', url: '/panel/inventory/reorder', icon: PackageSearch }] : []),
-        { title: 'Batches & Expiry', url: '/panel/inventory/batches', icon: PackageSearch },
-        ...(canAccess('wms') && hasPerm('inventory.read') ? [{ title: 'Warehouse Layout', url: '/panel/inventory/wms', icon: Warehouse }] : []),
-        ...(canAccess('wms') && hasPerm('inventory.adjust') ? [{ title: 'Pick Lists', url: '/panel/inventory/pick-lists', icon: PackageSearch }] : []),
-        ...(canAccess('wms') && hasPerm('inventory.adjust') ? [{ title: 'Cycle Counts', url: '/panel/inventory/counts', icon: Scale }] : []),
-        ...(canAccess('wms') && hasPerm('inventory.read') ? [{ title: 'Goods In & Stickers', url: '/panel/inventory/goods-in', icon: PackageSearch }] : []),
-        ...(canAccess('wms') && hasPerm('inventory.read') ? [{ title: 'Barcodes & Labels', url: '/panel/inventory/labels', icon: FileText }] : []),
-        ...(canAccess('reports') && hasPerm('reports.read') ? [{ title: 'Reports', url: '/panel/inventory/reports', icon: FileSpreadsheet }] : []),
-        ...(hasPerm('inventory.read') ? [{ title: 'Outlets & Transfers', url: '/panel/inventory/outlets', icon: Store }] : []),
-        ...(hasPerm('inventory.read') ? [{ title: 'Stock Transfers', url: '/panel/inventory/transfers', icon: ArrowLeftRight }] : []),
-        ...(hasPerm('inventory.read') ? [{ title: 'Consignment', url: '/panel/inventory/consignment', icon: Handshake }] : []),
-        // Distributor tiers + royalty/marketing-fund invoicing (migration 082).
-        // Needs the B2B module (a level is a wholesale price) and `products.read`
-        // to see the ladder — the page explains itself if either is missing.
-        ...(canAccess('b2b') && hasPerm('products.read') ? [{ title: 'Distributor Network', url: '/panel/inventory/network', icon: Network }] : []),
-        ...(hasPerm('inventory.read') ? [{ title: 'Approvals', url: '/panel/inventory/approvals', icon: ShieldCheck }] : []),
-        ...(hasPerm('inventory.read') ? [{ title: 'Units of Measure', url: '/panel/inventory/uom', icon: Boxes }] : []),
-        ...(hasPerm('inventory.read') ? [{ title: 'Kits & Assembly', url: '/panel/inventory/bom', icon: Hammer }] : []),
-        ...(hasPerm('inventory.read') ? [{ title: 'Work Orders', url: '/panel/inventory/work-orders', icon: Hammer }] : []),
-        ...(canAccess('wms') && hasPerm('inventory.adjust') ? [{ title: 'Scanner', url: '/scan', icon: PackageSearch }] : []),
-        { title: 'Warehouses', url: '/warehouses', icon: Warehouse },
-        ...(hasPerm('shipments.read') ? [{ title: 'Shipments', url: '/shipments', icon: Truck }] : []),
-      ],
-    },
-    ...switcherGroup,
-  ];
-
-  const ordersMenu = [
-    {
-      title: 'Orders & Fulfilment',
-      items: [
-        { title: 'Dashboard', url: '/panel/orders', icon: Home },
-        { title: 'Orders', url: '/orders', icon: ShoppingCart },
-        ...(hasPerm('orders.read') ? [{ title: 'Quotations', url: '/panel/orders/quotations', icon: FileText }] : []),
-        ...(hasPerm('orders.read') ? [{ title: 'Credit/Debit Notes & Challans', url: '/panel/orders/documents', icon: FileText }] : []),
-        ...(hasPerm('orders.manage') ? [{ title: 'POS (New Sale)', url: '/pos', icon: Store }] : []),
-        // Sales attribution + staff activity (mig 151). reports.read, NOT
-        // orders.read: this ranks colleagues, and the junior `staff` role that
-        // works the order desk holds orders.read.
-        ...(hasPerm('reports.read') ? [{ title: 'Sales & Team', url: '/panel/orders/sales-team', icon: UserCheck }] : []),
-        { title: 'Abandoned Carts', url: '/orders/abandoned-carts', icon: ShoppingCart },
-        ...(hasPerm('shipments.read') ? [{ title: 'Shipments', url: '/shipments', icon: Truck }] : []),
-        ...(hasPerm('shipments.read') ? [{ title: 'e-Way Bills', url: '/panel/orders/ewb', icon: FileText }] : []),
-        ...(hasPerm('returns.read') ? [{ title: 'Returns', url: '/returns', icon: RotateCcw }] : []),
-        ...(hasPerm('returns.read') ? [{ title: 'Returns → Stock (RTO)', url: '/panel/orders/rto', icon: RotateCcw }] : []),
-        ...(hasPerm('shipments.read') ? [{ title: 'COD Payouts', url: '/panel/orders/cod-recon', icon: Wallet }] : []),
-        // Managed refund pipeline (081): request → approve → send the money → confirmed
-        ...(hasPerm('orders.read') ? [{ title: 'Refunds', url: '/panel/orders/refunds', icon: Undo2 }] : []),
-        // "Did the courier over-bill my parcel's weight?" (migration 078)
-        ...(hasPerm('shipments.read') ? [{ title: 'Weight Disputes', url: '/panel/orders/weight-disputes', icon: Scale }] : []),
-        // Generic workflow rules engine (spec §13) — "when X happens, do Y".
-        ...(hasPerm('orders.read') ? [{ title: 'Automation Rules', url: '/panel/orders/automation-rules', icon: Plug }] : []),
-        ...(hasPerm('customers.read') ? [{ title: 'Customers', url: '/customers', icon: Users }] : []),
-      ],
-    },
-    ...switcherGroup,
-  ];
-
-  const commerceMenu = [
-    {
-      title: 'Overview',
-      items: [
-        { title: 'Dashboard', url: '/dashboard', icon: Home },
-        ...(canAccess('analytics') && hasPerm('reports.read') ? [{
-          title: 'Analytics', url: '/analytics/dashboard', icon: LineChart, items: [
-            { title: 'Dashboard',  url: '/analytics/dashboard' },
-            { title: 'Store',      url: '/analytics/store' },
-            { title: 'Marketing',  url: '/analytics/marketing' },
-            { title: 'Users',      url: '/analytics/users' },
-            { title: 'Realtime',   url: '/analytics/realtime' },
-            { title: 'Custom',     url: '/analytics/custom' },
-          ],
-        }] : []),
-      ],
-    },
-    {
-      title: 'Orders',
-      items: [
-        ...(canAccess('orders') && hasPerm('orders.read') ? [{ title: 'Orders',     url: '/orders',    icon: ShoppingCart }] : []),
-        ...(canAccess('orders') && hasPerm('orders.read') ? [{ title: 'Abandoned Carts', url: '/orders/abandoned-carts', icon: ShoppingCart }] : []),
-        ...(canAccess('returns') && hasPerm('returns.read') ? [{ title: 'Returns',   url: '/returns',   icon: RotateCcw }] : []),
-        ...(canAccess('shipping') && hasPerm('shipments.read') ? [{ title: 'Shipments', url: '/shipments', icon: Truck }] : []),
-      ],
-    },
-    {
-      title: 'Catalog',
-      items: [
-        ...(canAccess('products') && hasPerm('products.read') ? [{
-          title: 'Products', url: '/products', icon: Package2, items: [
-            { title: 'All Products',        url: '/products' },
-            { title: 'Create Product',      url: '/products/new' },
-            { title: 'Import / Export',     url: '/products/import-export' },
-            ...(canAccess('bundles') && hasPerm('products.read') ? [{ title: 'Bundles',             url: '/products/bundles' }] : []),
-            { title: 'Categories',          url: '/products/categories' },
-            { title: 'Brands',              url: '/products/brands' },
-            { title: 'Companies',           url: '/products/companies' },
-            { title: 'Attributes',          url: '/products/attributes' },
-            { title: 'Tags',                url: '/products/tags' },
-            ...(canAccess('size_charts') && hasPerm('products.read') ? [{ title: 'Size Charts',         url: '/products/size-charts' }] : []),
-            { title: 'Specifications',      url: '/products/specifications' },
-            { title: 'Variant Link Groups', url: '/products/variant-link-groups' },
-          ],
-        }] : []),
-        ...(canAccess('inventory') && hasPerm('inventory.read') ? [{ title: 'Inventory',  url: '/inventory',  icon: Warehouse }] : []),
-        ...(canAccess('inventory') && hasPerm('inventory.read') ? [{ title: 'Warehouses', url: '/warehouses', icon: PackageSearch }] : []),
-        ...(canAccess('vendors') && hasPerm('purchasing.read') ? [{ title: 'Vendors', url: '/vendors', icon: Store }] : []),
-        ...(canAccess('gallery') && hasPerm('content.read') ? [{ title: 'Gallery',    url: '/gallery',    icon: Images }] : []),
-      ],
-    },
-    {
-      title: 'Marketing',
-      items: [
-        ...(canAccess('marketing') && hasPerm('marketing.read') ? [{ title: 'Marketing',        url: '/marketing',                icon: Megaphone }] : []),
-        ...(canAccess('channel_sync') && hasPerm('channels.read') ? [{
-          title: 'Multi-Channel Sync', url: '/channels', icon: Plug, items: [
-            { title: 'Channels', url: '/channels' },
-            // The daily job for a marketplace with no API (Tata 1mg, Healthmug):
-            // upload their orders, download their stock file.
-            { title: 'Daily file', url: '/channels/daily' },
-            { title: 'Excel Import', url: '/channels/import' },
-            { title: 'Mapping',  url: '/channels/mapping' },
-            { title: 'Allocation',  url: '/channels/allocation' },
-          ],
-        }] : []),
-        ...(canAccess('coupons') && hasPerm('marketing.read') ? [{ title: 'Coupons',          url: '/coupons',                  icon: Ticket }] : []),
-      ],
-    },
-    {
-      // ──────────────────────────────────────────────────────────────────────
-      // CUSTOMERS — store customers (end-users who buy from the storefront)
-      //   These are NOT admin/staff accounts. These are shoppers.
-      //   Managed separately from staff. Staff cannot manage other staff here.
-      // ──────────────────────────────────────────────────────────────────────
-      title: 'Store Customers',
-      items: [
-        ...(canAccess('customers') && hasPerm('customers.read') ? [{ title: 'All Customers',  url: '/customers',  icon: Users }] : []),
-        ...(canAccess('crm') && hasPerm('marketing.read') ? [{ title: 'CRM',    url: '/leads',  icon: UserCheck }] : []),
-        // Single entry — B2B covers accounts, quotes and price lists together (was duplicated under Catalog before).
-        ...(canAccess('b2b')        ? [{ title: 'B2B',            url: '/b2b',    icon: Building2 }] : []),
-        ...(hasPerm('customers.read') ? [{ title: 'Credit Control', url: '/panel/customers/credit', icon: ShieldCheck }] : []),
-      ],
-    },
-    {
-      title: 'Content',
-      items: [
-        ...(canAccess('appearance') && hasPerm('content.manage') ? [{
-          title: 'Appearance', url: '/appearance/pages', icon: Palette, items: [
-            { title: 'Pages',   url: '/appearance/pages' },
-            { title: 'Themes',  url: '/appearance/themes' },
-            { title: 'Banners', url: '/appearance/banners' },
-            { title: 'Menus',   url: '/appearance/menus' },
-            { title: 'Style',   url: '/appearance/style' },
-            { title: 'Products', url: '/appearance/products' },
-            { title: 'Trust Badges', url: '/appearance/trust-badges' },
-          ],
-        }] : []),
-        ...(canAccess('faqs') && hasPerm('content.read') ? [{ title: 'FAQs',        url: '/faqs',    icon: HelpCircle }] : []),
-        ...(canAccess('reviews') && hasPerm('content.read') ? [{ title: 'Reviews',     url: '/reviews', icon: Star }] : []),
-        ...(canAccess('product_qa') && hasPerm('content.read') ? [{ title: 'Questions & Answers', url: '/questions', icon: MessageCircleQuestion }] : []),
-        ...(canAccess('wishlist') && hasPerm('reports.read') ? [{ title: 'Wishlists', url: '/wishlists', icon: Heart }] : []),
-        ...(canAccess('blog') && hasPerm('content.read') ? [{ title: 'Blog Posts',   url: '/blogs',   icon: BookOpen }] : []),
-        { title: 'SEO', url: '/seo', icon: Rss },
-      ],
-    },
-    {
-      // ──────────────────────────────────────────────────────────────────────
-      // SYSTEM — store settings + staff/access management
-      //   "Staff & Access" is ONLY visible to admins (not to staff members).
-      //   This is where admins manage who can log in and what they can do.
-      //   Completely separate from "Store Customers" above.
-      // ──────────────────────────────────────────────────────────────────────
-      title: 'System',
-      items: [
-        ...(canAccess('settings') && hasPerm('settings.read') ? [{
-          title: 'Settings', url: '/settings', icon: Settings, items: [
-            { title: 'Settings Center',    url: '/settings' },
-            { title: 'All settings pages', url: '/settings/directory' },
-            { title: 'Store Configuration', url: '/settings/store-config' },
-            { title: 'API Integrations',   url: '/settings/api-integrations' },
-            { title: 'Contact Submissions', url: '/settings/contact' },
-            { title: 'Payment Methods & Discounts', url: '/settings/payment-discount' },
-            { title: 'Payment Gateways',   url: '/settings/payment-gateways' },
-            { title: 'SMS / WhatsApp Templates', url: '/settings/sms-templates' },
-            { title: 'Cart Recovery Automation', url: '/settings/cart-recovery-automation' },
-            { title: 'GST Display',        url: '/settings/gst' },
-            { title: 'Markets',            url: '/settings/markets' },
-            ...(canAccess('gst_tax') && hasPerm('settings.manage') ? [{ title: 'Tax Rules',        url: '/settings/tax-rules' }] : []),
-            { title: 'Invoice',            url: '/settings/invoice' },
-            { title: 'Order Numbering',    url: '/settings/order-numbering' },
-            { title: 'Shipping',           url: '/settings/shipping' },
-            { title: 'Packages',           url: '/settings/packages' },
-            { title: 'Wallet',             url: '/settings/wallet' },
-            { title: 'Modules',            url: '/settings/modules' },
-            { title: 'Billing',            url: '/settings/billing' },
-            ...(canAccess('returns') && hasPerm('settings.manage') ? [{ title: 'Return Policies',  url: '/settings/return-policies' }] : []),
-            ...(canAccess('manufacturers') && hasPerm('products.manage') ? [{ title: 'Manufacturers',    url: '/settings/manufacturers' }] : []),
-          ],
-        }] : []),
-        // Staff & Access — admin only (role check, not permission check)
-        ...(user?.role === 'admin' ? [{
-          title: 'Staff & Access', url: '/settings/staff', icon: ShieldCheck,
-        }] : []),
-        { title: 'Setup Guide', url: '/setup-guide', icon: HelpCircle },
-        ...(canAccess('logs') && hasPerm('audit.read') ? [{ title: 'Logs', url: '/logs', icon: FileText }] : []),
-      ],
-    },
-    ...switcherGroup,
-  ];
-
-  const menuGroups = (
-    activeWorkspace === 'accounting' ? accountingMenu
-    : activeWorkspace === 'inventory' ? inventoryMenu
-    : activeWorkspace === 'purchasing' ? purchasingMenu
-    : activeWorkspace === 'orders' ? ordersMenu
-    : activeWorkspace === 'marketing' ? marketingMenu
-    : commerceMenu
-  ).filter(group => group.items.length > 0);
-
-  const pathSegments = location.pathname.split('/').filter(Boolean);
+  const groups = useMemo(() => visibleMenu({ hasPerm, canAccess }), [hasPerm, canAccess]);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  useShellHotkeys({
+    openPalette: () => setPaletteOpen(true),
+    openHelp: () => setHelpOpen(true),
+    newOrder: hasPerm('orders.manage') ? () => navigate('/orders/new') : null,
+  });
 
   return (
     <SidebarProvider>
       <PageTransitionLoader />
-      <AppSidebar userPerms={userPerms} onLogout={handleLogout} menuGroups={menuGroups} />
+      <AppSidebar
+        userPerms={userPerms}
+        onLogout={handleLogout}
+        hasPerm={hasPerm}
+        canAccess={canAccess}
+        storeName={IS_SUITE ? undefined : PRODUCT.name}
+      />
 
       {/* `min-w-0`: as a flex item this defaults to `min-width:auto`, i.e. its own
           min-content — so any single wide child (a table, a nowrap toolbar) grew
           the whole page sideways. The clip below hides the overflow visually but
           only `min-w-0` stops it being claimed as width in the first place. */}
-      <main className="flex min-h-screen min-w-0 flex-1 flex-col bg-gray-50">
-        <header className="sticky top-0 z-10 shrink-0 border-b border-gray-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
+      <main className="flex min-h-screen min-w-0 flex-1 flex-col bg-bg">
+        {/* T5 inserts `<ProductBar current="commerce" />` HERE, above the header
+            (ADMIN_MODIFICATION_PLAN §4.4) — from admin/src/kit-mirror/. */}
+        <header className="sticky top-0 z-10 shrink-0 border-b border-line bg-surface/95 backdrop-blur supports-[backdrop-filter]:bg-surface/80">
           <div className="flex h-14 items-center justify-between gap-2 px-4 md:px-6">
-            {/* Left: sidebar trigger + PANEL TABS (the top-level areas) */}
             <div className="flex min-w-0 items-center gap-2">
-              <SidebarTrigger className="-ml-1 shrink-0 text-gray-500" />
-              {headerTabs.length > 1 ? (
-                <nav className="flex items-center gap-1 overflow-x-auto">
-                  {headerTabs.map((t) => {
-                    const active = t.key === activeWorkspace;
-                    return (
-                      <button
-                        key={t.key}
-                        onClick={() => selectWorkspace(t.key)}
-                        className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                          active
-                            ? 'bg-gray-900 text-white shadow-sm'
-                            : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
-                        }`}
-                      >
-                        {t.title}
-                      </button>
-                    );
-                  })}
-                </nav>
-              ) : (
-                // Single-product build (or single-workspace role): show the product name, not a lone tab.
-                <span className="whitespace-nowrap px-2 text-sm font-semibold text-gray-900">
-                  {IS_SUITE ? (headerTabs[0]?.title ?? '') : PRODUCT.name}
-                </span>
-              )}
+              <SidebarTrigger className="-ml-1 shrink-0 text-ink-mute" />
+              {/* Where you are — one line, from the menu definition. */}
+              <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-sm">
+                {trail.map((crumb, i) => (
+                  <React.Fragment key={`${crumb.label}-${i}`}>
+                    {i > 0 && <span className="text-ink-mute/50">/</span>}
+                    {crumb.to && i === trail.length - 1 ? (
+                      <span className="truncate font-semibold text-ink">{crumb.label}</span>
+                    ) : crumb.to ? (
+                      <Link to={crumb.to} className="truncate text-ink-soft hover:text-ink">{crumb.label}</Link>
+                    ) : (
+                      <span className={`truncate ${i === trail.length - 1 ? 'font-semibold text-ink' : 'text-ink-mute'}`}>
+                        {crumb.label}
+                      </span>
+                    )}
+                  </React.Fragment>
+                ))}
+              </nav>
             </div>
 
             {/* Right: notifications + store switcher. The switcher is hidden on a
                 domain-pinned deployment (admin.<store>.com) — that domain manages
                 exactly one store, so switching away from it makes no sense. */}
-            <div className="flex shrink-0 items-center gap-3">
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPaletteOpen(true)}
+                className="hidden items-center gap-2 rounded-md border border-line bg-surface-2 px-2.5 py-1.5 text-xs text-ink-mute hover:text-ink sm:inline-flex"
+                title="Search or jump — ⌘K or /"
+                data-open-palette
+              >
+                <Search className="size-3.5" />
+                <span>Search or jump</span>
+                <kbd className="rounded border border-line px-1 text-[10px]">⌘K</kbd>
+              </button>
               <NotificationBell />
               {!getDomainStore() && <StoreSwitcher />}
+              <ThemeToggle />
             </div>
-          </div>
-          {/* Breadcrumb row (kept, moved below the tabs) */}
-          <div className="hidden border-t border-gray-100 px-4 py-1.5 text-xs capitalize text-gray-400 md:flex md:flex-row md:items-center md:space-x-1.5 md:px-6">
-            {pathSegments.map((segment, index) => (
-              <React.Fragment key={`${segment}-${index}`}>
-                {index > 0 && <span className="opacity-40">/</span>}
-                <span className={index === pathSegments.length - 1 ? 'font-medium text-gray-700' : ''}>
-                  {segment.replace(/-/g, ' ')}
-                </span>
-              </React.Fragment>
-            ))}
           </div>
         </header>
 
+        <Banners />
         <TestModeBanner />
         <SetupBanner />
 
-        <div className="flex-1 overflow-x-clip p-4 md:p-6 lg:p-8">
+        {/* ONE padding token for every page (owner, Prompt 9: 2%) — pages never
+            pin a width or cancel it with negative margins. The phone face has a
+            floor, because 2% of 390px is 8px (plan §7, gate G10). */}
+        <div className="flex-1 overflow-x-clip p-[var(--content-pad-phone)] md:p-[var(--content-pad)]" data-content>
           {/* Authorization gate — see components/RouteGuard.tsx. Single
               integration point so every Layout child route is covered. */}
           <RouteGuard>
-            <Outlet />
+            <React.Suspense
+              fallback={
+                <div className="flex h-96 items-center justify-center" role="status" aria-label="Loading">
+                  <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                </div>
+              }
+            >
+              <Outlet />
+            </React.Suspense>
           </RouteGuard>
         </div>
         {/* Surfaces API-side access refusals (view-only plan, module off,
             missing permission) that only appear when an action is attempted. */}
         <AccessNotice />
       </main>
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} groups={groups} hasPerm={hasPerm} />
+      <HotkeySheet open={helpOpen} onClose={() => setHelpOpen(false)} />
+      {/* The shadcn Toaster was never mounted, so every `toast()` in the admin
+          (15 files, the Settings Center's save confirmations among them) was silent. */}
+      <Toaster />
     </SidebarProvider>
   );
 };

@@ -1,7 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { api, searchAPI } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
-import { Page, PageHeader, SelectInput, Btn, StatCard, StatGrid, TabBar } from '../../components/erp';
+import {
+  Page, PageHeader, SelectInput, Btn, StatCard, StatGrid, TabBar,
+  FilterChips, type ChipGroup,
+} from '../../components/erp';
 import {
   Warehouse, Boxes, Layers, Ruler, AlertTriangle, Grid3x3, ChevronRight, Building2, Printer, Settings2,
   Plus, Search, Package, Info, ArrowRight,
@@ -50,6 +53,9 @@ const WarehouseLayout: React.FC = () => {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [tab, setTab] = useState<'layout' | 'map' | 'ops' | 'bulk'>('layout');
+  // Narrows the tree the way the search box does — by what a slot IS, not by
+  // its name. A blocked or full slot is the one a manager is looking for.
+  const [slotFilter, setSlotFilter] = useState('');
   // ── the 2D map ──
   const [mapData, setMapData] = useState<any | null>(null);
   const [mapMode, setMapMode] = useState<ColourMode>('occupancy');
@@ -150,14 +156,30 @@ const WarehouseLayout: React.FC = () => {
   // ── tree filter: keep a match's ancestors so nothing is orphaned ──
   const visible = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    if (!q) return null;
+    if (!q && !slotFilter) return null;
     const hit = new Set<string>();
     for (const l of locs) {
-      if (![l.code, l.name].some((x) => String(x ?? '').toLowerCase().includes(q))) continue;
+      if (q && ![l.code, l.name].some((x) => String(x ?? '').toLowerCase().includes(q))) continue;
+      if (slotFilter === 'storage' && (l as any).node_role !== 'storage') continue;
+      if (slotFilter === 'blocked' && l.status === 'active') continue;
+      if (slotFilter === 'empty' && Number((l as any).units ?? 0) > 0) continue;
+      if (slotFilter === 'used' && Number((l as any).units ?? 0) === 0) continue;
+      // A match keeps its ancestors so the branch it lives on stays walkable.
       tree.pathOf(l).forEach((p) => hit.add(p.id));
     }
     return hit;
-  }, [filter, locs, tree]);
+  }, [filter, slotFilter, locs, tree]);
+
+  const slotChips: ChipGroup[] = [{
+    key: 'slot', label: 'Show', value: slotFilter, onChange: setSlotFilter,
+    help: 'Narrows the tree to the places that match. Their parents stay so you can still walk to them.',
+    options: [
+      { value: 'storage', label: 'Storage slots only' },
+      { value: 'used', label: 'Holding stock' },
+      { value: 'empty', label: 'Empty' },
+      { value: 'blocked', label: 'Blocked' },
+    ],
+  }];
 
   // ── actions ──
   const refresh = (msg?: string, focusId?: string) => { if (msg) flash(msg); loadTree(); if (focusId) setSelectedId(focusId); };
@@ -721,7 +743,11 @@ const WarehouseLayout: React.FC = () => {
               <div className="relative">
                 <Search className="absolute left-2 top-2 h-4 w-4 text-slate-400" />
                 <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find a code or name"
+                       aria-label="Find a place in the warehouse" data-testid="wms-search"
                        className="w-full rounded-md border border-slate-300 py-1.5 pl-7 pr-2 text-sm" />
+              </div>
+              <div className="mt-2">
+                <FilterChips groups={slotChips} onClearAll={() => setSlotFilter('')} />
               </div>
             </div>
             <div className="max-h-[640px] overflow-y-auto p-1.5">
@@ -729,7 +755,11 @@ const WarehouseLayout: React.FC = () => {
                 <Building2 className="h-4 w-4" /><span className="truncate font-medium">{facility?.name ?? 'Facility'}</span>
               </button>
               {(tree.kids.get(null) ?? []).map((l) => <TreeRow key={l.id} l={l} depth={0} />)}
-              {visible && visible.size === 0 && <div className="px-2 py-6 text-center text-xs text-slate-500">Nothing matches “{filter}”.</div>}
+              {visible && visible.size === 0 && (
+                <div className="px-2 py-6 text-center text-xs text-slate-500">
+                  {filter ? <>Nothing matches “{filter}”.</> : 'No place matches that filter.'}
+                </div>
+              )}
             </div>
           </div>
           <FloorView />

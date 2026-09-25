@@ -9,7 +9,8 @@ import { usePanelStats } from '../../components/panelAnalytics/usePanelStats';
 import { StatTile, ChartCard, TimeSeries } from '../../components/panelAnalytics/Kit';
 import { SERIES } from '../../components/panelAnalytics/vizTheme';
 import { Page, PageHeader, SectionCard, DrillLink } from '../../components/erp';
-import { BookOpen, Scale, FileSpreadsheet, ShieldAlert } from 'lucide-react';
+import CompliancePanel from '../../components/accounting/CompliancePanel';
+import { BookOpen, Scale, FileSpreadsheet, ShieldAlert, FileText } from 'lucide-react';
 
 /**
  * Accounting panel home. Books figures (positions, P&L) come from the GL in
@@ -132,6 +133,7 @@ const AccountingDashboard: React.FC = () => {
           { to: '/panel/accounting/trial-balance', icon: Scale, title: 'Trial Balance', sub: tb ? (tb.nets_to_zero ? 'Nets to zero ✔' : '⚠ OUT OF BALANCE') : '—' },
           { to: '/panel/accounting/journals', icon: BookOpen, title: 'Journals', sub: `${journals.length ? journals[0].journal_number : 'No entries yet'}` },
           { to: '/panel/accounting/gstr1', icon: FileSpreadsheet, title: 'GSTR-1 Draft', sub: 'Outward supplies by period' },
+          { to: '/panel/accounting/proforma', icon: FileText, title: 'Proformas & invoices', sub: 'Bills that are not orders' },
           { to: '/panel/accounting/rate-check', icon: ShieldAlert, title: 'GST Rate Check', sub: `${findings.filter((f) => f.severity !== 'info').length} finding(s)` },
         ].map((c) => (
           <Link key={c.to} to={c.to} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition hover:border-gray-300 hover:shadow-md">
@@ -141,6 +143,9 @@ const AccountingDashboard: React.FC = () => {
           </Link>
         ))}
       </div>
+
+      {/* The licences and registrations every document you issue carries. */}
+      <CompliancePanel />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <SectionCard title="Vendor bills (in range)" flush>

@@ -26,6 +26,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
+import {
+  Page, PageHeader, EmptyState, FilterChips, BlockSkeleton, downloadCsv, type ChipGroup,
+} from '@/components/erp';
 
 interface Brand {
   _id: string;
@@ -87,7 +90,6 @@ const rankOf = (b: Brand): number | null => {
 const thumbOf = (b: Brand): string =>
   b.thumbnailUrl || (b as any).thumbnail_url || b.logoUrl || (b as any).logo_url || b.imageUrl || (b as any).image_url || '';
 
-type StatusFilter = 'all' | 'active' | 'inactive' | 'featured' | 'ranked' | 'unranked';
 
 /* ── Sortable row for the Preference order tab ─────────────────────────── */
 function SortableRankRow({
@@ -168,7 +170,11 @@ const Brands: React.FC = () => {
 
   // list controls
   const [query, setQuery] = useState('');
-  const [status, setStatus] = useState<StatusFilter>('all');
+  // Three INDEPENDENT axes. The old single 6-way pill row conflated status,
+  // featured and preference, so "inactive AND featured" could not be asked at all.
+  const [status, setStatus] = useState('');
+  const [featuredOnly, setFeaturedOnly] = useState('');
+  const [rankFilter, setRankFilter] = useState('');
 
   // preference order tab
   const [rankedIds, setRankedIds] = useState<string[]>([]);
@@ -223,16 +229,15 @@ const Brands: React.FC = () => {
     const q = query.trim().toLowerCase();
     return brands.filter(b => {
       if (q && !`${b.name} ${b.slug}`.toLowerCase().includes(q)) return false;
-      switch (status) {
-        case 'active': return b.isActive !== false;
-        case 'inactive': return b.isActive === false;
-        case 'featured': return b.isFeatured === true;
-        case 'ranked': return rankOf(b) !== null;
-        case 'unranked': return rankOf(b) === null;
-        default: return true;
-      }
+      if (status === 'active' && b.isActive === false) return false;
+      if (status === 'inactive' && b.isActive !== false) return false;
+      if (featuredOnly === 'yes' && b.isFeatured !== true) return false;
+      if (featuredOnly === 'no' && b.isFeatured === true) return false;
+      if (rankFilter === 'ranked' && rankOf(b) === null) return false;
+      if (rankFilter === 'unranked' && rankOf(b) !== null) return false;
+      return true;
     });
-  }, [brands, query, status]);
+  }, [brands, query, status, featuredOnly, rankFilter]);
 
   const rankedBrands = useMemo(
     () => rankedIds.map(id => byId.get(id)).filter(Boolean) as Brand[],
@@ -428,31 +433,58 @@ const Brands: React.FC = () => {
 
   /* ── render ── */
 
-  const statusFilters: { key: StatusFilter; label: string }[] = [
-    { key: 'all', label: 'All' },
-    { key: 'active', label: 'Active' },
-    { key: 'inactive', label: 'Inactive' },
-    { key: 'featured', label: 'Featured' },
-    { key: 'ranked', label: 'Ranked' },
-    { key: 'unranked', label: 'Unranked' },
+  const chipGroups: ChipGroup[] = [
+    {
+      key: 'status', label: 'Status', value: status, onChange: setStatus,
+      options: [{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }],
+    },
+    {
+      key: 'featured', label: 'Featured', value: featuredOnly, onChange: setFeaturedOnly,
+      help: 'Featured brands are shown first wherever brands are listed.',
+      options: [{ value: 'yes', label: 'Featured' }, { value: 'no', label: 'Not featured' }],
+    },
+    {
+      key: 'rank', label: 'Preference', value: rankFilter, onChange: setRankFilter,
+      help: 'A ranked brand\u2019s products lead the category pages.',
+      options: [{ value: 'ranked', label: 'Ranked' }, { value: 'unranked', label: 'Unranked' }],
+    },
   ];
+  const clearChips = () => { setStatus(''); setFeaturedOnly(''); setRankFilter(''); };
+
+  const exportBrands = () => downloadCsv(
+    `brands-${new Date().toISOString().slice(0, 10)}.csv`,
+    [
+      { key: 'name', label: 'Name' },
+      { key: 'nickname', label: 'Short name' },
+      { key: 'slug', label: 'Slug' },
+      { key: 'isActive', label: 'Active', format: (b: Brand) => (b.isActive !== false ? 'Yes' : 'No') },
+      { key: 'isFeatured', label: 'Featured', format: (b: Brand) => (b.isFeatured ? 'Yes' : 'No') },
+      { key: 'rank', label: 'Preference rank', format: (b: Brand) => rankOf(b) ?? '' },
+      { key: 'metaTitle', label: 'Meta title' },
+    ],
+    filteredBrands,
+  );
 
   const selectedRank = selectedId ? rankOf(byId.get(selectedId) || ({} as Brand)) : null;
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Brands</h1>
-          <p className="text-muted-foreground">Manage brands and the order their products lead category pages.</p>
-        </div>
-        {canManageBrands && (
-          <Button onClick={openCreate} className="flex items-center gap-2">
-            <FaPlus className="h-4 w-4" />
-            New Brand
-          </Button>
-        )}
-      </div>
+    <Page width="full">
+      <PageHeader
+        title="Brands"
+        description="The makers whose products you sell, and the order their products appear in."
+        actions={
+          <>
+            <Button variant="outline" size="sm" onClick={exportBrands} disabled={!filteredBrands.length}>
+              Export
+            </Button>
+            {canManageBrands && (
+              <Button onClick={openCreate} className="flex items-center gap-2">
+                <FaPlus className="h-4 w-4" /> New brand
+              </Button>
+            )}
+          </>
+        }
+      />
 
       <Tabs defaultValue="brands">
         <TabsList>
@@ -473,22 +505,7 @@ const Brands: React.FC = () => {
                     ? `${brands.length} brands`
                     : `${filteredBrands.length} of ${brands.length} brands`}
                 </CardDescription>
-                <div className="flex flex-wrap gap-1.5">
-                  {statusFilters.map(f => (
-                    <button
-                      key={f.key}
-                      type="button"
-                      onClick={() => setStatus(f.key)}
-                      className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
-                        status === f.key
-                          ? 'bg-primary text-primary-foreground border-primary'
-                          : 'bg-background text-muted-foreground border-border hover:bg-muted'
-                      }`}
-                    >
-                      {f.label}
-                    </button>
-                  ))}
-                </div>
+                <FilterChips groups={chipGroups} onClearAll={clearChips} />
               </div>
               <div className="relative">
                 <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
@@ -496,19 +513,26 @@ const Brands: React.FC = () => {
                   value={query}
                   onChange={e => setQuery(e.target.value)}
                   placeholder="Search brands by name or slug…"
+                  aria-label="Search brands"
+                  data-testid="brands-search"
                   className="pl-9 max-w-md"
                 />
               </div>
             </CardHeader>
             <CardContent className="p-0">
               {loading ? (
-                <div className="flex items-center justify-center p-12">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                </div>
+                <BlockSkeleton lines={10} className="p-4" />
               ) : filteredBrands.length === 0 ? (
-                <div className="p-12 text-center text-muted-foreground">
-                  {brands.length === 0 ? 'No brands found. Create one.' : 'No brands match the current search/filter.'}
-                </div>
+                <EmptyState
+                  icon={FaSearch as any}
+                  title={brands.length === 0 ? 'No brands yet' : 'Nothing matches'}
+                  description={brands.length === 0
+                    ? 'A brand groups the products one maker supplies. Create the first one.'
+                    : 'No brand matches this search and these filters.'}
+                  action={brands.length === 0
+                    ? (canManageBrands ? <Button size="sm" onClick={openCreate}>New brand</Button> : undefined)
+                    : <Button variant="outline" size="sm" onClick={() => { setQuery(''); clearChips(); }}>Clear search and filters</Button>}
+                />
               ) : (
                 <div className="max-h-[640px] overflow-y-auto">
                   <Table>
@@ -962,7 +986,7 @@ const Brands: React.FC = () => {
           </form>
         </SheetContent>
       </Sheet>
-    </div>
+    </Page>
   );
 };
 

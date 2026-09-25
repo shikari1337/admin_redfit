@@ -5,9 +5,10 @@ import { payload } from '../../lib/unwrap';
 import {
   Page, PageHeader, Btn, StatCard, StatGrid, StatusChip, Chip, TabBar,
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow, inrMinor,
-  FilterBar, Field, SelectInput, TextInput,
+  FilterBar, Field, SelectInput, TextInput, SearchInput,
   ExportMenu, Pagination, DrillLink, AttachmentPanel, useListControls, type CsvColumn,
 } from '../../components/erp';
+import InfoTip from '../../components/common/InfoTip';
 
 /**
  * Payments Received — the accountant's AR workflow that Zoho has and we lacked:
@@ -80,6 +81,8 @@ const PaymentsReceived: React.FC = () => {
   const lc = useListControls({ pageSize: 25 });
   const [mode, setMode] = useState('');
   const [custFilter, setCustFilter] = useState('');
+  /** `/receipts` filters on date, customer, method and status — not on text. */
+  const [find, setFind] = useState('');
 
   const load = async () => {
     try {
@@ -135,6 +138,20 @@ const PaymentsReceived: React.FC = () => {
 
   const advanceTotal = summary ? inrMinor(summary.unallocated_minor) : '—';
 
+  /** What the table draws, and what it adds up to. */
+  const shownRows = React.useMemo(() => {
+    const q = find.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r: any) => [r.receipt_number, r.customer_name, r.reference, r.mode]
+      .some((v) => String(v ?? '').toLowerCase().includes(q)));
+  }, [rows, find]);
+
+  const pageSums = React.useMemo(() => shownRows.reduce((a: any, r: any) => ({
+    amount: a.amount + Number(r.amount_minor ?? 0),
+    applied: a.applied + Number(r.allocated_minor ?? 0),
+    unapplied: a.unapplied + (r.status === 'void' ? 0 : Number(r.unallocated_minor ?? 0)),
+  }), { amount: 0, applied: 0, unapplied: 0 }), [shownRows]);
+
   return (
     <Page>
       <PageHeader
@@ -155,6 +172,12 @@ const PaymentsReceived: React.FC = () => {
       />
 
       <FilterBar>
+        <Field
+          className="min-w-[15rem]"
+          label={<span className="inline-flex items-center gap-1">Find in this page <InfoTip text="Narrows the receipts already on screen by receipt number, customer or reference. The filters beside it change what is fetched from the ledger." /></span>}
+        >
+          <SearchInput placeholder="Receipt no., customer, reference…" value={find} onChange={(e) => setFind(e.target.value)} />
+        </Field>
         <Field label="From"><TextInput type="date" value={lc.from} onChange={(e) => lc.setFrom(e.target.value)} /></Field>
         <Field label="To"><TextInput type="date" value={lc.to} onChange={(e) => lc.setTo(e.target.value)} /></Field>
         <Field label="Customer">
@@ -169,7 +192,7 @@ const PaymentsReceived: React.FC = () => {
             {MODES.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
           </SelectInput>
         </Field>
-        <Field label="Status">
+        <Field label={<span className="inline-flex items-center gap-1">Status <InfoTip text="An ADVANCE is money received that no order has claimed yet. Part-applied means some of it has been set against orders. Void is a receipt that was reversed." /></span>}>
           <SelectInput value={lc.status} onChange={(e) => lc.setStatus(e.target.value)}>
             <option value="">Any status</option>
             <option value="open">Advance (unapplied)</option>
@@ -178,6 +201,9 @@ const PaymentsReceived: React.FC = () => {
             <option value="void">Void</option>
           </SelectInput>
         </Field>
+        {(find || lc.from || lc.to || lc.status || mode || custFilter) && (
+          <Btn variant="ghost" onClick={() => { setFind(''); lc.reset(); setMode(''); setCustFilter(''); }}>Clear</Btn>
+        )}
       </FilterBar>
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
@@ -277,10 +303,15 @@ const PaymentsReceived: React.FC = () => {
             {canPost && <Th num>Action</Th>}
           </THead>
           <TBody>
-            {rows.length === 0 && <EmptyRow colSpan={canPost ? 9 : 8}>
-              {tab === 'advances' ? 'No unapplied advances.' : 'No receipts recorded yet.'}
+            {shownRows.length === 0 && <EmptyRow colSpan={canPost ? 9 : 8}>
+              {find && rows.length > 0
+                ? 'Nothing on this page matches what you typed.'
+                : tab === 'advances' ? 'No unapplied advances.'
+                  : (lc.from || lc.to || lc.status || mode || custFilter)
+                    ? 'No receipts match those filters.'
+                    : `No receipts recorded yet.${canPost ? ' Use "Record payment" when a customer pays.' : ''}`}
             </EmptyRow>}
-            {rows.map((r: any) => (
+            {shownRows.map((r: any) => (
               <Tr key={r.id}>
                 <Td className="font-mono">{r.receipt_number}</Td>
                 <Td>{r.receipt_date}</Td>
@@ -315,6 +346,20 @@ const PaymentsReceived: React.FC = () => {
               </Tr>
             ))}
           </TBody>
+          {shownRows.length > 0 && (
+            <tfoot className="border-t-2 border-gray-200 bg-gray-50 text-sm font-semibold text-gray-900">
+              <tr>
+                <td className="px-4 py-2.5" colSpan={4}>
+                  {find ? `${shownRows.length} of ${rows.length} on this page` : `This page (${rows.length} of ${total})`}
+                </td>
+                <td className="px-4 py-2.5 text-right tabular-nums">{inrMinor(pageSums.amount)}</td>
+                <td className="px-4 py-2.5 text-right tabular-nums">{inrMinor(pageSums.applied)}</td>
+                <td className="px-4 py-2.5 text-right tabular-nums">{inrMinor(pageSums.unapplied)}</td>
+                <td />
+                {canPost && <td />}
+              </tr>
+            </tfoot>
+          )}
         </table>
       </TableShell>
 

@@ -1,210 +1,84 @@
 /**
- * Admin route → required permission.
+ * Admin route → required permission and store module — DERIVED, not written.
  *
- * Until now every route in App.tsx sat behind `<ProtectedRoute>` alone, which
- * only proves you are LOGGED IN. Nav items were hidden per-permission, but
- * typing the URL rendered the page — menu-hiding is not access control. The
- * page then fired its API calls and got 403s, so the user saw a broken screen
- * instead of an honest "you don't have access".
+ * This used to be a hand-kept table, and it was the second of three answers to
+ * "may this user open this page" (see the header of `lib/menu.ts`). It had no
+ * row for most `/panel/*` pages, so typing their URL rendered them for anybody
+ * logged in; and where it did have a row it contradicted `App.tsx`'s
+ * `ProtectedModuleRoute` wrappers on the three marketing routes.
  *
- * This is defence in depth, not the enforcement boundary: the API is still the
- * authority (a hostile user can edit their own bundle). The value here is that
- * an ordinary user never lands somewhere they cannot use.
+ * Both tables are now generated from `MENU` + `EXTRA_ROUTES`. Adding a page to
+ * the menu gates it; there is nowhere else to forget.
  *
- * Matching is LONGEST-PREFIX-WINS, so `/settings/staff` (staff.manage) beats
- * `/settings` (settings.read). Paths absent from the table need only login —
- * add new privileged routes here.
+ * Matching stays LONGEST-PREFIX-WINS, so `/settings/staff` (staff.manage) beats
+ * `/settings` (settings.read), and a route absent from both tables needs only
+ * login. This is defence in depth, not the boundary: the API is the authority
+ * (a hostile user can edit their own bundle). The value is that an ordinary
+ * user never lands somewhere they cannot use.
  */
+import { MENU, OFF_MENU, EXTRA_ROUTES, routeBase } from './menu';
 
-export const ROUTE_PERMISSIONS: Record<string, string> = {
-  // ── Orders & fulfilment ──────────────────────────────────────────────────
-  '/orders': 'orders.read',
-  '/orders/new': 'orders.manage',
-  '/orders/abandoned-carts': 'orders.read',
-  '/panel/orders': 'orders.read',
-  '/panel/orders/quotations': 'orders.read',
-  '/panel/orders/documents': 'orders.read',
-  '/panel/orders/refunds': 'orders.manage',
-  '/panel/orders/cod-recon': 'orders.read',
-  '/panel/orders/rto': 'shipments.read',
-  '/panel/orders/ewb': 'shipments.read',
-  '/panel/orders/weight-disputes': 'shipments.read',
-  '/panel/orders/automation-rules': 'settings.manage',
-  '/shipments': 'shipments.read',
-  '/returns': 'returns.read',
-  '/pos': 'orders.manage',
+function build(): { perms: Record<string, string[]>; modules: Record<string, string[]> } {
+  const perms: Record<string, string[]> = {};
+  const modules: Record<string, string[]> = {};
 
-  // ── Catalog ──────────────────────────────────────────────────────────────
-  '/products': 'products.read',
-  '/products/new': 'products.manage',
-  '/products/import-export': 'products.manage',
-  '/products/categories': 'products.read',
-  '/products/brands': 'products.read',
-  '/products/tags': 'products.read',
-  '/products/attributes': 'products.read',
-  '/products/specifications': 'products.read',
-  '/products/size-charts': 'products.read',
-  '/products/bundles': 'products.read',
-  '/products/variant-link-groups': 'products.read',
+  const put = (route: string, perm?: string | string[], mods?: string[]) => {
+    const p = routeBase(route);
+    if (!p.startsWith('/') || p === '/') return;
+    // First writer wins: a menu item states the gate for the routes it owns,
+    // and a more specific item later in the menu must not loosen it.
+    const any = perm === undefined ? [] : Array.isArray(perm) ? perm : [perm];
+    if (any.length && !(p in perms)) perms[p] = any;
+    if (mods?.length && !(p in modules)) modules[p] = mods;
+  };
 
-  // ── Storefront content ───────────────────────────────────────────────────
-  '/pages': 'content.read',
-  '/blogs': 'content.read',
-  '/faqs': 'content.read',
-  '/reviews': 'content.read',
-  '/questions': 'content.read',
-  // Wishlists are a merchandising REPORT (demand), not content — same permission
-  // the /wishlist/admin/* endpoints enforce.
-  '/wishlists': 'reports.read',
-  '/seo': 'content.read',
-  '/gallery': 'content.read',
-  '/appearance': 'content.manage',
+  for (const group of MENU) {
+    for (const sub of group.subs) {
+      for (const item of sub.items) {
+        if (item.external) continue;
+        put(item.to, item.perm, item.modules);
+        for (const owned of item.owns ?? []) put(owned, item.perm, item.modules);
+      }
+    }
+  }
+  // Pages that left the sidebar (Prompt 9) keep exactly the gate they had.
+  for (const item of OFF_MENU) {
+    put(item.to, item.perm, item.modules);
+    for (const owned of item.owns ?? []) put(owned, item.perm, item.modules);
+  }
+  for (const extra of EXTRA_ROUTES) put(extra.path, extra.perm, extra.modules);
 
-  // ── Inventory & warehouse ────────────────────────────────────────────────
-  '/inventory': 'inventory.read',
-  '/warehouses': 'inventory.read',
-  '/panel/inventory': 'inventory.read',
-  '/panel/inventory/purchasing': 'purchasing.read',
-  '/panel/inventory/reports': 'reports.read',
-  '/panel/inventory/uom': 'inventory.manage',
-  '/panel/inventory/bom': 'inventory.manage',
-  '/panel/inventory/work-orders': 'inventory.manage',
-  '/panel/inventory/transfers': 'inventory.adjust',
-  '/panel/inventory/counts': 'inventory.adjust',
-  '/panel/inventory/approvals': 'inventory.manage',
-  '/scan': 'inventory.adjust',
-  '/putaway': 'inventory.adjust',
-  '/pick': 'inventory.adjust',
-  '/move': 'inventory.adjust',
-  '/count': 'inventory.adjust',
+  return { perms, modules };
+}
 
-  // ── Purchasing ───────────────────────────────────────────────────────────
-  '/panel/purchasing': 'purchasing.read',
-  '/panel/purchasing/scorecard': 'purchasing.read',
-  '/vendors': 'purchasing.read',
-
-  // ── Accounting (the whole panel is books data) ───────────────────────────
-  '/panel/accounting': 'accounting.read',
-  '/panel/accounting/journals': 'accounting.post',
-  '/panel/accounting/settings': 'settings.manage',
-  '/panel/accounting/audit': 'audit.read',
-  '/panel/accounting/gstr1': 'gst.read',
-  '/panel/accounting/gstr3b': 'gst.read',
-  '/panel/accounting/gstr9': 'gst.read',
-  '/panel/accounting/hsn-summary': 'gst.read',
-  '/panel/accounting/rate-check': 'gst.read',
-  '/panel/accounting/rate-codes': 'gst.read',
-  '/panel/accounting/itc': 'gst.read',
-  '/panel/customers/credit': 'customers.read',
-
-  // ── Marketing ────────────────────────────────────────────────────────────
-  '/marketing': 'marketing.read',
-  '/coupons': 'marketing.read',
-  '/coupons/new': 'marketing.manage',
-  '/panel/marketing': 'marketing.read',
-  '/panel/marketing/campaigns': 'marketing.read',
-  '/panel/marketing/templates': 'marketing.manage',
-  '/panel/marketing/audiences': 'marketing.manage',
-  '/panel/marketing/automation': 'marketing.manage',
-  '/panel/marketing/compliance': 'customers.read',
-  '/panel/marketing/settings': 'marketing.manage',
-  '/panel/marketing/ads': 'ads.read',
-  '/panel/marketing/growth': 'reports.read',
-  '/panel/marketing/analytics': 'reports.read',
-  '/panel/marketing/performance': 'reports.read',
-
-  // ── Channels ─────────────────────────────────────────────────────────────
-  '/channels': 'channels.read',
-  '/channels/mapping': 'channels.manage',
-  '/channels/import': 'channels.manage',
-  '/channels/allocation': 'channels.manage',
-
-  // ── Customers & B2B ──────────────────────────────────────────────────────
-  '/customers': 'customers.read',
-  '/b2b': 'b2b.read',
-
-  // ── Analytics / reports ──────────────────────────────────────────────────
-  '/analytics': 'reports.read',
-
-  // ── Panel users: managing logins is NOT a general settings action ────────
-  '/users': 'staff.read',
-  '/settings/staff': 'staff.manage',
-
-  // ── Store configuration (credentials, tax, payment, numbering) ───────────
-  '/settings': 'settings.read',
-  '/settings/directory': 'settings.read',
-  '/settings/general': 'settings.manage',
-  '/settings/api-integrations': 'settings.manage',
-  '/settings/payment-gateways': 'settings.manage',
-  '/settings/payment-discount': 'settings.manage',
-  '/settings/gst': 'settings.manage',
-  // Markets (1.8) is viewable on settings.read; the page itself gates Save on
-  // settings.manage (mirrors the Settings Center's own read/write split).
-  '/settings/markets': 'settings.read',
-  '/settings/tax-rules': 'settings.manage',
-  '/settings/shipping': 'settings.manage',
-  '/settings/packages': 'settings.manage',
-  '/settings/order-numbering': 'settings.manage',
-  '/settings/invoice': 'settings.manage',
-  '/settings/sms-templates': 'settings.manage',
-  '/settings/cart-recovery-automation': 'settings.manage',
-  '/settings/modules': 'settings.manage',
-  '/settings/store-config': 'settings.manage',
-  '/settings/contact': 'settings.manage',
-  '/settings/manufacturers': 'products.manage',
-  '/settings/return-policies': 'settings.manage',
-  '/panel/settings/templates': 'settings.manage',
-  '/panel/settings/custom-fields': 'settings.manage',
-  '/setup-guide': 'settings.read',
-
-  // ── Platform billing (wallet / plan invoices) ───────────────────────────
-  '/settings/billing': 'billing.read',
-  '/settings/wallet': 'billing.read',
-
-  '/logs': 'audit.read',
-};
+const TABLES = build();
 
 /**
- * Route → the store MODULE it needs. Orthogonal to permission: this asks
- * "has the store got this feature?" (super-admin toggle / plan), not "may this
- * user do it?". Both must pass. Same longest-prefix matching.
+ * Route → the permissions that open it, ANY ONE of which is enough.
+ * Generated; do not edit.
  */
-export const ROUTE_MODULES: Record<string, string> = {
-  '/panel/accounting': 'accounting',
-  '/panel/purchasing': 'purchasing',
-  '/panel/inventory/purchasing': 'purchasing',
-  '/panel/inventory/wms': 'wms',
-  '/panel/inventory/pick-lists': 'wms',
-  '/panel/inventory/counts': 'wms',
-  '/panel/inventory/labels': 'wms',
-  '/panel/inventory/reports': 'reports',
-  '/scan': 'wms',
-  '/pos': 'pos',
-  '/panel/marketing': 'marketing',
-  '/marketing': 'marketing',
-  '/coupons': 'coupons',
-  '/leads': 'crm',
-  '/channels': 'channel_sync',
-  '/b2b': 'b2b',
-  '/blogs': 'blog',
-  '/reviews': 'reviews',
-  '/questions': 'product_qa',
-  '/wishlists': 'wishlist',
-  '/shipments': 'shipping',
-  '/returns': 'returns',
-  '/inventory': 'inventory',
-  '/warehouses': 'inventory',
-  '/analytics': 'analytics',
-  '/products/bundles': 'bundles',
-  '/products/size-charts': 'size_charts',
-  '/pages': 'page_builder',
-  '/panel/accounting/einvoicing': 'einvoicing',
-  '/settings/manufacturers': 'manufacturers',
-};
+export const ROUTE_PERMISSIONS_ANY: Record<string, string[]> = TABLES.perms;
 
-function longestPrefixMatch(table: Record<string, string>, pathname: string): string | null {
+/** The same table with one name per route, for display and for old callers. */
+export const ROUTE_PERMISSIONS: Record<string, string> = Object.fromEntries(
+  Object.entries(TABLES.perms).map(([route, perms]) => [route, perms[0]]),
+);
+
+/** Route → the store modules it needs, ALL of them. Generated; do not edit. */
+export const ROUTE_MODULES_ALL: Record<string, string[]> = TABLES.modules;
+
+/**
+ * Kept for callers that only want one module name. A page can genuinely need
+ * two (the marketing ads pages need `marketing` AND `ads_management`) — use
+ * `modulesForPath` where the answer matters.
+ */
+export const ROUTE_MODULES: Record<string, string> = Object.fromEntries(
+  Object.entries(TABLES.modules).map(([route, mods]) => [route, mods[0]]),
+);
+
+function longestPrefixMatch<T>(table: Record<string, T>, pathname: string): T | null {
   const p = ('/' + pathname.replace(/^\/+/, '')).replace(/\/+$/, '') || '/';
-  let best: string | null = null;
+  let best: T | null = null;
   let bestLen = -1;
   for (const [route, value] of Object.entries(table)) {
     if ((p === route || p.startsWith(route + '/')) && route.length > bestLen) {
@@ -219,11 +93,21 @@ function longestPrefixMatch(table: Record<string, string>, pathname: string): st
  * The permission a pathname requires, or null when login alone is enough.
  * Longest matching prefix wins so a specific child overrides its parent.
  */
-export function permissionForPath(pathname: string): string | null {
-  return longestPrefixMatch(ROUTE_PERMISSIONS, pathname);
+export function permissionsForPath(pathname: string): string[] {
+  return longestPrefixMatch(ROUTE_PERMISSIONS_ANY, pathname) ?? [];
 }
 
-/** The store module a pathname requires, or null when it is always available. */
+/** The first of them — for a message, never for the decision. */
+export function permissionForPath(pathname: string): string | null {
+  return permissionsForPath(pathname)[0] ?? null;
+}
+
+/** Every store module a pathname requires (empty when it is always available). */
+export function modulesForPath(pathname: string): string[] {
+  return longestPrefixMatch(ROUTE_MODULES_ALL, pathname) ?? [];
+}
+
+/** The first store module a pathname requires, or null. */
 export function moduleForPath(pathname: string): string | null {
-  return longestPrefixMatch(ROUTE_MODULES, pathname);
+  return modulesForPath(pathname)[0] ?? null;
 }

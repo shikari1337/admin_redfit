@@ -10,6 +10,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
+import { toast } from '@/hooks/use-toast';
+
+/** A message that used to be a blocking alert() — now a toast (the shell mounts the Toaster). */
+const notify = (message: string) =>
+  toast({ title: message, variant: /fail|could not|error/i.test(message) ? 'destructive' : 'default' });
+
 
 interface PageTemplate {
   name: string;
@@ -129,7 +135,7 @@ const PageForm: React.FC = () => {
       });
     } catch (error: any) {
       console.error('Failed to fetch page:', error);
-      alert(error.response?.data?.message || 'Failed to load page');
+      notify(error.response?.data?.message || 'Failed to load page');
       navigate('/pages');
     } finally {
       setLoading(false);
@@ -142,15 +148,15 @@ const PageForm: React.FC = () => {
     try {
       if (id) {
         await pagesAPI.update(id, formData);
-        alert('Page updated successfully!');
+        notify('Page updated successfully!');
       } else {
         await pagesAPI.create(formData);
-        alert('Page created successfully!');
+        notify('Page created successfully!');
       }
       navigate('/pages');
     } catch (error: any) {
       console.error('Failed to save page:', error);
-      alert(error.response?.data?.message || 'Failed to save page');
+      notify(error.response?.data?.message || 'Failed to save page');
     } finally {
       setSaving(false);
     }
@@ -349,7 +355,7 @@ const PageForm: React.FC = () => {
   }
 
   return (
-    <div className="max-w-6xl mx-auto pb-12">
+    <div className="pb-12">
       <div className="mb-6">
         <button
           onClick={() => navigate('/pages')}

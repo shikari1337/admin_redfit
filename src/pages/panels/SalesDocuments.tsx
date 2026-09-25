@@ -4,8 +4,10 @@ import { payload } from '../../lib/unwrap';
 import {
   Page, PageHeader, SectionCard, Btn, StatusChip,
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow,
-  FilterBar, Field, TextInput, SelectInput, TabBar, inr,
+  FilterBar, Field, TextInput, SelectInput, SearchInput, TabBar, inr,
+  ExportMenu, type CsvColumn,
 } from '../../components/erp';
+import InfoTip from '../../components/common/InfoTip';
 import type { Tone } from '../../components/erp';
 import { FileText, Download, RotateCcw, Truck, Package, Search } from 'lucide-react';
 
@@ -27,6 +29,19 @@ const STATUS_TONE: Record<string, Tone> = { draft: 'amber', issued: 'green', can
 const Pill: React.FC<{ status: string }> = ({ status }) => <StatusChip status={status} tone={STATUS_TONE[status] ?? 'neutral'} />;
 
 interface OrderLine { variation_id: string | null; product_id: string; product_name: string; sku: string; quantity: number; price: number; credit: number }
+
+/** The note register as a spreadsheet. `numberField` differs per kind. */
+const noteCsvCols = (numberField: string): CsvColumn<any>[] => [
+  { key: numberField, label: 'Number' },
+  { key: 'order_number', label: 'Against order', format: (r) => r.order_number ?? '' },
+  { key: 'reason', label: 'Reason', format: (r) => r.reason ?? '' },
+  { key: 'status', label: 'Status' },
+  { key: 'taxable', label: 'Taxable', format: (r) => Number(r.taxable ?? 0).toFixed(2) },
+  { key: 'cgst', label: 'CGST', format: (r) => Number(r.cgst ?? 0).toFixed(2) },
+  { key: 'sgst', label: 'SGST', format: (r) => Number(r.sgst ?? 0).toFixed(2) },
+  { key: 'igst', label: 'IGST', format: (r) => Number(r.igst ?? 0).toFixed(2) },
+  { key: 'total', label: 'Total', format: (r) => Number(r.total ?? 0).toFixed(2) },
+];
 
 const openBlob = async (url: string, setErr: (s: string) => void) => {
   try {
@@ -107,10 +122,18 @@ const NotePanel: React.FC<{ kind: Kind }> = ({ kind }) => {
   const [msg, setMsg] = useState('');
 
   const [rows, setRows] = useState<any[]>([]);
+  const [find, setFind] = useState('');
   const loadList = async () => {
     try { const d = payload<any>(await api.get(base)); setRows(Array.isArray(d) ? d : (d?.rows ?? [])); } catch { /* keep */ }
   };
   useEffect(() => { loadList(); /* eslint-disable-next-line */ }, [kind]);
+
+  const shown = React.useMemo(() => {
+    const q = find.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r: any) => [r[numberField], r.order_number, r.reason]
+      .some((v: any) => String(v ?? '').toLowerCase().includes(q)));
+  }, [rows, find, numberField]);
 
   const items = lines.filter((l) => l.credit > 0).map((l) => ({ variationId: l.variation_id || undefined, productId: l.product_id, quantity: l.credit }));
 
@@ -227,13 +250,30 @@ const NotePanel: React.FC<{ kind: Kind }> = ({ kind }) => {
         )}
       </SectionCard>
 
-      <SectionCard title={isCredit ? 'Recent credit notes' : 'Recent debit notes'}>
+      <SectionCard
+        title={isCredit ? 'Recent credit notes' : 'Recent debit notes'}
+        action={
+          <FilterBar>
+            <SearchInput className="w-56" placeholder="Number, order or reason…" value={find} onChange={(e) => setFind(e.target.value)} />
+            <ExportMenu
+              filename={isCredit ? 'credit-notes' : 'debit-notes'}
+              columns={noteCsvCols(numberField)}
+              rows={shown}
+              canExport={shown.length > 0}
+            />
+          </FilterBar>
+        }
+      >
         <TableShell>
           <table className="w-full text-sm">
             <THead><Th>Number</Th><Th>Against order</Th><Th>Reason</Th><Th>Status</Th><Th num>Total</Th><Th></Th></THead>
             <TBody>
-              {rows.length === 0 && <EmptyRow colSpan={6}>None yet.</EmptyRow>}
-              {rows.map((r: any) => (
+              {shown.length === 0 && (
+                <EmptyRow colSpan={6}>
+                  {find ? 'Nothing matches what you typed.' : `No ${isCredit ? 'credit' : 'debit'} notes yet — raise one above.`}
+                </EmptyRow>
+              )}
+              {shown.map((r: any) => (
                 <Tr key={r.id}>
                   <Td className="font-mono text-xs">{r[numberField]}</Td>
                   <Td className="font-mono text-xs text-gray-500">{r.order_number || '—'}</Td>
@@ -259,9 +299,17 @@ const ChallanPanel: React.FC = () => {
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
   const [rows, setRows] = useState<any[]>([]);
+  const [find, setFind] = useState('');
 
   const loadList = async () => { try { const d = payload<any>(await api.get('/sales-docs/challans')); setRows(Array.isArray(d) ? d : (d?.rows ?? [])); } catch { /* keep */ } };
   useEffect(() => { loadList(); }, []);
+
+  const shown = React.useMemo(() => {
+    const q = find.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r: any) => [r.challan_number, r.order_number, r.type]
+      .some((v: any) => String(v ?? '').toLowerCase().includes(q)));
+  }, [rows, find]);
 
   const makeChallan = async () => {
     const id = orderNo.trim();
@@ -303,13 +351,31 @@ const ChallanPanel: React.FC = () => {
         </FilterBar>
       </SectionCard>
 
-      <SectionCard title="Recent challans">
+      <SectionCard
+        title="Recent challans"
+        action={
+          <FilterBar>
+            <SearchInput className="w-56" placeholder="Challan or order number…" value={find} onChange={(e) => setFind(e.target.value)} />
+            <ExportMenu
+              filename="delivery-challans"
+              columns={[
+                { key: 'challan_number', label: 'Challan #' },
+                { key: 'order_number', label: 'Order', format: (r: any) => r.order_number ?? '' },
+                { key: 'type', label: 'Type' },
+                { key: 'status', label: 'Status' },
+              ] as CsvColumn<any>[]}
+              rows={shown}
+              canExport={shown.length > 0}
+            />
+          </FilterBar>
+        }
+      >
         <TableShell>
           <table className="w-full text-sm">
             <THead><Th>Challan #</Th><Th>Order</Th><Th>Type</Th><Th>Status</Th><Th></Th></THead>
             <TBody>
-              {rows.length === 0 && <EmptyRow colSpan={5}>No challans yet.</EmptyRow>}
-              {rows.map((r: any) => (
+              {shown.length === 0 && <EmptyRow colSpan={5}>{find ? 'Nothing matches what you typed.' : 'No challans yet — create one above when goods leave.'}</EmptyRow>}
+              {shown.map((r: any) => (
                 <Tr key={r.id}>
                   <Td className="font-mono text-xs">{r.challan_number}</Td>
                   <Td className="font-mono text-xs text-gray-500">{r.order_number || '—'}</Td>
@@ -336,7 +402,18 @@ const SalesDocuments: React.FC = () => {
   const [tab, setTab] = useState<string>('credit');
   return (
     <Page>
-      <PageHeader icon={FileText} title="Credit / Debit Notes & Challans"
+      <PageHeader
+        icon={FileText}
+        title={
+          <span className="inline-flex items-center gap-2">
+            Credit / Debit Notes &amp; Challans
+            <InfoTip
+              side="right"
+              text="A credit note CANCELS part of a sale and reverses its GST. Sending the money back is a separate step."
+              where="Refunds ▸ money going back to customers."
+            />
+          </span>
+        }
         description="Take goods back with a GST-correct credit note, bill more with a debit note, or print the papers that travel with a shipment." />
       <TabBar tabs={TABS} active={tab} onChange={setTab} className="mb-4" />
       {tab === 'credit' && <NotePanel kind="credit" />}

@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 import { inventoryAPI, exportsAPI, blobErrorMessage, type InventoryHealth, type ImportResponse } from '../services/api';
-import { Pagination } from '@/components/erp';
+import { Pagination, FilterChips, type ChipGroup } from '@/components/erp';
+import InfoTip from '../components/common/InfoTip';
 import MarketPricesBulkBar from '../components/inventory/MarketPricesBulkBar';
 import AvailabilityBulkBar from '../components/inventory/AvailabilityBulkBar';
-import DownloadsPanel from '../components/inventory/DownloadsPanel';
-import WhichSheetStrip from '../components/inventory/WhichSheetStrip';
+import SheetsBar from '../components/inventory/SheetsBar';
 import StockDetailDrawer from '../components/inventory/StockDetailDrawer';
 import UpdateStockDialog from '../components/inventory/UpdateStockDialog';
 
@@ -361,12 +361,29 @@ export default function Inventory() {
     return cat.name ?? '—';
   };
 
+  /**
+   * One chip instead of five always-on buttons. The five states are mutually
+   * exclusive (the server takes one), so a single-select chip says that;
+   * five pills implied they could be combined.
+   */
+  const stockChips: ChipGroup[] = [{
+    key: 'stock', label: 'Show', value: filter === 'all' ? '' : filter,
+    onChange: (v: string) => { setFilter((v || 'all') as any); setPage(1); },
+    help: 'One at a time — the server answers one of these questions per page.',
+    options: [
+      { value: 'low', label: 'Low stock' },
+      { value: 'out', label: 'Out of stock' },
+      { value: 'mismatch', label: 'Needs reconciling', hint: 'figures disagree' },
+      { value: 'expiring', label: 'Expiring within 90 days' },
+    ],
+  }];
+
   return (
     <div className="inv-page">
       <div className="page-header">
         <div>
           <h1>Inventory</h1>
-          <p className="subtitle">Manage retail &amp; B2B pricing across all SKUs. Ask for an export, edit it, and send it back — blank cells are left unchanged. Downloads are prepared in the background, so you can leave this page.</p>
+          <p className="subtitle">Every SKU you stock — what is on hand, what it costs and what it sells for.</p>
 
         </div>
         <div className="header-actions">
@@ -392,14 +409,9 @@ export default function Inventory() {
         </div>
       </div>
 
-      {/* Which of the two sheets does what, in the same words on both pages. */}
-      <WhichSheetStrip here="inventory" />
-
-      {/* Files the user asked for, and every import run. Present above
-          everything else because it is where an export now arrives — the
-          button no longer hands back a file — and where a queued import
-          reports its progress. */}
-      <DownloadsPanel refreshToken={downloadsToken} />
+      {/* ONE block: which sheet changes what (folded away until asked for),
+          plus every file being built and every sheet sent back. */}
+      <SheetsBar here="inventory" refreshToken={downloadsToken} />
 
       {/* ── THE TILES STATE THE ACCURATE FIGURE ────────────────────────────
           `units_on_hand` is the LEDGER-preferred total (644,672 live), not
@@ -411,14 +423,30 @@ export default function Inventory() {
           <span className="stat-value">₹{Math.round(valuation?.grand_total ?? 0).toLocaleString('en-IN')}</span>
         </div>
         <div className="stat">
-          <span className="stat-label">Units on hand</span>
+          <span className="stat-label">
+            Units on hand
+            <InfoTip
+              className="ml-1"
+              text="The stock ledger's figure — every movement that has ever been recorded, added up."
+              where="Three figures exist for a SKU: the ledger, the sum of its lots, and the older per-product column. This tile states the ledger."
+            />
+          </span>
           <span className="stat-value">{Number(health?.units_on_hand ?? 0).toLocaleString('en-IN')}</span>
           <span className="stat-sub">
             {health ? `${Number(health.units_batched).toLocaleString('en-IN')} in batches` : '—'}
           </span>
         </div>
         <div className="stat">
-          <span className="stat-label">SKUs</span>
+          <span className="stat-label">
+            SKUs
+            {!!health?.not_ledgered && (
+              <InfoTip
+                className="ml-1"
+                text={`${health.not_ledgered.toLocaleString('en-IN')} of these have never moved through the stock ledger, so their quantity still comes from the older per-product column.`}
+                where="Those rows are marked “older column” instead of “ledger”. It is not an error."
+              />
+            )}
+          </span>
           <span className="stat-value">{(health?.skus ?? total).toLocaleString('en-IN')}</span>
           <span className="stat-sub">{health ? `${health.batch_tracked.toLocaleString('en-IN')} batch-tracked` : '—'}</span>
         </div>
@@ -440,14 +468,6 @@ export default function Inventory() {
         </button>
       </div>
 
-      {health && health.not_ledgered > 0 && (
-        <div className="notice">
-          <strong>{health.not_ledgered.toLocaleString('en-IN')} SKUs have no stock-ledger record.</strong>{' '}
-          Their quantity comes from the older per-product column instead. That is not an error — it
-          means those SKUs have never moved through the ledger — but it is why a few rows below are
-          marked <em>older column</em> rather than <em>ledger</em>.
-        </div>
-      )}
 
       {error && (
         <div className="alert alert-error">
@@ -488,32 +508,21 @@ export default function Inventory() {
         <form onSubmit={handleSearch} className="search-form">
           <input
             type="text"
-            placeholder="Search products…"
+            placeholder="Search by product name or SKU…"
+            aria-label="Search inventory"
+            data-testid="inv-search"
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
           <button type="submit" className="btn btn-secondary">Search</button>
         </form>
         <div className="filter-group">
-          {([
-            ['all', 'All'],
-            ['low', 'Low stock'],
-            ['out', 'Out of stock'],
-            ['mismatch', 'Needs reconciling'],
-            ['expiring', 'Expiring ≤ 90d'],
-          ] as const).map(([f, label]) => (
-            <button
-              key={f}
-              className={`filter-btn ${filter === f ? 'active' : ''}`}
-              onClick={() => { setFilter(f); setPage(1); }}
-            >
-              {label}
-            </button>
-          ))}
-          <label className="lots-toggle" title="Show every SKU's batches under it">
-            <input type="checkbox" checked={showAllLots} onChange={toggleShowAll} data-testid="inv-show-all-lots" />
-            Show batches
-          </label>
+          <FilterChips groups={stockChips} onClearAll={() => { setFilter('all'); setPage(1); }}>
+            <label className="lots-toggle" title="Show every SKU's batches under it">
+              <input type="checkbox" checked={showAllLots} onChange={toggleShowAll} data-testid="inv-show-all-lots" />
+              Show batches
+            </label>
+          </FilterChips>
         </div>
       </div>
 
@@ -536,10 +545,10 @@ export default function Inventory() {
                   <th>Product</th>
                   <th>SKU</th>
                   <th>Category</th>
-                  <th className="num">On hand</th>
-                  <th className="num">In batches</th>
-                  <th className="num">Loose</th>
-                  <th className="num">Avail.</th>
+                  <th className="num">On hand <InfoTip text="Everything you hold of this SKU. Taken from the stock ledger where there is one." /></th>
+                  <th className="num">In batches <InfoTip text="How much of it is recorded against a specific lot, with its own MRP and expiry." /></th>
+                  <th className="num">Loose <InfoTip text="On hand minus what is in lots — stock that is not attached to a batch yet." /></th>
+                  <th className="num">Avail. <InfoTip text="On hand minus what is reserved for orders already placed." /></th>
                   <th>Lots</th>
                   <th>Nearest expiry</th>
                   <th className="num">MRP</th>
