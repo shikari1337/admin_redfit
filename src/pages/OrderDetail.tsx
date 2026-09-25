@@ -859,7 +859,10 @@ const OrderDetail: React.FC = () => {
        var(--content-pad)) so the command bar spans the whole width and the
        items table gets the room its columns need. The wrapper is exactly the
        parent's padding-box width, so nothing overflows horizontally. */
-    <div className="-m-[var(--content-pad-phone)] min-h-full bg-slate-100/70 md:-m-[var(--content-pad)]">
+    /* WHITE CANVAS (owner call). The page used to sit on a grey wash with white
+       cards floating on it; every panel now carries its own border instead, so
+       separation comes from lines, never from tint. */
+    <div className="-m-[var(--content-pad-phone)] min-h-full bg-surface md:-m-[var(--content-pad)]">
       {/* ONE command row (owner call): identity, state, every write, and the
           Prev/Next walk, on a single dark band. The figures that used to sit on
           a second row (total, lines/units, payment, placed) are all in the items
@@ -956,7 +959,7 @@ const OrderDetail: React.FC = () => {
           )}
           <div className="mx-0.5 h-5 w-px shrink-0 bg-slate-200" />
 
-          <div className="flex shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-slate-50 p-0.5">
+          <div className="flex shrink-0 items-center gap-1 rounded-md border border-slate-200 p-0.5">
             <Input
               type="text"
               placeholder="Status note..."
@@ -1315,7 +1318,7 @@ const OrderDetail: React.FC = () => {
               button is greyed out and I do not know why" is the single most
               common thing staff ask about this page. */}
           {hasPerm('orders.manage') && !canEditItems && editItemsReason && (
-            <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            <p className="rounded-md border border-slate-200 px-3 py-2 text-xs text-slate-600">
               <span className="font-semibold text-slate-700">Items cannot be re-priced:</span>{' '}
               {editItemsReason}
               {canCancelItems && ' You can still cancel individual lines.'}
@@ -1543,7 +1546,7 @@ const OrderDetail: React.FC = () => {
             const standing = order.risk.standing;
             return (
               <Card className="shadow-sm">
-                <CardHeader className="border-b bg-slate-50/80 px-4 py-2.5">
+                <CardHeader className="border-b border-line px-4 py-2.5">
                   <CardTitle className="flex items-center justify-between text-sm font-semibold uppercase tracking-wide text-slate-700">
                     <span className="flex items-center gap-1.5">
                       Order authenticity
@@ -1597,7 +1600,7 @@ const OrderDetail: React.FC = () => {
           })()}
 
             <Card className="shadow-sm">
-              <CardHeader className="border-b bg-slate-50/80 px-4 py-2.5">
+              <CardHeader className="border-b border-line px-4 py-2.5">
                 <CardTitle className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-700">
                   Invoiced by
                   <InfoTip text="The GSTIN and the place of supply frozen onto this order when it was placed. Changing the store's details later never rewrites what an issued invoice said." />
@@ -1635,7 +1638,7 @@ const OrderDetail: React.FC = () => {
             </Card>
 
           <Card className="shadow-sm">
-            <CardHeader className="border-b bg-slate-50/80 px-4 py-2.5">
+            <CardHeader className="border-b border-line px-4 py-2.5">
               <CardTitle className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-700">
                 Shipping &amp; tracking
                 <InfoTip text="The carrier, the waybill and where the parcel is. A parcel booked outside this system can be linked here by pasting its AWB." />

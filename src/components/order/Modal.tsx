@@ -36,7 +36,7 @@ const Modal: React.FC<ModalProps> = ({
     <div className="fixed inset-0 bg-scrim flex items-center justify-center z-[9999] p-4">
       <div className={`bg-white rounded-xl shadow-2xl w-full ${maxWidthClasses[maxWidth]} max-h-[95vh] flex flex-col animate-in fade-in zoom-in duration-200`}>
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50">
+        <div className="flex items-center justify-between p-6 border-b border-gray-200">
           <h2 className="text-2xl font-bold text-gray-900">{title}</h2>
           <button
             onClick={onClose}
@@ -48,7 +48,7 @@ const Modal: React.FC<ModalProps> = ({
         </div>
 
         {/* Content - Scrollable */}
-        <div className="overflow-y-auto flex-1 p-6 bg-gray-50">
+        <div className="overflow-y-auto flex-1 p-6">
           {children}
         </div>
 

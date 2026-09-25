@@ -85,7 +85,7 @@ const RecordCodPaymentModal: React.FC<RecordCodPaymentModalProps> = ({
           before delivery. Full payment marks the order paid and tells the courier to collect
           nothing; a partial amount reduces what's collected on delivery.
         </p>
-        <div className="text-sm bg-gray-50 border border-gray-200 rounded-md p-3 flex justify-between">
+        <div className="text-sm border border-gray-200 rounded-md p-3 flex justify-between">
           <span className="text-gray-600">Remaining balance</span>
           <span className="font-semibold text-gray-900">₹{remaining.toFixed(2)}</span>
         </div>

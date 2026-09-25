@@ -9,7 +9,8 @@ import RecoverPaymentModal from '../components/order/RecoverPaymentModal';
 import ErpExportModal from '../components/order/ErpExportModal';
 import { getStatusColorClass } from '../components/order/StatusBadge';
 import { saveOrderNav } from '../lib/orderNav';
-import { FilterChip, MenuChip, SearchBox, ListHeader, SavedViewBar, useSavedViews } from '../components/sales/ListChrome';
+import { FilterChip, MenuChip, SegmentTabs, SearchBox, ListHeader, SavedViewBar, useSavedViews } from '../components/sales/ListChrome';
+import type { SegmentTab } from '../components/sales/ListChrome';
 import { Columns3 as FaTableColumns, MoreHorizontal } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
@@ -451,6 +452,68 @@ const Orders: React.FC = () => {
 
   const anyFilter = statusFilter !== 'all' || paymentFilter !== 'all' || flagFilter !== 'all'
     || typeFilter !== 'all' || channelFilter !== 'all' || fulfilFilter !== 'all' || datePreset !== 'all' || !!search;
+
+  /**
+   * THE TABS — where the sale came from, and which price book priced it.
+   *
+   * These two were dropdowns among six others, which buried the dimension staff
+   * switch between most: "show me the counter", "show me the wholesale orders".
+   * They are the shape of the business, so they sit on the surface.
+   *
+   * ⚠️ Channel and type are INDEPENDENT and both can be lit at once — a counter
+   * sale to a wholesale account is `pos` AND `b2b` (migration 162 exists because
+   * the two were once conflated). "All orders" is the only tab that clears both,
+   * and clicking a lit tab turns just that one off, so every combination is
+   * reachable in one click and none is unreachable.
+   */
+  const orderTabs: SegmentTab[] = React.useMemo(() => {
+    const tabs: SegmentTab[] = [{
+      key: 'all',
+      label: 'All orders',
+      on: channelFilter === 'all' && typeFilter === 'all',
+      onPick: () => { setChannelFilter('all'); setTypeFilter('all'); },
+      title: 'Every channel and both price books',
+    }];
+
+    // The price book. Only when the store actually sells B2B.
+    if (b2bEnabled) {
+      ([['retail', 'Retail'], ['b2b', 'B2B']] as const).forEach(([key, label], i) => {
+        tabs.push({
+          key: `type-${key}`,
+          label,
+          on: typeFilter === key,
+          onPick: () => setTypeFilter(typeFilter === key ? 'all' : (key as any)),
+          title: key === 'b2b'
+            ? 'Orders priced from a wholesale price book, wherever they were taken'
+            : 'Orders priced at retail, wherever they were taken',
+          startsGroup: i === 0,
+        });
+      });
+    }
+
+    /**
+     * The place. A staff member scoped to some channels (users.channel_access,
+     * EMPTY = all) is offered only those — a tab that can only ever return an
+     * empty page is worse than no tab.
+     */
+    const visible = channelAccess.length
+      ? channels.filter((c) => channelAccess.includes(c.code))
+      : channels;
+    if (visible.length > 1) {
+      visible.forEach((c, i) => {
+        tabs.push({
+          key: `ch-${c.code}`,
+          label: c.label,
+          on: channelFilter === c.code,
+          onPick: () => setChannelFilter(channelFilter === c.code ? 'all' : c.code),
+          title: (c as any).description || `Orders taken through ${c.label}`,
+          startsGroup: i === 0,
+        });
+      });
+    }
+    return tabs;
+  }, [channels, channelAccess, channelFilter, typeFilter, b2bEnabled]);
+
   const label = <T extends string>(list: ReadonlyArray<readonly [T, string]>, v: T) => list.find(([k]) => k === v)?.[1];
   const STATUS: ReadonlyArray<readonly [string, string]> = [
     ['pending', 'Pending'], ['confirmed', 'Confirmed'], ['processing', 'Processing'], ['on_hold', 'On hold'],
@@ -463,7 +526,7 @@ const Orders: React.FC = () => {
   const FULFIL: ReadonlyArray<readonly [string, string]> = [
     ['to_ship', 'To ship'], ['partial', 'Part shipped'], ['shipped', 'Shipped'],
   ];
-  const TYPE: ReadonlyArray<readonly [string, string]> = [['retail', 'Retail'], ['b2b', 'Wholesale (B2B)']];
+  // (Retail/B2B moved out of the chip row and onto the tab strip — `orderTabs`.)
   const shown = onPageFiltered;
   const firstRow = total ? (page - 1) * PAGE_SIZE + 1 : 0;
   const lastRow = Math.min(page * PAGE_SIZE, total);
@@ -546,18 +609,13 @@ const Orders: React.FC = () => {
           </div>
         </div>
 
+        {/* WHERE it came from and WHICH price book — on the surface, not in a
+            dropdown. Channel and type are separate groups: both can be lit. */}
+        <SegmentTabs tabs={orderTabs} ariaLabel="Filter orders by channel and price book" />
+
         <div className="flex flex-wrap items-center gap-1.5">
           <MenuChip name="Status" value={label(STATUS, statusFilter)} options={STATUS}
             current={statusFilter} onPick={(v) => setStatusFilter(v ?? 'all')} />
-          {channels.length > 1 && (
-            <MenuChip name="Channel" value={channels.find((c) => c.code === channelFilter)?.label}
-              options={channels.map((c) => [c.code, c.label] as const)}
-              current={channelFilter} onPick={(v) => setChannelFilter(v ?? 'all')} />
-          )}
-          {b2bEnabled && (
-            <MenuChip name="Type" value={label(TYPE, typeFilter)} options={TYPE}
-              current={typeFilter} onPick={(v) => setTypeFilter((v ?? 'all') as any)} />
-          )}
           <MenuChip name="Date"
             value={datePreset !== 'all' ? DASHBOARD_PRESETS.find((x) => x.key === datePreset)?.label : undefined}
             options={DASHBOARD_PRESETS.map((x) => [x.key, x.label] as const)}
@@ -591,7 +649,9 @@ const Orders: React.FC = () => {
 
       <div className="w-0 min-w-full overflow-x-auto rounded-md border border-line bg-surface">
         <Table>
-          <TableHeader className="bg-surface-2">
+          {/* `bg-surface` is not decoration: shadcn's TableHeader carries a built-in
+              `bg-muted/60`, and only a later bg-* class beats it through twMerge. */}
+          <TableHeader className="bg-surface border-b border-line">
             <TableRow>
               <TableHead className="w-10 px-3 py-2.5">
                 <Checkbox

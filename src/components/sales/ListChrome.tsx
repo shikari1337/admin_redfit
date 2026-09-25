@@ -211,6 +211,62 @@ export function SavedViewBar<T>({ views, current, onApply, onSave, onRemove }: {
 }
 
 /**
+ * THE TAB STRIP a list wears when its rows split along an axis staff switch
+ * between all day — where the sale came from, and which price book priced it.
+ *
+ * A dropdown is the right control for a filter you set occasionally (Status,
+ * Date, Payment). It is the wrong one for a dimension somebody flips between on
+ * every visit: it costs two clicks, hides which values exist, and gives no sense
+ * of the shape of the data. Those belong on the surface, as tabs.
+ *
+ * ⚠️ GROUPS ARE INDEPENDENT, AND THAT IS THE POINT. Channel and type are
+ * ORTHOGONAL — a counter sale to a wholesale account is both `pos` and `b2b`
+ * (COMMON_MISTAKES #229: `order_type` is the PRICE SCOPE, `sales_channel` is the
+ * PLACE, and conflating them is what migration 162 had to undo). So more than
+ * one tab can be lit at once, and `startsGroup` draws the rule that says these
+ * are two questions rather than one list of alternatives. A control that forced
+ * a single choice would make "B2B orders taken at the counter" unaskable.
+ */
+export interface SegmentTab {
+  key: string;
+  label: string;
+  on: boolean;
+  onPick: () => void;
+  /** Hover explanation — what this tab actually narrows to. */
+  title?: string;
+  /** Draw a divider before this tab: it opens a new, independent group. */
+  startsGroup?: boolean;
+}
+
+export const SegmentTabs: React.FC<{ tabs: SegmentTab[]; ariaLabel: string }> = ({ tabs, ariaLabel }) => {
+  if (tabs.length < 2) return null;
+  return (
+    <div role="tablist" aria-label={ariaLabel}
+      className="-mb-px flex flex-wrap items-center gap-x-0.5 border-b border-line">
+      {tabs.map((t) => (
+        <React.Fragment key={t.key}>
+          {t.startsGroup && <span aria-hidden className="mx-2 h-4 w-px shrink-0 bg-line" />}
+          <button
+            type="button"
+            role="tab"
+            aria-selected={t.on}
+            title={t.title}
+            onClick={t.onPick}
+            className={`whitespace-nowrap border-b-2 px-3 py-2 text-sm transition-colors ${
+              t.on
+                ? 'border-brand font-semibold text-ink'
+                : 'border-transparent font-medium text-ink-soft hover:border-line-strong hover:text-ink'
+            }`}
+          >
+            {t.label}
+          </button>
+        </React.Fragment>
+      ))}
+    </div>
+  );
+};
+
+/**
  * One filter dimension as ONE chip: "Status", or "Status: Shipped" once set,
  * opening its values. T5 converges every list's chips into
  * `components/list/FilterChips` (Prompt 9 §5.2).

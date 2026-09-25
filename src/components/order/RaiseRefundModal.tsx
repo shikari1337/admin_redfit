@@ -117,7 +117,7 @@ const RaiseRefundModal: React.FC<Props> = ({ isOpen, onClose, orderId, orderNumb
           <p className="py-6 text-center text-sm font-semibold text-slate-400">Reading the order's paid position…</p>
         ) : (
           <>
-            <div className="grid grid-cols-3 gap-2 rounded-lg border-2 border-slate-100 bg-slate-50 p-3 text-center">
+            <div className="grid grid-cols-3 gap-2 rounded-lg border-2 border-slate-100 p-3 text-center">
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Paid</p>
                 <p className="text-base font-semibold tabular-nums text-slate-900">{fmtRupees(paid)}</p>
@@ -139,7 +139,7 @@ const RaiseRefundModal: React.FC<Props> = ({ isOpen, onClose, orderId, orderNumb
             )}
 
             {refundable <= 0 ? (
-              <p className="rounded border-2 border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600">
+              <p className="rounded border-2 border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600">
                 There is nothing left to refund on this order.
               </p>
             ) : (

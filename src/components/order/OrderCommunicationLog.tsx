@@ -129,7 +129,7 @@ const OrderCommunicationLog: React.FC<Props> = ({ orderId }) => {
 
   return (
     <Card className="shadow-sm">
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 border-b bg-slate-50/80 px-4 py-2.5">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 border-b border-line px-4 py-2.5">
         <CardTitle className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-700">
           <MessageSquare className="h-3.5 w-3.5 text-slate-400" /> Communication log
         </CardTitle>
@@ -193,7 +193,7 @@ const OrderCommunicationLog: React.FC<Props> = ({ orderId }) => {
                       <summary className="cursor-pointer select-none text-xs font-medium text-slate-500 hover:text-slate-700">
                         Message content
                       </summary>
-                      <p className="mt-1 whitespace-pre-line rounded border border-slate-200 bg-slate-50 p-2 text-xs leading-relaxed text-slate-700">
+                      <p className="mt-1 whitespace-pre-line rounded border border-slate-200 p-2 text-xs leading-relaxed text-slate-700">
                         {row.body}
                       </p>
                       <p className="mt-1 text-[11px] text-slate-400">

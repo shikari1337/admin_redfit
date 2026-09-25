@@ -127,7 +127,7 @@ const OrderBillingCard: React.FC<Props> = ({
 
   return (
     <Card className="shadow-sm">
-      <CardHeader className="border-b bg-slate-50/80 px-4 py-2.5">
+      <CardHeader className="border-b border-line px-4 py-2.5">
         <CardTitle className="flex items-center justify-between gap-2 text-sm font-semibold uppercase tracking-wide text-slate-700">
           <span className="flex items-center gap-2">
             <FaFileInvoice className="h-3.5 w-3.5 text-slate-400" /> Billing details
@@ -142,7 +142,7 @@ const OrderBillingCard: React.FC<Props> = ({
         {/* Who the invoice is raised by, and under which tax treatment — the
             header facts of the document these fields number. */}
         {(gstin || taxType || customerGstin || customerCompany) && (
-          <div className="space-y-1 rounded-md border bg-slate-50 px-2.5 py-1.5 text-xs">
+          <div className="space-y-1 rounded-md border px-2.5 py-1.5 text-xs">
             {gstin && (
               <div className="flex flex-wrap items-baseline gap-x-2">
                 <span className="font-medium text-slate-500">Seller GSTIN</span>

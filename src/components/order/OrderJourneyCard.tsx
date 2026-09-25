@@ -42,7 +42,7 @@ const OrderJourneyCard: React.FC<Props> = ({ attribution }) => {
   const a = attribution;
   return (
     <Card className="shadow-sm">
-      <CardHeader className="border-b bg-slate-50/80 px-4 py-2.5">
+      <CardHeader className="border-b border-line px-4 py-2.5">
         <CardTitle className="text-sm font-semibold uppercase tracking-wide text-slate-700">Marketing &amp; journey</CardTitle>
       </CardHeader>
       <CardContent className="p-4 space-y-2.5">

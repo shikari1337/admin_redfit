@@ -274,7 +274,7 @@ const OrderItemsEditModal: React.FC<Props> = ({ isOpen, onClose, orderId, items,
         )}
         {previewError && <p className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-800">{previewError}</p>}
         {preview && !previewing && (
-          <div className="rounded-lg border bg-slate-50 p-3">
+          <div className="rounded-lg border p-3">
             <dl className="space-y-1 text-sm">
               <Row label="Items" value={money(preview.subtotal)} />
               {preview.discount > 0 && <Row label="Discount" value={`− ${money(preview.discount)}`} tone="credit" />}

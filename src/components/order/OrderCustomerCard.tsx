@@ -110,7 +110,7 @@ const OrderCustomerCard: React.FC<OrderCustomerCardProps> = ({
 
   return (
     <Card className="shadow-sm">
-      <CardHeader className="border-b bg-slate-50/80 px-4 py-2.5">
+      <CardHeader className="border-b border-line px-4 py-2.5">
         <CardTitle className="flex items-center justify-between gap-2 text-sm font-semibold uppercase tracking-wide text-slate-700">
           <span>Customer</span>
           <div className="flex items-center gap-1.5">
@@ -190,12 +190,12 @@ const OrderCustomerCard: React.FC<OrderCustomerCardProps> = ({
             {[0, 1, 2].map((i) => <div key={i} className="h-6 animate-pulse rounded bg-slate-100" />)}
           </div>
         ) : failed ? (
-          <p className="rounded-md border border-slate-100 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500">
+          <p className="rounded-md border border-slate-100 px-3 py-2 text-xs font-semibold text-slate-500">
             Customer history could not be loaded.
           </p>
         ) : (
           <>
-            <div className="rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-1">
+            <div className="rounded-lg border border-slate-100 px-3 py-1">
               <Stat
                 label="Past orders"
                 value={capped ? '100+' : rawCount.toLocaleString('en-IN')}

@@ -48,7 +48,7 @@ function LinkRow({ group }: { group: OrderLinkGroup }) {
   const url = link?.url ?? group.longUrl;
 
   return (
-    <div className="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2.5">
+    <div className="flex items-start gap-3 rounded-lg border border-slate-200 px-3 py-2.5">
       <div className="min-w-0 flex-1">
         <p className="text-[13px] font-semibold text-slate-800">{group.label}</p>
         <p className="mt-0.5 truncate font-mono text-xs text-slate-600" title={link?.longUrl ?? group.longUrl}>
@@ -121,7 +121,7 @@ export function OrderLinksCard({ orderId }: { orderId: string }) {
 
   return (
     <Card className="shadow-sm">
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 border-b bg-slate-50/80 px-4 py-2.5">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 border-b border-line px-4 py-2.5">
         <CardTitle className="flex items-center gap-2 text-sm font-semibold text-slate-700">
           <FaLink className="h-3.5 w-3.5 text-slate-400" /> Customer links
         </CardTitle>

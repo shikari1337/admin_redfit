@@ -200,7 +200,7 @@ const CancelOrderModal: React.FC<CancelOrderModalProps> = ({
         )}
 
         {!loadingSnap && snap && !hasMoney && (
-          <div className="text-sm bg-gray-50 border border-gray-200 rounded-md p-3 text-gray-700">
+          <div className="text-sm border border-gray-200 rounded-md p-3 text-gray-700">
             {Number(snap.paidMinor) <= 0
               ? <>Nothing was paid on this order{paymentMethod === 'cod' ? ' (cash on delivery)' : ''}, so there is no refund to make.</>
               : <>The {inr(snap.refundedMinor)} paid on this order is already back with the customer — nothing further to refund.</>}

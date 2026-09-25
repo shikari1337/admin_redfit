@@ -195,7 +195,7 @@ const ErpExportModal: React.FC<ErpExportModalProps> = ({ isOpen, onClose, canMan
         </p>
 
         {/* Last export / watermark */}
-        <div className="rounded-md border border-gray-200 bg-gray-50 p-3 text-sm">
+        <div className="rounded-md border border-gray-200 p-3 text-sm">
           {loadingStatus && !status ? (
             <span className="text-gray-500">Loading export history…</span>
           ) : statusError ? (

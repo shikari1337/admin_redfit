@@ -348,7 +348,7 @@ const PaymentInformation: React.FC<PaymentInformationProps> = ({
               <FaMoneyCheckAlt className="text-gray-400" />
               Payment Notes
             </p>
-            <p className="text-sm text-gray-700 bg-gray-50 p-3 rounded border">{legacyNotes}</p>
+            <p className="text-sm text-gray-700 p-3 rounded border">{legacyNotes}</p>
           </div>
         )}
       </div>

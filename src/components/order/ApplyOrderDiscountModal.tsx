@@ -115,7 +115,7 @@ const ApplyOrderDiscountModal: React.FC<Props> = ({
           </>
         ) : (
           <>
-            <div className="rounded-lg border-2 border-slate-100 bg-slate-50 p-3 text-center">
+            <div className="rounded-lg border-2 border-slate-100 p-3 text-center">
               <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Current total</p>
               <p className="text-base font-semibold tabular-nums text-slate-900">{fmtRupees(currentTotal)}</p>
             </div>

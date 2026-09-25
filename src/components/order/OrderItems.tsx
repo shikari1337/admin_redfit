@@ -522,8 +522,8 @@ const OrderItems: React.FC<OrderItemsProps> = ({
     const half = taxAmt != null ? taxAmt / 2 : null;
     return (
     <tr className={
-      tone === 'total' ? 'border-t-2 border-blue-200 bg-blue-50 text-blue-900'
-        : tone === 'subtotal' ? 'border-t border-slate-200 bg-slate-50'
+      tone === 'total' ? 'border-t-2 border-blue-200 text-blue-900'
+        : tone === 'subtotal' ? 'border-t border-slate-200'
         : 'bg-white'
     }>
       <td colSpan={infoSpan} className="px-3 py-2 align-middle">{info}</td>
@@ -612,7 +612,7 @@ const OrderItems: React.FC<OrderItemsProps> = ({
 
   return (
     <Card className="shadow-sm">
-      <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0 border-b bg-slate-50/80 px-4 py-3">
+      <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0 border-b border-line px-4 py-3">
         <CardTitle className="flex items-baseline gap-2 text-base font-semibold uppercase tracking-wide text-slate-700">
           Order Items &amp; Calculation
           <span className="text-sm font-medium normal-case tracking-normal text-slate-400">
@@ -638,7 +638,7 @@ const OrderItems: React.FC<OrderItemsProps> = ({
           <div ref={scrollerRef} className="w-0 min-w-full overflow-x-auto">
             <table className="w-full border-collapse text-sm">
               <thead>
-                <tr className="border-b border-slate-200 bg-slate-100 text-left text-[11px] uppercase tracking-wider text-blue-900">
+                <tr className="border-b border-slate-200 text-left text-[11px] uppercase tracking-wider text-blue-900">
                   <th rowSpan={2} className="whitespace-nowrap px-1.5 py-2 align-bottom font-semibold">SKU</th>
                   {/* CAPPED. Product name is the only content-sized column, so it
                       took whatever it wanted (329px on a real order) and pushed
@@ -681,7 +681,7 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                   )}
                   <th rowSpan={2} className={`border-l border-slate-300 ${TH}`}>Total</th>
                 </tr>
-                <tr className="border-b border-slate-200 bg-slate-100 text-left text-[10px] uppercase tracking-wider text-blue-700">
+                <tr className="border-b border-slate-200 text-left text-[10px] uppercase tracking-wider text-blue-700">
                   {show.lineDiscPct && <th className="whitespace-nowrap border-l border-slate-300 px-2 pb-2 text-right font-medium">%</th>}
                   <th className={`whitespace-nowrap px-2 pb-2 text-right font-medium ${show.lineDiscPct ? '' : 'border-l border-slate-300'}`} title="Cut off ONE pack">₹</th>
                   {show.orderDiscPct && <th className="whitespace-nowrap border-l border-slate-300 px-2 pb-2 text-right font-medium">%</th>}
@@ -938,7 +938,7 @@ const OrderItems: React.FC<OrderItemsProps> = ({
 
               <tfoot>
                 {/* ── Totals of every column ── */}
-                <tr className="border-t-2 border-slate-200 bg-slate-50 text-blue-900">
+                <tr className="border-t-2 border-slate-200 text-blue-900">
                   <td className="px-1.5 py-3 text-sm font-semibold uppercase tracking-wider text-slate-500">Totals</td>
                   <td className="px-2 py-3 text-sm font-medium text-slate-500">
                     {rows.length} line{rows.length === 1 ? '' : 's'}
@@ -1012,7 +1012,7 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                        own context instead of being a blank band. ── */}
                 {hasLadder && (
                   <>
-                    <tr className="bg-slate-50">
+                    <tr>
                       <td colSpan={infoSpan} className="px-3 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-widest text-slate-400">
                         Order details
                       </td>

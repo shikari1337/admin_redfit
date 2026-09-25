@@ -172,7 +172,7 @@ const OrderAddressPanel: React.FC<OrderAddressPanelProps> = ({
 
   return (
     <Card className="shadow-sm">
-      <CardHeader className="border-b bg-slate-50/80 px-4 py-2.5">
+      <CardHeader className="border-b border-line px-4 py-2.5">
         <CardTitle className="text-sm font-semibold uppercase tracking-wide text-slate-700">
           Addresses
         </CardTitle>
@@ -215,7 +215,7 @@ const OrderAddressPanel: React.FC<OrderAddressPanelProps> = ({
               ? <AddressBlock address={billing} onWhatsAppClick={onWhatsAppClick} />
               : <p className="text-sm font-semibold text-slate-400">No billing address on this order.</p>}
             {(customerGstin || customerCompany) && (
-              <div className="mt-2 rounded border border-slate-100 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700">
+              <div className="mt-2 rounded border border-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700">
                 {customerCompany && <p>Billed to · {customerCompany}</p>}
                 {customerGstin && <p className="font-mono">Invoice GSTIN · {customerGstin}</p>}
               </div>
@@ -225,7 +225,7 @@ const OrderAddressPanel: React.FC<OrderAddressPanelProps> = ({
 
         {/* ── Where it ships FROM, and who invoices it ── */}
         {(warehouse || fulfillmentSlot) && (
-          <div className="grid grid-cols-1 gap-4 border-t border-slate-100 bg-slate-50/60 p-4 text-xs md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 border-t border-slate-100 p-4 text-xs md:grid-cols-2">
             {warehouse && (
               <div>
                 <h3 className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">

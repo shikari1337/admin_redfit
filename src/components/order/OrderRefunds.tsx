@@ -101,7 +101,7 @@ const OrderRefunds: React.FC<Props> = ({ refunds, gatewayPaymentId }) => {
 
   return (
     <Card className="shadow-sm">
-      <CardHeader className="border-b bg-slate-50/80 px-4 py-2.5">
+      <CardHeader className="border-b border-line px-4 py-2.5">
         <CardTitle className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-700">
           <Undo2 className="h-3.5 w-3.5 text-slate-400" /> Refunds
         </CardTitle>
