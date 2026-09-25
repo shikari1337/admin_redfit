@@ -7,8 +7,9 @@
  * logged in; and where it did have a row it contradicted `App.tsx`'s
  * `ProtectedModuleRoute` wrappers on the three marketing routes.
  *
- * Both tables are now generated from `MENU` + `EXTRA_ROUTES`. Adding a page to
- * the menu gates it; there is nowhere else to forget.
+ * Both tables are now generated from `MENU` (items AND their children) +
+ * `OFF_MENU` + `EXTRA_ROUTES`. Adding a page to the menu gates it; there is
+ * nowhere else to forget.
  *
  * Matching stays LONGEST-PREFIX-WINS, so `/settings/staff` (staff.manage) beats
  * `/settings` (settings.read), and a route absent from both tables needs only
@@ -16,7 +17,7 @@
  * (a hostile user can edit their own bundle). The value is that an ordinary
  * user never lands somewhere they cannot use.
  */
-import { MENU, OFF_MENU, EXTRA_ROUTES, routeBase } from './menu';
+import { MENU, OFF_MENU, EXTRA_ROUTES, routeBase, withChildren } from './menu';
 
 function build(): { perms: Record<string, string[]>; modules: Record<string, string[]> } {
   const perms: Record<string, string[]> = {};
@@ -34,15 +35,15 @@ function build(): { perms: Record<string, string[]>; modules: Record<string, str
 
   for (const group of MENU) {
     for (const sub of group.subs) {
-      for (const item of sub.items) {
+      for (const item of sub.items.flatMap(withChildren)) {
         if (item.external) continue;
         put(item.to, item.perm, item.modules);
         for (const owned of item.owns ?? []) put(owned, item.perm, item.modules);
       }
     }
   }
-  // Pages that left the sidebar (Prompt 9) keep exactly the gate they had.
-  for (const item of OFF_MENU) {
+  // Pages that left the sidebar keep exactly the gate they had.
+  for (const item of OFF_MENU.flatMap(withChildren)) {
     put(item.to, item.perm, item.modules);
     for (const owned of item.owns ?? []) put(owned, item.perm, item.modules);
   }

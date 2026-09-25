@@ -1,15 +1,15 @@
 /**
- * The admin shell.
+ * The admin shell — the E-commerce panel's frame.
  *
- * It used to build the navigation itself: six `menuGroups` arrays, one per
- * "workspace", 380 of this file's 545 lines, each re-declaring the same routes
- * with their own gating conditions, selected by tabs in the header. The menu now
- * lives in `lib/menu.ts` and renders in `app-sidebar.tsx`; this file is the
- * frame around it — header, banners, breadcrumb, route guard, outlet.
+ * Header: the sidebar trigger, then the TAB STRIP the admin always had at the
+ * top — but each tab is now another Growcord product (Books, Ship, WMS, Make,
+ * CRM, Comms, Reach, …) and links there; E-commerce is this app and stays the
+ * active tab (`ProductTabs.tsx`, owner 2026-09-25). Right: notifications and
+ * the store switcher. Under it the muted breadcrumb row, as before.
  *
- * The workspace tabs are gone with the arrays. They were a second navigation
- * axis on top of the sidebar: you had to know which of six menus a page lived in
- * before you could look for it, and the same page lived in up to four.
+ * The menu lives in `lib/menu.ts` and renders in `app-sidebar.tsx`; the route
+ * guard reads the same definition. This file is only the frame: header,
+ * banners, breadcrumb, guard, outlet, and the hotkey-only command palette.
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { Outlet, useNavigate, useLocation, Link } from 'react-router-dom';
@@ -25,38 +25,39 @@ import { TestModeBanner } from './TestModeBanner';
 import RouteGuard from './RouteGuard';
 import AccessNotice from './AccessNotice';
 import { PRODUCT, IS_SUITE } from '../lib/product';
-import { MENU, OFF_MENU, routeBase } from '../lib/menu';
+import { MENU, OFF_MENU, routeBase, withChildren } from '../lib/menu';
 import { visibleMenu } from './menu/menuAccess';
-import { ThemeToggle, Banners, CommandPalette, HotkeySheet, useShellHotkeys, useDocumentTitle } from './menu/ShellChrome';
-import { Search } from 'lucide-react';
+import { Banners, CommandPalette, HotkeySheet, useShellHotkeys, useDocumentTitle } from './menu/ShellChrome';
+import { ProductTabs } from './ProductTabs';
 import { Toaster } from '@/components/ui/toaster';
 
-/** "Sell · Orders · Order #SM-9188" — the trail, from the one menu definition. */
+/** "Orders · Abandoned Carts · SM-9188" — the trail, from the one menu definition. */
 function useTrail(pathname: string): Array<{ label: string; to?: string }> {
-  let best: { group: string; sub: string; item: string; to: string } | null = null;
+  let best: { group: string; item: string; to: string } | null = null;
   let bestLen = -1;
-  // Pages that left the sidebar (Prompt 9) still get a trail: their own name,
-  // under "Commerce", rather than a blank header.
-  const sources = [...MENU.map((g) => ({ label: g.label, subs: g.subs })), { label: 'Commerce', subs: [{ label: 'Commerce', items: OFF_MENU }] }];
+  // Pages with no sidebar row (another product's, or reached from a button)
+  // still get a trail: their own name under "E-commerce".
+  const sources = [
+    ...MENU.map((g) => ({ label: g.label, items: g.subs.flatMap((s) => s.items.flatMap(withChildren)) })),
+    { label: 'E-commerce', items: OFF_MENU.flatMap(withChildren) },
+  ];
   for (const g of sources) {
-    for (const s of g.subs) {
-      for (const i of s.items) {
-        if (i.external) continue;
-        for (const route of [i.to, ...(i.owns ?? [])]) {
-          const p = routeBase(route);
-          if (!p.startsWith('/')) continue;
-          if ((pathname === p || pathname.startsWith(p + '/')) && p.length > bestLen) {
-            best = { group: g.label, sub: s.label, item: i.label, to: i.to };
-            bestLen = p.length;
-          }
+    for (const i of g.items) {
+      if (i.external) continue;
+      for (const route of [i.to, ...(i.owns ?? [])]) {
+        const p = routeBase(route);
+        if (!p.startsWith('/')) continue;
+        // `>=`: a child listed after its parent at the same route ("All Orders"
+        // under "Orders") wins the tie, so the trail never repeats a word.
+        if ((pathname === p || pathname.startsWith(p + '/')) && p.length >= bestLen) {
+          best = { group: g.label, item: i.label, to: i.to };
+          bestLen = p.length;
         }
       }
     }
   }
   if (!best) return [];
-  const trail: Array<{ label: string; to?: string }> = [{ label: best.group }];
-  if (best.sub !== best.item) trail.push({ label: best.sub });
-  trail.push({ label: best.item, to: best.to });
+  const trail: Array<{ label: string; to?: string }> = [{ label: best.group }, { label: best.item, to: best.to }];
   // The last URL segment when we are deeper than the item itself (an order, a
   // product) — the page's own header names the record; this just shows depth.
   const itemBase = routeBase(best.to);
@@ -77,6 +78,14 @@ const Layout: React.FC = () => {
     if (!isAuthenticated) navigate('/login', { replace: true });
   }, [isAuthenticated, navigate]);
 
+  // The admin is light (owner: "keep the earlier theme"). A dark choice made
+  // through the short-lived toggle would otherwise outlive the toggle itself.
+  useEffect(() => {
+    const root = document.documentElement;
+    if (root.getAttribute('data-theme') === 'dark') root.removeAttribute('data-theme');
+    try { localStorage.removeItem('gc_theme'); } catch { /* private mode */ }
+  }, []);
+
   const handleLogout = async () => {
     await logout();
     navigate('/login', { replace: true });
@@ -90,7 +99,7 @@ const Layout: React.FC = () => {
   };
 
   const trail = useTrail(location.pathname);
-  const productName = IS_SUITE ? 'Growcord Commerce' : PRODUCT.name;
+  const productName = IS_SUITE ? 'Growcord Admin' : PRODUCT.name;
   useDocumentTitle(productName, trail);
 
   const groups = useMemo(() => visibleMenu({ hasPerm, canAccess }), [hasPerm, canAccess]);
@@ -118,51 +127,42 @@ const Layout: React.FC = () => {
           the whole page sideways. The clip below hides the overflow visually but
           only `min-w-0` stops it being claimed as width in the first place. */}
       <main className="flex min-h-screen min-w-0 flex-1 flex-col bg-bg">
-        {/* T5 inserts `<ProductBar current="commerce" />` HERE, above the header
-            (ADMIN_MODIFICATION_PLAN §4.4) — from admin/src/kit-mirror/. */}
         <header className="sticky top-0 z-10 shrink-0 border-b border-line bg-surface/95 backdrop-blur supports-[backdrop-filter]:bg-surface/80">
           <div className="flex h-14 items-center justify-between gap-2 px-4 md:px-6">
+            {/* Left: sidebar trigger + the product tabs (E-commerce active, the rest link out) */}
             <div className="flex min-w-0 items-center gap-2">
               <SidebarTrigger className="-ml-1 shrink-0 text-ink-mute" />
-              {/* Where you are — one line, from the menu definition. */}
-              <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-sm">
-                {trail.map((crumb, i) => (
-                  <React.Fragment key={`${crumb.label}-${i}`}>
-                    {i > 0 && <span className="text-ink-mute/50">/</span>}
-                    {crumb.to && i === trail.length - 1 ? (
-                      <span className="truncate font-semibold text-ink">{crumb.label}</span>
-                    ) : crumb.to ? (
-                      <Link to={crumb.to} className="truncate text-ink-soft hover:text-ink">{crumb.label}</Link>
-                    ) : (
-                      <span className={`truncate ${i === trail.length - 1 ? 'font-semibold text-ink' : 'text-ink-mute'}`}>
-                        {crumb.label}
-                      </span>
-                    )}
-                  </React.Fragment>
-                ))}
-              </nav>
+              {IS_SUITE ? (
+                <ProductTabs />
+              ) : (
+                // Single-product build: the product name, not a lone tab.
+                <span className="whitespace-nowrap px-2 text-sm font-semibold text-ink">{PRODUCT.name}</span>
+              )}
             </div>
 
             {/* Right: notifications + store switcher. The switcher is hidden on a
                 domain-pinned deployment (admin.<store>.com) — that domain manages
                 exactly one store, so switching away from it makes no sense. */}
-            <div className="flex shrink-0 items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setPaletteOpen(true)}
-                className="hidden items-center gap-2 rounded-md border border-line bg-surface-2 px-2.5 py-1.5 text-xs text-ink-mute hover:text-ink sm:inline-flex"
-                title="Search or jump — ⌘K or /"
-                data-open-palette
-              >
-                <Search className="size-3.5" />
-                <span>Search or jump</span>
-                <kbd className="rounded border border-line px-1 text-[10px]">⌘K</kbd>
-              </button>
+            <div className="flex shrink-0 items-center gap-3">
               <NotificationBell />
               {!getDomainStore() && <StoreSwitcher />}
-              <ThemeToggle />
             </div>
           </div>
+          {/* Breadcrumb row, below the tabs, as before. */}
+          {trail.length > 0 && (
+            <nav aria-label="Breadcrumb" className="hidden border-t border-line/70 px-4 py-1.5 text-xs text-ink-mute md:flex md:items-center md:gap-1.5 md:px-6">
+              {trail.map((crumb, i) => (
+                <React.Fragment key={`${crumb.label}-${i}`}>
+                  {i > 0 && <span className="opacity-40">/</span>}
+                  {crumb.to && i < trail.length - 1 ? (
+                    <Link to={crumb.to} className="capitalize hover:text-ink">{crumb.label}</Link>
+                  ) : (
+                    <span className={`capitalize ${i === trail.length - 1 ? 'font-medium text-ink-soft' : ''}`}>{crumb.label}</span>
+                  )}
+                </React.Fragment>
+              ))}
+            </nav>
+          )}
         </header>
 
         <Banners />
@@ -171,7 +171,7 @@ const Layout: React.FC = () => {
 
         {/* ONE padding token for every page (owner, Prompt 9: 2%) — pages never
             pin a width or cancel it with negative margins. The phone face has a
-            floor, because 2% of 390px is 8px (plan §7, gate G10). */}
+            floor, because 2% of 390px is 8px. */}
         <div className="flex-1 overflow-x-clip p-[var(--content-pad-phone)] md:p-[var(--content-pad)]" data-content>
           {/* Authorization gate — see components/RouteGuard.tsx. Single
               integration point so every Layout child route is covered. */}
@@ -191,6 +191,7 @@ const Layout: React.FC = () => {
             missing permission) that only appear when an action is attempted. */}
         <AccessNotice />
       </main>
+      {/* Keyboard only (⌘K / `/`): pages, "New …" actions and record search. */}
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} groups={groups} hasPerm={hasPerm} />
       <HotkeySheet open={helpOpen} onClose={() => setHelpOpen(false)} />
       {/* The shadcn Toaster was never mounted, so every `toast()` in the admin

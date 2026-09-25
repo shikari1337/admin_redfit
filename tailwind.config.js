@@ -98,14 +98,18 @@ export default {
         accent: { DEFAULT: c('--accent-soft'), foreground: c('--accent-hover') },
         popover: { DEFAULT: c('--surface-raised'), foreground: c('--ink') },
         card: { DEFAULT: c('--surface'), foreground: c('--ink') },
+        // The admin's sidebar is LIGHT — the look the store's staff had before
+        // the suite's deep-green rail was mapped onto it (owner, 2026-09-25:
+        // "keep the earlier theme"). Same theme tokens, paper surface instead of
+        // `--side`; the suite panels keep their rail.
         sidebar: {
-          DEFAULT: c('--side'),
-          foreground: c('--side-ink'),
-          primary: c('--side-active'),
+          DEFAULT: c('--surface'),
+          foreground: c('--ink-soft'),
+          primary: c('--accent'),
           'primary-foreground': c('--accent-ink'),
-          accent: c('--side-active'),
-          'accent-foreground': c('--side-ink-strong'),
-          border: c('--side-line'),
+          accent: c('--accent-soft'),
+          'accent-foreground': c('--ink'),
+          border: c('--line'),
           ring: c('--focus'),
         },
       },

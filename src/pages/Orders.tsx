@@ -4,13 +4,13 @@ import { useAuth } from '../contexts/AuthContext';
 import { ordersAPI, shippingAPI } from '../services/api';
 import { formatDate } from '../utils/date';
 import { fmtRupees, fmtCurrencyMinor } from '../lib/money';
-import { FaTruck, FaEye, FaDownload, FaPlus, FaSearchDollar, FaFileExcel } from 'react-icons/fa';
+import { FaTruck, FaEye, FaDownload, FaPlus, FaSearchDollar, FaFileExcel, FaWhatsapp } from 'react-icons/fa';
 import RecoverPaymentModal from '../components/order/RecoverPaymentModal';
 import ErpExportModal from '../components/order/ErpExportModal';
 import { getStatusColorClass } from '../components/order/StatusBadge';
 import { saveOrderNav } from '../lib/orderNav';
 import { FilterChip, MenuChip, SearchBox, ListHeader, SavedViewBar, useSavedViews } from '../components/sales/ListChrome';
-import { Columns3 as FaTableColumns, MoreHorizontal, MessageCircle } from 'lucide-react';
+import { Columns3 as FaTableColumns, MoreHorizontal } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
   DropdownMenuSeparator, DropdownMenuTrigger,
@@ -614,7 +614,7 @@ const Orders: React.FC = () => {
               <TableHead className="px-3 py-2.5 font-semibold text-ink-soft">Payment</TableHead>
               <TableHead className="px-3 py-2.5 font-semibold text-ink-soft">Status</TableHead>
               <TableHead className="px-3 py-2.5 font-semibold text-ink-soft">Placed</TableHead>
-              <TableHead className="w-12 px-3 py-2.5"><span className="sr-only">Actions</span></TableHead>
+              <TableHead className="px-3 py-2.5 text-right font-semibold text-ink-soft">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -697,14 +697,13 @@ const Orders: React.FC = () => {
                     <TableCell className="px-3 py-2.5">
                       <div className="font-medium text-ink">{order.shippingAddress?.fullName || 'Unknown customer'}</div>
                       {phone && (
-                        <div className="flex items-center gap-1.5 text-xs tabular-nums text-ink-soft">
+                        /* The number IS the WhatsApp link, as it always was — one click, always visible. */
+                        <button type="button" onClick={() => handleWhatsAppClick(phone)}
+                          title="Open WhatsApp" aria-label={`Message ${phone} on WhatsApp`}
+                          className="mt-0.5 flex items-center gap-1 text-xs font-medium tabular-nums text-info-ink hover:underline">
+                          <FaWhatsapp size={13} className="text-good" />
                           {phone}
-                          <button type="button" onClick={() => handleWhatsAppClick(phone)}
-                            title="Message on WhatsApp" aria-label={`Message ${phone} on WhatsApp`}
-                            className="rounded p-0.5 text-ink-mute opacity-0 transition-opacity hover:text-good focus:opacity-100 group-hover:opacity-100">
-                            <MessageCircle className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
+                        </button>
                       )}
                     </TableCell>
                     <TableCell className="whitespace-nowrap px-3 py-2.5 text-right font-medium tabular-nums text-ink">
@@ -748,39 +747,47 @@ const Orders: React.FC = () => {
                       <div className="text-xs text-ink">{formatDate(order.createdAt ?? order.created_at, 'hh:mm a', '')}</div>
                     </TableCell>
                     <TableCell className="px-3 py-2.5 text-right">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0"
-                            aria-label={`Actions for order ${order.orderId ?? ''}`}>
-                            {confirmingOrder === order._id || sendingToShiprocket === order._id
-                              ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-line border-t-ink" />
-                              : <MoreHorizontal className="h-4 w-4" />}
+                      {/* The row's actions stay IN the row, as they always did: confirm a
+                          pending order, send a confirmed one to Shiprocket, open it. */}
+                      <div className="isolate flex items-center justify-end gap-2">
+                        {canConfirm && (
+                          <Button
+                            variant="default"
+                            size="sm"
+                            title={confirmBlocked ? 'Confirm — waiting for payment' : 'Confirm order'}
+                            aria-label={`Confirm order ${order.orderId ?? ''}`}
+                            className="h-8 w-8 shrink-0 rounded-full p-0"
+                            onClick={() => handleConfirmOrder(order._id)}
+                            disabled={confirmingOrder === order._id || confirmBlocked}
+                          >
+                            {confirmingOrder === order._id ? (
+                              <span className="h-4 w-4 animate-spin rounded-full border-b-2 border-current" />
+                            ) : (
+                              <FaCheckCircle size={14} />
+                            )}
                           </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-52">
-                          <DropdownMenuItem asChild>
-                            <Link to={`/orders/${order._id}`}><FaEye className="mr-2 h-3.5 w-3.5" /> Open the order</Link>
-                          </DropdownMenuItem>
-                          {canConfirm && (
-                            <DropdownMenuItem disabled={confirmBlocked || confirmingOrder === order._id}
-                              onClick={() => handleConfirmOrder(order._id)}>
-                              <FaCheckCircle className="mr-2 h-3.5 w-3.5" />
-                              {confirmBlocked ? 'Confirm — waiting for payment' : 'Confirm order'}
-                            </DropdownMenuItem>
-                          )}
-                          {canShip && (
-                            <DropdownMenuItem disabled={sendingToShiprocket === order._id}
-                              onClick={() => handleSendToShiprocket(order._id)}>
-                              <FaTruck className="mr-2 h-3.5 w-3.5" /> Create shipment
-                            </DropdownMenuItem>
-                          )}
-                          {phone && (
-                            <DropdownMenuItem onClick={() => handleWhatsAppClick(phone)}>
-                              <MessageCircle className="mr-2 h-3.5 w-3.5" /> Message on WhatsApp
-                            </DropdownMenuItem>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                        )}
+                        {canShip && (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            className="h-8 gap-1.5 px-3"
+                            onClick={() => handleSendToShiprocket(order._id)}
+                            disabled={sendingToShiprocket === order._id}
+                          >
+                            <FaTruck size={12} />
+                            <span className="hidden sm:inline">
+                              {sendingToShiprocket === order._id ? 'Sending…' : 'Shiprocket'}
+                            </span>
+                          </Button>
+                        )}
+                        <Button variant="outline" size="sm" className="h-8 px-3" asChild>
+                          <Link to={`/orders/${order._id}`}>
+                            <FaEye className="mr-1.5 h-3.5 w-3.5 text-ink-mute" />
+                            View
+                          </Link>
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 );

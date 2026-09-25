@@ -10,14 +10,16 @@
  * would put the bundle back where it started, one hover at a time. The
  * specifier must be a literal for vite to see it, so it is written here as well
  * as in `App.tsx`; the two resolve to the SAME chunk, which is the point.
+ * Keys are the group ids in `lib/menu.ts`.
  */
 const LANDING: Record<string, () => Promise<unknown>> = {
-  home: () => import('../../pages/Dashboard'),
-  sell: () => import('../../pages/Orders'),
-  stock: () => import('../../pages/Products'),
-  money: () => import('../../pages/panels/GeneralLedger'),
-  insights: () => import('../../pages/analytics/AnalyticsDashboard'),
-  settings: () => import('../../pages/SettingsCenter'),
+  overview: () => import('../../pages/Dashboard'),
+  orders: () => import('../../pages/Orders'),
+  catalog: () => import('../../pages/Products'),
+  marketing: () => import('../../pages/Coupons'),
+  customers: () => import('../../pages/Customers'),
+  content: () => import('../../pages/FAQs'),
+  system: () => import('../../pages/SettingsCenter'),
 };
 
 const warmed = new Set<string>();
