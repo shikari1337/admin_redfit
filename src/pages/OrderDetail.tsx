@@ -855,11 +855,11 @@ const OrderDetail: React.FC = () => {
   const viaBulkPortal = /Source:\s*Bulk Order Platform/i.test(String(order.notes ?? ''));
 
   return (
-    /* Full-bleed: cancels Layout's own page padding (p-4/md:p-6/lg:p-8) so the
-       command bar spans the whole width and the items table gets the room its
-       columns need. The wrapper is exactly the parent's padding-box width, so
-       nothing overflows horizontally. */
-    <div className="-m-4 min-h-full bg-slate-100/70 md:-m-6 lg:-m-8">
+    /* Full-bleed: cancels Layout's own page padding (var(--content-pad-phone)/
+       var(--content-pad)) so the command bar spans the whole width and the
+       items table gets the room its columns need. The wrapper is exactly the
+       parent's padding-box width, so nothing overflows horizontally. */
+    <div className="-m-[var(--content-pad-phone)] min-h-full bg-slate-100/70 md:-m-[var(--content-pad)]">
       {/* ONE command row (owner call): identity, state, every write, and the
           Prev/Next walk, on a single dark band. The figures that used to sit on
           a second row (total, lines/units, payment, placed) are all in the items

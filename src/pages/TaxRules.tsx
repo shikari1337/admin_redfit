@@ -241,7 +241,7 @@ const TaxRules: React.FC = () => {
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    <div className="space-y-6">
       <div className="flex justify-between items-start">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground">Tax Rules</h1>

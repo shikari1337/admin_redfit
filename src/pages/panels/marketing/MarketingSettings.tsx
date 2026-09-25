@@ -32,7 +32,7 @@ const MarketingSettings: React.FC = () => {
   if (!data) return <div className="p-6 text-sm text-gray-400">{error || 'Loading…'}</div>;
 
   return (
-    <div className="mx-auto max-w-screen-2xl space-y-6">
+    <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold tracking-tight text-gray-900">Marketing Settings</h1>
         <p className="text-sm text-gray-500">Consent policy, tracking defaults, push configuration and channel credentials.</p>

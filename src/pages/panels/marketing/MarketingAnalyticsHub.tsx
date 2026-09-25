@@ -32,7 +32,7 @@ const MarketingAnalyticsHub: React.FC = () => {
   const pct = (n: number, d: number) => (d > 0 ? `${((n / d) * 100).toFixed(1)}%` : '—');
 
   return (
-    <div className="mx-auto max-w-screen-2xl space-y-6">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-gray-900">Marketing Analytics</h1>

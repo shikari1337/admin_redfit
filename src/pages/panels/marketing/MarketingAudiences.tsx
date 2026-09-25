@@ -76,7 +76,7 @@ const MarketingAudiences: React.FC = () => {
   });
 
   return (
-    <div className="mx-auto max-w-screen-2xl space-y-6">
+    <div className="space-y-6">
       <div>
         <div className="text-xs text-gray-400">
           <a href="/panel/marketing" className="hover:underline">Marketing</a> / Audiences & Lists

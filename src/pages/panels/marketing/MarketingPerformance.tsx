@@ -38,7 +38,7 @@ const MarketingPerformance: React.FC = () => {
   const pace = k?.budget?.pace;
 
   return (
-    <div className="mx-auto max-w-screen-2xl space-y-6">
+    <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <div className="text-xs text-gray-400"><Link to="/panel/marketing" className="hover:underline">Marketing</Link> / Performance</div>

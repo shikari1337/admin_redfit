@@ -157,7 +157,7 @@ const CartRecoveryAutomation: React.FC = () => {
   }
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 pb-12">
+    <div className="space-y-6 pb-12">
       <div>
         <Button variant="ghost" size="sm" onClick={() => navigate('/settings')} className="text-muted-foreground mb-4">
           <FaArrowLeft className="mr-2 h-4 w-4" /> Back to Settings

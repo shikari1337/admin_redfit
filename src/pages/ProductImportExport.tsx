@@ -102,7 +102,7 @@ const ProductImportExport: React.FC = () => {
   }, [result]);
 
   return (
-    <div className="space-y-6 max-w-6xl">
+    <div className="space-y-6">
       <div className="flex items-center gap-3">
         <button onClick={() => navigate('/products')} className="text-gray-500 hover:text-gray-900"><ArrowLeft size={20} /></button>
         <div>

@@ -867,7 +867,7 @@ const Markets: React.FC = () => {
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 pb-16">
+    <div className="space-y-6 pb-16">
       <div>
         <Button variant="ghost" size="sm" onClick={() => navigate('/settings')} className="mb-4 text-muted-foreground">
           <ArrowLeft className="mr-2 h-4 w-4" /> Back to Settings

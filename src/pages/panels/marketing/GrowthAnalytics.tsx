@@ -53,7 +53,7 @@ const GrowthAnalytics: React.FC = () => {
   const devRow = (device: string) => devOrders.find((d) => d.device === device);
 
   return (
-    <div className="mx-auto max-w-screen-2xl space-y-6">
+    <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="text-xs text-gray-400"><Link to="/panel/marketing" className="hover:underline">Marketing</Link> / Growth & Funnel</div>

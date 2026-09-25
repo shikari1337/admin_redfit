@@ -251,7 +251,7 @@ const OrderNumbering: React.FC = () => {
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 pb-14">
+    <div className="space-y-6 pb-14">
       <div>
         <Button variant="ghost" size="sm" onClick={() => navigate('/settings')} className="mb-3 text-muted-foreground">
           <ArrowLeft className="mr-2 h-4 w-4" /> Back to Settings

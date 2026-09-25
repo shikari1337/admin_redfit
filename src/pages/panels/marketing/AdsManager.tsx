@@ -71,7 +71,7 @@ const AdsManager: React.FC = () => {
   const cMeta = cPlat ? meta(cPlat) : null;
 
   return (
-    <div className="mx-auto max-w-screen-2xl space-y-6">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-gray-900">Ads Manager</h1>

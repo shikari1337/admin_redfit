@@ -233,7 +233,7 @@ const BundleForm: React.FC = () => {
   const selectedIds = items.map(i => i.product_id);
 
   return (
-    <div className="max-w-4xl mx-auto pb-10">
+    <div className="pb-10">
       <div className="mb-6">
         <button onClick={() => navigate('/products/bundles')} className="flex items-center text-gray-600 hover:text-gray-900 mb-4">
           <FaArrowLeft className="mr-2" /> Back to Bundles

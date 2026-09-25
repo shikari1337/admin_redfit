@@ -38,7 +38,7 @@ const MarketingCompliance: React.FC = () => {
   };
 
   return (
-    <div className="mx-auto max-w-screen-2xl space-y-6">
+    <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold tracking-tight text-gray-900">Compliance & Consent</h1>
         <p className="text-sm text-gray-500">
