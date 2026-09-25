@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api, authAPI, getTenantApiKey, setTenantApiKey, getDomainStore, isPlatformDomain } from '../services/api';
 import { PRODUCT } from '../lib/product';
 import { useAuth } from '../contexts/AuthContext';
+import GrowcordIdButton from '../components/GrowcordIdButton';
 import {
   Eye, EyeOff, Store, AlertCircle, Loader2, ChevronRight, CheckCircle2,
 } from 'lucide-react';
@@ -231,6 +232,11 @@ const StepCredentials: React.FC<StepCredentialsProps> = ({ onSuccess }) => {
       >
         {loading ? <><Loader2 className="h-4 w-4 animate-spin" /> Signing in…</> : 'Continue'}
       </button>
+
+      {/* Dual run — renders nothing unless this build carries
+          VITE_GROWCORD_ID_ISSUER. The password form above is untouched either
+          way (docs/UI_PLAN.md §6, gate G3). */}
+      <GrowcordIdButton />
 
       {/* Connect to a specific store (env key auto-shown; manual override collapsed).
           HIDDEN on a domain-pinned deployment: this domain manages exactly one
