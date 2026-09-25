@@ -851,7 +851,7 @@ const ProductForm: React.FC = () => {
       const rows = formData.variations || [];
       const active = rows.filter(v => v.isActive !== false);
       if (!rows.length) {
-        e.variations = 'This is a variable product — generate at least one variant on the Variants tab before saving.';
+        e.variations = 'This is a variable product — generate at least one variant on the Variations tab before saving.';
       } else if (!active.length) {
         e.variations = 'Every variant is inactive. Activate at least one, or switch the product type to Simple.';
       } else {
@@ -1035,8 +1035,11 @@ const ProductForm: React.FC = () => {
         weight: parseFloat(fd.weight) || 0.5, length: parseFloat(fd.length) || 10,
         breadth: parseFloat(fd.breadth) || 10, height: parseFloat(fd.height) || 5,
         countryOfOrigin: complianceCountry || fd.countryOfOrigin || undefined,
-        modelNumber: fd.modelNumber || undefined,
-        licenseNumber: fd.licenseNumber || undefined,
+        // An emptied field must reach the server as NULL — `|| undefined` dropped
+        // the key, so a model or licence number could be set but never cleared
+        // (the #137 images bug, on two more fields).
+        modelNumber: fd.modelNumber?.trim() ? fd.modelNumber.trim() : null,
+        licenseNumber: fd.licenseNumber?.trim() ? fd.licenseNumber.trim() : null,
         expiryMonths: fd.expiryMonths || undefined,
         packSize: Math.max(1, Number(fd.packSize) || 1),
         soldAsPack: !!fd.soldAsPack,
@@ -1202,8 +1205,8 @@ const ProductForm: React.FC = () => {
                   {type === 'single'
                     ? 'One item, one price, one stock count'
                     : formData.variations.length > 0
-                      ? 'Options in the per-row matrix (Variants tab)'
-                      : 'Options managed as linked full products (Variants tab)'}
+                      ? 'Options in the per-row matrix (Variations tab)'
+                      : 'Options managed as linked full products (Variations tab)'}
                 </span>
               </span>
             </label>

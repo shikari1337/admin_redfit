@@ -22,9 +22,9 @@ export function resolveTaxRate(
 ): ResolvedTaxRate {
   const find = (id?: string | null) => (id ? rules.find((r) => (r._id || r.id) === id) : undefined);
   const own = find(variationRuleId);
-  if (own) return { rate: own.rate ?? null, ruleName: own.name, source: 'variation' };
+  if (own) return { rate: own.rate != null ? Number(own.rate) : null, ruleName: own.name, source: 'variation' };
   const prod = find(productRuleId);
-  if (prod) return { rate: prod.rate ?? null, ruleName: prod.name, source: 'product' };
+  if (prod) return { rate: prod.rate != null ? Number(prod.rate) : null, ruleName: prod.name, source: 'product' };
   return { rate: null, ruleName: null, source: 'store default' };
 }
 
