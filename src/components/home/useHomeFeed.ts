@@ -1,9 +1,10 @@
 /**
- * What the Home page reads, and what it is allowed to read.
+ * What the Dashboard's "Needs your attention" board reads, and what it is
+ * allowed to read.
  *
  * Every source here already exists (L5 §8). No new backend route was added: the
- * home is a COMPOSITION of the same endpoints the panels use, so a number on
- * the home can never disagree with the number on the page it links to.
+ * board is a COMPOSITION of the same endpoints the pages use, so a number on
+ * the dashboard can never disagree with the number on the page it links to.
  *
  * A section whose permission or module the viewer lacks is never REQUESTED.
  * That is deliberate: firing it and swallowing the 403 puts a red line in every
@@ -15,14 +16,19 @@ import { api } from '../../services/api';
 import { payload } from '../../lib/unwrap';
 
 export interface HomeSources {
-  commerce: any | null;      // /analytics/panels/commerce  (orders.read)
-  orders: any | null;        // /analytics/panels/orders    (orders.read)
-  inventory: any | null;     // /analytics/panels/inventory (inventory.read + inventory)
-  refunds: any | null;       // /refunds/summary            (orders.read)
-  floor: any | null;         // /wms/floor/today            (warehouse.read + wms)
-  receivables: any | null;   // /ar/outstanding             (accounting.read + accounting)
-  platformBill: any | null;  // /billing/overview           (billing.read)
-  marketing: any | null;     // /marketing-hub/overview     (marketing.read + marketing)
+  commerce: any | null;      // /analytics/panels/commerce       (orders.read)
+  orders: any | null;        // /analytics/panels/orders         (orders.read)
+  inventory: any | null;     // /analytics/panels/inventory      (inventory.read + inventory)
+  refunds: any | null;       // /refunds/summary                 (orders.read)
+  floor: any | null;         // /wms/floor/today                 (warehouse.read + wms)
+  receivables: any | null;   // /ar/outstanding                  (accounting.read + accounting)
+  platformBill: any | null;  // /billing/overview                (billing.read)
+  marketing: any | null;     // /marketing-hub/overview          (marketing.read + marketing)
+  reviews: any | null;       // /reviews/admin/counts            (content.read + reviews)
+  questions: any | null;     // /product-questions/admin/counts  (content.read + product_qa)
+  carts: any | null;         // /carts/admin?status=abandoned    (orders.read) — `total` only
+  b2bApps: any | null;       // /b2b/applications?status=pending (b2b.read + b2b) — `counts`
+  enquiries: any | null;     // /contact/stats                   (customers.read)
   /** Sections not fetched because this viewer may not see them. */
   withheld: string[];
   loading: boolean;
@@ -45,7 +51,9 @@ function todayRange(): { from: string; to: string } {
 
 const EMPTY: HomeSources = {
   commerce: null, orders: null, inventory: null, refunds: null, floor: null,
-  receivables: null, platformBill: null, marketing: null, withheld: [], loading: true,
+  receivables: null, platformBill: null, marketing: null,
+  reviews: null, questions: null, carts: null, b2bApps: null, enquiries: null,
+  withheld: [], loading: true,
 };
 
 export function useHomeFeed(gate: Gate): HomeSources {
@@ -66,6 +74,18 @@ export function useHomeFeed(gate: Gate): HomeSources {
         .then((r) => payload<any>(r))
         .catch(() => null);   // a slow or failing section must not blank the page
     };
+    // The list endpoints carry `total` BESIDE the rows; the interceptor keeps it
+    // on the array as a non-enumerable property, which `payload()` would drop.
+    const total = (url: string, allowed: boolean, why: string, params?: object) => {
+      if (!allowed) { withheld.push(why); return Promise.resolve(null); }
+      return api.get(url, { params })
+        .then((r: any) => {
+          const body = r?.data ?? r;
+          const t = body?.total ?? r?.total ?? body?.data?.total;
+          return { total: Number(t ?? 0) };
+        })
+        .catch(() => null);
+    };
 
     const range = todayRange();
     const sellRead = gate.hasPerm('orders.read');
@@ -74,6 +94,10 @@ export function useHomeFeed(gate: Gate): HomeSources {
     const booksRead = gate.hasPerm('accounting.read') && gate.canAccess('accounting');
     const billRead = gate.hasPerm('billing.read');
     const mktRead = gate.hasPerm('marketing.read') && gate.canAccess('marketing');
+    const reviewsRead = gate.hasPerm('content.read') && gate.canAccess('reviews');
+    const qaRead = gate.hasPerm('content.read') && gate.canAccess('product_qa');
+    const b2bRead = gate.hasPerm('b2b.read') && gate.canAccess('b2b');
+    const custRead = gate.hasPerm('customers.read');
 
     Promise.all([
       get('/analytics/panels/commerce', sellRead, 'Today’s sales', range),
@@ -84,10 +108,16 @@ export function useHomeFeed(gate: Gate): HomeSources {
       get('/ar/outstanding', booksRead, 'Receivables'),
       get('/billing/overview', billRead, 'Your Growcord bill'),
       get('/marketing-hub/overview', mktRead, 'Marketing'),
-    ]).then(([commerce, orders, inventory, refunds, floor, receivables, platformBill, marketing]) => {
+      get('/reviews/admin/counts', reviewsRead, 'Reviews'),
+      get('/product-questions/admin/counts', qaRead, 'Questions'),
+      total('/carts/admin', sellRead, 'Abandoned carts', { status: 'abandoned', limit: 1 }),
+      get('/b2b/applications', b2bRead, 'B2B applications', { status: 'pending' }),
+      get('/contact/stats', custRead, 'Enquiries'),
+    ]).then(([commerce, orders, inventory, refunds, floor, receivables, platformBill, marketing, reviews, questions, carts, b2bApps, enquiries]) => {
       if (!alive) return;
       setState({
         commerce, orders, inventory, refunds, floor, receivables, platformBill, marketing,
+        reviews, questions, carts, b2bApps, enquiries,
         withheld, loading: false,
       });
     });

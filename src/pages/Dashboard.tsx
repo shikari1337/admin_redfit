@@ -8,8 +8,8 @@ import { fmtRupees } from '../lib/money';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { useAuth } from '../contexts/AuthContext';
 import { inventoryAPI } from '../services/api';
-import { ChevronDown } from 'lucide-react';
-import RoleHome from '../components/home/RoleHome';
+import { useHomeFeed } from '../components/home/useHomeFeed';
+import { AttentionBoard } from '../components/home/AttentionBoard';
 
 /**
  * Narrowing funnel bar — the same visual GrowthAnalytics uses for the
@@ -72,24 +72,28 @@ const ProductRow: React.FC<{ id: string; name: string; sku?: string; sub: React.
 );
 
 /**
- * Store performance — the charts that used to BE the home page.
+ * The store's home: what needs you first, then the store's health.
  *
- * It is no longer what `/dashboard` opens on: the home now leads with the work
- * (`components/home/RoleHome.tsx`) and this sits underneath, mounted only when
- * somebody asks for it. That is not a demotion — it is ~10 requests, several of
- * them charts, which nobody should pay for before they have seen what needs
- * doing.
+ * "Needs your attention" (owner, 2026-09-25) lists every queue with work in it
+ * — orders to confirm and pack, refunds, returns, unanswered questions,
+ * reviews awaiting approval, abandoned carts, B2B applications, enquiries,
+ * stock that ran out, lots expiring, overdue invoices — each a count and a
+ * link to the filtered page, from the same endpoints those pages read.
  *
- * `commerce` (sales/orders/traffic, B2B/B2C and payment splits, top sellers) is
- * always fetched. Every OTHER section (Q&A, reviews, low-stock, shipping funnel,
- * marketing funnel + campaigns, GA4) only fetches once the store's module map
- * has loaded AND the signed-in role actually has the matching module +
- * permission — a `staff` user has no `marketing.read`, so that section simply
+ * Under it, the analytics dashboard as it was: `commerce` (sales/orders/
+ * traffic, B2B/B2C and payment splits, top sellers) is always fetched — it's
+ * the store owner's baseline view and was never gated. Every OTHER section
+ * (Q&A, reviews, low-stock, shipping funnel, marketing funnel + campaigns,
+ * GA4) only fetches once the store's module map has loaded AND the signed-in
+ * role actually has the matching module + permission — a `staff` user
+ * landing here by default has no `marketing.read`, so that section simply
  * never fires a doomed request.
  */
-const StorePerformance: React.FC = () => {
+const Dashboard: React.FC = () => {
   const { range, preset, setPreset, custom, setCustom } = useDateRange('today', DASHBOARD_PRESETS);
   const { hasPerm, canAccess, modulesLoaded } = useAuth();
+
+  const feed = useHomeFeed({ hasPerm, canAccess, modulesLoaded });
 
   const { data, loading, error } = usePanelStats<any>('commerce', range);
   const s = data?.summary;
@@ -100,7 +104,10 @@ const StorePerformance: React.FC = () => {
   const inventoryEnabled = modulesLoaded && canAccess('inventory') && hasPerm('inventory.read');
   const shippingEnabled = modulesLoaded && canAccess('shipping') && hasPerm('shipments.read');
   const marketingEnabled = modulesLoaded && canAccess('marketing') && hasPerm('marketing.read');
-  const gaEnabled = hasPerm('reports.read');
+  // GA4 reads go through the Google connector, so a store without the
+  // connectors module is never asked (a 409 "not connected" is still possible
+  // with the module on — that answer is swallowed below, by design).
+  const gaEnabled = modulesLoaded && canAccess('connectors') && hasPerm('reports.read');
 
   const { data: qa } = useRangedGet<any>('/product-questions/admin/counts', range, qaEnabled);
   const { data: reviews } = useRangedGet<any>('/reviews/admin/counts', range, reviewsEnabled);
@@ -151,10 +158,12 @@ const StorePerformance: React.FC = () => {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-          <p className="text-sm text-gray-500">Store health — sales, orders, service and fulfilment for this store.</p>
+          <p className="text-sm text-gray-500">What needs you first, then store health — sales, orders, service and fulfilment.</p>
         </div>
         <DateRangeBar preset={preset} onPreset={setPreset} custom={custom} onCustom={setCustom} presets={DASHBOARD_PRESETS} />
       </div>
+
+      <AttentionBoard feed={feed} />
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
       {loading && !data && <div className="flex h-40 items-center justify-center"><LoadingSpinner size="lg" color="primary" text="Loading analytics..." /></div>}
@@ -337,52 +346,6 @@ const StorePerformance: React.FC = () => {
             </div>
           )}
         </>
-      )}
-    </div>
-  );
-};
-
-/**
- * `/dashboard` — the home. The work first, the numbers under it, and the full
- * performance view one click away for whoever wants it.
- */
-const Dashboard: React.FC = () => {
-  const { hasPerm } = useAuth();
-  const [showPerformance, setShowPerformance] = useState(false);
-  // Only an order-reader has anything to see in here; the panel's own first
-  // call is `/analytics/panels/commerce`, which needs `orders.read`.
-  const canSeePerformance = hasPerm('orders.read');
-
-  return (
-    <div className="space-y-8">
-      <RoleHome />
-      {canSeePerformance && (
-        <section>
-          {showPerformance ? (
-            <>
-              <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-xs font-semibold uppercase tracking-wider text-ink-mute">Store performance</h2>
-                <button
-                  type="button"
-                  onClick={() => setShowPerformance(false)}
-                  className="text-xs text-ink-mute underline hover:text-ink"
-                >
-                  Hide
-                </button>
-              </div>
-              <StorePerformance />
-            </>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setShowPerformance(true)}
-              className="flex w-full items-center justify-between rounded-xl border border-line bg-surface px-4 py-3 text-sm text-ink-soft hover:bg-surface-2"
-            >
-              <span>Store performance — sales, funnels, top sellers, stock</span>
-              <ChevronDown className="size-4 text-ink-mute" />
-            </button>
-          )}
-        </section>
       )}
     </div>
   );

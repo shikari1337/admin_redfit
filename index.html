@@ -1,11 +1,15 @@
 <!DOCTYPE html>
-<html lang="en">
+<!-- data-theme="light" ON THE MARKUP: the theme's dark palette applies under
+     `prefers-color-scheme: dark` to any <html> WITHOUT this attribute, so a
+     dark OS rendered the admin dark before any script ran (owner, 2026-09-25:
+     the admin is light). Nothing in the admin removes it. -->
+<html lang="en" data-theme="light">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <meta name="theme-color" content="#111827" />
+    <meta name="theme-color" content="#ffffff" />
     <link rel="apple-touch-icon" href="/scanner-icon.svg" />
     <title>Growcord Admin Dashboard</title>
     <!-- No Tailwind Play CDN here. It never reads tailwind.config.js, so it

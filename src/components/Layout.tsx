@@ -78,12 +78,12 @@ const Layout: React.FC = () => {
     if (!isAuthenticated) navigate('/login', { replace: true });
   }, [isAuthenticated, navigate]);
 
-  // The admin is light (owner: "keep the earlier theme"). A dark choice made
-  // through the short-lived toggle would otherwise outlive the toggle itself.
+  // The admin is light (owner: "make theme light color"). The theme's dark
+  // palette applies to an <html> with NO data-theme on a dark OS, so the
+  // attribute must be PRESENT, not merely not-dark.
   useEffect(() => {
-    const root = document.documentElement;
-    if (root.getAttribute('data-theme') === 'dark') root.removeAttribute('data-theme');
-    try { localStorage.removeItem('gc_theme'); } catch { /* private mode */ }
+    document.documentElement.setAttribute('data-theme', 'light');
+    try { localStorage.setItem('gc_theme', 'light'); } catch { /* private mode */ }
   }, []);
 
   const handleLogout = async () => {

@@ -51,18 +51,16 @@ function applyTheme(pref: ThemePref): void {
 }
 
 /**
- * First visit is LIGHT (the owner's default, UI_THEME.md); after that the
- * person's own choice — including "follow the system" — is honoured. Runs at
- * module scope so the attribute is on <html> before the first paint.
+ * The admin is LIGHT, always (owner, 2026-09-25). "Follow the system" is the
+ * theme's default when no attribute is set, and on a dark OS that rendered the
+ * whole admin dark. `index.html` carries `data-theme="light"` on the markup;
+ * this keeps it there whatever an earlier visit stored, and clears that
+ * stored choice so nothing else can flip it back.
  */
 (function bootTheme() {
   if (typeof document === 'undefined') return;
-  let firstVisit = true;
-  try {
-    firstVisit = !localStorage.getItem(THEME_DEFAULTED_KEY);
-    if (firstVisit) localStorage.setItem(THEME_DEFAULTED_KEY, '1');
-  } catch { firstVisit = true; }
-  applyTheme(firstVisit ? 'light' : readTheme());
+  try { localStorage.setItem(THEME_DEFAULTED_KEY, '1'); } catch { /* private mode */ }
+  applyTheme('light');
 })();
 
 export const ThemeToggle: React.FC = () => {
