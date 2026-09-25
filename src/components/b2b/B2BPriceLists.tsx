@@ -31,6 +31,25 @@ export default function B2BPriceLists() {
 
   const [tiers, setTiers] = useState<string[]>([]);
   const [products, setProducts] = useState<any[]>([]);
+  /** What is typed in the rule / MOQ product boxes — searched through the unified /products?search. */
+  const [ruleQuery, setRuleQuery] = useState('');
+  const [moqQuery, setMoqQuery] = useState('');
+  const productSearchTerm = (ruleQuery || moqQuery).trim();
+  useEffect(() => {
+    if (productSearchTerm.length < 2) return;
+    const t = setTimeout(async () => {
+      try {
+        const r: any = await productsAPI.getAll({ search: productSearchTerm, limit: 20 } as any);
+        const found = asArray(r);
+        // Merged, not replaced, so an already-chosen product keeps its name.
+        setProducts((cur) => {
+          const seen = new Set(cur.map((p) => rid(p)));
+          return [...cur, ...found.filter((p) => !seen.has(rid(p)))];
+        });
+      } catch { /* the box simply offers nothing new */ }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [productSearchTerm]);
   const [categories, setCategories] = useState<any[]>([]);
 
   const [activeList, setActiveList] = useState<PriceList | null>(null);
@@ -75,7 +94,10 @@ export default function B2BPriceLists() {
   const loadEntities = async () => {
     try {
       const [prods, cats, settings] = await Promise.all([
-        productsAPI.getAll({ limit: 1000 } as any).catch(() => []),
+        // Products are SEARCHED, never bulk-loaded: `/products` caps `limit` at 100
+        // and a `limit: 1000` request 400'd — swallowed by `.catch`, so the picker
+        // below had been empty on every store (#123 / #128 shape).
+        Promise.resolve([]),
         categoriesAPI.list().catch(() => []),
         b2bAPI.getSettings().catch(() => null),
       ]);
@@ -383,8 +405,8 @@ export default function B2BPriceLists() {
                 {ruleForm.ruleType === 'product' && (
                   <div className="space-y-1">
                     <Label>Product</Label>
-                    <input list="pl-products" value={ruleForm.entityId ? (products.find((p) => rid(p) === ruleForm.entityId)?.name ?? '') : ''}
-                      onChange={(e) => { const p = products.find((x) => x.name === e.target.value); setRuleForm((f) => ({ ...f, entityId: p ? rid(p) : '' })); }}
+                    <input list="pl-products" value={ruleForm.entityId ? (products.find((p) => rid(p) === ruleForm.entityId)?.name ?? ruleQuery) : ruleQuery}
+                      onChange={(e) => { setRuleQuery(e.target.value); const p = products.find((x) => x.name === e.target.value); setRuleForm((f) => ({ ...f, entityId: p ? rid(p) : '' })); }}
                       placeholder="Type to search…" className="w-full h-9 px-2 border rounded-md text-sm bg-background" />
                     <datalist id="pl-products">{products.map((p) => <option key={rid(p)} value={p.name} />)}</datalist>
                   </div>
@@ -473,8 +495,8 @@ export default function B2BPriceLists() {
                 )}
                 {moqForm.ruleType === 'product' && (
                   <div className="space-y-1"><Label>Product</Label>
-                    <input list="moq-products" value={moqForm.entityId ? (products.find((p) => rid(p) === moqForm.entityId)?.name ?? '') : ''}
-                      onChange={(e) => { const p = products.find((x) => x.name === e.target.value); setMoqForm((f) => ({ ...f, entityId: p ? rid(p) : '' })); }}
+                    <input list="moq-products" value={moqForm.entityId ? (products.find((p) => rid(p) === moqForm.entityId)?.name ?? moqQuery) : moqQuery}
+                      onChange={(e) => { setMoqQuery(e.target.value); const p = products.find((x) => x.name === e.target.value); setMoqForm((f) => ({ ...f, entityId: p ? rid(p) : '' })); }}
                       placeholder="Type to search…" className="w-full h-9 px-2 border rounded-md text-sm bg-background" />
                     <datalist id="moq-products">{products.map((p) => <option key={rid(p)} value={p.name} />)}</datalist>
                   </div>

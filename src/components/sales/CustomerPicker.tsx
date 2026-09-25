@@ -64,6 +64,38 @@ interface Props {
   onUseAddress?: (addr: any) => void;
 }
 
+/**
+ * Everything the store holds about one customer, as the composer needs it —
+ * the ONE loader, used by the search box here and by `/orders/new?customer=`.
+ * A failed profile read still returns what the directory row gave, because a
+ * name and a phone are enough to key an order in.
+ */
+export async function loadPickedCustomer(id: string, base?: Partial<PickedCustomer>): Promise<PickedCustomer> {
+  try {
+    const d: any = (await customersAPI.getById(id)) ?? {};
+    return {
+      id,
+      name: d.name ?? base?.name ?? '',
+      phone: d.phone ?? base?.phone ?? '',
+      email: d.email ?? base?.email ?? '',
+      gstin: d.gstin ?? d.b2b?.gstin ?? null,
+      isB2b: Boolean(d.b2b?.is_b2b ?? base?.isB2b),
+      b2bTier: d.b2b?.b2b_tier ?? base?.b2bTier ?? null,
+      companyName: d.b2b?.company_name ?? null,
+      orderCount: Number(d.order_count ?? d.orderCount ?? 0),
+      totalSpent: Number(d.total_spent ?? d.totalSpent ?? 0),
+      addresses: Array.isArray(d.addresses) ? d.addresses : [],
+      lastOrderAddress: d.last_order_address ?? d.lastOrderAddress ?? null,
+    };
+  } catch {
+    return {
+      id, name: base?.name ?? '', phone: base?.phone ?? '', email: base?.email ?? '',
+      gstin: null, isB2b: !!base?.isB2b, b2bTier: base?.b2bTier ?? null, companyName: null,
+      orderCount: 0, totalSpent: 0, addresses: [], lastOrderAddress: null,
+    };
+  }
+}
+
 const CustomerPicker: React.FC<Props> = ({
   customer, onPick, onClear, accountChoice, onAccountChoice, newPhone, onUseAddress,
 }) => {
@@ -102,29 +134,8 @@ const CustomerPicker: React.FC<Props> = ({
     setResults([]); setQ(''); setSearched(false);
     if (!base.id) return;
     setLoadingDetail(true);
-    try {
-      const d: any = (await customersAPI.getById(base.id)) ?? {};
-      onPick({
-        id: base.id,
-        name: d.name ?? base.name,
-        phone: d.phone ?? base.phone,
-        email: d.email ?? base.email,
-        gstin: d.gstin ?? d.b2b?.gstin ?? null,
-        isB2b: Boolean(d.b2b?.is_b2b ?? base.isB2b),
-        b2bTier: d.b2b?.b2b_tier ?? base.b2bTier,
-        companyName: d.b2b?.company_name ?? null,
-        orderCount: Number(d.order_count ?? d.orderCount ?? 0),
-        totalSpent: Number(d.total_spent ?? d.totalSpent ?? 0),
-        addresses: Array.isArray(d.addresses) ? d.addresses : [],
-        lastOrderAddress: d.last_order_address ?? d.lastOrderAddress ?? null,
-      });
-    } catch {
-      // The directory row is still enough to key an order in.
-      onPick({
-        ...base, gstin: null, companyName: null, orderCount: 0, totalSpent: 0,
-        addresses: [], lastOrderAddress: null,
-      });
-    } finally { setLoadingDetail(false); }
+    try { onPick(await loadPickedCustomer(base.id, base)); }
+    finally { setLoadingDetail(false); }
   };
 
   if (customer) {

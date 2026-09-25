@@ -18,7 +18,7 @@
  * comes from the server.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, Copy, Loader2, Plus, Search, ExternalLink, AlertTriangle, Receipt,
 } from 'lucide-react';
@@ -36,7 +36,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '../contexts/AuthContext';
 import InfoTip from '../components/common/InfoTip';
-import CustomerPicker, { type AccountChoice, type PickedCustomer } from '../components/sales/CustomerPicker';
+import CustomerPicker, { loadPickedCustomer, type AccountChoice, type PickedCustomer } from '../components/sales/CustomerPicker';
 import OrderLinesTable, { type BasketLine } from '../components/sales/OrderLinesTable';
 import BulkAddFromSheet from '../components/sales/BulkAddFromSheet';
 
@@ -132,6 +132,18 @@ const ManualOrderCreate: React.FC = () => {
     });
     if (c.gstin) setGstin(String(c.gstin));
   };
+
+  // `/orders/new?customer=<id>` — opened from a customer's page, so the
+  // composer starts with that customer picked and every field filled.
+  const [params] = useSearchParams();
+  const preselect = params.get('customer');
+  useEffect(() => {
+    if (!preselect) return;
+    let alive = true;
+    loadPickedCustomer(preselect).then((c) => { if (alive && c.id) pickCustomer(c); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preselect]);
 
   const useSavedAddress = (a: any) => setAddress((prev) => ({
     ...prev,

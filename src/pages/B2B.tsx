@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ListHeader } from '../components/sales/ListChrome';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Inbox, Users, Layers, Tags, Settings } from 'lucide-react';
@@ -25,13 +26,11 @@ export default function B2B() {
   const [activeTab, setActiveTab] = useState<Tab>('applications');
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">B2B Management</h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          Review business applications, and set the wholesale plans your approved customers get.
-        </p>
-      </div>
+    <div className="space-y-4">
+      <ListHeader
+        title="Wholesale (B2B)"
+        purpose="Business applications, the wholesale accounts you approved, and the tiers and price lists they buy at."
+      />
 
       <Tabs value={activeTab} onValueChange={(val) => setActiveTab(val as Tab)} className="w-full">
         <TabsList className="mb-4">

@@ -9,6 +9,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Users, ArrowLeft, ExternalLink, Loader2, Save, Ban, CheckCircle2, Plus, Search, User } from 'lucide-react';
 import { localeDate } from '../../utils/date';
+import { FilterChip, MenuChip, SearchBox } from '../sales/ListChrome';
+import { ExportMenu, type CsvColumn } from '@/components/erp';
+import InfoTip from '../common/InfoTip';
 
 // The admin axios interceptor unwraps { success, data } → the array/object AND
 // adds camelCase aliases for snake_case keys, so a row exposes both id/entity_id
@@ -30,6 +33,17 @@ interface B2BCustomerRow {
 }
 
 interface PriceListOption { id: string; name: string; }
+
+/** The roster as a file — the columns the table already shows. */
+const ROSTER_CSV: CsvColumn<any>[] = [
+  { key: 'company_name', label: 'Company' },
+  { key: 'b2b_tier', label: 'Tier' },
+  { key: 'gstin', label: 'GSTIN' },
+  { key: 'credit_limit', label: 'Credit limit' },
+  { key: 'credit_days', label: 'Credit days' },
+  { key: 'order_count', label: 'Orders' },
+  { key: 'total_spent', label: 'Total spent' },
+];
 
 interface Contract {
   id: string;
@@ -54,6 +68,10 @@ const money = (v: any) => `₹${Number(v ?? 0).toLocaleString('en-IN', { maximum
  * here are only what the customer gave THIS store).
  */
 export default function B2BCustomers() {
+  const [rosterSearch, setRosterSearch] = useState('');
+  const [tierFilter, setTierFilter] = useState('all');
+  const [creditOnly, setCreditOnly] = useState(false);
+  const [pinnedOnly, setPinnedOnly] = useState(false);
   const [customers, setCustomers] = useState<B2BCustomerRow[]>([]);
   const [priceLists, setPriceLists] = useState<PriceListOption[]>([]);
   const [tiers, setTiers] = useState<string[]>([]);
@@ -118,7 +136,10 @@ export default function B2BCustomers() {
       const [lists, settings, prods] = await Promise.all([
         b2bAPI.getPriceLists().catch(() => []),
         b2bAPI.getSettings().catch(() => null),
-        productsAPI.getAll({ limit: 1000 } as any).catch(() => []),
+        // Not a bulk product load: `/products` caps `limit` at 100 and the old
+        // `limit: 1000` 400'd on every open. Contract names are resolved per id
+        // in `loadContracts`, for exactly the products a contract names.
+        Promise.resolve([]),
       ]);
       setPriceLists(asArray(lists));
       setTiers(Object.keys((settings as any)?.tiers ?? (settings as any)?.data?.tiers ?? {}));
@@ -132,7 +153,14 @@ export default function B2BCustomers() {
   const loadContracts = async (customerId: string) => {
     setContractsLoading(true);
     try {
-      setContracts(asArray(await b2bAPI.getContracts(customerId)));
+      const list = asArray(await b2bAPI.getContracts(customerId));
+      setContracts(list);
+      const missing = [...new Set(list.map((c: any) => String(c.product_id)))]
+        .filter((pid) => pid && !products.some((p) => rid(p) === pid)).slice(0, 30);
+      if (missing.length) {
+        const got = await Promise.all(missing.map((pid) => productsAPI.getById(pid).catch(() => null)));
+        setProducts((cur) => [...cur, ...got.filter(Boolean)]);
+      }
     } catch {
       setContracts([]);
     } finally { setContractsLoading(false); }
@@ -389,25 +417,50 @@ export default function B2BCustomers() {
   }
 
   // ── List overview ──────────────────────────────────────────────────────────
+  const tierOptions = [...new Set(customers.map((c) => String(c.b2b_tier ?? '')).filter(Boolean))].sort();
+  const rq = rosterSearch.trim().toLowerCase();
+  const rosterShown = customers.filter((c) => {
+    if (tierFilter !== 'all' && c.b2b_tier !== tierFilter) return false;
+    if (creditOnly && !(Number(c.credit_limit) > 0)) return false;
+    if (pinnedOnly && !c.price_list_id) return false;
+    if (!rq) return true;
+    return [c.company_name, c.gstin, c.b2b_tier].filter(Boolean).join(' ').toLowerCase().includes(rq);
+  });
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        <p className="text-sm text-muted-foreground max-w-2xl">
-          Your approved B2B accounts. Click a row to reassign their tier, pin a price list, edit
-          credit terms, or suspend their B2B status. For full customer details and order history,
-          open their customer profile from the detail view.
-        </p>
-        <div className="flex items-center gap-2 shrink-0">
+      <div className="flex flex-wrap items-center gap-2">
+        <SearchBox value={rosterSearch} onChange={setRosterSearch}
+          placeholder="Company, GSTIN or tier" label="Search B2B customers" />
+        <span className="text-sm tabular-nums text-ink-soft">
+          {rosterShown.length} of {customers.length} account{customers.length === 1 ? '' : 's'}
+        </span>
+        <InfoTip text="Open a row to change its tier, pin a price list, set credit terms or suspend wholesale pricing." />
+        <div className="ml-auto flex items-center gap-2">
+          <ExportMenu filename="b2b-customers" columns={ROSTER_CSV} rows={rosterShown} canExport />
+          <Button size="sm" variant="outline" onClick={load}>Refresh</Button>
           <Button size="sm" onClick={openAddModal}><Plus className="mr-1.5 h-3.5 w-3.5" />Add B2B customer</Button>
-          <Button size="sm" variant="secondary" onClick={load}>Refresh</Button>
         </div>
       </div>
+      {tierOptions.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <MenuChip name="Tier" value={tierFilter !== 'all' ? tierFilter : undefined}
+            options={tierOptions.map((t) => [t, t] as const)} current={tierFilter}
+            onPick={(v) => setTierFilter(v ?? 'all')} />
+          <FilterChip on={creditOnly} onClick={() => setCreditOnly(!creditOnly)}>On credit</FilterChip>
+          <FilterChip on={pinnedOnly} onClick={() => setPinnedOnly(!pinnedOnly)}>Price list pinned</FilterChip>
+        </div>
+      )}
 
       {error && <div className="bg-destructive/15 text-destructive p-3 rounded-md text-sm">{error}</div>}
       {success && <div className="bg-green-50 text-green-700 border border-green-200 p-3 rounded-md text-sm">{success}</div>}
 
       {loading ? (
         <div className="flex justify-center p-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+      ) : rosterShown.length === 0 && customers.length > 0 ? (
+        <div className="rounded-md border border-dashed border-line p-10 text-center">
+          <p className="text-sm font-medium text-ink">Nothing matches those filters</p>
+          <p className="mt-1 text-xs text-ink-soft">Clear the search or a chip.</p>
+        </div>
       ) : customers.length === 0 ? (
         <div className="flex flex-col items-center justify-center p-12 text-center">
           <Users className="h-12 w-12 text-muted-foreground mb-3" />
@@ -426,12 +479,12 @@ export default function B2BCustomers() {
                 <TableHead>GSTIN</TableHead>
                 <TableHead>Credit</TableHead>
                 <TableHead>Price list</TableHead>
-                <TableHead>Orders</TableHead>
-                <TableHead>Total spent</TableHead>
+                <TableHead className="text-right">Orders</TableHead>
+                <TableHead className="text-right">Total spent</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {customers.map((c) => (
+              {rosterShown.map((c) => (
                 <TableRow key={c.customer_id} className="cursor-pointer" onClick={() => openCustomer(c)}>
                   <TableCell className="font-medium">{c.company_name}</TableCell>
                   <TableCell>
@@ -445,8 +498,8 @@ export default function B2BCustomers() {
                   <TableCell className="text-sm">
                     {priceListName(c.price_list_id) ?? <span className="text-xs text-muted-foreground">resolve by tier</span>}
                   </TableCell>
-                  <TableCell>{c.order_count ?? 0}</TableCell>
-                  <TableCell>{money(c.total_spent)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{c.order_count ?? 0}</TableCell>
+                  <TableCell className="text-right tabular-nums">{money(c.total_spent)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

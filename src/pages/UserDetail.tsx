@@ -18,7 +18,7 @@ import {
   ShoppingCart,
   MapPin,
   ArrowLeft,
-  IndianRupee,
+  Plus,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -26,6 +26,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { getStatusColorClass } from '../components/order/StatusBadge';
 import { formatDate } from '../utils/date';
+import InfoTip from '../components/common/InfoTip';
+import { ListHeader } from '../components/sales/ListChrome';
 import {
   Table,
   TableBody,
@@ -91,62 +93,92 @@ const UserDetail: React.FC = () => {
     );
   }
 
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4">
-        <Button variant="ghost" className="w-fit -ml-4" asChild>
-          <Link to="/customers" className="text-muted-foreground hover:text-foreground">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Customers
-          </Link>
-        </Button>
-        <h1 className="text-3xl font-bold tracking-tight">Customer</h1>
-      </div>
+  const b2b = user.b2b ?? {};
+  const ORIGIN_LABEL: Record<string, string> = {
+    online_store: 'Website', pos: 'Counter (POS)', offline: 'Manual / phone', bulk_order: 'Bulk Order Platform',
+    books: 'Books', imported: 'Imported history',
+  };
+  const avgOrder = orders.length ? totalSpent / orders.length : 0;
+  const capped = orders.length >= 100;
+  const lastOrder = orders[0]?.created_at ?? null;
+  const money = (n: number) => `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 
-      {/* User Info Card */}
-      <Card>
-        <CardContent className="p-6">
-          <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
-            <div className="flex items-center gap-4">
-              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-muted">
-                <User className="h-8 w-8 text-muted-foreground" />
+  return (
+    <div className="space-y-4">
+      <Button variant="ghost" className="-ml-3 h-7 w-fit text-ink-soft" asChild>
+        <Link to="/customers"><ArrowLeft className="mr-1.5 h-3.5 w-3.5" /> Customers</Link>
+      </Button>
+      <ListHeader
+        title={user.displayName || user.name || 'Unnamed customer'}
+        purpose="Who they are, what they have bought, where they ship to and the wholesale terms they buy on."
+        action={
+          <Button size="sm" asChild>
+            <Link to={`/orders/new?customer=${encodeURIComponent(String(id))}`}>
+              <Plus className="mr-1.5 h-3.5 w-3.5" /> New order for them
+            </Link>
+          </Button>
+        }
+      />
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        {/* Identity */}
+        <Card className="lg:col-span-1">
+          <CardContent className="space-y-3 p-5">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-surface-2">
+                <User className="h-5 w-5 text-ink-soft" />
               </div>
-              <div className="space-y-1">
-                <h2 className="text-2xl font-bold">{user.displayName || user.name || 'No name'}</h2>
-                <div className="flex flex-col gap-1 text-sm text-muted-foreground">
-                  {user.email && (
-                    <div className="flex items-center gap-2">
-                      <Mail className="h-4 w-4" />
-                      {user.email}
-                    </div>
-                  )}
-                  {user.phone && (
-                    <div className="flex items-center gap-2">
-                      <Phone className="h-4 w-4" />
-                      {user.dial_code ? `${user.dial_code} ` : ''}{user.phone}
-                    </div>
-                  )}
-                  {user.gstin && (
-                    <div className="text-xs">GSTIN: {user.gstin}</div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap gap-1.5">
+                  {b2b.is_b2b
+                    ? <Badge variant="outline" className="border-info bg-info-bg text-info-ink">Wholesale{b2b.b2b_tier ? ` · ${b2b.b2b_tier}` : ''}</Badge>
+                    : <Badge variant="outline" className="border-line text-ink-soft">Retail</Badge>}
+                  {b2b.acquisition_channel && (
+                    <Badge variant="outline" className="border-line text-ink-soft" title="Where the store first met this customer">
+                      From {ORIGIN_LABEL[b2b.acquisition_channel] ?? b2b.acquisition_channel}
+                    </Badge>
                   )}
                 </div>
               </div>
             </div>
-            <div className="flex flex-col md:items-end gap-2 text-sm">
-              <div className="flex items-center gap-1 text-lg font-semibold">
-                <IndianRupee className="h-4 w-4" />
-                {totalSpent.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+            <dl className="space-y-1.5 text-sm">
+              {user.email && <div className="flex items-center gap-2 text-ink"><Mail className="h-3.5 w-3.5 text-ink-mute" />{user.email}</div>}
+              {user.phone && <div className="flex items-center gap-2 tabular-nums text-ink"><Phone className="h-3.5 w-3.5 text-ink-mute" />{user.dial_code ? `${user.dial_code} ` : ''}{user.phone}</div>}
+              {user.gstin && <div className="font-mono text-xs text-ink-soft">GSTIN {user.gstin}</div>}
+              {!user.email && !user.phone && <div className="text-xs text-ink-mute">No contact recorded</div>}
+            </dl>
+          </CardContent>
+        </Card>
+
+        {/* Numbers */}
+        <Card className="lg:col-span-2">
+          <CardContent className="grid grid-cols-2 gap-4 p-5 sm:grid-cols-4">
+            {[
+              { label: 'Orders', value: capped ? '100+' : String(orders.length), tip: capped ? 'This page reads the latest 100 orders, so the true count is at least 100.' : undefined },
+              { label: 'Lifetime value', value: money(totalSpent), tip: 'The total of the orders listed below, as each order recorded it.' },
+              { label: 'Average order', value: orders.length ? money(avgOrder) : '—' },
+              { label: 'Last order', value: lastOrder ? formatDate(lastOrder, 'dd MMM yyyy') : '—' },
+            ].map((k) => (
+              <div key={k.label}>
+                <div className="flex items-center gap-1 text-xs text-ink-soft">{k.label}{k.tip && <InfoTip text={k.tip} />}</div>
+                <div className="mt-0.5 text-lg font-semibold tabular-nums text-ink">{k.value}</div>
               </div>
-              <div className="text-muted-foreground">
-                lifetime across {orders.length} order{orders.length === 1 ? '' : 's'}
+            ))}
+            {b2b.is_b2b && (
+              <div className="col-span-2 rounded-md border border-line bg-surface-2 p-3 text-sm sm:col-span-4">
+                <div className="mb-1 flex items-center gap-1 text-xs font-medium text-ink-soft">
+                  Wholesale terms <InfoTip text="Set on the Wholesale (B2B) page ▸ Customers. Prices on a new order follow this tier or pinned price list." />
+                </div>
+                <div className="flex flex-wrap gap-x-6 gap-y-1 tabular-nums text-ink">
+                  {b2b.company_name && <span>{b2b.company_name}</span>}
+                  <span>Tier: {b2b.b2b_tier || 'store default'}</span>
+                  {Number(b2b.credit_limit) > 0 && <span>Credit {money(Number(b2b.credit_limit))} · {b2b.credit_days ?? 0} days</span>}
+                </div>
               </div>
-              {user.b2b?.is_b2b && (
-                <Badge variant="secondary" className="w-fit">B2B account</Badge>
-              )}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -167,14 +199,15 @@ const UserDetail: React.FC = () => {
               {orders.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8 text-center">
                   <ShoppingCart className="h-10 w-10 text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground">No orders found</p>
+                  <p className="text-sm font-medium text-ink">No orders yet</p>
+                  <p className="mt-1 text-xs text-ink-soft">Use “New order for them” above to key one in.</p>
                 </div>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Order ID</TableHead>
-                      <TableHead>Amount</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Date</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
@@ -183,8 +216,8 @@ const UserDetail: React.FC = () => {
                   <TableBody>
                     {orders.map((order) => (
                       <TableRow key={order.id}>
-                        <TableCell className="font-medium">{order.order_id}</TableCell>
-                        <TableCell>{fmtRupees(order.total || 0)}</TableCell>
+                        <TableCell className="whitespace-nowrap font-medium tabular-nums">{order.order_id}</TableCell>
+                        <TableCell className="text-right tabular-nums">{fmtRupees(order.total || 0)}</TableCell>
                         <TableCell>
                           <Badge variant="outline" className={`capitalize border-transparent ${getStatusColorClass('order', order.order_status)}`}>
                             {order.order_status}

@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { FilterChip, SearchBox, ListHeader } from '../components/sales/ListChrome';
+import InfoTip from '../components/common/InfoTip';
+import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
-import { FaCog, FaDownload, FaEye, FaSearch, FaSms, FaSyncAlt } from 'react-icons/fa';
+import { FaCog, FaDownload, FaEye, FaSms, FaSyncAlt } from 'react-icons/fa';
 import { cartsAPI } from '../services/api';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ButtonLoader from '../components/ButtonLoader';
@@ -66,6 +69,7 @@ const AbandonedCarts: React.FC = () => {
   const [exporting, setExporting] = useState(false);
   const [sendingSmsIds, setSendingSmsIds] = useState<Set<string>>(new Set());
   const [carts, setCarts] = useState<CartRecord[]>([]);
+  const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<'abandoned' | 'active' | 'converted'>('abandoned');
   // Guest carts have no phone/email on file — they can never be contacted, so
@@ -92,7 +96,6 @@ const AbandonedCarts: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      console.log('🔍 Fetching carts with params:', { status, search, includeGuests });
 
       const data = await cartsAPI.listAdmin({
         status, search, includeGuests,
@@ -141,6 +144,12 @@ const AbandonedCarts: React.FC = () => {
     fetchCarts();
   }, [fetchCarts]);
 
+  // The box answers as you type; the query waits 300 ms and starts at page 1.
+  useEffect(() => {
+    const t = setTimeout(() => { setSearch(searchInput.trim()); setPage(1); }, 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
   /** Load cart settings on mount, not just when the timing panel is opened —
    *  the automation banner at the top of this page reads them, and "is anything
    *  actually being sent?" must be answerable without hunting for a panel. */
@@ -151,13 +160,6 @@ const AbandonedCarts: React.FC = () => {
       .catch(() => { /* banner simply stays hidden; the list still works */ });
     return () => { cancelled = true; };
   }, []);
-
-  const handleSearch = async (event: React.FormEvent) => {
-    event.preventDefault();
-    // A new search starts at the first page; if we are already there, refetch
-    // directly (changing `page` to its current value re-renders nothing).
-    if (page !== 1) setPage(1); else await fetchCarts();
-  };
 
   /** Load the store's cart timings the first time the panel is opened. */
   const toggleSettings = async () => {
@@ -275,50 +277,29 @@ const AbandonedCarts: React.FC = () => {
   }, [carts]);
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Abandoned Carts</h1>
-          <p className="text-sm text-gray-600 mt-1">
-            Review carts that didn’t convert, export data for remarketing, and trigger recovery SMS
-            messages. Last recovery message sent: <span className="font-semibold">{lastMessageSummary}</span>
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={fetchCarts}
-            disabled={loading}
-            className="inline-flex items-center px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-          >
-            {loading ? (
-              <>
-                <ButtonLoader size="sm" color="current" />
-                <span className="ml-2">Refreshing...</span>
-              </>
-            ) : (
-              <>
-                <FaSyncAlt className="mr-2" />
-                Refresh
-              </>
-            )}
-          </button>
-          <button
-            onClick={toggleSettings}
-            className="inline-flex items-center px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-          >
-            <FaCog className="mr-2" />
-            {showSettings ? 'Hide timing' : 'Cart timing'}
-          </button>
-          <button
-            onClick={handleExport}
-            disabled={exporting}
-            className="inline-flex items-center px-3 py-2 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-400"
-          >
-            <FaDownload className="mr-2" />
-            {exporting ? 'Exporting...' : 'Export CSV'}
-          </button>
-        </div>
-      </div>
+    <div className="space-y-4">
+      <ListHeader
+        title="Abandoned carts"
+        purpose="Carts that went quiet before checkout — who they belong to, what was in them, and whether a nudge brought them back."
+        aside={
+          <div className="flex items-center gap-2">
+            <span className="hidden text-xs text-ink-soft lg:inline">
+              Last recovery message: <span className="font-medium text-ink">{lastMessageSummary}</span>
+            </span>
+            <Button variant="outline" size="sm" onClick={fetchCarts} disabled={loading} aria-label="Refresh">
+              {loading ? <ButtonLoader size="sm" color="current" /> : <FaSyncAlt className="h-3.5 w-3.5" />}
+            </Button>
+            <Button variant="outline" size="sm" onClick={toggleSettings}>
+              <FaCog className="mr-1.5 h-3.5 w-3.5" /> {showSettings ? 'Hide timing' : 'Cart timing'}
+            </Button>
+          </div>
+        }
+        action={
+          <Button size="sm" onClick={handleExport} disabled={exporting}>
+            <FaDownload className="mr-1.5 h-3.5 w-3.5" /> {exporting ? 'Exporting…' : 'Export CSV'}
+          </Button>
+        }
+      />
 
       {/* Automation state, stated plainly at the top. This is the answer to
           "why has nothing been sent" — the engine tracks and snapshots carts
@@ -357,76 +338,33 @@ const AbandonedCarts: React.FC = () => {
         )
       )}
 
-      {/* Two tabs: carts still being shopped, and carts that went cold.
-          `converted` stays reachable as a third tab — it is the proof that a
-          recovery nudge worked, and hiding it would hide the outcome. */}
-      <div className="border-b border-gray-200">
-        <nav className="-mb-px flex gap-6" aria-label="Cart status">
+      {/* ONE toolbar. `converted` stays reachable — it is the proof a nudge worked. */}
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-3">
+          <SearchBox value={searchInput} onChange={setSearchInput}
+            placeholder="Customer name, phone, cart ID or product" label="Search carts" />
+          <span className="text-sm tabular-nums text-ink-soft">
+            {(total || carts.length).toLocaleString('en-IN')} cart{(total || carts.length) === 1 ? '' : 's'}
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
           {([
-            { key: 'active', label: 'Active carts', hint: 'Still being shopped' },
-            { key: 'abandoned', label: 'Abandoned carts', hint: 'Idle past the threshold' },
+            { key: 'active', label: 'Still shopping', hint: 'Carts with items that are still being shopped' },
+            { key: 'abandoned', label: 'Abandoned', hint: 'Idle past the threshold set under Cart timing' },
             { key: 'converted', label: 'Recovered', hint: 'Became an order' },
           ] as const).map((t) => (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => { setStatus(t.key); setPage(1); }}
-              aria-current={status === t.key ? 'page' : undefined}
-              title={t.hint}
-              className={`whitespace-nowrap border-b-2 px-1 pb-3 pt-2 text-sm font-medium transition-colors ${
-                status === t.key
-                  ? 'border-red-600 text-red-600'
-                  : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-              }`}
-            >
-              {t.label}
-              {/* The TOTAL for this tab, not the current page's length — with
-                  paging, `carts.length` is just the page size (it read "50" on
-                  a tab holding 208). */}
-              {status === t.key && (
-                <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
-                  {total || carts.length}
-                </span>
-              )}
-            </button>
+            <FilterChip key={t.key} on={status === t.key} tone={t.key === 'converted' ? 'good' : undefined}
+              onClick={() => { setStatus(t.key); setPage(1); }}>
+              <span title={t.hint}>{t.label}</span>
+            </FilterChip>
           ))}
-        </nav>
-      </div>
-
-      <form
-        onSubmit={handleSearch}
-        className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 space-y-4"
-      >
-        <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
-          <div className="flex items-center gap-2">
-            <div className="relative flex-1">
-              <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by customer name, phone, cart ID or product"
-                className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-              />
-            </div>
-            <button
-              type="submit"
-              className="px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
-            >
-              Search
-            </button>
-          </div>
+          <span className="mx-1 h-4 w-px bg-line" />
+          <FilterChip on={includeGuests} onClick={() => { setIncludeGuests(!includeGuests); setPage(1); }}>
+            Include guest carts
+          </FilterChip>
+          <InfoTip text="A guest cart has no phone or email on file, so it cannot be contacted. Hidden unless you include it." />
         </div>
-        <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer w-fit">
-          <input
-            type="checkbox"
-            checked={includeGuests}
-            onChange={(e) => { setIncludeGuests(e.target.checked); setPage(1); }}
-            className="rounded border-gray-300 text-red-600 focus:ring-red-500"
-          />
-          Show guest carts (no phone/email on file — can&apos;t be contacted)
-        </label>
-      </form>
+      </div>
 
       {showSettings && (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 space-y-4">
@@ -545,8 +483,15 @@ const AbandonedCarts: React.FC = () => {
                 </tr>
               ) : carts.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
-                    No carts found for the selected filters.
+                  <td colSpan={5} className="px-6 py-12 text-center">
+                    <p className="text-sm font-medium text-ink">
+                      {search || includeGuests ? 'Nothing matches those filters' : status === 'converted' ? 'No recovered carts yet' : 'No carts here'}
+                    </p>
+                    <p className="mt-1 text-xs text-ink-soft">
+                      {search || includeGuests
+                        ? 'Clear the search, or switch between Still shopping, Abandoned and Recovered.'
+                        : 'A cart appears here once a shopper adds something and leaves.'}
+                    </p>
                   </td>
                 </tr>
               ) : (
@@ -719,12 +664,12 @@ const AbandonedCarts: React.FC = () => {
         {/* Same footer shape as the admin Orders and Customers lists. Hidden
             when everything already fits on one page, so a store with 12 carts
             never sees paging controls it has no use for. */}
-        {total > PAGE_SIZE && (
-          <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-3 py-2.5">
+        {total > 0 && (
+          <div className="flex items-center justify-between gap-3 border-t border-line px-3 py-2.5">
             <span className="text-xs text-slate-500 tabular-nums">
               Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total} carts
             </span>
-            <div className="flex items-center gap-2">
+            {total > PAGE_SIZE && <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
@@ -744,7 +689,7 @@ const AbandonedCarts: React.FC = () => {
               >
                 Next
               </button>
-            </div>
+            </div>}
           </div>
         )}
       </div>

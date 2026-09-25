@@ -8,6 +8,19 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Loader2, Inbox, Check, X } from 'lucide-react';
 import { localeDate } from '../../utils/date';
+import { FilterChip, SearchBox } from '../sales/ListChrome';
+import { ExportMenu, type CsvColumn } from '@/components/erp';
+
+/** The applications on screen as a file. */
+const APPLICATION_CSV: CsvColumn<any>[] = [
+  { key: 'company_name', label: 'Company' },
+  { key: 'business_type', label: 'Type' },
+  { key: 'gstin', label: 'GSTIN' },
+  { key: 'contact_phone', label: 'Phone' },
+  { key: 'created_at', label: 'Applied' },
+  { key: 'status', label: 'Status' },
+  { key: 'tier_assigned', label: 'Tier' },
+];
 
 interface B2BApplication {
   id: string;
@@ -35,6 +48,7 @@ export default function B2BApplications() {
   const [tiers, setTiers] = useState<string[]>([]);
   const [filter, setFilter] = useState<'pending' | 'approved' | 'rejected' | 'all'>('pending');
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -109,16 +123,27 @@ export default function B2BApplications() {
     }
   };
 
+  const q = search.trim().toLowerCase();
+  const shownApps = apps.filter((a) => !q || [a.company_name, a.gstin, a.contact_phone, a.business_type]
+    .filter(Boolean).join(' ').toLowerCase().includes(q));
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        {(['pending', 'approved', 'rejected', 'all'] as const).map((s) => (
-          <Button key={s} size="sm" variant={filter === s ? 'default' : 'outline'} onClick={() => setFilter(s)} className="capitalize">
-            {s}{s !== 'all' && counts[s] != null ? ` (${counts[s]})` : ''}
-          </Button>
+        <SearchBox value={search} onChange={setSearch} placeholder="Company, GSTIN or phone" label="Search applications" />
+        <span className="text-sm tabular-nums text-ink-soft">{shownApps.length} of {apps.length}</span>
+        <div className="ml-auto flex items-center gap-2">
+          <ExportMenu filename="b2b-applications" columns={APPLICATION_CSV} rows={shownApps} canExport />
+          <Button size="sm" variant="outline" onClick={load}>Refresh</Button>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {(['pending', 'approved', 'rejected', 'all'] as const).map((st) => (
+          <FilterChip key={st} on={filter === st} tone={st === 'pending' ? 'warn' : st === 'rejected' ? 'bad' : undefined}
+            count={st !== 'all' ? counts[st] : undefined} onClick={() => setFilter(st)}>
+            <span className="capitalize">{st === 'all' ? 'All' : st}</span>
+          </FilterChip>
         ))}
-        <div className="flex-1" />
-        <Button size="sm" variant="secondary" onClick={load}>Refresh</Button>
       </div>
 
       {error && <div className="bg-destructive/15 text-destructive p-3 rounded-md text-sm">{error}</div>}
@@ -126,6 +151,10 @@ export default function B2BApplications() {
 
       {loading ? (
         <div className="flex justify-center p-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+      ) : shownApps.length === 0 && apps.length > 0 ? (
+        <div className="rounded-md border border-dashed border-line p-10 text-center">
+          <p className="text-sm font-medium text-ink">Nothing matches that search</p>
+        </div>
       ) : apps.length === 0 ? (
         <div className="flex flex-col items-center justify-center p-12 text-center">
           <Inbox className="h-12 w-12 text-muted-foreground mb-3" />
@@ -149,7 +178,7 @@ export default function B2BApplications() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {apps.map((a) => (
+              {shownApps.map((a) => (
                 <TableRow key={a.id}>
                   <TableCell>
                     <div className="font-medium">{a.company_name}</div>

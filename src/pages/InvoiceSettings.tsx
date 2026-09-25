@@ -274,10 +274,19 @@ const InvoiceSettings: React.FC = () => {
                 hold: a pharmacy usually has <strong>several drug licences</strong> (one per form,
                 per premises or per state), and each gets its own row. They print on every document
                 you issue — invoices, proformas and credit notes. Add the expiry date and this page
-                warns you before one runs out.
+                warns you {cfg.licence_warning_days ?? 60} days before one runs out.
               </CardDescription>
             </div>
-            <Button variant="outline" size="sm" onClick={addLicence}><Plus className="mr-1.5 h-4 w-4" /> Add licence</Button>
+            <div className="flex items-end gap-2">
+              <Field label="Warn this many days before expiry" hint="Settings 4.4 — amber from here, red once expired.">
+                <Input
+                  type="number" min={1} max={365} className="w-28"
+                  value={cfg.licence_warning_days ?? 60}
+                  onChange={(e) => set('licence_warning_days', Math.min(365, Math.max(1, Number(e.target.value) || 60)))}
+                />
+              </Field>
+              <Button variant="outline" size="sm" onClick={addLicence}><Plus className="mr-1.5 h-4 w-4" /> Add licence</Button>
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
             {expiringLicences.length > 0 && (

@@ -482,10 +482,11 @@ const AbandonedCartDetail: React.FC = () => {
   );
 
   return (
-    /* Full-bleed: cancels Layout.tsx's own padding, same as Order Detail. */
-    <div className="-m-4 md:-m-6 lg:-m-8 bg-slate-50 min-h-screen">
+    /* The shell's own inset (T4's --content-pad token) is the only padding;
+       the old -m-* cancel hack is gone (Prompt 9 §7). */
+    <div className="min-h-screen">
       {/* ── Command band — the whole cart in one line, sticky while scrolling ── */}
-      <div className="sticky top-0 z-20 bg-white border-b border-slate-200 shadow-sm">
+      <div className="sticky top-0 z-20 rounded-md border border-line bg-surface shadow-sm">
         <div className="px-4 md:px-6 py-2.5 flex items-center gap-3 flex-nowrap overflow-x-auto">
           <Link
             to="/orders/abandoned-carts"
@@ -572,7 +573,7 @@ const AbandonedCartDetail: React.FC = () => {
         </div>
       </div>
 
-      <div className="px-4 md:px-6 py-4 space-y-4">
+      <div className="py-4 space-y-4">
         {/* Items — FULL WIDTH above the grid, as on Order Detail. The scroller
             needs w-0 min-w-full: a flex/grid child's min-width:auto otherwise
             lets a wide table widen the whole PAGE (COMMON_MISTAKES #215). */}
