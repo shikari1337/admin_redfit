@@ -44,6 +44,11 @@ interface CartRecord {
   customerTotal?: number | null;
   priceBasis?: 'b2b' | 'retail' | null;
   pricedAt?: string | null;
+  /** Why automatic recovery will NOT message this cart, in plain words — absent
+   *  when it will. The server answers with the same rule the sweep runs
+   *  (db/queries/carts.ts CHASEABLE_CART_SQL), so this screen can never promise
+   *  a nudge that never goes out. */
+  notChaseableReason?: string | null;
   user?: {
     _id: string;
     name?: string;
@@ -587,6 +592,11 @@ const AbandonedCarts: React.FC = () => {
                         </div>
                       ) : (
                         <span className="text-xs text-gray-400">Anonymous cart</span>
+                      )}
+                      {cart.notChaseableReason && (
+                        <div className="mt-1 text-xs text-amber-700" title="Automatic recovery skips this cart. You can still send a message by hand from the cart's own page.">
+                          Not messaged: {cart.notChaseableReason}
+                        </div>
                       )}
                     </td>
                     {/* Value first, then WHAT is in the cart on one line. The

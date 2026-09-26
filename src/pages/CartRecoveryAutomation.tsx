@@ -77,8 +77,11 @@ const CartRecoveryAutomation: React.FC = () => {
         setSteps(loaded);
         setOriginal(JSON.parse(JSON.stringify(loaded)));
 
+        // ONE cart SMS body, not one per step: an Indian SMS must match a
+        // DLT-registered template character for character, and a store
+        // registers one cart template. Every step sends that same body.
         const preview: Record<string, string> = {};
-        asArray(smsRows).forEach((t: any) => { if (t.event?.startsWith('cart_recovery_')) preview[t.event] = t.content || ''; });
+        asArray(smsRows).forEach((t: any) => { if (t.event === 'cart_recovery') preview.cart_recovery = t.content || ''; });
         setSmsPreview(preview);
 
         // Fetches live from the store's real WhatsApp Business account (an
@@ -354,7 +357,12 @@ const CartRecoveryAutomation: React.FC = () => {
                 {step.channels.sms.enabled && (
                   <div className="space-y-2 pl-1">
                     <p className="text-sm bg-muted/50 border rounded-md p-3 font-mono">
-                      {smsPreview[`cart_recovery_${step.key}`] || <span className="text-muted-foreground italic">Using the default wording — edit it below.</span>}
+                      {smsPreview.cart_recovery || <span className="text-muted-foreground italic">No cart SMS template registered yet — nothing will send on SMS.</span>}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Every step sends this same text. An SMS in India must match your DLT-registered
+                      template word for word, and you register one cart template — so the wording cannot
+                      change per step. Vary the message on email and WhatsApp instead.
                     </p>
                     <Button type="button" variant="outline" size="sm" onClick={() => navigate('/settings/sms-templates')}>
                       Edit wording in Settings → SMS Templates <ExternalLink className="ml-2 h-3.5 w-3.5" />
