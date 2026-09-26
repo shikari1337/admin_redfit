@@ -29,9 +29,9 @@ const LayoutPreview: React.FC<{ layout: LayoutDraft; smsFixed?: boolean }> = ({ 
   const bg = layout.bgColor || 'var(--surface-2)';
   const border = layout.borderColor || 'var(--line)';
   const muted = layout.mutedColor || 'var(--ink-soft)';
-  const name = layout.brandName || 'Growcord';
+  const name = layout.brandName || 'Your store';
   const f = layout;
-  const signature = layout.smsSignature || '-GROWCORD';
+  const signature = layout.smsSignature || '-YOURSTORE';
   const contact = [f.supportEmail, f.supportPhone].filter(Boolean).join(' · ');
 
   return (

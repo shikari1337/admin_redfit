@@ -16,8 +16,16 @@ import { Chip } from '@/components/erp/StatusChip';
 export type PreviewLayout = 'store' | 'growcord';
 
 const LAYOUT_SOURCE_LABEL: Record<string, string> = {
-  store: 'Store header', product: 'Product header', growcord: 'Growcord header',
+  store: 'Store header', store_identity: 'Store identity', product: 'Product header', growcord: 'Growcord header',
 };
+
+/**
+ * Growcord's own SaaS (Prompt 11). Every other product's message is sent by the
+ * STORE and its default frame is the store's own identity, never Growcord's —
+ * mirrors `GROWCORD_SENDER_PRODUCTS` in backend config/messageTemplates/_types.ts
+ * (the server's `layoutSource` is the authority; this only names the toggle).
+ */
+const GROWCORD_SENDER_PRODUCTS = new Set(['growcord', 'hub', 'domains', 'links', 'wa', 'website', 'insights', 'reach']);
 
 const ServerPreview: React.FC<{
   templateKey: string;
@@ -32,6 +40,7 @@ const ServerPreview: React.FC<{
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const draftKey = JSON.stringify(draft ?? null);
+  const storeMessage = !GROWCORD_SENDER_PRODUCTS.has(templateKey.includes('.') ? templateKey.split('.')[0] : 'commerce');
 
   useEffect(() => {
     let cancelled = false;
@@ -59,11 +68,11 @@ const ServerPreview: React.FC<{
           {(['store', 'growcord'] as const).map((l) => (
             <button key={l} type="button" role="tab" aria-selected={layout === l} onClick={() => onLayout(l)}
               className={`rounded px-2.5 py-1 text-xs font-medium ${layout === l ? 'bg-brand text-brand-ink' : 'text-ink-soft hover:text-ink'}`}>
-              {l === 'store' ? 'Store layout' : 'Growcord layout'}
+              {l === 'store' ? 'Store layout' : storeMessage ? 'Default (store identity)' : 'Growcord layout'}
             </button>
           ))}
         </div>
-        {data?.layoutSource && <Chip tone={data.layoutSource === 'store' ? 'blue' : 'neutral'}>{LAYOUT_SOURCE_LABEL[data.layoutSource] ?? data.layoutSource}</Chip>}
+        {data?.layoutSource && <Chip tone={data.layoutSource === 'store' || data.layoutSource === 'store_identity' ? 'blue' : 'neutral'}>{LAYOUT_SOURCE_LABEL[data.layoutSource] ?? data.layoutSource}</Chip>}
         {loading && <Loader2 className="h-3.5 w-3.5 animate-spin text-ink-mute" />}
       </div>
 
