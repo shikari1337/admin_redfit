@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { X, Loader2, AlertTriangle, RefreshCw, Wallet, PackagePlus } from 'lucide-react';
 import { api } from '../../services/api';
 import { payload } from '@/lib/unwrap';
-import { inr } from '../../components/erp';
+import { inrMinor } from '../../components/erp';
 
 /**
  * SETTLE A RETURN — the one screen where a return turns into money or goods.
@@ -190,7 +190,7 @@ const SettleReturnModal: React.FC<Props> = ({ returnDoc, onClose, onSettled }) =
                         {l.qty_received} received
                       </span>
                       <span className="text-sm font-medium tabular-nums whitespace-nowrap">
-                        {inr(Number(l.eligible_amount_minor ?? 0))}
+                        {inrMinor(Number(l.eligible_amount_minor ?? 0))}
                       </span>
                     </label>
                   ))}
@@ -201,14 +201,14 @@ const SettleReturnModal: React.FC<Props> = ({ returnDoc, onClose, onSettled }) =
               <div className="p-3 rounded-lg bg-muted/60 border border-border">
                 <div className="flex items-baseline justify-between gap-4 mb-1.5">
                   <span className="text-sm font-medium">What will happen</span>
-                  <span className="text-base font-semibold tabular-nums">{inr(chosenValue)}</span>
+                  <span className="text-base font-semibold tabular-nums">{inrMinor(chosenValue)}</span>
                 </div>
                 <p className="text-xs text-muted-foreground leading-relaxed">{opt.consequence}</p>
                 {returnDoc?.claimed_amount_minor != null
                   && Number(returnDoc.claimed_amount_minor) !== chosenValue && (
                   <p className="text-xs text-muted-foreground mt-2 pt-2 border-t border-border">
                     The customer asked for{' '}
-                    <span className="font-medium">{inr(Number(returnDoc.claimed_amount_minor))}</span>.
+                    <span className="font-medium">{inrMinor(Number(returnDoc.claimed_amount_minor))}</span>.
                     The figure above is what this order actually recorded for these items.
                   </p>
                 )}

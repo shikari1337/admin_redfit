@@ -7,7 +7,7 @@ import {
 import { api } from '../services/api';
 import { payload } from '@/lib/unwrap';
 import { useAuth } from '../contexts/AuthContext';
-import { inr, Chip } from '../components/erp';
+import { inrMinor, Chip } from '../components/erp';
 import { formatDate } from '../utils/date';
 import ReturnDetailPanel from '../components/returns/ReturnDetailPanel';
 import { FilterChip, SearchBox } from '../components/sales/ListChrome';
@@ -273,7 +273,7 @@ const Returns: React.FC = () => {
                       </Chip>
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums text-sm font-medium">
-                      {r.eligible_amount_minor != null ? inr(Number(r.eligible_amount_minor)) : '—'}
+                      {r.eligible_amount_minor != null ? inrMinor(Number(r.eligible_amount_minor)) : '—'}
                     </td>
                     <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
                       {r.created_at ? formatDate(r.created_at, 'dd MMM yyyy') : '—'}

@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { payload } from '@/lib/unwrap';
-import { inr, Chip } from '../../components/erp';
+import { inrMinor, Chip } from '../../components/erp';
 import { formatDate, formatDateTime } from '../../utils/date';
 import ReturnPhotos from './ReturnPhotos';
 import ReceiveGoodsModal from './ReceiveGoodsModal';
@@ -187,7 +187,7 @@ const ReturnDetailPanel: React.FC<Props> = ({
           {/* Facts strip */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
             <Fact label="Eligible value"
-                  value={doc?.eligible_amount_minor != null ? inr(Number(doc.eligible_amount_minor)) : '—'} />
+                  value={doc?.eligible_amount_minor != null ? inrMinor(Number(doc.eligible_amount_minor)) : '—'} />
             <Fact label="Units received" value={`${totalReceived}`} />
             <Fact label="Awaiting decision"
                   value={`${awaitingDisposition}`}
@@ -218,7 +218,7 @@ const ReturnDetailPanel: React.FC<Props> = ({
               <Row label="Sending it back by" value={
                 meta?.modes?.find((m: any) => m.code === doc?.return_mode)?.label ?? '—'} />
               <Row label="They asked for" value={
-                doc?.claimed_amount_minor != null ? inr(Number(doc.claimed_amount_minor)) : '—'} />
+                doc?.claimed_amount_minor != null ? inrMinor(Number(doc.claimed_amount_minor)) : '—'} />
             </dl>
             {doc?.reason && doc?.reason_code && doc.reason !== doc.reason_code && (
               <p className="mt-3 text-sm bg-muted rounded-md p-3">{doc.reason}</p>
@@ -365,11 +365,11 @@ const ReturnDetailPanel: React.FC<Props> = ({
                       </div>
                       <div className="text-right shrink-0">
                         <p className="text-sm font-medium tabular-nums">
-                          {l.eligible_amount_minor != null ? inr(Number(l.eligible_amount_minor)) : '—'}
+                          {l.eligible_amount_minor != null ? inrMinor(Number(l.eligible_amount_minor)) : '—'}
                         </p>
                         {l.unit_price_minor != null && (
                           <p className="text-xs text-muted-foreground tabular-nums">
-                            {inr(Number(l.unit_price_minor))} each
+                            {inrMinor(Number(l.unit_price_minor))} each
                           </p>
                         )}
                       </div>
@@ -460,7 +460,7 @@ const ReturnDetailPanel: React.FC<Props> = ({
                 <p className="text-sm text-muted-foreground">
                   {totalReceived} unit{totalReceived !== 1 ? 's' : ''} received, worth{' '}
                   <span className="font-medium text-foreground">
-                    {doc?.eligible_amount_minor != null ? inr(Number(doc.eligible_amount_minor)) : '—'}
+                    {doc?.eligible_amount_minor != null ? inrMinor(Number(doc.eligible_amount_minor)) : '—'}
                   </span>. Nothing has been credited or refunded yet.
                 </p>
                 {canSettle && (
