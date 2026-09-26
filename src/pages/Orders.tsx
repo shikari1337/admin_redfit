@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast"; // Assuming useToast is available, fallback to alert if not
 import { FaCheckCircle } from 'react-icons/fa';
+import OrderBulkBar from '../components/order/OrderBulkBar';
 
 /**
  * THE OPTIONAL COLUMNS.
@@ -235,6 +236,9 @@ const Orders: React.FC = () => {
   const [confirmingOrder, setConfirmingOrder] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [exporting, setExporting] = useState(false);
+  // People the bulk bar may hand orders to. Loaded once — the list is small and
+  // the bar needs it the moment a row is ticked.
+  const [assignableStaff, setAssignableStaff] = useState<Array<{ id: string; name: string | null; role: string }>>([]);
   const [showRecoverPayment, setShowRecoverPayment] = useState(false);
   // ERP hand-off: the legacy "Order Items Export" workbook the store's ERP
   // imports (since-last-export watermark or a custom date range).
@@ -253,6 +257,13 @@ const Orders: React.FC = () => {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
     return () => clearTimeout(t);
   }, [search]);
+
+  // Best-effort: the bulk bar drops its Assign picker rather than blocking if
+  // this fails (a desk role may not be allowed to read the staff list).
+  useEffect(() => {
+    if (!canManageOrders) return;
+    ordersAPI.assignableStaff().then(setAssignableStaff).catch(() => setAssignableStaff([]));
+  }, [canManageOrders]);
 
   // Any filter/search change starts back at page 1 — otherwise a narrower
   // result set can leave the page number pointing past the last real page.
@@ -588,11 +599,8 @@ const Orders: React.FC = () => {
                 <DropdownMenuItem onClick={() => handleExport(false)} disabled={exporting}>
                   <FaDownload className="mr-2 h-3 w-3" /> {exporting ? 'Exporting…' : 'All orders (CSV)'}
                 </DropdownMenuItem>
-                {selectedIds.length > 0 && (
-                  <DropdownMenuItem onClick={() => handleExport(true)} disabled={exporting}>
-                    <FaDownload className="mr-2 h-3 w-3" /> {selectedIds.length} selected (CSV)
-                  </DropdownMenuItem>
-                )}
+                {/* Exporting the SELECTION lives on the bulk bar, where the
+                    selection is — one place per action, not two. */}
                 <DropdownMenuItem onClick={() => setShowErpExport(true)}>
                   <FaFileExcel className="mr-2 h-3 w-3" /> For the ERP (Excel)
                 </DropdownMenuItem>
@@ -646,6 +654,20 @@ const Orders: React.FC = () => {
           </p>
         )}
       </div>
+
+      {/* What you can DO with a selection. Sits between the filters and the
+          table, so it appears exactly where the ticked rows are. */}
+      <OrderBulkBar
+        rows={shown}
+        selectedIds={selectedIds}
+        onClear={() => setSelectedIds([])}
+        onDone={fetchOrders}
+        canManageOrders={canManageOrders}
+        canManageShipments={canAccess('shipping') && canManageShipments}
+        onExportSelected={() => handleExport(true)}
+        exporting={exporting}
+        staff={assignableStaff}
+      />
 
       <div className="w-0 min-w-full overflow-x-auto rounded-md border border-line bg-surface">
         <Table>
