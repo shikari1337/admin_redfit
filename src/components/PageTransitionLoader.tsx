@@ -18,7 +18,8 @@ const PageTransitionLoader: React.FC = () => {
   useEffect(() => {
     if (firstMount.current) { firstMount.current = false; return; }
     setVisible(true);
-    const timer = setTimeout(() => setVisible(false), 450);
+    // A gentle glide (the theme's slow duration), not a flick.
+    const timer = setTimeout(() => setVisible(false), 900);
     return () => clearTimeout(timer);
   }, [location.pathname]);
 
@@ -28,7 +29,7 @@ const PageTransitionLoader: React.FC = () => {
     <div className="pointer-events-none fixed inset-x-0 top-0 z-[9999] h-0.5 overflow-hidden">
       <div
         className="h-full bg-primary"
-        style={{ animation: 'route-progress 450ms ease-out forwards' }}
+        style={{ animation: 'route-progress 900ms var(--ease) forwards' }}
       />
       <style>{`@keyframes route-progress { from { width: 0%; opacity: 1; } 80% { width: 85%; } to { width: 100%; opacity: 0; } }`}</style>
     </div>

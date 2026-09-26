@@ -1,4 +1,5 @@
 import { Component, ErrorInfo, ReactNode } from 'react';
+import { isChunkLoadError, reloadForNewBuild } from '../lib/lazyRetry';
 
 interface Props {
   children: ReactNode;
@@ -8,6 +9,8 @@ interface State {
   hasError: boolean;
   error: Error | null;
   errorInfo: ErrorInfo | null;
+  /** A new build was published under this tab; the page is reloading itself. */
+  reloading: boolean;
 }
 
 class ErrorBoundary extends Component<Props, State> {
@@ -17,10 +20,11 @@ class ErrorBoundary extends Component<Props, State> {
       hasError: false,
       error: null,
       errorInfo: null,
+      reloading: false,
     };
   }
 
-  static getDerivedStateFromError(error: Error): State {
+  static getDerivedStateFromError(error: Error): Partial<State> {
     return {
       hasError: true,
       error,
@@ -29,6 +33,12 @@ class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    // A chunk that no longer exists means the admin was redeployed while this
+    // tab was open. That is not a fault to show — reload onto the new build.
+    if (isChunkLoadError(error) && reloadForNewBuild()) {
+      this.setState({ reloading: true, error, errorInfo });
+      return;
+    }
     console.error('ErrorBoundary caught an error:', error, errorInfo);
     this.setState({
       error,
@@ -37,6 +47,13 @@ class ErrorBoundary extends Component<Props, State> {
   }
 
   render() {
+    if (this.state.hasError && this.state.reloading) {
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', fontFamily: 'var(--font, system-ui)', backgroundColor: 'var(--bg)', color: 'var(--ink-soft)' }}>
+          <p style={{ fontSize: '14px' }}>A new version of the admin was just published — reloading…</p>
+        </div>
+      );
+    }
     if (this.state.hasError) {
       return (
         <div style={{

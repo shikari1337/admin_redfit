@@ -16,14 +16,12 @@ import { api } from '../../services/api';
 import { payload } from '../../lib/unwrap';
 
 export interface HomeSources {
-  commerce: any | null;      // /analytics/panels/commerce       (orders.read)
   orders: any | null;        // /analytics/panels/orders         (orders.read)
   inventory: any | null;     // /analytics/panels/inventory      (inventory.read + inventory)
   refunds: any | null;       // /refunds/summary                 (orders.read)
   floor: any | null;         // /wms/floor/today                 (warehouse.read + wms)
   receivables: any | null;   // /ar/outstanding                  (accounting.read + accounting)
   platformBill: any | null;  // /billing/overview                (billing.read)
-  marketing: any | null;     // /marketing-hub/overview          (marketing.read + marketing)
   reviews: any | null;       // /reviews/admin/counts            (content.read + reviews)
   questions: any | null;     // /product-questions/admin/counts  (content.read + product_qa)
   carts: any | null;         // /carts/admin?status=abandoned    (orders.read) — `total` only
@@ -40,18 +38,9 @@ interface Gate {
   modulesLoaded: boolean;
 }
 
-/** Today in the STORE's civil day — the server ranges on the same boundary. */
-function todayRange(): { from: string; to: string } {
-  // `toISOString().slice(0,10)` is the UTC day and is wrong for 5.5h every day
-  // (CLAUDE.md rule 8). `en-CA` formats as YYYY-MM-DD in the viewer's zone,
-  // which the axios layer has already aligned to the store's.
-  const d = new Date().toLocaleDateString('en-CA');
-  return { from: d, to: d };
-}
-
 const EMPTY: HomeSources = {
-  commerce: null, orders: null, inventory: null, refunds: null, floor: null,
-  receivables: null, platformBill: null, marketing: null,
+  orders: null, inventory: null, refunds: null, floor: null,
+  receivables: null, platformBill: null,
   reviews: null, questions: null, carts: null, b2bApps: null, enquiries: null,
   withheld: [], loading: true,
 };
@@ -87,36 +76,36 @@ export function useHomeFeed(gate: Gate): HomeSources {
         .catch(() => null);
     };
 
-    const range = todayRange();
+    // Today's sales are NOT asked for here: the dashboard already reads
+    // /analytics/panels/commerce for its own tiles and hands the board the
+    // summary it needs (refund-due). The floor is only a warehouse role's
+    // concern, and only when the store has the WMS.
     const sellRead = gate.hasPerm('orders.read');
     const stockRead = gate.hasPerm('inventory.read') && gate.canAccess('inventory');
-    const floorRead = (gate.hasPerm('warehouse.read') || gate.hasPerm('inventory.read')) && gate.canAccess('wms');
+    const floorRead = (gate.hasPerm('warehouse.read') || gate.hasPerm('warehouse.operate')) && gate.canAccess('wms');
     const booksRead = gate.hasPerm('accounting.read') && gate.canAccess('accounting');
     const billRead = gate.hasPerm('billing.read');
-    const mktRead = gate.hasPerm('marketing.read') && gate.canAccess('marketing');
     const reviewsRead = gate.hasPerm('content.read') && gate.canAccess('reviews');
     const qaRead = gate.hasPerm('content.read') && gate.canAccess('product_qa');
     const b2bRead = gate.hasPerm('b2b.read') && gate.canAccess('b2b');
     const custRead = gate.hasPerm('customers.read');
 
     Promise.all([
-      get('/analytics/panels/commerce', sellRead, 'Today’s sales', range),
       get('/analytics/panels/orders', sellRead, 'Order queues'),
       get('/analytics/panels/inventory', stockRead, 'Stock'),
       get('/refunds/summary', sellRead, 'Refunds'),
       get('/wms/floor/today', floorRead, 'The floor'),
       get('/ar/outstanding', booksRead, 'Receivables'),
       get('/billing/overview', billRead, 'Your Growcord bill'),
-      get('/marketing-hub/overview', mktRead, 'Marketing'),
       get('/reviews/admin/counts', reviewsRead, 'Reviews'),
       get('/product-questions/admin/counts', qaRead, 'Questions'),
       total('/carts/admin', sellRead, 'Abandoned carts', { status: 'abandoned', limit: 1 }),
       get('/b2b/applications', b2bRead, 'B2B applications', { status: 'pending' }),
       get('/contact/stats', custRead, 'Enquiries'),
-    ]).then(([commerce, orders, inventory, refunds, floor, receivables, platformBill, marketing, reviews, questions, carts, b2bApps, enquiries]) => {
+    ]).then(([orders, inventory, refunds, floor, receivables, platformBill, reviews, questions, carts, b2bApps, enquiries]) => {
       if (!alive) return;
       setState({
-        commerce, orders, inventory, refunds, floor, receivables, platformBill, marketing,
+        orders, inventory, refunds, floor, receivables, platformBill,
         reviews, questions, carts, b2bApps, enquiries,
         withheld, loading: false,
       });

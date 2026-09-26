@@ -35,8 +35,14 @@ const n = (v: unknown): number => {
   return Number.isFinite(x) ? x : 0;
 };
 
+/** The slice of today's commerce summary the board reads (the dashboard already fetched it). */
+export interface CommerceSummary {
+  refund_due_orders?: number;
+  refund_due?: number;
+}
+
 /** Every queue with work in it, in the order the desk works them. */
-export function buildTasks(f: HomeSources): Task[] {
+export function buildTasks(f: HomeSources, commerce?: CommerceSummary | null): Task[] {
   const t: Task[] = [];
   const byStatus: Record<string, number> = f.orders?.by_status ?? {};
 
@@ -79,11 +85,11 @@ export function buildTasks(f: HomeSources): Task[] {
   if (n(f.refunds?.failed?.count)) {
     t.push({ count: n(f.refunds.failed.count), label: 'refunds that failed to send', to: '/panel/orders/refunds', icon: AlertTriangle, urgent: true });
   }
-  if (n(f.commerce?.summary?.refund_due_orders)) {
+  if (n(commerce?.refund_due_orders)) {
     t.push({
-      count: n(f.commerce.summary.refund_due_orders), label: 'paid orders cancelled with no refund raised',
+      count: n(commerce?.refund_due_orders), label: 'paid orders cancelled with no refund raised',
       to: '/panel/orders/refunds', icon: AlertTriangle, urgent: true,
-      note: fmtRupees(f.commerce.summary.refund_due),
+      note: fmtRupees(commerce?.refund_due ?? 0),
     });
   }
   const returns = n(f.orders?.summary?.returns);
@@ -138,8 +144,8 @@ export function buildTasks(f: HomeSources): Task[] {
   return t;
 }
 
-export const AttentionBoard: React.FC<{ feed: HomeSources }> = ({ feed }) => {
-  const tasks = buildTasks(feed);
+export const AttentionBoard: React.FC<{ feed: HomeSources; commerce?: CommerceSummary | null }> = ({ feed, commerce }) => {
+  const tasks = buildTasks(feed, commerce);
   const urgent = tasks.filter((t) => t.urgent).length;
   return (
     <section aria-label="Needs your attention" data-attention-board>

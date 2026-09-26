@@ -10,6 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { inventoryAPI } from '../services/api';
 import { useHomeFeed } from '../components/home/useHomeFeed';
 import { AttentionBoard } from '../components/home/AttentionBoard';
+import { useInView } from '../components/panelAnalytics/useInView';
 
 /**
  * Narrowing funnel bar — the same visual GrowthAnalytics uses for the
@@ -99,15 +100,20 @@ const Dashboard: React.FC = () => {
   const s = data?.summary;
   const bucket = data?.bucket ?? 'day';
 
+  // Everything under the first screen — funnels, campaigns, GA4, top lists,
+  // stock lists — is asked for only once the person scrolls towards it. The
+  // board, the KPI tiles and the sales chart are the first screen.
+  const [belowRef, below] = useInView<HTMLDivElement>();
+
   const qaEnabled = modulesLoaded && canAccess('product_qa') && hasPerm('content.read');
   const reviewsEnabled = modulesLoaded && canAccess('reviews') && hasPerm('content.read');
-  const inventoryEnabled = modulesLoaded && canAccess('inventory') && hasPerm('inventory.read');
-  const shippingEnabled = modulesLoaded && canAccess('shipping') && hasPerm('shipments.read');
-  const marketingEnabled = modulesLoaded && canAccess('marketing') && hasPerm('marketing.read');
+  const inventoryEnabled = below && modulesLoaded && canAccess('inventory') && hasPerm('inventory.read');
+  const shippingEnabled = below && modulesLoaded && canAccess('shipping') && hasPerm('shipments.read');
+  const marketingEnabled = below && modulesLoaded && canAccess('marketing') && hasPerm('marketing.read');
   // GA4 reads go through the Google connector, so a store without the
   // connectors module is never asked (a 409 "not connected" is still possible
   // with the module on — that answer is swallowed below, by design).
-  const gaEnabled = modulesLoaded && canAccess('connectors') && hasPerm('reports.read');
+  const gaEnabled = below && modulesLoaded && canAccess('connectors') && hasPerm('reports.read');
 
   const { data: qa } = useRangedGet<any>('/product-questions/admin/counts', range, qaEnabled);
   const { data: reviews } = useRangedGet<any>('/reviews/admin/counts', range, reviewsEnabled);
@@ -163,7 +169,7 @@ const Dashboard: React.FC = () => {
         <DateRangeBar preset={preset} onPreset={setPreset} custom={custom} onCustom={setCustom} presets={DASHBOARD_PRESETS} />
       </div>
 
-      <AttentionBoard feed={feed} />
+      <AttentionBoard feed={feed} commerce={s ?? null} />
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
       {loading && !data && <div className="flex h-40 items-center justify-center"><LoadingSpinner size="lg" color="primary" text="Loading analytics..." /></div>}
@@ -239,6 +245,9 @@ const Dashboard: React.FC = () => {
             <TimeSeries data={data.timeseries} granularity={bucket} height={200}
               series={[{ key: 'orders', name: 'Orders', color: SERIES[0], kind: 'bar' }]} />
           </ChartCard>
+
+          {/* From here down: requested only once scrolled towards (useInView). */}
+          <div ref={belowRef} aria-hidden className="h-px" />
 
           {shippingEnabled && shipping && (
             <div className="grid gap-6 lg:grid-cols-3">

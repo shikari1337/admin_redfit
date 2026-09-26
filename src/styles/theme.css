@@ -27,30 +27,30 @@
 :root {
     color-scheme: light dark;
     accent-color: var(--accent);
-    /* Neutral — Warm green-grey. Canvas, ink, lines, table stripes. Tailwind gray/slate/zinc/neutral/stone. */
-    --n-50: #f7f8f6;
-    --n-100: #eff1ee;
-    --n-200: #e2e6e2;
-    --n-300: #cbd2cc;
-    --n-400: #9ba69f;
-    --n-500: #67736c;
-    --n-600: #545f59;
-    --n-700: #3e4944;
-    --n-800: #29322e;
-    --n-900: #1c2422;
-    --n-950: #111715;
-    /* Brand — Growcord forest green. The one accent: primary buttons, active nav, focus, links. Tailwind indigo/violet/purple/fuchsia/pink. */
-    --b-50: #eef5f1;
-    --b-100: #d8ebe2;
-    --b-200: #b3d6c6;
-    --b-300: #86bba5;
-    --b-400: #579c83;
-    --b-500: #3b8068;
-    --b-600: #2e6a56;
-    --b-700: #265747;
-    --b-800: #1f463a;
-    --b-900: #18372e;
-    --b-950: #0e231c;
+    /* Neutral — Warm stone grey — sits beside the orange without a green or blue cast. Canvas, ink, lines, table stripes. Tailwind gray/slate/zinc/neutral/stone. */
+    --n-50: #faf9f7;
+    --n-100: #f4f2ef;
+    --n-200: #e7e4df;
+    --n-300: #d3cfc8;
+    --n-400: #a49f97;
+    --n-500: #746f68;
+    --n-600: #5d5852;
+    --n-700: #46423d;
+    --n-800: #302d29;
+    --n-900: #211f1c;
+    --n-950: #141311;
+    /* Brand — Growcord orange (growcord.in’s orange-600). The one accent: primary buttons, active nav, links, focus. Tailwind indigo/violet/purple/fuchsia/pink map here. */
+    --b-50: #fff7ed;
+    --b-100: #ffedd5;
+    --b-200: #fed7aa;
+    --b-300: #fdba74;
+    --b-400: #fb923c;
+    --b-500: #f97316;
+    --b-600: #ea580c;
+    --b-700: #c2410c;
+    --b-800: #9a3412;
+    --b-900: #7c2d12;
+    --b-950: #431407;
     /* Good — Success, in stock, paid, delivered. A fresher green than the brand so status never reads as chrome. Tailwind green/emerald/lime/teal. */
     --g-50: #e9f7ef;
     --g-100: #cbedd9;
@@ -63,18 +63,18 @@
     --g-800: #114d34;
     --g-900: #0e3d2b;
     --g-950: #06231a;
-    /* Warn — Needs attention, pending, expiring, low stock. Tailwind amber/yellow/orange. */
-    --w-50: #fdf4e3;
-    --w-100: #fae5bd;
-    --w-200: #f5cd85;
-    --w-300: #eeb14b;
-    --w-400: #dd9420;
-    --w-500: #c07c0e;
-    --w-600: #a4650a;
-    --w-700: #83500a;
-    --w-800: #673f0b;
-    --w-900: #52320a;
-    --w-950: #2e1c05;
+    /* Warn — Needs attention, pending, expiring, low stock. GOLD, not orange — the brand is orange, so a warning must be a different hue. Tailwind amber/yellow map here. */
+    --w-50: #fffbeb;
+    --w-100: #fef3c7;
+    --w-200: #fde68a;
+    --w-300: #facc15;
+    --w-400: #eab308;
+    --w-500: #ca8a04;
+    --w-600: #a16207;
+    --w-700: #854d0e;
+    --w-800: #713f12;
+    --w-900: #5f3512;
+    --w-950: #422006;
     /* Bad — Failed, cancelled, out of stock, destructive actions. Tailwind red/rose. */
     --d-50: #fdeeec;
     --d-100: #fad9d5;
@@ -99,25 +99,13 @@
     --i-800: #183a66;
     --i-900: #152f52;
     --i-950: #0c1b30;
-    /* Growcord orange — The company's orange (growcord.in's stats band, orange-600). Highlights, offers and first-year price tags; a product may promote it to an accent. Tailwind orange. */
-    --o-50: #fff7ed;
-    --o-100: #ffedd5;
-    --o-200: #fed7aa;
-    --o-300: #fdba74;
-    --o-400: #fb923c;
-    --o-500: #f97316;
-    --o-600: #ea580c;
-    --o-700: #c2410c;
-    --o-800: #9a3412;
-    --o-900: #7c2d12;
-    --o-950: #431407;
 
     /* Surfaces */
-    --bg: #f4f5f3;
+    --bg: #f6f4f1;
     --surface: #ffffff;
     --surface-2: var(--n-50);
     --surface-raised: #ffffff;
-    --scrim: rgb(20 32 27 / 0.42);
+    --scrim: rgb(28 22 16 / 0.42);
 
     /* Ink */
     --ink: var(--n-900);
@@ -151,11 +139,76 @@
     --info-ink: var(--i-800);
 
     /* Sidebar rail */
-    --side: #13201b;
-    --side-ink: #a9b8b0;
+    --side: #1e1915;
+    --side-ink: #b9ada2;
     --side-ink-strong: #ffffff;
     --side-line: rgb(255 255 255 / 0.08);
     --side-active: var(--accent);
+
+    /* Products — One colour per Growcord platform (owner, 2026-09-27), each chosen to sit well beside the orange brand: blue and teal (its complements), violet and rose (its triad), amber (its warm sibling), green for WhatsApp. A panel sets `--accent` to its own product token on its root and derives hover/soft from it; the hub’s cards and the admin’s product tabs read the same names. */
+    --product-commerce: var(--accent);
+    --product-commerce-soft: color-mix(in oklab, var(--product-commerce) 12%, var(--surface));
+    --product-commerce-deep: color-mix(in oklab, var(--product-commerce) 78%, black);
+    --product-domains: #1d5fd1;
+    --product-domains-soft: color-mix(in oklab, var(--product-domains) 12%, var(--surface));
+    --product-domains-deep: color-mix(in oklab, var(--product-domains) 78%, black);
+    --product-comms: #128c7e;
+    --product-comms-soft: color-mix(in oklab, var(--product-comms) 12%, var(--surface));
+    --product-comms-deep: color-mix(in oklab, var(--product-comms) 78%, black);
+    --product-wa: var(--product-comms);
+    --product-wa-soft: color-mix(in oklab, var(--product-wa) 12%, var(--surface));
+    --product-wa-deep: color-mix(in oklab, var(--product-wa) 78%, black);
+    --product-books: #0f766e;
+    --product-books-soft: color-mix(in oklab, var(--product-books) 12%, var(--surface));
+    --product-books-deep: color-mix(in oklab, var(--product-books) 78%, black);
+    --product-ship: #0369a1;
+    --product-ship-soft: color-mix(in oklab, var(--product-ship) 12%, var(--surface));
+    --product-ship-deep: color-mix(in oklab, var(--product-ship) 78%, black);
+    --product-insights: #6d4bc4;
+    --product-insights-soft: color-mix(in oklab, var(--product-insights) 12%, var(--surface));
+    --product-insights-deep: color-mix(in oklab, var(--product-insights) 78%, black);
+    --product-make: #0e7490;
+    --product-make-soft: color-mix(in oklab, var(--product-make) 12%, var(--surface));
+    --product-make-deep: color-mix(in oklab, var(--product-make) 78%, black);
+    --product-wms: #4d7c0f;
+    --product-wms-soft: color-mix(in oklab, var(--product-wms) 12%, var(--surface));
+    --product-wms-deep: color-mix(in oklab, var(--product-wms) 78%, black);
+    --product-trade: #b0338f;
+    --product-trade-soft: color-mix(in oklab, var(--product-trade) 12%, var(--surface));
+    --product-trade-deep: color-mix(in oklab, var(--product-trade) 78%, black);
+    --product-retail: #b45309;
+    --product-retail-soft: color-mix(in oklab, var(--product-retail) 12%, var(--surface));
+    --product-retail-deep: color-mix(in oklab, var(--product-retail) 78%, black);
+    --product-reach: #be123c;
+    --product-reach-soft: color-mix(in oklab, var(--product-reach) 12%, var(--surface));
+    --product-reach-deep: color-mix(in oklab, var(--product-reach) 78%, black);
+    --product-people: #7c3aed;
+    --product-people-soft: color-mix(in oklab, var(--product-people) 12%, var(--surface));
+    --product-people-deep: color-mix(in oklab, var(--product-people) 78%, black);
+    --product-crm: #047857;
+    --product-crm-soft: color-mix(in oklab, var(--product-crm) 12%, var(--surface));
+    --product-crm-deep: color-mix(in oklab, var(--product-crm) 78%, black);
+    --product-finance: #1e3a8a;
+    --product-finance-soft: color-mix(in oklab, var(--product-finance) 12%, var(--surface));
+    --product-finance-deep: color-mix(in oklab, var(--product-finance) 78%, black);
+    --product-links: #4f46e5;
+    --product-links-soft: color-mix(in oklab, var(--product-links) 12%, var(--surface));
+    --product-links-deep: color-mix(in oklab, var(--product-links) 78%, black);
+    --product-ecard: var(--product-links);
+    --product-ecard-soft: color-mix(in oklab, var(--product-ecard) 12%, var(--surface));
+    --product-ecard-deep: color-mix(in oklab, var(--product-ecard) 78%, black);
+    --product-hub: #44403c;
+    --product-hub-soft: color-mix(in oklab, var(--product-hub) 12%, var(--surface));
+    --product-hub-deep: color-mix(in oklab, var(--product-hub) 78%, black);
+    --product-social: #7a3fd4;
+    --product-social-soft: color-mix(in oklab, var(--product-social) 12%, var(--surface));
+    --product-social-deep: color-mix(in oklab, var(--product-social) 78%, black);
+    --product-seo: #1f6fb2;
+    --product-seo-soft: color-mix(in oklab, var(--product-seo) 12%, var(--surface));
+    --product-seo-deep: color-mix(in oklab, var(--product-seo) 78%, black);
+    --product-website: var(--accent);
+    --product-website-soft: color-mix(in oklab, var(--product-website) 12%, var(--surface));
+    --product-website-deep: color-mix(in oklab, var(--product-website) 78%, black);
 
     /* Data visualisation — Eight categorical series, assigned by entity in this fixed order — never cycled or re-ranked by value. Colour-vision-deficiency safe in sequence. Same in both themes: a chart's series must not change identity when the lights go out. */
     --viz-1: #2a78d6;
@@ -188,9 +241,9 @@
     --radius-pill: 999px;
 
     /* Shadow */
-    --shadow-1: 0 1px 2px rgb(20 32 27 / 0.06);
-    --shadow-2: 0 6px 16px -4px rgb(20 32 27 / 0.10), 0 2px 4px rgb(20 32 27 / 0.04);
-    --shadow-3: 0 20px 44px -12px rgb(20 32 27 / 0.25);
+    --shadow-1: 0 1px 2px rgb(32 24 16 / 0.06);
+    --shadow-2: 0 6px 16px -4px rgb(32 24 16 / 0.10), 0 2px 4px rgb(32 24 16 / 0.04);
+    --shadow-3: 0 20px 44px -12px rgb(32 24 16 / 0.25);
 
     /* Typography */
     --font: Inter, -apple-system, "Segoe UI", Roboto, "Noto Sans", Arial, sans-serif;
@@ -203,10 +256,13 @@
     --text-2xl: 1.5rem;
     --leading: 1.5;
 
-    /* Motion */
-    --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
-    --dur: 160ms;
-    --dur-slow: 260ms;
+    /* Motion — Slow and soothing (owner, 2026-09-27): nothing snaps. Every transition and animation in every Growcord UI reads these; a page never states a millisecond of its own. */
+    --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+    --ease-in-out: cubic-bezier(0.45, 0.05, 0.25, 1);
+    --dur-quick: 240ms;
+    --dur: 420ms;
+    --dur-slow: 700ms;
+    --dur-spin: 1.4s;
 
     /* Layering — The kit's existing scale, unchanged: a toast has to be readable over a dialog, so it sits above it. */
     --z-drawer: 40;
@@ -231,7 +287,7 @@
     --success: var(--good);
     --warning: var(--warn);
     --sidebar-bg: var(--side);
-    --sidebar-bg-2: #182822;
+    --sidebar-bg-2: #29221c;
     --sidebar-border: var(--side-line);
     --sidebar-text: var(--side-ink);
     --sidebar-text-active: #ffffff;
@@ -250,29 +306,29 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     /* Neutral */
-    --n-50: #111715;
-    --n-100: #1c2422;
-    --n-200: #29322e;
-    --n-300: #3e4944;
-    --n-400: #545f59;
-    --n-500: #67736c;
-    --n-600: #9ba69f;
-    --n-700: #cbd2cc;
-    --n-800: #e2e6e2;
-    --n-900: #eff1ee;
-    --n-950: #f7f8f6;
+    --n-50: #141311;
+    --n-100: #211f1c;
+    --n-200: #302d29;
+    --n-300: #46423d;
+    --n-400: #5d5852;
+    --n-500: #746f68;
+    --n-600: #a49f97;
+    --n-700: #d3cfc8;
+    --n-800: #e7e4df;
+    --n-900: #f4f2ef;
+    --n-950: #faf9f7;
     /* Brand */
-    --b-50: #0e231c;
-    --b-100: #18372e;
-    --b-200: #1f463a;
-    --b-300: #265747;
-    --b-400: #2e6a56;
-    --b-500: #3b8068;
-    --b-600: #579c83;
-    --b-700: #86bba5;
-    --b-800: #b3d6c6;
-    --b-900: #d8ebe2;
-    --b-950: #eef5f1;
+    --b-50: #431407;
+    --b-100: #7c2d12;
+    --b-200: #9a3412;
+    --b-300: #c2410c;
+    --b-400: #ea580c;
+    --b-500: #f97316;
+    --b-600: #fb923c;
+    --b-700: #fdba74;
+    --b-800: #fed7aa;
+    --b-900: #ffedd5;
+    --b-950: #fff7ed;
     /* Good */
     --g-50: #06231a;
     --g-100: #0e3d2b;
@@ -286,17 +342,17 @@
     --g-900: #cbedd9;
     --g-950: #e9f7ef;
     /* Warn */
-    --w-50: #2e1c05;
-    --w-100: #52320a;
-    --w-200: #673f0b;
-    --w-300: #83500a;
-    --w-400: #a4650a;
-    --w-500: #c07c0e;
-    --w-600: #dd9420;
-    --w-700: #eeb14b;
-    --w-800: #f5cd85;
-    --w-900: #fae5bd;
-    --w-950: #fdf4e3;
+    --w-50: #422006;
+    --w-100: #5f3512;
+    --w-200: #713f12;
+    --w-300: #854d0e;
+    --w-400: #a16207;
+    --w-500: #ca8a04;
+    --w-600: #eab308;
+    --w-700: #facc15;
+    --w-800: #fde68a;
+    --w-900: #fef3c7;
+    --w-950: #fffbeb;
     /* Bad */
     --d-50: #3a0f0c;
     --d-100: #661d18;
@@ -321,35 +377,23 @@
     --i-800: #a6c6ec;
     --i-900: #d1e2f6;
     --i-950: #eaf1fa;
-    /* Growcord orange */
-    --o-50: #431407;
-    --o-100: #7c2d12;
-    --o-200: #9a3412;
-    --o-300: #c2410c;
-    --o-400: #ea580c;
-    --o-500: #f97316;
-    --o-600: #fb923c;
-    --o-700: #fdba74;
-    --o-800: #fed7aa;
-    --o-900: #ffedd5;
-    --o-950: #fff7ed;
 
     /* Surfaces */
-    --bg: #0f1413;
-    --surface: #171d1b;
-    --surface-raised: #1d2422;
+    --bg: #121110;
+    --surface: #1a1917;
+    --surface-raised: #201e1b;
     --scrim: rgb(0 0 0 / 0.60);
 
     /* Ink */
-    --ink-mute: #8e9a93;
-    --ink-inverse: #0f1413;
+    --ink-mute: #958d84;
+    --ink-inverse: #121110;
 
     /* Brand */
-    --accent-ink: #0e231c;
+    --accent-ink: #2a1206;
 
     /* Sidebar rail */
-    --side: #0b0f0e;
-    --side-ink: #b9c5bf;
+    --side: #0e0c0a;
+    --side-ink: #c2b8ae;
     --side-line: rgb(255 255 255 / 0.07);
 
     /* Shadow */
@@ -358,7 +402,7 @@
     --shadow-3: 0 20px 44px -12px rgb(0 0 0 / 0.7);
 
     /* Compatibility aliases */
-    --sidebar-bg-2: #121816;
+    --sidebar-bg-2: #15120f;
   }
 }
 
@@ -366,29 +410,29 @@
 :root[data-theme="dark"] {
     color-scheme: dark;
     /* Neutral */
-    --n-50: #111715;
-    --n-100: #1c2422;
-    --n-200: #29322e;
-    --n-300: #3e4944;
-    --n-400: #545f59;
-    --n-500: #67736c;
-    --n-600: #9ba69f;
-    --n-700: #cbd2cc;
-    --n-800: #e2e6e2;
-    --n-900: #eff1ee;
-    --n-950: #f7f8f6;
+    --n-50: #141311;
+    --n-100: #211f1c;
+    --n-200: #302d29;
+    --n-300: #46423d;
+    --n-400: #5d5852;
+    --n-500: #746f68;
+    --n-600: #a49f97;
+    --n-700: #d3cfc8;
+    --n-800: #e7e4df;
+    --n-900: #f4f2ef;
+    --n-950: #faf9f7;
     /* Brand */
-    --b-50: #0e231c;
-    --b-100: #18372e;
-    --b-200: #1f463a;
-    --b-300: #265747;
-    --b-400: #2e6a56;
-    --b-500: #3b8068;
-    --b-600: #579c83;
-    --b-700: #86bba5;
-    --b-800: #b3d6c6;
-    --b-900: #d8ebe2;
-    --b-950: #eef5f1;
+    --b-50: #431407;
+    --b-100: #7c2d12;
+    --b-200: #9a3412;
+    --b-300: #c2410c;
+    --b-400: #ea580c;
+    --b-500: #f97316;
+    --b-600: #fb923c;
+    --b-700: #fdba74;
+    --b-800: #fed7aa;
+    --b-900: #ffedd5;
+    --b-950: #fff7ed;
     /* Good */
     --g-50: #06231a;
     --g-100: #0e3d2b;
@@ -402,17 +446,17 @@
     --g-900: #cbedd9;
     --g-950: #e9f7ef;
     /* Warn */
-    --w-50: #2e1c05;
-    --w-100: #52320a;
-    --w-200: #673f0b;
-    --w-300: #83500a;
-    --w-400: #a4650a;
-    --w-500: #c07c0e;
-    --w-600: #dd9420;
-    --w-700: #eeb14b;
-    --w-800: #f5cd85;
-    --w-900: #fae5bd;
-    --w-950: #fdf4e3;
+    --w-50: #422006;
+    --w-100: #5f3512;
+    --w-200: #713f12;
+    --w-300: #854d0e;
+    --w-400: #a16207;
+    --w-500: #ca8a04;
+    --w-600: #eab308;
+    --w-700: #facc15;
+    --w-800: #fde68a;
+    --w-900: #fef3c7;
+    --w-950: #fffbeb;
     /* Bad */
     --d-50: #3a0f0c;
     --d-100: #661d18;
@@ -437,35 +481,23 @@
     --i-800: #a6c6ec;
     --i-900: #d1e2f6;
     --i-950: #eaf1fa;
-    /* Growcord orange */
-    --o-50: #431407;
-    --o-100: #7c2d12;
-    --o-200: #9a3412;
-    --o-300: #c2410c;
-    --o-400: #ea580c;
-    --o-500: #f97316;
-    --o-600: #fb923c;
-    --o-700: #fdba74;
-    --o-800: #fed7aa;
-    --o-900: #ffedd5;
-    --o-950: #fff7ed;
 
     /* Surfaces */
-    --bg: #0f1413;
-    --surface: #171d1b;
-    --surface-raised: #1d2422;
+    --bg: #121110;
+    --surface: #1a1917;
+    --surface-raised: #201e1b;
     --scrim: rgb(0 0 0 / 0.60);
 
     /* Ink */
-    --ink-mute: #8e9a93;
-    --ink-inverse: #0f1413;
+    --ink-mute: #958d84;
+    --ink-inverse: #121110;
 
     /* Brand */
-    --accent-ink: #0e231c;
+    --accent-ink: #2a1206;
 
     /* Sidebar rail */
-    --side: #0b0f0e;
-    --side-ink: #b9c5bf;
+    --side: #0e0c0a;
+    --side-ink: #c2b8ae;
     --side-line: rgb(255 255 255 / 0.07);
 
     /* Shadow */
@@ -474,5 +506,5 @@
     --shadow-3: 0 20px 44px -12px rgb(0 0 0 / 0.7);
 
     /* Compatibility aliases */
-    --sidebar-bg-2: #121816;
+    --sidebar-bg-2: #15120f;
 }

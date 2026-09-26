@@ -5,7 +5,16 @@ import ErrorBoundary from './components/ErrorBoundary';
 import { AuthProvider } from './contexts/AuthContext';
 import { StoreProvider } from './contexts/StoreContext';
 import { resolveTenantFromDomain } from './services/api';
+import { reloadForNewBuild } from './lib/lazyRetry';
 import './index.css';
+
+// Vite reports a lazy chunk (or its CSS) that failed to load as this event —
+// after a redeploy the old page names files that no longer exist. Reload onto
+// the new build instead of surfacing "Failed to fetch dynamically imported
+// module" (lib/lazyRetry.ts owns the once-a-minute guard).
+window.addEventListener('vite:preloadError', (event) => {
+  if (reloadForNewBuild()) event.preventDefault();
+});
 
 const rootElement = document.getElementById('root');
 

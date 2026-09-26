@@ -93,3 +93,64 @@
     scrollbar-color: var(--line-strong) transparent;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Motion — slow and soothing (owner, 2026-09-27: "fast animation increases the
+   pressure"). Every transition and animation reads the theme's motion tokens;
+   the per-class durations pages state (`duration-150`, `animate-in`, spinners,
+   pulses) are overridden here so nothing snaps. Reduced-motion above still wins.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.transition, .transition-all, .transition-colors, .transition-opacity,
+.transition-transform, .transition-shadow,
+.duration-75, .duration-100, .duration-150, .duration-200, .duration-300, .duration-500 {
+  transition-duration: var(--dur) !important;
+  transition-timing-function: var(--ease) !important;
+}
+.animate-in, .animate-out,
+[data-state] .animate-in, [data-state] .animate-out {
+  animation-duration: var(--dur-slow) !important;
+  animation-timing-function: var(--ease) !important;
+}
+.animate-spin { animation-duration: var(--dur-spin) !important; }
+.animate-pulse { animation-duration: calc(var(--dur-spin) * 2) !important; animation-timing-function: var(--ease-in-out) !important; }
+[data-radix-collection-item], [role="menuitem"], [role="option"], [role="tab"], [data-sidebar="menu-button"], [data-sidebar="menu-sub-button"] {
+  transition: background-color var(--dur-quick) var(--ease), color var(--dur-quick) var(--ease), border-color var(--dur-quick) var(--ease);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Tables — one density and one voice everywhere (owner: "improvise table
+   layout"). Header row quiet and small-capped, cells 13px on a 40px rhythm,
+   numbers already tabular, a soft hover, and the header stays put when the
+   table scrolls inside its own frame. A page's own utilities still win.
+   ═══════════════════════════════════════════════════════════════════════════ */
+@layer base {
+  table thead th {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    background: var(--surface-2);
+    height: 40px;
+    padding: 0 12px;
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+  table tbody td {
+    font-size: 13px;
+    padding: 10px 12px;
+    vertical-align: middle;
+    color: var(--ink);
+  }
+  table tbody tr {
+    transition: background-color var(--dur-quick) var(--ease);
+  }
+  table tbody tr:hover { background: color-mix(in oklab, var(--surface-2) 70%, transparent); }
+  table tfoot td { font-weight: 600; background: var(--surface-2); }
+  .overflow-auto > table > thead th, .overflow-x-auto > table > thead th { position: sticky; top: 0; z-index: 1; }
+
+  /* Balanced page furniture: one heading scale, one card. */
+  h1 { font-size: 1.375rem; font-weight: 600; letter-spacing: -0.01em; }
+  h2 { font-size: 1.0625rem; font-weight: 600; }
+  h3 { font-size: 0.9375rem; font-weight: 600; }
+}

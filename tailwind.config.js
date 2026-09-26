@@ -146,8 +146,8 @@ export default {
         'accordion-up': { from: { height: 'var(--radix-accordion-content-height)' }, to: { height: '0' } },
       },
       animation: {
-        'accordion-down': 'accordion-down 0.2s ease-out',
-        'accordion-up': 'accordion-up 0.2s ease-out',
+        'accordion-down': 'accordion-down var(--dur) var(--ease)',
+        'accordion-up': 'accordion-up var(--dur) var(--ease)',
       },
     },
   },

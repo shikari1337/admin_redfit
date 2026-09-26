@@ -26,7 +26,7 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronDown, ExternalLink } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -91,9 +91,14 @@ function loadCatalogue(): Promise<PublicProduct[]> {
 /** How many tabs sit inline before the rest fold into "More". */
 const MAX_INLINE = 7;
 
-const TAB = 'whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors';
+const TAB = 'whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors inline-flex items-center gap-1.5';
 const TAB_OFF = 'text-ink-soft hover:bg-surface-2 hover:text-ink';
-const TAB_ON = 'bg-ink text-bg shadow-sm';
+const TAB_ON = 'bg-primary text-primary-foreground shadow-sm';
+
+/** The platform's own colour (theme.json "Products"), as a small dot before its name. */
+const Dot: React.FC<{ code: string }> = ({ code }) => (
+  <span aria-hidden className="inline-block size-2 shrink-0 rounded-full" style={{ background: `var(--product-${code})` }} />
+);
 
 export const ProductTabs: React.FC = () => {
   const { hasPerm, canAccess } = useAuth();
@@ -129,6 +134,7 @@ export const ProductTabs: React.FC = () => {
       </Link>
       {inline.map((t) => (
         <a key={t.code} href={productUrl(t.code)} className={`${TAB} ${TAB_OFF}`} title={`Growcord ${t.name} — ${t.tagline}`}>
+          <Dot code={t.code} />
           {t.name}
           {t.status === 'beta' && <span className="ml-1 align-super text-[9px] uppercase tracking-wider text-ink-mute">beta</span>}
         </a>
@@ -144,7 +150,7 @@ export const ProductTabs: React.FC = () => {
             {more.map((t) => (
               <DropdownMenuItem key={t.code} asChild>
                 <a href={productUrl(t.code)} className="flex cursor-pointer items-start gap-2">
-                  <ExternalLink className="mt-0.5 size-3.5 shrink-0 text-ink-mute" />
+                  <span className="mt-1.5"><Dot code={t.code} /></span>
                   <span className="flex flex-col">
                     <span className="font-medium">{t.name}{t.status === 'beta' ? ' · beta' : ''}</span>
                     <span className="text-xs text-ink-soft">{t.tagline}</span>

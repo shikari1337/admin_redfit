@@ -24,37 +24,37 @@
     {
       "id": "n",
       "label": "Neutral",
-      "role": "Warm green-grey. Canvas, ink, lines, table stripes. Tailwind gray/slate/zinc/neutral/stone.",
+      "role": "Warm stone grey — sits beside the orange without a green or blue cast. Canvas, ink, lines, table stripes. Tailwind gray/slate/zinc/neutral/stone.",
       "steps": {
-        "50": "#f7f8f6",
-        "100": "#eff1ee",
-        "200": "#e2e6e2",
-        "300": "#cbd2cc",
-        "400": "#9ba69f",
-        "500": "#67736c",
-        "600": "#545f59",
-        "700": "#3e4944",
-        "800": "#29322e",
-        "900": "#1c2422",
-        "950": "#111715"
+        "50": "#faf9f7",
+        "100": "#f4f2ef",
+        "200": "#e7e4df",
+        "300": "#d3cfc8",
+        "400": "#a49f97",
+        "500": "#746f68",
+        "600": "#5d5852",
+        "700": "#46423d",
+        "800": "#302d29",
+        "900": "#211f1c",
+        "950": "#141311"
       }
     },
     {
       "id": "b",
       "label": "Brand",
-      "role": "Growcord forest green. The one accent: primary buttons, active nav, focus, links. Tailwind indigo/violet/purple/fuchsia/pink.",
+      "role": "Growcord orange (growcord.in’s orange-600). The one accent: primary buttons, active nav, links, focus. Tailwind indigo/violet/purple/fuchsia/pink map here.",
       "steps": {
-        "50": "#eef5f1",
-        "100": "#d8ebe2",
-        "200": "#b3d6c6",
-        "300": "#86bba5",
-        "400": "#579c83",
-        "500": "#3b8068",
-        "600": "#2e6a56",
-        "700": "#265747",
-        "800": "#1f463a",
-        "900": "#18372e",
-        "950": "#0e231c"
+        "50": "#fff7ed",
+        "100": "#ffedd5",
+        "200": "#fed7aa",
+        "300": "#fdba74",
+        "400": "#fb923c",
+        "500": "#f97316",
+        "600": "#ea580c",
+        "700": "#c2410c",
+        "800": "#9a3412",
+        "900": "#7c2d12",
+        "950": "#431407"
       }
     },
     {
@@ -78,19 +78,19 @@
     {
       "id": "w",
       "label": "Warn",
-      "role": "Needs attention, pending, expiring, low stock. Tailwind amber/yellow/orange.",
+      "role": "Needs attention, pending, expiring, low stock. GOLD, not orange — the brand is orange, so a warning must be a different hue. Tailwind amber/yellow map here.",
       "steps": {
-        "50": "#fdf4e3",
-        "100": "#fae5bd",
-        "200": "#f5cd85",
-        "300": "#eeb14b",
-        "400": "#dd9420",
-        "500": "#c07c0e",
-        "600": "#a4650a",
-        "700": "#83500a",
-        "800": "#673f0b",
-        "900": "#52320a",
-        "950": "#2e1c05"
+        "50": "#fffbeb",
+        "100": "#fef3c7",
+        "200": "#fde68a",
+        "300": "#facc15",
+        "400": "#eab308",
+        "500": "#ca8a04",
+        "600": "#a16207",
+        "700": "#854d0e",
+        "800": "#713f12",
+        "900": "#5f3512",
+        "950": "#422006"
       }
     },
     {
@@ -128,24 +128,6 @@
         "900": "#152f52",
         "950": "#0c1b30"
       }
-    },
-    {
-      "id": "o",
-      "label": "Growcord orange",
-      "role": "The company's orange (growcord.in's stats band, orange-600). Highlights, offers and first-year price tags; a product may promote it to an accent. Tailwind orange.",
-      "steps": {
-        "50": "#fff7ed",
-        "100": "#ffedd5",
-        "200": "#fed7aa",
-        "300": "#fdba74",
-        "400": "#fb923c",
-        "500": "#f97316",
-        "600": "#ea580c",
-        "700": "#c2410c",
-        "800": "#9a3412",
-        "900": "#7c2d12",
-        "950": "#431407"
-      }
     }
   ],
   "groups": [
@@ -154,14 +136,14 @@
       "tokens": [
         {
           "name": "--bg",
-          "light": "#f4f5f3",
-          "dark": "#0f1413",
+          "light": "#f6f4f1",
+          "dark": "#121110",
           "role": "The page canvas behind every card."
         },
         {
           "name": "--surface",
           "light": "#ffffff",
-          "dark": "#171d1b",
+          "dark": "#1a1917",
           "role": "A card, a table, a panel — paper."
         },
         {
@@ -172,12 +154,12 @@
         {
           "name": "--surface-raised",
           "light": "#ffffff",
-          "dark": "#1d2422",
+          "dark": "#201e1b",
           "role": "Lifted over the page: popover, menu, dialog. Pair with --shadow-2."
         },
         {
           "name": "--scrim",
-          "light": "rgb(20 32 27 / 0.42)",
+          "light": "rgb(28 22 16 / 0.42)",
           "dark": "rgb(0 0 0 / 0.60)",
           "role": "The dimmer behind a dialog or drawer."
         }
@@ -199,13 +181,13 @@
         {
           "name": "--ink-mute",
           "light": "var(--n-500)",
-          "dark": "#8e9a93",
+          "dark": "#958d84",
           "role": "Hints and placeholders — the quietest text that still has to be read."
         },
         {
           "name": "--ink-inverse",
           "light": "#ffffff",
-          "dark": "#0f1413",
+          "dark": "#121110",
           "role": "Text on a solid dark fill."
         }
       ]
@@ -246,7 +228,7 @@
         {
           "name": "--accent-ink",
           "light": "#ffffff",
-          "dark": "#0e231c",
+          "dark": "#2a1206",
           "role": "Text and icons on a solid --accent fill."
         },
         {
@@ -326,14 +308,14 @@
       "tokens": [
         {
           "name": "--side",
-          "light": "#13201b",
-          "dark": "#0b0f0e",
+          "light": "#1e1915",
+          "dark": "#0e0c0a",
           "role": "The dark navigation rail."
         },
         {
           "name": "--side-ink",
-          "light": "#a9b8b0",
-          "dark": "#b9c5bf",
+          "light": "#b9ada2",
+          "dark": "#c2b8ae",
           "role": "Rail text."
         },
         {
@@ -352,6 +334,327 @@
           "name": "--side-active",
           "ref": "--accent",
           "role": "The active rail item's background."
+        }
+      ]
+    },
+    {
+      "name": "Products",
+      "note": "One colour per Growcord platform (owner, 2026-09-27), each chosen to sit well beside the orange brand: blue and teal (its complements), violet and rose (its triad), amber (its warm sibling), green for WhatsApp. A panel sets `--accent` to its own product token on its root and derives hover/soft from it; the hub’s cards and the admin’s product tabs read the same names.",
+      "tokens": [
+        {
+          "name": "--product-commerce",
+          "value": "var(--accent)",
+          "role": "Commerce — the store admin. The brand itself."
+        },
+        {
+          "name": "--product-commerce-soft",
+          "value": "color-mix(in oklab, var(--product-commerce) 12%, var(--surface))",
+          "role": "Its pastel: a tinted card, a chip, a hover."
+        },
+        {
+          "name": "--product-commerce-deep",
+          "value": "color-mix(in oklab, var(--product-commerce) 78%, black)",
+          "role": "Its deep shade: pressed states, dark text on the tint."
+        },
+        {
+          "name": "--product-domains",
+          "value": "#1d5fd1",
+          "role": "Domains — blue, the complement of orange."
+        },
+        {
+          "name": "--product-domains-soft",
+          "value": "color-mix(in oklab, var(--product-domains) 12%, var(--surface))",
+          "role": "Its pastel: a tinted card, a chip, a hover."
+        },
+        {
+          "name": "--product-domains-deep",
+          "value": "color-mix(in oklab, var(--product-domains) 78%, black)",
+          "role": "Its deep shade: pressed states, dark text on the tint."
+        },
+        {
+          "name": "--product-comms",
+          "value": "#128c7e",
+          "role": "Comms / WhatsApp Platform — WhatsApp’s green."
+        },
+        {
+          "name": "--product-comms-soft",
+          "value": "color-mix(in oklab, var(--product-comms) 12%, var(--surface))",
+          "role": "Its pastel: a tinted card, a chip, a hover."
+        },
+        {
+          "name": "--product-comms-deep",
+          "value": "color-mix(in oklab, var(--product-comms) 78%, black)",
+          "role": "Its deep shade: pressed states, dark text on the tint."
+        },
+        {
+          "name": "--product-wa",
+          "value": "var(--product-comms)",
+          "role": "The WhatsApp Platform shares Comms’ green."
+        },
+        {
+          "name": "--product-wa-soft",
+          "value": "color-mix(in oklab, var(--product-wa) 12%, var(--surface))",
+          "role": "Its pastel: a tinted card, a chip, a hover."
+        },
+        {
+          "name": "--product-wa-deep",
+          "value": "color-mix(in oklab, var(--product-wa) 78%, black)",
+          "role": "Its deep shade: pressed states, dark text on the tint."
+        },
+        {
+          "name": "--product-books",
+          "value": "#0f766e",
+          "role": "Books — teal."
+        },
+        {
+          "name": "--product-books-soft",
+          "value": "color-mix(in oklab, var(--product-books) 12%, var(--surface))",
+          "role": "Its pastel: a tinted card, a chip, a hover."
+        },
+        {
+          "name": "--product-books-deep",
+          "value": "color-mix(in oklab, var(--product-books) 78%, black)",
+          "role": "Its deep shade: pressed states, dark text on the tint."
+        },
+        {
+          "name": "--product-ship",
+          "value": "#0369a1",
+          "role": "Ship — sea blue."
+        },
+        {
+          "name": "--product-ship-soft",
+          "value": "color-mix(in oklab, var(--product-ship) 12%, var(--surface))",
+          "role": "Its pastel: a tinted card, a chip, a hover."
+        },
+        {
+          "name": "--product-ship-deep",
+          "value": "color-mix(in oklab, var(--product-ship) 78%, black)",
+          "role": "Its deep shade: pressed states, dark text on the tint."
+        },
+        {
+          "name": "--product-insights",
+          "value": "#6d4bc4",
+          "role": "Insights — violet."
+        },
+        {
+          "name": "--product-insights-soft",
+          "value": "color-mix(in oklab, var(--product-insights) 12%, var(--surface))",
+          "role": "Its pastel: a tinted card, a chip, a hover."
+        },
+        {
+          "name": "--product-insights-deep",
+          "value": "color-mix(in oklab, var(--product-insights) 78%, black)",
+          "role": "Its deep shade: pressed states, dark text on the tint."
+        },
+        {
+          "name": "--product-make",
+          "value": "#0e7490",
+          "role": "Make — cyan."
+        },
+        {
+          "name": "--product-make-soft",
+          "value": "color-mix(in oklab, var(--product-make) 12%, var(--surface))",
+          "role": "Its pastel: a tinted card, a chip, a hover."
+        },
+        {
+          "name": "--product-make-deep",
+          "value": "color-mix(in oklab, var(--product-make) 78%, black)",
+          "role": "Its deep shade: pressed states, dark text on the tint."
+        },
+        {
+          "name": "--product-wms",
+          "value": "#4d7c0f",
+          "role": "WMS — moss green."
+        },
+        {
+          "name": "--product-wms-soft",
+          "value": "color-mix(in oklab, var(--product-wms) 12%, var(--surface))",
+          "role": "Its pastel: a tinted card, a chip, a hover."
+        },
+        {
+          "name": "--product-wms-deep",
+          "value": "color-mix(in oklab, var(--product-wms) 78%, black)",
+          "role": "Its deep shade: pressed states, dark text on the tint."
+        },
+        {
+          "name": "--product-trade",
+          "value": "#b0338f",
+          "role": "Trade — plum."
+        },
+        {
+          "name": "--product-trade-soft",
+          "value": "color-mix(in oklab, var(--product-trade) 12%, var(--surface))",
+          "role": "Its pastel: a tinted card, a chip, a hover."
+        },
+        {
+          "name": "--product-trade-deep",
+          "value": "color-mix(in oklab, var(--product-trade) 78%, black)",
+          "role": "Its deep shade: pressed states, dark text on the tint."
+        },
+        {
+          "name": "--product-retail",
+          "value": "#b45309",
+          "role": "Retail — amber, the warm sibling of orange."
+        },
+        {
+          "name": "--product-retail-soft",
+          "value": "color-mix(in oklab, var(--product-retail) 12%, var(--surface))",
+          "role": "Its pastel: a tinted card, a chip, a hover."
+        },
+        {
+          "name": "--product-retail-deep",
+          "value": "color-mix(in oklab, var(--product-retail) 78%, black)",
+          "role": "Its deep shade: pressed states, dark text on the tint."
+        },
+        {
+          "name": "--product-reach",
+          "value": "#be123c",
+          "role": "Reach — rose."
+        },
+        {
+          "name": "--product-reach-soft",
+          "value": "color-mix(in oklab, var(--product-reach) 12%, var(--surface))",
+          "role": "Its pastel: a tinted card, a chip, a hover."
+        },
+        {
+          "name": "--product-reach-deep",
+          "value": "color-mix(in oklab, var(--product-reach) 78%, black)",
+          "role": "Its deep shade: pressed states, dark text on the tint."
+        },
+        {
+          "name": "--product-people",
+          "value": "#7c3aed",
+          "role": "People — purple."
+        },
+        {
+          "name": "--product-people-soft",
+          "value": "color-mix(in oklab, var(--product-people) 12%, var(--surface))",
+          "role": "Its pastel: a tinted card, a chip, a hover."
+        },
+        {
+          "name": "--product-people-deep",
+          "value": "color-mix(in oklab, var(--product-people) 78%, black)",
+          "role": "Its deep shade: pressed states, dark text on the tint."
+        },
+        {
+          "name": "--product-crm",
+          "value": "#047857",
+          "role": "CRM — emerald."
+        },
+        {
+          "name": "--product-crm-soft",
+          "value": "color-mix(in oklab, var(--product-crm) 12%, var(--surface))",
+          "role": "Its pastel: a tinted card, a chip, a hover."
+        },
+        {
+          "name": "--product-crm-deep",
+          "value": "color-mix(in oklab, var(--product-crm) 78%, black)",
+          "role": "Its deep shade: pressed states, dark text on the tint."
+        },
+        {
+          "name": "--product-finance",
+          "value": "#1e3a8a",
+          "role": "Finance — navy."
+        },
+        {
+          "name": "--product-finance-soft",
+          "value": "color-mix(in oklab, var(--product-finance) 12%, var(--surface))",
+          "role": "Its pastel: a tinted card, a chip, a hover."
+        },
+        {
+          "name": "--product-finance-deep",
+          "value": "color-mix(in oklab, var(--product-finance) 78%, black)",
+          "role": "Its deep shade: pressed states, dark text on the tint."
+        },
+        {
+          "name": "--product-links",
+          "value": "#4f46e5",
+          "role": "Links & eCards — indigo."
+        },
+        {
+          "name": "--product-links-soft",
+          "value": "color-mix(in oklab, var(--product-links) 12%, var(--surface))",
+          "role": "Its pastel: a tinted card, a chip, a hover."
+        },
+        {
+          "name": "--product-links-deep",
+          "value": "color-mix(in oklab, var(--product-links) 78%, black)",
+          "role": "Its deep shade: pressed states, dark text on the tint."
+        },
+        {
+          "name": "--product-ecard",
+          "value": "var(--product-links)",
+          "role": "gc.mw shares Links’ indigo."
+        },
+        {
+          "name": "--product-ecard-soft",
+          "value": "color-mix(in oklab, var(--product-ecard) 12%, var(--surface))",
+          "role": "Its pastel: a tinted card, a chip, a hover."
+        },
+        {
+          "name": "--product-ecard-deep",
+          "value": "color-mix(in oklab, var(--product-ecard) 78%, black)",
+          "role": "Its deep shade: pressed states, dark text on the tint."
+        },
+        {
+          "name": "--product-hub",
+          "value": "#44403c",
+          "role": "Growcord ID / hub — warm charcoal."
+        },
+        {
+          "name": "--product-hub-soft",
+          "value": "color-mix(in oklab, var(--product-hub) 12%, var(--surface))",
+          "role": "Its pastel: a tinted card, a chip, a hover."
+        },
+        {
+          "name": "--product-hub-deep",
+          "value": "color-mix(in oklab, var(--product-hub) 78%, black)",
+          "role": "Its deep shade: pressed states, dark text on the tint."
+        },
+        {
+          "name": "--product-social",
+          "value": "#7a3fd4",
+          "role": "Social — grape."
+        },
+        {
+          "name": "--product-social-soft",
+          "value": "color-mix(in oklab, var(--product-social) 12%, var(--surface))",
+          "role": "Its pastel: a tinted card, a chip, a hover."
+        },
+        {
+          "name": "--product-social-deep",
+          "value": "color-mix(in oklab, var(--product-social) 78%, black)",
+          "role": "Its deep shade: pressed states, dark text on the tint."
+        },
+        {
+          "name": "--product-seo",
+          "value": "#1f6fb2",
+          "role": "SEO Insights — steel blue."
+        },
+        {
+          "name": "--product-seo-soft",
+          "value": "color-mix(in oklab, var(--product-seo) 12%, var(--surface))",
+          "role": "Its pastel: a tinted card, a chip, a hover."
+        },
+        {
+          "name": "--product-seo-deep",
+          "value": "color-mix(in oklab, var(--product-seo) 78%, black)",
+          "role": "Its deep shade: pressed states, dark text on the tint."
+        },
+        {
+          "name": "--product-website",
+          "value": "var(--accent)",
+          "role": "growcord.in — the brand."
+        },
+        {
+          "name": "--product-website-soft",
+          "value": "color-mix(in oklab, var(--product-website) 12%, var(--surface))",
+          "role": "Its pastel: a tinted card, a chip, a hover."
+        },
+        {
+          "name": "--product-website-deep",
+          "value": "color-mix(in oklab, var(--product-website) 78%, black)",
+          "role": "Its deep shade: pressed states, dark text on the tint."
         }
       ]
     },
@@ -496,19 +799,19 @@
       "tokens": [
         {
           "name": "--shadow-1",
-          "light": "0 1px 2px rgb(20 32 27 / 0.06)",
+          "light": "0 1px 2px rgb(32 24 16 / 0.06)",
           "dark": "0 1px 2px rgb(0 0 0 / 0.5)",
           "role": "A card resting on the page."
         },
         {
           "name": "--shadow-2",
-          "light": "0 6px 16px -4px rgb(20 32 27 / 0.10), 0 2px 4px rgb(20 32 27 / 0.04)",
+          "light": "0 6px 16px -4px rgb(32 24 16 / 0.10), 0 2px 4px rgb(32 24 16 / 0.04)",
           "dark": "0 6px 16px -4px rgb(0 0 0 / 0.55), 0 2px 4px rgb(0 0 0 / 0.4)",
           "role": "A popover or menu above the page."
         },
         {
           "name": "--shadow-3",
-          "light": "0 20px 44px -12px rgb(20 32 27 / 0.25)",
+          "light": "0 20px 44px -12px rgb(32 24 16 / 0.25)",
           "dark": "0 20px 44px -12px rgb(0 0 0 / 0.7)",
           "role": "A dialog or drawer over everything."
         }
@@ -569,20 +872,36 @@
       "tokens": [
         {
           "name": "--ease",
-          "value": "cubic-bezier(0.2, 0.7, 0.2, 1)",
-          "role": "One easing curve for every transition."
+          "value": "cubic-bezier(0.22, 0.61, 0.36, 1)",
+          "role": "The one easing: a gentle glide out."
+        },
+        {
+          "name": "--ease-in-out",
+          "value": "cubic-bezier(0.45, 0.05, 0.25, 1)",
+          "role": "For things that leave and come back (a collapsing panel)."
+        },
+        {
+          "name": "--dur-quick",
+          "value": "240ms",
+          "role": "A colour or opacity change under the pointer."
         },
         {
           "name": "--dur",
-          "value": "160ms",
-          "role": "One duration for a state change."
+          "value": "420ms",
+          "role": "A panel opening, a row expanding, a page settling."
         },
         {
           "name": "--dur-slow",
-          "value": "260ms",
-          "role": "Something entering or leaving the screen."
+          "value": "700ms",
+          "role": "A dialog, a drawer, a page transition."
+        },
+        {
+          "name": "--dur-spin",
+          "value": "1.4s",
+          "role": "A spinner’s turn; a pulse is twice this."
         }
-      ]
+      ],
+      "note": "Slow and soothing (owner, 2026-09-27): nothing snaps. Every transition and animation in every Growcord UI reads these; a page never states a millisecond of its own."
     },
     {
       "name": "Layering",
@@ -696,8 +1015,8 @@
         },
         {
           "name": "--sidebar-bg-2",
-          "light": "#182822",
-          "dark": "#121816",
+          "light": "#29221c",
+          "dark": "#15120f",
           "role": "super-admin — rail gradient stop."
         },
         {
