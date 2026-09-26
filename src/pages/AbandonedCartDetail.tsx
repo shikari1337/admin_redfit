@@ -214,6 +214,7 @@ const AbandonedCartDetail: React.FC = () => {
   const [sendingChannel, setSendingChannel] = useState<'whatsapp' | 'sms' | 'email' | null>(null);
   const [recoveryResult, setRecoveryResult] = useState<{ ok: boolean; channel: string; reason?: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [journey, setJourney] = useState<JourneyEvent[] | null>(null);
   const [recoveryLog, setRecoveryLog] = useState<RecoveryLogEntry[] | null>(null);
   /** Per-channel short links (gc.mw when the store prefers the platform
@@ -318,6 +319,41 @@ const AbandonedCartDetail: React.FC = () => {
       );
     } finally {
       setSendingChannel(null);
+    }
+  };
+
+  /**
+   * Empty the cart so this shopper starts fresh.
+   *
+   * Says up front what it costs and what it stops, because both matter: the
+   * lines are gone from the saved cart, and automatic recovery goes quiet for
+   * this cart until the shopper adds something themselves. The server also
+   * retires the cart — emptying alone would be undone by the shopper's own
+   * browser on its next sync.
+   */
+  const handleClearCart = async () => {
+    if (!cart) return;
+    const n = cart.items?.length ?? 0;
+    const ok = window.confirm(
+      `Empty this cart?\n\n`
+      + `• ${n} line${n === 1 ? '' : 's'} will be removed from the saved cart.\n`
+      + `• The shopper starts a new, empty cart on their next visit.\n`
+      + `• No more recovery messages for this cart — they resume only if the shopper adds something themselves.\n\n`
+      + `The cart record is kept, so the recovery history stays.`
+    );
+    if (!ok) return;
+    setClearing(true);
+    try {
+      const res = await cartsAPI.clearCart(String(cart._id));
+      setRecoveryResult({ ok: true, channel: 'cleared', reason: res?.message || 'Cart cleared' });
+      fetchCart();
+    } catch (err: any) {
+      setRecoveryResult({
+        ok: false, channel: 'cleared',
+        reason: err.response?.data?.message || err.message || 'Could not clear this cart',
+      });
+    } finally {
+      setClearing(false);
     }
   };
 
@@ -580,9 +616,21 @@ const AbandonedCartDetail: React.FC = () => {
         <div className="w-0 min-w-full bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between gap-3">
             <h2 className="text-lg font-semibold text-gray-900">Items ({cart.itemCount ?? cart.items?.length ?? 0})</h2>
-            {(cart.items?.length ?? 0) > ITEMS_SCROLL_THRESHOLD && (
-              <span className="text-xs text-slate-400">Scroll for the rest · header stays put</span>
-            )}
+            <div className="flex items-center gap-3">
+              {(cart.items?.length ?? 0) > ITEMS_SCROLL_THRESHOLD && (
+                <span className="text-xs text-slate-400">Scroll for the rest · header stays put</span>
+              )}
+              {cart.status !== 'converted' && (cart.items?.length ?? 0) > 0 && (
+                <button
+                  onClick={handleClearCart}
+                  disabled={clearing}
+                  title="Empty this cart so the shopper starts fresh. Stops recovery messages for it until they add something themselves."
+                  className="inline-flex items-center px-3 py-1.5 text-sm rounded-md border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50"
+                >
+                  {clearing ? <><ButtonLoader size="sm" color="current" /><span className="ml-2">Clearing…</span></> : 'Clear cart'}
+                </button>
+              )}
+            </div>
           </div>
           {/* A 69-line cart pushed every other panel off the screen. Cap the
               body and let it scroll, with a sticky header so the columns stay

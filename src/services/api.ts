@@ -3625,6 +3625,15 @@ export const cartsAPI = {
     const response = await api.post(`/carts/admin/${cartId}/notes`, { text });
     return response.data;
   },
+  /**
+   * Empty this cart so the shopper starts fresh, and stop recovery messages for
+   * it. The server also RETIRES the cart — emptying alone would be undone by the
+   * shopper's own browser on its next sync. The cart row is kept for the record.
+   */
+  clearCart: async (cartId: string, body?: { reason?: string }) => {
+    const response = await api.post(`/carts/admin/${cartId}/clear`, body ?? {});
+    return response.data;
+  },
   /** Attach an existing active coupon, or mint a one-off `RECOVER-XXXXXX` code. */
   applyDiscount: async (
     cartId: string,
