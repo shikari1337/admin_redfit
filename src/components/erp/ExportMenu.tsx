@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ChevronDown, Download, Loader2 } from 'lucide-react';
 import { api } from '@/services/api';
+import { saveBlob } from '@/lib/saveBlob';
 import { cn } from '@/lib/utils';
 import { downloadCsv, type CsvColumn } from '@/lib/csv';
 import { Btn } from './Button';
@@ -105,14 +106,7 @@ export function ExportMenu<T>({
       const res = await api.get(exp.path, { params: exp.params, responseType: 'blob' });
       const blob = res.data instanceof Blob ? res.data : new Blob([res.data]);
       const base = filename.replace(/\.csv$/i, '');
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = exp.filename ?? `${base}.${extFor(blob)}`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
+      saveBlob(blob, exp.filename ?? `${base}.${extFor(blob)}`);
     } finally {
       setBusyPath(null);
       setOpen(false);

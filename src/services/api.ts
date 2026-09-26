@@ -4452,6 +4452,19 @@ export const exportsAPI = {
     return { blob: r.data as Blob, fileName: m?.[1] || 'download.xlsx' };
   },
 
+  /**
+   * A signed, two-minute link the BROWSER downloads from directly — no bearer
+   * header, no 30 MB blob in page memory, no object URL to revoke too early.
+   * The server returns the path relative to the API version base; the absolute
+   * URL is built here from the base every other call already uses.
+   */
+  downloadLink: async (id: string): Promise<{ url: string; fileName: string | null; fileSize: number | null; expiresAt: string }> => {
+    const r = await api.post(`/exports/${id}/download-link`);
+    const d = r.data?.data ?? r.data;
+    const base = String(api.defaults.baseURL ?? '').replace(/\/+$/, '');
+    return { url: `${base}${d.path}`, fileName: d.file_name ?? null, fileSize: d.file_size ?? null, expiresAt: d.expires_at };
+  },
+
   retry: async (id: string): Promise<DataJob> => {
     const r = await api.post(`/exports/${id}/retry`);
     return r.data?.data ?? r.data;
@@ -5730,7 +5743,7 @@ export interface MsgCatalogue {
 export interface MsgPreview {
   subject?: string | null; html?: string | null; text?: string | null;
   components?: any[]; provider_ref?: string | null; providerRef?: string | null; approval?: any;
-  layoutSource?: 'store' | 'product' | 'growcord';
+  layoutSource?: 'store' | 'store_identity' | 'product' | 'growcord';
   bodySource?: string;
   /** Placeholders the example values did not supply — left visible, never blanked. */
   missing?: string[];

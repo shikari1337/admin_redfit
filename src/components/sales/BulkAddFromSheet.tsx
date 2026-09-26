@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { FileSpreadsheet, Upload, Download, Loader2, CheckCircle2, AlertTriangle, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { saveBlob } from '@/lib/saveBlob';
 import { salesAPI, type SheetResolvedLine } from '../../services/api';
 import type { BasketLine } from './OrderLinesTable';
 
@@ -30,11 +31,7 @@ function downloadTemplate() {
     'SKU-EXAMPLE-2,10,118.50,',
     'SKU-EXAMPLE-3,6,,7.5',
   ].join('\r\n');
-  const url = URL.createObjectURL(new Blob([`﻿${rows}`], { type: 'text/csv;charset=utf-8' }));
-  const a = document.createElement('a');
-  a.href = url; a.download = 'order-lines-template.csv';
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  saveBlob(new Blob([`﻿${rows}`], { type: 'text/csv;charset=utf-8' }), 'order-lines-template.csv');
 }
 
 interface Props {

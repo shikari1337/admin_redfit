@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { inventoryAPI, exportsAPI, type ImportResponse } from '../../services/api';
+import { saveBlob } from '../../lib/saveBlob';
 import DownloadsPanel from './DownloadsPanel';
 import WhichSheetStrip from './WhichSheetStrip';
 import { useAuth } from '../../contexts/AuthContext';
@@ -59,11 +60,7 @@ const BatchBulkBar: React.FC<{ onImported?: () => void }> = ({ onImported }) => 
     try {
       setNotice('Preparing your file… this one downloads directly, so please stay on this page.');
       const blob = await get();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = filename;
-      document.body.appendChild(a); a.click(); a.remove();
-      URL.revokeObjectURL(url);
+      saveBlob(blob, filename);
       setNotice('');
     } catch (e: any) {
       setNotice('');

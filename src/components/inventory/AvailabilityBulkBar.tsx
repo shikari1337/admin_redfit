@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { inventoryAPI } from '../../services/api';
+import { saveBlob } from '../../lib/saveBlob';
 import { useAuth } from '../../contexts/AuthContext';
 import { Btn, SectionCard } from '../erp';
 
@@ -15,13 +16,8 @@ import { Btn, SectionCard } from '../erp';
  * listings, the product page and checkout for that viewer.
  */
 
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = filename;
-  document.body.appendChild(a); a.click(); a.remove();
-  URL.revokeObjectURL(url);
-}
+// ONE definition in lib/saveBlob — the object URL is revoked late, never on the next line.
+const downloadBlob = saveBlob;
 
 interface ImportSummary {
   processed?: number; b2bFlagsSet?: number; rulesWritten?: number; skipped?: number;

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { exportsAPI, blobErrorMessage, type DataJob } from '../../services/api';
+import { saveBlob, saveFromUrl } from '../../lib/saveBlob';
 
 /**
  * DOWNLOADS — files you asked for, waiting for you.
@@ -126,12 +127,23 @@ export default function DownloadsPanel({
     try {
       setBusy(job.id);
       setError(null);
-      const { blob, fileName } = await exportsAPI.download(job.id);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = fileName;
-      document.body.appendChild(a); a.click(); a.remove();
-      URL.revokeObjectURL(url);
+      // The browser downloads NATIVELY from a signed two-minute link: it streams
+      // to disk with its own progress bar and nothing is held in page memory —
+      // the 31.9 MB inventory sheet used to be pulled into a Blob and handed
+      // over through an object URL revoked too early, which Chrome reports as
+      // "Failed – Network error" (the staff report, 2026-09-26).
+      try {
+        const link = await exportsAPI.downloadLink(job.id);
+        saveFromUrl(link.url, link.fileName ?? undefined);
+      } catch (linkErr: any) {
+        // A backend without the link route (404) or any refusal it explains
+        // (409 not ready) falls back to the authenticated blob download, which
+        // now at least revokes its object URL late enough.
+        const status = linkErr?.response?.status;
+        if (status && status !== 404) throw linkErr;
+        const { blob, fileName } = await exportsAPI.download(job.id);
+        saveBlob(blob, fileName);
+      }
       load();
     } catch (err: any) {
       setError(await blobErrorMessage(err, 'Could not download that file.'));

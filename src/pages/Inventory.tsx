@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 import { inventoryAPI, exportsAPI, blobErrorMessage, type InventoryHealth, type ImportResponse } from '../services/api';
+import { saveBlob } from '../lib/saveBlob';
 import { Pagination, FilterChips, type ChipGroup } from '@/components/erp';
 import InfoTip from '../components/common/InfoTip';
 import MarketPricesBulkBar from '../components/inventory/MarketPricesBulkBar';
@@ -75,14 +76,10 @@ interface InventoryItem {
   isActive?: boolean;
 }
 
-/** Hand a blob to the browser as a file. Used only by the direct-download fallback. */
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = filename;
-  document.body.appendChild(a); a.click(); a.remove();
-  URL.revokeObjectURL(url);
-}
+/** Hand a blob to the browser as a file. Used only by the direct-download fallback.
+ *  ONE definition in lib/saveBlob (the object URL is revoked late — revoking it on
+ *  the next statement is what Chrome reports as "Failed – Network error"). */
+const downloadBlob = saveBlob;
 
 const money = (n?: number | null) =>
   n == null || n === 0 ? '—' : `₹${Number(n).toLocaleString('en-IN')}`;

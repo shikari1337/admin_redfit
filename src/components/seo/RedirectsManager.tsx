@@ -4,6 +4,7 @@ import {
   Search, ArrowRight, AlertTriangle, CheckCircle2, FileText, Info,
 } from 'lucide-react';
 import { seoAPI } from '../../services/api';
+import { saveBlob } from '../../lib/saveBlob';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -74,12 +75,8 @@ function targetLabel(r: Rule): string {
   return r.target_path;
 }
 
-const download = (name: string, text: string, mime = 'text/csv') => {
-  const url = URL.createObjectURL(new Blob([text], { type: mime }));
-  const a = document.createElement('a');
-  a.href = url; a.download = name; a.click();
-  URL.revokeObjectURL(url);
-};
+const download = (name: string, text: string, mime = 'text/csv') =>
+  saveBlob(new Blob([text], { type: mime }), name);
 
 export default function RedirectsManager({ canManage }: { canManage: boolean }) {
   const [rules, setRules] = useState<Rule[]>([]);

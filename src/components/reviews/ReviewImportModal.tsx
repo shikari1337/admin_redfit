@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, Upload, FileText, AlertTriangle, CheckCircle2, Loader2, Download } from 'lucide-react';
 import { reviewsAPI } from '@/services/api';
+import { saveBlob } from '@/lib/saveBlob';
 import { Btn } from '@/components/erp';
 import { StarRating } from './StarRating';
 import { cn } from '@/lib/utils';
@@ -134,10 +135,7 @@ export const ReviewImportModal: React.FC<{
       '641536,Priya S,priya@example.com,5,Works well,"Helped my seasonal allergies within a week.",,,approved,true',
       '641537,Anil K,,4,Good value,"Packaging could be better but the product is genuine.",,,approved,false',
     ].join('\n');
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-    const a = document.createElement('a');
-    a.href = url; a.download = 'reviews-import-template.csv'; a.click();
-    URL.revokeObjectURL(url);
+    saveBlob(new Blob([csv], { type: 'text/csv' }), 'reviews-import-template.csv');
   };
 
   if (!open) return null;

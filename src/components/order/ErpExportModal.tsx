@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { FaFileExcel } from 'react-icons/fa';
 import Modal from './Modal';
+import { saveBlob } from '../../lib/saveBlob';
 import { localeDate, localeDateTime } from '../../utils/date';
 import {
   ordersAPI, type ErpExportConfig, type ErpExportPreview, type ErpExportStatus,
@@ -25,16 +26,8 @@ const toDateInput = (d: Date) => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 };
 
-function downloadBlob(blob: Blob, filename: string) {
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  window.URL.revokeObjectURL(url);
-}
+// ONE definition in lib/saveBlob — the object URL is revoked late, never on the next line.
+const downloadBlob = saveBlob;
 
 const inputCls = 'w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500';
 
