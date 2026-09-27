@@ -50,6 +50,8 @@ const InvoiceSettings: React.FC = () => {
    *  in another timezone must not be the thing that answers it (rule 8). */
   const [licenceTypes, setLicenceTypes] = useState<Array<{ value: string; label: string }>>([]);
   const [expiringLicences, setExpiringLicences] = useState<any[]>([]);
+  /** What the invoice counter actually does with the SAVED pattern (server: invoiceSeries.invoiceSeriesReset). */
+  const [numberingReset, setNumberingReset] = useState<{ mode: string; text: string; warning: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const previewUrl = useRef<string | null>(null);
@@ -67,6 +69,7 @@ const InvoiceSettings: React.FC = () => {
       setStateCodes(d.state_codes ?? {});
       setLicenceTypes(d.licence_types ?? []);
       setExpiringLicences(d.expiring_licences ?? []);
+      setNumberingReset(d.numbering_reset ?? null);
     } catch (e: any) {
       setError(e?.response?.data?.message || 'Failed to load invoice settings');
     } finally { setLoading(false); }
@@ -91,6 +94,7 @@ const InvoiceSettings: React.FC = () => {
       const res = await invoicesAPI.updateConfig(cfg);
       const d = res?.data ?? res;
       setCfg(d.config); setOriginal(JSON.stringify(d.config)); setMissing(d.missing ?? []);
+      setNumberingReset(d.numbering_reset ?? null);
       setNotice('Invoice settings saved.');
       setTimeout(() => setNotice(null), 4000);
     } catch (e: any) {
@@ -522,7 +526,8 @@ const InvoiceSettings: React.FC = () => {
               <Input type="number" min={1} value={cfg.numbering.start}
                 onChange={(e) => set('numbering.start', Math.max(1, Number(e.target.value) || 1))} />
             </Field>
-            <Field label="Restart counter">
+            <Field label="Restart counter"
+              hint="Every financial year restarts on 1 April only when the pattern has {FY}. Without it the series runs continuously, so no number is ever issued twice.">
               <Select value={cfg.numbering.reset} onValueChange={(v) => set('numbering.reset', v)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -533,11 +538,18 @@ const InvoiceSettings: React.FC = () => {
               </Select>
             </Field>
             <div className="md:col-span-2">
-              <Field label="Pattern" hint="Tokens: {PREFIX} {SEQ} {YYYY} {YY} {MM}">
+              <Field label="Pattern" hint="Tokens: {PREFIX} {SEQ} {FY} (26-27) {YYYY} {YY} {MM}. Example: {PREFIX}{FY}/{SEQ} → INV-26-27/000001">
                 <Input className="font-mono text-sm" value={cfg.numbering.format}
                   onChange={(e) => set('numbering.format', e.target.value)} />
               </Field>
             </div>
+            {numberingReset && (
+              <p className="md:col-span-2 text-sm text-muted-foreground" data-testid="numbering-reset">
+                <span className="font-medium text-foreground">As saved:</span> {numberingReset.text}
+                {numberingReset.warning && <span className="block text-amber-700">{numberingReset.warning}</span>}
+                {dirty && <span className="block">Save to see what the new settings do.</span>}
+              </p>
+            )}
             <Field label="Payment due (days after invoice date)" hint="0 = due immediately">
               <Input type="number" min={0} value={cfg.due_days} onChange={(e) => set('due_days', Number(e.target.value) || 0)} />
             </Field>
