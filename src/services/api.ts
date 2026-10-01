@@ -4091,14 +4091,25 @@ export const billingAPI = {
     const response = await api.get('/billing/usage', { params });
     return response.data;
   },
-  initiatePayment: async (invoiceId: string) => {
-    const response = await api.post(`/billing/pay/${invoiceId}/initiate`);
+  /** One invoice with every order it charged commission on, and how the list ties to it. */
+  getInvoiceStatement: async (id: string) => {
+    const response = await api.get(`/billing/invoices/${id}`);
     return response.data;
   },
-  verifyPayment: async (invoiceId: string, data: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }) => {
-    const response = await api.post(`/billing/pay/${invoiceId}/verify`, data);
+  /** The numbered GST tax invoice, as Growcord's books print it. */
+  downloadTaxInvoice: async (id: string): Promise<Blob> => {
+    const response = await api.get(`/billing/invoices/${id}/tax-invoice.pdf`, { responseType: 'blob', timeout: 120000 });
     return response.data;
   },
+  /** The order-wise statement behind the invoice — its own PDF. */
+  downloadOrderStatement: async (id: string): Promise<Blob> => {
+    const response = await api.get(`/billing/invoices/${id}/orders.pdf`, { responseType: 'blob', timeout: 120000 });
+    return response.data;
+  },
+  // NOTE: no initiatePayment / verifyPayment. They posted to /billing/pay/:id/*,
+  // which the backend has never had — "Pay now" opened nothing and reported a
+  // failure. Paying a platform invoice online is a feature to build, not a
+  // button to keep.
 };
 
 // ─── B2B API ──────────────────────────────────────────────────────────────────
