@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import type { HomeSources } from './useHomeFeed';
 import { fmtRupees, fmtMinor } from '../../lib/money';
+import { useAuth } from '../../contexts/AuthContext';
 
 export interface Task {
   count: number;
@@ -145,7 +146,10 @@ export function buildTasks(f: HomeSources, commerce?: CommerceSummary | null): T
 }
 
 export const AttentionBoard: React.FC<{ feed: HomeSources; commerce?: CommerceSummary | null }> = ({ feed, commerce }) => {
-  const tasks = buildTasks(feed, commerce);
+  // A store on simple SKU stock (the `batches` module off) has no lots, so a
+  // "lots expiring soon" queue pointing at a hidden page is not shown.
+  const { canAccess } = useAuth();
+  const tasks = buildTasks(feed, commerce).filter((t) => canAccess('batches') || t.to !== '/panel/inventory/batches');
   const urgent = tasks.filter((t) => t.urgent).length;
   return (
     <section aria-label="Needs your attention" data-attention-board>

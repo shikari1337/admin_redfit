@@ -120,7 +120,12 @@ export default function UpdateStockDialog({
 }: UpdateStockDialogProps) {
   const { hasPerm, canAccess } = useAuth();
   const canAdjust = hasPerm('inventory.adjust');
-  const lotsEnabled = canAccess('purchasing');
+  // Simple SKU stock (the `batches` module off): no lots anywhere in this
+  // dialog — stock is received loose, removed loose, or set as one total. The
+  // server answers with no lots in that mode too; this keeps the UI honest
+  // before that answer lands and hides the lot-only tabs.
+  const batchesOn = canAccess('batches');
+  const lotsEnabled = batchesOn && canAccess('purchasing');
 
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -164,10 +169,14 @@ export default function UpdateStockDialog({
   }, [variationId]);
 
   const sku = data?.sku;
-  const lots: any[] = useMemo(() => (data?.lots ?? []).filter((l: any) => Number(l.qty_on_hand) > 0), [data]);
+  const lots: any[] = useMemo(
+    () => (batchesOn ? (data?.lots ?? []) : []).filter((l: any) => Number(l.qty_on_hand) > 0),
+    [data, batchesOn]);
   const onHand = Number(sku?.on_hand ?? 0);
-  const batched = Number(sku?.batched_qty ?? 0);
-  const loose = Number(sku?.unbatched_qty ?? onHand - batched);
+  // With simple SKU stock the whole total is "loose" — there is no lot figure
+  // to subtract, and nothing here may be held back by one.
+  const batched = batchesOn ? Number(sku?.batched_qty ?? 0) : 0;
+  const loose = batchesOn ? Number(sku?.unbatched_qty ?? onHand - batched) : onHand;
   const reserved = Number(sku?.reserved_stock ?? 0);
 
   // Sensible starting points once the SKU is known.
@@ -347,7 +356,7 @@ export default function UpdateStockDialog({
     ['receive', 'Receive', true],
     ['remove', 'Remove / write off', lots.length > 0 || loose > 0],
     ['count', 'Count a lot', lots.length > 0],
-    ['label', 'Label loose stock', loose > 0],
+    ['label', 'Label loose stock', batchesOn && loose > 0],
     ['edit', 'Edit lot details', lots.length > 0],
     ['total', 'Set total', true],
   ];
@@ -364,8 +373,12 @@ export default function UpdateStockDialog({
                 <br />
                 On hand <strong className="text-foreground tabular-nums">{fmt(onHand)}</strong>
                 {sku.stock_source === 'legacy' ? ' (older column — not ledgered yet)' : ''}
-                {' · '}in {lots.length} lot(s) <strong className="text-foreground tabular-nums">{fmt(batched)}</strong>
-                {' · '}loose <strong className={`tabular-nums ${loose < 0 ? 'text-red-600' : 'text-foreground'}`}>{fmt(loose)}</strong>
+                {batchesOn && (
+                  <>
+                    {' · '}in {lots.length} lot(s) <strong className="text-foreground tabular-nums">{fmt(batched)}</strong>
+                    {' · '}loose <strong className={`tabular-nums ${loose < 0 ? 'text-red-600' : 'text-foreground'}`}>{fmt(loose)}</strong>
+                  </>
+                )}
                 {reserved > 0 ? ` · ${fmt(reserved)} reserved for orders` : ''}
               </span>
             ) : loading ? `Loading ${name ?? 'SKU'}…` : (name ?? '')}
@@ -396,13 +409,17 @@ export default function UpdateStockDialog({
 
             {/* ── Receive ── */}
             <TabsContent value="receive" className="space-y-3 pt-2">
-              <div className="flex gap-2 text-sm">
-                <Button type="button" size="sm" variant={rcv.intoLot ? 'default' : 'outline'}
-                  onClick={() => setRcv({ ...rcv, intoLot: true })} disabled={!lotsEnabled}>Into a lot (batch)</Button>
-                <Button type="button" size="sm" variant={!rcv.intoLot ? 'default' : 'outline'}
-                  onClick={() => setRcv({ ...rcv, intoLot: false })}>As loose stock (no batch)</Button>
-              </div>
-              {!lotsEnabled && (
+              {/* The lot/loose choice exists only for a store that keeps lots.
+                  With simple SKU stock, received units simply add to the total. */}
+              {batchesOn && (
+                <div className="flex gap-2 text-sm">
+                  <Button type="button" size="sm" variant={rcv.intoLot ? 'default' : 'outline'}
+                    onClick={() => setRcv({ ...rcv, intoLot: true })} disabled={!lotsEnabled}>Into a lot (batch)</Button>
+                  <Button type="button" size="sm" variant={!rcv.intoLot ? 'default' : 'outline'}
+                    onClick={() => setRcv({ ...rcv, intoLot: false })}>As loose stock (no batch)</Button>
+                </div>
+              )}
+              {batchesOn && !lotsEnabled && (
                 <p className="text-xs text-muted-foreground">Lots need the Purchasing module, which is off for this store.</p>
               )}
               <div className="grid grid-cols-2 gap-3">
@@ -458,12 +475,16 @@ export default function UpdateStockDialog({
             {/* ── Remove / write off ── */}
             <TabsContent value="remove" className="space-y-3 pt-2">
               <div className="grid grid-cols-2 gap-3">
-                <Field label="Take from">
-                  <select className={selectCls} value={rem.source} onChange={(e) => setRem({ ...rem, source: e.target.value })}>
-                    {lots.map((l) => <option key={l.id} value={l.id}>Lot {lotOption(l)}</option>)}
-                    {loose > 0 && <option value="loose">Loose stock · {fmt(loose)} units (no batch)</option>}
-                  </select>
-                </Field>
+                {/* "Take from" is a question only a store with lots can be asked;
+                    with simple SKU stock the units come off the one total. */}
+                {batchesOn && (
+                  <Field label="Take from">
+                    <select className={selectCls} value={rem.source} onChange={(e) => setRem({ ...rem, source: e.target.value })}>
+                      {lots.map((l) => <option key={l.id} value={l.id}>Lot {lotOption(l)}</option>)}
+                      {loose > 0 && <option value="loose">Loose stock · {fmt(loose)} units (no batch)</option>}
+                    </select>
+                  </Field>
+                )}
                 <Field label="Why">
                   <select className={selectCls} value={rem.reason} onChange={(e) => setRem({ ...rem, reason: e.target.value })}>
                     {REMOVE_REASONS.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
@@ -484,7 +505,9 @@ export default function UpdateStockDialog({
               <Preview
                 rows={[
                   ['On hand', fmt(onHand), fmt(onHand - remQty)],
-                  [remLot ? `Lot ${remLot.batch_number}` : 'Loose', fmt(remAvail), fmt(remAvail - remQty)],
+                  ...(batchesOn
+                    ? [[remLot ? `Lot ${remLot.batch_number}` : 'Loose', fmt(remAvail), fmt(remAvail - remQty)] as [string, string, string]]
+                    : []),
                 ]}
                 records={movementLabel(remLot ? remReason.lot : (TOTAL_REASONS.find((r) => r.key === remReason.loose)?.ledger ?? 'adjustment'))}
               />

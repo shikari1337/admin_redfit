@@ -9,12 +9,17 @@ import { StatTile, ChartCard, TimeSeries } from '../../components/panelAnalytics
 import { SERIES, STATUS } from '../../components/panelAnalytics/vizTheme';
 import { Page, PageHeader, SectionCard, THead, Th, TBody, Tr, Td } from '../../components/erp';
 import { Warehouse, PackageSearch, AlertTriangle, ShoppingBag, Layers } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 
 /**
  * Inventory panel home. Stock truth = stock_balances/stock_ledger_entries;
  * movement history begins at the ledger cutover (shown as "ledger since").
  */
 const InventoryPanelDashboard: React.FC = () => {
+  // Expiry is a lot's fact. A store on simple SKU stock (the `batches` module
+  // off) has no expiry to report, so that card and its link are left out.
+  const { canAccess } = useAuth();
+  const lotsOn = canAccess('batches');
   const { range, preset, setPreset, custom, setCustom } = useDateRange('30d');
   const { data, error } = usePanelStats<any>('inventory', range);
   const [low, setLow] = useState<any[]>([]);
@@ -42,7 +47,7 @@ const InventoryPanelDashboard: React.FC = () => {
     <Page>
       <PageHeader
         title="Inventory"
-        description={<>Stock health, movements and expiry. Stock is ledgered — every change is recorded
+        description={<>Stock health{lotsOn ? ', movements and expiry' : ' and movements'}. Stock is ledgered — every change is recorded
           {data?.ledger_since ? ` (ledger since ${data.ledger_since})` : ''}.</>}
         actions={<DateRangeBar preset={preset} onPreset={setPreset} custom={custom} onCustom={setCustom} />}
       />
@@ -63,7 +68,7 @@ const InventoryPanelDashboard: React.FC = () => {
           </div>
 
           <div className="grid gap-6 lg:grid-cols-3">
-            <div className="lg:col-span-2">
+            <div className={lotsOn ? 'lg:col-span-2' : 'lg:col-span-3'}>
               <ChartCard title="Stock movements" sub="Units received vs issued (stock ledger, opening balances excluded)">
                 <TimeSeries data={data.movements} granularity={bucket}
                   series={[
@@ -72,6 +77,7 @@ const InventoryPanelDashboard: React.FC = () => {
                   ]} />
               </ChartCard>
             </div>
+            {lotsOn && (
             <SectionCard title="Batch expiry" description="Batches with stock on hand" flush>
               <div className="space-y-2 p-5 text-sm">
                 {([
@@ -94,6 +100,7 @@ const InventoryPanelDashboard: React.FC = () => {
                 </Link>
               </div>
             </SectionCard>
+            )}
           </div>
 
           <div className="grid gap-6 lg:grid-cols-2">

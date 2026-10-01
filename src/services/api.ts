@@ -4489,6 +4489,8 @@ export interface InventoryHealth {
   expired_units: string;
   expired_skus: number;
   expiring_90d_skus: number;
+  /** 'simple' = one figure per SKU (the `batches` module off); 'batches' = lots. */
+  stock_mode?: 'batches' | 'simple';
 }
 
 export const inventoryAPI = {

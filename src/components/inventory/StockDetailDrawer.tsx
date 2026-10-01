@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { inventoryAPI } from '../../services/api';
 import { formatDay, formatDateTime } from '../../utils/date';
 import { movementLabel, refDocLabel, shortHash } from './ledgerLabels';
+import { useAuth } from '../../contexts/AuthContext';
 
 /**
  * EVERYTHING ABOUT ONE SKU — opened from the Inventory table.
@@ -35,6 +36,11 @@ export default function StockDetailDrawer({ variationId, onClose, onUpdate }: {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Simple SKU stock (the `batches` module off): the server sends no lots and
+  // writes no lot notes; the lot tiles and the lots section are left out here
+  // rather than drawn as "0 lots" for a store that has stopped keeping them.
+  const { canAccess } = useAuth();
+  const lotsOn = canAccess('batches') && data?.stock_mode !== 'simple';
 
   useEffect(() => {
     if (!variationId) { setData(null); return; }
@@ -139,8 +145,10 @@ export default function StockDetailDrawer({ variationId, onClose, onUpdate }: {
                   { k: 'On hand', v: num(rec?.trusted), sub: rec?.source === 'ledger' ? 'stock ledger' : 'older column', strong: true },
                   { k: 'Stock ledger', v: rec?.ledger_on_hand == null ? 'no record' : num(rec.ledger_on_hand), sub: 'the platform’s truth' },
                   { k: 'Older column', v: num(rec?.legacy_stock), sub: 'product_variations' },
-                  { k: 'In batches', v: num(rec?.batched_qty), sub: `${sku.lot_count} lot(s)` },
-                  { k: 'Not in a batch', v: num(rec?.unbatched_qty), sub: 'no expiry or printed price' },
+                  ...(lotsOn ? [
+                    { k: 'In batches', v: num(rec?.batched_qty), sub: `${sku.lot_count} lot(s)` },
+                    { k: 'Not in a batch', v: num(rec?.unbatched_qty), sub: 'no expiry or printed price' },
+                  ] : []),
                 ].map((c) => (
                   <div key={c.k} style={{ background: 'var(--surface)', padding: '10px 14px' }}>
                     <div style={{ fontSize: 11, color: 'var(--n-500)', textTransform: 'uppercase', letterSpacing: 0.3 }}>{c.k}</div>
@@ -167,7 +175,7 @@ export default function StockDetailDrawer({ variationId, onClose, onUpdate }: {
                   </div>
                 ))}
               </div>
-              {sku.mrp_count > 1 && (
+              {lotsOn && sku.mrp_count > 1 && (
                 <div style={{ padding: '8px 14px', fontSize: 12, color: 'var(--n-600)', borderTop: '1px solid var(--n-100)' }}>
                   Its lots carry <strong>{sku.mrp_count} different printed MRPs</strong> — the catalogue
                   figures above are what the storefront shows; each lot’s own price is below.
@@ -176,6 +184,7 @@ export default function StockDetailDrawer({ variationId, onClose, onUpdate }: {
             </section>
 
             {/* ── Lots ──────────────────────────────────────────────────── */}
+            {lotsOn && (
             <section style={{ border: '1px solid var(--n-200)', borderRadius: 10, overflow: 'hidden' }}>
               <div style={{ padding: '9px 14px', borderBottom: '1px solid var(--n-100)', fontSize: 13, fontWeight: 600 }}>
                 Batches / lots {lots.length > 0 && <span style={{ fontWeight: 400, color: 'var(--n-500)' }}>({lots.length})</span>}
@@ -227,6 +236,7 @@ export default function StockDetailDrawer({ variationId, onClose, onUpdate }: {
                 </div>
               )}
             </section>
+            )}
 
             {/* ── The stock ledger, as a chain ──────────────────────────────
                 Every movement of this SKU carries a fingerprint of itself and of

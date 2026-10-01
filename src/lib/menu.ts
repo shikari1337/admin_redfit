@@ -211,7 +211,10 @@ export const MENU: MenuGroup[] = [
       tip: 'How many of each SKU you actually have.',
       children: [
         { label: 'Stock Levels', to: '/inventory', perm: 'inventory.read', modules: ['inventory'], tip: 'How many of each SKU you actually have.' },
-        { label: 'Batches & Expiry', to: '/panel/inventory/batches', perm: 'inventory.read', tip: 'Lots, their MRP and their expiry.' },
+        // Gated on the `batches` store module: a store that keeps one plain
+        // stock figure per SKU (homeomead, 2026-10-01) has no lots to show, and
+        // RouteGuard reads this same table, so the page is unreachable too.
+        { label: 'Batches & Expiry', to: '/panel/inventory/batches', perm: 'inventory.read', modules: ['batches'], tip: 'Lots, their MRP and their expiry.' },
         { label: 'Reorder', to: '/panel/inventory/reorder', perm: 'inventory.read', tip: 'What to buy, how much, and from whom.' },
         { label: 'Approvals', to: '/panel/inventory/approvals', perm: 'inventory.manage', tip: 'Stock changes waiting for a second pair of eyes.' },
         { label: 'Outlets & Transfers', to: '/panel/inventory/outlets', perm: 'inventory.read', tip: 'Shops that hold their own stock.' },

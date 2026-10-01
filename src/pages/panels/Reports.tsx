@@ -6,6 +6,7 @@ import {
   TextInput, SelectInput, SearchInput, TableShell, THead, Th, TBody, Tr, Td, inr, num,
 } from '../../components/erp';
 import { FileSpreadsheet, Loader2 } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 
 /**
  * Reports (Part VI "Reports" — slice 1). Built for a non-technical store owner:
@@ -514,6 +515,11 @@ const TABS = [
 
 const Reports: React.FC = () => {
   const [tab, setTab] = useState<(typeof TABS)[number]['key']>('summary');
+  // The batches report is a lot report; a store on simple SKU stock (the
+  // `batches` module off) has none to show, so the tab is left out.
+  const { canAccess } = useAuth();
+  const lotsOn = canAccess('batches');
+  const tabs = lotsOn ? TABS : TABS.filter((t) => t.key !== 'batches');
   return (
     <Page>
       <PageHeader
@@ -521,11 +527,11 @@ const Reports: React.FC = () => {
         icon={FileSpreadsheet}
         description="Clear, plain-language reports on your stock — with a one-click download for your accountant or spreadsheet."
       />
-      <TabBar tabs={TABS} active={tab} onChange={(k) => setTab(k as typeof tab)} />
+      <TabBar tabs={tabs} active={tab} onChange={(k) => setTab(k as typeof tab)} />
       {tab === 'summary' && <StockSummaryTab />}
       {tab === 'valuation' && <ValuationTab />}
       {tab === 'ageing' && <AgeingTab />}
-      {tab === 'batches' && <BatchesTab />}
+      {tab === 'batches' && lotsOn && <BatchesTab />}
       {tab === 'movements' && <MovementsTab />}
     </Page>
   );

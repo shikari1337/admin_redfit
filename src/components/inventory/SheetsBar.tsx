@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import WhichSheetStrip from './WhichSheetStrip';
 import DownloadsPanel from './DownloadsPanel';
+import { useAuth } from '../../contexts/AuthContext';
 
 /**
  * ONE block for "sheets and downloads", instead of two panels stacked above
@@ -24,6 +25,32 @@ export default function SheetsBar({
   here, refreshToken,
 }: { here: 'inventory' | 'batches'; refreshToken?: number }) {
   const [open, setOpen] = useState(false);
+  // Simple SKU stock (the `batches` module off): there is ONE sheet and its
+  // Stock column is editable — say so, instead of pointing at a Batches sheet
+  // the store does not use.
+  const { canAccess } = useAuth();
+  const lotsOn = canAccess('batches');
+
+  if (!lotsOn) {
+    return (
+      <div style={{
+        border: '1px solid var(--n-200)', borderRadius: 8, background: 'var(--surface)',
+        marginBottom: 16, overflow: 'hidden',
+      }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+          padding: '8px 12px', fontSize: 12.5, color: 'var(--n-600)', background: 'var(--n-50)',
+        }} data-testid="sheets-bar-simple">
+          <strong style={{ color: 'var(--n-900)', fontWeight: 600 }}>Excel</strong>
+          <span>
+            One sheet: Stock, prices, MRP, B2B price, HSN and pack size, one row per SKU.
+            Type a new number in <strong>Stock</strong> to set that SKU&apos;s units on hand; a blank cell changes nothing.
+          </span>
+        </div>
+        <DownloadsPanel refreshToken={refreshToken} embedded />
+      </div>
+    );
+  }
 
   return (
     <div style={{

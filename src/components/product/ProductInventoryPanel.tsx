@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../services/api';
 import { UUID_RE } from '../../lib/uuid';
+import { useAuth } from '../../contexts/AuthContext';
 
 /**
  * Inventory & ERP panel for ONE variation, mounted on the product-editing
@@ -48,6 +49,10 @@ const DeniedNote: React.FC<{ perm: string }> = ({ perm }) => (
 );
 
 const ProductInventoryPanel: React.FC<Props> = ({ variationId, sku, onStockChanged }) => {
+  // Lots are a store module (`batches`). Off = simple SKU stock: the Batches
+  // block and its link are left out, and the lot list is not even requested.
+  const { canAccess } = useAuth();
+  const lotsOn = canAccess('batches');
   const [summary, setSummary] = useState<any | null>(null);
   const [summaryDenied, setSummaryDenied] = useState(false);
   const [batches, setBatches] = useState<any[]>([]);
@@ -82,7 +87,7 @@ const ProductInventoryPanel: React.FC<Props> = ({ variationId, sku, onStockChang
     setLoading(true);
     const [sum, bat, inc, mov] = await Promise.allSettled([
       api.get(`/inventory/${variationId}`),
-      api.get('/purchasing/batches', { params: { variationId } }),
+      lotsOn ? api.get('/purchasing/batches', { params: { variationId } }) : Promise.resolve({ data: { rows: [] } }),
       api.get('/purchasing/incoming', { params: { variationId } }),
       api.get('/reports/movements', { params: { variationId, limit: 8 } }),
     ]);
@@ -95,7 +100,7 @@ const ProductInventoryPanel: React.FC<Props> = ({ variationId, sku, onStockChang
     if (mov.status === 'fulfilled') { setMovements(rowsOf(mov.value)); setMovementsDenied(false); }
     else setMovementsDenied(is403(mov.reason));
     setLoading(false);
-  }, [variationId, valid]);
+  }, [variationId, valid, lotsOn]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -163,7 +168,7 @@ const ProductInventoryPanel: React.FC<Props> = ({ variationId, sku, onStockChang
         <h2 className="text-sm font-semibold text-gray-900">Inventory &amp; ERP {sku ? <span className="ml-1 font-mono text-xs font-normal text-gray-500">{sku}</span> : null}</h2>
         <div className="flex items-center gap-3 text-xs">
           <Link to="/inventory" className="text-blue-600 hover:text-blue-800">Inventory</Link>
-          <Link to="/panel/inventory/batches" className="text-blue-600 hover:text-blue-800">Batches</Link>
+          {lotsOn && <Link to="/panel/inventory/batches" className="text-blue-600 hover:text-blue-800">Batches</Link>}
           <Link to="/panel/inventory/purchasing" className="text-blue-600 hover:text-blue-800">Purchasing</Link>
         </div>
       </div>
@@ -181,7 +186,8 @@ const ProductInventoryPanel: React.FC<Props> = ({ variationId, sku, onStockChang
             {summaryDenied ? <DeniedNote perm="inventory.read" /> : (
               <div className="grid grid-cols-3 gap-2 text-center">
                 {[
-                  { label: 'On hand', value: summary?.stock ?? 0 },
+                  // The ledger-preferred figure (#334), not the legacy column alone.
+                  { label: 'On hand', value: summary?.on_hand ?? summary?.stock ?? 0 },
                   { label: 'Reserved', value: summary?.reserved_stock ?? 0 },
                   { label: 'Available', value: summary?.available_stock ?? 0 },
                 ].map(({ label, value }) => (
@@ -227,7 +233,8 @@ const ProductInventoryPanel: React.FC<Props> = ({ variationId, sku, onStockChang
             )}
           </Section>
 
-          {/* Batches */}
+          {/* Batches — only for a store that keeps stock by lot */}
+          {lotsOn && (
           <Section
             title="Batches"
             action={!batchesDenied && (
@@ -285,6 +292,7 @@ const ProductInventoryPanel: React.FC<Props> = ({ variationId, sku, onStockChang
               </div>
             )}
           </Section>
+          )}
 
           {/* Recent ledger movements */}
           <Section title="Recent movements">

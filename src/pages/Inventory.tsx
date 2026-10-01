@@ -8,6 +8,7 @@ import AvailabilityBulkBar from '../components/inventory/AvailabilityBulkBar';
 import SheetsBar from '../components/inventory/SheetsBar';
 import StockDetailDrawer from '../components/inventory/StockDetailDrawer';
 import UpdateStockDialog from '../components/inventory/UpdateStockDialog';
+import { useAuth } from '../contexts/AuthContext';
 
 interface Valuation {
   grand_total?: number;
@@ -85,6 +86,13 @@ const money = (n?: number | null) =>
   n == null || n === 0 ? '—' : `₹${Number(n).toLocaleString('en-IN')}`;
 
 export default function Inventory() {
+  // Does this store keep stock by LOT? The `batches` store module decides
+  // (default on). Off = "simple stock": one figure per SKU, so every lot and
+  // expiry surface on this page is left out rather than shown empty, and the
+  // Stock column of the Inventory sheet is editable again (the server applies
+  // the same switch — services/stockMode.ts).
+  const { canAccess } = useAuth();
+  const lotsOn = canAccess('batches');
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -133,7 +141,8 @@ export default function Inventory() {
         // screen also uses, so the two pages can never mean different things.
         expiringDays: filter === 'expiring' ? 90 : undefined,
         // Each row's lots, fetched for the whole page in ONE query server-side.
-        includeLots: true,
+        // Not asked for at all when the store keeps simple SKU stock.
+        includeLots: lotsOn,
       });
       const list = Array.isArray(data) ? data : data?.products ?? data?.data ?? [];
       setItems(list);
@@ -144,7 +153,7 @@ export default function Inventory() {
     } finally {
       setLoading(false);
     }
-  }, [page, search, filter]);
+  }, [page, search, filter, lotsOn]);
 
   useEffect(() => { loadInventory(); }, [loadInventory]);
 
@@ -371,7 +380,8 @@ export default function Inventory() {
       { value: 'low', label: 'Low stock' },
       { value: 'out', label: 'Out of stock' },
       { value: 'mismatch', label: 'Needs reconciling', hint: 'figures disagree' },
-      { value: 'expiring', label: 'Expiring within 90 days' },
+      // Expiry lives on a lot — no lots, no expiry to filter by.
+      ...(lotsOn ? [{ value: 'expiring', label: 'Expiring within 90 days' }] : []),
     ],
   }];
 
@@ -430,7 +440,9 @@ export default function Inventory() {
           </span>
           <span className="stat-value">{Number(health?.units_on_hand ?? 0).toLocaleString('en-IN')}</span>
           <span className="stat-sub">
-            {health ? `${Number(health.units_batched).toLocaleString('en-IN')} in batches` : '—'}
+            {!health ? '—'
+              : lotsOn ? `${Number(health.units_batched).toLocaleString('en-IN')} in batches`
+              : `${Number(health.units_legacy ?? 0).toLocaleString('en-IN')} in the older column`}
           </span>
         </div>
         <div className="stat">
@@ -445,7 +457,11 @@ export default function Inventory() {
             )}
           </span>
           <span className="stat-value">{(health?.skus ?? total).toLocaleString('en-IN')}</span>
-          <span className="stat-sub">{health ? `${health.batch_tracked.toLocaleString('en-IN')} batch-tracked` : '—'}</span>
+          <span className="stat-sub">
+            {!health ? '—'
+              : lotsOn ? `${health.batch_tracked.toLocaleString('en-IN')} batch-tracked`
+              : `${Number(health.active_skus ?? 0).toLocaleString('en-IN')} active`}
+          </span>
         </div>
         <button className={`stat stat-btn ${filter === 'out' ? 'active' : ''}`}
           onClick={() => { setFilter('out'); setPage(1); }}>
@@ -460,7 +476,7 @@ export default function Inventory() {
           <span className="stat-label">Needs reconciling</span>
           <span className="stat-value">{(health?.needs_reconciling ?? 0).toLocaleString('en-IN')}</span>
           <span className="stat-sub">
-            {health && health.over_batched > 0 ? `${health.over_batched.toLocaleString('en-IN')} over-batched` : 'figures disagree'}
+            {lotsOn && health && health.over_batched > 0 ? `${health.over_batched.toLocaleString('en-IN')} over-batched` : 'figures disagree'}
           </span>
         </button>
       </div>
@@ -515,10 +531,12 @@ export default function Inventory() {
         </form>
         <div className="filter-group">
           <FilterChips groups={stockChips} onClearAll={() => { setFilter('all'); setPage(1); }}>
-            <label className="lots-toggle" title="Show every SKU's batches under it">
-              <input type="checkbox" checked={showAllLots} onChange={toggleShowAll} data-testid="inv-show-all-lots" />
-              Show batches
-            </label>
+            {lotsOn && (
+              <label className="lots-toggle" title="Show every SKU's batches under it">
+                <input type="checkbox" checked={showAllLots} onChange={toggleShowAll} data-testid="inv-show-all-lots" />
+                Show batches
+              </label>
+            )}
           </FilterChips>
         </div>
       </div>
@@ -538,16 +556,16 @@ export default function Inventory() {
             <table>
               <thead>
                 <tr>
-                  <th style={{ width: 28 }}></th>
+                  {lotsOn && <th style={{ width: 28 }}></th>}
                   <th>Product</th>
                   <th>SKU</th>
                   <th>Category</th>
                   <th className="num">On hand <InfoTip text="Everything you hold of this SKU. Taken from the stock ledger where there is one." /></th>
-                  <th className="num">In batches <InfoTip text="How much of it is recorded against a specific lot, with its own MRP and expiry." /></th>
-                  <th className="num">Loose <InfoTip text="On hand minus what is in lots — stock that is not attached to a batch yet." /></th>
+                  {lotsOn && <th className="num">In batches <InfoTip text="How much of it is recorded against a specific lot, with its own MRP and expiry." /></th>}
+                  {lotsOn && <th className="num">Loose <InfoTip text="On hand minus what is in lots — stock that is not attached to a batch yet." /></th>}
                   <th className="num">Avail. <InfoTip text="On hand minus what is reserved for orders already placed." /></th>
-                  <th>Lots</th>
-                  <th>Nearest expiry</th>
+                  {lotsOn && <th>Lots</th>}
+                  {lotsOn && <th>Nearest expiry</th>}
                   <th className="num">MRP</th>
                   <th className="num">Selling</th>
                   <th className="num">B2B</th>
@@ -559,26 +577,30 @@ export default function Inventory() {
                 {items.map(item => {
                   const status = getStockStatus(item);
                   const onHand = item.onHand ?? item.stock ?? 0;
-                  const lots = item.lotCount ?? 0;
+                  // With simple SKU stock there are no lots on this page at all —
+                  // the server sends none and nothing below is drawn from them.
+                  const lots = lotsOn ? (item.lotCount ?? 0) : 0;
                   const loose = item.unbatchedQty ?? 0;
-                  const exp = item.nearestExpiry ?? null;
+                  const exp = lotsOn ? (item.nearestExpiry ?? null) : null;
                   const expDays = exp ? Math.round((new Date(exp).getTime() - Date.now()) / 86400000) : null;
-                  const rowLots = item.lots ?? [];
-                  const isOpen = showAllLots || expanded.has(item._id);
+                  const rowLots = lotsOn ? (item.lots ?? []) : [];
+                  const isOpen = lotsOn && (showAllLots || expanded.has(item._id));
                   const siteHref = item.productUrl ?? siteUrl;
                   return (
                     <Fragment key={item._id}>
                     <tr className={`${item.stockMismatch ? 'row-warn' : ''} ${isOpen && lots ? 'row-open' : ''}`}
                         onClick={() => setOpenSku(item._id)} style={{ cursor: 'pointer' }} data-testid="inv-row">
-                      <td onClick={(e) => e.stopPropagation()}>
-                        {lots > 0 && (
-                          <button className="expander" aria-expanded={isOpen} data-testid="inv-row-expand"
-                            title={isOpen ? 'Hide batches' : `Show ${lots} batch(es)`}
-                            onClick={() => (showAllLots ? toggleShowAll() : toggleRow(item._id))}>
-                            {isOpen ? '▾' : '▸'}
-                          </button>
-                        )}
-                      </td>
+                      {lotsOn && (
+                        <td onClick={(e) => e.stopPropagation()}>
+                          {lots > 0 && (
+                            <button className="expander" aria-expanded={isOpen} data-testid="inv-row-expand"
+                              title={isOpen ? 'Hide batches' : `Show ${lots} batch(es)`}
+                              onClick={() => (showAllLots ? toggleShowAll() : toggleRow(item._id))}>
+                              {isOpen ? '▾' : '▸'}
+                            </button>
+                          )}
+                        </td>
+                      )}
                       <td>
                         <div className="product-cell">
                           {item.images?.[0] && (
@@ -618,36 +640,44 @@ export default function Inventory() {
                           <span className="src-tag warn" title="The stock figures for this SKU disagree. Open it to see all three.">⚠</span>
                         )}
                       </td>
-                      <td className="num">{lots ? (item.batchedQty ?? 0).toLocaleString('en-IN') : <span className="dim">—</span>}</td>
-                      <td className="num">
-                        {/* Loose stock is NOT noise — it is units with no expiry
-                            and no printed price. Only zero is dimmed; a negative
-                            means the batches claim more than the pool holds. */}
-                        {lots
-                          ? <span className={loose < 0 ? 'neg' : loose === 0 ? 'dim' : ''}>{loose.toLocaleString('en-IN')}</span>
-                          : <span className="dim">—</span>}
-                      </td>
+                      {lotsOn && (
+                        <td className="num">{lots ? (item.batchedQty ?? 0).toLocaleString('en-IN') : <span className="dim">—</span>}</td>
+                      )}
+                      {lotsOn && (
+                        <td className="num">
+                          {/* Loose stock is NOT noise — it is units with no expiry
+                              and no printed price. Only zero is dimmed; a negative
+                              means the batches claim more than the pool holds. */}
+                          {lots
+                            ? <span className={loose < 0 ? 'neg' : loose === 0 ? 'dim' : ''}>{loose.toLocaleString('en-IN')}</span>
+                            : <span className="dim">—</span>}
+                        </td>
+                      )}
                       <td className="num">{getAvailableStock(item).toLocaleString('en-IN')}</td>
-                      <td>
-                        {lots
-                          ? <span style={{ whiteSpace: 'nowrap' }}>
-                              {lots}
-                              {(item.mrpCount ?? 0) > 1 && (
-                                <span className="src-tag" title={`${item.mrpCount} different printed MRPs across this SKU's lots`}>
-                                  {item.mrpCount} MRPs
-                                </span>
-                              )}
-                            </span>
-                          : <span className="dim">none</span>}
-                      </td>
-                      <td>
-                        {exp
-                          ? <span className={expDays != null && expDays < 90 ? 'warnText' : ''}>{exp}</span>
-                          : <span className="dim">—</span>}
-                        {(item.expiredQty ?? 0) > 0 && (
-                          <span className="src-tag warn" title={`${item.expiredQty} unit(s) already past expiry`}>{item.expiredQty} expired</span>
-                        )}
-                      </td>
+                      {lotsOn && (
+                        <td>
+                          {lots
+                            ? <span style={{ whiteSpace: 'nowrap' }}>
+                                {lots}
+                                {(item.mrpCount ?? 0) > 1 && (
+                                  <span className="src-tag" title={`${item.mrpCount} different printed MRPs across this SKU's lots`}>
+                                    {item.mrpCount} MRPs
+                                  </span>
+                                )}
+                              </span>
+                            : <span className="dim">none</span>}
+                        </td>
+                      )}
+                      {lotsOn && (
+                        <td>
+                          {exp
+                            ? <span className={expDays != null && expDays < 90 ? 'warnText' : ''}>{exp}</span>
+                            : <span className="dim">—</span>}
+                          {(item.expiredQty ?? 0) > 0 && (
+                            <span className="src-tag warn" title={`${item.expiredQty} unit(s) already past expiry`}>{item.expiredQty} expired</span>
+                          )}
+                        </td>
+                      )}
                       <td className="num">{money(item.mrp)}</td>
                       <td className="num">{money(item.sellingPrice)}</td>
                       <td className="num">{money(item.b2bPrice)}</td>
