@@ -191,7 +191,11 @@ const Orders: React.FC = () => {
     });
   };
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState('all');
+  // `?status=` opens the list already filtered — the dashboard's "orders to
+  // confirm / to pack / on hold" lines link here that way.
+  const [statusFilter, setStatusFilter] = useState(() => {
+    try { return new URLSearchParams(window.location.search).get('status') || 'all'; } catch { return 'all'; }
+  });
   // Retail vs B2B tab — only meaningful (and only shown) when the B2B module is on.
   const [typeFilter, setTypeFilter] = useState<'all' | 'retail' | 'b2b'>('all');
   // WHERE the sale came from (migration 162) — a POS bill, the website, a manual

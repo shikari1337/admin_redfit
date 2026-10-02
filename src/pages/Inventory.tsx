@@ -96,7 +96,17 @@ export default function Inventory() {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<'all' | 'low' | 'out' | 'mismatch' | 'expiring'>('all');
+  // `?filter=out|low|mismatch|expiring` opens the list already filtered — the
+  // dashboard's "out of stock / running low" lines link here that way.
+  const [filter, setFilter] = useState<'all' | 'low' | 'out' | 'mismatch' | 'expiring'>(() => {
+    try {
+      const v = new URLSearchParams(window.location.search).get('filter') ?? '';
+      const alias: Record<string, 'low' | 'out' | 'mismatch' | 'expiring'> = {
+        low: 'low', lowStock: 'low', out: 'out', outOfStock: 'out', mismatch: 'mismatch', expiring: 'expiring',
+      };
+      return alias[v] ?? 'all';
+    } catch { return 'all'; }
+  });
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   // The Update-stock dialog: which SKU, and optionally which tab/lot to open on.
