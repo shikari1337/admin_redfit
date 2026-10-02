@@ -150,6 +150,22 @@ export default function DownloadsPanel({
     } finally { setBusy(null); }
   };
 
+  /**
+   * The rows of an import that did NOT apply, as a file the merchant can fix
+   * and send straight back (owner, 2026-10-01: "export the file with SKUs
+   * having issues"). Small — a few hundred rows — so a blob is fine here.
+   */
+  const handleProblemRows = async (job: DataJob) => {
+    try {
+      setBusy(job.id);
+      setError(null);
+      const { blob, fileName } = await exportsAPI.problemRows(job.id);
+      saveBlob(blob, fileName);
+    } catch (err: any) {
+      setError(await blobErrorMessage(err, 'Could not prepare the problem rows.'));
+    } finally { setBusy(null); }
+  };
+
   const handleRetry = async (job: DataJob) => {
     try { setBusy(job.id); await exportsAPI.retry(job.id); await load(); }
     catch (err: any) { setError(err?.response?.data?.message || 'Could not retry.'); }
@@ -252,6 +268,15 @@ export default function DownloadsPanel({
                       Try again
                     </button>
                   )}
+                  {problems > 0 && job.direction === 'import' && job.status === 'ready' && (
+                    <button onClick={() => handleProblemRows(job)} disabled={busy === job.id}
+                      data-testid="download-problem-rows"
+                      title="The rows that did not apply, with the reason beside each. Fix them and send this file back with Import."
+                      style={{ padding: '5px 12px', fontSize: 12, borderRadius: 6, border: 'none',
+                               background: 'var(--d-600)', color: 'var(--surface)', cursor: 'pointer' }}>
+                      {busy === job.id ? 'Preparing…' : `⬇ ${problems} problem row${problems > 1 ? 's' : ''}`}
+                    </button>
+                  )}
                   {(problems > 0 || (job.direction === 'import' && job.status === 'ready')) && (
                     <button onClick={() => toggleLog(job)}
                       style={{ padding: '5px 12px', fontSize: 12, borderRadius: 6,
@@ -259,7 +284,7 @@ export default function DownloadsPanel({
                                color: problems ? 'var(--d-700)' : 'var(--n-600)', cursor: 'pointer' }}>
                       {expanded === job.id
                         ? 'Hide'
-                        : problems ? `${problems} problem${problems > 1 ? 's' : ''}` : 'Line by line'}
+                        : problems ? 'Show problems' : 'Line by line'}
                     </button>
                   )}
                   <button onClick={() => handleRemove(job)} disabled={busy === job.id} title="Remove"
@@ -285,7 +310,9 @@ export default function DownloadsPanel({
                         {(rowLog[job.id] ?? []).map((r: any) => (
                           <tr key={r.id} style={{ borderTop: '1px solid var(--n-50)' }}>
                             <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>{r.row_number}</td>
-                            <td style={{ padding: '6px 8px' }}>{r.ref ?? '—'}</td>
+                            {/* The SKU and product a person knows the row by; the
+                                internal id only when nothing better was recorded. */}
+                            <td style={{ padding: '6px 8px' }} title={r.ref ?? ''}>{r.ref_detail || r.ref || '—'}</td>
                             <td style={{ padding: '6px 8px', color: r.outcome === 'ok' ? 'var(--g-700)' : 'var(--d-700)' }}>
                               {r.message ?? r.outcome}
                             </td>

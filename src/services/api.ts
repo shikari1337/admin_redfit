@@ -4454,6 +4454,18 @@ export const exportsAPI = {
     return r.data?.data ?? r.data;
   },
 
+  /**
+   * The rows an import could NOT apply, as a file. For the Inventory sheet it is
+   * the same sheet holding only those rows plus `Sheet Line` and `Problem` —
+   * fix it and send it straight back through Import.
+   */
+  problemRows: async (id: string): Promise<{ blob: Blob; fileName: string }> => {
+    const r = await api.get(`/exports/${id}/problems`, { responseType: 'blob', timeout: BULK_TRANSFER_TIMEOUT_MS });
+    const cd = String(r.headers?.['content-disposition'] ?? '');
+    const m = cd.match(/filename="?([^";]+)"?/);
+    return { blob: r.data as Blob, fileName: m?.[1] || 'problem-rows.xlsx' };
+  },
+
   download: async (id: string): Promise<{ blob: Blob; fileName: string }> => {
     const r = await api.get(`/exports/${id}/download`, {
       responseType: 'blob', timeout: BULK_TRANSFER_TIMEOUT_MS,
