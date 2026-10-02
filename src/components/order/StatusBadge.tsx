@@ -79,6 +79,7 @@ const DOMAIN_COLORS: Record<StatusDomain, Record<string, string>> = {
     paid: 'bg-green-50 text-green-700',
     overdue: 'bg-red-50 text-red-700',
     waived: 'bg-gray-100 text-gray-600',
+    cancelled: 'bg-gray-100 text-gray-500 line-through',
   },
 };
 

@@ -40,7 +40,23 @@ interface InvoiceSummary {
   gst_rate: number | null; supply: string | null; total: number;
   lines: FeeLine[];
   tax_invoice: { number: string | null; date: string | null; status: string; available: boolean } | null;
+  /** Earlier tax invoices for this bill that were cancelled (a correction re-issued it). */
+  cancelled?: Array<{ number: string; date: string | null; cancelled_on: string | null; reason: string | null; total: number }>;
 }
+
+/**
+ * One line of the register: a bill under its current tax invoice, or a tax
+ * invoice that was cancelled. Listed by SERIAL number, so a cancelled number
+ * sits in its own place with what replaced it, instead of simply vanishing.
+ */
+type RegisterRow =
+  | { kind: 'bill'; key: string; serial: number; inv: InvoiceSummary }
+  | { kind: 'cancelled'; key: string; serial: number; inv: InvoiceSummary; c: NonNullable<InvoiceSummary['cancelled']>[number] };
+
+const serialOf = (n?: string | null) => {
+  const m = String(n ?? '').match(/(\d+)$/);
+  return m ? Number(m[1]) : Number.POSITIVE_INFINITY;
+};
 interface OrderLine {
   order_id: string; order_number: string; sold_on: string | null; delivered_on: string | null;
   channel_label: string; tier_label: string;
@@ -358,14 +374,27 @@ export default function Billing() {
   }, []);
 
   const shown = useMemo(() => invoices.filter((inv) => {
-    if (statusFilter && inv.status !== statusFilter) return false;
+    if (statusFilter && statusFilter !== 'cancelled' && inv.status !== statusFilter) return false;
     const q = find.trim().toLowerCase();
     if (!q) return true;
-    return [inv.invoice_number, inv.reference, inv.period.label, inv.status].some((v) => String(v ?? '').toLowerCase().includes(q));
+    return [inv.invoice_number, inv.reference, inv.period.label, inv.status, ...(inv.cancelled ?? []).map((c) => c.number)]
+      .some((v) => String(v ?? '').toLowerCase().includes(q));
   }), [invoices, find, statusFilter]);
+  /** The register in serial order, newest number first; a bill not yet numbered sits on top. */
+  const register = useMemo<RegisterRow[]>(() => {
+    const rows: RegisterRow[] = [];
+    for (const inv of shown) {
+      if (statusFilter !== 'cancelled') {
+        rows.push({ kind: 'bill', key: inv.id, serial: inv.tax_invoice?.available ? serialOf(inv.tax_invoice.number) : Number.POSITIVE_INFINITY, inv });
+      }
+      for (const c of inv.cancelled ?? []) rows.push({ kind: 'cancelled', key: `${inv.id}:${c.number}`, serial: serialOf(c.number), inv, c });
+    }
+    return rows.sort((a, b) => (b.serial - a.serial) || 0);
+  }, [shown, statusFilter]);
   /** A waived bill was never charged, so the totals row does not add it up. */
   const charged = shown.filter((i) => i.status !== 'waived');
   const waived = shown.length - charged.length;
+  const cancelledCount = register.filter((r) => r.kind === 'cancelled').length;
   const sum = (k: 'commission' | 'gst' | 'total' | 'orders') => charged.reduce((t, i) => t + Number(i[k] ?? 0), 0);
   const otherFees = (i: InvoiceSummary) => i.messaging + i.fixed_fee + i.setup_fee;
   const showOther = shown.some((i) => otherFees(i) > 0);
@@ -434,11 +463,12 @@ export default function Billing() {
                   <option value="paid">Paid</option>
                   <option value="overdue">Overdue</option>
                   <option value="waived">Waived</option>
+                  <option value="cancelled">Cancelled</option>
                 </select>
               </div>
             </div>
 
-            {shown.length === 0 ? (
+            {register.length === 0 ? (
               <p className="px-4 py-10 text-center text-sm text-gray-500">
                 {invoices.length === 0 ? 'No invoices yet. The first is raised on the 1st of the month after your first billable orders.' : 'No invoice matches those filters.'}
               </p>
@@ -460,7 +490,30 @@ export default function Billing() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {shown.map((inv) => {
+                  {register.map((row) => {
+                    if (row.kind === 'cancelled') {
+                      const { c, inv } = row;
+                      const replacedBy = inv.tax_invoice?.available ? inv.tax_invoice.number : null;
+                      return (
+                        <TableRow key={row.key} data-cancelled-row className="text-gray-400 hover:bg-transparent">
+                          <TableCell />
+                          <TableCell>
+                            <span className="font-semibold text-gray-500 line-through">{c.number}</span>
+                            {c.date && <span className="block text-xs">dated {day(c.date)}</span>}
+                          </TableCell>
+                          <TableCell>{inv.period.label || '—'}</TableCell>
+                          <TableCell colSpan={showOther ? 4 : 3} className="whitespace-normal text-xs leading-snug">
+                            Cancelled{c.cancelled_on ? ` on ${day(c.cancelled_on)}` : ''}{replacedBy ? `, replaced by ${replacedBy}` : ''}.
+                            {c.reason && <span className="block text-gray-500">{c.reason}</span>}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums line-through">{fmtRupees(c.total)}</TableCell>
+                          <TableCell>—</TableCell>
+                          <TableCell><StatusBadge status="cancelled" type="billing" /></TableCell>
+                          <TableCell className="text-right text-xs">Not payable</TableCell>
+                        </TableRow>
+                      );
+                    }
+                    const { inv } = row;
                     const isOpen = open === inv.id;
                     return (
                       <Fragment key={inv.id}>
@@ -524,8 +577,9 @@ export default function Billing() {
                   <TableRow>
                     <TableCell />
                     <TableCell colSpan={2}>
-                      {shown.length} invoice{shown.length === 1 ? '' : 's'}
+                      {charged.length} invoice{charged.length === 1 ? '' : 's'}
                       {waived > 0 && <span className="font-normal text-gray-500"> · totals leave out {waived} waived</span>}
+                      {cancelledCount > 0 && <span className="font-normal text-gray-500"> · {cancelledCount} cancelled, not counted</span>}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{sum('orders') || '—'}</TableCell>
                     <TableCell className="text-right tabular-nums">{fmtRupees(sum('commission'))}</TableCell>
