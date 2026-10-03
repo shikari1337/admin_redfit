@@ -153,9 +153,10 @@ function Tile({ label, value, sub, tone, tip }: { label: string; value: string; 
 }
 
 /** The orders behind one invoice, with its own search, paging and exports. */
-function InvoiceDetail({ invoice, onDownload, busy }: {
+function InvoiceDetail({ invoice, onDownload, onPay, busy }: {
   invoice: InvoiceSummary;
   onDownload: (kind: 'tax' | 'orders', inv: InvoiceSummary) => void;
+  onPay: (invoice: InvoiceSummary) => void;
   busy: string | null;
 }) {
   const [st, setSt] = useState<Statement | null>(null);
@@ -255,6 +256,11 @@ function InvoiceDetail({ invoice, onDownload, busy }: {
                 : `The order list differs from the invoice by ${fmtRupees(Math.abs(st.tie_out.difference))}. ${st.tie_out.note ?? ''}`}
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
+            {['pending', 'overdue'].includes(invoice.status) && (
+              <Button disabled={busy === `pay:${invoice.id}`} onClick={() => onPay(invoice)}>
+                {busy === `pay:${invoice.id}` ? <Loader2 className="size-3.5 animate-spin" /> : <WalletCards className="size-3.5" />} Pay now
+              </Button>
+            )}
             <Button size="sm" variant="outline" disabled={!invoice.tax_invoice?.available || busy === `tax:${invoice.id}`} onClick={() => onDownload('tax', invoice)}>
               <FileText className="size-3.5" /> Tax invoice (PDF)
             </Button>
@@ -650,7 +656,7 @@ export default function Billing() {
                               {/* w-0 min-w-full: a wide order table inside this cell must scroll in
                                   its own box, never widen the invoice table (and the page) around it. */}
                               <div className="w-0 min-w-full">
-                                <InvoiceDetail invoice={inv} onDownload={download} busy={busy} />
+                                <InvoiceDetail invoice={inv} onDownload={download} onPay={payNow} busy={busy} />
                               </div>
                             </TableCell>
                           </TableRow>
