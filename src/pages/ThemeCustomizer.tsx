@@ -91,6 +91,30 @@ export default function ThemeCustomizer() {
       .catch((e) => setLoadError(e?.response?.data?.message || e?.message || 'Failed to load editor'));
   }, [themeId, adoptState]);
 
+  // ── Preview ticket ──────────────────────────────────────────────────────
+  // The iframe cannot send the x-api-key header and the key must never ride in
+  // its URL, so the engine mints a 15-minute ticket bound to this theme; it is
+  // refreshed well before it expires so a long editing session never goes blank.
+  const [previewTicket, setPreviewTicket] = useState<string | null>(null);
+  useEffect(() => {
+    if (!themeId) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const refresh = async () => {
+      try {
+        const t = await themeEngineAPI.previewTicket(themeId);
+        if (cancelled) return;
+        setPreviewTicket(t.ticket);
+        const inMs = Math.max(30_000, (t.ttlSeconds * 1000) * 2 / 3);
+        timer = setTimeout(refresh, inMs);
+      } catch {
+        if (!cancelled) timer = setTimeout(refresh, 15_000);
+      }
+    };
+    refresh();
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [themeId]);
+
   // ── Draft sync (debounced) → reload preview ─────────────────────────────
   const syncTimer = useRef<ReturnType<typeof setTimeout>>();
   const pushDraft = useCallback((s: any, t: any, g: any) => {
@@ -302,7 +326,9 @@ export default function ThemeCustomizer() {
   const groupNames = Object.keys(groups);
   const headerGroups = groupNames.filter((g) => /header/i.test(g));
   const footerGroups = groupNames.filter((g) => /footer/i.test(g));
-  const previewUrl = `${themeEngineAPI.previewUrl(themeId, currentTemplate)}&rev=${iframeRev}`;
+  const previewUrl = previewTicket
+    ? `${themeEngineAPI.previewUrl(themeId, currentTemplate, previewTicket)}&rev=${iframeRev}`
+    : 'about:blank';
 
   return (
     <div className="h-screen flex flex-col bg-gray-100 overflow-hidden">

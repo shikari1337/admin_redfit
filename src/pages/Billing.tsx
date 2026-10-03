@@ -13,7 +13,7 @@
  * order-wise statement behind it.
  */
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Download, FileText, ListOrdered, Loader2, Search } from 'lucide-react';
+import { ChevronDown, ChevronRight, Download, FileText, ListOrdered, Loader2, Search, WalletCards } from 'lucide-react';
 import { billingAPI, blobErrorMessage } from '../services/api';
 import StatusBadge from '../components/order/StatusBadge';
 import { formatDay } from '../utils/date';
@@ -99,6 +99,28 @@ const DENSE_NUM = `${DENSE} text-right tabular-nums`;
 /** Headers may wrap onto two lines; the figures under them may not. */
 const DENSE_HEAD = 'px-2 py-1.5 whitespace-normal leading-tight align-bottom';
 const DENSE_HEAD_NUM = `${DENSE_HEAD} text-right`;
+
+declare global {
+  interface Window { Razorpay?: any; }
+}
+
+/** Razorpay Checkout is loaded only when an owner chooses Pay now. */
+function loadRazorpayCheckout(): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (window.Razorpay) { resolve(true); return; }
+    const existing = document.querySelector('script[src="https://checkout.razorpay.com/v1/checkout.js"]');
+    if (existing) {
+      existing.addEventListener('load', () => resolve(!!window.Razorpay), { once: true });
+      existing.addEventListener('error', () => resolve(false), { once: true });
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+}
 
 /** The order list as a spreadsheet — the same columns the table and the PDF show. */
 const ORDER_CSV: CsvColumn<OrderLine>[] = [
@@ -373,6 +395,63 @@ export default function Billing() {
     } finally { setBusy(null); }
   }, []);
 
+  const payNow = useCallback(async (inv: InvoiceSummary) => {
+    setBusy(`pay:${inv.id}`);
+    setError(null);
+    try {
+      const response: any = await billingAPI.createInvoiceRazorpayCheckout(inv.id);
+      const checkout = response?.data ?? response;
+      if (!checkout?.razorpay_order_id || !checkout?.key_id) {
+        setError('Razorpay Checkout is not available for this invoice.');
+        setBusy(null);
+        return;
+      }
+      const ready = await loadRazorpayCheckout();
+      if (!ready || !window.Razorpay) {
+        setError('Could not load Razorpay Checkout. Check your connection and try again.');
+        setBusy(null);
+        return;
+      }
+      const checkoutWidget = new window.Razorpay({
+        key: checkout.key_id,
+        amount: checkout.amount_minor,
+        currency: checkout.currency || 'INR',
+        name: checkout.name || 'Growcord',
+        description: checkout.description || `Payment for invoice ${inv.invoice_number}`,
+        order_id: checkout.razorpay_order_id,
+        handler: async (payment: any) => {
+          try {
+            await billingAPI.verifyInvoiceRazorpayPayment(inv.id, {
+              razorpay_order_id: payment.razorpay_order_id,
+              razorpay_payment_id: payment.razorpay_payment_id,
+              razorpay_signature: payment.razorpay_signature,
+            });
+            setInvoices((rows) => rows.map((row) => row.id === inv.id
+              ? { ...row, status: 'paid', paid_at: new Date().toISOString() } : row));
+            setUsage((current) => current ? {
+              ...current,
+              totalDue: Math.max(0, current.totalDue - inv.total),
+              overdue: inv.status === 'overdue' ? Math.max(0, current.overdue - inv.total) : current.overdue,
+              openInvoices: Math.max(0, current.openInvoices - 1),
+            } : current);
+          } catch (e: any) {
+            setError(e?.response?.data?.message || 'Payment was received but could not be recorded. Please contact Growcord support.');
+          } finally { setBusy(null); }
+        },
+        modal: { ondismiss: () => setBusy(null) },
+        theme: { color: '#1F3A5F' },
+      });
+      checkoutWidget.on('payment.failed', () => {
+        setError('Razorpay could not complete the payment. No invoice status was changed.');
+        setBusy(null);
+      });
+      checkoutWidget.open();
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'Razorpay Checkout could not be opened.');
+      setBusy(null);
+    }
+  }, []);
+
   const shown = useMemo(() => invoices.filter((inv) => {
     if (statusFilter && statusFilter !== 'cancelled' && inv.status !== statusFilter) return false;
     const q = find.trim().toLowerCase();
@@ -545,6 +624,13 @@ export default function Billing() {
                           </TableCell>
                           <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                             <div className="flex justify-end gap-1.5">
+                              {['pending', 'overdue'].includes(inv.status) && (
+                                <Button
+                                  size="sm" title="Pay this invoice securely with Razorpay"
+                                  disabled={busy === `pay:${inv.id}`} onClick={() => payNow(inv)}>
+                                  {busy === `pay:${inv.id}` ? <Loader2 className="size-3.5 animate-spin" /> : <WalletCards className="size-3.5" />} Pay now
+                                </Button>
+                              )}
                               <Button
                                 size="sm" variant="outline" title={inv.tax_invoice?.available ? 'Download the tax invoice' : 'No tax invoice was issued for this bill'}
                                 disabled={!inv.tax_invoice?.available || busy === `tax:${inv.id}`} onClick={() => download('tax', inv)}>

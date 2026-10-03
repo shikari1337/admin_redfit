@@ -46,10 +46,20 @@ export interface SectionSchema {
 export const themeEngineAPI = {
   baseUrl: THEME_ENGINE_URL,
 
-  /** iframe URL for the live editor preview (apiKey in query — iframes can't send headers) */
-  previewUrl(themeId: string, template: string, handle?: string): string {
-    const key = getTenantApiKey() || '';
-    const params = new URLSearchParams({ template, apiKey: key });
+  /**
+   * A short-lived, theme-bound ticket for the preview iframe. An iframe cannot send the
+   * `x-api-key` header, and the store key must never ride in a URL (S0-2, 2026-10-03), so the
+   * editor asks for this with the header and puts only the ticket in the iframe address.
+   * Expires in 15 minutes; the editor refreshes it.
+   */
+  previewTicket: async (themeId: string): Promise<{ ticket: string; expiresAt: number; ttlSeconds: number }> => {
+    const res = await client.post(`/${themeId}/preview-ticket`);
+    return res.data.data;
+  },
+
+  /** iframe URL for the live editor preview — carries the preview ticket, never the key. */
+  previewUrl(themeId: string, template: string, ticket: string, handle?: string): string {
+    const params = new URLSearchParams({ template, ticket });
     if (handle) params.set('handle', handle);
     return `${THEME_ENGINE_URL}/api/themes/${themeId}/preview?${params.toString()}`;
   },

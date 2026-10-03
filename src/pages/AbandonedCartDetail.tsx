@@ -216,6 +216,8 @@ const AbandonedCartDetail: React.FC = () => {
   const [copied, setCopied] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [journey, setJourney] = useState<JourneyEvent[] | null>(null);
+  /** Why the journey is empty, when it is empty for a reason other than 'nothing happened'. */
+  const [journeyError, setJourneyError] = useState<string | null>(null);
   const [recoveryLog, setRecoveryLog] = useState<RecoveryLogEntry[] | null>(null);
   /** Per-channel short links (gc.mw when the store prefers the platform
    *  shortener). One PER CHANNEL on purpose — a single shared link would merge
@@ -271,11 +273,22 @@ const AbandonedCartDetail: React.FC = () => {
       // Shopper journey (this store's slice of the central footprint) — what
       // they looked at, logins, checkout attempts. Guests leave no footprint.
       if (record.customerId) {
+        setJourneyError(null);
         journeyAPI.customerJourney(String(record.customerId), 60)
           .then((j) => setJourney(Array.isArray(j) ? j : (Array.isArray(j?.data) ? j.data : [])))
-          .catch(() => setJourney([]));
+          // A refusal is not an empty journey. This used to swallow the 403 and
+          // render "No activity recorded yet", so a staff member with no
+          // analytics grant was told the shopper had done nothing — while the
+          // rows were sitting in the table (COMMON_MISTAKES #401).
+          .catch((err: any) => {
+            setJourney([]);
+            setJourneyError(err?.response?.status === 403
+              ? 'Your account cannot read shopper activity — ask an admin for the Customers permission.'
+              : (err?.response?.data?.message || err?.message || 'Could not load the shopper journey.'));
+          });
       } else {
         setJourney([]);
+        setJourneyError(null);
       }
       cartsAPI.getRecoveryLog(id)
         .then((rows: any) => setRecoveryLog(Array.isArray(rows) ? rows : []))
@@ -1093,6 +1106,10 @@ const AbandonedCartDetail: React.FC = () => {
             )}
             {journey === null ? (
               <div className="text-sm text-gray-400">Loading…</div>
+            ) : journeyError ? (
+              <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-3">
+                {journeyError}
+              </div>
             ) : journey.length === 0 ? (
               <div className="text-sm text-gray-500">
                 {cart.customerId
@@ -1305,6 +1322,67 @@ const AbandonedCartDetail: React.FC = () => {
                 })}
               </div>
             )}
+          </div>
+
+          {/*
+            How this cart started, and what has happened to it since.
+
+            The question staff actually have in front of an abandoned cart is
+            "is this a real basket, or did the browser put it back after an
+            order?" — the owner's "make sure logs are proper so we can verify if
+            it's a fresh cart or some bug". `metadata.origin` is stamped once at
+            birth and never rewritten; `metadata.journey` is the cart's own
+            append-only history. A cart with no origin pre-dates the recording.
+          */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-3">How this cart started</h2>
+            {(() => {
+              const meta: any = cart.metadata ?? {};
+              const ORIGINS: Record<string, { label: string; detail: string; tone: string }> = {
+                first_sync:    { label: 'A new basket',            detail: 'The browser had no cart — the shopper started this one.', tone: 'text-gray-700' },
+                after_order:   { label: "The previous basket came back", detail: 'Minted because the browser was still holding a cart that had already become an order. Not fresh demand.', tone: 'text-amber-700' },
+                foreign_ref:   { label: 'Issued after a mismatched cart id', detail: "The browser sent a cart id belonging to someone else, so a clean cart was issued.", tone: 'text-amber-700' },
+                recovery_link: { label: 'Opened from a recovery message', detail: 'The shopper came back through a "you left items behind" link.', tone: 'text-gray-700' },
+                staff:         { label: 'Created by staff',        detail: 'Raised from the order desk or the counter.', tone: 'text-gray-700' },
+                unknown:       { label: 'Not recorded',            detail: 'This cart pre-dates origin recording.', tone: 'text-gray-500' },
+              };
+              const o = ORIGINS[String(meta.origin ?? 'unknown')] ?? ORIGINS.unknown;
+              const journey: Array<any> = Array.isArray(meta.journey) ? meta.journey : [];
+              return (
+                <div className="space-y-3 text-sm">
+                  <div>
+                    <div className={`font-medium ${o.tone}`}>{o.label}</div>
+                    <div className="text-xs text-gray-500 mt-0.5">{o.detail}</div>
+                  </div>
+                  {meta.replaced_ref && (
+                    <div className="text-xs text-gray-500">
+                      Replaced cart <span className="font-mono">{String(meta.replaced_ref)}</span>
+                      {meta.replaced_status ? ` (was ${String(meta.replaced_status)})` : ''}
+                    </div>
+                  )}
+                  {meta.closed_by_order && (
+                    <div className="text-xs text-gray-600">Settled by order <span className="font-medium">{String(meta.closed_by_order)}</span></div>
+                  )}
+                  {meta.cleared_reason && (
+                    <div className="text-xs text-gray-600">{String(meta.cleared_reason)}</div>
+                  )}
+                  {journey.length > 0 && (
+                    <div className="border-t border-gray-100 pt-2 space-y-1">
+                      {journey.slice().reverse().map((e, i) => (
+                        <div key={i} className="flex items-start gap-2 text-xs">
+                          <span className="text-gray-400 shrink-0 tabular-nums">{e.at ? formatDate(e.at) : ''}</span>
+                          <span className="text-gray-700">
+                            {String(e.event ?? '').replace(/_/g, ' ')}
+                            {e.order ? ` — ${String(e.order)}` : ''}
+                            {e.carts ? ` (${e.carts})` : ''}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
           {/* Timeline */}

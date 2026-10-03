@@ -1543,14 +1543,27 @@ const OrderDetail: React.FC = () => {
               : authenticity >= 50
                 ? { label: 'Review advised', text: 'text-amber-700', chip: 'bg-amber-100 text-amber-700', bar: 'bg-amber-500' }
                 : { label: 'High risk', text: 'text-red-700', chip: 'bg-red-100 text-red-700', bar: 'bg-red-500' };
-            const standing = order.risk.standing;
+            // Across stores a store sees ONLY a trust band + a reason type —
+            // never counts (owner decision 2026-10-04). null = guest / unknown.
+            const network: { band?: string; reasons?: string[] } | null = order.risk.network ?? null;
+            const NETWORK_BAND_LABEL: Record<string, string> = {
+              high_trust: 'High trust', medium: 'Medium', low_trust: 'Low trust', new: 'New to network',
+            };
+            const NETWORK_REASON_LABEL: Record<string, string> = {
+              reliable_order_history: 'Reliable order history',
+              some_cancellations_or_returns: 'Some cancellations or returns',
+              frequent_cancellations_or_returns: 'Frequent cancellations or returns',
+              new_to_network: 'No orders on the network yet',
+            };
+            const networkBand = network?.band ? NETWORK_BAND_LABEL[network.band] : undefined;
+            const networkReasons = (network?.reasons ?? []).map((r) => NETWORK_REASON_LABEL[r]).filter(Boolean);
             return (
               <Card className="shadow-sm">
                 <CardHeader className="border-b border-line px-4 py-2.5">
                   <CardTitle className="flex items-center justify-between text-sm font-semibold uppercase tracking-wide text-slate-700">
                     <span className="flex items-center gap-1.5">
                       Order authenticity
-                      <InfoTip text="A score out of 100 from signals on the order itself — the address, the payment, the customer's history across every store on the platform. It advises; it never blocks an order." />
+                      <InfoTip text="A score out of 100 from signals on the order itself — the address, the payment, the customer's trust band on the Growcord network. It advises; it never blocks an order." />
                     </span>
                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${tone.chip}`}>
                       {tone.label}
@@ -1583,10 +1596,10 @@ const OrderDetail: React.FC = () => {
                   ) : (
                     <p className="text-sm text-emerald-700">No risk signals detected.</p>
                   )}
-                  {standing && standing.totalOrders > 0 && (
+                  {networkBand && (
                     <p className="mt-3 border-t pt-3 text-xs text-slate-500">
-                      Platform history: {standing.totalOrders} order(s) across {standing.storeCount} store(s),
-                      {' '}{standing.totalCancelled} cancelled/returned.
+                      Growcord network: {networkBand}
+                      {networkReasons.length > 0 && <> · {networkReasons.join(' · ')}</>}
                     </p>
                   )}
                   {order.risk.ipGeo && (

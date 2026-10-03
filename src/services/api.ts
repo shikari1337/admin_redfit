@@ -4096,6 +4096,23 @@ export const billingAPI = {
     const response = await api.get(`/billing/invoices/${id}`);
     return response.data;
   },
+  /** Amount-specific UPI request for an open Growcord invoice. */
+  getInvoicePaymentLink: async (id: string) => {
+    const response = await api.get(`/billing/invoices/${id}/payment`);
+    return response.data;
+  },
+  /** Create/resume Razorpay Checkout using Growcord's platform account. */
+  createInvoiceRazorpayCheckout: async (id: string) => {
+    const response = await api.post(`/billing/invoices/${id}/payment/razorpay`);
+    return response.data;
+  },
+  /** Verify the Razorpay callback and post the payment to Growcord Books. */
+  verifyInvoiceRazorpayPayment: async (id: string, payload: {
+    razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string;
+  }) => {
+    const response = await api.post(`/billing/invoices/${id}/payment/razorpay/verify`, payload);
+    return response.data;
+  },
   /** The numbered GST tax invoice, as Growcord's books print it. */
   downloadTaxInvoice: async (id: string): Promise<Blob> => {
     const response = await api.get(`/billing/invoices/${id}/tax-invoice.pdf`, { responseType: 'blob', timeout: 120000 });
@@ -4106,10 +4123,8 @@ export const billingAPI = {
     const response = await api.get(`/billing/invoices/${id}/orders.pdf`, { responseType: 'blob', timeout: 120000 });
     return response.data;
   },
-  // NOTE: no initiatePayment / verifyPayment. They posted to /billing/pay/:id/*,
-  // which the backend has never had — "Pay now" opened nothing and reported a
-  // failure. Paying a platform invoice online is a feature to build, not a
-  // button to keep.
+  // Payments use Growcord's Razorpay Checkout and are posted to the linked
+  // Growcord Books invoice after server-side verification.
 };
 
 // ─── B2B API ──────────────────────────────────────────────────────────────────
