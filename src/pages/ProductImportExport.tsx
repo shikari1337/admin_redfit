@@ -1,6 +1,6 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Download, Upload, FileSpreadsheet, ArrowLeft, Loader2, CheckCircle2, AlertTriangle, Table2 } from 'lucide-react';
+import { Download, Upload, FileSpreadsheet, ArrowLeft, Loader2, CheckCircle2, AlertTriangle, Table2, Copy, Link } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { productsAPI } from '../services/api';
 
@@ -16,6 +16,13 @@ interface SheetPreview {
 interface PreviewResponse { sheets: SheetPreview[]; unmatchedSheets: string[]; }
 interface SheetResult { created: number; updated: number; skipped: number; errors: string[]; }
 interface ImportResponse { dryRun: boolean; sheets: Record<string, SheetResult>; totalErrors: number; }
+interface WorkbookExport {
+  id: string;
+  status: 'queued' | 'running' | 'ready' | 'failed' | 'expired' | 'cancelled';
+  file_name?: string | null;
+  error?: string | null;
+  expires_at?: string | null;
+}
 
 const SHEET_LABELS: Record<string, string> = {
   products: 'Products', variations: 'Variations', aplus: 'A+ Content', contentBoxes: 'Content Boxes',
@@ -36,13 +43,70 @@ const ProductImportExport: React.FC = () => {
   const [busy, setBusy] = useState<string | null>(null);
   const [result, setResult] = useState<ImportResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [exportJob, setExportJob] = useState<WorkbookExport | null>(null);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   type Entity = 'catalog' | 'brands' | 'categories' | 'attributes' | 'tags' | 'specgroups' | 'all';
-  const download = async (kind: 'export' | 'template', entity: Entity = 'all') => {
-    setBusy(kind === 'template' ? 'template' : `export:${entity}`); setError(null);
-    try { await productsAPI.downloadWorkbook(kind, entity); }
+  const downloadTemplate = async () => {
+    setBusy('template'); setError(null);
+    try { await productsAPI.downloadWorkbook('template'); }
     catch (e: any) { setError(e?.response?.data?.message || e?.message || 'Download failed'); }
     finally { setBusy(null); }
+  };
+
+  const requestExport = async (entity: Entity = 'catalog') => {
+    setBusy(`export:${entity}`); setError(null); setShareUrl(null); setCopied(false);
+    try { setExportJob(await productsAPI.requestWorkbookExport(entity)); }
+    catch (e: any) { setError(e?.response?.data?.message || e?.message || 'Could not request the export'); }
+    finally { setBusy(null); }
+  };
+
+  // A download request survives navigation; this lightweight polling merely
+  // discovers when the stored workbook can be shared or downloaded.
+  useEffect(() => {
+    if (!exportJob || !['queued', 'running'].includes(exportJob.status)) return;
+    const timer = window.setTimeout(async () => {
+      try { setExportJob(await productsAPI.getWorkbookExport(exportJob.id)); }
+      catch (e: any) { setError(e?.response?.data?.message || 'Could not check export status'); }
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [exportJob]);
+
+  // The Products list can initiate a full export too. Carry that job across
+  // navigation so its link appears here instead of leaving a completed file
+  // stranded in the background.
+  useEffect(() => {
+    const id = sessionStorage.getItem('product-workbook-export-job');
+    if (!id || exportJob) return;
+    sessionStorage.removeItem('product-workbook-export-job');
+    setExportJob({ id, status: 'queued' });
+  }, [exportJob]);
+
+  // The first share link is produced as soon as the artifact is ready. It is
+  // bound to this one export and its seven-day retention window; the Copy link
+  // control below is therefore immediately useful without a second action.
+  useEffect(() => {
+    if (!exportJob || exportJob.status !== 'ready' || shareUrl) return;
+    let cancelled = false;
+    productsAPI.shareWorkbookExport(exportJob.id)
+      .then((link) => { if (!cancelled) setShareUrl(link.url); })
+      .catch((e: any) => { if (!cancelled) setError(e?.response?.data?.message || 'Could not create the secure link'); });
+    return () => { cancelled = true; };
+  }, [exportJob, shareUrl]);
+
+  const shareExport = async () => {
+    if (!exportJob || exportJob.status !== 'ready') return;
+    setBusy('share'); setError(null);
+    try { setShareUrl((await productsAPI.shareWorkbookExport(exportJob.id)).url); }
+    catch (e: any) { setError(e?.response?.data?.message || e?.message || 'Could not create the secure link'); }
+    finally { setBusy(null); }
+  };
+
+  const copyShareUrl = async () => {
+    if (!shareUrl) return;
+    try { await navigator.clipboard.writeText(shareUrl); setCopied(true); }
+    catch { setError('Could not copy the link. Select and copy it from the field below.'); }
   };
   // Separate files per entity: products + their variations together; every other
   // schema (brands, categories, attributes, tags) as its own downloadable file.
@@ -122,30 +186,56 @@ const ProductImportExport: React.FC = () => {
               every other schema exports separately.
             </p>
           </div>
-          <Button variant="outline" onClick={() => download('template')} disabled={busy === 'template'}>
+          <Button variant="outline" onClick={downloadTemplate} disabled={busy === 'template'}>
             {busy === 'template' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
             Blank template
           </Button>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={() => download('export', 'catalog')} disabled={busy === 'export:catalog'} className="bg-red-600 hover:bg-red-700">
+          <Button onClick={() => requestExport('catalog')} disabled={!!busy || ['queued', 'running'].includes(exportJob?.status ?? '')} className="bg-red-600 hover:bg-red-700">
             {busy === 'export:catalog' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
             Products &amp; Variations
           </Button>
           <span className="text-xs text-gray-400 px-1">or a single schema:</span>
           {ENTITY_EXPORTS.map(({ entity, label }) => (
-            <Button key={entity} variant="outline" size="sm" onClick={() => download('export', entity)} disabled={busy === `export:${entity}`}>
+            <Button key={entity} variant="outline" size="sm" onClick={() => requestExport(entity)} disabled={!!busy || ['queued', 'running'].includes(exportJob?.status ?? '')}>
               {busy === `export:${entity}` ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Download className="mr-2 h-3.5 w-3.5" />}
               {label}
             </Button>
           ))}
           <div className="flex-1" />
-          <Button variant="ghost" size="sm" onClick={() => download('export', 'all')} disabled={busy === 'export:all'} className="text-gray-500">
+          <Button variant="ghost" size="sm" onClick={() => requestExport('all')} disabled={!!busy || ['queued', 'running'].includes(exportJob?.status ?? '')} className="text-gray-500">
             {busy === 'export:all' ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
             Everything in one file
           </Button>
         </div>
+        {exportJob && (
+          <div className={`rounded-lg border px-4 py-3 text-sm ${exportJob.status === 'failed' ? 'border-red-200 bg-red-50 text-red-700' : 'border-blue-200 bg-blue-50 text-blue-800'}`}>
+            {['queued', 'running'].includes(exportJob.status) && <span className="inline-flex items-center"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Preparing your private workbook. You can leave this page.</span>}
+            {exportJob.status === 'failed' && <span>{exportJob.error || 'The export failed. Please request it again.'}</span>}
+            {exportJob.status === 'cancelled' && <span>This export was cancelled. Request a new export.</span>}
+            {exportJob.status === 'expired' && <span>This workbook expired and was deleted. Request a new export.</span>}
+            {exportJob.status === 'ready' && (
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-green-600" />
+                  <span className="font-medium text-gray-900">Workbook ready.</span>
+                  <span className="text-gray-600">Private link is authorised and valid for 7 days.</span>
+                  <Button size="sm" variant="outline" onClick={shareExport} disabled={busy === 'share'}>
+                    {busy === 'share' ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Link className="mr-2 h-3.5 w-3.5" />}
+                    Create secure link
+                  </Button>
+                </div>
+                {shareUrl && <div className="flex flex-wrap gap-2 items-center">
+                  <input readOnly value={shareUrl} aria-label="Secure product workbook link" className="flex-1 min-w-[280px] rounded border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-700" />
+                  <Button size="sm" onClick={copyShareUrl}><Copy className="mr-2 h-3.5 w-3.5" />{copied ? 'Copied' : 'Copy link'}</Button>
+                  <a href={shareUrl} className="text-sm text-red-700 underline" rel="noreferrer">Download</a>
+                </div>}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Import: file picker */}

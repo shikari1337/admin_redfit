@@ -1003,6 +1003,24 @@ export const productsAPI = {
     a.click();
     URL.revokeObjectURL(objUrl);
   },
+  /** Queue a private, retained product workbook instead of holding an export request open. */
+  requestWorkbookExport: async (
+    entity: 'all' | 'catalog' | 'brands' | 'categories' | 'attributes' | 'tags' | 'specgroups' = 'catalog',
+  ): Promise<DataJob> => {
+    const response = await api.post('/products/workbook/exports', { entity });
+    return response.data?.data ?? response.data;
+  },
+  getWorkbookExport: async (id: string): Promise<DataJob> => {
+    const response = await api.get(`/products/workbook/exports/${id}`);
+    return response.data?.data ?? response.data;
+  },
+  /** An authorised, unique browser-download link which expires with the file (seven days). */
+  shareWorkbookExport: async (id: string): Promise<{ url: string; fileName: string | null; expiresAt: string }> => {
+    const response = await api.post(`/products/workbook/exports/${id}/share-link`);
+    const data = response.data?.data ?? response.data;
+    const base = String(api.defaults.baseURL ?? '').replace(/\/+$/, '');
+    return { url: `${base}${data.path}`, fileName: data.file_name ?? null, expiresAt: data.expires_at };
+  },
   previewWorkbook: async (file: File) => {
     const form = new FormData();
     form.append('file', file);
