@@ -50,6 +50,8 @@ const parseTrackingIds = (settingsRes: any): TrackingIds => {
 
 interface GoogleReviewsForm { enabled: boolean; title: string; subtitle: string; embedCode: string; }
 
+interface GoogleCustomerReviewsForm { enabled: boolean; deliveryDays: number; deliveryCountry: string; }
+
 const DEFAULT_GOOGLE_REVIEWS: GoogleReviewsForm = {
   enabled: false, title: 'Loved by customers on Google', subtitle: '', embedCode: '',
 };
@@ -61,6 +63,19 @@ const parseGoogleReviews = (settingsRes: any): GoogleReviewsForm => {
     title: gr.title ?? 'Loved by customers on Google',
     subtitle: gr.subtitle ?? '',
     embedCode: gr.embedCode ?? '',
+  };
+};
+
+const DEFAULT_GOOGLE_CUSTOMER_REVIEWS: GoogleCustomerReviewsForm = {
+  enabled: false, deliveryDays: 7, deliveryCountry: 'IN',
+};
+
+const parseGoogleCustomerReviews = (settingsRes: any): GoogleCustomerReviewsForm => {
+  const gcr = (settingsRes?.googleCustomerReviews ?? {}) as Partial<GoogleCustomerReviewsForm>;
+  return {
+    enabled: gcr.enabled === true,
+    deliveryDays: Math.min(30, Math.max(1, Number(gcr.deliveryDays) || 7)),
+    deliveryCountry: String(gcr.deliveryCountry || 'IN').trim().toUpperCase(),
   };
 };
 
@@ -187,6 +202,31 @@ const Seo: React.FC = () => {
     onError: (err: any) => setError(err?.response?.data?.message || 'Failed to save Google Reviews'),
   });
 
+  const {
+    formData: googleCustomerReviews, setFormData: setGoogleCustomerReviews,
+    saving: savingCustomerReviews, handleSubmit: handleSaveCustomerReviews,
+  } = useSettingsSection<GoogleCustomerReviewsForm>({
+    defaults: DEFAULT_GOOGLE_CUSTOMER_REVIEWS,
+    skipInitialFetch: true,
+    parse: parseGoogleCustomerReviews,
+    submitter: async (data) => {
+      const value = {
+        enabled: data.enabled,
+        deliveryDays: Math.min(30, Math.max(1, Number(data.deliveryDays) || 7)),
+        deliveryCountry: (data.deliveryCountry || 'IN').trim().toUpperCase(),
+      };
+      // The backend resolves the active Merchant Center connection's id when
+      // this public setting is served to the confirmation page.
+      await api.put('/settings/googleCustomerReviews', { value, is_public: true, group_name: 'analytics' });
+      setGoogleCustomerReviews(value);
+    },
+    onSuccess: () => {
+      setSuccess('Google Customer Reviews survey enabled. New order confirmations will show Google’s opt-in.');
+      setTimeout(() => setSuccess(null), 5000);
+    },
+    onError: (err: any) => setError(err?.response?.data?.message || 'Failed to save Google Customer Reviews'),
+  });
+
   const load = async () => {
     setLoading(true);
     try {
@@ -199,6 +239,7 @@ const Seo: React.FC = () => {
       setRobotsTxt(s?.robotsTxt || '');
       setTracking(parseTrackingIds(settingsRes));
       setGoogleReviews(parseGoogleReviews(settingsRes));
+      setGoogleCustomerReviews(parseGoogleCustomerReviews(settingsRes));
     } catch (err: any) {
       setError(err?.response?.data?.message || 'Failed to load SEO settings');
     } finally {
@@ -390,6 +431,46 @@ const Seo: React.FC = () => {
           Was a flat from/to table that could not express the case that broke
           this store (a brand rename moving one segment inside thousands of
           product URLs); the manager owns all of it now. */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Star className="h-4 w-4 text-muted-foreground" /> Google Customer Reviews
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-[12px] text-muted-foreground leading-snug">
+            Activate Google Customer Reviews in the connected Merchant Center account, then enable this to show
+            Google&apos;s survey opt-in after every eligible checkout. The Merchant ID comes from that connection.
+          </p>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={googleCustomerReviews.enabled}
+              onChange={(e) => setGoogleCustomerReviews((p) => ({ ...p, enabled: e.target.checked }))}
+              className="h-4 w-4" />
+            <span className="text-xs">Show the Google Customer Reviews opt-in after checkout</span>
+          </label>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Estimated delivery days</Label>
+            <Input type="number" min="1" max="30" value={googleCustomerReviews.deliveryDays}
+              onChange={(e) => setGoogleCustomerReviews((p) => ({ ...p, deliveryDays: Number(e.target.value) || 1 }))}
+              className="h-9 text-sm" />
+            <p className="text-[11px] text-muted-foreground">Use the real delivery promise; Google schedules its survey from this date.</p>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Fallback delivery country</Label>
+            <Input value={googleCustomerReviews.deliveryCountry}
+              onChange={(e) => setGoogleCustomerReviews((p) => ({ ...p, deliveryCountry: e.target.value.toUpperCase() }))}
+              maxLength={2} placeholder="IN" className="h-9 font-mono text-sm" />
+            <p className="text-[11px] text-muted-foreground">ISO two-letter code. The shipping address country wins when it is available.</p>
+          </div>
+          <div className="pt-1">
+            <Button onClick={() => { setError(null); handleSaveCustomerReviews(); }} disabled={savingCustomerReviews}>
+              {savingCustomerReviews ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+              Save Customer Reviews
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
       <RedirectsManager canManage={hasPerm('content.manage')} />
 
       {/* robots.txt override */}
