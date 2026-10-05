@@ -134,6 +134,25 @@ const Connections: React.FC = () => {
     finally { setBusy(null); }
   };
 
+  /** Select a resource only where Google returns exactly one accessible choice. */
+  const autoConfigure = async (conn: Connection) => {
+    setBusy(`${conn.id}:auto-configure`); setError(''); setInfo('');
+    try {
+      const out = payload<any>(await api.post(`/connectors/${conn.id}/services/auto-configure`, {}));
+      const results = out?.results ?? [];
+      const configured = results.filter((r: any) => r.status === 'configured');
+      const choose = results.filter((r: any) => r.status === 'choose_one');
+      const attention = results.filter((r: any) => r.status === 'needs_access' || r.status === 'none_available');
+      setInfo([
+        configured.length ? `Configured: ${configured.map((r: any) => r.service.replace(/_/g, ' ')).join(', ')}.` : '',
+        choose.length ? `Choose manually: ${choose.map((r: any) => `${r.service.replace(/_/g, ' ')} (${r.count} choices)`).join(', ')}.` : '',
+        attention.length ? `Needs attention: ${attention.map((r: any) => r.service.replace(/_/g, ' ')).join(', ')}.` : '',
+      ].filter(Boolean).join(' ') || 'There are no unconfigured services to set up automatically.');
+      await load();
+    } catch (e: any) { setError(e?.response?.data?.message ?? e.message); }
+    finally { setBusy(null); }
+  };
+
   /** Load the pickable resources for a service (GA4 properties, GSC sites…). */
   const openPicker = async (conn: Connection, service: string) => {
     const key = `${conn.id}:${service}`;
@@ -283,6 +302,17 @@ const Connections: React.FC = () => {
                     {conn?.accountEmail && (
                       <p className="mt-1 text-xs text-gray-500">Connected as {conn.accountEmail}</p>
                     )}
+                    {conn && (() => {
+                      const required = provider.services.filter((d) => d.resourceLabel);
+                      const configured = required.filter((d) => conn.services?.some((s) => s.service === d.key && s.isEnabled && s.externalResourceId)).length;
+                      const pending = required.filter((d) => conn.services?.some((s) => s.service === d.key && s.isEnabled && !s.externalResourceId)).length;
+                      return (
+                        <p className={`mt-1 text-xs ${pending ? 'text-amber-700' : 'text-green-700'}`}>
+                          {configured} service{configured === 1 ? '' : 's'} configured
+                          {pending ? ` · ${pending} still need an account or container` : ''}.
+                        </p>
+                      );
+                    })()}
                     {conn?.lastError && (
                       <p className="mt-1 text-xs text-red-600">{conn.lastError}</p>
                     )}
@@ -300,6 +330,10 @@ const Connections: React.FC = () => {
                     <button onClick={() => testConnection(conn)} disabled={busy === conn.id}
                       className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50">
                       Test
+                    </button>
+                    <button onClick={() => autoConfigure(conn)} disabled={busy === `${conn.id}:auto-configure`}
+                      className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50">
+                      {busy === `${conn.id}:auto-configure` ? 'Setting up…' : 'Set up available'}
                     </button>
                     <button onClick={() => { setCredsFor(credsFor === conn.id ? null : conn.id); setCredDraft({}); }}
                       className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50">
