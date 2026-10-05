@@ -64,6 +64,7 @@ const ConnectorInsights: React.FC = () => {
   const [busy, setBusy] = useState('');
   const [inspectUrl, setInspectUrl] = useState('');
   const [inspection, setInspection] = useState<any>(null);
+  const [pageSpeed, setPageSpeed] = useState<any>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -103,6 +104,13 @@ const ConnectorInsights: React.FC = () => {
     finally { setBusy(''); }
   };
 
+  const runPageSpeed = async () => {
+    setBusy('pagespeed'); setError(''); setPageSpeed(null);
+    try { setPageSpeed(payload(await api.get('/connectors/google/pagespeed'))); }
+    catch (e: any) { setError(e?.response?.data?.message ?? e.message); }
+    finally { setBusy(''); }
+  };
+
   if (loading) return <div className="p-8 text-sm text-gray-500">Loading insights…</div>;
 
   return (
@@ -126,6 +134,37 @@ const ConnectorInsights: React.FC = () => {
       {error && (
         <div className="mb-4 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
       )}
+
+      <section className="mb-8">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">PageSpeed Insights</h2>
+            <p className="mt-0.5 text-sm text-gray-600">Mobile Lighthouse check for your configured storefront domain.</p>
+          </div>
+          <button onClick={runPageSpeed} disabled={busy === 'pagespeed'}
+            className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50">
+            {busy === 'pagespeed' ? 'Running…' : 'Run mobile check'}
+          </button>
+        </div>
+        {pageSpeed ? (
+          <div className="rounded-lg border bg-white p-4">
+            <p className="mb-3 truncate text-xs text-gray-500">{pageSpeed.url}</p>
+            <div className="grid gap-3 sm:grid-cols-4">
+              <Tile label="Performance" value={pageSpeed.scores?.performance ?? '—'} />
+              <Tile label="Accessibility" value={pageSpeed.scores?.accessibility ?? '—'} />
+              <Tile label="Best practices" value={pageSpeed.scores?.bestPractices ?? '—'} />
+              <Tile label="SEO" value={pageSpeed.scores?.seo ?? '—'} />
+            </div>
+            <p className="mt-3 text-xs text-gray-500">
+              LCP {pageSpeed.metrics?.lcp?.display ?? '—'} · CLS {pageSpeed.metrics?.cls?.display ?? '—'} · INP {pageSpeed.metrics?.inp?.display ?? '—'}
+            </p>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-dashed bg-gray-50 p-4 text-sm text-gray-600">
+            Enable PageSpeed Insights under Google Platform Connections, then run a check.
+          </div>
+        )}
+      </section>
 
       {/* ── Search Console ─────────────────────────────────────────── */}
       <Block title="Search Console" state={data?.searchConsole} connectHint="Connect Search Console">
