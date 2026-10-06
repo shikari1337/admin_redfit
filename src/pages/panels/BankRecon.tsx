@@ -184,8 +184,17 @@ const UploadCard: React.FC<{ onError: (m: string) => void; onDone: (id: string, 
   const [file, setFile] = useState<File | null>(null);
   const [opening, setOpening] = useState('');
   const [closing, setClosing] = useState('');
+  const [password, setPassword] = useState('');
+  const [needsPassword, setNeedsPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const isPdf = Boolean(file && (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)));
+
+  const selectFile = (next: File | null) => {
+    setFile(next);
+    setPassword('');
+    setNeedsPassword(Boolean(next && (next.type === 'application/pdf' || /\.pdf$/i.test(next.name))));
+  };
 
   const upload = async () => {
     if (!file) return;
@@ -194,6 +203,7 @@ const UploadCard: React.FC<{ onError: (m: string) => void; onDone: (id: string, 
       const fd = new FormData();
       fd.append('file', file);
       fd.append('account', account);
+      if (isPdf && password) fd.append('password', password);
       if (opening.trim() !== '') fd.append('openingRupees', opening);
       if (closing.trim() !== '') fd.append('closingRupees', closing);
       const res = await api.post('/bank-recon/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
@@ -201,31 +211,40 @@ const UploadCard: React.FC<{ onError: (m: string) => void; onDone: (id: string, 
       const m = d.autoMatch || { matched: 0, total: 0 };
       const msg = `We matched ${m.matched} of ${m.total} line${m.total === 1 ? '' : 's'} automatically.`
         + (m.remaining ? ` ${m.remaining} still need${m.remaining === 1 ? 's' : ''} your attention.` : ' Everything reconciled!');
-      setFile(null); setOpening(''); setClosing('');
+      setFile(null); setOpening(''); setClosing(''); setPassword(''); setNeedsPassword(false);
       onDone(d.statementId, msg);
     } catch (e: any) {
-      onError(e?.response?.data?.message ?? e.message);
+      const code = e?.response?.data?.code;
+      if (code === 'statement_password_required' || code === 'statement_password_invalid') {
+        setNeedsPassword(true);
+        onError(code === 'statement_password_invalid'
+          ? 'That password did not open the PDF. Check the password from the bank email and try again.'
+          : 'This PDF is password-protected. Enter the password from the bank and retry the upload.');
+      } else {
+        onError(e?.response?.data?.message ?? e.message);
+      }
     } finally { setBusy(false); }
   };
 
   return (
     <SectionCard
       title="Upload a bank statement"
-      description="A CSV or Excel file exported from your bank. We understand the usual columns (Date, Narration, Withdrawal, Deposit, Cheque/Ref)."
+      description="A PDF, CSV or Excel statement exported from your bank. We understand the usual columns (Date, Narration, Withdrawal, Deposit, Cheque/Ref)."
     >
       <div className="space-y-4 text-sm">
         <div
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
-          onDrop={(e) => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files?.[0]) setFile(e.dataTransfer.files[0]); }}
+          onDrop={(e) => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files?.[0]) selectFile(e.dataTransfer.files[0]); }}
           className={`flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-6 py-8 text-center transition-colors ${dragOver ? 'border-gray-900 bg-gray-50' : 'border-gray-300'}`}
         >
           <p className="font-medium text-gray-700">Drop the statement file here, or choose it</p>
+          <p className="text-xs text-gray-500">PDF statements are supported, including downloadable Slice Payments Bank statements.</p>
           <p className="text-xs text-gray-500">Excel (.xlsx / .xls) or CSV — up to 20 MB</p>
           <label className="mt-1 cursor-pointer rounded-lg bg-gray-900 px-3 py-1.5 text-white">
             Choose file
-            <input type="file" accept=".xlsx,.xls,.csv,text/csv" className="hidden"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+            <input type="file" accept=".pdf,.xlsx,.xls,.csv,application/pdf,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="hidden"
+              onChange={(e) => selectFile(e.target.files?.[0] ?? null)} />
           </label>
           {file && <p className="mt-1 text-gray-800">Selected: <span className="font-medium">{file.name}</span></p>}
         </div>
@@ -248,10 +267,17 @@ const UploadCard: React.FC<{ onError: (m: string) => void; onDone: (id: string, 
             <input type="number" step="0.01" value={closing} placeholder="auto from file"
               onChange={(e) => setClosing(e.target.value)} className="block w-40 rounded border px-2 py-1.5 text-right" />
           </label>
+          {(isPdf || needsPassword) && (
+            <label className="space-y-1">
+              <span className="text-gray-600">PDF password (if protected)</span>
+              <input type="password" value={password} placeholder="Used for this upload only"
+                onChange={(e) => setPassword(e.target.value)} className="block w-52 rounded border px-2 py-1.5" />
+            </label>
+          )}
           <Btn onClick={upload} disabled={!file || busy}>{busy ? 'Uploading…' : 'Upload & auto-match'}</Btn>
         </div>
         <p className="text-xs text-gray-400">
-          We read the closing balance from the file when it has a Balance column. If your file doesn't, type it here so we can double-check against your books.
+          We read the closing balance from the file when it has a Balance column. For Slice, upload the downloadable statement PDF rather than a screenshot; use the password from the bank email if it is protected.
         </p>
       </div>
     </SectionCard>

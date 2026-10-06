@@ -18,9 +18,10 @@ import {
   Inbox, Users, RefreshCw, Search, Phone, Globe, MousePointerClick,
   MapPin, Monitor, Smartphone, Tablet, BadgeCheck, Megaphone, X, Trash2,
   Send, UserPlus, Download, Plus, Clock, CircleDot, CheckCircle2, Package,
-  ExternalLink, MessageCircle, Calendar,
+  ExternalLink, MessageCircle, Calendar, Mail, MessageSquare, Workflow,
+  Plug, ArrowUpRight, ShoppingCart, Zap, BarChart3,
 } from 'lucide-react';
-import { contactsAPI, leadsAPI, cartsAPI } from '../services/api';
+import { api, contactsAPI, leadsAPI, cartsAPI, smsConfigAPI } from '../services/api';
 import { downloadCsv } from '../lib/csv';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -99,6 +100,7 @@ const productOf = (row: Dict): { name?: string; sku?: string; id?: string; brand
 
 const leadName = (l: Dict) => l.fullName || l.name || l.email || l.phone || 'Unknown';
 const leadPhone = (l: Dict) => l.mobileNumber || l.phone || '';
+const responseData = (value: any): any => value?.data?.data ?? value?.data ?? value ?? {};
 
 const openWhatsApp = (phone: string, name: string) => {
   if (!phone) return;
@@ -166,9 +168,138 @@ function ContactCell({ row }: { row: Dict }) {
         <span className="text-xs text-muted-foreground italic">no phone</span>
       )}
       {row.email && (
-        <span className="text-xs text-muted-foreground truncate max-w-[170px]" title={row.email}>{row.email}</span>
+        <div className="flex items-center gap-1">
+          <a href={`mailto:${row.email}`} className="text-xs text-muted-foreground truncate max-w-[170px] hover:text-primary" title={`Email ${row.email}`}>{row.email}</a>
+          <a href={`mailto:${row.email}`} title={`Email ${leadName(row)}`} className="text-muted-foreground hover:text-primary"><Mail className="h-3 w-3" /></a>
+        </div>
       )}
     </div>
+  );
+}
+
+type IntegrationHealth = {
+  email: boolean;
+  whatsapp: boolean;
+  sms: boolean;
+  connectedServices: number;
+  loading: boolean;
+};
+
+/**
+ * The CRM is where sales teams make decisions, so this surface brings together
+ * the existing lead, cart recovery, campaign, automation and channel modules.
+ * It deliberately links to the modules that own configuration/sending instead
+ * of imitating a delivery state or inventing another message API.
+ */
+function ConversionControlDeck({ leads, messages, integration }: {
+  leads: Dict[]; messages: Dict[]; integration: IntegrationHealth;
+}) {
+  const stageCounts = LEAD_STAGES.reduce((all, stage) => ({ ...all, [stage]: leads.filter((l) => l.status === stage).length }), {} as Record<string, number>);
+  const newLeads = stageCounts.new || 0;
+  const qualified = stageCounts.qualified || 0;
+  const converted = stageCounts.converted || 0;
+  const overdue = leads.filter((l) => l.follow_up_date && new Date(l.follow_up_date).getTime() < Date.now() && !['converted', 'lost'].includes(l.status)).length;
+  const unread = messages.filter((m) => !m.is_read).length;
+  const activeTotal = Math.max(leads.length - (stageCounts.lost || 0), 1);
+  const winRate = Math.round((converted / Math.max(converted + (stageCounts.lost || 0), 1)) * 100);
+  const channelCards = [
+    { label: 'WhatsApp', detail: integration.whatsapp ? 'Channel configured' : 'Set up channel', ready: integration.whatsapp, icon: MessageCircle, to: '/settings/api-integrations' },
+    { label: 'Email', detail: integration.email ? 'SMTP configured' : 'Set up sender', ready: integration.email, icon: Mail, to: '/settings/api-integrations' },
+    { label: 'SMS', detail: integration.sms ? 'Gateway configured' : 'Set up gateway', ready: integration.sms, icon: MessageSquare, to: '/settings/sms-templates' },
+  ];
+
+  return (
+    <section className="space-y-4">
+      <div className="grid gap-4 xl:grid-cols-[1.55fr_0.9fr]">
+        <Card className="overflow-hidden border-0 bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950 text-white shadow-lg">
+          <CardContent className="p-5 sm:p-6">
+            <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <div className="flex items-center gap-2 text-emerald-200">
+                  <Zap className="h-4 w-4" />
+                  <span className="text-xs font-bold uppercase tracking-[0.16em]">Conversion command centre</span>
+                </div>
+                <h2 className="mt-3 text-2xl font-bold tracking-tight">Turn intent into the next best action.</h2>
+                <p className="mt-1.5 max-w-xl text-sm leading-6 text-slate-300">
+                  Every lead, product enquiry, campaign signal and abandoned cart stays connected to the channel that can move it forward.
+                </p>
+              </div>
+              <Link to="/panel/marketing/automation" className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-white px-3.5 py-2 text-sm font-bold text-slate-900 transition-colors hover:bg-emerald-50">
+                <Workflow className="h-4 w-4" /> Automate follow-up
+              </Link>
+            </div>
+            <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {[
+                { label: 'New leads', value: newLeads, tone: 'text-white' },
+                { label: 'Qualified', value: qualified, tone: 'text-emerald-200' },
+                { label: 'Follow-ups due', value: overdue, tone: overdue ? 'text-amber-200' : 'text-emerald-200' },
+                { label: 'Win rate', value: `${winRate}%`, tone: 'text-white' },
+              ].map((stat) => (
+                <div key={stat.label} className="rounded-xl border border-white/10 bg-white/[0.07] px-3 py-3">
+                  <div className={`text-xl font-black tracking-tight ${stat.tone}`}>{stat.value}</div>
+                  <div className="mt-1 text-[11px] font-semibold text-slate-400">{stat.label}</div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200 shadow-sm">
+          <CardContent className="p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Action queue</p>
+                <h2 className="mt-1 text-lg font-bold tracking-tight">Prioritise the warmest work</h2>
+              </div>
+              <BarChart3 className="h-5 w-5 text-emerald-700" />
+            </div>
+            <div className="mt-4 space-y-2">
+              <button onClick={() => document.getElementById('crm-workspace')?.scrollIntoView({ behavior: 'smooth' })} className="flex w-full items-center justify-between rounded-lg border border-transparent bg-amber-50 px-3 py-2.5 text-left transition-colors hover:border-amber-200">
+                <span className="flex items-center gap-2 text-sm font-semibold text-amber-950"><Clock className="h-4 w-4 text-amber-600" /> Follow-ups that need attention</span>
+                <span className="rounded-full bg-amber-200 px-2 py-0.5 text-xs font-bold text-amber-950">{overdue}</span>
+              </button>
+              <button onClick={() => document.getElementById('crm-workspace')?.scrollIntoView({ behavior: 'smooth' })} className="flex w-full items-center justify-between rounded-lg border border-transparent bg-blue-50 px-3 py-2.5 text-left transition-colors hover:border-blue-200">
+                <span className="flex items-center gap-2 text-sm font-semibold text-blue-950"><Inbox className="h-4 w-4 text-blue-600" /> Unread storefront messages</span>
+                <span className="rounded-full bg-blue-200 px-2 py-0.5 text-xs font-bold text-blue-950">{unread}</span>
+              </button>
+              <Link to="/orders/abandoned-carts" className="flex items-center justify-between rounded-lg border border-transparent bg-emerald-50 px-3 py-2.5 transition-colors hover:border-emerald-200">
+                <span className="flex items-center gap-2 text-sm font-semibold text-emerald-950"><ShoppingCart className="h-4 w-4 text-emerald-600" /> Recover high-intent carts</span>
+                <ArrowUpRight className="h-4 w-4 text-emerald-700" />
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[1.25fr_0.75fr]">
+        <Card>
+          <CardContent className="p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div><p className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Pipeline health</p><h2 className="mt-1 text-lg font-bold">Leads by conversion stage</h2></div>
+              <Link to="/panel/marketing/campaigns" className="text-xs font-bold text-primary hover:underline">Campaign performance <ArrowUpRight className="ml-0.5 inline h-3 w-3" /></Link>
+            </div>
+            <div className="mt-5 grid gap-3 sm:grid-cols-5">
+              {LEAD_STAGES.map((stage, index) => {
+                const value = stageCounts[stage] || 0;
+                const width = Math.max(8, Math.round((value / activeTotal) * 100));
+                const palette = ['bg-sky-500', 'bg-amber-500', 'bg-violet-500', 'bg-emerald-500', 'bg-slate-400'][index];
+                return <div key={stage} className="min-w-0"><div className="flex items-baseline justify-between gap-2"><span className="capitalize text-xs font-bold text-foreground">{stage}</span><span className="text-sm font-black">{value}</span></div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"><div className={`h-full rounded-full ${palette}`} style={{ width: `${width}%` }} /></div></div>;
+              })}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-emerald-100 bg-emerald-50/35">
+          <CardContent className="p-5">
+            <div className="flex items-center gap-2"><Plug className="h-4 w-4 text-emerald-700" /><p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-800">Channel readiness</p></div>
+            <div className="mt-3 grid gap-2">
+              {channelCards.map(({ label, detail, ready, icon: Icon, to }) => <Link key={label} to={to} className="flex items-center justify-between rounded-lg border border-emerald-100 bg-background/80 px-3 py-2.5 transition-colors hover:border-emerald-300"><span className="flex items-center gap-2 text-sm font-semibold"><Icon className="h-4 w-4 text-emerald-700" />{label}</span><span className={`text-xs font-bold ${ready ? 'text-emerald-700' : 'text-amber-700'}`}>{integration.loading ? 'Checking…' : detail}</span></Link>)}
+            </div>
+            <Link to="/panel/marketing/connections" className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-emerald-800 hover:underline">{integration.connectedServices} connected analytics / ads services <ArrowUpRight className="h-3 w-3" /></Link>
+          </CardContent>
+        </Card>
+      </div>
+    </section>
   );
 }
 
@@ -531,6 +662,9 @@ const Leads: React.FC = () => {
   const [leads, setLeads] = useState<Dict[]>([]);
   const [msgStats, setMsgStats] = useState<Dict | null>(null);
   const [leadStats, setLeadStats] = useState<Dict | null>(null);
+  const [integration, setIntegration] = useState<IntegrationHealth>({
+    email: false, whatsapp: false, sms: false, connectedServices: 0, loading: true,
+  });
 
   const [filter, setFilter] = useState('');
   const [stageFilter, setStageFilter] = useState('all');
@@ -545,16 +679,34 @@ const Leads: React.FC = () => {
   async function fetchAll() {
     setLoading(true);
     try {
-      const [msgs, lds, ms, ls] = await Promise.all([
+      const [msgs, lds, ms, ls, settingsResult, smsResult, connectorsResult] = await Promise.all([
         contactsAPI.getAll({ limit: 300 }).catch(() => []),
         leadsAPI.getAll({ limit: 300 }).catch(() => []),
         contactsAPI.getStats().catch(() => null),
         leadsAPI.getStats().catch(() => null),
+        api.get('/settings/admin').catch(() => null),
+        smsConfigAPI.get().catch(() => null),
+        api.get('/connectors').catch(() => null),
       ]);
       setMessages(asRows(msgs));
       setLeads(asRows(lds));
       setMsgStats(ms);
       setLeadStats(ls);
+      const settings = responseData(settingsResult);
+      const smsConfig = responseData(smsResult);
+      const connectors = asRows(responseData(connectorsResult));
+      const connectedServices = connectors.reduce((count: number, connection: Dict) => (
+        count + (connection.services || []).filter((service: Dict) => service.isEnabled).length
+      ), 0);
+      const whatsApp = settings.whatsapp || {};
+      const whatsAppGateway = settings.whatsapp_settings || {};
+      setIntegration({
+        email: !!settings.smtp?.isEnabled,
+        whatsapp: !!(whatsApp.isEnabled || whatsAppGateway.isEnabled),
+        sms: !!smsConfig.isEnabled,
+        connectedServices,
+        loading: false,
+      });
     } finally { setLoading(false); }
   }
   useEffect(() => { fetchAll(); }, []);
@@ -632,7 +784,7 @@ const Leads: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">CRM</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Conversion CRM</h1>
           <p className="text-muted-foreground text-sm mt-1">
             Leads pipeline and storefront messages — {leadStats?.total ?? leads.length} leads
             ({leadStats?.last7d ?? 0} this week) · {msgStats?.total ?? messages.length} messages
@@ -649,9 +801,11 @@ const Leads: React.FC = () => {
         </div>
       </div>
 
+      <ConversionControlDeck leads={leads} messages={messages} integration={integration} />
+
       <AbandonedCartsCrmPanel />
 
-      <Card>
+      <Card id="crm-workspace" className="scroll-mt-4">
         <CardContent className="p-0">
           {/* Toolbar */}
           <div className="p-4 border-b bg-muted/40 flex flex-col md:flex-row gap-4 justify-between items-center">
