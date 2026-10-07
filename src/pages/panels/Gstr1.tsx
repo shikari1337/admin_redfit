@@ -116,7 +116,13 @@ const Gstr1: React.FC = () => {
               columns={CSV_COLS}
               rows={buildCsvRows(draft)}
               canExport={hasPerm('gst.read')}
-              disabled={!draft}
+              disabled={!draft || !gstin}
+              serverExports={[{
+                label: 'GST portal JSON (GSTR-1)',
+                path: '/accounting/gst/gstr1-portal-json',
+                params: { from: monthRange(month).from, to: monthRange(month).to, gstin },
+                filename: `gstr1-${gstin}-${month.replace('-', '')}.json`,
+              }]}
             />
           </div>
         }

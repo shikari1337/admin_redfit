@@ -17,12 +17,13 @@ import type { CsvColumn } from '../../components/erp';
  */
 
 interface HsnCsvRow {
-  hsn: string; description: string; uqc: string;
+  recipientType: 'B2B' | 'B2C'; hsn: string; description: string; uqc: string;
   totalQuantity: number; ratePct: number | string;
   taxableValue: number; igst: number; cgst: number; sgst: number; cess: number; totalValue: number;
 }
 // Table-12 figures are in RUPEE units → raw numbers in the CSV (not minor units).
 const CSV_COLS: CsvColumn<HsnCsvRow>[] = [
+  { key: 'recipientType', label: 'Table 12 section' },
   { key: 'hsn', label: 'HSN' },
   { key: 'description', label: 'Description' },
   { key: 'uqc', label: 'UQC' },
@@ -67,7 +68,7 @@ const HsnSummary: React.FC = () => {
   const totalGst = gt ? (gt.cgst + gt.sgst + gt.igst + gt.cess) : 0;
   const allRows: any[] = data?.rows ?? [];
   const csvRows: HsnCsvRow[] = allRows.map((r) => ({
-    hsn: r.hsn ?? '(missing)', description: r.description ?? '', uqc: r.uqc ?? '',
+    recipientType: r.recipientType ?? 'B2C', hsn: r.hsn ?? '(missing)', description: r.description ?? '', uqc: r.uqc ?? '',
     totalQuantity: r.totalQuantity, ratePct: r.ratePct,
     taxableValue: r.taxableValue, igst: r.igst, cgst: r.cgst, sgst: r.sgst, cess: r.cess, totalValue: r.totalValue,
   }));
@@ -137,17 +138,18 @@ const HsnSummary: React.FC = () => {
             <TableShell>
               <table className="w-full text-sm">
                 <THead>
-                  <Th>HSN</Th><Th>Description</Th><Th>UQC</Th>
+                  <Th>Section</Th><Th>HSN</Th><Th>Description</Th><Th>UQC</Th>
                   <Th num>Qty</Th><Th num>Rate %</Th><Th num>Taxable value</Th>
                   <Th num>IGST</Th><Th num>CGST</Th><Th num>SGST</Th>
                   <Th num>Cess</Th><Th num>Total value</Th>
                 </THead>
                 <TBody>
-                  {allRows.length === 0 && <EmptyRow colSpan={11}>No sales in this period.</EmptyRow>}
+                  {allRows.length === 0 && <EmptyRow colSpan={12}>No sales in this period.</EmptyRow>}
                   {pagedRows.map((r: any, i: number) => {
                     const isMissing = r.hsn == null;
                     return (
                       <Tr key={(page - 1) * PAGE_SIZE + i} className={isMissing ? 'bg-red-50/60' : ''}>
+                        <Td>{r.recipientType ?? 'B2C'}</Td>
                         <Td className={isMissing ? 'font-semibold text-red-700' : 'font-medium'}>
                           {r.hsn ?? '(missing)'}
                         </Td>
@@ -166,7 +168,7 @@ const HsnSummary: React.FC = () => {
                   })}
                   {allRows.length > 0 && (
                     <Tr className="border-t-2 border-gray-300 bg-gray-50 font-semibold">
-                      <Td>Grand total</Td><Td /><Td />
+                      <Td>Grand total</Td><Td /><Td /><Td />
                       <Td num>{num(gt.totalQuantity)}</Td><Td />
                       <Td num>{inr(gt.taxableValue)}</Td>
                       <Td num>{inr(gt.igst)}</Td>
