@@ -11,7 +11,9 @@ import { localeDate } from '../../../utils/date';
  * approved custom audiences). Campaigns are pushed PAUSED to the platform.
  */
 const CRED_FIELDS: Record<string, string[]> = {
-  google: ['developer_token', 'oauth_client_id', 'oauth_client_secret', 'customer_id', 'login_customer_id', 'refresh_token'],
+  // Google OAuth belongs to the shared Platform Connection. Its client id and
+  // secret are deliberately not accepted by this account form.
+  google: ['developer_token', 'login_customer_id', 'refresh_token'],
   meta: ['app_id', 'app_secret', 'ad_account_id', 'business_id', 'catalog_id', 'access_token'],
   snapchat: ['client_id', 'client_secret', 'ad_account_id', 'refresh_token', 'access_token'],
 };
@@ -78,6 +80,7 @@ const AdsManager: React.FC = () => {
           <p className="text-sm text-gray-500">
             Google · Meta (Facebook/Instagram) · Snapchat — search, display, video, shopping, all placements & remarketing.
             Custom audiences live in <Link className="underline" to="/panel/marketing/ads/audiences">Custom Audiences</Link>.
+            {' '}Connect Google and choose its Ads customer in <Link className="underline" to="/panel/marketing/connections">Platform Connections</Link>; it appears here automatically.
           </p>
         </div>
         <div className="flex gap-2">
@@ -108,6 +111,7 @@ const AdsManager: React.FC = () => {
             <span className={`rounded px-1.5 py-0.5 text-xs ${a.configured ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`}>
               {a.configured ? 'live credentials' : 'mock mode'}
             </span>
+            {a.auth_source === 'connector' && <span className="text-xs text-gray-500">shared connection</span>}
             <div className="ml-auto flex gap-1.5">
               {hasPerm('ads.manage') && (
                 <>
