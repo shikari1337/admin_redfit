@@ -37,6 +37,12 @@ const AdsManager: React.FC = () => {
   const [info, setInfo] = useState('');
 
   const load = async () => {
+    // Existing Google connections predate managed measurement. Reconcile on
+    // opening Ads Manager; the endpoint is idempotent and only creates actions
+    // that do not already exist.
+    if (hasPerm('ads.manage')) {
+      try { await api.post('/marketing-hub/ads/google/reconcile'); } catch { /* connection may not be ready yet */ }
+    }
     const [p, a, c, au] = await Promise.all([
       api.get('/marketing-hub/ads/platforms'),
       api.get('/marketing-hub/ads/accounts'),
