@@ -690,7 +690,6 @@ function SettingField({ setting, value, onChange }: { setting: any; value: any; 
         </div>
       );
     case 'color':
-    case 'color_background':
       return (
         <div>
           {labelEl}
@@ -699,6 +698,16 @@ function SettingField({ setting, value, onChange }: { setting: any; value: any; 
               onChange={(e) => onChange(e.target.value)} className="h-8 w-10 rounded border border-gray-300 p-0.5 bg-white" />
             <input type="text" value={value ?? ''} onChange={(e) => onChange(e.target.value)} className={inputCls} placeholder="#000000" />
           </div>
+        </div>
+      );
+    case 'color_background':
+      // Shopify accepts gradients here; a native colour input would replace a
+      // valid `linear-gradient(...)` with black on the next save.
+      return (
+        <div>
+          {labelEl}
+          <input type="text" value={value ?? ''} onChange={(e) => onChange(e.target.value)} className={inputCls}
+            placeholder="#000000 or linear-gradient(...)" />
         </div>
       );
     case 'textarea':
@@ -728,6 +737,30 @@ function SettingField({ setting, value, onChange }: { setting: any; value: any; 
           <input type="text" value={value ?? ''} onChange={(e) => onChange(e.target.value)} className={inputCls} placeholder="Paste image URL (media library / upload URL)" />
         </div>
       );
+    case 'video':
+    case 'video_url':
+      return (
+        <div>
+          {labelEl}
+          <input type="url" value={value ?? ''} onChange={(e) => onChange(e.target.value)} className={inputCls}
+            placeholder="https://www.youtube.com/watch?v=… or uploaded video URL" />
+          <p className="text-[11px] text-gray-400 mt-1 mb-0">Paste a video URL. The theme decides how to render it.</p>
+        </div>
+      );
+    case 'product_list':
+    case 'collection_list':
+    case 'metaobject_list': {
+      const list = Array.isArray(value) ? value.join('\n') : String(value ?? '');
+      return (
+        <div>
+          {labelEl}
+          <textarea rows={3} value={list}
+            onChange={(e) => onChange(e.target.value.split(/\r?\n|,/).map((v) => v.trim()).filter(Boolean))}
+            className={inputCls} placeholder="One handle per line" />
+          <p className="text-[11px] text-gray-400 mt-1 mb-0">One handle per line (or comma-separated), in the order the theme should use.</p>
+        </div>
+      );
+    }
     case 'number':
       return (
         <div>
