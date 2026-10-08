@@ -234,7 +234,12 @@ export const MENU: MenuGroup[] = [
       children: [
         { label: 'Overview', to: '/panel/marketing', perm: 'marketing.read', modules: ['marketing'], tip: 'What is running and what it is bringing in.' },
         { label: 'Campaigns', to: '/panel/marketing/campaigns', perm: 'marketing.read', modules: ['marketing'], tip: 'One panel per channel: SMS, WhatsApp, email, push.', owns: ['/panel/marketing/campaigns/:channel'] },
+        { label: 'Templates', to: '/panel/marketing/templates', perm: 'marketing.read', modules: ['marketing'], tip: 'Approve the message designs campaigns are allowed to send.' },
         { label: 'Audiences & Lists', to: '/panel/marketing/audiences', perm: 'marketing.manage', modules: ['marketing'], tip: 'Saved lists of people to send to.' },
+        { label: 'Automation', to: '/panel/marketing/automation', perm: 'marketing.read', modules: ['marketing'], tip: 'Triggered journeys and scheduled marketing work.' },
+        { label: 'Performance', to: '/panel/marketing/performance', perm: 'marketing.read', modules: ['marketing'], tip: 'Campaign performance, attribution and conversions.' },
+        { label: 'Growth', to: '/panel/marketing/growth', perm: 'marketing.read', modules: ['marketing'], tip: 'Growth metrics and opportunities.' },
+        { label: 'Marketing Analytics', to: '/panel/marketing/analytics', perm: 'marketing.read', modules: ['marketing'], tip: 'Channel, campaign and customer marketing analytics.' },
         { label: 'Ads Manager', to: '/panel/marketing/ads', perm: 'ads.read', modules: ['marketing', 'ads_management'], tip: 'Google and Meta campaigns, spend and results.', owns: ['/panel/marketing/ads/oauth/callback'] },
         { label: 'AI Ads Studio', to: '/panel/marketing/ads/ai-studio', perm: 'ads.read', modules: ['marketing', 'ads_management', 'connectors'], tip: 'AI drafts a campaign; you review before anything runs.' },
         { label: 'Custom Audiences', to: '/panel/marketing/ads/audiences', perm: 'ads.read', modules: ['marketing', 'ads_management'], tip: 'Custom audiences pushed to Google and Meta.' },
@@ -242,6 +247,8 @@ export const MENU: MenuGroup[] = [
         { label: 'Search & Analytics', to: '/panel/marketing/connections/insights', perm: 'marketing.read', modules: ['connectors'], tip: 'What people searched for before they found you.' },
         { label: 'Google Reviews', to: '/panel/marketing/google-reviews', perm: 'content.read', modules: ['connectors'], tip: 'Your Business Profile reviews — reply and publish.' },
         { label: 'Messaging', to: '/marketing', perm: 'marketing.read', modules: ['marketing'], tip: 'The single-screen sender, with its history.' },
+        { label: 'Compliance', to: '/panel/marketing/compliance', perm: 'marketing.read', modules: ['marketing'], tip: 'Consent, suppression and marketing data controls.' },
+        { label: 'Marketing Settings', to: '/panel/marketing/settings', perm: 'marketing.read', modules: ['marketing'], tip: 'Channel readiness and marketing configuration.' },
       ],
     },
     {
