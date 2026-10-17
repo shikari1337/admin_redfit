@@ -6,6 +6,8 @@ import { AuthProvider } from './contexts/AuthContext';
 import { StoreProvider } from './contexts/StoreContext';
 import { resolveTenantFromDomain } from './services/api';
 import { reloadForNewBuild } from './lib/lazyRetry';
+import { V2_ENABLED } from './lib/v2/config';
+import { isCallback as isV2Callback, completeSignIn as completeV2SignIn } from './lib/v2/session';
 import './index.css';
 
 // Vite reports a lazy chunk (or its CSS) that failed to load as this event —
@@ -60,4 +62,21 @@ function renderApp() {
 // belongs to (super-admin-configured admin_domain/domain/subdomain) BEFORE the
 // app renders, so every request — including the very first — carries the right
 // tenant key. Fail-open: on any error the env/localStorage key applies as before.
-resolveTenantFromDomain().finally(renderApp);
+//
+// v2 (Rust API): the tenant comes from the Identity resolve route, and a return
+// from Growcord ID (`/auth/callback?code&state`) is finished BEFORE the first
+// render, so the app mounts already holding its access token.
+async function boot(): Promise<void> {
+  await resolveTenantFromDomain();
+  if (V2_ENABLED && isV2Callback()) {
+    try {
+      const to = await completeV2SignIn();
+      history.replaceState(null, '', to.startsWith('/') && !to.startsWith('//') ? to : '/');
+    } catch (e) {
+      try { sessionStorage.setItem('gc_v2_signin_error', e instanceof Error ? e.message : 'Sign-in failed.'); } catch { /* shown generically */ }
+      history.replaceState(null, '', '/login');
+    }
+  }
+}
+
+boot().finally(renderApp);

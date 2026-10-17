@@ -4,6 +4,10 @@ import { api, authAPI, getTenantApiKey, setTenantApiKey, getDomainStore, isPlatf
 import { PRODUCT } from '../lib/product';
 import { useAuth } from '../contexts/AuthContext';
 import GrowcordIdButton from '../components/GrowcordIdButton';
+import { V2_ENABLED } from '../lib/v2/config';
+import { startSignIn, hasSession as v2HasSession, accessToken as v2AccessToken, consumeEndedNotice } from '../lib/v2/session';
+import { tenantNow, listPlatformStores, pickPlatformStore } from '../lib/v2/tenant';
+import type { PlatformStore } from '../lib/v2/tenant';
 import {
   Eye, EyeOff, Store, AlertCircle, Loader2, ChevronRight, CheckCircle2,
 } from 'lucide-react';
@@ -342,7 +346,7 @@ const StepStorePicker: React.FC<StepStorePickerProps> = ({ stores, onSelect }) =
 
 // ─── Main Login Page ──────────────────────────────────────────────────────────
 
-const Login: React.FC = () => {
+const LegacyLogin: React.FC = () => {
   const { isAuthenticated, login } = useAuth();
   const navigate = useNavigate();
 
@@ -493,5 +497,148 @@ const Login: React.FC = () => {
     </div>
   );
 };
+
+// ─── v2: Continue with Growcord ID ────────────────────────────────────────────
+// Same screen, same card; the action is the Growcord ID sign-in (identity A6,
+// PKCE S256) instead of the dropped `POST /auth/login` (identity D2, DEC-028).
+
+const V2Login: React.FC = () => {
+  const { isAuthenticated, isLoaded, retryVerify } = useAuth();
+  const navigate = useNavigate();
+  const tenant = tenantNow();
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [stores, setStores] = useState<PlatformStore[] | null>(null);
+
+  useEffect(() => {
+    if (isAuthenticated) { navigate('/', { replace: true }); return; }
+    let msg = '';
+    try { msg = sessionStorage.getItem('gc_v2_signin_error') || ''; sessionStorage.removeItem('gc_v2_signin_error'); } catch { /* none */ }
+    if (!msg && consumeEndedNotice()) msg = 'Your session has ended. Sign in again to continue.';
+    if (msg) setError(msg);
+  }, [isAuthenticated, navigate]);
+
+  // Central console: signed in, no store yet: the store picker.
+  const needsPick = tenant?.kind === 'platform' && !tenant.storeKey && v2HasSession();
+  useEffect(() => {
+    if (!needsPick || stores) return;
+    let alive = true;
+    (async () => {
+      try {
+        const tok = await v2AccessToken();
+        const list = tok ? await listPlatformStores(tok) : [];
+        if (alive) setStores(list);
+      } catch {
+        if (alive) { setStores([]); setError('Your stores could not be listed. Only platform members can choose a store here.'); }
+      }
+    })();
+    return () => { alive = false; };
+  }, [needsPick, stores]);
+
+  const start = async () => {
+    setError('');
+    setBusy(true);
+    try {
+      const from = (new URLSearchParams(window.location.search).get('from')) || '/';
+      await startSignIn({ returnTo: from.startsWith('/') && !from.startsWith('//') ? from : '/' });
+    } catch (e) {
+      setBusy(false);
+      setError(e instanceof Error ? e.message : 'Growcord ID could not be reached.');
+    }
+  };
+
+  const pick = async (store: PlatformStore) => {
+    setError('');
+    setBusy(true);
+    try {
+      await pickPlatformStore(store);
+      await retryVerify();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'That store could not be opened.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const storeName = tenant?.kind === 'store' ? tenant.name : undefined;
+  const stepLabel = needsPick ? 'Choose a store' : 'Sign in';
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center py-12 px-4">
+      <div className="w-full max-w-md space-y-6">
+        <div className="text-center">
+          <div className="inline-flex w-14 h-14 rounded-2xl bg-primary items-center justify-center text-primary-foreground text-2xl font-bold shadow-lg mb-4">
+            {storeName ? 'G' : PRODUCT.short}
+          </div>
+          <h1 className="text-2xl font-bold text-gray-900">{storeName || PRODUCT.name}</h1>
+          <p className="text-sm text-gray-500 mt-1">{storeName ? `${stepLabel} · ${window.location.hostname}` : stepLabel}</p>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
+          {needsPick ? (
+            stores === null ? (
+              <div className="flex flex-col items-center gap-3 py-6">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                <p className="text-sm text-gray-500">Loading your stores…</p>
+              </div>
+            ) : (
+              <StepStorePicker
+                stores={stores.map((st) => ({ storeId: st.id, apiKey: st.id, storeName: st.name, storeSlug: st.slug, role: 'admin' as const, permissions: [] }))}
+                centralToken=""
+                onSelect={(o) => { const st = stores.find((x) => x.id === o.storeId); if (st) void pick(st); }}
+              />
+            )
+          ) : (
+            <div className="space-y-5">
+              {!isLoaded ? (
+                <div className="flex flex-col items-center gap-3 py-6">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  <p className="text-sm text-gray-500">Loading your store…</p>
+                </div>
+              ) : (
+                <button
+                  type="button" onClick={start} disabled={busy}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-lg hover:bg-primary/90 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                >
+                  {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Opening Growcord ID…</> : 'Continue with Growcord ID'}
+                </button>
+              )}
+              <div className="pt-3 border-t border-gray-100">
+                {tenant?.kind === 'store' ? (
+                  <div className="flex items-center gap-2 text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2">
+                    <Store className="h-3 w-3 shrink-0" />
+                    <span>Managing <b>{tenant.name || tenant.slug || 'this store'}</b> — determined by this domain.</span>
+                  </div>
+                ) : tenant?.kind === 'platform' ? (
+                  <div className="flex items-center gap-2 text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                    <Store className="h-3 w-3 shrink-0" />
+                    <span>Sign in, then choose the store to manage.</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                    <AlertCircle className="h-3 w-3 shrink-0" />
+                    <span>This address is not linked to a store, so there is nothing to sign in to here.</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <div className="mt-4 flex items-start gap-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" /> {error}
+            </div>
+          )}
+        </div>
+
+        <p className="text-center text-xs text-gray-400 px-4">
+          Your session is scoped to the selected store. You cannot access other stores' data.
+        </p>
+      </div>
+    </div>
+  );
+};
+
+const Login: React.FC = V2_ENABLED ? V2Login : LegacyLogin;
 
 export default Login;

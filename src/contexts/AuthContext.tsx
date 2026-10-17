@@ -17,6 +17,13 @@ import { effectivePermissionsFor, hasPermIn, workspacesFor } from '../lib/rbac';
 // WS-X: silent Growcord ID sign-in. Importing the module is also what lets the
 // framed prompt=none callback answer before React mounts.
 import { adoptGrowcordIdSession, signOutOfGrowcordId } from '../utils/growcordId';
+// v2 (Rust API): the Growcord ID access token IS the session (src/lib/v2/session.ts).
+import { V2_ENABLED } from '../lib/v2/config';
+import { hasSession as v2HasSession, onSessionChange as onV2SessionChange, signOut as v2SignOut } from '../lib/v2/session';
+import { storeKeyNow as v2StoreKey } from '../lib/v2/tenant';
+
+/** The marker the context keeps as `token` in v2 mode (the real bearer stays in lib/v2). */
+const V2_TOKEN_MARKER = 'growcord-id';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -303,6 +310,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Re-run the session check after an "unreachable" failure (retry button).
   const retryVerify = useCallback(async () => {
+    if (V2_ENABLED) {
+      setState(s => ({ ...s, isLoaded: false, authUnreachable: false }));
+      if (v2HasSession()) await fetchAndSetUser(V2_TOKEN_MARKER, v2StoreKey() ?? '');
+      else setState({ user: null, token: null, storeApiKey: null, isLoaded: true, isAuthenticated: false, authUnreachable: false });
+      return;
+    }
     const session = loadSession();
     if (!session) {
       setState({
@@ -320,6 +333,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     if (initRan.current) return;
     initRan.current = true;
+
+    if (V2_ENABLED) {
+      // main.tsx finished any /auth/callback before render; a tab with a token verifies it.
+      // On the central console with no store picked yet, Login shows the picker first.
+      if (v2HasSession() && v2StoreKey()) fetchAndSetUser(V2_TOKEN_MARKER, v2StoreKey() ?? '');
+      else setState(s => ({ ...s, isLoaded: true }));
+      return;
+    }
 
     const session = loadSession();
     if (!session) {
@@ -339,6 +360,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Gated on being signed in — this used to fire on the LOGIN page too, putting
   // a meaningless 401 on GET /modules in the console every time the tab
   // regained focus (which reads as "the backend is rejecting me").
+  useEffect(() => {
+    if (!V2_ENABLED) return;
+    return onV2SessionChange((reason) => {
+      if (reason !== 'ended') return;
+      setState({ user: null, token: null, storeApiKey: null, isLoaded: true, isAuthenticated: false, authUnreachable: false });
+      setStoreModules({});
+      setModulesLoaded(false);
+    });
+  }, []);
+
   const isAuthedRef = useRef(false);
   useEffect(() => { isAuthedRef.current = state.isAuthenticated; }, [state.isAuthenticated]);
   useEffect(() => {
@@ -361,6 +392,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [fetchAndSetUser]);
 
   const logout = useCallback(async (all = false) => {
+    if (V2_ENABLED) {
+      // RP-initiated logout at the issuer with id_token_hint (identity A28); leaves the page.
+      setStoreModules({});
+      setModulesLoaded(false);
+      v2SignOut('/login');
+      return;
+    }
     try {
       if (all) await authAPI.logoutAll();
       else await authAPI.logout();

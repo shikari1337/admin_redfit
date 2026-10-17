@@ -1,6 +1,11 @@
 import axios from 'axios';
 import { setStoreTimeZone } from '../utils/date';
 import { UUID_RE } from '../lib/uuid';
+// v2: a build with VITE_API_URL runs on the Rust API through src/lib/v2 (one
+// switch, every shape change there); without it this file is the Node admin as before.
+import { V2_ENABLED, V2_API_URL } from '../lib/v2/config';
+import { installV2, v2OnRequest, v2OnError, isV2Response } from '../lib/v2/client';
+import { resolveTenant as resolveV2Tenant, storeKeyNow as v2StoreKey } from '../lib/v2/tenant';
 
 // API Configuration
 // All requests go to the platform API domain for consistent tenant identification
@@ -13,6 +18,7 @@ export const TENANT_API_KEY_STORAGE_KEY = 'admin_tenant_api_key';
 
 /** Get the API key to use for tenant/store validation: runtime (localStorage) first, then env */
 export function getTenantApiKey(): string | undefined {
+  if (V2_ENABLED) return v2StoreKey();
   try {
     const fromStorage = localStorage.getItem(TENANT_API_KEY_STORAGE_KEY);
     if (fromStorage && fromStorage.trim()) return fromStorage.trim();
@@ -77,6 +83,7 @@ export function getDomainStore(): DomainStore | null {
  * Fail-open: any error keeps the existing (localStorage/env) behaviour.
  */
 export async function resolveTenantFromDomain(): Promise<void> {
+  if (V2_ENABLED) { await resolveV2Tenant(); return; }
   try {
     const host = window.location.hostname.toLowerCase();
     if (!host || host === 'localhost' || host === '127.0.0.1') return;
@@ -154,6 +161,7 @@ export function setApiServerUrl(url: string | null): void {
 }
 
 function resolveApiServerUrl(): string {
+  if (V2_ENABLED) return V2_API_URL;
   try {
     const override = localStorage.getItem(API_SERVER_URL_STORAGE_KEY);
     if (override && override.trim()) return override.trim();
@@ -358,6 +366,7 @@ const normalizeResponse = (response: any): any => {
 
 // Add auth token, tenant API key, and security headers to every request
 api.interceptors.request.use((config) => {
+  if (V2_ENABLED) return v2OnRequest(config);
   const token = localStorage.getItem('admin_token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
@@ -402,6 +411,14 @@ api.interceptors.request.use((config) => {
 // Handle auth errors and normalize responses
 api.interceptors.response.use(
   (response) => {
+    if (isV2Response(response)) {
+      // Already normalised by src/lib/v2 (envelope, Page, Money, aliases).
+      if ((response.config?.url || '').includes('/settings')) {
+        const tz = (response.data as any)?.timezone;
+        if (tz) setStoreTimeZone(tz);
+      }
+      return response;
+    }
     // Skip normalization for blob/arraybuffer responses (PDF downloads etc.)
     const responseType = response.config?.responseType;
     if (responseType === 'blob' || responseType === 'arraybuffer') {
@@ -449,6 +466,7 @@ api.interceptors.response.use(
     return response;
   },
   (error) => {
+    if (V2_ENABLED) return v2OnError(error);
     // Network errors (no response from server)
     if (!error.response) {
       const fullURL = error.config?.baseURL + error.config?.url;
@@ -604,6 +622,9 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+// v2: route every call through src/lib/v2 (the legacy base becomes the v2 origin).
+if (V2_ENABLED) installV2(api, normalizeIds);
 
 // Auth API
 export const authAPI = {
