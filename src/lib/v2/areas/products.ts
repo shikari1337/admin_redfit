@@ -319,10 +319,10 @@ export const PRODUCT_ROUTES: V2Route[] = [
   { m: 'GET', from: '/tax/return-policies', row: 'books — R:ReturnPolicy.list', to: '/api/v2/books/return-policies', query: (c) => resourceQuery(c) },
   { m: 'GET', from: '/ai/status', row: 'commerce aiStudio.ts:107', to: `${P}/ai/status` },
   // B2B (trade ROUTE_MAP) the product form reads.
-  { m: 'GET', from: '/b2b/settings', row: 'trade — GET /api/v2/trade/settings', to: '/api/v2/trade/settings' },
+  { m: 'GET', from: '/b2b/settings', row: 'trade — GET /api/v2/trade/settings', to: '/api/v2/trade/settings', rs: { default_discount_pct: 'r', tiers: [{ discount_pct: 'r' }] } },
   { m: 'GET', from: '/b2b/customers', row: 'trade — GET /api/v2/trade/accounts', to: '/api/v2/trade/accounts', query: (c) => ({ q: c.query.search, limit: c.query.limit, offset: c.query.offset }) },
   { m: 'GET', from: '/b2b/price-lists', row: 'trade — GET /api/v2/trade/price-lists', to: '/api/v2/trade/price-lists' },
-  { m: 'GET', from: '/b2b/price-lists/:id/rules', row: 'trade 22 — GET /api/v2/trade/price-lists/{id}/rules', to: '/api/v2/trade/price-lists/{id}/rules' },
+  { m: 'GET', from: '/b2b/price-lists/:id/rules', row: 'trade 22 — GET /api/v2/trade/price-lists/{id}/rules', to: '/api/v2/trade/price-lists/{id}/rules', rs: { items: [{ discount_slabs: [{ discount_pct: 'r' }], flat_discount_pct: 'r' }] } },
   { m: 'GET', from: '/upload/image-specs', row: 'commerce upload.ts:244 GET /media/image-specs — NOT MOUNTED', run: async () => backendGap('GET /api/v2/commerce/media/image-specs (upload.ts:244)') },
   { m: 'GET', from: '/b2b/contracts/product/:id', row: 'trade — merged into GET /api/v2/trade/contracts?product=', to: '/api/v2/trade/contracts', query: (c) => ({ product: c.params.id }) },
 

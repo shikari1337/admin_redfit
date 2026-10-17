@@ -36,8 +36,12 @@ export function asList<T>(items: T[], meta: ListMeta = {}): T[] & ListMeta {
 }
 
 export function isPage(v: unknown): v is { items: unknown[]; total?: number; limit?: number; offset?: number } {
-  return !!v && typeof v === 'object' && !Array.isArray(v) && Array.isArray((v as { items?: unknown }).items)
-    && ('total' in (v as object) || 'limit' in (v as object) || 'cursor' in (v as object));
+  // A Page always carries its numeric `limit` beside `items` (`Page {items, total | cursor, limit}`). A DETAIL
+  // object that merely has `items` and a money `total` (a cart, an invoice) is NOT a page — testing `total`
+  // alone turned a cart into its line array (ADMIN-V2-2).
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
+  const o = v as { items?: unknown; limit?: unknown };
+  return Array.isArray(o.items) && typeof o.limit === 'number';
 }
 
 /** The list metadata of a normalised list (survives `asList`). */

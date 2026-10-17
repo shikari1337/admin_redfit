@@ -1,0 +1,67 @@
+/**
+ * Payments, refunds, coupons, returns and the counter (checkout ROUTE_MAP payments/refunds/coupons/payment rules; retail POS; wms outlets): verifying and recording payments by hand, refund requests, coupons, returns, POS sessions and outlet transfers.
+ *
+ * Rows follow the ROUTE_MAP to the RUNNING binary (`gc-api routes --json`): `qs` = the handler's declared query
+ * fields, `bs` = its typed body, `rs` = the reply's milli-percent / minor-integer leaves (lib/v2/shape.ts applies
+ * all three). `reply: wrapData` puts the answer back in the `{data, total}` wrapper the caller reads (the old route
+ * answered without `success`); a `gap` row is a NAMED refusal (docs/PORT_NOTES/ADMIN-V2-2.md, "gaps").
+ */
+import type { V2Route } from '../routes';
+
+export const PAYMENT_ROUTES: V2Route[] = [
+  { m: 'POST', from: '/coupons', row: 'commerce coupons.ts:97', to: '/api/v2/commerce/coupons', bs: {'amount_off':'j','applies_to':'s','clubbed_with_others':'b','code':'s','currency':'s','customer_segment':'s','description':'s','is_active':'b','is_public':'b','max_discount':'j','min_purchase':'j','type':'s','usage_limit':'j','user_limit':'j','valid_from':'s','valid_until':'s','value':'j'} },
+  { m: 'GET', from: '/coupons/:id', row: 'commerce coupons.ts:72', to: '/api/v2/commerce/coupons/{id}' },
+  { m: 'PUT', from: '/coupons/:id', row: 'commerce coupons.ts:104', method: 'PATCH', to: '/api/v2/commerce/coupons/{id}', bs: {'amount_off':'j','applies_to':'s','clubbed_with_others':'b','code':'s','currency':'s','customer_segment':'s','description':'s','is_active':'b','is_public':'b','max_discount':'j','min_purchase':'j','type':'s','usage_limit':'j','user_limit':'j','valid_from':'s','valid_until':'s','value':'j'} },
+  { m: 'DELETE', from: '/coupons/:id', row: 'commerce coupons.ts:112', to: '/api/v2/commerce/coupons/{id}' },
+  { m: 'GET', from: '/coupons/admin', row: 'commerce coupons.ts:64', to: '/api/v2/commerce/coupons', qs: ['limit','offset','page','sort','q','code','type','is_active','is_public','applies_to','customer_segment'] },
+  { m: 'GET', from: '/orders/:p1/timeline', row: 'commerce — no row', gap: 'the order timeline has no v2 route (commerce ROUTE_MAP: no row; the order page reads /orders/{id}/activity)' },
+  { m: 'GET', from: '/outlets', row: 'wms The table', to: '/api/v2/wms/outlets' },
+  { m: 'POST', from: '/outlets/:id/transfer', row: 'wms outlets.ts:38', to: '/api/v2/wms/outlets/{id}/transfer', bs: {'qty':'i','variation_id':'s'} },
+  { m: 'POST', from: '/outlets/:id/transfer-back', row: 'wms outlets.ts', to: '/api/v2/wms/outlets/{id}/transfer-back', bs: {'qty':'i','variation_id':'s'} },
+  { m: 'GET', from: '/outlets/:id/stock', row: 'wms The table', to: '/api/v2/wms/outlets/{id}/stock' },
+  { m: 'POST', from: '/outlets/:id/transfer', row: 'wms The table', to: '/api/v2/wms/outlets/{id}/transfer', bs: {'qty':'i','variation_id':'s'} },
+  { m: 'POST', from: '/outlets/:id/transfer-back', row: 'wms The table', to: '/api/v2/wms/outlets/{id}/transfer-back', bs: {'qty':'i','variation_id':'s'} },
+  { m: 'GET', from: '/payment/rules', row: 'checkout paymentRules.ts:6', to: '/api/v2/checkout/payment-rules', qs: ['limit','offset','page','sort','q','name','method','is_active'] },
+  { m: 'POST', from: '/payment/rules', row: 'checkout paymentRules.ts:13', to: '/api/v2/checkout/payment-rules', bs: {'conditions':'j','is_active':'b','method':'s','name':'s','sort_order':'i'} },
+  { m: 'PUT', from: '/payment/rules/:id', row: 'checkout paymentRules.ts:25', method: 'PATCH', to: '/api/v2/checkout/payment-rules/{id}', bs: {'conditions':'j','is_active':'b','method':'s','name':'s','sort_order':'i'} },
+  { m: 'DELETE', from: '/payment/rules/:id', row: 'checkout paymentRules.ts:41 (dropped → switched off)', method: 'PATCH', to: '/api/v2/checkout/payment-rules/{id}', body: () => ({ is_active: false }) },
+  { m: 'POST', from: '/payments/manual/verify', row: 'checkout 21', to: (c) => `/api/v2/checkout/payments/${encodeURIComponent(String(c.body?.orderId ?? ''))}/record-offline`, body: (c) => ({ method: c.body?.method ?? null, notes: c.body?.notes ?? null, transaction_id: c.body?.transactionId ?? null }) },
+  { m: 'POST', from: '/payments/mark-paid', row: 'checkout 23', to: (c) => `/api/v2/checkout/payments/${encodeURIComponent(String(c.body?.identifier ?? ''))}/gateway-confirm`, body: (c) => ({ notes: c.body?.notes ?? null, transaction_id: c.body?.transactionId ?? null }) },
+  { m: 'POST', from: '/payments/razorpay/audit', row: 'checkout payments.ts:821', to: (c) => `/api/v2/checkout/payments/${encodeURIComponent(String(c.body?.orderId ?? ''))}/audit`, body: () => ({}) },
+  { m: 'POST', from: '/payments/razorpay/verify-admin', row: 'checkout 22 (merged into gateway-confirm)', to: (c) => `/api/v2/checkout/payments/${encodeURIComponent(String(c.body?.orderId ?? ''))}/gateway-confirm`, body: (c) => ({ transaction_id: c.body?.paymentId ?? null, notes: null }) },
+  { m: 'POST', from: '/payments/upi/verify', row: 'checkout payments.ts:670', to: (c) => `/api/v2/checkout/payments/${encodeURIComponent(String(c.body?.orderId ?? ''))}/upi-approve`, body: (c) => ({ upi_payment_id: c.body?.upiPaymentId ?? null, notes: c.body?.notes ?? null }) },
+  { m: 'POST', from: '/pos/bills', row: 'retail ', to: '/api/v2/retail/bills', bs: {'captured_at':'s','client_ref':'s','coupon_code':'s','customer_id':'s','customer_name':'s','customer_phone':'s','gstin':'s','lines':[{'product_id':'s','quantity':'i','variation_id':'s'}],'manager_override_reason':'s','notes':'s','outlet_id':'s','queued_offline':'b','tenders':[{'amount':'m','confirmed':'b','method':'s','reference':'s','tendered':'m'}]} },
+  { m: 'GET', from: '/pos/bills/:receiptNumber', row: 'retail ', to: '/api/v2/retail/bills/{receiptNumber}' },
+  { m: 'POST', from: '/pos/bills/:receiptNumber/void', row: 'retail ', to: '/api/v2/retail/bills/{receiptNumber}/void', bs: {'method':'s','outlet_id':'s','reason':'s'} },
+  { m: 'POST', from: '/pos/bills/sync', row: 'retail ', to: '/api/v2/retail/bills/sync', bs: {'bills':[{'captured_at':'s','client_ref':'s','coupon_code':'s','customer_id':'s','customer_name':'s','customer_phone':'s','lines':[{'product_id':'s','quantity':'i','variation_id':'s'}],'notes':'s','outlet_id':'s','tenders':[{'amount':'m','confirmed':'b','method':'s','reference':'s','tendered':'m'}]}]} },
+  { m: 'GET', from: '/pos/config', row: 'retail ', to: '/api/v2/retail/counter/config', qs: ['outlet_id'], rs: {'config':{'max_cashier_discount':'r'}} },
+  { m: 'GET', from: '/pos/outlets', row: 'retail ', to: '/api/v2/retail/outlets' },
+  { m: 'POST', from: '/pos/quote', row: 'retail ', to: '/api/v2/retail/counter/quote', bs: {'coupon_code':'s','customer_id':'s','customer_name':'s','customer_phone':'s','gstin':'s','lines':[{'product_id':'s','quantity':'i','variation_id':'s'}],'outlet_id':'s'}, rs: {'discount_percent':'r'} },
+  { m: 'POST', from: '/pos/receipts', row: 'retail ', to: '/api/v2/retail/receipts', bs: {'amount':'m','lines':[{'product_id':'s','qty':'i','variation_id':'s'}],'order_id':'s','outlet_id':'s','payment_method':'s'} },
+  { m: 'GET', from: '/pos/receipts?sessionId=', row: 'retail ', to: '/api/v2/retail/sessions/{id}/receipts' },
+  { m: 'GET', from: '/pos/receipts/:receiptNumber', row: 'retail ', to: '/api/v2/retail/receipts/{receiptNumber}' },
+  { m: 'POST', from: '/pos/refunds', row: 'retail ', to: '/api/v2/retail/refunds', bs: {'items':[{'qty':'i','variation_id':'s'}],'method':'s','outlet_id':'s','reason':'s','receipt_number':'s'} },
+  { m: 'GET', from: '/pos/search', row: 'retail ', to: '/api/v2/retail/counter/search', qs: ['limit','outlet_id','q'] },
+  { m: 'GET', from: '/pos/session', row: 'retail ', to: '/api/v2/retail/sessions/open', qs: ['outlet_id'] },
+  { m: 'GET', from: '/pos/session/:id/z-report', row: 'retail ', to: '/api/v2/retail/sessions/{id}/z-report' },
+  { m: 'POST', from: '/pos/session/close', row: 'retail ', to: '/api/v2/retail/sessions/close', bs: {'counted_cash':'m','denominations':'j','notes':'s','outlet_id':'s'} },
+  { m: 'POST', from: '/pos/session/open', row: 'retail ', to: '/api/v2/retail/sessions', bs: {'opening_float':'m','outlet_id':'s'} },
+  { m: 'POST', from: '/pos/session/z-close', row: 'retail ', to: '/api/v2/retail/sessions/close', bs: {'counted_cash':'m','denominations':'j','notes':'s','outlet_id':'s'} },
+  { m: 'POST', from: '/refunds', row: 'commerce refunds.ts:182', to: '/api/v2/commerce/refunds', bs: {'adjusted_order_id':'s','adjusted_order_number':'s','amount':'m','method':'s','note':'s','order_id':'s','order_number':'s','reason':'s','reference':'s','source':'s','source_ref_id':'s'} },
+  { m: 'GET', from: '/refunds', row: 'commerce refunds.ts:53', to: '/api/v2/commerce/refunds', qs: ['from','limit','offset','order_id','source','status','to'] },
+  { m: 'GET', from: '/refunds/:id', row: 'commerce refunds.ts:166', to: '/api/v2/commerce/refunds/{id}' },
+  { m: 'POST', from: '/refunds/:id/approve', row: 'commerce refunds.ts:225', to: '/api/v2/commerce/refunds/{id}/approve', bs: {'reason':'s','self_approve':'b'} },
+  { m: 'GET', from: '/refunds/:id/approvers', row: 'commerce refunds.ts:136', to: '/api/v2/commerce/refunds/{id}/approvers' },
+  { m: 'GET', from: '/refunds/:id/dossier', row: 'commerce refunds.ts:122', to: '/api/v2/commerce/refunds/{id}/dossier' },
+  { m: 'POST', from: '/refunds/:id/execute', row: 'commerce refunds.ts:271', to: '/api/v2/commerce/refunds/{id}/execute', bs: {'reference':'s'} },
+  { m: 'POST', from: '/refunds/:id/reject', row: 'commerce refunds.ts:249', to: '/api/v2/commerce/refunds/{id}/reject', bs: {'reason':'s','self_approve':'b'} },
+  { m: 'PUT', from: '/refunds/config', row: 'commerce refunds.ts:85', method: 'PATCH', to: '/api/v2/commerce/refunds/config', bs: {'auto_approve_under':'m','auto_request_on_cancellation':'b','auto_request_on_credit_note':'b','auto_request_on_rto':'b','default_method':'s','require_second_approver':'b'} },
+  { m: 'GET', from: '/returns', row: 'commerce returns.ts:271', to: '/api/v2/commerce/returns', qs: ['limit','offset','resolution','search','status'] },
+  { m: 'GET', from: '/returns/:id', row: 'commerce returns.ts:293', to: '/api/v2/commerce/returns/{id}' },
+  { m: 'PUT', from: '/returns/:id', row: 'commerce returns.ts:400', method: 'PATCH', to: '/api/v2/commerce/returns/{id}', bs: {'decision_note':'s','notes':'s','resolution':'s','status':'s'} },
+  { m: 'POST', from: '/returns/:id/items/:itemId/disposition', row: 'commerce returns.ts:491', to: '/api/v2/commerce/returns/{id}/items/{itemId}/disposition', bs: {'disposition':'s','note':'s','photo_url':'s','qty':'i','reason_code':'s'} },
+  { m: 'POST', from: '/returns/:id/pickup', row: 'commerce returns.ts:467', to: '/api/v2/commerce/returns/{id}/pickup', bs: {'awb':'s','courier_name':'s','expected_at':'s','mode':'s','note':'s','provider':'s','quality_check':'b','tracking_url':'s','warehouse_id':'s'} },
+  { m: 'POST', from: '/returns/:id/receive', row: 'commerce returns.ts:441', to: '/api/v2/commerce/returns/{id}/receive', bs: {'lines':[{'batch_number':'s','exception_reason':'s','expiry_date':'s','item_id':'s','qty':'i'}],'warehouse_id':'s'} },
+  { m: 'POST', from: '/returns/:id/settle', row: 'commerce returns.ts:519', to: '/api/v2/commerce/returns/{id}/settle', bs: {'line_ids':['s'],'note':'s','resolution':'s','settlement':'j'} },
+  { m: 'GET', from: '/returns/meta', row: 'commerce returns.ts:87', to: '/api/v2/commerce/returns/meta' },
+];

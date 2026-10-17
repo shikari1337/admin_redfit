@@ -23,9 +23,10 @@ import { AxiosError } from 'axios';
 import type { AxiosAdapter, AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from 'axios';
 import { V2_API_URL } from './config';
 import { endLocal } from './session';
-import { v2http, normaliseEnvelope } from './http';
+import { v2http, normaliseEnvelope, backendGap } from './http';
 import { matchRoute } from './routes';
 import type { V2Ctx, V2Route } from './routes';
+import { shapeBody, shapeQuery, shapeReply } from './shape';
 
 /* ── errors ──────────────────────────────────────────────────────────────── */
 
@@ -34,7 +35,11 @@ interface V2ErrorBody { success?: boolean; code?: string; message?: string; deta
 /** The v2 error body in the shape `safeError` / `errorText` read (`message`, `code`, `errors[0].msg`). */
 function legacyErrorBody(b: V2ErrorBody | undefined, status: number): Record<string, unknown> {
   const errors = (b?.details?.errors ?? []).map((e) => ({ msg: e.message, field: e.field, code: e.code }));
-  const message = b?.message || (status >= 500 ? 'The server could not complete the request.' : 'The request was refused.');
+  let message = b?.message || (status >= 500 ? 'The server could not complete the request.' : 'The request was refused.');
+  // A port the host has not wired yet: say so in the words the screens show for any backend gap.
+  if (b?.code && (b.code.endsWith('.port_not_wired') || (status === 503 && b.code.endsWith('_unavailable')))) {
+    message = `Not available on this backend yet — ${message}`;
+  }
   return { success: false, code: b?.code, message, error: { code: b?.code, message }, errors, details: b?.details };
 }
 
@@ -147,15 +152,23 @@ function runner(route: V2Route, ctx: V2Ctx): AxiosAdapter {
       let status = 200;
       let headers: Record<string, unknown> = {};
       const binary = cfg.responseType === 'blob' || cfg.responseType === 'arraybuffer';
-      if (route.run) {
+      if (route.gap) {
+        backendGap(`${ctx.method} ${ctx.path} (${route.row}): ${route.gap}`);
+      } else if (route.run) {
         data = await route.run(ctx);
+        // A composite that produced a RAW answer (bytes + headers, e.g. a file or a queued job the caller
+        // decodes itself) hands it over untouched.
+        if (data && typeof data === 'object' && (data as { __v2raw?: boolean }).__v2raw) {
+          const raw = data as { data: unknown; status?: number; headers?: Record<string, unknown> };
+          return { data: raw.data, status: raw.status ?? 200, statusText: 'OK', headers: raw.headers ?? {}, config: cfg, request: {} } as AxiosResponse;
+        }
       } else {
         const to = typeof route.to === 'function' ? route.to(ctx) : (route.to || '').replace(/\{(\w+)\}/g, (_m, k: string) => encodeURIComponent(ctx.params[k] ?? ''));
         const res = await v2http.request({
           method: route.method || ctx.method,
           url: to,
-          params: cleanQuery(route.query ? route.query(ctx) : undefined),
-          data: route.body ? route.body(ctx) : (ctx.method === 'GET' ? undefined : ctx.body),
+          params: cleanQuery(route.query ? route.query(ctx) : route.qs ? shapeQuery(route.qs)(ctx) : undefined),
+          data: route.body ? route.body(ctx) : route.bs !== undefined ? shapeBody(route.bs)(ctx) : (ctx.method === 'GET' ? undefined : ctx.body),
           responseType: binary ? cfg.responseType : 'json',
           timeout: cfg.timeout,
           onUploadProgress: cfg.onUploadProgress,
@@ -166,6 +179,7 @@ function runner(route: V2Route, ctx: V2Ctx): AxiosAdapter {
         if (binary) return { data: res.data, status, statusText: res.statusText, headers: res.headers, config: cfg, request: {} } as AxiosResponse;
         data = normaliseEnvelope(res.data);
       }
+      if (route.rs) data = shapeReply(data, route.rs);
       if (route.reply) data = route.reply(data, ctx);
       if (!route.raw) data = withMeta(data, legacyAliases);
       return { data, status, statusText: 'OK', headers, config: cfg, request: {} } as AxiosResponse;

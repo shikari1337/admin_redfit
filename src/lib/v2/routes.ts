@@ -15,6 +15,8 @@ import { PRODUCT_ROUTES } from './areas/products';
 import { ORDER_ROUTES } from './areas/orders';
 import { CUSTOMER_ROUTES } from './areas/customers';
 import { SETTINGS_ROUTES } from './areas/settings';
+import { EXTRA_ROUTES } from './areas';
+import type { ReplySpec, Spec } from './shape';
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
@@ -49,6 +51,18 @@ export interface V2Route {
   run?: (ctx: V2Ctx) => Promise<any>;
   /** Skip the legacy `_id`/camelCase aliases. */
   raw?: boolean;
+  /** The handler's declared query fields (binary); the generic query shaper applies when `query` is absent. */
+  qs?: readonly string[];
+  /** The route's typed body (compact spec from the binary); the generic body shaper applies when `body` is absent. */
+  bs?: Spec | 'multipart' | null;
+  /** The reply's milli-percent / minor-integer leaves, rescaled before `reply`. */
+  rs?: ReplySpec | null;
+  /**
+   * A NAMED refusal: the ROUTE_MAP row exists but the running backend does not serve it (not mounted, or
+   * its port answers `port_not_wired`). Refused locally as `v2.backend_gap` with this text, so the screen's
+   * own error state shows "not available on this backend yet" — never a blank screen, never a 404 probe.
+   */
+  gap?: string;
   /** ROUTE_MAP reference (`commerce products.ts:39`, `identity D7` …). */
   row: string;
 }
@@ -71,7 +85,7 @@ function compile(r: V2Route): Compiled {
 
 /** Every row, most specific first (more literal segments win at equal length). */
 export function allRoutes(): V2Route[] {
-  return [...AUTH_ROUTES, ...DASHBOARD_ROUTES, ...PRODUCT_ROUTES, ...ORDER_ROUTES, ...CUSTOMER_ROUTES, ...SETTINGS_ROUTES];
+  return [...AUTH_ROUTES, ...DASHBOARD_ROUTES, ...PRODUCT_ROUTES, ...ORDER_ROUTES, ...CUSTOMER_ROUTES, ...SETTINGS_ROUTES, ...EXTRA_ROUTES];
 }
 
 export function matchRoute(method: string, path: string): { route: V2Route; params: Record<string, string> } | null {

@@ -1,0 +1,70 @@
+/**
+ * B2B and the partner trade desk (trade ROUTE_MAP `routes/b2b.ts`, `consignment.ts`, `distributorRoyalty.ts`): applications, settings and tiers, slabs, accounts, contracts, price lists with rules and MOQ rules; consignment partners and dispatches; the distributor network and royalty invoices. Rates travel as milli-percent (18000 = 18 %), amounts as Money.
+ *
+ * Rows follow the ROUTE_MAP to the RUNNING binary (`gc-api routes --json`): `qs` = the handler's declared query
+ * fields, `bs` = its typed body, `rs` = the reply's milli-percent / minor-integer leaves (lib/v2/shape.ts applies
+ * all three). `reply: wrapData` puts the answer back in the `{data, total}` wrapper the caller reads (the old route
+ * answered without `success`); a `gap` row is a NAMED refusal (docs/PORT_NOTES/ADMIN-V2-2.md, "gaps").
+ */
+import type { V2Route } from '../routes';
+
+export const TRADE_ROUTES: V2Route[] = [
+  { m: 'POST', from: '/b2b/applications/:id/approve', row: 'trade routes/b2b.ts', to: '/api/v2/trade/applications/{id}/approve', bs: {'credit_days':'i','credit_limit':'m','note':'s','tier':'s'} },
+  { m: 'POST', from: '/b2b/applications/:id/reject', row: 'trade routes/b2b.ts', to: '/api/v2/trade/applications/{id}/reject', bs: {'note':'s'} },
+  { m: 'POST', from: '/b2b/contracts', row: 'trade routes/b2b.ts', to: '/api/v2/trade/contracts', bs: {'customer_id':'s','product_id':'s','unit_price':'m','valid_from':'s','valid_until':'s','variation_id':'s'} },
+  { m: 'GET', from: '/b2b/contracts/:customerId', row: 'trade routes/b2b.ts (merged → GET /contracts?customer_id=)', to: '/api/v2/trade/contracts', query: (c) => ({ customer_id: c.params.customerId }) },
+  { m: 'DELETE', from: '/b2b/contracts/:id', row: 'trade routes/b2b.ts', to: '/api/v2/trade/contracts/{id}' },
+  { m: 'POST', from: '/b2b/customers', row: 'trade routes/b2b.ts', to: '/api/v2/trade/accounts', bs: {'company_name':'s','credit_days':'i','credit_limit':'m','customer_id':'s','dial_code':'s','email':'s','gstin':'s','name':'s','phone':'s','price_list_id':'s','tier':'s'} },
+  { m: 'GET', from: '/b2b/customers/:customerId', row: 'trade routes/b2b.ts', to: '/api/v2/trade/accounts/{customerId}' },
+  { m: 'PUT', from: '/b2b/customers/:customerId', row: 'trade routes/b2b.ts', method: 'PATCH', to: '/api/v2/trade/accounts/{customerId}', bs: {'b2b_tier':'s','credit_days':'i','credit_limit':'m','gstin':'s','is_b2b':'b','price_list_id':'s'} },
+  { m: 'POST', from: '/b2b/price-lists', row: 'trade routes/b2b.ts', to: '/api/v2/trade/price-lists', bs: {'currency':'s','description':'s','is_active':'b','is_default':'b','name':'s','tier_name':'s'} },
+  { m: 'PUT', from: '/b2b/price-lists/:id', row: 'trade routes/b2b.ts', method: 'PATCH', to: '/api/v2/trade/price-lists/{id}', bs: {'currency':'s','description':'s','is_active':'b','is_default':'b','name':'s','tier_name':'s'} },
+  { m: 'DELETE', from: '/b2b/price-lists/:id', row: 'trade routes/b2b.ts', to: '/api/v2/trade/price-lists/{id}' },
+  { m: 'GET', from: '/b2b/price-lists/:id/moq', row: 'trade routes/b2b.ts', to: '/api/v2/trade/price-lists/{id}/moq-rules' },
+  { m: 'POST', from: '/b2b/price-lists/:id/moq', row: 'trade routes/b2b.ts', to: '/api/v2/trade/price-lists/{id}/moq-rules', bs: {'entity_id':'s','increment_qty':'i','is_active':'b','max_qty':'i','min_order_value':'m','min_qty':'i','rule_type':'s'} },
+  { m: 'PUT', from: '/b2b/price-lists/:id/moq/:ruleId', row: 'trade routes/b2b.ts', to: '/api/v2/trade/price-lists/{id}/moq-rules/{ruleId}', bs: {'entity_id':'s','increment_qty':'i','is_active':'b','max_qty':'i','min_order_value':'m','min_qty':'i','rule_type':'s'} },
+  { m: 'DELETE', from: '/b2b/price-lists/:id/moq/:ruleId', row: 'trade routes/b2b.ts', to: '/api/v2/trade/price-lists/{id}/moq-rules/{ruleId}' },
+  { m: 'POST', from: '/b2b/price-lists/:id/rules', row: 'trade routes/b2b.ts', to: '/api/v2/trade/price-lists/{id}/rules', bs: {'discount_slabs':[{'discount_pct':'r','min_qty':'i'}],'entity_id':'s','flat_discount_pct':'r','flat_price':'m','is_active':'b','pricing_slabs':[{'max_qty':'i','min_qty':'i','price':'m'}],'rule_type':'s'}, rs: {'discount_slabs':[{'discount_pct':'r'}],'flat_discount_pct':'r'} },
+  { m: 'PUT', from: '/b2b/price-lists/:id/rules/:ruleId', row: 'trade routes/b2b.ts', to: '/api/v2/trade/price-lists/{id}/rules/{ruleId}', bs: {'discount_slabs':[{'discount_pct':'r','min_qty':'i'}],'entity_id':'s','flat_discount_pct':'r','flat_price':'m','is_active':'b','pricing_slabs':[{'max_qty':'i','min_qty':'i','price':'m'}],'rule_type':'s'}, rs: {'discount_slabs':[{'discount_pct':'r'}],'flat_discount_pct':'r'} },
+  { m: 'DELETE', from: '/b2b/price-lists/:id/rules/:ruleId', row: 'trade routes/b2b.ts', to: '/api/v2/trade/price-lists/{id}/rules/{ruleId}' },
+  { m: 'PUT', from: '/b2b/settings', row: 'trade routes/b2b.ts', to: '/api/v2/trade/settings', bs: {'default_discount_pct':'r','enabled':'b','price_mode':'s','tiers':[{'discount_pct':'r','name':'s'}]}, rs: {'default_discount_pct':'r','tiers':[{'discount_pct':'r'}]} },
+  { m: 'GET', from: '/b2b/slabs', row: 'trade routes/b2b.ts', to: '/api/v2/trade/slabs', qs: ['product_id'], rs: {'items':[{'rate':'r'}]} },
+  { m: 'POST', from: '/b2b/slabs', row: 'trade routes/b2b.ts', to: '/api/v2/trade/slabs', bs: {'max_qty':'i','min_qty':'i','price':'m','price_type':'s','product_id':'s','rate':'r','tier_name':'s','valid_from':'s','valid_until':'s','variation_id':'s'}, rs: {'rate':'r'} },
+  { m: 'PUT', from: '/b2b/slabs/:id', row: 'trade routes/b2b.ts', method: 'PATCH', to: '/api/v2/trade/slabs/{id}', bs: {'is_active':'b','max_qty':'i','min_qty':'i','price':'m','price_type':'s','rate':'r','tier_name':'s','valid_from':'s','valid_until':'s','variation_id':'s'}, rs: {'rate':'r'} },
+  { m: 'DELETE', from: '/b2b/slabs/:id', row: 'trade routes/b2b.ts', to: '/api/v2/trade/slabs/{id}' },
+  { m: 'GET', from: '/consignments', row: 'trade routes/consignment.ts', to: '/api/v2/trade/consignments', qs: ['limit','offset','partner_id','status'], rs: {'items':[{'margin_pct':'r'}]} },
+  { m: 'POST', from: '/consignments', row: 'trade routes/consignment.ts', to: '/api/v2/trade/consignments', bs: {'challan_ref':'s','lines':[{'batch_id':'s','qty':'i','unit_price':'m','variation_id':'s'}],'note':'s','partner_id':'s'}, rs: {'margin_pct':'r'} },
+  { m: 'GET', from: '/consignments/:id', row: 'trade routes/consignment.ts', to: '/api/v2/trade/consignments/{id}' },
+  { m: 'POST', from: '/consignments/:id/cancel', row: 'trade routes/consignment.ts', to: '/api/v2/trade/consignments/{id}/cancel', bs: {'reason':'s'}, rs: {'margin_pct':'r'} },
+  { m: 'GET', from: '/consignments/:id/challan', row: 'trade routes/consignment.ts', to: '/api/v2/trade/consignments/{id}/challan' }, // download
+  { m: 'POST', from: '/consignments/:id/close', row: 'trade routes/consignment.ts', to: '/api/v2/trade/consignments/{id}/close', bs: 'j', rs: {'margin_pct':'r'} },
+  { m: 'POST', from: '/consignments/:id/dispatch', row: 'trade routes/consignment.ts', to: '/api/v2/trade/consignments/{id}/dispatch', bs: 'j', rs: {'margin_pct':'r'} },
+  { m: 'POST', from: '/consignments/:id/return', row: 'trade routes/consignment.ts', to: '/api/v2/trade/consignments/{id}/return', bs: {'lines':[{'item_id':'s','qty':'i'}]}, rs: {'consignment':{'margin_pct':'r'}} },
+  { m: 'POST', from: '/consignments/:id/sell-through', row: 'trade routes/consignment.ts', to: '/api/v2/trade/consignments/{id}/sell-through', bs: {'lines':[{'item_id':'s','qty':'i','reference':'s','sold_on':'s','unit_price':'m'}]}, rs: {'consignment':{'margin_pct':'r'}} },
+  { m: 'POST', from: '/consignments/:id/settle', row: 'trade routes/consignment.ts', to: '/api/v2/trade/consignments/{id}/settle', bs: {'note':'s','period_from':'s','period_to':'s'} },
+  { m: 'GET', from: '/consignments/model-switches', row: 'trade routes/consignment.ts', to: '/api/v2/trade/model-switches', qs: ['limit','partner_id'] },
+  { m: 'GET', from: '/consignments/outright', row: 'trade routes/consignment.ts', to: '/api/v2/trade/outright-dispatches', qs: ['limit','offset','partner_id','status'] },
+  { m: 'POST', from: '/consignments/outright', row: 'trade routes/consignment.ts', to: '/api/v2/trade/outright-dispatches', bs: {'challan_ref':'s','credit_override':'b','credit_override_reason':'s','dispatch_now':'b','lines':[{'batch_id':'s','qty':'i','unit_price':'m','variation_id':'s'}],'note':'s','order_id':'s','partner_id':'s'} },
+  { m: 'GET', from: '/consignments/partners', row: 'trade routes/consignment.ts', to: '/api/v2/trade/consignment-partners', qs: ['active_only'], rs: {'items':[{'margin_pct':'r'}]} },
+  { m: 'POST', from: '/consignments/partners', row: 'trade routes/consignment.ts', to: '/api/v2/trade/consignment-partners', bs: {'addr_line1':'s','addr_line2':'s','city':'s','code':'s','contact_name':'s','customer_id':'s','email':'s','gstin':'s','is_active':'b','margin_pct':'r','model':'s','name':'s','notes':'s','phone':'s','pincode':'s','price_list_id':'s','state':'s','tax_point':'s'}, rs: {'margin_pct':'r'} },
+  { m: 'PUT', from: '/consignments/partners/:id', row: 'trade routes/consignment.ts', method: 'PATCH', to: '/api/v2/trade/consignment-partners/{id}', bs: {'addr_line1':'s','addr_line2':'s','city':'s','contact_name':'s','customer_id':'s','email':'s','gstin':'s','is_active':'b','margin_pct':'r','name':'s','notes':'s','phone':'s','pincode':'s','price_list_id':'s','state':'s','tax_point':'s'}, rs: {'margin_pct':'r'} },
+  { m: 'GET', from: '/consignments/partners/:id/at-shop', row: 'trade routes/consignment.ts', to: '/api/v2/trade/consignment-partners/{id}/at-shop' },
+  { m: 'POST', from: '/consignments/partners/:id/portal-token', row: 'trade routes/consignment.ts', to: '/api/v2/trade/consignment-partners/{id}/portal-token', bs: {'expires_at':'s','label':'s'} },
+  { m: 'DELETE', from: '/consignments/partners/:id/portal-token', row: 'trade routes/consignment.ts', to: '/api/v2/trade/consignment-partners/{id}/portal-token' },
+  { m: 'POST', from: '/consignments/partners/:id/switch-model', row: 'trade routes/consignment.ts', to: '/api/v2/trade/consignment-partners/{id}/switch-model', bs: {'effective_date':'s','model':'s','notes':'s'}, rs: {'partner':{'margin_pct':'r'}} },
+  { m: 'GET', from: '/consignments/report/sell-through', row: 'trade routes/consignment.ts', to: '/api/v2/trade/reports/sell-through', qs: ['partner_id'], rs: [{'margin_pct':'r','sell_through_pct':'r'}] },
+  { m: 'GET', from: '/consignments/settlements', row: 'trade routes/consignment.ts', to: '/api/v2/trade/settlements', qs: ['consignment_id','limit','partner_id'] },
+  { m: 'GET', from: '/network/partners', row: 'trade routes/distributorRoyalty.ts', to: '/api/v2/trade/distributors', rs: [{'margin_pct':'r','marketing_fund_pct':'r','royalty_pct':'r','tier_discount_pct':'r'}] },
+  { m: 'PUT', from: '/network/partners/:id/terms', row: 'trade routes/distributorRoyalty.ts', to: '/api/v2/trade/distributors/{id}/terms', bs: {'distributor_tier_id':'s','keep_price_list':'b','marketing_fund_pct':'r','royalty_base':'s','royalty_pct':'r'}, rs: {'partner':{'margin_pct':'r','marketing_fund_pct':'r','royalty_pct':'r','tier_discount_pct':'r'}} },
+  { m: 'GET', from: '/network/royalty-invoices', row: 'trade routes/distributorRoyalty.ts', to: '/api/v2/trade/royalty-invoices', qs: ['limit','offset','partner_id','status'], rs: {'items':[{'gst':{'rate':'r'},'gst_rate':'r','marketing_fund_pct':'r','royalty_pct':'r'}]} },
+  { m: 'POST', from: '/network/royalty-invoices', row: 'trade routes/distributorRoyalty.ts', to: '/api/v2/trade/royalty-invoices', bs: {'issue_now':'b','note':'s','partner_id':'s','period_from':'s','period_to':'s'}, rs: {'invoice':{'gst':{'rate':'r'},'gst_rate':'r','marketing_fund_pct':'r','royalty_pct':'r'}} },
+  { m: 'POST', from: '/network/royalty-invoices/:id/cancel', row: 'trade routes/distributorRoyalty.ts', to: '/api/v2/trade/royalty-invoices/{id}/cancel', bs: {'reason':'s'}, rs: {'gst':{'rate':'r'},'gst_rate':'r','marketing_fund_pct':'r','royalty_pct':'r'} },
+  { m: 'POST', from: '/network/royalty-invoices/:id/issue', row: 'trade routes/distributorRoyalty.ts', to: '/api/v2/trade/royalty-invoices/{id}/issue', bs: {'note':'s','recompute':'b'}, rs: {'invoice':{'gst':{'rate':'r'},'gst_rate':'r','marketing_fund_pct':'r','royalty_pct':'r'}} },
+  { m: 'POST', from: '/network/royalty-invoices/:id/paid', row: 'trade routes/distributorRoyalty.ts', to: '/api/v2/trade/royalty-invoices/{id}/paid', bs: 'j', rs: {'gst':{'rate':'r'},'gst_rate':'r','marketing_fund_pct':'r','royalty_pct':'r'} },
+  { m: 'GET', from: '/network/royalty/period', row: 'trade routes/distributorRoyalty.ts', to: '/api/v2/trade/royalty/period' },
+  { m: 'GET', from: '/network/royalty/preview', row: 'trade routes/distributorRoyalty.ts', to: '/api/v2/trade/royalty/preview', qs: ['from','partner_id','to'], rs: {'gst':{'rate':'r'},'partner':{'marketing_fund_pct':'r','royalty_pct':'r'}} },
+  { m: 'GET', from: '/network/tiers', row: 'trade routes/distributorRoyalty.ts', to: '/api/v2/trade/distributor-tiers', qs: ['active_only'], rs: [{'discount_pct':'r'}] },
+  { m: 'POST', from: '/network/tiers', row: 'trade routes/distributorRoyalty.ts', to: '/api/v2/trade/distributor-tiers', bs: {'b2b_price_list_id':'s','code':'s','discount_pct':'r','is_active':'b','level':'i','name':'s','notes':'s'}, rs: {'discount_pct':'r'} },
+  { m: 'PUT', from: '/network/tiers/:id', row: 'trade routes/distributorRoyalty.ts', method: 'PATCH', to: '/api/v2/trade/distributor-tiers/{id}', bs: {'b2b_price_list_id':'s','discount_pct':'r','is_active':'b','level':'i','name':'s','notes':'s'}, rs: {'discount_pct':'r'} },
+  { m: 'POST', from: '/network/tiers/:id/deactivate', row: 'trade routes/distributorRoyalty.ts', to: '/api/v2/trade/distributor-tiers/{id}/deactivate', bs: 'j', rs: {'tier':{'discount_pct':'r'}} },
+];

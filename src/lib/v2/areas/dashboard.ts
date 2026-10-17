@@ -7,6 +7,7 @@
  * lifts `figures` up and keeps `range`/`bucket` beside them.
  */
 import type { V2Ctx, V2Route } from '../routes';
+import { cartList } from './carts';
 
 const SERIES = new Set(['commerce', 'orders', 'inventory', 'accounting', 'marketing', 'shipping', 'fulfilment', 'custom-report', 'sales-team']);
 
@@ -49,7 +50,9 @@ export const DASHBOARD_ROUTES: V2Route[] = [
   { m: 'GET', from: '/refunds/summary', row: 'commerce refunds.ts:69', to: '/api/v2/commerce/refunds/summary', reply: (d) => d?.summary ?? d },
   {
     m: 'GET', from: '/carts/admin', row: 'commerce carts.ts:224 — GET /carts', to: '/api/v2/commerce/carts',
-    query: (c) => ({ status: c.query.status, q: c.query.search, limit: c.query.limit, offset: c.query.offset ?? offsetOf(c) }),
+    // the handler declares `search` (not `q`) and `include_guests`; unknown fields are refused (ADMIN-V2-2)
+    query: (c) => ({ status: c.query.status, search: c.query.search, include_guests: c.query.includeGuests ?? c.query.include_guests, limit: c.query.limit, offset: c.query.offset ?? offsetOf(c) }),
+    reply: cartList,
   },
   { m: 'GET', from: '/contact/stats', row: 'crm — GET /api/v2/crm/inbox/stats', to: '/api/v2/crm/inbox/stats' },
   { m: 'GET', from: '/reviews/admin/counts', row: 'reviews 10', to: '/api/v2/reviews/moderation/reviews/counts' },
