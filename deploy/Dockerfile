@@ -11,6 +11,7 @@ ENV VITE_API_URL=$VITE_API_URL VITE_GROWCORD_ID_ISSUER=${VITE_GROWCORD_ID_ISSUER
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund --legacy-peer-deps
 COPY . .
+ENV NODE_OPTIONS=--max-old-space-size=6144
 RUN npm run build
 
 FROM nginx:1.29-alpine
