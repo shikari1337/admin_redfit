@@ -9,7 +9,7 @@ ARG VITE_GROWCORD_ID_CLIENT_ID=admin
 ENV VITE_API_URL=$VITE_API_URL VITE_GROWCORD_ID_ISSUER=${VITE_GROWCORD_ID_ISSUER:-$VITE_API_URL} \
     VITE_GROWCORD_ID_CLIENT_ID=$VITE_GROWCORD_ID_CLIENT_ID
 COPY package.json package-lock.json ./
-RUN npm ci --no-audit --no-fund
+RUN npm ci --no-audit --no-fund --legacy-peer-deps
 COPY . .
 RUN npm run build
 
