@@ -176,7 +176,7 @@ const Staff: React.FC = () => {
     setCreating(true);
     setCreateError('');
     try {
-      await staffAPI.create({
+      const created = await staffAPI.create({
         name: createForm.name.trim(),
         email: createForm.email.trim(),
         password: createForm.password,
@@ -185,6 +185,12 @@ const Staff: React.FC = () => {
       });
       setShowCreate(false);
       setCreateForm({ name: '', email: '', password: '', role: 'staff', permissions: [] });
+      const access = created?.access;
+      if (access) {
+        if (access.membership === 'none') notify(`Staff member added — no Growcord ID access${access.reason ? `: ${String(access.reason).replace(/_/g, ' ')}` : ''}`);
+        else if (access.person === 'created' && access.password_set) notify('Growcord ID created — they can sign in with this password');
+        else if (access.person === 'linked') notify('Linked to their existing Growcord ID — the password was not used');
+      }
       await fetchStaff();
     } catch (err: any) {
       setCreateError(err?.response?.data?.message || 'Failed to create staff member.');
