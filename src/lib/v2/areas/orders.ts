@@ -84,7 +84,10 @@ export const ORDER_ROUTES: V2Route[] = [
         v2call<any[]>('GET', `${O}/orders`, { params: q }),
         v2try<any>('GET', `${O}/sales-channels`, null),
       ]);
-      const rows = (Array.isArray(list) ? list : []).map(orderRow);
+      const asked = Number(q.limit);
+      const mapped = (Array.isArray(list) ? list : []).map(orderRow);
+      // The screen asked for N. Never draw more than N, even if a page came back longer.
+      const rows = Number.isFinite(asked) && asked > 0 ? mapped.slice(0, asked) : mapped;
       return asList(rows, { ...listMeta(list), channels: ch?.channels, channelAccess: ch?.channel_access });
     },
   },

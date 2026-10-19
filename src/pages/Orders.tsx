@@ -230,11 +230,11 @@ const Orders: React.FC = () => {
   const dates = useListControls();
   const [datePreset, setDatePreset] = useState<string>('all');
   const [flagFilter, setFlagFilter] = useState<'all' | 'flagged' | 'po'>('all');
-  // Same page size as before pagination existed (100) — adding page controls,
-  // not shrinking how many orders staff see per screen.
+  // One screen of the desk. The API pages by this exact limit; a larger page
+  // was reading full order rows (history, timeline) and taking seconds.
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const PAGE_SIZE = 100;
+  const PAGE_SIZE = 25;
   const b2bEnabled = canAccess('b2b');
   const [sendingToShiprocket, setSendingToShiprocket] = useState<string | null>(null);
   const [confirmingOrder, setConfirmingOrder] = useState<string | null>(null);

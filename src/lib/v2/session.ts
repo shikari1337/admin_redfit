@@ -232,7 +232,11 @@ export async function startSignIn(opts: { returnTo?: string; silent?: boolean } 
     code_challenge: await codeChallengeS256(verifier),
     code_challenge_method: 'S256',
   });
+  // A click on “Continue with Growcord ID” always asks for the email and password.
+  // Without prompt=login the issuer reuses the gcid_sso cookie and opens every
+  // organisation this browser was last signed in as, with no credential step.
   if (opts.silent) q.set('prompt', 'none');
+  else q.set('prompt', 'login');
   location.assign(`${V2_ISSUER}/authorize?${q.toString()}`);
 }
 
