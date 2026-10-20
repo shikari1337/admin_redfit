@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 import { inventoryAPI, exportsAPI, blobErrorMessage, type InventoryHealth, type ImportResponse } from '../services/api';
+import { v2call } from '../lib/v2/http';
 import { saveBlob } from '../lib/saveBlob';
 import { Pagination, FilterChips, type ChipGroup } from '@/components/erp';
 import InfoTip from '../components/common/InfoTip';
@@ -126,6 +127,7 @@ export default function Inventory() {
   const [valuation, setValuation] = useState<Valuation | null>(null);
   const [importing, setImporting] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [fetchingErp, setFetchingErp] = useState(false);
   // Bumped whenever a job is queued, so the Downloads panel starts polling at
   // once instead of waiting for its next idle refresh.
   const [downloadsToken, setDownloadsToken] = useState(0);
@@ -199,6 +201,38 @@ export default function Inventory() {
    * builds it in the background and keeps it in Downloads, so leaving this
    * page is harmless and nothing is pinned waiting.
    */
+  /** Pull stock from the connected distributor ERP into this store's copy. */
+  const handleFetchErp = async () => {
+    setFetchingErp(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const connections = await v2call<Array<{ id: string; label?: string; enabled?: boolean; feeds?: Array<{ key: string; enabled?: boolean }> }>>('GET', '/api/v2/erp/connections');
+      const list = Array.isArray(connections) ? connections : [];
+      const connection = list.find((c) => c.enabled !== false && (c.feeds ?? []).some((f) => f.key === 'inventory' && f.enabled !== false))
+        ?? list.find((c) => (c.feeds ?? []).some((f) => f.key === 'inventory'));
+      if (!connection) {
+        setError('No ERP is connected for stock yet. Connect Siddharth under ERP settings first.');
+        return;
+      }
+      const out = await v2call<{ status?: string; message?: string; rows_fetched?: number; records_changed?: number }>(
+        'POST', `/api/v2/erp/connections/${connection.id}/feeds/inventory/sync`, { data: {} },
+      );
+      if (out?.status && out.status !== 'ok') {
+        setError(out.message || 'The ERP stock fetch did not finish.');
+        return;
+      }
+      const read = out?.rows_fetched ?? 0;
+      const changed = out?.records_changed ?? 0;
+      setSuccess(`Stock fetched from ${connection.label || 'the ERP'}: ${read.toLocaleString()} rows read, ${changed.toLocaleString()} changed.`);
+      await loadInventory();
+    } catch (err: any) {
+      setError(err?.response?.data?.message || err?.message || 'Could not fetch stock from the ERP.');
+    } finally {
+      setFetchingErp(false);
+    }
+  };
+
   const handleExport = async () => {
     try {
       setExporting(true);
@@ -413,6 +447,10 @@ export default function Inventory() {
           <button className="btn btn-secondary" onClick={verifyChain} disabled={chainBusy} data-testid="inv-verify-chain"
             title="Check that every stock movement is still exactly as recorded and linked to the one before it">
             {chainBusy ? 'Verifying…' : '⛓ Verify ledger'}
+          </button>
+          <button className="btn btn-secondary" onClick={handleFetchErp} disabled={fetchingErp} data-testid="inv-fetch-erp"
+            title="Ask the connected ERP for stock that changed since the last fetch">
+            {fetchingErp ? 'Fetching…' : 'Fetch from ERP'}
           </button>
           <button className="btn btn-secondary" onClick={handleTemplate}>Template</button>
           <button className="btn btn-secondary" onClick={handleExport} disabled={exporting}>
