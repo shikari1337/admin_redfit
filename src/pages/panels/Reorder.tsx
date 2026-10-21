@@ -20,6 +20,22 @@ const HISTORY_LABEL: Record<string, { label: string; tone: string; hint: string 
   none: { label: 'None', tone: 'text-gray-400', hint: 'No sales in the last year, so no economic order size can be worked out.' },
 };
 
+/** The v2 report is a page (`items`); the old one was `{ rows }`. Either is a list. */
+function reportRowsOf(report: any): any[] {
+  if (Array.isArray(report)) return report;
+  if (Array.isArray(report?.rows)) return report.rows;
+  if (Array.isArray(report?.items)) return report.items;
+  return [];
+}
+
+function asList(value: any): any[] {
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.rows)) return value.rows;
+  if (Array.isArray(value?.items)) return value.items;
+  if (Array.isArray(value?.data)) return value.data;
+  return [];
+}
+
 const Reorder: React.FC = () => {
   const [tab, setTab] = useState<string>('report');
 
@@ -128,10 +144,10 @@ const Reorder: React.FC = () => {
       reorderPoint: sv.reorderPoint ?? '', reorderQty: sv.reorderQty ?? '',
       safetyStock: sv.safetyStock ?? '', maxStock: sv.maxStock ?? '',
     });
-    setMappings(payload<any>(m) ?? []);
+    setMappings(asList(payload<any>(m)));
     if (!vendors.length) {
       const v = payload<any>(await api.get('/vendors', { params: { limit: 100 } }));
-      setVendors(Array.isArray(v) ? v : (v?.rows ?? v?.data ?? []));
+      setVendors(asList(v));
     }
   };
 
@@ -150,18 +166,19 @@ const Reorder: React.FC = () => {
       isPreferred: mappings.length === 0,
     });
     setNewVendorId(''); setNewCost('');
-    setMappings(payload<any>(await api.get('/reorder/vendors', { params: { variationId: sel.id } })) ?? []);
+    setMappings(asList(payload<any>(await api.get('/reorder/vendors', { params: { variationId: sel.id } }))));
   };
   const makePreferred = async (id: string) => {
     await api.post(`/reorder/vendors/${id}/preferred`, {});
-    setMappings(payload<any>(await api.get('/reorder/vendors', { params: { variationId: sel!.id } })) ?? []);
+    setMappings(asList(payload<any>(await api.get('/reorder/vendors', { params: { variationId: sel!.id } }))));
   };
   const removeMapping = async (id: string) => {
     await api.delete(`/reorder/vendors/${id}`);
-    setMappings(payload<any>(await api.get('/reorder/vendors', { params: { variationId: sel!.id } })) ?? []);
+    setMappings(asList(payload<any>(await api.get('/reorder/vendors', { params: { variationId: sel!.id } }))));
   };
 
-  const reportRows: any[] = (report?.rows ?? []).filter((r: any) => {
+  const sourceRows = reportRowsOf(report);
+  const reportRows: any[] = sourceRows.filter((r: any) => {
     const q = rq.trim().toLowerCase();
     if (q && !`${r.productName ?? r.product_name ?? ''} ${r.sku ?? ''}`.toLowerCase().includes(q)) return false;
     if (rVendor === '__none' && r.preferredVendorName) return false;
@@ -171,9 +188,9 @@ const Reorder: React.FC = () => {
   const reportChips: ChipGroup[] = [{
     key: 'vendor', label: 'Preferred vendor', value: rVendor, onChange: setRVendor,
     options: [
-      ...Array.from(new Set((report?.rows ?? []).map((r: any) => String(r.preferredVendorName || '')).filter(Boolean)))
+      ...Array.from(new Set(sourceRows.map((r: any) => String(r.preferredVendorName || '')).filter(Boolean)))
         .sort().map((v) => ({ value: v as string, label: v as string })),
-      ...((report?.rows ?? []).some((r: any) => !r.preferredVendorName) ? [{ value: '__none', label: 'No preferred vendor' }] : []),
+      ...(sourceRows.some((r: any) => !r.preferredVendorName) ? [{ value: '__none', label: 'No preferred vendor' }] : []),
     ],
   }];
   const exportReport = () => downloadCsv(
@@ -315,7 +332,7 @@ const Reorder: React.FC = () => {
               <SearchInput placeholder="Search product or SKU…" aria-label="Search the reorder list"
                 data-testid="reorder-search" value={rq} onChange={(e) => setRq(e.target.value)} className="w-72" />
               <FilterChips groups={reportChips} onClearAll={() => setRVendor('')} />
-              <span className="ml-auto text-sm text-gray-500">{reportRows.length} of {report?.rows?.length ?? 0}</span>
+              <span className="ml-auto text-sm text-gray-500">{reportRows.length} of {sourceRows.length}</span>
               <Btn variant="outline" size="sm" onClick={exportReport} disabled={!reportRows.length}>Export</Btn>
             </div>
             <TableShell>
@@ -333,10 +350,10 @@ const Reorder: React.FC = () => {
               </THead>
               <TBody>
                 {loading && <EmptyRow colSpan={14}>Loading…</EmptyRow>}
-                {!loading && (!report || report.rows.length === 0) && (
+                {!loading && sourceRows.length === 0 && (
                   <EmptyRow colSpan={14}>Nothing to reorder — every managed SKU is above its reorder point. Set thresholds under "Thresholds &amp; vendors".</EmptyRow>
                 )}
-                {!loading && report && report.rows.length > 0 && reportRows.length === 0 && (
+                {!loading && sourceRows.length > 0 && reportRows.length === 0 && (
                   <EmptyRow colSpan={14}>No row matches this search and this vendor.</EmptyRow>
                 )}
                 {!loading && reportRows.map((r: any) => {

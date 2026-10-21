@@ -10,6 +10,7 @@ import { SERIES, STATUS } from '../../components/panelAnalytics/vizTheme';
 import { Page, PageHeader, SectionCard, THead, Th, TBody, Tr, Td } from '../../components/erp';
 import { Warehouse, PackageSearch, AlertTriangle, ShoppingBag, Layers } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import FetchFromErpButton from '../../components/inventory/FetchFromErpButton';
 
 /**
  * Inventory panel home. Stock truth = stock_balances/stock_ledger_entries;
@@ -49,7 +50,12 @@ const InventoryPanelDashboard: React.FC = () => {
         title="Inventory"
         description={<>Stock health{lotsOn ? ', movements and expiry' : ' and movements'}. Stock is ledgered — every change is recorded
           {data?.ledger_since ? ` (ledger since ${data.ledger_since})` : ''}.</>}
-        actions={<DateRangeBar preset={preset} onPreset={setPreset} custom={custom} onCustom={setCustom} />}
+        actions={(
+          <>
+            <FetchFromErpButton />
+            <DateRangeBar preset={preset} onPreset={setPreset} custom={custom} onCustom={setCustom} />
+          </>
+        )}
       />
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
