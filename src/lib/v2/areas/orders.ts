@@ -17,6 +17,22 @@ import type { Spec } from '../shape';
 
 const O = '/api/v2/commerce';
 
+/**
+ * The ship desk's warehouses with their carrier switches. Ship's WarehouseView has no `shipping_providers`
+ * (ship views/store.rs:865) and the facility list keeps it detail-only (wms resources.rs:134), so each
+ * warehouse's switches come from its facility detail (the same `warehouses` row).
+ */
+async function shipWarehouses(): Promise<any> {
+  const list = await v2call<any[]>('GET', '/api/v2/ship/warehouses');
+  const rows = Array.isArray(list) ? list : [];
+  const out = await Promise.all(rows.map(async (w: any) => {
+    const f = await v2try<any>('GET', `/api/v2/wms/facilities/${encodeURIComponent(String(w?.id ?? ''))}`, null);
+    const sp = f && typeof f.shipping_providers === 'object' && f.shipping_providers ? f.shipping_providers : {};
+    return { ...w, shipping_providers: sp, shippingProviders: sp };
+  }));
+  return asList(out, listMeta(list));
+}
+
 /* ── typed bodies (closed v2 schemas: an unknown field is a 400; amounts are Money, percents decimal strings) ── */
 
 /** One order line: `ManualLineIn` / `EditLineIn` (commerce api/orders/manual.rs:50, items.rs:69). Rupees → Money. */
@@ -305,7 +321,7 @@ export const ORDER_ROUTES: V2Route[] = [
 
   // The order page's shipping lookups (ship ROUTE_MAP 301/308).
   { m: 'GET', from: '/shipping/providers', row: 'ship — GET /api/v2/ship/providers', to: '/api/v2/ship/providers' },
-  { m: 'GET', from: '/shipping/warehouses', row: 'ship — GET /api/v2/ship/warehouses', to: '/api/v2/ship/warehouses' },
+  { m: 'GET', from: '/shipping/warehouses', row: 'ship — GET /api/v2/ship/warehouses + wms facility detail', run: shipWarehouses },
 
   // Refunds the order page reads.
   // RefundableView {paid, refunded, in_flight, refundable: Money} (commerce views/refunds.rs:156) → rupees; CancelOrderModal,

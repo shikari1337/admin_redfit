@@ -126,7 +126,7 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
   onShippingProviderChange,
   selectedWarehouseId,
   onWarehouseChange,
-  warehouses,
+  warehouses: rawWarehouses,
   shippingProviders,
   manualTrackingId,
   manualCarrierName,
@@ -146,6 +146,14 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
   const [selectedCourierId, setSelectedCourierId] = useState<number | null>(null);
   const [hasShiprocket, setHasShiprocket] = useState(false);
   const [hasDelhivery, setHasDelhivery] = useState(false);
+  // v2 lists warehouses without their own carrier switches (ship WarehouseView; the facility list keeps
+  // them detail-only). A warehouse with none switched on ships with the store's carriers that have an
+  // account (GET /ship/providers); the booking then takes the account's pickup location or the warehouse name.
+  const warehouses: Warehouse[] = (Array.isArray(rawWarehouses) ? rawWarehouses : []).map((w) => {
+    const own = w?.shippingProviders;
+    if (!w || own?.shiprocket?.enabled || own?.delhivery?.enabled) return w;
+    return { ...w, shippingProviders: { ...own, shiprocket: { ...own?.shiprocket, enabled: hasShiprocket }, delhivery: { ...own?.delhivery, enabled: hasDelhivery } } };
+  });
   
   // Package details state
   const [weight, setWeight] = useState<string>('');
