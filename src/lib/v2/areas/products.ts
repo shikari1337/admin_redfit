@@ -388,6 +388,11 @@ export const PRODUCT_ROUTES: V2Route[] = [
   { m: 'POST', from: '/inventory/import', row: 'commerce inventory.ts:564', to: `${P}/inventory/import` },
   { m: 'POST', from: '/inventory/import/any', row: 'commerce inventory.ts:610', to: `${P}/inventory/import/any` },
   { m: 'GET', from: '/inventory/batch-pricing', row: 'commerce inventory.ts:660', to: `${P}/inventory/batch-pricing` },
+  // Rust has no PUT here: the switch is changed through the Settings Center key `batchPricing` (one write path,
+  // commerce api/inventory/mod.rs:60). SettingSavedView {center} → the saved value, as the page merges it.
+  { m: 'PUT', from: '/inventory/batch-pricing', row: 'commerce inventory.ts:676', method: 'PATCH', to: `${P}/settings/registry/batchPricing`,
+    body: (c) => ({ mode: c.body?.mode, neverExceedBatchMrp: !!c.body?.neverExceedBatchMrp }),
+    reply: (d) => wrapData(d?.center?.value ?? d?.center ?? d) },
   { m: 'GET', from: '/inventory/batches/export', row: 'commerce inventory.ts:753', to: `${P}/inventory/batches/export` },
   { m: 'GET', from: '/inventory/batches/template', row: 'commerce inventory.ts:773', to: `${P}/inventory/batches/template` },
   { m: 'POST', from: '/inventory/batches/import', row: 'commerce inventory.ts:1025', to: `${P}/inventory/batches/import` },

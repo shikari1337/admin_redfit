@@ -94,7 +94,8 @@ const Batches: React.FC = () => {
       // and never re-queries; the grouped feed is bounded by the BATCHES that
       // exist, never by the 44k-SKU catalogue.
       const [flat, byProd] = await Promise.all([
-        batchesAPI.list({ limit: 500 }),
+        // 200 is the API's ceiling for any list (a larger limit is refused outright).
+        batchesAPI.list({ limit: 200 }),
         batchesAPI.byProduct({ includeDepleted: true }).catch(() => []),
       ]);
       setRows(flat);

@@ -1077,7 +1077,9 @@ const ProductForm: React.FC = () => {
         seo: Object.keys(seoPld).length ? seoPld : null,
       };
 
-      if (isEdit) await productsAPI.update(id!, payload);
+      // Opened by slug (/products/<slug>/edit), the URL param is not the id; the Rust update
+      // route takes the product's id only, so every save of such a product was refused.
+      if (isEdit) await productsAPI.update(resolvedProductId || id!, payload);
       else await productsAPI.create(payload);
 
       setDirty(false);
