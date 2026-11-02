@@ -34,6 +34,7 @@ import {
   CancelItemsModal,
   OrderRefunds,
   OrderCommunicationLog,
+  OrderErpInvoiceCard,
   ApplyOrderDiscountModal,
   OrderNavigator,
   OrderCustomerCard,
@@ -1414,6 +1415,7 @@ const OrderDetail: React.FC = () => {
             <Card className="shadow-sm">
               <CardContent className="p-0">
                 <PaymentInformation
+                  orderId={order._id || order.id}
                   paymentMethod={order.paymentMethod}
                   paymentStatus={order.paymentStatus}
                   paymentGateway={order.paymentGateway}
@@ -1649,6 +1651,10 @@ const OrderDetail: React.FC = () => {
                 )}
               </CardContent>
             </Card>
+
+          {/* The order on its way to the ERP and the ERP's invoice number
+              (ERP-ORDER-1); a B2B order's buyer code is typed here. */}
+          <OrderErpInvoiceCard orderId={String(order.id ?? order._id)} />
 
           <Card className="shadow-sm">
             <CardHeader className="border-b border-line px-4 py-2.5">

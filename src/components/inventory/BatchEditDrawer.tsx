@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { X, AlertTriangle, Info } from 'lucide-react';
 import { batchesAPI } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
+import { useInventoryLock } from '../../hooks/useInventoryLock';
 import { Btn } from '../erp';
 
 /**
@@ -62,6 +63,8 @@ const BatchEditDrawer: React.FC<{
 }> = ({ batch, onClose, onSaved, pricingMode = 'off' }) => {
   const { hasPerm } = useAuth();
   const canEdit = hasPerm('inventory.adjust');
+  // DEC-069: a count moves stock, so it is locked while the ERP keeps stock; lot details stay editable.
+  const stockLock = useInventoryLock();
 
   const [form, setForm] = useState<Record<string, string>>({});
   const [qty, setQty] = useState('');
@@ -277,10 +280,10 @@ const BatchEditDrawer: React.FC<{
               <div className="w-32">
                 <Field label="Counted quantity">
                   <input className={input} type="number" min="0" step="1" inputMode="numeric"
-                    value={qty} onChange={(e) => setQty(e.target.value)} disabled={!canEdit} />
+                    value={qty} onChange={(e) => setQty(e.target.value)} disabled={!canEdit || stockLock.locked} title={stockLock.why} />
                 </Field>
               </div>
-              <Btn variant="outline" onClick={count} disabled={!canEdit || !!busy}>
+              <Btn variant="outline" onClick={count} disabled={!canEdit || !!busy || stockLock.locked} title={stockLock.why}>
                 {busy === 'count' ? 'Recording…' : 'Record count'}
               </Btn>
             </div>

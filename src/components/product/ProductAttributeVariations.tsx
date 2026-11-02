@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useInventoryLock } from '../../hooks/useInventoryLock';
 import { Link } from 'react-router-dom';
 import { FaTrash, FaCog, FaChevronDown, FaChevronRight, FaCheck, FaTimes, FaMagic, FaExternalLinkAlt, FaPlus } from 'react-icons/fa';
 import { attributesAPI, attributeValuesAPI, uploadAPI, categoriesAPI } from '../../services/api';
@@ -83,6 +84,8 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
   availableBrands = [],
   b2bPriceFor,
 }) => {
+  // DEC-069: stock is locked while the ERP keeps it (the server refuses manual changes too).
+  const stockLock = useInventoryLock();
   /** '12% off' beside a rate — display only; resolvePrice stays the brain. */
   const offMrp = (v: number | null | undefined, mrp: number | null | undefined): string | null => {
     if (v == null || !mrp || !(v > 0) || v >= mrp) return null;
@@ -1358,6 +1361,7 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
                   <div>
                     <label className="block text-xs text-gray-600 mb-1">Stock</label>
                     <input type="number" min="0" value={bulkEditValues.stock}
+                      disabled={stockLock.locked} title={stockLock.why}
                       onChange={e => setBulkEditValues({ ...bulkEditValues, stock: e.target.value })}
                       className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md" placeholder="—" />
                   </div>
@@ -1643,6 +1647,7 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
                                       type="number"
                                       min="0"
                                       value={variation.stock ?? ''}
+                                      disabled={stockLock.locked} title={stockLock.why}
                                       onChange={e => { const v = e.target.value; handleVariationChange(variation.id, 'stock', v === '' ? undefined : Math.max(0, parseInt(v) || 0)); }}
                                       onBlur={e => { if (!e.target.value) handleVariationChange(variation.id, 'stock', 0); }}
                                       className="w-full px-3 py-2 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"

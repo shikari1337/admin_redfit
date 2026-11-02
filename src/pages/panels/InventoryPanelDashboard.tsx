@@ -11,6 +11,7 @@ import { Page, PageHeader, SectionCard, THead, Th, TBody, Tr, Td } from '../../c
 import { Warehouse, PackageSearch, AlertTriangle, ShoppingBag, Layers } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import FetchFromErpButton from '../../components/inventory/FetchFromErpButton';
+import InventoryLockBanner from '../../components/inventory/InventoryLockBanner';
 
 /**
  * Inventory panel home. Stock truth = stock_balances/stock_ledger_entries;
@@ -30,7 +31,7 @@ const InventoryPanelDashboard: React.FC = () => {
     (async () => {
       try {
         const lowRes = await inventoryAPI.list({ lowStock: true, limit: 10 });
-        setLow((lowRes as any).data ?? []);
+        setLow(Array.isArray(lowRes) ? lowRes : (lowRes as any)?.data ?? []);
       } catch { /* list unavailable — analytics still render */ }
       try {
         const res = await api.get('/analytics/panels/inventory/intelligence');
@@ -57,6 +58,8 @@ const InventoryPanelDashboard: React.FC = () => {
           </>
         )}
       />
+
+      <InventoryLockBanner />
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
 

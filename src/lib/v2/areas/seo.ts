@@ -12,6 +12,13 @@ import { v2call } from '../http';
 
 
 const text = (d: any) => (typeof d === 'string' ? d : d?.content ?? d?.xml ?? d?.text ?? '');
+/** SitemapView {entries: [{loc, lastmod}]} (commerce views/storefront.rs:836) → the XML text the SEO page previews. */
+const xmlEsc = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const sitemapXml = (d: any) => (Array.isArray(d?.entries)
+  ? `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${d.entries
+    .map((e: any) => `  <url><loc>${xmlEsc(e?.loc)}</loc>${e?.lastmod ? `<lastmod>${xmlEsc(e.lastmod)}</lastmod>` : ''}</url>`)
+    .join('\n')}\n</urlset>\n`
+  : text(d));
 
 export const SEO_ROUTES: V2Route[] = [
   { m: 'GET', from: '/seo/redirects', row: 'commerce seo.ts:182', to: '/api/v2/commerce/redirects', qs: ['active','entity_type','limit','offset','search'] },
@@ -34,7 +41,7 @@ export const SEO_ROUTES: V2Route[] = [
   { m: 'GET', from: '/seo/redirects/config', row: 'commerce seo.ts:156 (binary /redirects/summary)', to: '/api/v2/commerce/redirects/summary' },
   { m: 'PUT', from: '/seo/redirects/config', row: 'commerce seo.ts:163 (binary PUT)', to: '/api/v2/commerce/redirects/config', body: (c) => ({ enabled: !!c.body?.enabled }) },
   { m: 'GET', from: '/seo/redirects/export.csv', row: 'commerce seo.ts:333', to: '/api/v2/commerce/redirects/export', qs: ['entity_type'], raw: true }, // download (text)
-  { m: 'POST', from: '/seo/redirects/import', row: 'commerce seo.ts:350', to: '/api/v2/commerce/redirects/import', bs: {'csv':'s'}, reply: wrapData },
+  { m: 'POST', from: '/seo/redirects/import', row: 'commerce seo.ts:350', to: '/api/v2/commerce/redirects/import', bs: {'csv':'s'}, reply: (d: any) => wrapData(d && typeof d === 'object' && !Array.isArray(d) ? { ...d, rows: d.rows ?? d.lines ?? [] } : d) }, // RedirectImportView {…, lines} (commerce views/catalog_admin.rs:764); RedirectsManager reads importResult.rows
   { m: 'GET', from: '/seo/redirects/log', row: 'commerce seo.ts:298', to: '/api/v2/commerce/redirects/log', qs: ['limit','offset','redirect_id','search'] },
   { m: 'GET', from: '/seo/redirects/score', row: 'commerce seo.ts:320', to: '/api/v2/commerce/redirects/score', qs: ['days'] },
   { m: 'GET', from: '/seo/redirects/template.csv', row: 'commerce seo.ts:341', to: '/api/v2/commerce/redirects/template', raw: true }, // download (text)
@@ -43,7 +50,7 @@ export const SEO_ROUTES: V2Route[] = [
   { m: 'GET', from: '/seo/settings', row: 'commerce seo.ts:32', to: '/api/v2/commerce/seo/settings', reply: (d) => d?.settings ?? d },
   // binary: PUT /seo/settings {settings} (ROUTE_MAP text says PATCH)
   { m: 'PUT', from: '/seo/settings', row: 'commerce seo.ts:40 (binary PUT)', to: '/api/v2/commerce/seo/settings', body: (c) => ({ settings: c.body ?? {} }), reply: (d) => d?.settings ?? d },
-  { m: 'GET', from: '/seo/sitemap.xml', row: 'commerce seo.ts:415', to: '/api/v2/commerce/public/seo/sitemap', reply: text, raw: true },
+  { m: 'GET', from: '/seo/sitemap.xml', row: 'commerce seo.ts:415', to: '/api/v2/commerce/public/seo/sitemap', reply: sitemapXml, raw: true },
   { m: 'GET', from: '/seo/slug-history', row: 'commerce seo.ts:371', to: '/api/v2/commerce/slug-history', qs: ['entity_id','entity_type','limit','offset','search'] },
   { m: 'POST', from: '/seo/slug-history/reconstruct', row: 'commerce seo.ts:395', to: '/api/v2/commerce/slug-history/reconstruct', bs: {'entity_id':'s','entity_name':'s','entity_type':'s','new_slug':'s','note':'s','old_slug':'s'} },
 ];

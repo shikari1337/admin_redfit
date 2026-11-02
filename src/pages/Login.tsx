@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import GrowcordIdButton from '../components/GrowcordIdButton';
 import { V2_ENABLED } from '../lib/v2/config';
 import { startSignIn, hasSession as v2HasSession, accessToken as v2AccessToken, consumeEndedNotice } from '../lib/v2/session';
-import { tenantNow, listPlatformStores, pickPlatformStore } from '../lib/v2/tenant';
+import { tenantNow, listPlatformStores, listMyStores, isRefused, pickPlatformStore } from '../lib/v2/tenant';
 import type { PlatformStore } from '../lib/v2/tenant';
 import {
   Eye, EyeOff, Store, AlertCircle, Loader2, ChevronRight, CheckCircle2,
@@ -518,7 +518,9 @@ const V2Login: React.FC = () => {
     if (msg) setError(msg);
   }, [isAuthenticated, navigate]);
 
-  // Central console: signed in, no store yet: the store picker.
+  // Central console: signed in, no store yet: the store picker. Platform members
+  // see every store; store staff (refused there, 401/403) see their own seats,
+  // and a single seat is opened straight away, as if picked.
   const needsPick = tenant?.kind === 'platform' && !tenant.storeKey && v2HasSession();
   useEffect(() => {
     if (!needsPick || stores) return;
@@ -526,14 +528,24 @@ const V2Login: React.FC = () => {
     (async () => {
       try {
         const tok = await v2AccessToken();
-        const list = tok ? await listPlatformStores(tok) : [];
+        if (!tok) { if (alive) setStores([]); return; }
+        let list: PlatformStore[];
+        try {
+          list = await listPlatformStores(tok);
+        } catch (e) {
+          if (!isRefused(e)) throw e;
+          list = await listMyStores(tok);
+          if (!alive) return;
+          if (list.length === 0) setError('Your Growcord ID has no seat in any store. Ask the store owner to add you.');
+          if (list.length === 1) { setStores(list); void pick(list[0]); return; }
+        }
         if (alive) setStores(list);
       } catch {
-        if (alive) { setStores([]); setError('Your stores could not be listed. Only platform members can choose a store here.'); }
+        if (alive) { setStores([]); setError('Your stores could not be listed. Please try again in a moment.'); }
       }
     })();
     return () => { alive = false; };
-  }, [needsPick, stores]);
+  }, [needsPick, stores]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const start = async () => {
     setError('');

@@ -20,6 +20,7 @@
 import type { V2Ctx, V2Route } from '../routes';
 import { mapList, v2call, asList, backendGap } from '../http';
 import { toMoney } from '../money';
+import { wrapData, pageAs } from '../shape';
 
 const P = '/api/v2/commerce';
 
@@ -56,6 +57,52 @@ function categoryRow(c: any): any {
 function brandRow(b: any): any {
   if (!b || typeof b !== 'object') return b;
   return { ...b, is_active: b.is_active ?? true };
+}
+
+/**
+ * A staff-table row: its category refs carry `parent_id` (CategoryRefStaffView, commerce
+ * views/catalog.rs:744); the table splits parents from sub-categories on `parent` (Products.tsx:152, :564).
+ */
+function productRow(r: any): any {
+  if (!r || typeof r !== 'object' || !Array.isArray(r.categories)) return r;
+  return { ...r, categories: r.categories.map((c: any) => (c && typeof c === 'object' ? { ...c, parent: c.parent ?? c.parent_id ?? null } : c)) };
+}
+
+/**
+ * The inventory views answer their quantities as Decimal STRINGS ("0", "12"; InventoryRowView,
+ * commerce views/inventory.rs:151); the Inventory table does arithmetic and truthiness on them
+ * (`lots ? …` with lot_count "0" is true, `.toLocaleString`, `loose === 0`), so they become numbers.
+ */
+const QTY_KEYS = ['stock', 'ledger_on_hand', 'on_hand', 'batched_qty', 'unbatched_qty', 'lot_count', 'mrp_count', 'expired_qty', 'reserved_stock', 'available_stock'] as const;
+const qtyNum = (v: unknown) => (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : v);
+function inventoryRow(r: any): any {
+  if (!r || typeof r !== 'object' || Array.isArray(r)) return r;
+  const out: Record<string, any> = { ...r };
+  for (const k of QTY_KEYS) if (k in out) out[k] = qtyNum(out[k]);
+  if (Array.isArray(out.lots)) {
+    out.lots = out.lots.map((l: any) => {
+      if (!l || typeof l !== 'object') return l;
+      const lot = { ...l };
+      if ('qty_on_hand' in lot) lot.qty_on_hand = qtyNum(lot.qty_on_hand);
+      if ('placed_qty' in lot) lot.placed_qty = qtyNum(lot.placed_qty);
+      return lot;
+    });
+  }
+  return out;
+}
+
+/** B2bSettingsView answers `tiers: [{name, discount_pct}]` (trade views/b2b.rs:243); every screen reads a name-keyed map (B2BTiers.tsx:37, ProductB2BPricing.tsx:94, B2BCustomers.tsx:145). */
+function b2bSettingsReply(d: any): any {
+  if (!d || typeof d !== 'object' || !Array.isArray(d.tiers)) return d;
+  const tiers: Record<string, unknown> = {};
+  for (const t of d.tiers) if (t && typeof t === 'object' && t.name) tiers[String(t.name)] = { ...t };
+  return { ...d, tiers, tier_list: d.tiers };
+}
+
+/** AiStatusView `{status, ai_content, ai_images}` (commerce views/ai_studio.rs:11); `status` IS the AiStatus the screens read flat, beside `modules` (lib/ai.ts:28-36, AiTextButton.tsx:172). */
+function aiStatusReply(d: any): any {
+  if (!d || typeof d !== 'object' || !d.status || typeof d.status !== 'object') return d;
+  return { ...d.status, modules: { ai_content: !!d.ai_content, ai_images: !!d.ai_images }, status: d.status, ai_content: d.ai_content, ai_images: d.ai_images };
 }
 
 /** The legacy listing query (camelCase, page/skip) → v2's snake_case names, offset. */
@@ -250,13 +297,13 @@ async function attributeValuesBySlug(c: V2Ctx): Promise<unknown> {
 
 export const PRODUCT_ROUTES: V2Route[] = [
   // Products
-  { m: 'GET', from: '/products', row: 'commerce products.ts:39 (staff table GET /products)', to: `${P}/products`, query: productQuery },
+  { m: 'GET', from: '/products', row: 'commerce products.ts:39 (staff table GET /products)', to: `${P}/products`, query: productQuery, reply: (d) => (Array.isArray(d) ? mapList(d, productRow) : d) }, // ProductRowStaffView.categories[].parent_id (commerce views/catalog.rs:362) → `parent`
   { m: 'GET', from: '/products/skus', row: 'commerce products.ts:28', to: `${P}/products/skus` },
   { m: 'GET', from: '/products/export', row: 'commerce products.ts:30', to: `${P}/products/export` },
   { m: 'GET', from: '/products/workbook/export', row: 'commerce products.ts:32', to: `${P}/products/workbook/export` },
   { m: 'GET', from: '/products/workbook/template', row: 'commerce products.ts:33', to: `${P}/products/workbook/template` },
   { m: 'GET', from: '/products/workbook/schema', row: 'commerce products.ts:34', to: `${P}/products/workbook/schema` },
-  { m: 'POST', from: '/products/workbook/preview', row: 'commerce products.ts:35', to: `${P}/products/workbook/preview` },
+  { m: 'POST', from: '/products/workbook/preview', row: 'commerce products.ts:35', to: `${P}/products/workbook/preview`, reply: (d) => d?.preview ?? d }, // WorkbookPreviewView {preview} (commerce views/catalog_admin.rs:1116); ProductImportExport iterates pv.sheets
   { m: 'POST', from: '/products/workbook/import', row: 'commerce products.ts:36', to: `${P}/products/workbook/import` },
   { m: 'GET', from: '/products/filters', row: 'commerce products.ts:25', to: `${P}/public/products/filters` },
   {
@@ -297,7 +344,7 @@ export const PRODUCT_ROUTES: V2Route[] = [
   { m: 'POST', from: '/brands', row: 'commerce brands.ts:74', to: `${P}/brands`, body: (c) => snakeBody(c.body) },
   { m: 'PUT', from: '/brands/:id', row: 'commerce brands.ts:86', method: 'PATCH', to: `${P}/brands/{id}`, body: (c) => snakeBody(c.body) },
   { m: 'DELETE', from: '/brands/:id', row: 'commerce brands.ts:97', method: 'POST', to: `${P}/brands/{id}/remove`, body: () => ({}) },
-  { m: 'GET', from: '/brands/:id/products', row: 'commerce brands.ts:128', to: `${P}/brands/{id}/products` },
+  { m: 'GET', from: '/brands/:id/products', row: 'commerce brands.ts:128', to: `${P}/brands/{id}/products`, reply: (d) => wrapData(Array.isArray(d) ? mapList(d, (r: any) => (r && typeof r === 'object' ? { ...r, imageUrl: r.image_url ?? null, isActive: r.is_active } : r)) : d) }, // bare Vec<BrandProductView> (commerce views/catalog_admin.rs:965); brandsAPI.listProducts reads `.data.data`, BrandProducts.tsx reads imageUrl/isActive (inside the opaque `data`, so set here)
   { m: 'PUT', from: '/brands/:id/products/order', row: 'commerce brands.ts:145 (binary: PUT)', to: `${P}/brands/{id}/products/order` },
   { m: 'GET', from: '/brands/:id/products/export', row: 'commerce brands.ts:170', to: `${P}/brands/{id}/products/export` },
   { m: 'POST', from: '/brands/:id/products/import', row: 'commerce brands.ts:231', to: `${P}/brands/{id}/products/import` },
@@ -317,19 +364,21 @@ export const PRODUCT_ROUTES: V2Route[] = [
   { m: 'GET', from: '/faq-groups', row: 'commerce faqGroups.ts — R:FaqGroup.list', to: `${P}/faq-groups`, query: (c) => resourceQuery(c) },
   { m: 'GET', from: '/tax', row: 'books — R:TaxRule.list (GET /api/v2/books/tax-rules)', to: '/api/v2/books/tax-rules', query: (c) => resourceQuery(c) },
   { m: 'GET', from: '/tax/return-policies', row: 'books — R:ReturnPolicy.list', to: '/api/v2/books/return-policies', query: (c) => resourceQuery(c) },
-  { m: 'GET', from: '/ai/status', row: 'commerce aiStudio.ts:107', to: `${P}/ai/status` },
+  { m: 'GET', from: '/ai/status', row: 'commerce aiStudio.ts:107', to: `${P}/ai/status`, reply: aiStatusReply },
   // B2B (trade ROUTE_MAP) the product form reads.
-  { m: 'GET', from: '/b2b/settings', row: 'trade — GET /api/v2/trade/settings', to: '/api/v2/trade/settings', rs: { default_discount_pct: 'r', tiers: [{ discount_pct: 'r' }] } },
-  { m: 'GET', from: '/b2b/customers', row: 'trade — GET /api/v2/trade/accounts', to: '/api/v2/trade/accounts', query: (c) => ({ q: c.query.search, limit: c.query.limit, offset: c.query.offset }) },
+  // raw: the tier map is keyed by tier NAME; the legacy camelCase pass would add a second key for a name with `_`.
+  { m: 'GET', from: '/b2b/settings', row: 'trade — GET /api/v2/trade/settings', to: '/api/v2/trade/settings', rs: { default_discount_pct: 'r', tiers: [{ discount_pct: 'r' }] }, reply: b2bSettingsReply, raw: true },
+  { m: 'GET', from: '/b2b/customers', row: 'trade — GET /api/v2/trade/accounts', to: '/api/v2/trade/accounts', query: (c) => ({ q: c.query.search, limit: c.query.limit, offset: c.query.offset }), reply: wrapData }, // Page<AccountView> → array; ProductB2BPricing.tsx:97 reads `r.data` (B2BCustomers asArray reads both); rows are read snake_case
   { m: 'GET', from: '/b2b/price-lists', row: 'trade — GET /api/v2/trade/price-lists', to: '/api/v2/trade/price-lists' },
   { m: 'GET', from: '/b2b/price-lists/:id/rules', row: 'trade 22 — GET /api/v2/trade/price-lists/{id}/rules', to: '/api/v2/trade/price-lists/{id}/rules', rs: { items: [{ discount_slabs: [{ discount_pct: 'r' }], flat_discount_pct: 'r' }] } },
   { m: 'GET', from: '/upload/image-specs', row: 'commerce upload.ts:244 GET /media/image-specs — NOT MOUNTED', run: async () => backendGap('GET /api/v2/commerce/media/image-specs (upload.ts:244)') },
-  { m: 'GET', from: '/b2b/contracts/product/:id', row: 'trade — merged into GET /api/v2/trade/contracts?product=', to: '/api/v2/trade/contracts', query: (c) => ({ product: c.params.id }) },
+  { m: 'GET', from: '/b2b/contracts/product/:id', row: 'trade — merged into GET /api/v2/trade/contracts?product=', to: '/api/v2/trade/contracts', query: (c) => ({ product: c.params.id }), reply: wrapData }, // Page → array; ProductB2BPricing.tsx:105 reads `r.data` (id, company_name, variation_id, unit_price, valid_until: snake, as answered)
 
   // Inventory
   {
     m: 'GET', from: '/inventory', row: 'commerce inventory.ts:189', to: `${P}/inventory`,
     query: (c) => ({ page: c.query.page, limit: c.query.limit, search: c.query.search, low_stock: c.query.lowStock ?? c.query.low_stock, out_of_stock: c.query.outOfStock ?? c.query.out_of_stock, threshold: c.query.threshold, mismatch: c.query.mismatch, expiring_days: c.query.expiringDays ?? c.query.expiring_days, include_lots: c.query.includeLots ?? c.query.include_lots }),
+    reply: (d) => (Array.isArray(d) ? mapList(d, inventoryRow) : d), // InventoryRowView Decimal quantities → numbers (commerce views/inventory.rs:151)
   },
   { m: 'GET', from: '/inventory/health', row: 'commerce inventory.ts:245', to: `${P}/inventory/health` },
   { m: 'GET', from: '/inventory/low-stock', row: 'commerce inventory.ts:296', to: `${P}/inventory/low-stock`, query: (c) => ({ threshold: c.query.threshold }) },
@@ -346,9 +395,13 @@ export const PRODUCT_ROUTES: V2Route[] = [
   {
     m: 'POST', from: '/inventory/adjust', row: 'commerce inventory.ts:1041', to: `${P}/inventory/adjust`,
     body: (c) => ({ product_id: c.body?.productId ?? c.body?.product_id, variation_id: c.body?.variationId ?? c.body?.variation_id, qty_delta: c.body?.qtyDelta ?? c.body?.qty_delta ?? c.body?.delta, movement_type: c.body?.movementType ?? c.body?.movement_type ?? null, reason_type: c.body?.reasonType ?? c.body?.reason_type ?? null, reference: c.body?.reference ?? null, notes: c.body?.notes ?? c.body?.reason ?? null, warehouse_id: c.body?.warehouseId ?? c.body?.warehouse_id ?? null }),
+    // StockChangeView answers `stock` (commerce views/inventory.rs:384); the product page reads `new_stock` (ProductInventoryPanel.tsx:131).
+    reply: (d) => (d && typeof d === 'object' && !Array.isArray(d) && d.new_stock === undefined ? { ...d, new_stock: d.stock } : d),
   },
   { m: 'GET', from: '/inventory/movements/:id', row: 'commerce inventory.ts:1073', to: `${P}/inventory/movements/{id}` },
-  { m: 'GET', from: '/inventory/ledger-chain/verify', row: 'commerce inventory.ts:1102', to: `${P}/inventory/ledger-chain/verify` },
+  // v2 answers `InventoryReportView {report}` (views/inventory.rs:611); the banner reads the report's
+  // fields flat (`ok`, `present`, `bad_hash`, …), so the reply lifts the report out.
+  { m: 'GET', from: '/inventory/ledger-chain/verify', row: 'commerce inventory.ts:1102', to: `${P}/inventory/ledger-chain/verify`, reply: (d) => (d && typeof d === 'object' && d.report && typeof d.report === 'object' ? d.report : d) },
   { m: 'GET', from: '/inventory/sheets', row: 'commerce inventory.ts:1656', to: `${P}/inventory/sheets` },
   { m: 'GET', from: '/inventory/market-prices/export', row: 'commerce inventory.ts:1292', to: `${P}/inventory/market-prices/export`, query: (c) => ({ market: c.query.market, country: c.query.country, currency: c.query.currency, search: c.query.search }) },
   { m: 'GET', from: '/inventory/market-prices/template', row: 'commerce inventory.ts:1315', to: `${P}/inventory/market-prices/template` },
@@ -359,10 +412,13 @@ export const PRODUCT_ROUTES: V2Route[] = [
   { m: 'GET', from: '/inventory/dimensions/coverage', row: 'commerce inventory.ts:1763', to: `${P}/inventory/dimensions/coverage` },
   { m: 'GET', from: '/inventory/:id/history', row: 'commerce inventory.ts:1086', to: `${P}/inventory/{id}/history` },
   // The product page's inventory panel (make ROUTE_MAP 99, purchasing incoming; commerce reports.ts:148).
-  { m: 'GET', from: '/purchasing/batches', row: 'make 99 — GET /api/v2/make/batches', to: '/api/v2/make/batches', query: (c) => ({ variation_id: c.query.variationId ?? c.query.variation_id, limit: c.query.limit }) },
+  // Page → `{rows, total}`: GoodsInLabels.tsx:107 and batchesAPI.list read `.rows`; ProductInventoryPanel's rowsOf reads either.
+  { m: 'GET', from: '/purchasing/batches', row: 'make 99 — GET /api/v2/make/batches', to: '/api/v2/make/batches', query: (c) => ({ variation_id: c.query.variationId ?? c.query.variation_id, limit: c.query.limit, near_expiry_days: c.query.nearExpiryDays ?? c.query.near_expiry_days }), reply: pageAs('rows') },
   { m: 'GET', from: '/purchasing/incoming', row: 'make — GET /api/v2/make/purchase-orders/incoming', to: '/api/v2/make/purchase-orders/incoming', query: (c) => ({ variation_id: c.query.variationId ?? c.query.variation_id }) },
-  { m: 'GET', from: '/reports/movements', row: 'commerce reports.ts:148', to: `${P}/reports/movements`, query: (c) => ({ variation_id: c.query.variationId ?? c.query.variation_id, limit: c.query.limit, offset: c.query.offset, from: c.query.from, to: c.query.to }) },
+  // Page → `{rows, total}`: the movement register reads `res.data.rows` / `.total` (Reports.tsx:422); its type/search filters are declared query fields.
+  { m: 'GET', from: '/reports/movements', row: 'commerce reports.ts:148', to: `${P}/reports/movements`, query: (c) => ({ variation_id: c.query.variationId ?? c.query.variation_id, limit: c.query.limit, offset: c.query.offset, from: c.query.from, to: c.query.to, movement_type: c.query.movementType ?? c.query.movement_type, search: c.query.search }), reply: pageAs('rows') },
   { m: 'GET', from: '/inventory/:id/detail', row: 'commerce inventory.ts:1122', to: `${P}/inventory/{id}/detail` },
-  { m: 'GET', from: '/inventory/:id', row: 'commerce inventory.ts:1212', to: `${P}/inventory/{id}` },
+  // InventorySkuView `{sku: InventoryRowView, stock_mode}` (commerce views/inventory.rs:257); the product page's stock box reads the SKU flat (`on_hand`, `product_id`; ProductInventoryPanel.tsx:126, :196).
+  { m: 'GET', from: '/inventory/:id', row: 'commerce inventory.ts:1212', to: `${P}/inventory/{id}`, reply: (d) => (d && typeof d === 'object' && d.sku && typeof d.sku === 'object' ? { ...inventoryRow(d.sku), stock_mode: d.stock_mode } : d) },
   { m: 'PUT', from: '/inventory/:id', row: 'commerce inventory.ts:1240', method: 'PATCH', to: `${P}/inventory/{id}`, body: (c) => ({ stock: c.body?.stock ?? c.body?.variationStock, reason: c.body?.reason ?? null, reason_type: c.body?.reason_type ?? c.body?.reasonType ?? null }) },
 ];

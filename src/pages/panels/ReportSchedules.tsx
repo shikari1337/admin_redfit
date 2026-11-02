@@ -84,7 +84,11 @@ const ReportSchedules: React.FC = () => {
         api.get('/report-schedules'),
         api.get('/report-schedules/runs', { params: { limit: 100 } }),
       ]);
-      setCatalogue(payload<any>(cat)?.data ?? payload<ReportInfo[]>(cat) ?? []);
+      { // v2 answers { reports, cadences, formats }; the Node route answered { data: [...] } or a bare list.
+        const c = payload<any>(cat);
+        const list = Array.isArray(c) ? c : Array.isArray(c?.data) ? c.data : Array.isArray(c?.reports) ? c.reports : [];
+        setCatalogue(list);
+      }
       setSchedules(payload<Schedule[]>(sch) ?? []);
       setRuns(payload<Run[]>(run) ?? []);
     } catch (e) { fail(e); }

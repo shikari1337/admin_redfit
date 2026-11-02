@@ -254,7 +254,7 @@ const PosSurface: React.FC = () => {
         paymentMethod: 'prepaid',
         shippingCost: 0,
         note: `POS sale — paid by ${payMethod.toUpperCase()}`,
-      });
+      }, { headers: { 'X-Idempotency-Key': crypto.randomUUID() } }); // one key per press of "Charge" (FIX-ADMIN-1; the X- name also passes the Node CORS list)
       const order = res.data?.order ?? res.data;
       // Drawer receipt with a gapless RCP number (idempotency-keyed).
       let rcp: any = null;

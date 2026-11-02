@@ -11,6 +11,8 @@ import {
 } from '../../components/erp';
 import InfoTip from '../../components/common/InfoTip';
 import ScanBillButton, { type ScanProposal } from '../../components/accounting/ScanBillButton';
+import { AttachTaxInvoiceOffer } from '../payments/feeVendors/FeeVendors';
+import { feeVendorAlternative, type FeeVendorOffer } from '../payments/feeVendors/data';
 
 /**
  * Expenses & Bank Book — the shop accountant's day-to-day: record rent /
@@ -62,6 +64,8 @@ const Expenses: React.FC = () => {
 
   const [tab, setTab] = useState<'expenses' | 'recurring' | 'bankbook'>('expenses');
   const [error, setError] = useState('');
+  // 409 `alternative: attach_tax_invoice`: this vendor's charges post automatically (DEC-073).
+  const [taxOffer, setTaxOffer] = useState<FeeVendorOffer | null>(null);
 
   // ── Expenses tab ──
   const [cats, setCats] = useState<CatOpt[]>([]);
@@ -116,7 +120,7 @@ const Expenses: React.FC = () => {
   }, [lc.from, lc.to, lc.page, lc.pageSize, category, paidFrom]);
 
   const submit = async () => {
-    setError(''); setSaving(true);
+    setError(''); setTaxOffer(null); setSaving(true);
     try {
       await api.post('/expenses', {
         expenseDate: form.expenseDate,
@@ -131,7 +135,7 @@ const Expenses: React.FC = () => {
       });
       setForm(blankForm()); setShowNew(false);
       await loadExpenses();
-    } catch (e: any) { setError(e?.response?.data?.message ?? e.message); }
+    } catch (e: any) { const offer = feeVendorAlternative(e); if (offer) setTaxOffer(offer); else setError(e?.response?.data?.message ?? e.message); }
     finally { setSaving(false); }
   };
 
@@ -206,6 +210,7 @@ const Expenses: React.FC = () => {
       />
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+      <AttachTaxInvoiceOffer offer={taxOffer} onDismiss={() => setTaxOffer(null)} />
 
       {tab === 'expenses' ? (
         <>

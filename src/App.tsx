@@ -33,6 +33,12 @@ const ProductSectionsManager = lazyRetry(() => import('./pages/ProductSectionsMa
 const ContactSettings = lazyRetry(() => import('./pages/ContactSettings'));
 const PaymentDiscountSettings = lazyRetry(() => import('./pages/PaymentDiscountSettings'));
 const SmsTemplates = lazyRetry(() => import('./pages/SmsTemplates'));
+// Messaging (MSG-0, lane ADMIN-MSG-1): Notifications · WhatsApp · Email · SMS · Cart recovery.
+const MessagingNotifications = lazyRetry(() => import('./pages/messaging/Notifications'));
+const MessagingWhatsApp = lazyRetry(() => import('./pages/messaging/WhatsApp'));
+const MessagingEmail = lazyRetry(() => import('./pages/messaging/Email'));
+const MessagingSms = lazyRetry(() => import('./pages/messaging/Sms'));
+const MessagingCartRecovery = lazyRetry(() => import('./pages/messaging/CartRecovery'));
 const CartRecoveryAutomation = lazyRetry(() => import('./pages/CartRecoveryAutomation'));
 const ApiIntegrationSettings = lazyRetry(() => import('./pages/ApiIntegrationSettings'));
 const PaymentGatewaySettings = lazyRetry(() => import('./pages/PaymentGatewaySettings'));
@@ -77,6 +83,7 @@ const StoreAnalytics = lazyRetry(() => import('./pages/analytics/StoreAnalytics'
 const UserAnalytics = lazyRetry(() => import('./pages/analytics/UserAnalytics'));
 const RealtimeAnalytics = lazyRetry(() => import('./pages/analytics/RealtimeAnalytics'));
 const CustomAnalytics = lazyRetry(() => import('./pages/analytics/CustomAnalytics'));
+const SalesInsights = lazyRetry(() => import('./pages/analytics/SalesInsights'));
 const MarketingAnalytics = lazyRetry(() => import('./pages/analytics/MarketingAnalytics'));
 const Modules = lazyRetry(() => import('./pages/Modules'));
 const PackageBoxes = lazyRetry(() => import('./pages/PackageBoxes'));
@@ -144,6 +151,7 @@ const CycleCounts = lazyRetry(() => import('./pages/panels/CycleCounts'));
 const LabelsBarcodes = lazyRetry(() => import('./pages/panels/LabelsBarcodes'));
 const Reports = lazyRetry(() => import('./pages/panels/Reports'));
 const Reorder = lazyRetry(() => import('./pages/panels/Reorder'));
+const ErpSection = lazyRetry(() => import('./pages/panels/erp/ErpSection'));
 const Gstr3b = lazyRetry(() => import('./pages/panels/Gstr3b'));
 const Gstr9 = lazyRetry(() => import('./pages/panels/Gstr9'));
 const DocumentLibrary = lazyRetry(() => import('./pages/panels/DocumentLibrary'));
@@ -164,6 +172,11 @@ const WorkOrders = lazyRetry(() => import('./pages/panels/WorkOrders'));
 const Approvals = lazyRetry(() => import('./pages/panels/Approvals'));
 const ReturnsRto = lazyRetry(() => import('./pages/panels/ReturnsRto'));
 const CodReconciliation = lazyRetry(() => import('./pages/panels/CodReconciliation'));
+// The store's money in (PAY-0 §5, lane ADMIN-PAY-1): payment ledger, settlements, payment analytics.
+const StorePayments = lazyRetry(() => import('./pages/payments/Payments'));
+const StoreSettlements = lazyRetry(() => import('./pages/payments/Settlements'));
+const PaymentAnalytics = lazyRetry(() => import('./pages/payments/PaymentAnalytics'));
+const PaymentRequests = lazyRetry(() => import('./pages/payments/PaymentRequests'));
 const WeightDisputes = lazyRetry(() => import('./pages/panels/WeightDisputes'));
 const Refunds = lazyRetry(() => import('./pages/panels/Refunds'));
 const WorkflowRules = lazyRetry(() => import('./pages/panels/WorkflowRules'));
@@ -356,6 +369,8 @@ function App() {
           <Route path="panel/inventory/labels" element={<LabelsBarcodes />} />
           <Route path="panel/inventory/reports" element={<Reports />} />
           <Route path="panel/inventory/reorder" element={<Reorder />} />
+          {/* The distributor ERP: connections, mapping, and store stock set from it hourly (DEC-068). */}
+          <Route path="panel/inventory/erp/*" element={<ErpSection />} />
           <Route path="panel/inventory/outlets" element={<Outlets />} />
           <Route path="panel/inventory/transfers" element={<StockTransfers />} />
           <Route path="panel/inventory/consignment" element={<Consignment />} />
@@ -375,6 +390,12 @@ function App() {
           <Route path="panel/orders/documents" element={<SalesDocuments />} />
           <Route path="panel/orders/rto" element={<ReturnsRto />} />
           <Route path="panel/orders/cod-recon" element={<CodReconciliation />} />
+          {/* money in: payments → settlements → analytics, linked both ways with orders and COD payouts (PAY-0 §5) */}
+          <Route path="panel/orders/payments" element={<StorePayments />} />
+          <Route path="panel/orders/payments/settlements" element={<StoreSettlements />} />
+          <Route path="panel/orders/payments/settlements/:settlementId" element={<StoreSettlements />} />
+          <Route path="panel/orders/payments/analytics" element={<PaymentAnalytics />} />
+          <Route path="panel/orders/payments/requests" element={<PaymentRequests />} />
           <Route path="panel/orders/weight-disputes" element={<WeightDisputes />} />
           {/* managed refund pipeline (081): request → approve → send → confirmed */}
           <Route path="panel/orders/refunds" element={<Refunds />} />
@@ -414,6 +435,7 @@ function App() {
           <Route path="analytics/store" element={<StoreAnalytics />} />
           <Route path="analytics/users" element={<UserAnalytics />} />
           <Route path="analytics/realtime" element={<RealtimeAnalytics />} />
+          <Route path="analytics/insights" element={<SalesInsights />} />
           <Route path="analytics/custom" element={<CustomAnalytics />} />
           <Route path="analytics/marketing" element={<MarketingAnalytics />} />
           <Route path="products" element={<Products />} />
@@ -488,6 +510,13 @@ function App() {
           <Route path="settings/payment-discount" element={<PaymentDiscountSettings />} />
           <Route path="settings/payment-gateways" element={<PaymentGatewaySettings />} />
           <Route path="settings/sms-templates" element={<SmsTemplates />} />
+          {/* Messaging — one place per channel (MSG-0); the old pages above stay until the owner approves. */}
+          <Route path="messaging" element={<Navigate to="/messaging/notifications" replace />} />
+          <Route path="messaging/notifications" element={<MessagingNotifications />} />
+          <Route path="messaging/whatsapp" element={<MessagingWhatsApp />} />
+          <Route path="messaging/email" element={<MessagingEmail />} />
+          <Route path="messaging/sms" element={<MessagingSms />} />
+          <Route path="messaging/cart-recovery" element={<MessagingCartRecovery />} />
           <Route path="settings/cart-recovery-automation" element={<CartRecoveryAutomation />} />
           <Route path="settings/gst" element={<GstSettings />} />
           <Route path="settings/markets" element={<Markets />} />

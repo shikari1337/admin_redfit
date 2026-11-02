@@ -19,7 +19,7 @@
  *             `safeError` / `errorText` already read; 401 ends the session,
  *             403 NEVER does (DEC-057) — it raises the existing access notice
  */
-import { AxiosError } from 'axios';
+import { AxiosError, AxiosHeaders } from 'axios';
 import type { AxiosAdapter, AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from 'axios';
 import { V2_API_URL } from './config';
 import { endLocal } from './session';
@@ -27,6 +27,7 @@ import { v2http, normaliseEnvelope, backendGap } from './http';
 import { matchRoute } from './routes';
 import type { V2Ctx, V2Route } from './routes';
 import { shapeBody, shapeQuery, shapeReply } from './shape';
+import { INVENTORY_LOCKED_CODE, inventoryLockSnapshot, lockedMessage, noteInventoryLockedRefusal } from './inventoryLock';
 
 /* ── errors ──────────────────────────────────────────────────────────────── */
 
@@ -39,6 +40,11 @@ function legacyErrorBody(b: V2ErrorBody | undefined, status: number): Record<str
   // A port the host has not wired yet: say so in the words the screens show for any backend gap.
   if (b?.code && (b.code.endsWith('.port_not_wired') || (status === 503 && b.code.endsWith('_unavailable')))) {
     message = `Not available on this backend yet — ${message}`;
+  }
+  // DEC-069: a manual stock change refused because the ERP keeps this store's stock. Every
+  // screen's own error line shows the lock sentence instead of a generic refusal.
+  if (b?.code === INVENTORY_LOCKED_CODE) {
+    message = `${lockedMessage(inventoryLockSnapshot().erpLabel)} An admin can unlock it on the Inventory page.`;
   }
   return { success: false, code: b?.code, message, error: { code: b?.code, message }, errors, details: b?.details };
 }
@@ -77,6 +83,12 @@ export function v2OnError(error: AxiosError): Promise<never> {
       console.debug('🔒 Access refused (expected):', { url: error.config?.url, code });
       return Promise.reject(error);
     }
+  }
+  if (code === INVENTORY_LOCKED_CODE) {
+    // Expected while the ERP keeps stock: re-read the lock so the banner and disabled controls appear.
+    noteInventoryLockedRefusal();
+    console.debug('🔒 Stock is locked (expected):', { url: error.config?.url });
+    return Promise.reject(error);
   }
   if (code.endsWith('.port_not_wired') || (status === 503 && code.endsWith('_unavailable'))) {
     // A BACKEND GAP, not a client fault: the host has not wired that port yet. Named, not red.
@@ -137,6 +149,19 @@ function cleanQuery(q: Record<string, unknown> | undefined): Record<string, unkn
   return out;
 }
 
+/**
+ * The caller's idempotency key (`Idempotency-Key`, else `X-Idempotency-Key`), forwarded to v2 exactly as sent: the
+ * screen makes one per submit, and any retry of that submit carries the same key (commerce api/orders/common.rs:100).
+ */
+function idempotencyHeaders(cfg: InternalAxiosRequestConfig): Record<string, string> | undefined {
+  const h = AxiosHeaders.from(cfg.headers as AxiosHeaders);
+  for (const name of ['idempotency-key', 'x-idempotency-key']) {
+    const v = h.get(name);
+    if (typeof v === 'string' && v.trim()) return { [name]: v.trim() };
+  }
+  return undefined;
+}
+
 function notMigrated(method: string, path: string): AxiosAdapter {
   return (cfg) => {
     const message = `${method} ${path} is not on the v2 API yet (ADMIN-V2 lane).`;
@@ -173,6 +198,7 @@ function runner(route: V2Route, ctx: V2Ctx): AxiosAdapter {
           timeout: cfg.timeout,
           onUploadProgress: cfg.onUploadProgress,
           onDownloadProgress: cfg.onDownloadProgress,
+          headers: ctx.headers,
         });
         status = res.status;
         headers = res.headers as Record<string, unknown>;
@@ -213,7 +239,7 @@ export function v2OnRequest(config: InternalAxiosRequestConfig): InternalAxiosRe
     config.adapter = notMigrated(method, path);
     return config;
   }
-  const ctx: V2Ctx = { method, path, params: hit.params, query, body: parseBody(config.data) };
+  const ctx: V2Ctx = { method, path, params: hit.params, query, body: parseBody(config.data), headers: idempotencyHeaders(config) };
   config.adapter = runner(hit.route, ctx);
   return config;
 }

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useInventoryLock } from '../../hooks/useInventoryLock';
 import { Link } from 'react-router-dom';
 import { api } from '../../services/api';
 import { UUID_RE } from '../../lib/uuid';
@@ -49,6 +50,8 @@ const DeniedNote: React.FC<{ perm: string }> = ({ perm }) => (
 );
 
 const ProductInventoryPanel: React.FC<Props> = ({ variationId, sku, onStockChanged }) => {
+  // DEC-069: stock is locked while the ERP keeps it (the server refuses manual changes too).
+  const stockLock = useInventoryLock();
   // Lots are a store module (`batches`). Off = simple SKU stock: the Batches
   // block and its link are left out, and the lot list is not even requested.
   const { canAccess } = useAuth();
@@ -175,12 +178,16 @@ const ProductInventoryPanel: React.FC<Props> = ({ variationId, sku, onStockChang
 
       {loading ? <p className="text-xs text-gray-400">Loading inventory…</p> : (
         <>
+          {stockLock.locked && (
+            <p className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-xs text-amber-900" role="status">🔒 {stockLock.message}</p>
+          )}
           {/* Stock summary + ledgered quick adjust */}
           <Section
             title="Stock"
             action={!summaryDenied && (
               <button type="button" onClick={() => setAdjustOpen(o => !o)}
-                className="text-xs text-blue-600 hover:text-blue-800 font-medium">{adjustOpen ? 'Cancel' : 'Adjust stock'}</button>
+                disabled={stockLock.locked} title={stockLock.why}
+                className="text-xs text-blue-600 hover:text-blue-800 font-medium disabled:cursor-not-allowed disabled:text-gray-400">{stockLock.locked ? '🔒 Adjust stock' : adjustOpen ? 'Cancel' : 'Adjust stock'}</button>
             )}
           >
             {summaryDenied ? <DeniedNote perm="inventory.read" /> : (
@@ -205,7 +212,7 @@ const ProductInventoryPanel: React.FC<Props> = ({ variationId, sku, onStockChang
                     placeholder="+5 / -2" className="w-24 px-2 py-1.5 border border-gray-300 rounded text-sm" />
                   <input type="text" value={adjustNote} onChange={e => setAdjustNote(e.target.value)} maxLength={40}
                     placeholder="Reason (max 40 chars)" className="flex-1 px-2 py-1.5 border border-gray-300 rounded text-sm" />
-                  <button type="button" onClick={submitAdjust} disabled={adjustBusy || !parseInt(adjustDelta, 10)}
+                  <button type="button" onClick={submitAdjust} disabled={adjustBusy || !parseInt(adjustDelta, 10) || stockLock.locked} title={stockLock.why}
                     className="px-3 py-1.5 bg-gray-900 text-white text-xs font-medium rounded disabled:opacity-50">
                     {adjustBusy ? 'Saving…' : 'Apply'}
                   </button>
@@ -285,7 +292,8 @@ const ProductInventoryPanel: React.FC<Props> = ({ variationId, sku, onStockChang
                     placeholder="Unit cost ₹ (optional — feeds average cost)" className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm" />
                 )}
                 {batchError && <p className="text-xs text-red-600">{batchError}</p>}
-                <button type="button" onClick={submitBatch} disabled={batchBusy}
+                <button type="button" onClick={submitBatch} disabled={batchBusy || (stockLock.locked && batchMode === 'receive')}
+                  title={stockLock.locked && batchMode === 'receive' ? stockLock.why : undefined}
                   className="px-3 py-1.5 bg-gray-900 text-white text-xs font-medium rounded disabled:opacity-50">
                   {batchBusy ? 'Saving…' : 'Save batch'}
                 </button>

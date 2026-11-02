@@ -4,6 +4,7 @@ import { saveBlob } from '../../lib/saveBlob';
 import DownloadsPanel from './DownloadsPanel';
 import WhichSheetStrip from './WhichSheetStrip';
 import { useAuth } from '../../contexts/AuthContext';
+import { useInventoryLock } from '../../hooks/useInventoryLock';
 import { Btn, SectionCard } from '../erp';
 
 /**
@@ -39,6 +40,8 @@ interface ImportSummary {
 
 const BatchBulkBar: React.FC<{ onImported?: () => void }> = ({ onImported }) => {
   const { hasPerm } = useAuth();
+  // DEC-069: importing quantities is locked while the ERP keeps stock; the export and template stay open.
+  const stockLock = useInventoryLock();
   // Mirrors the backend gates exactly: read for the two downloads,
   // inventory.adjust for the write.
   const canRead = hasPerm('inventory.read');
@@ -251,7 +254,7 @@ const BatchBulkBar: React.FC<{ onImported?: () => void }> = ({ onImported }) => 
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               {canImport ? (
-                <Btn onClick={() => fileRef.current?.click()} disabled={!!busy}>
+                <Btn onClick={() => fileRef.current?.click()} disabled={!!busy || stockLock.locked} title={stockLock.why}>
                   {busy === 'import' ? 'Importing…' : '⬆ Import filled sheet'}
                 </Btn>
               ) : (

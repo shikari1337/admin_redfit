@@ -7,9 +7,10 @@
  * answered without `success`); a `gap` row is a NAMED refusal (docs/PORT_NOTES/ADMIN-V2-2.md, "gaps").
  */
 import type { V2Route } from '../routes';
-import { v2http } from '../http';
+import { v2http, mapList } from '../http';
+import { majorToMinor } from '../money';
 import type { Spec } from '../shape';
-import { wrapData, shapeBody } from '../shape';
+import { wrapData, shapeBody, pageAs } from '../shape';
 
 
 const APPLY_PARTS: Spec = { '#mp': 'j', create_orders: 's', dry_run: 's', file: 'f', mapping: 's', mode: 's', purpose: 's' };
@@ -23,9 +24,12 @@ export const CHANNEL_ROUTES: V2Route[] = [
   { m: 'DELETE', from: '/channel-allocations/:id', row: 'commerce channelAllocations.ts:148', to: '/api/v2/commerce/channel-allocations/{id}' },
   { m: 'GET', from: '/channel-allocations/config', row: 'commerce channelAllocations.ts:25', to: '/api/v2/commerce/channel-allocations/config', reply: wrapData },
   // merged into the Settings Center write (ROUTE_MAP rule 10: one write path); the registry takes the patch itself
-  { m: 'PUT', from: '/channel-allocations/config', row: 'commerce channelAllocations.ts:30', method: 'PATCH', to: '/api/v2/commerce/settings/registry/channelAllocationConfig', body: (c) => ({ enabled: !!c.body?.enabled }), reply: wrapData },
+  { m: 'PUT', from: '/channel-allocations/config', row: 'commerce channelAllocations.ts:30', method: 'PATCH', to: '/api/v2/commerce/settings/registry/channelAllocationConfig', body: (c) => ({ enabled: !!c.body?.enabled }),
+    // SettingSavedView {center: SettingDefinitionView} (commerce views/catalog_admin.rs:1907); ChannelAllocation reads `.enabled` off the saved value
+    reply: (d) => wrapData(d?.center?.value ?? d?.center ?? d) },
   { m: 'GET', from: '/channel-allocations/preview', row: 'commerce channelAllocations.ts:51', to: '/api/v2/commerce/channel-allocations/preview', qs: ['sku','variation_id'], reply: wrapData },
-  { m: 'GET', from: '/channels/:id/export/history', row: 'commerce channels.ts:601', to: '/api/v2/commerce/channels/{id}/export-history', qs: ['limit'], reply: wrapData },
+  // ChannelExportHistoryView {items, total, limit, queue_available} (commerce views/channels.rs:400) normalises to an array; channelsAPI.exportHistory reads r.data.data.rows (ChannelDaily "recent files").
+  { m: 'GET', from: '/channels/:id/export/history', row: 'commerce channels.ts:601', to: '/api/v2/commerce/channels/{id}/export-history', qs: ['limit'], reply: (d) => wrapData(pageAs('rows')(d)) },
   {
     // SPLIT in v2: POST queues a job (503 `commerce.channel_queue_unavailable` without the queue), GET builds the
     // file at once. The caller (responseType arraybuffer) decodes JSON → "queued", else the bytes → a file.
@@ -55,7 +59,8 @@ export const CHANNEL_ROUTES: V2Route[] = [
   },
   { m: 'GET', from: '/channels/:id/import/history', row: 'commerce channels.ts:497', to: '/api/v2/commerce/channels/{id}/import-history', qs: ['limit'] },
   { m: 'POST', from: '/channels/:id/import/preview', row: 'commerce channels.ts:291', to: '/api/v2/commerce/channels/{id}/import/preview', bs: {'#mp':'j','create_orders':'s','file':'f','purpose':'s'} },
-  { m: 'GET', from: '/channels/:id/order-documents', row: 'commerce channels.ts:609', to: '/api/v2/commerce/channels/{id}/order-documents', qs: ['limit'], reply: wrapData },
+  // ChannelOrderDocumentsView {items, total, limit, unavailable, reason} (commerce views/channels.rs:388; a row's `total` is Money, :354); channelsAPI.orderDocuments reads r.data.data.rows and ChannelDaily d.total_minor (paise).
+  { m: 'GET', from: '/channels/:id/order-documents', row: 'commerce channels.ts:609', to: '/api/v2/commerce/channels/{id}/order-documents', qs: ['limit'], reply: (d) => wrapData(pageAs('rows')(Array.isArray(d) ? mapList(d, (r: any) => (r && typeof r === 'object' ? { ...r, total_minor: r.total_minor ?? majorToMinor(r.total) } : r)) : d)) },
   { m: 'GET', from: '/channels/:id/orders', row: 'commerce channels.ts:501', to: '/api/v2/commerce/channels/{id}/orders', qs: ['limit'] },
   { m: 'GET', from: '/channels/connections', row: 'commerce channels.ts:86', to: '/api/v2/commerce/channels' },
   { m: 'POST', from: '/channels/connections', row: 'commerce channels.ts:101', to: '/api/v2/commerce/channels', bs: {'display_name':'s','fields':'j','inventory_buffer_pct':'i','platform_code':'s','pull_schedule':'s','push_schedule':'s','sync_inventory':'b','sync_listings':'b','sync_orders':'b'}, reply: wrapData },
@@ -64,7 +69,7 @@ export const CHANNEL_ROUTES: V2Route[] = [
   { m: 'DELETE', from: '/channels/connections/:id', row: 'commerce channels.ts:151', method: 'POST', to: '/api/v2/commerce/channels/{id}/remove', bs: 'j' },
   { m: 'POST', from: '/channels/connections/:id/auto-map', row: 'commerce channels.ts:247', to: '/api/v2/commerce/channels/{id}/auto-map', bs: 'j' },
   { m: 'POST', from: '/channels/connections/:id/feed-token', row: 'commerce channels.ts:184', to: '/api/v2/commerce/channels/{id}/feed-token', bs: 'j', reply: wrapData },
-  { m: 'POST', from: '/channels/connections/:id/sync', row: 'commerce channels.ts:174', to: '/api/v2/commerce/channels/{id}/sync', bs: 'j', reply: wrapData },
+  { m: 'POST', from: '/channels/connections/:id/sync', row: 'commerce channels.ts:174', to: '/api/v2/commerce/channels/{id}/sync', bs: 'j', reply: (d) => wrapData(d && typeof d === 'object' && 'result' in d ? d.result : d) }, // ChannelSyncView {result} (commerce views/channels.rs:144); null result = nothing pushed
   { m: 'POST', from: '/channels/connections/:id/test', row: 'commerce channels.ts:159', to: '/api/v2/commerce/channels/{id}/test', bs: 'j', reply: wrapData },
   { m: 'POST', from: '/channels/custom', row: 'commerce channels.ts:269', to: '/api/v2/commerce/channels/custom', bs: {'name':'s','notes':'s'} },
   { m: 'GET', from: '/channels/logs', row: 'commerce channels.ts:257', to: '/api/v2/commerce/channel-logs', qs: ['channel_id','limit'] },

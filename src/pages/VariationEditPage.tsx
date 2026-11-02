@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useInventoryLock } from '../hooks/useInventoryLock';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FaArrowLeft, FaSave, FaPlus, FaTrash } from 'react-icons/fa';
 import { productsAPI, uploadAPI, taxRulesAPI, brandsAPI, categoriesAPI } from '../services/api';
@@ -6,6 +7,7 @@ import { resolveTaxRate, describeTaxRate } from '../components/product/taxRate';
 import type { ProductVariation } from '../types/productForm';
 import { useAuth } from '../contexts/AuthContext';
 import ProductInventoryPanel from '../components/product/ProductInventoryPanel';
+import ErpAtTheErp from '../components/inventory/ErpAtTheErp';
 import { FieldGroup, Field, SwitchRow, fieldInputCls, fieldTextareaCls } from '../components/product/FormField';
 import RichTextEditor from '../components/common/RichTextEditor';
 import ProductImageUpload from '../components/product/ProductImageUpload';
@@ -110,6 +112,8 @@ const isFlatWholesaleRow = (s: Slab, variationUuid: string) =>
   && ['', 'default'].includes(String(s.tierName ?? '').toLowerCase());
 
 const VariationEditPage: React.FC = () => {
+  // DEC-069: stock is locked while the ERP keeps it (the server refuses manual changes too).
+  const stockLock = useInventoryLock();
   const { productSlug, variationKey } = useParams<{ productSlug: string; variationKey: string }>();
   const navigate = useNavigate();
   const { canAccess } = useAuth();
@@ -523,10 +527,11 @@ const VariationEditPage: React.FC = () => {
             <Field
               label="Stock"
               htmlFor="vStock"
-              help="Changes book a ledgered adjustment (see Inventory & ERP below); unchanged values are ignored."
+              help={stockLock.locked ? `🔒 ${stockLock.message}` : 'Changes book a ledgered adjustment (see Inventory & ERP below); unchanged values are ignored.'}
             >
               <input
                 id="vStock" type="number" min="0"
+                disabled={stockLock.locked} title={stockLock.why}
                 value={v.stock ?? 0}
                 onChange={e => handleChange('stock', Math.max(0, parseInt(e.target.value) || 0))}
                 className={fieldInputCls}
@@ -741,6 +746,10 @@ const VariationEditPage: React.FC = () => {
           onStockChanged={(newStock) => handleChange('stock', newStock)}
         />
       )}
+
+      {/* At the ERP (ERP-WH-1) — the ERP's branches and batches behind this SKU's stock, read-only */}
+      {/* The SAVED sku (not the field being typed in), so typing does not re-ask the ERP. */}
+      {String(loadedRef.current?.sku ?? '').trim() && <ErpAtTheErp sku={String(loadedRef.current?.sku ?? '')} />}
 
       {/* ══ Content ═════════════════════════════════════════════════════════ */}
       <FieldGroup

@@ -9,6 +9,7 @@ import {
   type CsvColumn,
 } from '../../components/erp';
 import InfoTip from '../../components/common/InfoTip';
+import { FeeVendorsSection, GatewayTaxInvoices, HeldFeesPanel } from '../payments/feeVendors/FeeVendors';
 
 /** Accounting configuration: GL auto-posting, books lock + year-end close, series counters + statutory registry. */
 
@@ -149,6 +150,11 @@ const AccountingSettings: React.FC = () => {
         </div>
         {!canPost && <p className="mt-2 text-xs text-gray-400">Changing this needs the <code className="font-mono">accounting.post</code> permission.</p>}
       </div>
+
+      {/* Gateway and courier fees (DEC-072/073): who each vendor is, what waits, the attached tax invoices */}
+      <FeeVendorsSection />
+      <HeldFeesPanel />
+      <GatewayTaxInvoices />
 
       {/* Books lock + year-end close */}
       <div className="grid gap-4 lg:grid-cols-2">

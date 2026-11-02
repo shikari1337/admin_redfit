@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react';
+import { useInventoryLock } from '../../hooks/useInventoryLock';
+import InventoryLockBanner from '../../components/inventory/InventoryLockBanner';
 import { api } from '../../services/api';
 import { localeDateTime } from '../../utils/date';
 import {
@@ -13,6 +15,8 @@ import {
  */
 
 const CycleCounts: React.FC = () => {
+  // DEC-069: posting count variances moves stock, so it is locked while the ERP keeps stock.
+  const stockLock = useInventoryLock();
   const [rows, setRows] = useState<any[]>([]);
   const [detail, setDetail] = useState<any | null>(null);
   const [bins, setBins] = useState<any[]>([]);
@@ -80,6 +84,7 @@ const CycleCounts: React.FC = () => {
         description="Bins under a count are frozen for picks and putaway until the count posts or is cancelled. Blind counts hide the expected quantity until review. Posting is the variance approval — corrections are written to the stock ledger."
         actions={<Btn onClick={() => setCreating((v) => !v)}>{creating ? 'Close' : '+ New count'}</Btn>}
       />
+      <InventoryLockBanner />
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
       {notice && <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</div>}
 
@@ -143,7 +148,7 @@ const CycleCounts: React.FC = () => {
                   <Btn size="sm" onClick={() => act(`/wms/counts/${detail.id}/review`, 'Submitted for review')}>Submit for review</Btn>
                 )}
                 {detail.status === 'review' && (
-                  <Btn variant="success" size="sm" onClick={() => act(`/wms/counts/${detail.id}/post`, 'Variances posted — bins released')}>Approve &amp; post</Btn>
+                  <Btn variant="success" size="sm" disabled={stockLock.locked} title={stockLock.why} onClick={() => act(`/wms/counts/${detail.id}/post`, 'Variances posted — bins released')}>Approve &amp; post</Btn>
                 )}
                 {(detail.status === 'counting' || detail.status === 'review') && (
                   <Btn variant="outline" size="sm" onClick={() => act(`/wms/counts/${detail.id}/cancel`, 'Cancelled — bins released')}>Cancel</Btn>

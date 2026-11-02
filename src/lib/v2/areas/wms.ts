@@ -6,13 +6,74 @@
  * all three). `reply: wrapData` puts the answer back in the `{data, total}` wrapper the caller reads (the old route
  * answered without `success`); a `gap` row is a NAMED refusal (docs/PORT_NOTES/ADMIN-V2-2.md, "gaps").
  */
-import type { V2Route } from '../routes';
-import { pageAs } from '../shape';
+import type { V2Ctx, V2Route } from '../routes';
+import { pageAs, shapeBody, shapeQuery } from '../shape';
+import { mapList } from '../http';
+import { majorToMinor } from '../money';
+
+/**
+ * The screens still send the old request names: the facility as `warehouseId` (`fromWarehouseId` /
+ * `toWarehouseId` on a transfer) and a label's `type`. The v2 inputs say `facility_id` (wms api/locations.rs:282
+ * ListQuery, :740 MetaQuery, :296 CreateIn, :610 GenerateIn, :968 RackIn, :1088 SuggestIn; api/picking.rs:495), `from_/to_facility_id`
+ * (api/transfers.rs:305) and `kind` (api/labels.rs:165). The shaper left an unmatched name out, so a list lost
+ * its facility filter and a write lacking the required field was refused. Re-spelt here, then the row's own
+ * `qs` / `bs` shaping runs unchanged.
+ */
+const respell = (src: unknown, names: Record<string, string>): any => {
+  if (!src || typeof src !== 'object' || Array.isArray(src) || (typeof FormData !== 'undefined' && src instanceof FormData)) return src;
+  const out: Record<string, unknown> = { ...(src as Record<string, unknown>) };
+  for (const [from, to] of Object.entries(names)) {
+    if (out[from] === undefined) continue;
+    if (out[to] === undefined) out[to] = out[from];
+    delete out[from];
+  }
+  return out;
+};
+const legacyNames = (names: Record<string, string>, r: V2Route): V2Route => ({
+  ...r,
+  ...(r.qs ? { query: (c: V2Ctx) => shapeQuery(r.qs as readonly string[])({ ...c, query: respell(c.query, names) }) } : {}),
+  ...(r.m !== 'GET' && r.bs !== undefined ? { body: (c: V2Ctx) => shapeBody(r.bs ?? null)({ ...c, body: respell(c.body, names) }) } : {}),
+});
+const FACILITY = { warehouseId: 'facility_id', warehouse_id: 'facility_id' };
+
+const paise = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? majorToMinor(v) ?? undefined : undefined);
+const plain = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v);
+
+/**
+ * A transfer's value is Money `total_value` (its lines `unit_cost`, its e-way link `total_value`; wms
+ * views/transfers.rs:10,34,49), rupees after the normaliser; StockTransfers reads paise `total_value_minor` /
+ * `unit_cost_minor` and divides by 100 itself (the value column was blank). The paise twin is added beside.
+ */
+function transferRow(t: any): any {
+  if (!plain(t)) return t;
+  const out: any = { ...t, total_value_minor: t.total_value_minor ?? paise(t.total_value) };
+  if (Array.isArray(t.items)) out.items = t.items.map((i: any) => (plain(i) ? { ...i, unit_cost_minor: i.unit_cost_minor ?? paise(i.unit_cost) } : i));
+  if (plain(t.ewb)) out.ewb = { ...t.ewb, total_value_minor: t.ewb.total_value_minor ?? paise(t.ewb.total_value) };
+  return out;
+}
+const transferReply = (d: any) => (Array.isArray(d) ? mapList(d, transferRow) : transferRow(d));
+
+/**
+ * ScanView (wms views/stock.rs:35) names the hit's kind `scan_kind` (read from the row's `type`), a serial
+ * `serial_no`, a SKU's stock `catalogue_stock`, and every lot of a shared batch number `lots`; the scan screens
+ * switch on the old `type` (LabelsBarcodes, ScanLookup/Move/Putaway, POS: every scan read as "not found") and
+ * read `legacy_stock`, `serial_number` and `siblings` (the lots other than the one shown).
+ */
+function scanReply(d: any): any {
+  if (!plain(d)) return d;
+  return {
+    ...d,
+    type: d.type ?? d.scan_kind,
+    legacy_stock: d.legacy_stock ?? d.catalogue_stock,
+    serial_number: d.serial_number ?? d.serial_no,
+    siblings: d.siblings ?? (Array.isArray(d.lots) ? d.lots.filter((l: any) => l?.batch_id !== d.batch_id) : undefined),
+  };
+}
 
 export const WMS_ROUTES: V2Route[] = [
-  { m: 'GET', from: '/transfers', row: 'wms The table', to: '/api/v2/wms/transfers', qs: ['limit','offset','status'] },
-  { m: 'POST', from: '/transfers', row: 'wms The table', to: '/api/v2/wms/transfers', bs: {'from_facility_id':'s','lines':[{'batch_id':'s','qty':'i','variation_id':'s'}],'note':'s','to_facility_id':'s'} },
-  { m: 'GET', from: '/transfers/:id', row: 'wms The table', to: '/api/v2/wms/transfers/{id}' },
+  { m: 'GET', from: '/transfers', row: 'wms The table', to: '/api/v2/wms/transfers', qs: ['limit','offset','status'], reply: transferReply }, // total_value Money → + total_value_minor (views/transfers.rs:49)
+  legacyNames({ fromWarehouseId: 'from_facility_id', toWarehouseId: 'to_facility_id' }, { m: 'POST', from: '/transfers', row: 'wms The table', to: '/api/v2/wms/transfers', bs: {'from_facility_id':'s','lines':[{'batch_id':'s','qty':'i','variation_id':'s'}],'note':'s','to_facility_id':'s'} }), // StockTransfers sends fromWarehouseId/toWarehouseId (api/transfers.rs:305)
+  { m: 'GET', from: '/transfers/:id', row: 'wms The table', to: '/api/v2/wms/transfers/{id}', reply: transferReply }, // + total_value_minor, items[].unit_cost_minor (views/transfers.rs:10,49)
   { m: 'POST', from: '/transfers/:id/approve', row: 'wms The table', to: '/api/v2/wms/transfers/{id}/approve', bs: 'j' },
   { m: 'POST', from: '/transfers/:id/cancel', row: 'wms The table', to: '/api/v2/wms/transfers/{id}/cancel', bs: {'reason':'s'} },
   { m: 'POST', from: '/transfers/:id/dispatch', row: 'wms The table', to: '/api/v2/wms/transfers/{id}/dispatch', bs: 'j' },
@@ -60,25 +121,25 @@ export const WMS_ROUTES: V2Route[] = [
   { m: 'POST', from: '/wms/inspections/:id/cancel', row: 'wms The table', to: '/api/v2/wms/inspections/{id}/cancel', bs: 'j' },
   { m: 'POST', from: '/wms/inspections/:id/complete', row: 'wms The table', to: '/api/v2/wms/inspections/{id}/complete', bs: {'facility_id':'s','putaway':'b','resolve_shortfall':'s'} },
   { m: 'PATCH', from: '/wms/inspections/items/:itemId', row: 'wms The table', to: '/api/v2/wms/inspection-items/{itemId}', bs: {'bin_id':'s','hold_reason':'s','measured':'j','mfg_month':'s','mrp':'m','note':'s','pack_note':'s','photo_url':'s','photos':['s'],'qty_accepted':'i','qty_held':'i','qty_received':'i','qty_rejected':'i','quality_grade':'s','reject_disposition':'s','reject_reason':'s','serials':['s']} },
-  { m: 'POST', from: '/wms/labels', row: 'wms The table', to: '/api/v2/wms/labels', bs: {'format':'s','ids':['s'],'kind':'s','size':'s'} }, // download
+  legacyNames({ type: 'kind' }, { m: 'POST', from: '/wms/labels', row: 'wms The table', to: '/api/v2/wms/labels', bs: {'format':'s','ids':['s'],'kind':'s','size':'s'} }), // download; LabelsBarcodes/WarehouseLayout/Purchasing send `type`, LabelsIn takes `kind` (api/labels.rs:165)
   { m: 'POST', from: '/wms/labels/lot', row: 'wms The table', to: '/api/v2/wms/labels/lots', bs: {'batch_number':'s','ensure_barcode':'b','expiry_date':'s','mfg_date':'s','mode':'s','mrp':'m','qty':'i','selling_price':'m','supplier_batch_ref':'s','unit_cost':'m','variation_id':'s'} },
   { m: 'GET', from: '/wms/labels/sheet.pdf', row: 'wms The table', to: '/api/v2/wms/labels/sheet', qs: ['format','ids','kind','size'] }, // download
   { m: 'GET', from: '/wms/labels/sheet.zpl', row: 'wms The table', to: '/api/v2/wms/labels/sheet', qs: ['format','ids','kind','size'] }, // download
   { m: 'POST', from: '/wms/labels/stickers', row: 'wms The table', to: '/api/v2/wms/labels/stickers', bs: {'format':'s','items':[{'batch_id':'s','batch_number':'s','code_source':'s','copies':'i','expiry_date':'s','extra_lines':['s'],'mfg_date':'s','mrp':'m','pack_of':'i','variation_id':'s'}],'size':'s'} }, // download
-  { m: 'GET', from: '/wms/layout/meta', row: 'wms The table', to: '/api/v2/wms/layout/meta', qs: ['facility_id'] },
+  legacyNames(FACILITY, { m: 'GET', from: '/wms/layout/meta', row: 'wms The table', to: '/api/v2/wms/layout/meta', qs: ['facility_id'] }), // ?warehouseId= → facility_id (api/locations.rs:740)
   { m: 'POST', from: '/wms/layout/templates', row: 'wms The table', to: '/api/v2/wms/layout/templates', bs: {'code':'s','description':'s','levels':[{'label':'s','level_code':'s','role':'s'}],'name':'s'} },
   { m: 'PUT', from: '/wms/layout/warehouses/:id/template', row: 'wms The table', to: '/api/v2/wms/facilities/{id}/level-template', bs: {'template_id':'s'} },
-  { m: 'POST', from: '/wms/locations', row: 'wms The table', to: '/api/v2/wms/locations', bs: {'allowed_category_ids':['s'],'code':'s','depth_mm':'i','facility_id':'s','flags':'j','grid_col':'i','grid_row':'i','height_mm':'i','kind':'s','level_code':'s','max_pallets':'i','max_units':'i','max_volume_ml':'i','max_weight_g':'i','min_units':'i','name':'s','node_role':'s','parent_id':'s','pick_sequence':'i','pickable':'b','reach_height_mm':'i','rotation_deg':'i','storage_type':'s','usable_pct':'i','width_mm':'i','x_mm':'i','y_mm':'i','z_mm':'i'} },
-  { m: 'GET', from: '/wms/locations', row: 'wms The table', to: '/api/v2/wms/locations', qs: ['facility_id'], reply: pageAs('rows') },
+  legacyNames(FACILITY, { m: 'POST', from: '/wms/locations', row: 'wms The table', to: '/api/v2/wms/locations', bs: {'allowed_category_ids':['s'],'code':'s','depth_mm':'i','facility_id':'s','flags':'j','grid_col':'i','grid_row':'i','height_mm':'i','kind':'s','level_code':'s','max_pallets':'i','max_units':'i','max_volume_ml':'i','max_weight_g':'i','min_units':'i','name':'s','node_role':'s','parent_id':'s','pick_sequence':'i','pickable':'b','reach_height_mm':'i','rotation_deg':'i','storage_type':'s','usable_pct':'i','width_mm':'i','x_mm':'i','y_mm':'i','z_mm':'i'} }), // LayoutDialogs sends warehouseId (api/locations.rs:296)
+  legacyNames(FACILITY, { m: 'GET', from: '/wms/locations', row: 'wms The table', to: '/api/v2/wms/locations', qs: ['facility_id'], reply: pageAs('rows') }), // ?warehouseId= → facility_id (api/locations.rs:282)
   { m: 'PATCH', from: '/wms/locations/:id', row: 'wms The table', to: '/api/v2/wms/locations/{id}', bs: {'allowed_category_ids':['s'],'code':'s','depth_mm':'i','flags':'j','grid_col':'i','grid_row':'i','height_mm':'i','level_code':'s','max_pallets':'i','max_units':'i','max_volume_ml':'i','max_weight_g':'i','min_units':'i','name':'s','node_role':'s','pick_sequence':'i','pickable':'b','reach_height_mm':'i','rotation_deg':'i','status':'s','storage_type':'s','usable_pct':'i','width_mm':'i','x_mm':'i','y_mm':'i','z_mm':'i'} },
   { m: 'DELETE', from: '/wms/locations/:id', row: 'wms The table', to: '/api/v2/wms/locations/{id}' },
   { m: 'GET', from: '/wms/locations/:id/capacity', row: 'wms The table', to: '/api/v2/wms/locations/{id}/capacity', qs: ['variation_id'] },
   { m: 'POST', from: '/wms/locations/bootstrap', row: 'wms The table', to: '/api/v2/wms/locations/bootstrap', bs: {'facility_id':'s'} },
-  { m: 'POST', from: '/wms/locations/build-rack', row: 'wms The table', to: '/api/v2/wms/locations/build-rack', bs: {'code_pattern':'s','col_pad':'i','cols':'i','facility_id':'s','parent_id':'s','pick_sequence_from':'i','rack':{'depth_mm':'i','height_mm':'i','rotation_deg':'i','storage_type':'s','width_mm':'i','x_mm':'i','y_mm':'i'},'rack_code':'s','rack_level':'s','rack_name':'s','row_level':'s','rows':'i','slot':{'depth_mm':'i','height_mm':'i','max_pallets':'i','max_units':'i','max_volume_ml':'i','max_weight_g':'i','pickable':'b','storage_type':'s','usable_pct':'i','width_mm':'i'}} },
-  { m: 'POST', from: '/wms/locations/generate', row: 'wms The table', to: '/api/v2/wms/locations/generate', bs: {'count':'i','depth_mm':'i','facility_id':'s','flags':'j','grid_col':'i','grid_row':'i','height_mm':'i','kind':'s','level_code':'s','max_pallets':'i','max_units':'i','max_volume_ml':'i','max_weight_g':'i','min_units':'i','name':'s','node_role':'s','pad':'i','parent_id':'s','pick_sequence_from':'i','prefix':'s','reach_height_mm':'i','rotation_deg':'i','start_at':'i','storage_type':'s','usable_pct':'i','width_mm':'i','x_mm':'i','y_mm':'i','z_mm':'i'} },
+  legacyNames(FACILITY, { m: 'POST', from: '/wms/locations/build-rack', row: 'wms The table', to: '/api/v2/wms/locations/build-rack', bs: {'code_pattern':'s','col_pad':'i','cols':'i','facility_id':'s','parent_id':'s','pick_sequence_from':'i','rack':{'depth_mm':'i','height_mm':'i','rotation_deg':'i','storage_type':'s','width_mm':'i','x_mm':'i','y_mm':'i'},'rack_code':'s','rack_level':'s','rack_name':'s','row_level':'s','rows':'i','slot':{'depth_mm':'i','height_mm':'i','max_pallets':'i','max_units':'i','max_volume_ml':'i','max_weight_g':'i','pickable':'b','storage_type':'s','usable_pct':'i','width_mm':'i'}} }), // warehouseId → facility_id (api/locations.rs:968)
+  legacyNames(FACILITY, { m: 'POST', from: '/wms/locations/generate', row: 'wms The table', to: '/api/v2/wms/locations/generate', bs: {'count':'i','depth_mm':'i','facility_id':'s','flags':'j','grid_col':'i','grid_row':'i','height_mm':'i','kind':'s','level_code':'s','max_pallets':'i','max_units':'i','max_volume_ml':'i','max_weight_g':'i','min_units':'i','name':'s','node_role':'s','pad':'i','parent_id':'s','pick_sequence_from':'i','prefix':'s','reach_height_mm':'i','rotation_deg':'i','start_at':'i','storage_type':'s','usable_pct':'i','width_mm':'i','x_mm':'i','y_mm':'i','z_mm':'i'} }), // warehouseId → facility_id (api/locations.rs:610)
   { m: 'POST', from: '/wms/move', row: 'wms The table', to: '/api/v2/wms/bin-moves', bs: {'batch_id':'s','from_bin_id':'s','qty':'i','reason':'s','to_bin_id':'s','variation_id':'s'} },
   { m: 'GET', from: '/wms/my-area', row: 'wms The table', to: '/api/v2/wms/my-area' },
-  { m: 'GET', from: '/wms/pack-checks', row: 'wms The table', to: '/api/v2/wms/pack-checks', qs: ['exceptions_only','limit','variation_id'] },
+  { m: 'GET', from: '/wms/pack-checks', row: 'wms The table', to: '/api/v2/wms/pack-checks', qs: ['exceptions_only','limit','variation_id'], reply: (d) => (plain(d) && Array.isArray(d.checks) && d.rows === undefined ? { ...d, rows: d.checks } : d) }, // PackChecksView {available, checks} (views/labels.rs:85); GoodsInLabels reads .rows
   { m: 'POST', from: '/wms/pack-checks', row: 'wms The table', to: '/api/v2/wms/pack-checks', bs: {'batch_id':'s','counts':['i'],'notes':'s','packs_received':'i','ref_doc_id':'s','ref_doc_type':'s','uom_id':'s','variation_id':'s'} },
   { m: 'GET', from: '/wms/pack/boxes', row: 'wms The table', to: '/api/v2/wms/boxes', qs: ['include_inactive'] },
   { m: 'POST', from: '/wms/pack/boxes', row: 'wms The table', to: '/api/v2/wms/boxes', bs: {'breadth_cm':'i','code':'s','cost':'m','height_cm':'i','inner_breadth_mm':'i','inner_height_mm':'i','inner_length_mm':'i','is_active':'b','length_cm':'i','max_weight_g':'i','name':'s','tare_g':'i'} },
@@ -115,15 +176,15 @@ export const WMS_ROUTES: V2Route[] = [
   { m: 'GET', from: '/wms/pick-lists/ready', row: 'wms The table', to: '/api/v2/wms/pick-lists/ready', qs: ['facility_id','limit'] },
   { m: 'GET', from: '/wms/pick-lists/short', row: 'wms The table', to: '/api/v2/wms/pick-lists/short', qs: ['from','limit','to'] },
   { m: 'POST', from: '/wms/putaway/confirm', row: 'wms The table', to: '/api/v2/wms/putaway', bs: {'batch_id':'s','bin_id':'s','qty':'i','ref_doc_id':'s','variation_id':'s'} },
-  { m: 'POST', from: '/wms/putaway/suggest', row: 'wms The table', to: '/api/v2/wms/putaway/suggestions', bs: {'batch_id':'s','category_id':'s','facility_id':'s','is_hazmat':'b','owner_party_id':'s','qty':'i','requires_cold_chain':'b','requires_storage_type':'s','target_state':'s','temperature_requirement':'s','top_n':'i','variation_id':'s','velocity_class':'s'} },
-  { m: 'GET', from: '/wms/replenishment', row: 'wms The table', to: '/api/v2/wms/replenishment', qs: ['facility_id'] },
-  { m: 'GET', from: '/wms/reslotting', row: 'wms The table', to: '/api/v2/wms/reslotting', qs: ['facility_id'] },
+  legacyNames(FACILITY, { m: 'POST', from: '/wms/putaway/suggest', row: 'wms The table', to: '/api/v2/wms/putaway/suggestions', bs: {'batch_id':'s','category_id':'s','facility_id':'s','is_hazmat':'b','owner_party_id':'s','qty':'i','requires_cold_chain':'b','requires_storage_type':'s','target_state':'s','temperature_requirement':'s','top_n':'i','variation_id':'s','velocity_class':'s'} }), // WarehouseLayout/ScanPutaway send warehouseId (api/locations.rs:1088)
+  legacyNames(FACILITY, { m: 'GET', from: '/wms/replenishment', row: 'wms The table', to: '/api/v2/wms/replenishment', qs: ['facility_id'], reply: pageAs('rows') }), // a bare Vec<ReplenishmentView> (views/picking.rs:176); WarehouseLayout reads r.data.rows
+  legacyNames(FACILITY, { m: 'GET', from: '/wms/reslotting', row: 'wms The table', to: '/api/v2/wms/reslotting', qs: ['facility_id'], reply: pageAs('rows') }), // a bare Vec<ReslotView> (views/picking.rs:194); WarehouseLayout reads r.data.rows
   { m: 'GET', from: '/wms/returns/incoming', row: 'wms The table', to: '/api/v2/wms/returns/incoming', qs: ['limit','unopened_only'] },
   { m: 'POST', from: '/wms/returns/incoming/:shipmentId/rto', row: 'wms The table', to: '/api/v2/wms/returns/incoming/{shipmentId}/rto', bs: {'initiated_by':'s','ndr_reason':'s','reason':'s'} },
   { m: 'POST', from: '/wms/returns/rto/:id/notify', row: 'wms The table', to: '/api/v2/wms/returns/rto/{id}/notify', bs: {'channel':'s'} },
-  { m: 'GET', from: '/wms/scan/:code', row: 'wms The table', to: '/api/v2/wms/scan/{code}' },
+  { m: 'GET', from: '/wms/scan/:code', row: 'wms The table', to: '/api/v2/wms/scan/{code}', reply: scanReply }, // scan_kind → type, serial_no, lots (views/stock.rs:35)
   { m: 'GET', from: '/wms/stock', row: 'wms The table', to: '/api/v2/wms/bin-stock', qs: ['batch_id','bin_id','limit','q','variation_id'], reply: pageAs('rows') },
-  { m: 'GET', from: '/wms/team/areas', row: 'wms The table', to: '/api/v2/wms/team/areas' },
+  { m: 'GET', from: '/wms/team/areas', row: 'wms The table', to: '/api/v2/wms/team/areas', reply: (d) => (plain(d) && Array.isArray(d.nodes) ? { ...d, nodes: d.nodes.map((n: any) => (plain(n) && n.warehouse_id === undefined ? { ...n, warehouse_id: n.facility_id } : n)) } : d) }, // AreaNodeView facility_id (views/team.rs:167); WarehouseAreaPicker filters nodes by n.warehouse_id
   { m: 'GET', from: '/wms/team/pick-throughput', row: 'wms The table', to: '/api/v2/wms/team/pick-throughput', qs: ['from','limit','to','user_id'] },
   { m: 'GET', from: '/wms/team/throughput', row: 'wms The table', to: '/api/v2/wms/team/throughput', qs: ['from','limit','to','user_id'] },
   { m: 'GET', from: '/wms/team/workers', row: 'wms The table', to: '/api/v2/wms/team/workers' },

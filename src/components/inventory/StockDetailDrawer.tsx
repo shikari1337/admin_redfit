@@ -3,6 +3,7 @@ import { inventoryAPI } from '../../services/api';
 import { formatDay, formatDateTime } from '../../utils/date';
 import { movementLabel, refDocLabel, shortHash } from './ledgerLabels';
 import { useAuth } from '../../contexts/AuthContext';
+import ErpAtTheErp from './ErpAtTheErp';
 
 /**
  * EVERYTHING ABOUT ONE SKU — opened from the Inventory table.
@@ -27,11 +28,13 @@ function daysUntil(iso?: string | null): number | null {
   return Math.round((new Date(iso).getTime() - Date.now()) / 86400000);
 }
 
-export default function StockDetailDrawer({ variationId, onClose, onUpdate }: {
+export default function StockDetailDrawer({ variationId, onClose, onUpdate, lockedWhy }: {
   variationId: string | null;
   onClose: () => void;
   /** Opens the Update-stock dialog for this SKU (the page closes the drawer first). */
   onUpdate?: (variationId: string, name: string) => void;
+  /** Set while the inventory lock (DEC-069) refuses manual stock changes: the reason, as a tooltip. */
+  lockedWhy?: string;
 }) {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -95,10 +98,11 @@ export default function StockDetailDrawer({ variationId, onClose, onUpdate }: {
             {sku && (
               <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
                 {onUpdate && (
-                  <button onClick={() => onUpdate(sku.id, sku.name)} data-testid="drawer-update-stock" style={{
+                  <button onClick={() => onUpdate(sku.id, sku.name)} data-testid="drawer-update-stock"
+                    disabled={!!lockedWhy} title={lockedWhy} style={{
                     border: '1px solid var(--accent)', background: 'var(--accent)', color: 'var(--surface)', borderRadius: 6,
-                    padding: '4px 10px', fontSize: 12, cursor: 'pointer',
-                  }}>Update stock</button>
+                    padding: '4px 10px', fontSize: 12, cursor: lockedWhy ? 'not-allowed' : 'pointer', opacity: lockedWhy ? 0.5 : 1,
+                  }}>{lockedWhy ? '🔒 Update stock' : 'Update stock'}</button>
                 )}
                 {productHref && (
                   <a href={productHref} target="_blank" rel="noopener noreferrer" data-testid="drawer-site-link" style={{
@@ -237,6 +241,9 @@ export default function StockDetailDrawer({ variationId, onClose, onUpdate }: {
               )}
             </section>
             )}
+
+            {/* ── At the ERP (ERP-WH-1): where the ERP's figure comes from, read-only ── */}
+            <ErpAtTheErp sku={sku.sku} variant="drawer" />
 
             {/* ── The stock ledger, as a chain ──────────────────────────────
                 Every movement of this SKU carries a fingerprint of itself and of

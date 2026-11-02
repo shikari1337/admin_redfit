@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { localeDate } from '../../utils/date';
+import { V2_ENABLED } from '../../lib/v2/config';
+import { partnerPortalCall } from '../../lib/v2/areas/trade';
 
 /**
  * PARTNER PORTAL — the franchise partner's own window (migration 085; spec Part V
@@ -43,13 +45,16 @@ const PORTAL = (token: string, path: string) =>
 
 const headers = () => ({ 'x-api-key': storeKey() });
 
+// A v2 build (VITE_API_URL) goes through the v2 layer: /api/v2/trade/portal/*, the token in X-Portal-Token.
 async function portalGet(token: string, path: string) {
+  if (V2_ENABLED) return partnerPortalCall(token, 'GET', path);
   const res = await fetch(PORTAL(token, path), { headers: headers() as any });
   const body = await res.json().catch(() => ({}));
   return { ok: res.ok, status: res.status, body };
 }
 
 async function portalPost(token: string, path: string, payload: any) {
+  if (V2_ENABLED) return partnerPortalCall(token, 'POST', path, payload);
   const res = await fetch(PORTAL(token, path), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...headers() } as any,
@@ -176,9 +181,16 @@ const PartnerPortal: React.FC = () => {
   const downloadInvoice = async (inv: any) => {
     setDownloading(inv.id);
     try {
-      const res = await fetch(PORTAL(token, `/royalty-invoices/${inv.id}/pdf`), { headers: headers() as any });
-      if (!res.ok) { setMsg('Could not prepare that bill. Please try again.'); return; }
-      const blob = await res.blob();
+      let blob: Blob;
+      if (V2_ENABLED) {
+        const r = await partnerPortalCall(token, 'GET', `/royalty-invoices/${inv.id}/pdf`, undefined, 'blob');
+        if (!r.ok) { setMsg('Could not prepare that bill. Please try again.'); return; }
+        blob = r.body as Blob;
+      } else {
+        const res = await fetch(PORTAL(token, `/royalty-invoices/${inv.id}/pdf`), { headers: headers() as any });
+        if (!res.ok) { setMsg('Could not prepare that bill. Please try again.'); return; }
+        blob = await res.blob();
+      }
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;

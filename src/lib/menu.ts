@@ -29,6 +29,8 @@
  *    MenuItem with its own gate, so a child a person cannot open is absent.
  */
 import type { LucideIcon } from 'lucide-react';
+// Messaging group (ADMIN-MSG-1) — kept on its own line so the shared import above stays untouched.
+import { MessagesSquare, MessageCircle, Smartphone, ShoppingBag } from 'lucide-react';
 import {
   Home, ShoppingCart, Package2, Wallet, Truck, Users, LineChart, Settings,
   RotateCcw, FileText, Store, Megaphone, Ticket, Plug, Palette, Star,
@@ -159,6 +161,7 @@ export const MENU: MenuGroup[] = [
       tip: 'Sales, orders and customers over a period.',
       children: [
         { label: 'Dashboard', to: '/analytics/dashboard', perm: 'reports.read', modules: ['analytics'], tip: 'Sales, orders and customers over a period.' },
+        { label: 'Sales Insights', to: '/analytics/insights', perm: 'reports.read', modules: ['analytics'], tip: 'Brand, item and campaign sales, what moved, and what to act on.' },
         { label: 'Store', to: '/analytics/store', perm: 'reports.read', modules: ['analytics'], tip: 'Products, categories and the checkout funnel.' },
         { label: 'Marketing', to: '/analytics/marketing', perm: 'reports.read', modules: ['analytics'], tip: 'Which channel brought the order.' },
         { label: 'Users', to: '/analytics/users', perm: 'reports.read', modules: ['analytics'], tip: 'Who is visiting, on what, and from where.' },
@@ -179,6 +182,11 @@ export const MENU: MenuGroup[] = [
         { label: 'Quotations', to: '/panel/orders/quotations', perm: 'orders.read', tip: 'Prices offered to a buyer before an order exists.' },
         { label: 'Credit Notes & Challans', to: '/panel/orders/documents', perm: 'orders.read', tip: 'Credit notes, debit notes and delivery challans.' },
         { label: 'Refunds', to: '/panel/orders/refunds', perm: 'orders.manage', tip: 'Money to send back: requested, approved, paid.' },
+        // PAY-0 §5: the store's money in — what each payment cost, and when it reached the bank.
+        { label: 'Payments', to: '/panel/orders/payments', perm: 'orders.read', tip: 'Every online payment: fee, net, and when it reached your bank.' },
+        { label: 'Settlements', to: '/panel/orders/payments/settlements', perm: 'orders.read', tip: 'Each payout from your gateway, with its UTR.', owns: ['/panel/orders/payments/settlements/:settlementId'] },
+        { label: 'Payment analytics', to: '/panel/orders/payments/analytics', perm: 'orders.read', tip: 'Fees, net and anything not yet in the bank.' },
+        { label: 'Payment requests', to: '/panel/orders/payments/requests', perm: 'orders.read', tip: 'What each order asked the payer to pay, and what came in.' },
         { label: 'Sales & Team', to: '/panel/orders/sales-team', perm: 'reports.read', tip: 'Who sold what, and who is handling it now.' },
       ],
     },
@@ -216,6 +224,8 @@ export const MENU: MenuGroup[] = [
         // RouteGuard reads this same table, so the page is unreachable too.
         { label: 'Batches & Expiry', to: '/panel/inventory/batches', perm: 'inventory.read', modules: ['batches'], tip: 'Lots, their MRP and their expiry.' },
         { label: 'Reorder', to: '/panel/inventory/reorder', perm: 'inventory.read', tip: 'What to buy, how much, and from whom.' },
+        // DEC-068: the distributor's ERP is the stock master; its connections, mapping and the hourly stock update live here.
+        { label: 'ERP Sync', to: '/panel/inventory/erp', perm: 'settings.read', tip: 'Stock set from your distributor’s ERP, every hour.', owns: ['/panel/inventory/erp/connect', '/panel/inventory/erp/c/:id'] },
         { label: 'Approvals', to: '/panel/inventory/approvals', perm: 'inventory.manage', tip: 'Stock changes waiting for a second pair of eyes.' },
         { label: 'Outlets & Transfers', to: '/panel/inventory/outlets', perm: 'inventory.read', tip: 'Shops that hold their own stock.' },
         { label: 'Consignment', to: '/panel/inventory/consignment', perm: 'inventory.read', tip: 'Stock sitting with a partner, still yours.' },
@@ -263,6 +273,17 @@ export const MENU: MenuGroup[] = [
       ],
     },
     { label: 'Coupons', to: '/coupons', icon: Ticket, perm: 'marketing.read', modules: ['coupons'], tip: 'Discount codes and who may use them.', owns: ['/coupons/new', '/coupons/:id/edit'] },
+  ]),
+
+  // MSG-0 (lane ADMIN-MSG-1): ONE place for every message the store sends and receives. Built beside the old
+  // places (Settings ▸ Message templates, API Integrations ▸ SMTP/WhatsApp, Cart Recovery Automation); those
+  // are removed only after the owner approves. Permissions = the comms routes' own (marketing.read / .manage).
+  one('messaging', 'Messaging', MessagesSquare, '/messaging/notifications', [
+    { label: 'Notifications', to: '/messaging/notifications', icon: Bell, perm: 'marketing.read', tip: 'Every message the store sends, its channels and its on/off switch.' },
+    { label: 'WhatsApp', to: '/messaging/whatsapp', icon: MessageCircle, perm: 'marketing.read', tip: 'Inbox, number, Meta approval and what was sent.' },
+    { label: 'Email', to: '/messaging/email', icon: Mail, perm: 'marketing.read', tip: 'Sender, SMTP, branding and what was sent.' },
+    { label: 'SMS', to: '/messaging/sms', icon: Smartphone, perm: 'marketing.read', tip: 'Provider, DLT mapping and what was sent.' },
+    { label: 'Cart recovery', to: '/messaging/cart-recovery', icon: ShoppingBag, perm: 'marketing.read', tip: 'The reminders sent after a cart is left behind.' },
   ]),
 
   one('customers', 'Store Customers', Users, '/customers', [
@@ -390,7 +411,7 @@ export const OFF_MENU: MenuItem[] = [
   { label: 'TDS', to: '/panel/accounting/tds', icon: ShieldCheck, perm: 'accounting.read', modules: ['accounting'], tip: 'Tax deducted on what you pay out.' },
   { label: 'TCS', to: '/panel/accounting/tcs', icon: ShieldCheck, perm: 'accounting.read', modules: ['accounting'], tip: 'Tax collected on what you sell.' },
   { label: 'Chart of accounts', to: '/panel/accounting/chart-of-accounts', icon: BookOpen, perm: 'accounting.read', modules: ['accounting'], tip: 'The chart of accounts.' },
-  { label: 'Journals', to: '/panel/accounting/journals', icon: BookOpen, perm: 'accounting.post', modules: ['accounting'], tip: 'Entries posted by hand.' },
+  { label: 'Journals', to: '/panel/accounting/journals', icon: BookOpen, perm: 'accounting.read', modules: ['accounting'], tip: 'Entries posted by hand (posting needs accounting.post — the page hides it).' },
   { label: 'Opening', to: '/panel/accounting/opening-balances', icon: Scale, perm: 'accounting.read', modules: ['accounting'], tip: 'What each account held on day one.' },
   { label: 'Trial balance', to: '/panel/accounting/trial-balance', icon: Scale, perm: 'accounting.read', modules: ['accounting'], tip: 'Every account’s balance, debits against credits.' },
   { label: 'General ledger', to: '/panel/accounting/general-ledger', icon: BookOpen, perm: 'accounting.read', modules: ['accounting'], tip: 'Every entry against one account.' },

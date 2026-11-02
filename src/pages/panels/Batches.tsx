@@ -11,6 +11,8 @@ import InfoTip from '../../components/common/InfoTip';
 import BatchBulkBar from '../../components/inventory/BatchBulkBar';
 import SheetsBar from '../../components/inventory/SheetsBar';
 import BatchEditDrawer, { type BatchRecord } from '../../components/inventory/BatchEditDrawer';
+import { useInventoryLock } from '../../hooks/useInventoryLock';
+import InventoryLockBanner from '../../components/inventory/InventoryLockBanner';
 
 /**
  * Batches & Expiry.
@@ -309,6 +311,8 @@ const Batches: React.FC = () => {
           sub="at batch price, else batch MRP" />
       </StatGrid>
 
+      <InventoryLockBanner />
+
       <SheetsBar here="batches" />
 
       {bulkOpen && <BatchBulkBar onImported={() => { load(); loadPricing(); }} />}
@@ -566,6 +570,9 @@ const AddBatchCard: React.FC<{ onDone: () => void }> = ({ onDone }) => {
     mrp: '', sellingPrice: '', b2bPrice: '', cost: '', supplierBatchRef: '',
   });
   const [mode, setMode] = useState<'receive' | 'assign'>('receive');
+  // Receiving moves stock and is locked with the inventory (DEC-069); labelling stock already held is not.
+  const stockLock = useInventoryLock();
+  const receiveLocked = stockLock.locked && mode === 'receive';
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const timer = useRef<any>(null);
@@ -690,7 +697,8 @@ const AddBatchCard: React.FC<{ onDone: () => void }> = ({ onDone }) => {
         </div>
 
         {err && <p className="text-sm text-red-600">{err}</p>}
-        <Btn onClick={submit} disabled={busy}>{busy ? 'Saving…' : 'Save batch'}</Btn>
+        {receiveLocked && <p className="text-sm text-amber-800">🔒 {stockLock.message} You can still label stock you already hold.</p>}
+        <Btn onClick={submit} disabled={busy || receiveLocked} title={receiveLocked ? stockLock.why : undefined}>{busy ? 'Saving…' : 'Save batch'}</Btn>
       </div>
     </SectionCard>
   );

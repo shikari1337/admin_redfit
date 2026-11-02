@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LayoutTemplate, Upload, Paintbrush, Trash2, CheckCircle2, Globe, Loader2, Info } from 'lucide-react';
-import { themeEngineAPI, ThemeMeta } from '../services/themeEngine';
+import { themeEngineAPI, ThemeMeta, THEME_ENGINE_CONFIGURED } from '../services/themeEngine';
 import { localeDate } from '../utils/date';
 
 /**
@@ -20,6 +20,7 @@ export default function Themes() {
   const [engineDown, setEngineDown] = useState(false);
 
   const load = useCallback(async () => {
+    if (!THEME_ENGINE_CONFIGURED) { setEngineDown(true); setLoading(false); return; }
     try {
       const data = await themeEngineAPI.list();
       setThemes(data.themes);
@@ -73,12 +74,16 @@ export default function Themes() {
       <div className="p-6">
         <h1 className="text-2xl font-bold text-gray-900 mb-4">Themes</h1>
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 max-w-2xl">
-          <p className="font-semibold text-amber-800 m-0">Theme engine is not reachable</p>
+          <p className="font-semibold text-amber-800 m-0">{THEME_ENGINE_CONFIGURED ? 'Theme engine is not reachable' : 'Themes are not enabled for this store'}</p>
+          {!THEME_ENGINE_CONFIGURED ? (
+            <p className="text-sm text-amber-700 mt-2 mb-0">This store's storefront is its own app, so uploaded themes do not apply. Use Appearance → Style, Banners and Menus to change how it looks.</p>
+          ) : (
           <p className="text-sm text-amber-700 mt-2 mb-0">
             Start the theme-engine service (<code className="bg-amber-100 px-1 rounded">cd theme-engine &amp;&amp; npm run dev</code>,
             default <code className="bg-amber-100 px-1 rounded">http://localhost:3050</code>) or set{' '}
             <code className="bg-amber-100 px-1 rounded">VITE_THEME_ENGINE_URL</code> to where it runs.
           </p>
+          )}
         </div>
       </div>
     );

@@ -6,12 +6,90 @@
  * all three). `reply: wrapData` puts the answer back in the `{data, total}` wrapper the caller reads (the old route
  * answered without `success`); a `gap` row is a NAMED refusal (docs/PORT_NOTES/ADMIN-V2-2.md, "gaps").
  */
-import type { V2Route } from '../routes';
+import type { V2Ctx, V2Route } from '../routes';
+import { v2call, asList } from '../http';
 import { shapeBody } from '../shape';
 import type { Spec } from '../shape';
 
 
+const QTY_OFFERS: Spec = { offers: [{ description: 's', price: 'm', quantity: 'i', title: 's' }] };
+const BUNDLE: Spec = { compare_at_price: 'm', currency: 's', description: 'j', images: 'j', is_active: 'b', name: 's', price: 'm', slug: 'j' };
+const BUNDLE_ITEMS: Spec = { items: [{ product_id: 's', quantity: 'i', discount_percent: 'd' }] };
+const BUNDLE_ID = /^[0-9a-f-]{36}$/i;
+
+/** The legacy list query (`active`, `search`) → the resource's filters; every bundle on one page. */
+function bundleListQuery(c: V2Ctx): Record<string, unknown> {
+  const q = c.query || {};
+  const out: Record<string, unknown> = { limit: 200 };
+  const active = q.active ?? q.is_active ?? q.isActive;
+  if (active !== undefined && active !== '') out.is_active = String(active) === 'true';
+  const search = String(q.search ?? q.q ?? '').trim();
+  if (search) out.q = search;
+  return out;
+}
+
+/**
+ * A bundle saved as the old route saved it (fields and items in one request): the resource write,
+ * then its items replaced when the screen sent them, answering the bundle with its items.
+ */
+async function saveBundle(c: V2Ctx, id: string | null): Promise<unknown> {
+  const body = (c.body ?? {}) as Record<string, unknown>;
+  const fields = shapeBody(BUNDLE)({ ...c, body: { ...body, items: undefined } }) as Record<string, unknown>;
+  const saved = id
+    ? await v2call<Record<string, unknown>>('PATCH', `/api/v2/commerce/bundles/${encodeURIComponent(id)}`, { data: fields })
+    : await v2call<Record<string, unknown>>('POST', '/api/v2/commerce/bundles', { data: fields });
+  const bundleId = String(id ?? saved?.id ?? '');
+  if (!bundleId) return saved;
+  if (!Array.isArray(body.items)) return saved;
+  const items = shapeBody(BUNDLE_ITEMS)({ ...c, body: { items: body.items } });
+  return v2call('PUT', `/api/v2/commerce/bundles/${encodeURIComponent(bundleId)}/items`, { data: items });
+}
+
 const ATTR_VALUE: Spec = { attribute_id: 's', description: 'j', display_order: 'i', image_url: 'j', is_active: 'b', name: 's', size_chart: 'j', slug: 's', swatch_color: 'j', value: 'j' };
+
+const VARIANT_GROUP: Spec = { display_attribute_slug: 'j', is_active: 'b', name: 's' };
+const VARIANT_MEMBERS: Spec = { members: [{ product_id: 's', attribute_value: 's', sort_order: 'i', is_default: 'b' }] };
+
+/**
+ * A variant group saved as the old route saved it (fields and `members[]` in one request, variantGroups.ts:51-78):
+ * the resource write takes only the fields, so the members go to PUT /variant-groups/{id}/members (the whole set;
+ * commerce api/catalog_mgmt/variant_groups.rs:45, ReplaceBody :141). Answers the hydrated group with its members.
+ */
+async function saveVariantGroup(c: V2Ctx, id: string | null): Promise<unknown> {
+  const body = (c.body ?? {}) as Record<string, unknown>;
+  const fields = shapeBody(VARIANT_GROUP)({ ...c, body: { ...body, members: undefined } }) as Record<string, unknown>;
+  const saved = id
+    ? await v2call<Record<string, unknown>>('PATCH', `/api/v2/commerce/variant-groups/${encodeURIComponent(id)}`, { data: fields })
+    : await v2call<Record<string, unknown>>('POST', '/api/v2/commerce/variant-groups', { data: fields });
+  const groupId = String(id ?? saved?.id ?? '');
+  if (!groupId || !Array.isArray(body.members)) return saved;
+  const members = shapeBody(VARIANT_MEMBERS)({ ...c, body: { members: body.members } });
+  return v2call('PUT', `/api/v2/commerce/variant-groups/${encodeURIComponent(groupId)}/members`, { data: members });
+}
+
+/** The legacy `?type=` (one kind, or a comma list) is v2's `kinds`. */
+function searchQuery(c: V2Ctx): Record<string, unknown> {
+  const q = c.query || {};
+  return { q: q.q ?? q.search, kinds: q.kinds ?? q.type, limit: q.limit };
+}
+
+/**
+ * SearchView `{kinds: [{kind, items: [{id, kind, title, subtitle, slug, thumbnail}], total, limit}]}` (commerce
+ * views/storefront.rs:306-335); searchAPI reads `{id, label, sublabel, type}` rows: one kind asked → its rows,
+ * several → a map by kind (services/api.ts searchAPI.query / queryMany).
+ */
+function searchReply(d: any, c: V2Ctx): any {
+  if (!d || typeof d !== 'object' || !Array.isArray(d.kinds)) return d;
+  const hit = (h: any) => (h && typeof h === 'object' ? { ...h, label: h.title, sublabel: h.subtitle ?? undefined, type: h.kind } : h);
+  const byKind: Record<string, unknown> = {};
+  for (const k of d.kinds) {
+    if (k && typeof k === 'object') byKind[String(k.kind)] = asList((Array.isArray(k.items) ? k.items : []).map(hit), { total: k.total, limit: k.limit });
+  }
+  const asked = String(c.query?.kinds ?? c.query?.type ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (asked.length > 1) return byKind;
+  const one = d.kinds[0];
+  return one && typeof one === 'object' ? byKind[String(one.kind)] : asList([], { total: 0 });
+}
 
 export const CATALOG_ROUTES: V2Route[] = [
   { m: 'POST', from: '/attributes', row: 'commerce attributes.ts:48', to: '/api/v2/commerce/attributes', bs: {'chart_type':'j','description':'j','display_order':'i','icon':'j','image_url':'j','is_active':'b','name':'s','show_as_product':'b','slug':'s','type':'s'} },
@@ -48,21 +126,26 @@ export const CATALOG_ROUTES: V2Route[] = [
   { m: 'POST', from: '/manufacturers', row: 'commerce manufacturers.ts:53', to: '/api/v2/commerce/manufacturers', bs: {'address':'j','country':'j','email':'j','is_active':'b','license_no':'j','logo_url':'j','name':'s','party_id':'j','phone':'j','slug':'s','website':'j'} },
   { m: 'PUT', from: '/manufacturers/:id', row: 'commerce manufacturers.ts:70', method: 'PATCH', to: '/api/v2/commerce/manufacturers/{id}', bs: {'address':'j','country':'j','email':'j','is_active':'b','license_no':'j','logo_url':'j','name':'s','party_id':'j','phone':'j','slug':'s','website':'j'} },
   { m: 'DELETE', from: '/manufacturers/:id', row: 'commerce manufacturers.ts:99', to: '/api/v2/commerce/manufacturers/{id}' },
-  { m: 'GET', from: '/product-bundles', row: 'commerce productBundles.ts:8', to: '/api/v2/commerce/public/bundles' },
-  { m: 'POST', from: '/product-bundles', row: 'commerce productBundles.ts:145', to: '/api/v2/commerce/bundles', bs: {'compare_at_price':'j','currency':'s','description':'j','images':'j','is_active':'j','name':'s','price':'m','slug':'j'} },
-  { m: 'GET', from: '/product-bundles/:slug', row: 'commerce productBundles.ts:126', to: '/api/v2/commerce/public/bundles/{slug}' },
-  { m: 'PUT', from: '/product-bundles/:id', row: 'commerce productBundles.ts:169', method: 'PATCH', to: '/api/v2/commerce/bundles/{id}', bs: {'compare_at_price':'j','currency':'s','description':'j','images':'j','is_active':'j','name':'s','price':'m','slug':'j'} },
+  // Combo bundles: the bundle's own fields are the `Bundle` resource; its items are their own route
+  // (PUT /bundles/{id}/items), so a save is two calls. The staff reads (`/bundles`, `/bundles/{id}/items`)
+  // answer paused bundles too; the public reads answer active ones only.
+  { m: 'GET', from: '/product-bundles', row: 'commerce productBundles.ts:8 (staff list: every status, item_count)', to: '/api/v2/commerce/bundles', query: bundleListQuery },
+  { m: 'POST', from: '/product-bundles', row: 'commerce productBundles.ts:145 (bundle, then its items)', run: (c) => saveBundle(c, null) },
+  { m: 'GET', from: '/product-bundles/:slug', row: 'commerce productBundles.ts:126 (id → staff read, any status; slug → public)', to: (c) => (BUNDLE_ID.test(c.params.slug) ? `/api/v2/commerce/bundles/${encodeURIComponent(c.params.slug)}/items` : `/api/v2/commerce/public/bundles/${encodeURIComponent(c.params.slug)}`) },
+  { m: 'PUT', from: '/product-bundles/:id', row: 'commerce productBundles.ts:169 (bundle, then its items)', run: (c) => saveBundle(c, c.params.id) },
   { m: 'DELETE', from: '/product-bundles/:id', row: 'commerce productBundles.ts:196', to: '/api/v2/commerce/bundles/{id}' },
+  // Quantity offers: the screen sends `{bundles}` (the old body); v2 takes `{offers}`.
   { m: 'GET', from: '/product-bundles/product/:productId/quantity', row: 'commerce productBundles.ts:89 (binary quantity-offers)', to: '/api/v2/commerce/public/products/{productId}/quantity-offers' },
-  { m: 'PUT', from: '/product-bundles/product/:productId/quantity', row: 'commerce productBundles.ts:99', to: '/api/v2/commerce/products/{productId}/quantity-offers', bs: {'offers':[{'description':'s','price':'m','quantity':'i','title':'s'}]} },
-  { m: 'DELETE', from: '/product-bundles/product/:productId/quantity', row: 'commerce productBundles.ts:115', method: 'PUT', to: '/api/v2/commerce/products/{productId}/quantity-offers', bs: {'offers':[{'description':'s','price':'m','quantity':'i','title':'s'}]} },
+  { m: 'PUT', from: '/product-bundles/product/:productId/quantity', row: 'commerce productBundles.ts:99', to: '/api/v2/commerce/products/{productId}/quantity-offers', body: (c) => shapeBody(QTY_OFFERS)({ ...c, body: { offers: c.body?.offers ?? c.body?.bundles ?? [] } }) },
+  { m: 'DELETE', from: '/product-bundles/product/:productId/quantity', row: 'commerce productBundles.ts:115 (an empty list removes them)', method: 'PUT', to: '/api/v2/commerce/products/{productId}/quantity-offers', body: () => ({ offers: [] }) },
   { m: 'GET', from: '/products/:id/duplicate', row: 'commerce — not in this binary', gap: 'the duplicate preview is not mounted in this binary (ROUTE_MAP: GET /products/{id}/duplicate-preview); duplicating itself works' },
   { m: 'POST', from: '/products/:id/generate-content', row: 'commerce — not in this binary', gap: 'whole-product AI content is not mounted in this binary (ROUTE_MAP: POST /products/{id}/ai/content); per-section and per-field AI are' },
   { m: 'POST', from: '/products/:id/generate-field', row: 'commerce products/products.ts:53', to: '/api/v2/commerce/products/{id}/ai/field', bs: {'custom_prompt':'s','field_path':'s','field_type':'s','section_id':'s'} },
   { m: 'POST', from: '/products/workbook/exports', row: 'commerce — not in this binary', gap: 'queued workbook exports have no v2 route (commerce ROUTE_MAP: no row); the direct workbook export works' },
   { m: 'GET', from: '/products/workbook/exports/:p1', row: 'commerce — not in this binary', gap: 'queued workbook exports have no v2 route (commerce ROUTE_MAP: no row)' },
   { m: 'POST', from: '/products/workbook/exports/:p1/share-link', row: 'commerce — not in this binary', gap: 'workbook export share links have no v2 route (commerce ROUTE_MAP: no row)' },
-  { m: 'GET', from: '/search', row: 'commerce search.ts:16', to: '/api/v2/commerce/public/search', qs: ['kinds','limit','q'] },
+  // raw: a map by kind must not grow camelCase twins (`attribute_value` → `attributeValue`); the readers take id/label/sublabel/type.
+  { m: 'GET', from: '/search', row: 'commerce search.ts:16', to: '/api/v2/commerce/public/search', qs: ['kinds','limit','q'], query: searchQuery, reply: searchReply, raw: true },
   { m: 'POST', from: '/size-charts', row: 'commerce sizeCharts.ts:26', to: '/api/v2/commerce/size-charts', bs: {'attribute_id':'j','headers':'j','is_active':'b','name':'s','rows':'j'} },
   { m: 'GET', from: '/size-charts/:id', row: 'commerce sizeCharts.ts:18', to: '/api/v2/commerce/public/size-charts/{id}' },
   { m: 'PUT', from: '/size-charts/:id', row: 'commerce sizeCharts.ts:39', method: 'PATCH', to: '/api/v2/commerce/size-charts/{id}', bs: {'attribute_id':'j','headers':'j','is_active':'b','name':'s','rows':'j'} },
@@ -82,11 +165,13 @@ export const CATALOG_ROUTES: V2Route[] = [
   { m: 'POST', from: '/uom/conversions', row: 'commerce uom.ts:68 (binary per variation)', method: 'PUT', to: (c) => `/api/v2/commerce/uom/variations/${encodeURIComponent(String(c.body?.variationId ?? c.body?.variation_id ?? ''))}/conversions/${encodeURIComponent(String(c.body?.uomId ?? c.body?.uom_id ?? ''))}`, body: (c) => ({ to_base_factor: String(c.body?.toBaseFactor ?? c.body?.to_base_factor ?? '') }) },
   { m: 'POST', from: '/uom/defaults', row: 'commerce uom.ts:94 (binary per variation)', method: 'PUT', to: (c) => `/api/v2/commerce/uom/variations/${encodeURIComponent(String(c.body?.variationId ?? c.body?.variation_id ?? ''))}/defaults`, body: (c) => ({ purchase_uom_id: c.body?.purchaseUomId ?? c.body?.purchase_uom_id ?? null, sales_uom_id: c.body?.salesUomId ?? c.body?.sales_uom_id ?? null }) },
   { m: 'GET', from: '/uom/uoms', row: 'commerce uom.ts:30', to: '/api/v2/commerce/uom/units' },
-  { m: 'GET', from: '/uom/variation/:variationId', row: 'commerce uom.ts:36', to: '/api/v2/commerce/uom/variations/{variationId}' },
+  { m: 'GET', from: '/uom/variation/:variationId', row: 'commerce uom.ts:36', to: '/api/v2/commerce/uom/variations/{variationId}', reply: (d) => (d && typeof d === 'object' && !Array.isArray(d) && !d.variation ? { ...d, variation: { id: d.id, sku: d.sku ?? null, name: d.name ?? null, stock: d.stock, purchase_uom_id: d.purchase_uom_id ?? null, sales_uom_id: d.sales_uom_id ?? null } } : d) }, // UomVariationView is flat (commerce views/catalog_admin.rs:1510); UomSettings.tsx:67 / GoodsInLabels.tsx:106 read `variation.{id,purchase_uom_id,…}`
   { m: 'GET', from: '/variant-groups', row: 'commerce variantGroups.ts:37', to: '/api/v2/commerce/variant-groups', qs: ['limit','offset','page','sort','q','name','is_active'] },
-  { m: 'POST', from: '/variant-groups', row: 'commerce variantGroups.ts:51', to: '/api/v2/commerce/variant-groups', bs: {'display_attribute_slug':'j','is_active':'b','name':'s'} },
-  { m: 'GET', from: '/variant-groups/:id', row: 'commerce variantGroups.ts:43', to: '/api/v2/commerce/variant-groups/{id}' },
-  { m: 'PUT', from: '/variant-groups/:id', row: 'commerce variantGroups.ts:65', method: 'PATCH', to: '/api/v2/commerce/variant-groups/{id}', bs: {'display_attribute_slug':'j','is_active':'b','name':'s'} },
+  { m: 'POST', from: '/variant-groups', row: 'commerce variantGroups.ts:51 (group, then its members)', run: (c) => saveVariantGroup(c, null) },
+  // The resource read has no members; the screens read `members[]` (ProductVariantGroupPanel.tsx:130, VariantLinkGroups.tsx:199).
+  // GET /variant-groups/{id}/members IS variantGroups.ts:43: the group with its members (VariantGroupDetailView, commerce views/catalog_admin.rs:358).
+  { m: 'GET', from: '/variant-groups/:id', row: 'commerce variantGroups.ts:43 (binary: GET …/{id}/members)', to: '/api/v2/commerce/variant-groups/{id}/members' },
+  { m: 'PUT', from: '/variant-groups/:id', row: 'commerce variantGroups.ts:65 (group, then its members)', run: (c) => saveVariantGroup(c, c.params.id) },
   { m: 'DELETE', from: '/variant-groups/:id', row: 'commerce variantGroups.ts:101', to: '/api/v2/commerce/variant-groups/{id}' },
   { m: 'POST', from: '/variant-groups/:id/members', row: 'commerce variantGroups.ts:80', to: '/api/v2/commerce/variant-groups/{id}/members', bs: {'attribute_value':'s','is_default':'b','product_id':'s','sort_order':'i'} },
   { m: 'DELETE', from: '/variant-groups/:id/members/:productId', row: 'commerce variantGroups.ts:93', method: 'POST', to: '/api/v2/commerce/variant-groups/{id}/members/{productId}/remove', bs: 'j' },

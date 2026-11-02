@@ -8,6 +8,7 @@
  */
 import type { V2Ctx, V2Route } from '../routes';
 import { cartList } from './carts';
+import { pageAs } from '../shape';
 
 const SERIES = new Set(['commerce', 'orders', 'inventory', 'accounting', 'marketing', 'shipping', 'fulfilment', 'custom-report', 'sales-team']);
 
@@ -19,7 +20,7 @@ function panelQuery(ctx: V2Ctx, panel: string): Record<string, unknown> {
   return q;
 }
 
-const lift = (d: any) => (d && typeof d === 'object' && d.figures && typeof d.figures === 'object'
+export const lift = (d: any) => (d && typeof d === 'object' && d.figures && typeof d.figures === 'object'
   ? { ...d.figures, panel: d.panel, range: d.range, bucket: d.bucket }
   : d);
 
@@ -36,6 +37,13 @@ export const DASHBOARD_ROUTES: V2Route[] = [
   {
     m: 'GET', from: '/analytics/panels/inventory/intelligence', row: 'insights 31',
     to: '/api/v2/insights/panels/inventory/intelligence', query: (c) => panelQuery(c, 'inventory/intelligence'), reply: lift,
+  },
+  {
+    // FeedView {items, total, limit, offset} (insights views.rs:593) arrives as a Page (→ an array); SalesTeam reads `.items`.
+    m: 'GET', from: '/analytics/panels/activity', row: 'insights panels.rs:133 — GET /panels/activity',
+    to: '/api/v2/insights/panels/activity',
+    query: (c) => ({ from: c.query.from, to: c.query.to, actor_id: c.query.actor_id ?? c.query.actorId, action: c.query.action, entity_type: c.query.entity_type ?? c.query.entityType, limit: c.query.limit, offset: c.query.offset ?? offsetOf(c) }),
+    reply: pageAs('items'),
   },
   {
     m: 'GET', from: '/analytics/panels/custom-report/dimensions', row: 'insights 33',

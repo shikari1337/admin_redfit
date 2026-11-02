@@ -98,11 +98,12 @@ export const AUTH_ROUTES: V2Route[] = [
 
   // The store's module map — every gate (`canAccess`) reads it — and its switches (platform S3–S8).
   { m: 'GET', from: '/modules', row: 'platform S1', to: '/api/v2/platform/modules' },
-  { m: 'GET', from: '/modules/registry', row: 'platform S2', to: '/api/v2/platform/modules/registry' },
+  { m: 'GET', from: '/modules/registry', row: 'platform S2', to: '/api/v2/platform/modules/registry', reply: (d) => (Array.isArray(d) ? Object.fromEntries(d.filter((r: any) => r?.key).map((r: any) => [r.key, { ...r, default: r.default ?? r.default_on }])) : d) }, // [ModuleDefinitionView {key, default_on, …}] (platform views/catalog.rs:342); Modules reads the old {key: {name, default, …}} map
   { m: 'GET', from: '/modules/public', row: 'platform P14', to: '/api/v2/platform/public/modules' },
   { m: 'PUT', from: '/modules/:key', row: 'platform S3', method: 'PATCH', to: '/api/v2/platform/modules/{key}', body: (c) => ({ enabled: c.body?.enabled ?? null, config: c.body?.config ?? null }) },
   { m: 'POST', from: '/modules/bulk', row: 'platform S4', to: '/api/v2/platform/modules/bulk', body: (c) => ({ modules: (c.body?.modules ?? []).map((x: any) => ({ key: x.key, enabled: x.enabled ?? null })) }) },
   { m: 'POST', from: '/modules/initialize', row: 'platform S5', to: '/api/v2/platform/modules/initialize', body: () => ({}) },
   { m: 'GET', from: '/modules/store-types', row: 'platform S7', to: '/api/v2/platform/store-types' },
-  { m: 'POST', from: '/modules/apply-store-type', row: 'platform S8', to: '/api/v2/platform/store-types/apply' },
+  // The closed body takes `store_type` (platform api/modules.rs:144); modulesAPI.applyStoreType sends `{type}`.
+  { m: 'POST', from: '/modules/apply-store-type', row: 'platform S8', to: '/api/v2/platform/store-types/apply', body: (c) => ({ store_type: c.body?.store_type ?? c.body?.storeType ?? c.body?.type ?? '' }) },
 ];

@@ -9,6 +9,8 @@ import {
   FilterBar, Field, SearchInput, ExportMenu, Pagination, AttachmentPanel,
   useListControls, type CsvColumn,
 } from '../../components/erp';
+import { AttachTaxInvoiceOffer } from '../payments/feeVendors/FeeVendors';
+import { feeVendorAlternative, type FeeVendorOffer } from '../payments/feeVendors/data';
 
 /** Accounts Payable — vendor bills with 3-way match status. */
 
@@ -29,6 +31,8 @@ const VendorBills: React.FC = () => {
   const [rows, setRows] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [error, setError] = useState('');
+  // 409 `alternative: attach_tax_invoice`: this vendor's charges post automatically (DEC-073).
+  const [taxOffer, setTaxOffer] = useState<FeeVendorOffer | null>(null);
   const canPost = hasPerm('accounting.post');
   const canRecord = hasPerm('purchasing.manage');
   const canRead = hasPerm('purchasing.read');
@@ -87,7 +91,7 @@ const VendorBills: React.FC = () => {
   };
 
   const record = async () => {
-    setError('');
+    setError(''); setTaxOffer(null);
     try {
       await api.post('/purchasing/bills', {
         vendorId: pos.find((p) => p.id === poDetail.id)?.vendor_id ?? poDetail.vendor_id,
@@ -99,7 +103,7 @@ const VendorBills: React.FC = () => {
       setShowNew(false); setPoDetail(null); setBillLines([]);
       setForm({ billNumber: '', billDate: new Date().toISOString().slice(0, 10), cgst: 0, sgst: 0, igst: 0 });
       await load();
-    } catch (e: any) { setError(e?.response?.data?.message ?? e.message); }
+    } catch (e: any) { const offer = feeVendorAlternative(e); if (offer) setTaxOffer(offer); else setError(e?.response?.data?.message ?? e.message); }
   };
 
   const approve = async (id: string) => {
@@ -132,6 +136,7 @@ const VendorBills: React.FC = () => {
         }
       />
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+      <AttachTaxInvoiceOffer offer={taxOffer} onDismiss={() => setTaxOffer(null)} />
 
       {showNew && canRecord && (
         <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm space-y-3 text-sm">

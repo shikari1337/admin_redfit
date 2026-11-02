@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { inventoryAPI, batchesAPI } from '../../services/api';
+import { useInventoryLock } from '../../hooks/useInventoryLock';
 import { useAuth } from '../../contexts/AuthContext';
 import { todayIso } from '../../utils/date';
 import { movementLabel } from './ledgerLabels';
@@ -38,6 +39,8 @@ import { movementLabel } from './ledgerLabels';
  */
 
 type TabKey = 'receive' | 'remove' | 'count' | 'label' | 'edit' | 'total';
+/** The tabs that change a quantity — refused while the inventory lock is on (DEC-069). */
+const QTY_TABS: TabKey[] = ['receive', 'remove', 'count', 'total'];
 
 export interface UpdateStockDialogProps {
   variationId: string | null;
@@ -120,6 +123,9 @@ export default function UpdateStockDialog({
 }: UpdateStockDialogProps) {
   const { hasPerm, canAccess } = useAuth();
   const canAdjust = hasPerm('inventory.adjust');
+  // DEC-069: while the ERP keeps stock, every tab that moves a quantity is locked. Labelling
+  // loose units as a lot and editing a lot's details leave on-hand alone, so they stay open.
+  const stockLock = useInventoryLock();
   // Simple SKU stock (the `batches` module off): no lots anywhere in this
   // dialog — stock is received loose, removed loose, or set as one total. The
   // server answers with no lots in that mode too; this keeps the UI honest
@@ -386,6 +392,11 @@ export default function UpdateStockDialog({
         </DialogHeader>
 
         {loadError && <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">{loadError}</div>}
+        {stockLock.locked && sku && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900" role="status" data-testid="update-stock-locked">
+            <span aria-hidden>🔒 </span>{stockLock.message} Lot details can still be edited.
+          </div>
+        )}
         {!canAdjust && sku && (
           <div className="rounded-md bg-amber-50 p-3 text-sm text-amber-800">
             You can view stock but not change it — that needs the <strong>inventory.adjust</strong> permission.
@@ -611,7 +622,8 @@ export default function UpdateStockDialog({
           {sku && (
             <Button
               data-testid="update-stock-save"
-              disabled={busy || !canAdjust || (needsLots && !lotsEnabled)}
+              disabled={busy || !canAdjust || (needsLots && !lotsEnabled) || (stockLock.locked && QTY_TABS.includes(tab))}
+              title={stockLock.locked && QTY_TABS.includes(tab) ? stockLock.why : undefined}
               onClick={() => ({
                 receive: submitReceive, remove: submitRemove, count: submitCount,
                 label: submitLabel, edit: submitEdit, total: submitTotal,

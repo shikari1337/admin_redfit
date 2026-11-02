@@ -10,10 +10,114 @@
  * The human number is `order_number` in v2 and `order_id`/`orderId` on screen.
  */
 import type { V2Ctx, V2Route } from '../routes';
-import { v2call, v2try, asList, listMeta } from '../http';
-import { toMoney } from '../money';
+import { v2call, v2try, v2http, normaliseEnvelope, asList, listMeta, mapList } from '../http';
+import { toMoney, majorToMinor } from '../money';
+import { shapeBody, pageAs } from '../shape';
+import type { Spec } from '../shape';
 
 const O = '/api/v2/commerce';
+
+/* ── typed bodies (closed v2 schemas: an unknown field is a 400; amounts are Money, percents decimal strings) ── */
+
+/** One order line: `ManualLineIn` / `EditLineIn` (commerce api/orders/manual.rs:50, items.rs:69). Rupees → Money. */
+const LINE_IN: Spec = { product_id: 's', variation_id: 's', sku: 's', quantity: 'i', unit_price: 'm', discount_percent: 'd' };
+/** `OrderAddressIn` (commerce api/orders/create.rs:67). */
+const ADDRESS_IN: Spec = { full_name: 's', mobile: 's', dial_code: 's', email: 's', line1: 's', line2: 's', landmark: 's', city: 's', district: 's', state: 's', pincode: 's', country: 's', company: 's', gstin: 's', latitude: 'j', longitude: 'j' };
+/** `ManualBody` (commerce api/orders/manual.rs:64) — preview and create take the same body. */
+const MANUAL_ORDER: Spec = { items: [LINE_IN], shipping_address: ADDRESS_IN, billing_address: ADDRESS_IN, customer_id: 's', payment_method: 's', shipping_cost: 'm', discount: 'm', discount_reason: 's', notes: 's', hold: 'b', gstin: 's', sales_agent_id: 's', sales_channel: 's', channel_id: 's', commission_tier: 's', credit_override: 'b', credit_override_reason: 's' };
+/** `EditItemsBody` (commerce api/orders/items.rs:83) — the edit preview and the save. */
+const EDIT_ITEMS: Spec = { items: [LINE_IN], discount: 'm', discount_reason: 's', shipping_cost: 'm' };
+/** `CancelItemsBody` (commerce api/orders/cancel_items.rs:193) + `RefundChoice` (status.rs:554). */
+const CANCEL_ITEMS: Spec = { lines: [{ sku: 's', variation_id: 's', qty: 'i', reason: 's' }], reason: 's', refund: { mode: 's', amount: 'm', reference: 's', adjusted_order_number: 's', reason: 's' } };
+/** `ExportBody` (commerce api/order_desk/export.rs:322). */
+const ERP_EXPORT: Spec = { mode: 's', from: 's', to: 's', exclude_cancelled: 'b', config: { website_channel_code: 's', admin_channel_code: 's', order_number_style: 's' } };
+
+/** The desk's address (checkout snapshot keys: `fullName`, `mobileNumber`, `address` …) → `OrderAddressIn`. `noAccount` has no v2 field (Node ignored it too). */
+function addressIn(a: any): any {
+  if (!a || typeof a !== 'object') return a ?? undefined;
+  return {
+    full_name: a.full_name ?? a.fullName ?? a.name,
+    mobile: a.mobile ?? a.mobileNumber ?? a.mobile_number ?? a.phone,
+    dial_code: a.dial_code ?? a.dialCode,
+    email: a.email,
+    line1: a.line1 ?? a.address ?? a.addressLine1 ?? a.address_line1,
+    line2: a.line2 ?? a.addressLine2 ?? a.address_line2,
+    landmark: a.landmark,
+    city: a.city,
+    district: a.district,
+    state: a.state,
+    pincode: a.pincode ?? a.postal_code ?? a.zip,
+    country: a.country ?? a.countryCode,
+    company: a.company,
+    gstin: a.gstin,
+    latitude: a.latitude,
+    longitude: a.longitude,
+  };
+}
+
+/** The manual-order / POS body (camelCase, rupees) → `ManualBody`. The POS sends `note`; v2 names it `notes`. */
+function manualOrderBody(c: V2Ctx): unknown {
+  const { shippingAddress, shipping_address, billingAddress, billing_address, note, ...rest } = c.body ?? {};
+  return shapeBody(MANUAL_ORDER)({
+    ...c,
+    body: { ...rest, shipping_address: addressIn(shipping_address ?? shippingAddress), billing_address: addressIn(billing_address ?? billingAddress), notes: rest.notes ?? note },
+  });
+}
+
+/** `OrderMoneyStepView {order, result{lines, pay_link, commission}}` (commerce views/orders.rs:134) → the flat order the desk (`orderId`, `payLink`, `total`) and the POS (`id`, `total`) read. */
+function createdOrder(d: any): any {
+  if (!d || typeof d !== 'object' || !d.order) return d;
+  const r = d.result ?? {};
+  // `replayed: true` = the key's first order, answered again (200): a success, never a second order.
+  return { ...orderRow(d.order), pay_link: r.pay_link ?? null, lines: r.lines, commission: r.commission, replayed: r.replayed === true };
+}
+
+/**
+ * The create, with the screen's per-submit `Idempotency-Key` forwarded (claimed in the order's own unit of work,
+ * commerce api/orders/manual.rs:312-434). A 409 is either the same key still in flight or the key reused with
+ * another body; both get words a person can act on.
+ */
+async function createManualOrder(body: unknown, headers: Record<string, string> | undefined): Promise<any> {
+  try {
+    const res = await v2http.request({ method: 'POST', url: `${O}/manual-orders`, data: body, headers });
+    return normaliseEnvelope(res.data);
+  } catch (e: any) {
+    const data = e?.response?.data;
+    if (e?.response?.status === 409 && data && typeof data === 'object') {
+      const inFlight = /in progress/i.test(String(data.message ?? ''));
+      e.response.data = {
+        ...data,
+        message: inFlight
+          ? 'This order is still being created. Wait a moment, then look in the orders list before submitting again.'
+          : 'This order was already submitted with different details. Look in the orders list before keying it in again.',
+      };
+    }
+    throw e;
+  }
+}
+
+/**
+ * A double click on "Create order" / "Charge" must not key in two orders. Each submit sends its own idempotency
+ * key (so the server replays a retried submit); on top, while one create is in flight an IDENTICAL body is answered
+ * by that same call, so two quick submits (two keys) still make one order.
+ */
+const inFlight = new Map<string, Promise<any>>();
+function once(key: string, send: () => Promise<any>): Promise<any> {
+  const hit = inFlight.get(key);
+  if (hit) return hit;
+  const p = send().finally(() => inFlight.delete(key));
+  inFlight.set(key, p);
+  return p;
+}
+
+/** base64url (no padding) → bytes (an ArrayBuffer-backed view, so it is a BlobPart under TS 5.9's lib). */
+function base64urlBytes(s: string) {
+  const b64 = s.replace(/-/g, '+').replace(/_/g, '/');
+  const bin = atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4));
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
+  return out;
+}
 
 /** One list row → the legacy row the Orders table reads. */
 export function orderRow(o: any): any {
@@ -39,12 +143,25 @@ export function orderDetail(d: any): any {
     catalog_image: it.catalog_image ?? it.image ?? null,
     name: it.name ?? it.product_name,
   })) : [];
+  // The legacy order columns Node stamped from the parcel it booked last (`orders.shipment_id` /
+  // `shipping_provider` / `shiprocket_awb` / `delhivery_waybill`, api_redfit shippingProviderService.ts:86,589-603)
+  // live on v2's `shipments[]` (live parcels, oldest first: commerce ports.rs:609; `awb` = provider_data.awb,
+  // views/order_desk.rs:305). `user_id` is `created_by` in v2 (views/order_desk.rs:164).
+  const ships: any[] = Array.isArray(rest.shipments) ? rest.shipments : [];
+  const last = ships.length ? ships[ships.length - 1] : null;
+  const provider = last?.shipping_provider ?? null;
   return {
     ...orderRow(order),
     ...rest,
     items: lines,
     order_id: order.order_number,
     shipping: order.shipping_cost,
+    user_id: order.user_id ?? order.created_by ?? null,
+    shipment_id: last?.id ?? null,
+    shipping_provider: provider,
+    shiprocket_awb: provider === 'shiprocket' ? last?.awb ?? null : null,
+    delhivery_waybill: provider === 'delhivery' ? last?.awb ?? null : null,
+    shiprocket_pickup_scheduled_date: provider === 'shiprocket' ? last?.pickup_scheduled ?? null : null,
   };
 }
 
@@ -92,16 +209,38 @@ export const ORDER_ROUTES: V2Route[] = [
     },
   },
   { m: 'GET', from: '/orders/assignable-staff', row: 'commerce orders.ts:376', to: `${O}/assignable-staff` },
-  { m: 'GET', from: '/orders/sales-claims/queue', row: 'commerce orders.ts:390', to: `${O}/sales-claims`, query: (c) => ({ state: c.query.state, limit: c.query.limit, offset: c.query.offset }) },
+  { m: 'GET', from: '/orders/sales-claims/queue', row: 'commerce orders.ts:390', to: `${O}/sales-claims`, query: (c) => ({ state: c.query.state, limit: c.query.limit, offset: c.query.offset }), reply: (d) => (Array.isArray(d) ? pageAs('items')(mapList(d, (r: any) => ({ ...r, order_id: r.order_id ?? r.order_number }))) : d) }, // ClaimQueueRowView {order_number …} (commerce views/order_desk.rs:760); ordersAPI.salesClaimQueue reads {items, total}, SalesTeam reads o.order_id
   { m: 'GET', from: '/orders/assignment-queue', row: 'commerce orders.ts:407', to: `${O}/order-queue`, query: (c) => ({ assigned_to: c.query.assignedTo, limit: c.query.limit, offset: c.query.offset }) },
   { m: 'GET', from: '/orders/export/csv', row: 'commerce orders.ts:1885', to: `${O}/orders/export`, query: (c) => ({ ids: Array.isArray(c.query.ids) ? c.query.ids.join(',') : c.query.ids, status: c.query.status, from: c.query.from, to: c.query.to }) },
   { m: 'GET', from: '/orders/export', row: 'commerce orders.ts:1885 (merged)', to: `${O}/orders/export`, query: (c) => ({ status: c.query.status, from: c.query.startDate ?? c.query.from, to: c.query.endDate ?? c.query.to }) },
   { m: 'GET', from: '/orders/export/erp/status', row: 'commerce orders.ts:1966', to: `${O}/erp-exports/status` },
-  { m: 'GET', from: '/orders/export/erp/preview', row: 'commerce orders.ts:1995', to: `${O}/erp-exports/preview`, query: (c) => c.query },
-  { m: 'POST', from: '/orders/export/erp', row: 'commerce orders.ts:2021', to: `${O}/erp-exports` },
+  // PreviewQuery (commerce api/order_desk/export.rs:260) is closed: `excludeCancelled` → `exclude_cancelled`.
+  { m: 'GET', from: '/orders/export/erp/preview', row: 'commerce orders.ts:1995', to: `${O}/erp-exports/preview`, query: (c) => ({ mode: c.query.mode, from: c.query.from, to: c.query.to, exclude_cancelled: c.query.exclude_cancelled ?? c.query.excludeCancelled }) },
+  {
+    // ErpExportView {run, file_name, content_type, content_base64url} (commerce api/order_desk/export.rs:592): the
+    // workbook travels inside the JSON. The caller (responseType blob) reads the bytes, content-disposition, x-export-run.
+    m: 'POST', from: '/orders/export/erp', row: 'commerce orders.ts:2021',
+    run: async (c) => {
+      const d = await v2call<any>('POST', `${O}/erp-exports`, { data: shapeBody(ERP_EXPORT)(c) });
+      const type = d?.content_type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      const name = String(d?.file_name || 'Order_Items_Export.xlsx').replace(/"/g, '');
+      return {
+        __v2raw: true,
+        data: new Blob([base64urlBytes(String(d?.content_base64url ?? ''))], { type }),
+        headers: { 'content-type': type, 'content-disposition': `attachment; filename="${name}"`, 'x-export-run': encodeURIComponent(JSON.stringify(d?.run ?? null)) },
+      };
+    },
+  },
   { m: 'DELETE', from: '/orders/export/erp/runs/:runId', row: 'commerce orders.ts:2058', method: 'POST', to: `${O}/erp-exports/runs/{runId}/forget`, body: () => ({}) },
-  { m: 'POST', from: '/orders/manual/preview', row: 'commerce orders.ts:2693', to: `${O}/manual-orders/preview` },
-  { m: 'POST', from: '/orders/manual', row: 'commerce orders.ts:2738', to: `${O}/manual-orders` },
+  { m: 'POST', from: '/orders/manual/preview', row: 'commerce orders.ts:2693', to: `${O}/manual-orders/preview`, body: manualOrderBody, reply: (d) => d?.preview ?? d }, // OrderPreviewView {preview} (commerce views/orders.rs:143); the screen reads the totals flat
+  {
+    // ManualOrderCreate.tsx and the POS charge (pos/PosSurface.tsx) — the per-submit key forwarded; one in-flight create per identical body.
+    m: 'POST', from: '/orders/manual', row: 'commerce orders.ts:2738 (key: api/orders/common.rs:100)', reply: createdOrder,
+    run: (c) => {
+      const body = manualOrderBody(c);
+      return once(JSON.stringify(body), () => createManualOrder(body, c.headers));
+    },
+  },
   { m: 'GET', from: '/orders/manual/lines/sheet-columns', row: 'commerce orders.ts:2587', to: `${O}/manual-orders/sheet-columns` },
   { m: 'POST', from: '/orders/manual/lines/from-sheet', row: 'commerce orders.ts:2592', to: `${O}/manual-orders/lines-from-sheet` },
 
@@ -120,14 +259,16 @@ export const ORDER_ROUTES: V2Route[] = [
   { m: 'POST', from: '/orders/:id/claims', row: 'commerce orders.ts:1340', to: `${O}/orders/{id}/claims` },
   { m: 'DELETE', from: '/orders/:id/claims/mine', row: 'commerce orders.ts:1374', method: 'POST', to: `${O}/orders/{id}/claims/withdraw`, body: () => ({}) },
   { m: 'POST', from: '/orders/:id/claims/:claimId/decide', row: 'commerce orders.ts:1403', to: `${O}/orders/{id}/claims/{claimId}/decide` },
-  { m: 'GET', from: '/orders/:id/activity', row: 'commerce orders.ts:1433', to: `${O}/orders/{id}/activity`, query: (c) => ({ limit: c.query.limit }) },
+  { m: 'GET', from: '/orders/:id/activity', row: 'commerce orders.ts:1433', to: `${O}/orders/{id}/activity`, query: (c) => ({ limit: c.query.limit }), reply: pageAs('items') }, // a Page of ActivityView rows (commerce views/order_desk.rs:633); ordersAPI.activity reads response.data.items (OrderTeamCard "Staff activity")
   {
     m: 'POST', from: '/orders/:id/send-email', row: 'commerce orders.ts:1452', to: `${O}/orders/{id}/email`,
     body: (c) => ({ kind: c.body?.type ?? c.body?.kind, subject: c.body?.subject ?? null, content: c.body?.content ?? null }),
   },
   { m: 'POST', from: '/orders/:id/notify', row: 'commerce orders.ts:1492', to: `${O}/orders/{id}/notify`, body: (c) => ({ event: c.body?.event, channel: c.body?.channel ?? null, channels: c.body?.channels ?? null }) },
   { m: 'GET', from: '/orders/:id/communications', row: 'commerce orders.ts:1631', to: `${O}/orders/{id}/communications` },
-  { m: 'GET', from: '/orders/:id/links', row: 'commerce orders.ts:1700', to: `${O}/orders/{id}/links` },
+  // OrderLinkView {key, label, purpose, long_url, url, shortened} (commerce views/order_desk.rs:874) is flat; OrderLinksCard reads the
+  // short link as `group.link {url, longUrl, shortened, fits}`. `fits` = the 30-character DLT slot (api_redfit outboundLinks.ts:387, urlShortener.ts:127).
+  { m: 'GET', from: '/orders/:id/links', row: 'commerce orders.ts:1700', to: `${O}/orders/{id}/links`, reply: (d) => (d && Array.isArray(d.links) ? { ...d, links: d.links.map((l: any) => (l && typeof l === 'object' && !l.link ? { ...l, link: { url: l.url, long_url: l.long_url, shortened: !!l.shortened, fits: String(l.url ?? '').length <= 30 } } : l)) } : d) },
   {
     m: 'PUT', from: '/orders/:id/payment', row: 'commerce orders.ts:1777', method: 'POST', to: `${O}/orders/{id}/payment`,
     body: (c) => ({ payment_status: c.body?.paymentStatus ?? c.body?.payment_status, razorpay_payment_id: c.body?.razorpayPaymentId ?? null, razorpay_signature: c.body?.razorpaySignature ?? null, upi_payment_id: c.body?.upiPaymentId ?? null }),
@@ -136,8 +277,8 @@ export const ORDER_ROUTES: V2Route[] = [
     m: 'POST', from: '/orders/:id/cancel', row: 'commerce orders.ts:1791', to: `${O}/orders/{id}/cancel`,
     body: (c) => ({ reason: c.body?.reason ?? null, refund: c.body?.refund ? refundOf(c.body.refund) : null, customer_message: c.body?.customerMessage ?? null }),
   },
-  { m: 'POST', from: '/orders/:id/items/preview', row: 'commerce orders.ts:2785', to: `${O}/orders/{id}/items/preview` },
-  { m: 'PUT', from: '/orders/:id/items', row: 'commerce orders.ts:2820', method: 'PATCH', to: `${O}/orders/{id}/items` },
+  { m: 'POST', from: '/orders/:id/items/preview', row: 'commerce orders.ts:2785', to: `${O}/orders/{id}/items/preview`, bs: EDIT_ITEMS, reply: (d) => d?.preview ?? d }, // OrderPreviewView {preview} (commerce views/orders.rs:143); the screen reads the totals flat
+  { m: 'PUT', from: '/orders/:id/items', row: 'commerce orders.ts:2820', method: 'PATCH', to: `${O}/orders/{id}/items`, bs: EDIT_ITEMS },
   {
     m: 'POST', from: '/orders/:id/apply-discount', row: 'commerce orders.ts:2904', to: `${O}/orders/{id}/discount`,
     body: (c) => {
@@ -152,21 +293,26 @@ export const ORDER_ROUTES: V2Route[] = [
       };
     },
   },
-  { m: 'POST', from: '/orders/:id/cancel-items/preview', row: 'commerce orders.ts:3100', to: `${O}/orders/{id}/cancel-items/preview` },
-  { m: 'POST', from: '/orders/:id/cancel-items', row: 'commerce orders.ts:3213', to: `${O}/orders/{id}/cancel-items` },
+  { m: 'POST', from: '/orders/:id/cancel-items/preview', row: 'commerce orders.ts:3100', to: `${O}/orders/{id}/cancel-items/preview`, bs: CANCEL_ITEMS, reply: (d) => d?.preview ?? d }, // OrderPreviewView {preview} (commerce views/orders.rs:143); the screen reads the totals flat
+  { m: 'POST', from: '/orders/:id/cancel-items', row: 'commerce orders.ts:3213', to: `${O}/orders/{id}/cancel-items`, bs: CANCEL_ITEMS },
   { m: 'POST', from: '/orders/:id/waive-charge', row: 'commerce orders.ts:3547', to: `${O}/orders/{id}/waive-charge`, body: (c) => ({ charge: c.body?.charge, reason: c.body?.reason ?? null }) },
   {
     m: 'POST', from: '/orders/:id/record-payment', row: 'commerce orders.ts:3632', to: `${O}/orders/{id}/payments`,
     body: (c) => ({ amount: toMoney(c.body?.amount), method: c.body?.method ?? null, reference: c.body?.reference ?? null, notes: c.body?.notes ?? null }),
   },
   { m: 'GET', from: '/orders/:id/pay-link', row: 'commerce orders.ts:3703', to: `${O}/orders/{id}/pay-link` },
-  { m: 'GET', from: '/orders/:id/fulfilment-guidance', row: 'commerce orders.ts:3780', to: `${O}/orders/{id}/fulfilment-guidance` },
+  { m: 'GET', from: '/orders/:id/fulfilment-guidance', row: 'commerce orders.ts:3780', to: `${O}/orders/{id}/fulfilment-guidance`, reply: (d) => d?.guidance ?? d }, // FulfilmentGuidanceView {guidance} (commerce views/order_desk.rs:879); FulfilmentCard reads data.withheld
 
   // The order page's shipping lookups (ship ROUTE_MAP 301/308).
   { m: 'GET', from: '/shipping/providers', row: 'ship — GET /api/v2/ship/providers', to: '/api/v2/ship/providers' },
   { m: 'GET', from: '/shipping/warehouses', row: 'ship — GET /api/v2/ship/warehouses', to: '/api/v2/ship/warehouses' },
 
   // Refunds the order page reads.
-  { m: 'GET', from: '/refunds/refundable/:identifier', row: 'commerce refunds.ts:101 (binary path /refunds/refundable/{identifier})', to: `${O}/refunds/refundable/{identifier}` },
-  { m: 'GET', from: '/refunds/config', row: 'commerce refunds.ts:79', to: `${O}/refunds/config` },
+  // RefundableView {paid, refunded, in_flight, refundable: Money} (commerce views/refunds.rs:156) → rupees; CancelOrderModal,
+  // RaiseRefundModal and the Refunds panel read the paise twins (`refundableMinor` …, the old answer).
+  { m: 'GET', from: '/refunds/refundable/:identifier', row: 'commerce refunds.ts:101 (binary path /refunds/refundable/{identifier})', to: `${O}/refunds/refundable/{identifier}`,
+    reply: (d) => (d && typeof d === 'object' && !Array.isArray(d) ? { ...d, paid_minor: d.paid_minor ?? majorToMinor(d.paid), refunded_minor: d.refunded_minor ?? majorToMinor(d.refunded), in_flight_minor: d.in_flight_minor ?? majorToMinor(d.in_flight), refundable_minor: d.refundable_minor ?? majorToMinor(d.refundable) } : d) },
+  // RefundConfigView {auto_approve_under: Money} (commerce views/refunds.rs:120); CancelOrderModal reads `autoApproveUnderMinor` (paise).
+  { m: 'GET', from: '/refunds/config', row: 'commerce refunds.ts:79', to: `${O}/refunds/config`,
+    reply: (d) => (d && typeof d === 'object' && !Array.isArray(d) ? { ...d, auto_approve_under_minor: d.auto_approve_under_minor ?? majorToMinor(d.auto_approve_under) } : d) },
 ];

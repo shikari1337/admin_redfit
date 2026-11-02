@@ -222,6 +222,46 @@ export function isoDaysFromToday(n: number): string {
   return dt.toISOString().slice(0, 10);
 }
 
+/** The store zone's distance from UTC at an instant, in whole minutes (east = positive). */
+function storeOffsetMinutes(d: Date): number {
+  const c = asStoreCivilDate(d);
+  const wall = Date.UTC(c.getFullYear(), c.getMonth(), c.getDate(), c.getHours(), c.getMinutes(), c.getSeconds());
+  return Math.round((wall - Math.floor(d.getTime() / 1000) * 1000) / 60_000);
+}
+
+/**
+ * An instant → the `YYYY-MM-DDTHH:mm` an `<input type="datetime-local">` holds, on the
+ * STORE's wall clock (the browser's own zone plays no part). '' when there is no date.
+ */
+export function storeDateTimeInput(value: unknown): string {
+  const d = toDate(value);
+  if (!d) return '';
+  try {
+    return dfFormat(asStoreCivilDate(d), "yyyy-MM-dd'T'HH:mm");
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * The reverse: a `datetime-local` value read as the STORE's wall clock → an RFC 3339
+ * instant carrying the store's offset ("2026-11-02T10:00:00+05:30"). null when unreadable.
+ */
+export function fromStoreDateTimeInput(text: string): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(text.trim());
+  if (!m) return null;
+  const [y, mo, d, h, mi, s = '00'] = m.slice(1);
+  const wall = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s));
+  if (!Number.isFinite(wall)) return null;
+  // The offset at the guessed instant, then once more at the corrected one (a DST edge).
+  let off = storeOffsetMinutes(new Date(wall));
+  off = storeOffsetMinutes(new Date(wall - off * 60_000));
+  const sign = off < 0 ? '-' : '+';
+  const abs = Math.abs(off);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${y}-${mo}-${d}T${h}:${mi}:${s}${sign}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`;
+}
+
 /**
  * First usable date across several possible field names.
  *

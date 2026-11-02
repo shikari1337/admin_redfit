@@ -33,6 +33,8 @@ export { default as OrderAddressPanel } from './OrderAddressPanel';
 export { default as RaiseRefundModal } from './RaiseRefundModal';
 export { OrderLinksCard } from './OrderLinksCard';
 export { default as OrderCommunicationLog } from './OrderCommunicationLog';
+// ERP-ORDER-1: the order on its way to the ERP and the invoice number that comes back.
+export { default as OrderErpInvoiceCard } from './OrderErpInvoiceCard';
 export { default as ApplyOrderDiscountModal } from './ApplyOrderDiscountModal';
 // The WAREHOUSE card (pick/pack/parcel/label/where-to-find-it). Distinct from
 // `OrderFulfillmentCard` above, which is the SHIPMENT picture — hence the

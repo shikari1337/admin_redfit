@@ -55,6 +55,17 @@ export const DASHBOARD_PRESETS: Preset[] = [
   { key: '3m', label: 'Past 3 months', range: () => ({ from: iso(daysAgo(89)), to: iso(new Date()) }) },
 ];
 
+/** The period of equal length that ends the day before `range` starts (all-time has none). */
+export function previousRange(range: PanelRange): PanelRange | null {
+  if (!range.from || !range.to) return null;
+  const from = new Date(`${range.from}T00:00:00Z`);
+  const to = new Date(`${range.to}T00:00:00Z`);
+  const days = Math.round((to.getTime() - from.getTime()) / 86_400_000) + 1;
+  const pTo = new Date(from); pTo.setUTCDate(pTo.getUTCDate() - 1);
+  const pFrom = new Date(pTo); pFrom.setUTCDate(pFrom.getUTCDate() - (days - 1));
+  return { from: pFrom.toISOString().slice(0, 10), to: pTo.toISOString().slice(0, 10) };
+}
+
 export function useDateRange(defaultKey = '30d', presets: Preset[] = PRESETS) {
   const [preset, setPreset] = useState(defaultKey);
   const [custom, setCustom] = useState<PanelRange | null>(null);

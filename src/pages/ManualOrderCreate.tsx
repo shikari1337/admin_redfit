@@ -295,10 +295,11 @@ const ManualOrderCreate: React.FC = () => {
         payload.shippingAddress = { ...address, mobileNumber: address.mobileNumber, noAccount: true };
         payload.customerId = undefined;
       }
-      const r: any = await ordersAPI.createManual(payload as any);
+      // One idempotency key per press of "Create order" (FIX-ADMIN-1): a replay answers the first order.
+      const r: any = await ordersAPI.createManual(payload as any, crypto.randomUUID());
       const order = r?.data ?? r;
       setCreated(order);
-      toast({ title: 'Order created', description: `#${order.orderId ?? order.order_id}` });
+      toast({ title: order?.replayed ? 'Order already created' : 'Order created', description: `#${order.orderId ?? order.order_id}` });
     } catch (error: any) {
       toast({
         variant: 'destructive', title: 'Not created',

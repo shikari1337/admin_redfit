@@ -9,6 +9,7 @@ import {
   Page, PageHeader, EmptyState, FilterChips, BlockSkeleton, downloadCsv, type ChipGroup,
 } from '@/components/erp';
 import { usePincodeLookup } from '../hooks/usePincodeLookup';
+import ErpWarehouseLine, { useErpFacilityBranches } from '../components/inventory/ErpWarehouseLine';
 
 interface Warehouse {
   _id: string;
@@ -66,6 +67,8 @@ const Warehouses: React.FC = () => {
   // gating before.
   const canManageWarehouses = hasPerm('inventory.manage');
   const canDeleteWarehouses = hasPerm('inventory.delete');
+  // ERP-WH-1: ERP branches mapped to a warehouse show what the ERP holds there (read-only).
+  const erpByFacility = useErpFacilityBranches();
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -682,6 +685,7 @@ const Warehouses: React.FC = () => {
                   <div>
                     <h3 className="text-lg font-semibold text-gray-900">{warehouse.name}</h3>
                     <p className="text-sm text-gray-500">Code: {warehouse.code}</p>
+                    <ErpWarehouseLine entries={erpByFacility.get(toIdString(warehouse._id)) ?? erpByFacility.get(toIdString((warehouse as { id?: string }).id))} />
                     {warehouse.linkedStores && warehouse.linkedStores.length > 0 && (
                       <div className="flex items-center gap-2 mt-1">
                         <FaStore className="w-3 h-3 text-blue-600" />

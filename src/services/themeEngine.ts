@@ -6,7 +6,11 @@ import { getTenantApiKey } from './api';
  * live-preview drafts and publishing for template-mode storefronts.
  * Auth: the store's x-api-key (same tenant key the admin already uses).
  */
-const THEME_ENGINE_URL = (import.meta.env.VITE_THEME_ENGINE_URL || 'http://localhost:3050').replace(/\/+$/, '');
+// A deployed admin never falls back to the developer's localhost (a merchant's browser would be
+// sent to its own machine); without VITE_THEME_ENGINE_URL the Themes screen says themes are off.
+const IS_LOCAL_DEV = typeof window !== 'undefined' && /^(localhost|127\.0\.0\.1)$/.test(window.location.hostname);
+export const THEME_ENGINE_CONFIGURED = !!import.meta.env.VITE_THEME_ENGINE_URL || IS_LOCAL_DEV;
+const THEME_ENGINE_URL = (import.meta.env.VITE_THEME_ENGINE_URL || (IS_LOCAL_DEV ? 'http://localhost:3050' : '')).replace(/\/+$/, '');
 
 const client = axios.create({ baseURL: `${THEME_ENGINE_URL}/api/themes`, timeout: 60000 });
 

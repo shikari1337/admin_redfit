@@ -47,7 +47,9 @@ const TemplateEditorDrawer: React.FC<{
   onChanged: () => void;
   /** Approved names from the WhatsApp gateway (used when the hub has no approval yet). */
   waApproved?: Set<string>;
-}> = ({ entry, smsOwnHeader, canWrite, onClose, onChanged, waApproved }) => {
+  /** Open on this channel (Messaging ▸ a channel cell); otherwise the first the entry uses. */
+  initialChannel?: MsgChannel;
+}> = ({ entry, smsOwnHeader, canWrite, onClose, onChanged, waApproved, initialChannel }) => {
   const { toast } = useToast();
   const channels = useMemo(() => {
     if (!entry) return [] as MsgChannel[];
@@ -56,6 +58,8 @@ const TemplateEditorDrawer: React.FC<{
   }, [entry]);
   const [channel, setChannel] = useState<MsgChannel>('sms');
   useEffect(() => { if (channels.length && !channels.includes(channel)) setChannel(channels[0]); }, [channels, channel]);
+  // A caller that names the channel (a cell was clicked) opens on it, once per entry.
+  useEffect(() => { if (initialChannel && channels.includes(initialChannel)) setChannel(initialChannel); }, [initialChannel, entry?.def.key, channels]);
 
   const def = entry?.def;
   const layer = entry ? entry.resolved[channel] : undefined;

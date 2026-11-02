@@ -8,7 +8,9 @@
  *
  *   kind 'store'     this host serves one store (pinned; no picker)
  *   kind 'platform'  the central console host: the signed-in person picks a store
- *                    (`listPlatformStores`, then the pick is resolved to its key)
+ *                    (`listPlatformStores`, then the pick is resolved to its key;
+ *                    store staff, refused there, get their own seats from
+ *                    `listMyStores`, which already carry the key)
  *   kind 'none'      unbound host
  *
  * A loopback dev host is bound by `VITE_STORE_KEY` (public key) or by resolving
@@ -25,7 +27,8 @@ export interface TenantBinding {
   host: string;
 }
 
-export interface PlatformStore { id: string; slug: string; name: string; domain?: string | null }
+/** `storeKey` is set when the list already carries the public key (`listMyStores`); then no resolve is needed. */
+export interface PlatformStore { id: string; slug: string; name: string; domain?: string | null; storeKey?: string }
 
 const TTL_MS = 6 * 3_600_000;
 const PICK_KEY = 'gc_v2_picked_store';
@@ -114,12 +117,32 @@ export async function listPlatformStores(bearer: string): Promise<PlatformStore[
   return items.map((s) => ({ id: String(s.id), slug: String(s.slug ?? ''), name: String(s.name ?? s.slug ?? ''), domain: (s.domain as string | null) ?? null }));
 }
 
-/** Platform host: adopt a store — its public key comes from the same resolve route, by its domain. */
+/** Platform host, store staff: the stores the person holds a seat in (`GET /api/v2/identity/me/stores`), each with its public key. */
+export async function listMyStores(bearer: string): Promise<PlatformStore[]> {
+  const r = await axios.get(`${V2_API_URL}/api/v2/identity/me/stores`, { headers: { authorization: `Bearer ${bearer}`, accept: 'application/json' } });
+  const items = (r.data?.data?.stores ?? []) as Array<Record<string, unknown>>;
+  return items
+    .map((s) => ({ id: String(s.slug ?? ''), slug: String(s.slug ?? ''), name: String(s.name ?? s.slug ?? ''), storeKey: String(s.store_key ?? '') }))
+    .filter((s) => s.slug && s.storeKey);
+}
+
+/** The call was answered 401/403: signed in, but the route is not theirs (e.g. store staff on the platform list). */
+export function isRefused(e: unknown): boolean {
+  const status = axios.isAxiosError(e) ? e.response?.status : undefined;
+  return status === 401 || status === 403;
+}
+
+/** Platform host: adopt a store — its own key when the list carried one, else from the same resolve route, by its domain. */
 export async function pickPlatformStore(store: PlatformStore): Promise<TenantBinding> {
-  if (!store.domain) throw new Error(`${store.name} has no domain, so its store key cannot be resolved.`);
-  const d = await resolveDomain(store.domain);
-  if (d.kind !== 'store' || !d.store_key) throw new Error(`${store.name} could not be resolved to a store.`);
-  const pick = { slug: d.slug ?? store.slug, name: d.name ?? store.name, storeKey: d.store_key };
+  let pick: { slug: string; name: string; storeKey: string };
+  if (store.storeKey) {
+    pick = { slug: store.slug, name: store.name, storeKey: store.storeKey };
+  } else {
+    if (!store.domain) throw new Error(`${store.name} has no domain, so its store key cannot be resolved.`);
+    const d = await resolveDomain(store.domain);
+    if (d.kind !== 'store' || !d.store_key) throw new Error(`${store.name} could not be resolved to a store.`);
+    pick = { slug: d.slug ?? store.slug, name: d.name ?? store.name, storeKey: d.store_key };
+  }
   try { sessionStorage.setItem(PICK_KEY, JSON.stringify(pick)); } catch { /* per page load */ }
   current = { ...(current ?? { kind: 'platform', host: location.hostname }), ...pick };
   return current;

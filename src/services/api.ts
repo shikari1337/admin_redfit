@@ -2020,8 +2020,9 @@ export const ordersAPI = {
     gstin?: string;
     notes?: string;
     hold?: boolean;
-  }) => {
-    const response = await api.post('/orders/manual', data);
+  }, idempotencyKey?: string) => {
+    // One key per submit (the caller makes it): a retry of that submit replays the first order, never a second.
+    const response = await api.post('/orders/manual', data, idempotencyKey ? { headers: { 'X-Idempotency-Key': idempotencyKey } } : undefined);
     return response.data;
   },
   /** Replace order lines while payment is pending (repriced server-side). */

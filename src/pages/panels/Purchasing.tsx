@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useInventoryLock } from '../../hooks/useInventoryLock';
 import { api } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { fmtMinor } from '../../lib/money';
@@ -35,6 +36,8 @@ const RETURN_CSV_COLUMNS: CsvColumn<any>[] = [
  */
 const Purchasing: React.FC = () => {
   const { hasPerm } = useAuth();
+  // DEC-069: receiving goods posts to the stock ledger, so it is locked while the ERP keeps stock.
+  const stockLock = useInventoryLock();
   const [pos, setPos] = useState<any[]>([]);
   const [poTotal, setPoTotal] = useState(0);
   const [retTotal, setRetTotal] = useState(0);
@@ -920,8 +923,8 @@ const Purchasing: React.FC = () => {
             </TBody>
           </table>
           {['issued', 'partially_received'].includes(detail.status) && hasPerm('purchasing.receive') && (
-            <Btn variant="success" onClick={receive}>
-              Receive goods (posts to stock ledger)
+            <Btn variant="success" onClick={receive} disabled={stockLock.locked} title={stockLock.why}>
+              {stockLock.locked ? '🔒 ' : ''}Receive goods (posts to stock ledger)
             </Btn>
           )}
           {lastReceivedVariationIds.length > 0 && (

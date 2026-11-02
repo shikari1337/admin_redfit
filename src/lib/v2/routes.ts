@@ -30,6 +30,8 @@ export interface V2Ctx {
   query: Record<string, any>;
   /** The legacy body (parsed JSON, or FormData as sent). */
   body: any;
+  /** The caller's idempotency key header, forwarded to v2 as sent (client.ts `idempotencyHeaders`). */
+  headers?: Record<string, string>;
 }
 
 export interface V2Route {

@@ -20,6 +20,20 @@ function customerRow(c: any): any {
   };
 }
 
+/**
+ * CustomerDetailView (commerce views/shoppers.rs:608): `contact.dial_code` and each
+ * CustomerOrderView's `order_number` (views/shoppers.rs:580); UserDetail reads `dial_code`
+ * and the old `order_id` flat.
+ */
+function customerDetail(c: any): any {
+  if (!c || typeof c !== 'object' || Array.isArray(c)) return c;
+  return {
+    ...c,
+    dial_code: c.dial_code ?? c.contact?.dial_code ?? null,
+    orders: Array.isArray(c.orders) ? c.orders.map((o: any) => (o && typeof o === 'object' ? { ...o, order_id: o.order_id ?? o.order_number } : o)) : c.orders,
+  };
+}
+
 const pageOffset = (c: V2Ctx) => {
   if (c.query.offset !== undefined) return c.query.offset;
   const page = Number(c.query.page);
@@ -37,6 +51,6 @@ export const CUSTOMER_ROUTES: V2Route[] = [
   { m: 'POST', from: '/customers/duplicates', row: 'commerce customers.ts:157', to: `${C}/customer-duplicates`, body: (c) => ({ customer_id_a: c.body?.customerIdA, customer_id_b: c.body?.customerIdB }) },
   { m: 'POST', from: '/customers/duplicates/:id/dismiss', row: 'commerce customers.ts:168', to: `${C}/customer-duplicates/{id}/dismiss`, body: () => ({}) },
   { m: 'POST', from: '/customers/duplicates/:id/merge', row: 'commerce customers.ts:187', to: `${C}/customer-duplicates/{id}/merge`, body: (c) => ({ winner_id: c.body?.winnerId }) },
-  { m: 'GET', from: '/customers/:id', row: 'commerce customers.ts:228', to: `${C}/customers/{id}`, reply: (d) => customerRow(d?.customer ? { ...d.customer, ...d } : d) },
+  { m: 'GET', from: '/customers/:id', row: 'commerce customers.ts:228', to: `${C}/customers/{id}`, reply: (d) => customerDetail(customerRow(d?.customer ? { ...d.customer, ...d } : d)) },
   { m: 'POST', from: '/customers/:id/portal-token', row: 'commerce customers.ts:400', to: `${C}/customers/{id}/portal-token`, body: (c) => ({ label: c.body?.label ?? null, expires_at: c.body?.expiresAt ?? null }) },
 ];

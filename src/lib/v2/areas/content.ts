@@ -7,16 +7,17 @@
  * answered without `success`); a `gap` row is a NAMED refusal (docs/PORT_NOTES/ADMIN-V2-2.md, "gaps").
  */
 import type { V2Route } from '../routes';
-import { v2call } from '../http';
+import { v2call, mapList } from '../http';
+import { wrapData } from '../shape';
 
 export const CONTENT_ROUTES: V2Route[] = [
-  { m: 'GET', from: '/banners', row: 'commerce banners.ts:27', to: '/api/v2/commerce/banners', qs: ['limit','offset','page','sort','q','position','is_active'] },
+  { m: 'GET', from: '/banners', row: 'commerce banners.ts:27', to: '/api/v2/commerce/banners', qs: ['limit','offset','page','sort','q','position','is_active'], reply: (d) => (Array.isArray(d) ? mapList(d, (b: any) => ({ ...b, displayLocation: b.displayLocation ?? b.display_location ?? b.position })) : d) }, // banners resource keeps the slot in `position` (commerce resources/catalog_mgmt.rs:671; Node banners.ts:53 stored display_location there); AppearanceBanners groups by displayLocation
   { m: 'POST', from: '/banners', row: 'commerce banners.ts:50', to: '/api/v2/commerce/banners', bs: {'display_order':'i','image_url':'j','is_active':'b','link_url':'j','metadata':'j','mobile_image_url':'j','position':'j','subtitle':'j','title':'j','valid_from':'j','valid_until':'j'} },
   { m: 'GET', from: '/banners/:id', row: 'commerce banners.ts:42', to: '/api/v2/commerce/public/banners/{id}' },
   { m: 'PUT', from: '/banners/:id', row: 'commerce banners.ts:66', method: 'PATCH', to: '/api/v2/commerce/banners/{id}', bs: {'display_order':'i','image_url':'j','is_active':'b','link_url':'j','metadata':'j','mobile_image_url':'j','position':'j','subtitle':'j','title':'j','valid_from':'j','valid_until':'j'} },
   { m: 'DELETE', from: '/banners/:id', row: 'commerce banners.ts:74', to: '/api/v2/commerce/banners/{id}' },
   { m: 'POST', from: '/blog-posts', row: 'commerce blogPosts.ts:93', to: '/api/v2/commerce/blog-posts', bs: {'author_name':'s','content':'s','cover_image':'s','excerpt':'s','published_at':'s','read_time_min':'i','seo':'j','slug':'s','status':'s','tags':['s'],'title':'s'} },
-  { m: 'GET', from: '/blog-posts', row: 'commerce blogPosts.ts:16', to: '/api/v2/commerce/public/blog-posts', qs: ['limit','offset','search','status'] },
+  { m: 'GET', from: '/blog-posts', row: 'commerce blogPosts.ts:16 (staff list)', to: '/api/v2/commerce/blog-posts', qs: ['limit','offset','search','status'], reply: wrapData }, // the staff list (drafts, status, view_count: commerce api/catalog_mgmt/blog_posts.rs:67), not /public (published only, no status); Blogs reads {data, total} for its pager
   { m: 'GET', from: '/blog-posts/:id', row: 'commerce blogPosts.ts:81', to: '/api/v2/commerce/blog-posts/{id}' },
   { m: 'PUT', from: '/blog-posts/:id', row: 'commerce blogPosts.ts:113', method: 'PATCH', to: '/api/v2/commerce/blog-posts/{id}', bs: {'author_name':'s','content':'s','cover_image':'s','excerpt':'s','published_at':'s','read_time_min':'i','seo':'j','slug':'s','status':'s','tags':['s'],'title':'s'} },
   { m: 'DELETE', from: '/blog-posts/:id', row: 'commerce blogPosts.ts:152', method: 'POST', to: '/api/v2/commerce/blog-posts/{id}/remove', bs: 'j' },
@@ -29,10 +30,11 @@ export const CONTENT_ROUTES: V2Route[] = [
   { m: 'PUT', from: '/pages/:id', row: 'commerce pages.ts:259', method: 'PATCH', to: '/api/v2/commerce/pages/{id}', bs: {'custom_css':'s','custom_html':'s','is_active':'b','published_at':'s','sections':['j'],'seo':'j','slug':'s','template_id':'s','title':'s','type':'s'} },
   { m: 'DELETE', from: '/pages/:id', row: 'commerce pages.ts:275', method: 'POST', to: '/api/v2/commerce/pages/{id}/remove', bs: 'j' },
   { m: 'GET', from: '/pages/admin/:id', row: 'commerce pages.ts:76', to: '/api/v2/commerce/pages/{id}' },
-  { m: 'GET', from: '/pages/admin/all', row: 'commerce pages.ts:60', to: '/api/v2/commerce/pages' },
-  { m: 'GET', from: '/pages/block-types', row: 'commerce pages.ts:55', to: '/api/v2/commerce/public/page-block-types' },
+  { m: 'GET', from: '/pages/admin/all', row: 'commerce pages.ts:60', to: '/api/v2/commerce/pages', reply: (d) => (Array.isArray(d) ? mapList(d, (p: any) => ({ ...p, contentBlocks: p.contentBlocks ?? (Array.isArray(p.sections) ? p.sections : []), pageType: p.pageType ?? p.type, isVisible: p.isVisible ?? p.is_active })) : d) }, // PageStaffView {type, sections, is_active, template_id} (commerce views/catalog_admin.rs:474, api/catalog_mgmt/pages_admin.rs:363); Pages.tsx reads Node toAdminPage's pageType/contentBlocks/isVisible
+  { m: 'GET', from: '/pages/block-types', row: 'commerce pages.ts:55', to: '/api/v2/commerce/public/page-block-types', reply: (d) => d?.types ?? d }, // BlockTypesView {types} (commerce views/storefront.rs:201); PageForm wants the array
+  { m: 'POST', from: '/pages/seed', row: 'commerce pages.ts:85', to: '/api/v2/commerce/pages/seed', qs: ['force'], body: () => ({}) }, // PageSeedView {created, updated, skipped, created_slugs}; the route reads no body
   { m: 'POST', from: '/pages/generate-block-content', row: 'commerce pages.ts:137', gap: 'AI block content for pages is not mounted in this binary (ROUTE_MAP names POST /pages/block-content)' },
-  { m: 'GET', from: '/pages/templates', row: 'commerce pages.ts:43', to: '/api/v2/commerce/public/page-templates' },
+  { m: 'GET', from: '/pages/templates', row: 'commerce pages.ts:43', to: '/api/v2/commerce/public/page-templates', reply: (d) => (Array.isArray(d) ? mapList(d, (t: any) => (t?.template && typeof t.template === 'object' ? { ...t.template, ...t, name: t.name ?? t.template.name } : t)) : d) }, // PageTemplateView {name, template: {name, displayName, description, defaultBlocks}} (commerce views/storefront.rs:193); PageForm reads them flat
   { m: 'GET', from: '/plugins', row: 'platform plugins.ts (dropped)', gap: 'plugins are not served by v2 (platform ROUTE_MAP: dead — nothing installed plugins; no plugin store exists)' },
   { m: 'POST', from: '/plugins', row: 'platform plugins.ts (dropped)', gap: 'plugins are not served by v2 (platform ROUTE_MAP: dead — nothing installed plugins; no plugin store exists)' },
   { m: 'DELETE', from: '/plugins/:p1', row: 'platform plugins.ts (dropped)', gap: 'plugins are not served by v2 (platform ROUTE_MAP: dead — nothing installed plugins; no plugin store exists)' },
@@ -40,7 +42,7 @@ export const CONTENT_ROUTES: V2Route[] = [
   { m: 'PUT', from: '/plugins/:p1/toggle', row: 'platform plugins.ts (dropped)', gap: 'plugins are not served by v2 (platform ROUTE_MAP: dead — nothing installed plugins; no plugin store exists)' },
   { m: 'GET', from: '/plugins/available', row: 'platform plugins.ts (dropped)', gap: 'plugins are not served by v2 (platform ROUTE_MAP: dead — nothing installed plugins; no plugin store exists)' },
   { m: 'GET', from: '/plugins/installed', row: 'platform plugins.ts (dropped)', gap: 'plugins are not served by v2 (platform ROUTE_MAP: dead — nothing installed plugins; no plugin store exists)' },
-  { m: 'GET', from: '/trust-badges', row: 'commerce trustBadges.ts:7', to: '/api/v2/commerce/public/trust-badges' },
+  { m: 'GET', from: '/trust-badges', row: 'commerce trustBadges.ts:7 (?active=false → the staff list)', to: (c) => (String(c.query?.active) === 'false' ? '/api/v2/commerce/trust-badges' : '/api/v2/commerce/public/trust-badges'), query: (c) => (String(c.query?.active) === 'false' ? { limit: 200, sort: 'display_order' } : undefined) }, // TrustBadges.tsx asks ?active=false (Node: every badge, trustBadges.ts:9); /public answers only active ones without is_active, the staff list (commerce resources/catalog_mgmt.rs trust_badges) carries is_active
   { m: 'POST', from: '/trust-badges', row: 'commerce trustBadges.ts:23', to: '/api/v2/commerce/trust-badges', bs: {'description':'j','display_order':'i','image_url':'j','is_active':'b','title':'s'} },
   { m: 'PUT', from: '/trust-badges/:id', row: 'commerce trustBadges.ts:36', method: 'PATCH', to: '/api/v2/commerce/trust-badges/{id}', bs: {'description':'j','display_order':'i','image_url':'j','is_active':'b','title':'s'} },
   { m: 'DELETE', from: '/trust-badges/:id', row: 'commerce trustBadges.ts:44', to: '/api/v2/commerce/trust-badges/{id}' },
@@ -58,6 +60,6 @@ export const CONTENT_ROUTES: V2Route[] = [
       return { removed: results.length, results };
     },
   },
-  { m: 'POST', from: '/upload/multiple', row: 'commerce upload.ts:135', to: '/api/v2/commerce/media/batch', bs: {'#mp':'j','folder':'s','images':['f']} },
+  { m: 'POST', from: '/upload/multiple', row: 'commerce upload.ts:135', to: '/api/v2/commerce/media/batch', bs: {'#mp':'j','folder':'s','images':['f']}, reply: (d: any) => { const files = Array.isArray(d?.files) ? d.files : []; const urls = files.map((f: any) => f?.url).filter(Boolean); return { ...d, files, urls, data: { files, urls } }; } }, // MediaBatchView {files: [{url, key}]} (commerce views/catalog_admin.rs:1153); VariationEditPage:223 and ProductAttributeVariations:602 read res.data.files / res.data.urls, the rest res.files
   { m: 'POST', from: '/upload/optimize-all', row: 'commerce upload.ts:292 (binary /media/optimize-all)', to: '/api/v2/commerce/media/optimize-all', body: () => ({}) },
 ];

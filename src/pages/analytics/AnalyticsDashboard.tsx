@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { api } from '../../services/api';
 import { payload } from '../../lib/unwrap';
-import DateRangeBar, { useDateRange, PanelRange } from '../../components/panelAnalytics/DateRangeBar';
+import DateRangeBar, { useDateRange, previousRange } from '../../components/panelAnalytics/DateRangeBar';
 import { usePanelStats } from '../../components/panelAnalytics/usePanelStats';
 import { ChartCard, TimeSeries, CategoryBars, Donut } from '../../components/panelAnalytics/Kit';
 import { SERIES, INK } from '../../components/panelAnalytics/vizTheme';
@@ -12,16 +12,6 @@ import { fmtRupees } from '../../lib/money';
  * numbers: every KPI carries its change vs the PREVIOUS period of equal
  * length, plus weekday pattern and best-day callouts derived from the series.
  */
-
-function previousRange(range: PanelRange): PanelRange | null {
-  if (!range.from || !range.to) return null; // all-time has no "previous"
-  const from = new Date(`${range.from}T00:00:00Z`);
-  const to = new Date(`${range.to}T00:00:00Z`);
-  const days = Math.round((to.getTime() - from.getTime()) / 86_400_000) + 1;
-  const pTo = new Date(from); pTo.setUTCDate(pTo.getUTCDate() - 1);
-  const pFrom = new Date(pTo); pFrom.setUTCDate(pFrom.getUTCDate() - (days - 1));
-  return { from: pFrom.toISOString().slice(0, 10), to: pTo.toISOString().slice(0, 10) };
-}
 
 const Delta: React.FC<{ cur: number; prev: number | null }> = ({ cur, prev }) => {
   if (prev === null) return null;

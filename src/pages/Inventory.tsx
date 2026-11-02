@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 import { inventoryAPI, exportsAPI, blobErrorMessage, type InventoryHealth, type ImportResponse } from '../services/api';
-import { v2call } from '../lib/v2/http';
 import { saveBlob } from '../lib/saveBlob';
 import { Pagination, FilterChips, type ChipGroup } from '@/components/erp';
 import InfoTip from '../components/common/InfoTip';
@@ -9,6 +8,9 @@ import AvailabilityBulkBar from '../components/inventory/AvailabilityBulkBar';
 import SheetsBar from '../components/inventory/SheetsBar';
 import StockDetailDrawer from '../components/inventory/StockDetailDrawer';
 import UpdateStockDialog from '../components/inventory/UpdateStockDialog';
+import FetchFromErpButton from '../components/inventory/FetchFromErpButton';
+import InventoryLockBanner from '../components/inventory/InventoryLockBanner';
+import { useInventoryLock } from '../hooks/useInventoryLock';
 import { useAuth } from '../contexts/AuthContext';
 
 interface Valuation {
@@ -93,6 +95,8 @@ export default function Inventory() {
   // Stock column of the Inventory sheet is editable again (the server applies
   // the same switch — services/stockMode.ts).
   const { canAccess } = useAuth();
+  // DEC-069 inventory lock: stock-changing controls are switched off while the ERP keeps stock.
+  const stockLock = useInventoryLock();
   const lotsOn = canAccess('batches');
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -127,7 +131,6 @@ export default function Inventory() {
   const [valuation, setValuation] = useState<Valuation | null>(null);
   const [importing, setImporting] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [fetchingErp, setFetchingErp] = useState(false);
   // Bumped whenever a job is queued, so the Downloads panel starts polling at
   // once instead of waiting for its next idle refresh.
   const [downloadsToken, setDownloadsToken] = useState(0);
@@ -201,38 +204,6 @@ export default function Inventory() {
    * builds it in the background and keeps it in Downloads, so leaving this
    * page is harmless and nothing is pinned waiting.
    */
-  /** Pull stock from the connected distributor ERP into this store's copy. */
-  const handleFetchErp = async () => {
-    setFetchingErp(true);
-    setError(null);
-    setSuccess(null);
-    try {
-      const connections = await v2call<Array<{ id: string; label?: string; enabled?: boolean; feeds?: Array<{ key: string; enabled?: boolean }> }>>('GET', '/api/v2/erp/connections');
-      const list = Array.isArray(connections) ? connections : [];
-      const connection = list.find((c) => c.enabled !== false && (c.feeds ?? []).some((f) => f.key === 'inventory' && f.enabled !== false))
-        ?? list.find((c) => (c.feeds ?? []).some((f) => f.key === 'inventory'));
-      if (!connection) {
-        setError('No ERP is connected for stock yet. Connect Siddharth under ERP settings first.');
-        return;
-      }
-      const out = await v2call<{ status?: string; message?: string; rows_fetched?: number; records_changed?: number }>(
-        'POST', `/api/v2/erp/connections/${connection.id}/feeds/inventory/sync`, { data: {} },
-      );
-      if (out?.status && out.status !== 'ok') {
-        setError(out.message || 'The ERP stock fetch did not finish.');
-        return;
-      }
-      const read = out?.rows_fetched ?? 0;
-      const changed = out?.records_changed ?? 0;
-      setSuccess(`Stock fetched from ${connection.label || 'the ERP'}: ${read.toLocaleString()} rows read, ${changed.toLocaleString()} changed.`);
-      await loadInventory();
-    } catch (err: any) {
-      setError(err?.response?.data?.message || err?.message || 'Could not fetch stock from the ERP.');
-    } finally {
-      setFetchingErp(false);
-    }
-  };
-
   const handleExport = async () => {
     try {
       setExporting(true);
@@ -448,16 +419,16 @@ export default function Inventory() {
             title="Check that every stock movement is still exactly as recorded and linked to the one before it">
             {chainBusy ? 'Verifying…' : '⛓ Verify ledger'}
           </button>
-          <button className="btn btn-secondary" onClick={handleFetchErp} disabled={fetchingErp} data-testid="inv-fetch-erp"
-            title="Ask the connected ERP for stock that changed since the last fetch">
-            {fetchingErp ? 'Fetching…' : 'Fetch from ERP'}
-          </button>
+          {/* Sets stock from the ERP and reports what moved; the list, tiles and value
+              are re-read only when stock actually changed. */}
+          <FetchFromErpButton onDone={() => { void loadInventory(); loadHealth(); loadValuation(); }} />
           <button className="btn btn-secondary" onClick={handleTemplate}>Template</button>
           <button className="btn btn-secondary" onClick={handleExport} disabled={exporting}>
             {exporting ? 'Requesting…' : '⬇ Export to Excel'}
           </button>
-          <button className="btn btn-primary" onClick={() => fileInputRef.current?.click()} disabled={importing}
-            title="Send back a filled-in sheet. Either sheet — it is routed to the right importer.">
+          <button className="btn btn-primary" onClick={() => fileInputRef.current?.click()} disabled={importing || stockLock.locked}
+            title={stockLock.why ?? 'Send back a filled-in sheet. Either sheet — it is routed to the right importer.'}
+            data-testid="inv-import">
             {importing ? 'Sending…' : '⬆ Import Excel'}
           </button>
           <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={handleImportFile} />
@@ -530,6 +501,9 @@ export default function Inventory() {
       </div>
 
 
+      {/* DEC-069: while the ERP keeps stock, manual changes are locked (downloads stay open). */}
+      <InventoryLockBanner className="mb-4" />
+
       {error && (
         <div className="alert alert-error">
           <span>{error}</span>
@@ -542,11 +516,14 @@ export default function Inventory() {
           a fingerprint of itself AND of the movement before it, so an entry that
           was changed, removed or re-ordered afterwards shows up here. */}
       {chainCheck && (
-        <div className={`chain-banner ${chainCheck.error || chainCheck.present === false ? 'muted' : chainCheck.ok ? 'good' : 'bad'}`}
+        <div className={`chain-banner ${chainCheck.error || chainCheck.present === false || typeof chainCheck.ok !== 'boolean' ? 'muted' : chainCheck.ok ? 'good' : 'bad'}`}
              data-testid="inv-chain-result">
           <span>
             {chainCheck.error
               ? chainCheck.error
+              : typeof chainCheck.ok !== 'boolean'
+                // An answer without a verdict is not a failed verification — never show it as one.
+                ? 'The server answered, but not with a verdict this screen can read. The ledger was not judged either way.'
               : chainCheck.present === false
                 ? (chainCheck.reason || 'The stock ledger is not chained on this store yet.')
                 : chainCheck.ok
@@ -736,6 +713,7 @@ export default function Inventory() {
                       </td>
                       <td>
                         <button className="btn btn-secondary btn-sm" data-testid="inv-update-stock"
+                          disabled={stockLock.locked} title={stockLock.why}
                           onClick={(e) => { e.stopPropagation(); openStock(item); }}>
                           Update stock
                         </button>
@@ -786,8 +764,8 @@ export default function Inventory() {
                                       {unplaced > 0 && Number(l.placed_qty || 0) > 0 && <span className="days"> ({unplaced} not put away)</span>}
                                     </td>
                                     <td className="lot-actions" onClick={(e) => e.stopPropagation()}>
-                                      <button onClick={() => openStock(item, 'count', l.id)}>Count</button>
-                                      <button onClick={() => openStock(item, 'remove', l.id)}>Write off</button>
+                                      <button disabled={stockLock.locked} title={stockLock.why} onClick={() => openStock(item, 'count', l.id)}>Count</button>
+                                      <button disabled={stockLock.locked} title={stockLock.why} onClick={() => openStock(item, 'remove', l.id)}>Write off</button>
                                       <button onClick={() => openStock(item, 'edit', l.id)}>Edit</button>
                                     </td>
                                   </tr>
@@ -846,6 +824,7 @@ export default function Inventory() {
         variationId={openSku}
         onClose={() => setOpenSku(null)}
         onUpdate={(id, name) => { setOpenSku(null); setStockDialog({ id, name }); }}
+        lockedWhy={stockLock.why}
       />
 
       <UpdateStockDialog
@@ -884,6 +863,7 @@ export default function Inventory() {
         .lot-actions button { border: 1px solid var(--n-200); background: var(--surface); border-radius: 6px; padding: 2px 8px;
                               font-size: 11.5px; color: var(--n-700); cursor: pointer; margin-left: 4px; }
         .lot-actions button:hover { border-color: var(--accent); color: var(--accent); }
+        .lot-actions button:disabled, .btn:disabled { opacity: .5; cursor: not-allowed; }
         .lots-toggle { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; font-size: 0.8rem;
                        color: var(--n-700); cursor: pointer; user-select: none; }
         .site-link { color: var(--n-900); text-decoration: none; }
@@ -926,7 +906,7 @@ export default function Inventory() {
         .page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; gap: 16px; flex-wrap: wrap; }
         .page-header h1 { margin: 0 0 4px; font-size: 1.5rem; }
         .subtitle { margin: 0; color: var(--n-500); font-size: 0.875rem; }
-        .header-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+        .header-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-start; }
         .summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
         .summary-card { background: var(--surface); border: 1px solid var(--n-200); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; }
         .summary-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--n-500); font-weight: 600; }

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useInventoryLock } from '../../hooks/useInventoryLock';
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -98,6 +99,8 @@ const ProductPricing: React.FC<ProductPricingProps> = ({
   sections = ALL_SECTIONS, b2bPrice = null, showB2B = false, onGoToB2B,
   errors,
 }) => {
+  // DEC-069: stock is locked while the ERP keeps it (the server refuses manual changes too).
+  const stockLock = useInventoryLock();
   const has = (x: PricingSection) => sections.includes(x);
   const mrpNum = parseFloat(originalPrice) || 0;
   const tax = resolveTaxRate(taxRules, taxRuleId || null, null);
@@ -304,8 +307,9 @@ const ProductPricing: React.FC<ProductPricingProps> = ({
       {has('stock') && showStock && (
         <FieldGroup title="Stock" description="How many units you have ready to sell.">
           <Field label="Stock quantity" htmlFor="stock"
-            help="A change here is recorded in the stock ledger as an adjustment. For batch-tracked stock use Inventory ▸ Batches.">
+            help={stockLock.locked ? `🔒 ${stockLock.message}` : 'A change here is recorded in the stock ledger as an adjustment. For batch-tracked stock use Inventory ▸ Batches.'}>
             <Input id="stock" type="number" min="0" step="1" value={stock ?? ''}
+              disabled={stockLock.locked} title={stockLock.why}
               onChange={e => { const v = e.target.value; onStockChange(v === '' ? undefined : Math.max(0, parseInt(v) || 0)); }}
               className="h-9 text-sm w-36" placeholder="0" />
           </Field>

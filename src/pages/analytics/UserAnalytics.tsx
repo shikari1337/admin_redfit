@@ -35,7 +35,16 @@ const UserAnalytics: React.FC = () => {
     ]).then(([d, g, dash, comm, rt]) => {
       if (!alive) return;
       if (d.status === 'fulfilled') setDeviceStats(payload(d.value));
-      if (g.status === 'fulfilled') setGeo(payload<any[]>(g.value) ?? []);
+      if (g.status === 'fulfilled') {
+        // v2's geo rows may name the fields country/name + value/visitors instead of code + count.
+        const rows = payload<any>(g.value);
+        const list: any[] = Array.isArray(rows) ? rows : Array.isArray(rows?.items) ? rows.items : Array.isArray(rows?.countries) ? rows.countries : [];
+        setGeo(list.map((r: any) => ({
+          ...r,
+          code: r.code ?? r.country_code ?? r.country ?? r.name ?? '—',
+          count: Number(r.count ?? r.value ?? r.visitors ?? r.sessions ?? r.visits ?? 0) || 0,
+        })));
+      }
       if (dash.status === 'fulfilled') setTopViewed(payload<any>(dash.value)?.topViewedProducts ?? []);
       if (comm.status === 'fulfilled') {
         const s = payload<any>(comm.value)?.summary;

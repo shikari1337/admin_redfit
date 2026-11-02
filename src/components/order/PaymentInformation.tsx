@@ -3,6 +3,8 @@ import { FaCreditCard, FaImage, FaCheckCircle, FaClock, FaTimesCircle, FaMoneyCh
 import StatusBadge from './StatusBadge';
 import { formatDate } from '../../utils/date';
 import { fmtCurrencyMinor } from '../../lib/money';
+import { useParams } from 'react-router-dom';
+import OrderPaymentLedger from '../../pages/payments/OrderPaymentLedger';
 
 export interface RazorpayAuditResult {
   verified: boolean;
@@ -52,7 +54,12 @@ interface PaymentInformationProps {
   onAuditRazorpay?: () => void;
   auditingRazorpay?: boolean;
   razorpayAuditResult?: RazorpayAuditResult | null;
+  /** The order's uuid, for the payment ledger lines (PAY-0 §5). Omitted → read from the `/orders/:id` URL
+   *  when that is a uuid; without one the ledger lines are simply not shown. */
+  orderId?: string | null;
 }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const MANUAL_METHOD_LABELS: Record<string, string> = {
   bank_transfer: 'Bank Transfer / NEFT / IMPS',
@@ -86,7 +93,11 @@ const PaymentInformation: React.FC<PaymentInformationProps> = ({
   onAuditRazorpay,
   auditingRazorpay,
   razorpayAuditResult,
+  orderId,
 }) => {
+  // The store payment ledger (fee, GST on fee, net, settlement, recon; COD payout line) for this order.
+  const routeId = useParams<{ id?: string }>().id;
+  const ledgerOrderId = orderId || (routeId && UUID_RE.test(routeId) ? routeId : null);
   const hasManualPaymentDetails = !!(manualPaymentMethod || manualPaymentReference || manualPaymentNotes || manualPaymentMarkedAt);
 
   /**
@@ -351,6 +362,8 @@ const PaymentInformation: React.FC<PaymentInformationProps> = ({
             <p className="text-sm text-gray-700 p-3 rounded border">{legacyNotes}</p>
           </div>
         )}
+
+        {ledgerOrderId && <OrderPaymentLedger orderId={ledgerOrderId} isCod={paymentMethod === 'cod'} />}
       </div>
     </div>
   );

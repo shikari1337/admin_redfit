@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, Mail, Facebook, CreditCard, MessageCircle, Bot, Loader2, BarChart3, Copy, Check, CheckCircle2, AlertTriangle, XCircle, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { ArrowLeft, ArrowRight, Cable, Save, Mail, Facebook, CreditCard, MessageCircle, Bot, Loader2, BarChart3, Copy, Check, CheckCircle2, AlertTriangle, XCircle, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
 
 import api, { smsTemplatesAPI, getApiBase } from '../services/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -417,6 +417,20 @@ const ApiIntegrationSettings: React.FC = () => {
         <h1 className="text-3xl font-bold tracking-tight text-foreground">API & Integration Settings</h1>
         <p className="text-sm text-muted-foreground mt-2">Configure third-party API integrations</p>
       </div>
+
+      {/* The distributor ERP has its own section (it keeps store stock, not a key): point to it from here. */}
+      <Link
+        to="/panel/inventory/erp"
+        className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 shadow-sm hover:bg-gray-50"
+        data-testid="settings-erp-link"
+      >
+        <Cable className="h-5 w-5 shrink-0 text-gray-500" aria-hidden />
+        <span className="flex-1">
+          <span className="font-medium text-gray-900">Distributor ERP</span>
+          <span className="block text-xs text-gray-500">Connect your distributor’s ERP, map its fields and see the hourly stock update — under Inventory ▸ ERP Sync.</span>
+        </span>
+        <ArrowRight className="h-4 w-4 shrink-0 text-gray-400" aria-hidden />
+      </Link>
 
       <form onSubmit={handleSubmit} className="space-y-6 pb-12">
         {/* SMTP Settings */}

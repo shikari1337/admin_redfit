@@ -7,7 +7,25 @@
  * answered without `success`); a `gap` row is a NAMED refusal (docs/PORT_NOTES/ADMIN-V2-2.md, "gaps").
  */
 import type { V2Route } from '../routes';
-import { v2http, normaliseEnvelope } from '../http';
+import { v2http, normaliseEnvelope, mapList } from '../http';
+
+/**
+ * A v2 review view nests the catalogue labels (`product {name, slug, sku, image}`, `variation {name, sku}`,
+ * reviews `domain/serialize.rs` `labels`); the screens read them flat (`product_name`, `product_image` …).
+ */
+export function reviewRow(r: any): any {
+  if (!r || typeof r !== 'object' || Array.isArray(r)) return r;
+  const { product, variation, ...rest } = r;
+  return {
+    ...rest,
+    product_name: rest.product_name ?? product?.name ?? undefined,
+    product_slug: rest.product_slug ?? product?.slug ?? undefined,
+    product_sku: rest.product_sku ?? variation?.sku ?? product?.sku ?? undefined,
+    product_image: rest.product_image ?? product?.image ?? undefined,
+    variation_name: rest.variation_name ?? variation?.name ?? undefined,
+  };
+}
+const reviewReply = (d: any) => (Array.isArray(d) ? mapList(d, reviewRow) : reviewRow(d));
 
 export const REVIEW_ROUTES: V2Route[] = [
   { m: 'DELETE', from: '/product-questions/:id', row: 'reviews :197', to: '/api/v2/reviews/questions/{id}' },
@@ -16,12 +34,12 @@ export const REVIEW_ROUTES: V2Route[] = [
   { m: 'PUT', from: '/product-questions/:id/reject', row: 'reviews 34 (merged into 33)', method: 'POST', to: '/api/v2/reviews/questions/{id}/status', body: () => ({ status: 'rejected' }) },
   { m: 'GET', from: '/product-questions/admin', row: 'reviews :113', to: '/api/v2/reviews/moderation/questions', qs: ['limit','offset','product_id','status','unanswered'] },
   { m: 'POST', from: '/product-questions/admin/bulk', row: 'reviews :172', to: '/api/v2/reviews/moderation/questions/bulk', bs: {'action':'s','ids':['s']} },
-  { m: 'GET', from: '/reviews/:id', row: 'reviews :755', to: '/api/v2/reviews/reviews/{id}' },
-  { m: 'PUT', from: '/reviews/:id', row: 'reviews :706', method: 'PATCH', to: '/api/v2/reviews/reviews/{id}', bs: {'customer_email':'s','customer_image':'s','customer_name':'s','description':'s','display_order':'i','is_featured':'b','is_verified':'b','link':'s','media':[{'bytes':'i','duration':'i','h':'i','mime':'s','thumb':'s','type':'s','url':'s','w':'i'}],'moderation_reason':'s','product_id':'s','rating':'i','review':'s','status':'s','title':'s','variation_id':'s'} },
+  { m: 'GET', from: '/reviews/:id', row: 'reviews :755', to: '/api/v2/reviews/reviews/{id}', reply: reviewReply },
+  { m: 'PUT', from: '/reviews/:id', row: 'reviews :706', method: 'PATCH', to: '/api/v2/reviews/reviews/{id}', bs: {'customer_email':'s','customer_image':'s','customer_name':'s','description':'s','display_order':'i','is_featured':'b','is_verified':'b','link':'s','media':[{'bytes':'i','duration':'i','h':'i','mime':'s','thumb':'s','type':'s','url':'s','w':'i'}],'moderation_reason':'s','product_id':'s','rating':'i','review':'s','status':'s','title':'s','variation_id':'s'}, reply: reviewReply },
   { m: 'DELETE', from: '/reviews/:id', row: 'reviews :741', to: '/api/v2/reviews/reviews/{id}' },
-  { m: 'POST', from: '/reviews/:id/reply', row: 'reviews :571', to: '/api/v2/reviews/reviews/{id}/reply', bs: {'body':'s','published':'b'} },
-  { m: 'GET', from: '/reviews/admin', row: 'reviews :317', to: '/api/v2/reviews/moderation/reviews', qs: ['date_from','date_to','featured','has_media','has_video','limit','offset','product_id','rating','reported','search','sort','source','status','verified'] },
-  { m: 'POST', from: '/reviews/admin', row: 'reviews :599', to: '/api/v2/reviews/moderation/reviews', bs: {'customer_email':'s','customer_image':'s','customer_name':'s','description':'s','is_featured':'b','is_verified':'b','link':'s','media':[{'bytes':'i','duration':'i','h':'i','mime':'s','thumb':'s','type':'s','url':'s','w':'i'}],'product_id':'s','rating':'i','review':'s','status':'s','title':'s','variation_id':'s'} },
+  { m: 'POST', from: '/reviews/:id/reply', row: 'reviews :571', to: '/api/v2/reviews/reviews/{id}/reply', bs: {'body':'s','published':'b'}, reply: reviewReply },
+  { m: 'GET', from: '/reviews/admin', row: 'reviews :317', to: '/api/v2/reviews/moderation/reviews', qs: ['date_from','date_to','featured','has_media','has_video','limit','offset','product_id','rating','reported','search','sort','source','status','verified'], reply: reviewReply },
+  { m: 'POST', from: '/reviews/admin', row: 'reviews :599', to: '/api/v2/reviews/moderation/reviews', bs: {'customer_email':'s','customer_image':'s','customer_name':'s','description':'s','is_featured':'b','is_verified':'b','link':'s','media':[{'bytes':'i','duration':'i','h':'i','mime':'s','thumb':'s','type':'s','url':'s','w':'i'}],'product_id':'s','rating':'i','review':'s','status':'s','title':'s','variation_id':'s'}, reply: reviewReply },
   { m: 'GET', from: '/reviews/admin/:id/reports', row: 'reviews :360', to: '/api/v2/reviews/reviews/{id}/reports' },
   { m: 'POST', from: '/reviews/admin/:id/resolve-reports', row: 'reviews :587', to: '/api/v2/reviews/reviews/{id}/reports/resolve', bs: {'status':'s'} },
   { m: 'POST', from: '/reviews/admin/bulk-delete', row: 'reviews :561', to: '/api/v2/reviews/moderation/reviews/delete', bs: {'ids':['s']} },
@@ -38,7 +56,7 @@ export const REVIEW_ROUTES: V2Route[] = [
       return normaliseEnvelope(r.data);
     },
   },
-  { m: 'GET', from: '/wishlist/admin/customers', row: 'commerce wishlist.ts:151', to: '/api/v2/commerce/wishlist/customers', qs: ['limit'] },
+  { m: 'GET', from: '/wishlist/admin/customers', row: 'commerce wishlist.ts:151', to: '/api/v2/commerce/wishlist/customers', qs: ['limit'], reply: (d) => (Array.isArray(d) ? mapList(d, (r: any) => ({ ...r, name: r.name ?? r.contact?.name ?? null, email: r.email ?? r.contact?.email ?? null, phone: r.phone ?? r.contact?.phone ?? null })) : d) }, // WishCustomerView nests `contact {name, email, phone}` (commerce views/shoppers.rs:271, api/shoppers/wishlist.rs:380); Wishlist savers read s.name/s.email/s.phone
   { m: 'GET', from: '/wishlist/admin/demand', row: 'commerce wishlist.ts:121', to: '/api/v2/commerce/wishlist/demand', qs: ['days','grain','limit','offset','search','stock'] },
   { m: 'GET', from: '/wishlist/admin/export', row: 'commerce wishlist.ts:184', to: '/api/v2/commerce/wishlist/export', qs: ['days','grain','limit','offset','search','stock'] }, // download
   { m: 'GET', from: '/wishlist/admin/summary', row: 'commerce wishlist.ts:133', to: '/api/v2/commerce/wishlist/summary' },
