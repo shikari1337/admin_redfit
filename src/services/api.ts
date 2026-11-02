@@ -4792,6 +4792,21 @@ export const batchesAPI = {
     const r = await api.get('/purchasing/batches', { params: params ?? {} });
     return r.data?.rows ?? r.data?.data ?? r.data ?? [];
   },
+  /** One server page of every lot with stock, and how many match in all (200 a page at most). */
+  page: async (params: {
+    limit: number; offset: number; search?: string;
+    view?: 'expiring' | 'expired' | 'unpriced'; viewDays?: number; sort?: 'expiry' | 'qty' | 'product';
+  }): Promise<{ rows: any[]; total: number }> => {
+    const r = await api.get('/purchasing/batches', { params });
+    const d = r.data ?? {};
+    const rows: any[] = d.rows ?? d.data ?? (Array.isArray(d) ? d : []);
+    return { rows, total: Number(d.total ?? rows.length) || 0 };
+  },
+  /** Lots, units, expired, expiring within `days`, priced and stock value over EVERY lot with stock. */
+  summary: async (days: number) => {
+    const r = await api.get('/purchasing/batches/summary', { params: { days } });
+    return r.data?.data ?? r.data;
+  },
   get: async (id: string) => {
     const r = await api.get(`/purchasing/batches/${id}`);
     return r.data?.data ?? r.data;

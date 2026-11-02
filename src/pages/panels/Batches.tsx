@@ -61,6 +61,9 @@ const MODE_COPY: Record<PricingMode, { title: string; body: string; tone: string
   },
 };
 
+/** Lots per page: the API's ceiling for any list. */
+const PAGE_SIZE = 200;
+
 const Batches: React.FC = () => {
   const { hasPerm } = useAuth();
   const canAdjust = hasPerm('inventory.adjust');
@@ -87,29 +90,50 @@ const Batches: React.FC = () => {
   const [createOpen, setCreateOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
 
+  // Every lot is paged, searched, filtered and sorted on the server (a store holds
+  // tens of thousands of lots; 200 a page is the API's ceiling), and the figures
+  // above come from the server's total over EVERY lot, never from one page.
+  const [offset, setOffset] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [summary, setSummary] = useState<any | null>(null);
+  const [search, setSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(filter.trim()), 350);
+    return () => clearTimeout(t);
+  }, [filter]);
+  useEffect(() => { setOffset(0); }, [search, view, days, sort]);
+
+  // Only the newest request's answer is shown (a filter change resets the page,
+  // so two loads can be in flight).
+  const loadSeq = useRef(0);
   const load = useCallback(async () => {
+    const mine = ++loadSeq.current;
     setError(''); setLoading(true);
     try {
-      // Both shapes are fetched together so switching between them is instant
-      // and never re-queries; the grouped feed is bounded by the BATCHES that
-      // exist, never by the 44k-SKU catalogue.
-      const [flat, byProd] = await Promise.all([
-        // 200 is the API's ceiling for any list (a larger limit is refused outright).
-        batchesAPI.list({ limit: 200 }),
-        batchesAPI.byProduct({ includeDepleted: true }).catch(() => []),
+      const [flat, byProd, sum] = await Promise.all([
+        batchesAPI.page({
+          limit: PAGE_SIZE, offset, search: search || undefined,
+          view: view === 'all' ? undefined : view, viewDays: days, sort,
+        }),
+        batchesAPI.byProduct({ includeDepleted: true, search: search || undefined }).catch(() => []),
+        batchesAPI.summary(days).catch(() => null),
       ]);
-      setRows(flat);
+      if (mine !== loadSeq.current) return;
+      setRows(flat.rows);
+      setTotal(flat.total);
       setGrouped(byProd);
+      setSummary(sum);
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? e.message ?? 'Could not load batches.');
-    } finally { setLoading(false); }
-  }, []);
+      if (mine === loadSeq.current) setError(e?.response?.data?.message ?? e.message ?? 'Could not load batches.');
+    } finally { if (mine === loadSeq.current) setLoading(false); }
+  }, [offset, search, view, days, sort]);
 
   const loadPricing = useCallback(async () => {
     try { setPricing(await inventoryAPI.getBatchPricing()); } catch { /* read-only extra */ }
   }, []);
 
-  useEffect(() => { load(); loadPricing(); }, [load, loadPricing]);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadPricing(); }, [loadPricing]);
 
   const setMode = async (mode: PricingMode) => {
     if (!pricing || !canConfigure) return;
@@ -149,32 +173,18 @@ const Batches: React.FC = () => {
       const unit = Number(b.selling_price ?? b.mrp ?? 0);
       if (unit > 0) value += unit * (Number(b.qty_on_hand) || 0);
     }
+    if (summary) {
+      return {
+        units: Number(summary.units) || 0, expiring: Number(summary.expiring) || 0,
+        expired: Number(summary.expired) || 0, priced: Number(summary.priced) || 0,
+        value: Number(summary.value) || 0, total: Number(summary.lots) || 0,
+      };
+    }
     return { units, expiring, expired, priced, value, total: rows.length };
-  }, [rows, days]);
+  }, [rows, days, summary]);
 
-  const visible = useMemo(() => {
-    const q = filter.trim().toLowerCase();
-    let out = rows.filter((b: any) => {
-      if (q && ![b.sku, b.product_name, b.batch_number, b.purchase_ref, b.supplier_batch_ref]
-        .some((f) => String(f ?? '').toLowerCase().includes(q))) return false;
-      const d = b.days_to_expiry;
-      if (view === 'expiring') return d != null && d >= 0 && d <= days;
-      if (view === 'expired') return d != null && d < 0;
-      if (view === 'unpriced') return b.mrp == null && b.selling_price == null && b.b2b_price == null;
-      return true;
-    });
-    out = [...out].sort((a, b) => {
-      if (sort === 'qty') return (Number(b.qty_on_hand) || 0) - (Number(a.qty_on_hand) || 0);
-      if (sort === 'product') return String(a.product_name).localeCompare(String(b.product_name));
-      // expiry: soonest first, undated last
-      const ax = a.days_to_expiry, bx = b.days_to_expiry;
-      if (ax == null && bx == null) return 0;
-      if (ax == null) return 1;
-      if (bx == null) return -1;
-      return ax - bx;
-    });
-    return out;
-  }, [rows, filter, view, days, sort]);
+  // The server already searched, filtered and sorted this page.
+  const visible = rows;
 
   /**
    * This view, as a CSV. Goes through the shared client CSV path so the
@@ -342,8 +352,18 @@ const Batches: React.FC = () => {
           )}
         </FilterChips>
         <span className="ml-auto text-sm text-gray-500">
-          {loading ? 'Loading…' : `${visible.length} of ${rows.length} batch(es)`}
+          {loading ? 'Loading…' : total === 0
+            ? '0 batches'
+            : `${(offset + 1).toLocaleString('en-IN')}–${(offset + rows.length).toLocaleString('en-IN')} of ${total.toLocaleString('en-IN')} batch(es)`}
         </span>
+        {shape === 'flat' && total > PAGE_SIZE && (
+          <span className="flex items-center gap-1">
+            <Btn variant="ghost" disabled={loading || offset === 0}
+              onClick={() => setOffset((o) => Math.max(0, o - PAGE_SIZE))}>Previous</Btn>
+            <Btn variant="ghost" disabled={loading || offset + PAGE_SIZE >= total}
+              onClick={() => setOffset((o) => o + PAGE_SIZE)}>Next</Btn>
+          </span>
+        )}
       </div>
 
       {shape === 'grouped' ? (
@@ -368,7 +388,7 @@ const Batches: React.FC = () => {
             <TBody>
               {!loading && visible.length === 0 && (
                 <EmptyRow colSpan={13}>
-                  {rows.length === 0
+                  {total === 0 && !search && view === 'all'
                     ? 'No batches yet — receive goods in Purchasing, add one above, or load them all at once with the Excel sheet.'
                     : 'No batches match these filters.'}
                 </EmptyRow>
