@@ -1061,7 +1061,9 @@ export const productsAPI = {
       headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 180000, // large catalogs can take a while
     });
-    return response.data?.data ?? response.data;
+    const body = response.data?.data ?? response.data;
+    // The v2 API wraps the per-sheet report: `{ dry_run, message, report: { dryRun, sheets, totalErrors } }`.
+    return body?.report && !body.sheets ? { ...body.report, message: body.message } : body;
   },
 };
 
@@ -1173,6 +1175,18 @@ export const categoriesAPI = {
 };
 
 // Brands API
+/** One "Shop by range" chip a brand page can show: a product form or a top-level category. */
+export interface BrandRange {
+  /** What the saved order holds for it: `form:<value>` or `cat:<category id>`. */
+  entry: string;
+  kind: 'form' | 'category';
+  label: string;
+  category_id?: string | null;
+  /** The brand's active products in it. */
+  count: number;
+}
+export interface BrandRanges { range_order: string[]; ranges: BrandRange[] }
+
 export const brandsAPI = {
   list: async (params?: { active?: boolean; featured?: boolean }) => {
     try {
@@ -1239,6 +1253,32 @@ export const brandsAPI = {
       return response.data;
     } catch (error: any) {
       safeError(error);
+    }
+  },
+  // ── "Shop by range" order (RANGE-ORDER, tenant migration 386) ──
+  /** The brand page's ranges (its product forms and top-level categories, with
+   *  product counts, largest first) and its saved order (`[]` = automatic). */
+  listRanges: async (brandId: string): Promise<BrandRanges> => {
+    try {
+      const response = await api.get(`/brands/${brandId}/ranges`);
+      const d = response.data ?? {};
+      return {
+        range_order: Array.isArray(d.range_order) ? d.range_order : [],
+        ranges: Array.isArray(d.ranges) ? d.ranges : [],
+      };
+    } catch (error: any) {
+      safeError(error);
+      throw error;
+    }
+  },
+  /** Save the brand page's range order, first to last; `[]` = back to automatic. */
+  saveRangeOrder: async (brandId: string, order: string[]) => {
+    try {
+      const response = await api.put(`/brands/${brandId}`, { rangeOrder: order });
+      return response.data;
+    } catch (error: any) {
+      safeError(error);
+      throw error;
     }
   },
   exportProductOrder: async (brandId: string, brandSlug?: string) => {

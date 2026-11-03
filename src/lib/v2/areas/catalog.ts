@@ -12,7 +12,8 @@ import { shapeBody } from '../shape';
 import type { Spec } from '../shape';
 
 
-const QTY_OFFERS: Spec = { offers: [{ description: 's', price: 'm', quantity: 'i', title: 's' }] };
+// a pack: `price` (the pack's total) OR `discount_percent` (off each unit); `at_least` = N or more; `variation_id` = one variation (growcord-rs api/catalog_mgmt/product_bundles.rs OfferBody)
+const QTY_OFFERS: Spec = { offers: [{ at_least: 'b', description: 's', discount_percent: 'd', price: 'm', quantity: 'i', title: 's', variation_id: 's' }] };
 const BUNDLE: Spec = { compare_at_price: 'm', currency: 's', description: 'j', images: 'j', is_active: 'b', name: 's', price: 'm', slug: 'j' };
 const BUNDLE_ITEMS: Spec = { items: [{ product_id: 's', quantity: 'i', discount_percent: 'd' }] };
 const BUNDLE_ID = /^[0-9a-f-]{36}$/i;
@@ -96,6 +97,8 @@ export const CATALOG_ROUTES: V2Route[] = [
   { m: 'GET', from: '/attributes/:id', row: 'commerce attributes.ts:31', to: '/api/v2/commerce/public/attributes/{id}' },
   { m: 'PUT', from: '/attributes/:id', row: 'commerce attributes.ts:59', method: 'PATCH', to: '/api/v2/commerce/attributes/{id}', bs: {'chart_type':'j','description':'j','display_order':'i','icon':'j','image_url':'j','is_active':'b','name':'s','show_as_product':'b','slug':'s','type':'s'} },
   { m: 'DELETE', from: '/attributes/:id', row: 'commerce attributes.ts:67', to: '/api/v2/commerce/attributes/{id}' },
+  // ATTR-ORDER: the store's attribute order (product page selectors, listing filters); answers {items:[{id, slug, display_order}]}.
+  { m: 'PUT', from: '/attributes/order', row: 'commerce new: PUT /attributes/order (ATTR-ORDER)', to: '/api/v2/commerce/attributes/order', bs: { ids: ['s'] } },
   { m: 'POST', from: '/attributes/:id/values', row: 'commerce attributes.ts:76 (attribute → body)', to: '/api/v2/commerce/attribute-values', body: (c) => shapeBody(ATTR_VALUE)({ ...c, body: { ...(c.body ?? {}), attribute_id: c.params.id } }) },
   { m: 'PUT', from: '/attributes/:attr/values/:valueId', row: 'commerce attributes.ts (value update → PATCH /attribute-values/{id})', method: 'PATCH', to: '/api/v2/commerce/attribute-values/{valueId}', body: (c) => { const b = shapeBody(ATTR_VALUE)(c) as Record<string, unknown>; delete b.attribute_id; return b; } },
   { m: 'DELETE', from: '/attributes/:id/values/:valueId', row: 'commerce attributes.ts:93', to: '/api/v2/commerce/attribute-values/{valueId}' },

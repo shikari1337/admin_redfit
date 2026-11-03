@@ -16,11 +16,51 @@ interface BundleListItem {
   updatedAt?: string;
 }
 
+/**
+ * One quantity offer (a pack) as the screen edits it. Stored on the product
+ * (`products.bundles`, growcord-rs domain/orders/quantity_offers.rs): EITHER a
+ * pack price (`price` = the total for `quantity` units) OR a percent off each
+ * unit's own price; `atLeast` = the pack size or more units get it (else
+ * exactly that many); `variationId` '' = every variation of the product.
+ * The checkout prices it server-side; this screen only edits the data.
+ */
 interface QuantityBasedBundle {
   title: string;
   description: string;
   quantity: number;
+  priceType: 'pack' | 'percent';
   price: number;
+  discountPercent: number;
+  atLeast: boolean;
+  variationId: string;
+}
+
+/** A stored offer (snake_case keys, or their camelCase aliases) → the editable shape. */
+const toEditableOffer = (raw: any): QuantityBasedBundle => {
+  const pct = raw?.discount_percent ?? raw?.discountPercent;
+  const isPct = pct !== undefined && pct !== null && pct !== '';
+  return {
+    title: String(raw?.title ?? ''),
+    description: String(raw?.description ?? ''),
+    quantity: Number(raw?.quantity) || 1,
+    priceType: isPct ? 'percent' : 'pack',
+    price: isPct ? 0 : Number(raw?.price) || 0,
+    discountPercent: isPct ? Number(pct) || 0 : 0,
+    atLeast: Boolean(raw?.at_least ?? raw?.atLeast),
+    variationId: String(raw?.variation_id ?? raw?.variationId ?? ''),
+  };
+};
+
+/** The product's price shown beside its offers (the staff row's price block, or a number). */
+const basePriceOf = (product: any): number => {
+  const p = product?.price;
+  if (typeof p === 'number') return p;
+  return Number(p?.final_price ?? p?.selling_price ?? product?.selling_price ?? 0) || 0;
+};
+
+interface VariationChoice {
+  id: string;
+  label: string;
 }
 
 interface QuantityBasedBundleProduct {
@@ -55,7 +95,13 @@ const Bundles: React.FC = () => {
   // Modal state for editing quantity-based bundles
   const [editingProduct, setEditingProduct] = useState<QuantityBasedBundleProduct | null>(null);
   const [editingBundles, setEditingBundles] = useState<QuantityBasedBundle[]>([]);
+  const [editingVariations, setEditingVariations] = useState<VariationChoice[]>([]);
   const [saving, setSaving] = useState(false);
+  // "Add offers to a product": find a product that has none yet.
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerQuery, setPickerQuery] = useState('');
+  const [pickerResults, setPickerResults] = useState<QuantityBasedBundleProduct[]>([]);
+  const [pickerLoading, setPickerLoading] = useState(false);
 
   /**
    * CRITICAL FIX: Normalize bundle ID from any format (string, ObjectId, buffer) to string
@@ -160,10 +206,10 @@ const Bundles: React.FC = () => {
           _id: product._id,
           name: product.name,
           slug: product.slug,
-          price: product.price,
+          price: basePriceOf(product),
           images: product.images || [],
           isActive: product.isActive !== false,
-          bundles: product.bundles || [],
+          bundles: (product.bundles || []).map(toEditableOffer),
         }))
         .filter((product) => {
           // Apply search filter if provided
@@ -243,14 +289,54 @@ const Bundles: React.FC = () => {
   const handleEditQuantityBundles = (product: QuantityBasedBundleProduct) => {
     setEditingProduct(product);
     setEditingBundles(JSON.parse(JSON.stringify(product.bundles))); // Deep copy
+    setEditingVariations([]);
+    // The product's variations, for an offer meant for one variation only.
+    const productId = normalizeBundleId(product._id);
+    if (productId) {
+      productsAPI.getById(productId)
+        .then((detail: any) => {
+          const vars: any[] = Array.isArray(detail?.variations) ? detail.variations : [];
+          setEditingVariations(vars
+            .filter((v) => v && (v.id || v._id))
+            .map((v) => ({
+              id: String(v.id ?? v._id),
+              label: [v.name || v.title, v.sku ? `SKU ${v.sku}` : ''].filter(Boolean).join(' · ') || String(v.id ?? v._id),
+            })));
+        })
+        .catch(() => setEditingVariations([]));
+    }
   };
 
   const handleCloseModal = () => {
     setEditingProduct(null);
     setEditingBundles([]);
+    setEditingVariations([]);
   };
 
-  const handleUpdateBundle = (index: number, field: keyof QuantityBasedBundle, value: string | number) => {
+  const handlePickerSearch = async () => {
+    const q = pickerQuery.trim();
+    if (q.length < 2) return;
+    setPickerLoading(true);
+    try {
+      const response = await productsAPI.getAll({ search: q, limit: 10 });
+      const products = (response?.data?.products || response?.data || response || []) as any[];
+      setPickerResults((Array.isArray(products) ? products : []).map((product) => ({
+        _id: product._id ?? product.id,
+        name: product.name,
+        slug: product.slug,
+        price: basePriceOf(product),
+        images: product.images || [],
+        isActive: product.isActive !== false,
+        bundles: (Array.isArray(product.bundles) ? product.bundles : []).map(toEditableOffer),
+      })));
+    } catch (error: any) {
+      alert(error.message || 'Failed to search products');
+    } finally {
+      setPickerLoading(false);
+    }
+  };
+
+  const handleUpdateBundle = (index: number, field: keyof QuantityBasedBundle, value: string | number | boolean) => {
     setEditingBundles((prev) => {
       const updated = [...prev];
       updated[index] = { ...updated[index], [field]: value };
@@ -264,8 +350,12 @@ const Bundles: React.FC = () => {
       {
         title: '',
         description: '',
-        quantity: 1,
+        quantity: 2,
+        priceType: 'percent',
         price: 0,
+        discountPercent: 0,
+        atLeast: true,
+        variationId: '',
       },
     ]);
   };
@@ -318,12 +408,22 @@ const Bundles: React.FC = () => {
         alert(`Bundle ${i + 1}: Title is required`);
         return;
       }
-      if (bundle.quantity < 1) {
-        alert(`Bundle ${i + 1}: Quantity must be at least 1`);
+      if (!Number.isInteger(Number(bundle.quantity)) || bundle.quantity < 1) {
+        alert(`Bundle ${i + 1}: Quantity must be a whole number of at least 1`);
         return;
       }
-      if (bundle.price < 0) {
+      if (bundle.priceType === 'pack' && !(bundle.price >= 0)) {
         alert(`Bundle ${i + 1}: Price must be 0 or higher`);
+        return;
+      }
+      if (bundle.priceType === 'percent' && !(bundle.discountPercent > 0 && bundle.discountPercent < 100)) {
+        alert(`Bundle ${i + 1}: Discount must be above 0% and below 100%`);
+        return;
+      }
+      const clash = editingBundles.findIndex((o, j) => j < i
+        && Number(o.quantity) === Number(bundle.quantity) && (o.variationId || '') === (bundle.variationId || ''));
+      if (clash >= 0) {
+        alert(`Bundle ${i + 1}: Bundle ${clash + 1} already has quantity ${bundle.quantity} for the same variation`);
         return;
       }
     }
@@ -345,7 +445,12 @@ const Bundles: React.FC = () => {
           title: b.title.trim(),
           description: b.description.trim() || '',
           quantity: Number(b.quantity),
-          price: Number(b.price),
+          // one of the two: the server refuses an offer with both or neither
+          ...(b.priceType === 'percent'
+            ? { discount_percent: Number(b.discountPercent) }
+            : { price: Number(b.price) }),
+          at_least: Boolean(b.atLeast),
+          ...(b.variationId ? { variation_id: b.variationId } : {}),
         }))
       );
 
@@ -380,7 +485,65 @@ const Bundles: React.FC = () => {
             New Bundle
           </button>
         )}
+        {viewType === 'quantity' && canManageBundles && (
+          <button
+            onClick={() => setPickerOpen((o) => !o)}
+            className="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
+          >
+            <FaPlus className="mr-2" />
+            Add offers to a product
+          </button>
+        )}
       </div>
+
+      {viewType === 'quantity' && pickerOpen && canManageBundles && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-4">
+          <p className="text-sm text-gray-600 mb-3">
+            Find the product, then add its packs (for example Pack of 2 · Pack of 6 · Pack of 10, each with its own discount).
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={pickerQuery}
+              onChange={(e) => setPickerQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handlePickerSearch(); } }}
+              placeholder="Product name or SKU"
+              className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
+            />
+            <button
+              type="button"
+              onClick={handlePickerSearch}
+              disabled={pickerLoading || pickerQuery.trim().length < 2}
+              className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 disabled:opacity-50"
+            >
+              {pickerLoading ? 'Searching…' : 'Search'}
+            </button>
+          </div>
+          {pickerResults.length > 0 && (
+            <ul className="mt-3 divide-y divide-gray-100 border border-gray-100 rounded-md">
+              {pickerResults.map((product) => (
+                <li key={product._id} className="flex items-center justify-between gap-3 px-3 py-2">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-gray-900 truncate">{product.name}</div>
+                    <div className="text-xs text-gray-500">
+                      /{product.slug} · ₹{product.price}
+                      {product.bundles.length > 0 ? ` · ${product.bundles.length} offer(s) already` : ''}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { setPickerOpen(false); handleEditQuantityBundles(product); }}
+                    className="shrink-0 inline-flex items-center px-3 py-1.5 text-sm bg-red-600 text-white rounded-md hover:bg-red-700"
+                  >
+                    <FaEdit className="mr-1" />
+                    Set up packs
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {/* Tab Navigation */}
       <div className="mb-4 border-b border-gray-200">
@@ -599,7 +762,7 @@ const Bundles: React.FC = () => {
                         No products with quantity-based bundles found.
                       </p>
                       <p className="text-xs text-gray-400">
-                        Quantity-based bundles are configured when editing individual products.
+                        Use “Add offers to a product” above to give a product its packs.
                       </p>
                     </div>
                   </td>
@@ -636,13 +799,22 @@ const Bundles: React.FC = () => {
                             )}
                             <div className="flex items-center gap-2 mt-1">
                               <span className="text-xs text-gray-600">
-                                Qty: {bundle.quantity}
+                                Qty: {bundle.quantity}{bundle.atLeast ? ' or more' : ''}
                               </span>
-                              <span className="text-gray-900 font-semibold">₹{bundle.price}</span>
-                              {bundle.quantity > 1 && (
-                                <span className="text-xs text-gray-500">
-                                  (₹{Math.round(bundle.price / bundle.quantity)} per item)
-                                </span>
+                              {bundle.priceType === 'percent' ? (
+                                <span className="text-gray-900 font-semibold">{bundle.discountPercent}% off each</span>
+                              ) : (
+                                <>
+                                  <span className="text-gray-900 font-semibold">₹{bundle.price}</span>
+                                  {bundle.quantity > 1 && (
+                                    <span className="text-xs text-gray-500">
+                                      (₹{Math.round(bundle.price / bundle.quantity)} per item)
+                                    </span>
+                                  )}
+                                </>
+                              )}
+                              {bundle.variationId && (
+                                <span className="text-xs text-gray-500">· one variation only</span>
                               )}
                             </div>
                           </div>
@@ -721,6 +893,7 @@ const Bundles: React.FC = () => {
               <div className="flex justify-between items-center">
                 <p className="text-sm text-gray-600">
                   Configure quantity-based bundles for this product. Customers can buy multiple quantities at discounted prices.
+                  The storefront shows them as pack choices; the checkout prices them on the server.
                 </p>
                 <div className="flex items-center gap-2">
                   {canManageBundles && editingBundles.length > 0 && (
@@ -781,7 +954,7 @@ const Bundles: React.FC = () => {
                             value={bundle.title}
                             onChange={(e) => handleUpdateBundle(index, 'title', e.target.value)}
                             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
-                            placeholder="e.g., Buy 2 Save ₹500"
+                            placeholder="e.g., Pack of 6"
                           />
                         </div>
                         <div>
@@ -810,22 +983,89 @@ const Bundles: React.FC = () => {
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-700 mb-1">
-                            Bundle Price <span className="text-red-500">*</span>
+                            Applies to
                           </label>
-                          <input
-                            type="number"
-                            min={0}
-                            step="0.01"
-                            value={bundle.price}
-                            onChange={(e) => handleUpdateBundle(index, 'price', Number(e.target.value))}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
-                            placeholder="0"
-                          />
-                          {bundle.quantity > 0 && bundle.price > 0 && (
-                            <p className="text-xs text-gray-500 mt-1">
-                              ₹{Math.round(bundle.price / bundle.quantity)} per item
-                            </p>
-                          )}
+                          <select
+                            value={bundle.atLeast ? 'at_least' : 'exact'}
+                            onChange={(e) => handleUpdateBundle(index, 'atLeast', e.target.value === 'at_least')}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 text-sm bg-white"
+                          >
+                            <option value="at_least">{bundle.quantity || 'N'} or more units</option>
+                            <option value="exact">Exactly {bundle.quantity || 'N'} units</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-700 mb-1">
+                            Price type
+                          </label>
+                          <select
+                            value={bundle.priceType}
+                            onChange={(e) => handleUpdateBundle(index, 'priceType', e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 text-sm bg-white"
+                          >
+                            <option value="percent">% off each unit</option>
+                            <option value="pack">Pack price (total for the pack)</option>
+                          </select>
+                        </div>
+                        {bundle.priceType === 'percent' ? (
+                          <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">
+                              Discount % <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                              type="number"
+                              min={0}
+                              max={99.99}
+                              step="0.01"
+                              value={bundle.discountPercent}
+                              onChange={(e) => handleUpdateBundle(index, 'discountPercent', Number(e.target.value))}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
+                              placeholder="0"
+                            />
+                            {editingProduct && editingProduct.price > 0 && bundle.discountPercent > 0 && bundle.discountPercent < 100 && (
+                              <p className="text-xs text-gray-500 mt-1">
+                                ₹{(Math.round(editingProduct.price * (100 - bundle.discountPercent)) / 100).toLocaleString('en-IN')} per item at today's ₹{editingProduct.price} (the checkout applies it to each variation's own price)
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">
+                              Bundle Price <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              value={bundle.price}
+                              onChange={(e) => handleUpdateBundle(index, 'price', Number(e.target.value))}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
+                              placeholder="0"
+                            />
+                            {bundle.quantity > 0 && bundle.price > 0 && (
+                              <p className="text-xs text-gray-500 mt-1">
+                                ₹{Math.round(bundle.price / bundle.quantity)} per item
+                              </p>
+                            )}
+                          </div>
+                        )}
+                        <div>
+                          <label className="block text-xs font-medium text-gray-700 mb-1">
+                            Variation
+                          </label>
+                          <select
+                            value={bundle.variationId}
+                            onChange={(e) => handleUpdateBundle(index, 'variationId', e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 text-sm bg-white"
+                          >
+                            <option value="">All variations</option>
+                            {editingVariations.map((v) => (
+                              <option key={v.id} value={v.id}>{v.label}</option>
+                            ))}
+                            {bundle.variationId && !editingVariations.some((v) => v.id === bundle.variationId) && (
+                              <option value={bundle.variationId}>{bundle.variationId}</option>
+                            )}
+                          </select>
                         </div>
                       </div>
                     </div>

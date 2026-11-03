@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import CompanyPicker from '../components/brands/CompanyPicker';
 import BrandLicenses from '../components/brands/BrandLicenses';
 import BrandProducts from '../components/brands/BrandProducts';
+import BrandRanges from '../components/brands/BrandRanges';
 import { FaPlus, FaSave, FaUndo, FaTrash, FaSearch, FaGripVertical, FaArrowUp, FaArrowDown, FaTimes, FaPen } from 'react-icons/fa';
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent,
@@ -166,6 +167,12 @@ const Brands: React.FC = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [formState, setFormState] = useState({ ...emptyForm });
+  // What the editor opened with. An edit saves only the fields that differ from
+  // it, so a field the brand list does not carry (owner, manufacturer…) is
+  // never overwritten with a blank (3 Nov 2026: every save from the list row
+  // sent the brand story, SEO and ownership as null).
+  const [openedForm, setOpenedForm] = useState<typeof emptyForm | null>(null);
+  const editingId = useRef<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // list controls
@@ -257,6 +264,8 @@ const Brands: React.FC = () => {
 
   const openCreate = () => {
     setSelectedId(null);
+    editingId.current = null;
+    setOpenedForm(null);
     setFormState({ ...emptyForm });
     setError(null);
     setEditorOpen(true);
@@ -264,8 +273,9 @@ const Brands: React.FC = () => {
 
   const openEdit = (brand: Brand) => {
     setSelectedId(brand._id);
+    editingId.current = brand._id;
     const b = brand as any;
-    setFormState({
+    const form = {
       name: brand.name || '',
       slug: brand.slug || '',
       description: brand.description || '',
@@ -285,9 +295,29 @@ const Brands: React.FC = () => {
       nickname: b.nickname || '',
       ownerPartyId: b.ownerPartyId ?? b.owner_party_id ?? null,
       manufacturerPartyId: b.manufacturerPartyId ?? b.manufacturer_party_id ?? null,
-    });
+    };
+    setFormState(form);
+    setOpenedForm(form);
     setError(null);
     setEditorOpen(true);
+    // The list row lacks the brand story and SEO fields; the brand's own read
+    // has them. Filled in only where the user has not typed yet.
+    brandsAPI.getById(brand._id).then((res: any) => {
+      const full = res?.data ?? res;
+      if (editingId.current !== brand._id || !full || typeof full !== 'object') return;
+      const extra = {
+        content: full.content || '',
+        metaTitle: full.meta_title || full.metaTitle || '',
+        metaDesc: full.meta_desc || full.metaDesc || '',
+        ogImageUrl: full.og_image_url || full.ogImageUrl || '',
+      };
+      setOpenedForm((o) => (o ? { ...o, ...extra } : o));
+      setFormState((f) => {
+        const next: any = { ...f };
+        for (const [k, v] of Object.entries(extra)) if ((f as any)[k] === (form as any)[k]) next[k] = v;
+        return next;
+      });
+    }).catch(() => { /* the list row stays; only changed fields are saved */ });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -306,29 +336,44 @@ const Brands: React.FC = () => {
     const orNull = (v?: string) => (v && v.trim() ? v.trim() : null);
     // preferenceRank is NOT part of this form — ranks live on the Preference
     // order tab where duplicates are structurally impossible.
-    const payload: Record<string, any> = {
-      name: formState.name.trim(),
-      description: orNull(formState.description),
-      content: orNull(formState.content),
-      imageUrl: orNull(formState.imageUrl),
-      logoUrl: orNull(formState.logoUrl),
-      bannerUrl: orNull(formState.bannerUrl),
-      thumbnailUrl: orNull(formState.thumbnailUrl),
-      metaTitle: orNull(formState.metaTitle),
-      metaDesc: orNull(formState.metaDesc),
-      ogImageUrl: orNull(formState.ogImageUrl),
-      displayOrder: formState.displayOrder ? Number(formState.displayOrder) : undefined,
-      isActive: formState.isActive,
-      isFeatured: formState.isFeatured,
-      nickname: orNull(formState.nickname),
-      // Sent even when null so CLEARING an owner actually clears the column —
-      // `orNull` exists for exactly this, and `undefined` would be dropped.
-      ownerPartyId: formState.ownerPartyId || null,
-      manufacturerPartyId: formState.manufacturerPartyId || null,
+    const toPayload = (formState: typeof emptyForm): Record<string, any> => {
+      const payload: Record<string, any> = {
+        name: formState.name.trim(),
+        description: orNull(formState.description),
+        content: orNull(formState.content),
+        imageUrl: orNull(formState.imageUrl),
+        logoUrl: orNull(formState.logoUrl),
+        bannerUrl: orNull(formState.bannerUrl),
+        thumbnailUrl: orNull(formState.thumbnailUrl),
+        metaTitle: orNull(formState.metaTitle),
+        metaDesc: orNull(formState.metaDesc),
+        ogImageUrl: orNull(formState.ogImageUrl),
+        displayOrder: formState.displayOrder ? Number(formState.displayOrder) : undefined,
+        isActive: formState.isActive,
+        isFeatured: formState.isFeatured,
+        nickname: orNull(formState.nickname),
+        // Sent even when null so CLEARING an owner actually clears the column —
+        // `orNull` exists for exactly this, and `undefined` would be dropped.
+        ownerPartyId: formState.ownerPartyId || null,
+        manufacturerPartyId: formState.manufacturerPartyId || null,
+      };
+
+      if (formState.slug?.trim()) {
+        payload.slug = formState.slug.trim();
+      }
+      return payload;
     };
 
-    if (formState.slug?.trim()) {
-      payload.slug = formState.slug.trim();
+    let payload = toPayload(formState);
+    if (selectedId && openedForm) {
+      const before = toPayload(openedForm);
+      payload = Object.fromEntries(Object.entries(payload).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(before[k])));
+      if (!Object.keys(payload).length) {
+        setSaving(false);
+        setEditorOpen(false);
+        toast({ title: 'No changes to save' });
+        return;
+      }
     }
 
     try {
@@ -753,10 +798,11 @@ const Brands: React.FC = () => {
 
             <div className="flex-1 px-6 py-4">
               <Tabs defaultValue="details">
-                <TabsList className="grid w-full grid-cols-5">
+                <TabsList className="grid w-full grid-cols-6">
                   <TabsTrigger value="details">Details</TabsTrigger>
                   <TabsTrigger value="images">Images</TabsTrigger>
                   <TabsTrigger value="products">Products</TabsTrigger>
+                  <TabsTrigger value="ranges">Shop by range</TabsTrigger>
                   <TabsTrigger value="ownership">Ownership</TabsTrigger>
                   <TabsTrigger value="seo">Content &amp; SEO</TabsTrigger>
                 </TabsList>
@@ -856,6 +902,10 @@ const Brands: React.FC = () => {
 
                 <TabsContent value="products" forceMount className="data-[state=inactive]:hidden mt-4">
                   <BrandProducts brandId={selectedId} brandSlug={formState.slug} canManage={canManageBrands} />
+                </TabsContent>
+
+                <TabsContent value="ranges" forceMount className="data-[state=inactive]:hidden mt-4">
+                  <BrandRanges brandId={selectedId} canManage={canManageBrands} />
                 </TabsContent>
 
                 <TabsContent value="ownership" forceMount className="data-[state=inactive]:hidden mt-4 space-y-5">

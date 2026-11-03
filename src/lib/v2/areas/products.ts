@@ -54,6 +54,14 @@ function categoryRow(c: any): any {
   return { ...c, parent: c.parent ?? c.parent_id ?? null, is_active: c.is_active ?? true, is_public: c.is_public ?? true };
 }
 
+/** A public brand page (`BrandPageView`, commerce views/storefront.rs:124) as one row: `brand` plus its
+ *  siblings (content, meta_title, meta_desc, og_image_url, range_order), which `d.brand` alone dropped. */
+function brandPage(d: any): any {
+  if (!d || typeof d !== 'object' || !d.brand || typeof d.brand !== 'object') return d;
+  const { brand, ...rest } = d;
+  return { ...brand, ...rest };
+}
+
 function brandRow(b: any): any {
   if (!b || typeof b !== 'object') return b;
   return { ...b, is_active: b.is_active ?? true };
@@ -339,13 +347,17 @@ export const PRODUCT_ROUTES: V2Route[] = [
 
   // Brands (public list: the staff list is not mounted — BACKEND GAP)
   { m: 'GET', from: '/brands', row: 'commerce brands.ts:49 (staff list missing → GET /public/brands)', to: `${P}/public/brands`, reply: (d) => (Array.isArray(d) ? mapList(d, brandRow) : d) },
-  { m: 'GET', from: '/brands/slug/:slug', row: 'commerce brands.ts:58', to: `${P}/public/brands/slug/{slug}`, reply: (d) => brandRow(d?.brand ?? d) },
-  { m: 'GET', from: '/brands/:id', row: 'commerce brands.ts:66', to: `${P}/public/brands/{id}`, reply: (d) => brandRow(d?.brand ?? d) },
+  { m: 'GET', from: '/brands/slug/:slug', row: 'commerce brands.ts:58', to: `${P}/public/brands/slug/{slug}`, reply: (d) => brandRow(brandPage(d)) },
+  { m: 'GET', from: '/brands/:id', row: 'commerce brands.ts:66', to: `${P}/public/brands/{id}`, reply: (d) => brandRow(brandPage(d)) },
   { m: 'POST', from: '/brands', row: 'commerce brands.ts:74', to: `${P}/brands`, body: (c) => snakeBody(c.body) },
   { m: 'PUT', from: '/brands/:id', row: 'commerce brands.ts:86', method: 'PATCH', to: `${P}/brands/{id}`, body: (c) => snakeBody(c.body) },
   { m: 'DELETE', from: '/brands/:id', row: 'commerce brands.ts:97', method: 'POST', to: `${P}/brands/{id}/remove`, body: () => ({}) },
   { m: 'GET', from: '/brands/:id/products', row: 'commerce brands.ts:128', to: `${P}/brands/{id}/products`, reply: (d) => wrapData(Array.isArray(d) ? mapList(d, (r: any) => (r && typeof r === 'object' ? { ...r, imageUrl: r.image_url ?? null, isActive: r.is_active } : r)) : d) }, // bare Vec<BrandProductView> (commerce views/catalog_admin.rs:965); brandsAPI.listProducts reads `.data.data`, BrandProducts.tsx reads imageUrl/isActive (inside the opaque `data`, so set here)
   { m: 'PUT', from: '/brands/:id/products/order', row: 'commerce brands.ts:145 (binary: PUT)', to: `${P}/brands/{id}/products/order` },
+  // RANGE-ORDER: the brand page's "Shop by range" — the ranges it has (product forms + top-level categories, counted) and its saved
+  // order, `{range_order: string[], ranges: [{entry, kind, label, category_id, count}]}` (commerce views/catalog_admin.rs BrandRangesView).
+  // Saved through PUT /brands/:id `{rangeOrder}` (→ PATCH `range_order`; `[]` = automatic).
+  { m: 'GET', from: '/brands/:id/ranges', row: 'commerce new: GET /brands/{id}/ranges (RANGE-ORDER)', to: `${P}/brands/{id}/ranges`, raw: true },
   { m: 'GET', from: '/brands/:id/products/export', row: 'commerce brands.ts:170', to: `${P}/brands/{id}/products/export` },
   { m: 'POST', from: '/brands/:id/products/import', row: 'commerce brands.ts:231', to: `${P}/brands/{id}/products/import` },
   { m: 'GET', from: '/brands/:id/licenses', row: 'commerce brands.ts:295 — R:BrandLicense.list ?brand_id=', to: `${P}/brand-licenses`, query: (c) => ({ brand_id: c.params.id, limit: 200 }) },

@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
-import { FaPlus, FaSave, FaUndo, FaTrash, FaEdit, FaChevronDown, FaChevronRight } from 'react-icons/fa';
-import { attributesAPI, attributeValuesAPI } from '../services/api';
+import React, { useEffect, useMemo, useState } from 'react';
+import { FaPlus, FaSave, FaUndo, FaTrash, FaEdit, FaChevronDown, FaChevronRight, FaArrowUp, FaArrowDown, FaGripVertical, FaEye, FaEyeSlash } from 'react-icons/fa';
+import api, { attributesAPI, attributeValuesAPI } from '../services/api';
 import ImageInputWithActions from '../components/common/ImageInputWithActions';
 import { slugifyValue } from '../utils/slugify';
 import { useAuth } from '../contexts/AuthContext';
@@ -68,6 +68,53 @@ const emptyValueForm = {
   order: 0,
 };
 
+/**
+ * Display order (ATTR-ORDER, owner 2 Nov 2026). The attribute list's order is the
+ * store's attribute order (`attributes.display_order`, saved with PUT
+ * /attributes/order): the product page's selectors follow it. The filter order
+ * card below is `productSettings.filterSections` (Settings Center registry), the
+ * storefront's filter sidebar top to bottom: attribute slugs plus the built-in
+ * sections; its starting value is the registry's default.
+ */
+/** The saved position (v2 answers `display_order`, the legacy alias pass adds `displayOrder`). */
+const positionOf = (a: any): number => Number(a?.displayOrder ?? a?.display_order ?? a?.order ?? 0) || 0;
+const slugOf = (a: any): string => String(a?.slug ?? '').trim().toLowerCase();
+/** The storefront's built-in filter sections (homeomedstorefront src/components/ProductFilters.tsx). */
+const FILTER_BUILT_INS: Record<string, string> = {
+  price: 'Price',
+  brand: 'Brand',
+  'health-concern': 'Health concern',
+  categories: 'Categories (sibling and sub-categories, category filter)',
+  availability: 'Availability',
+};
+/** The slot that places every attribute the list does not name (new attributes land here). */
+const OTHER_ATTRIBUTES = 'attributes';
+
+/**
+ * The editable filter list: the stored entries this store knows (built-ins, the
+ * slot, its attributes), every built-in and the slot present, and each attribute
+ * the list does not name placed just before the slot in attribute order — which
+ * is where the storefront shows it anyway, so nothing visible moves.
+ */
+function filterListOf(stored: string[], attrSlugs: string[]): string[] {
+  const known = new Set([...Object.keys(FILTER_BUILT_INS), OTHER_ATTRIBUTES, ...attrSlugs]);
+  const list = Array.from(new Set(stored.map((k) => String(k).trim()).filter((k) => known.has(k))));
+  for (const k of [...Object.keys(FILTER_BUILT_INS), OTHER_ATTRIBUTES]) if (!list.includes(k)) list.push(k);
+  const missing = attrSlugs.filter((s) => !list.includes(s));
+  list.splice(list.indexOf(OTHER_ATTRIBUTES), 0, ...missing);
+  return list;
+}
+
+/** `list` with `key` moved to index `to`. */
+function moved(list: string[], key: string, to: number): string[] {
+  const from = list.indexOf(key);
+  if (from < 0 || to < 0 || to >= list.length || from === to) return list;
+  const next = [...list];
+  next.splice(from, 1);
+  next.splice(to, 0, key);
+  return next;
+}
+
 const Attributes: React.FC = () => {
   const { hasPerm } = useAuth();
   // Backend requires products.manage for attribute/value create+update, products.delete
@@ -76,6 +123,19 @@ const Attributes: React.FC = () => {
   const canManageAttributes = hasPerm('products.manage');
   const canDeleteAttributes = hasPerm('products.delete');
   const [attributes, setAttributes] = useState<Attribute[]>([]);
+  // Attribute order being arranged (ids, first to last); null = the saved order.
+  const [orderIds, setOrderIds] = useState<string[] | null>(null);
+  const [savingOrder, setSavingOrder] = useState(false);
+  const [dragAttrId, setDragAttrId] = useState<string | null>(null);
+  // Filter order (productSettings.filterSections / hiddenFilterSections).
+  const [filterStored, setFilterStored] = useState<string[] | null>(null);
+  const [filterKeys, setFilterKeys] = useState<string[]>([]);
+  const [hiddenKeys, setHiddenKeys] = useState<string[]>([]);
+  const [filterDirty, setFilterDirty] = useState(false);
+  const [filterCanWrite, setFilterCanWrite] = useState(false);
+  const [filterNote, setFilterNote] = useState<string | null>(null);
+  const [savingFilters, setSavingFilters] = useState(false);
+  const [dragFilterKey, setDragFilterKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [selectedAttributeId, setSelectedAttributeId] = useState<string | null>(null);
@@ -121,6 +181,7 @@ const Attributes: React.FC = () => {
 
   useEffect(() => {
     fetchAttributes();
+    fetchFilterOrder();
   }, []);
 
 
@@ -174,6 +235,98 @@ const Attributes: React.FC = () => {
     }
   };
 
+
+  /** The attributes in their saved order (display_order, then name — as the backend orders them), or as being arranged. */
+  const sortedAttributes = useMemo(() => {
+    const saved = [...attributes].sort((a, b) => positionOf(a) - positionOf(b) || String(a.name ?? '').localeCompare(String(b.name ?? '')));
+    if (!orderIds) return saved;
+    const byId = new Map(saved.map((a) => [normalizeId(a._id) ?? '', a]));
+    const arranged = orderIds.map((id) => byId.get(id)).filter(Boolean) as Attribute[];
+    return [...arranged, ...saved.filter((a) => !orderIds.includes(normalizeId(a._id) ?? ''))];
+  }, [attributes, orderIds]);
+
+  const moveAttribute = (id: string, to: number) => {
+    const ids = sortedAttributes.map((a) => normalizeId(a._id)).filter(Boolean) as string[];
+    const next = moved(ids, id, to);
+    if (next !== ids) setOrderIds(next);
+  };
+
+  const saveAttributeOrder = async () => {
+    if (!orderIds) return;
+    setSavingOrder(true);
+    setError(null);
+    try {
+      await api.put('/attributes/order', { ids: orderIds });
+      setOrderIds(null);
+      await fetchAttributes();
+    } catch (err: any) {
+      setError(err?.response?.data?.message || err?.message || 'Failed to save the attribute order');
+    } finally {
+      setSavingOrder(false);
+    }
+  };
+
+  const fetchFilterOrder = async () => {
+    try {
+      const res = await api.get('/settings/registry');
+      const d: any = res?.data;
+      const reg = d?.definitions ? d : (d?.data ?? d?.center ?? d);
+      const def = (reg?.definitions ?? []).find((x: any) => x?.key === 'productSettings');
+      const field = (def?.fields ?? []).find((f: any) => f?.path === 'filterSections');
+      if (!def) { setFilterNote('You need the settings read permission to see the filter order.'); return; }
+      if (!field) { setFilterNote('This server has no filter order setting yet.'); return; }
+      const value = def.value && typeof def.value === 'object' ? def.value : {};
+      const stored = Array.isArray(value.filterSections) ? value.filterSections : Array.isArray(field.default) ? field.default : [];
+      setFilterStored(stored.map(String));
+      setHiddenKeys(Array.isArray(value.hiddenFilterSections) ? value.hiddenFilterSections.map(String) : []);
+      setFilterCanWrite(!!def.canWrite && hasPerm('settings.manage'));
+      setFilterNote(null);
+    } catch (err: any) {
+      setFilterNote(err?.response?.data?.message || err?.message || 'Could not load the filter order.');
+    }
+  };
+
+  // The attribute filter sections are the attributes, except one named like a built-in section
+  // (a "brand" attribute IS the Brand section on the storefront).
+  const filterAttrSlugs = useMemo(
+    () => sortedAttributes.map(slugOf).filter((s) => s && !(s in FILTER_BUILT_INS) && s !== OTHER_ATTRIBUTES),
+    [sortedAttributes],
+  );
+  useEffect(() => {
+    if (filterStored && !filterDirty) setFilterKeys(filterListOf(filterStored, filterAttrSlugs));
+  }, [filterStored, filterAttrSlugs, filterDirty]);
+
+  const moveFilter = (key: string, to: number) => {
+    const next = moved(filterKeys, key, to);
+    if (next !== filterKeys) { setFilterKeys(next); setFilterDirty(true); }
+  };
+  const toggleFilterHidden = (key: string) => {
+    setHiddenKeys((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
+    setFilterDirty(true);
+  };
+  const cancelFilterOrder = () => { setFilterDirty(false); fetchFilterOrder(); };
+  const saveFilterOrder = async () => {
+    setSavingFilters(true);
+    setError(null);
+    try {
+      const hiddenFilterSections = hiddenKeys.filter((k) => filterKeys.includes(k));
+      await api.put('/settings/registry/productSettings', { filterSections: filterKeys, hiddenFilterSections });
+      setFilterStored(filterKeys);
+      setHiddenKeys(hiddenFilterSections);
+      setFilterDirty(false);
+    } catch (err: any) {
+      setError(err?.response?.data?.message || err?.message || 'Failed to save the filter order');
+    } finally {
+      setSavingFilters(false);
+    }
+  };
+
+  const filterLabel = (key: string): { label: string; kind: string; inactive?: boolean } => {
+    if (key in FILTER_BUILT_INS) return { label: FILTER_BUILT_INS[key], kind: 'Built-in' };
+    if (key === OTHER_ATTRIBUTES) return { label: 'Any other attribute (new attributes appear here)', kind: 'Slot' };
+    const a = sortedAttributes.find((x) => slugOf(x) === key);
+    return { label: a?.name || key, kind: 'Attribute', inactive: a ? a.isActive === false : false };
+  };
 
   const fetchAttributeValues = async (attributeId: string) => {
     try {
@@ -329,8 +482,13 @@ const Attributes: React.FC = () => {
         description: attributeFormState.description.trim() || undefined,
         isActive: attributeFormState.isActive,
         showAsProduct: attributeFormState.showAsProduct,
-        order: attributeFormState.order,
       };
+      // The position is set by the order list (PUT /attributes/order). A new attribute goes last
+      // once the store has an order; a store without one keeps 0 (its storefront order unchanged).
+      if (!normalizedId) {
+        const top = Math.max(0, ...attributes.map(positionOf));
+        if (top > 0) payload.displayOrder = top + 1;
+      }
       
       // Only include imageUrl if it has a value
       if (attributeFormState.imageUrl && attributeFormState.imageUrl.trim()) {
@@ -577,10 +735,36 @@ const Attributes: React.FC = () => {
         <div className="lg:col-span-1 bg-white rounded-lg shadow-lg p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-semibold text-gray-900">Attributes ({attributes.length})</h2>
-            {attributes.length > 0 && (
-              <span className="text-sm text-gray-500">Sorted by order</span>
+            {attributes.length > 0 && !orderIds && (
+              <span className="text-sm text-gray-500">Product page order</span>
             )}
           </div>
+          {canManageAttributes && attributes.length > 1 && (
+            <p className="text-xs text-gray-500 -mt-2 mb-3">
+              Drag a row or use the arrows: product page selectors follow this order. The filter order on listings is set below.
+            </p>
+          )}
+          {orderIds && (
+            <div className="mb-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg flex items-center justify-between gap-2">
+              <span className="text-sm text-yellow-800 font-medium">Unsaved order</span>
+              <div className="flex gap-2">
+                <button
+                  onClick={saveAttributeOrder}
+                  disabled={savingOrder}
+                  className="flex items-center gap-1 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >
+                  <FaSave /> {savingOrder ? 'Saving...' : 'Save order'}
+                </button>
+                <button
+                  onClick={() => setOrderIds(null)}
+                  disabled={savingOrder}
+                  className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
+                >
+                  <FaUndo /> Cancel
+                </button>
+              </div>
+            </div>
+          )}
           <div className="space-y-3">
             {attributes.length === 0 ? (
               <div className="text-center py-12 border-2 border-dashed border-gray-300 rounded-lg">
@@ -597,9 +781,8 @@ const Attributes: React.FC = () => {
                 )}
               </div>
             ) : (
-              attributes
-                .sort((a, b) => (a.order || 0) - (b.order || 0))
-                .map((attribute) => {
+              sortedAttributes
+                .map((attribute, index) => {
                   const normalizedAttrId = normalizeId(attribute._id);
                   if (!normalizedAttrId) {
                     console.error('Invalid attribute ID, skipping:', attribute);
@@ -612,9 +795,16 @@ const Attributes: React.FC = () => {
                   const isSelected = currentEditingId !== null && currentEditingId === normalizedAttrId;
                   const isSelectedForValue = currentSelectedId !== null && currentSelectedId === normalizedAttrId;
                   return (
-                  <div key={normalizedAttrId} className={`border rounded-lg overflow-hidden hover:shadow-md transition-shadow ${
+                  <div
+                    key={normalizedAttrId}
+                    draggable={canManageAttributes}
+                    onDragStart={() => setDragAttrId(normalizedAttrId)}
+                    onDragOver={(e) => { if (dragAttrId) e.preventDefault(); }}
+                    onDrop={(e) => { e.preventDefault(); if (dragAttrId) moveAttribute(dragAttrId, index); setDragAttrId(null); }}
+                    onDragEnd={() => setDragAttrId(null)}
+                    className={`border rounded-lg overflow-hidden hover:shadow-md transition-shadow ${
                     isSelected ? 'border-blue-500 border-2 shadow-lg' : 'border-gray-200'
-                  }`}>
+                  } ${dragAttrId === normalizedAttrId ? 'opacity-50' : ''}`}>
                     <div className={`p-4 ${
                       isSelected 
                         ? 'bg-gradient-to-r from-blue-50 to-blue-100' 
@@ -622,6 +812,11 @@ const Attributes: React.FC = () => {
                     }`}>
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3 flex-1 min-w-0">
+                          {canManageAttributes && (
+                            <span className="text-gray-400 cursor-grab flex-shrink-0" title="Drag to reorder">
+                              <FaGripVertical />
+                            </span>
+                          )}
                           <button
                             onClick={() => toggleAttribute(normalizedAttrId)}
                             className="text-gray-600 hover:text-gray-800 transition-colors flex-shrink-0"
@@ -664,6 +859,26 @@ const Attributes: React.FC = () => {
                           </div>
                         </div>
                         <div className="flex gap-2 ml-4">
+                          {canManageAttributes && (
+                            <div className="flex flex-col">
+                              <button
+                                onClick={() => moveAttribute(normalizedAttrId, index - 1)}
+                                disabled={index === 0}
+                                className="px-1 text-gray-500 hover:text-blue-600 disabled:opacity-30"
+                                title="Move up"
+                              >
+                                <FaArrowUp className="text-xs" />
+                              </button>
+                              <button
+                                onClick={() => moveAttribute(normalizedAttrId, index + 1)}
+                                disabled={index === sortedAttributes.length - 1}
+                                className="px-1 text-gray-500 hover:text-blue-600 disabled:opacity-30"
+                                title="Move down"
+                              >
+                                <FaArrowDown className="text-xs" />
+                              </button>
+                            </div>
+                          )}
                           {canManageAttributes && (
                             <button
                               onClick={() => handleEditAttribute(attribute)}
@@ -903,19 +1118,6 @@ const Attributes: React.FC = () => {
               value={attributeFormState.imageUrl}
               onChange={(url) => handleAttributeFormChange('imageUrl', url)}
             />
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Order
-              </label>
-              <input
-                type="number"
-                value={attributeFormState.order}
-                onChange={(e) => handleAttributeFormChange('order', parseInt(e.target.value) || 0)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                min="0"
-                placeholder="0"
-              />
-            </div>
             <div className="flex items-center p-3 bg-gray-50 rounded-lg">
               <input
                 type="checkbox"
@@ -1130,6 +1332,84 @@ const Attributes: React.FC = () => {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Filter order on listings (productSettings.filterSections) */}
+      <div className="mt-6 bg-white rounded-lg shadow-lg p-6">
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900">Filter order on listings</h2>
+            <p className="text-sm text-gray-600 mt-1">
+              The filter sidebar of category, brand and search pages, top to bottom. Drag a row or use the arrows; the eye hides a section.
+            </p>
+          </div>
+          {filterDirty && (
+            <div className="flex gap-2 flex-shrink-0">
+              <button
+                onClick={saveFilterOrder}
+                disabled={savingFilters || !filterCanWrite}
+                className="flex items-center gap-1 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              >
+                <FaSave /> {savingFilters ? 'Saving...' : 'Save filter order'}
+              </button>
+              <button
+                onClick={cancelFilterOrder}
+                disabled={savingFilters}
+                className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                <FaUndo /> Cancel
+              </button>
+            </div>
+          )}
+        </div>
+        {filterNote ? (
+          <p className="text-sm text-gray-500">{filterNote}</p>
+        ) : (
+          <ol className="space-y-2 max-w-2xl">
+            {filterKeys.map((key, index) => {
+              const { label, kind, inactive } = filterLabel(key);
+              const off = hiddenKeys.includes(key);
+              return (
+                <li
+                  key={key}
+                  draggable={filterCanWrite}
+                  onDragStart={() => setDragFilterKey(key)}
+                  onDragOver={(e) => { if (dragFilterKey) e.preventDefault(); }}
+                  onDrop={(e) => { e.preventDefault(); if (dragFilterKey) moveFilter(dragFilterKey, index); setDragFilterKey(null); }}
+                  onDragEnd={() => setDragFilterKey(null)}
+                  className={`flex items-center gap-3 p-3 border rounded-lg ${off ? 'bg-gray-50 border-dashed border-gray-300' : 'bg-white border-gray-200'} ${dragFilterKey === key ? 'opacity-50' : ''}`}
+                >
+                  {filterCanWrite && (
+                    <span className="text-gray-400 cursor-grab flex-shrink-0" title="Drag to reorder"><FaGripVertical /></span>
+                  )}
+                  <span className="text-xs text-gray-400 w-5 text-right flex-shrink-0">{index + 1}</span>
+                  <span className={`flex-1 min-w-0 truncate text-sm font-medium ${off ? 'text-gray-400 line-through' : 'text-gray-900'}`}>{label}</span>
+                  {kind === 'Attribute' && <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">{key}</span>}
+                  {inactive && <span className="text-xs px-2 py-0.5 rounded bg-red-100 text-red-800">Inactive</span>}
+                  <span className={`text-xs px-2 py-0.5 rounded font-medium ${
+                    kind === 'Attribute' ? 'bg-green-100 text-green-800' : kind === 'Slot' ? 'bg-indigo-100 text-indigo-800' : 'bg-blue-100 text-blue-800'
+                  }`}>{kind}</span>
+                  {filterCanWrite && (
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button onClick={() => moveFilter(key, index - 1)} disabled={index === 0} className="p-1 text-gray-500 hover:text-blue-600 disabled:opacity-30" title="Move up">
+                        <FaArrowUp className="text-xs" />
+                      </button>
+                      <button onClick={() => moveFilter(key, index + 1)} disabled={index === filterKeys.length - 1} className="p-1 text-gray-500 hover:text-blue-600 disabled:opacity-30" title="Move down">
+                        <FaArrowDown className="text-xs" />
+                      </button>
+                      <button onClick={() => toggleFilterHidden(key)} className={`p-1 ${off ? 'text-gray-400 hover:text-gray-600' : 'text-blue-600 hover:text-blue-800'}`} title={off ? 'Show this section' : 'Hide this section'}>
+                        {off ? <FaEyeSlash /> : <FaEye />}
+                      </button>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+        )}
+        {!filterNote && !filterCanWrite && (
+          <p className="text-xs text-gray-500 mt-3">You need the settings.manage permission to change the filter order.</p>
+        )}
       </div>
     </div>
   );

@@ -698,6 +698,11 @@ const Products: React.FC = () => {
     fetchProducts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, sp]);
+  // A Form chip in the URL needs the form names (loaded above) to filter by.
+  useEffect(() => {
+    if (q('form') && productForms.length) fetchProducts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productForms]);
 
   const sanitizeProduct = (product: any): any => {
     const sanitized = { ...product };
@@ -737,7 +742,10 @@ const Products: React.FC = () => {
       if (q('status')) params.active = q('status') === 'active' ? 'true' : 'false';
       if (q('stock')) params.inStock = q('stock') === 'in' ? 'true' : 'false';
       if (q('sort')) params.sort = q('sort');
-      if (q('form')) params.attributes = JSON.stringify({ 'product-form': q('form') });
+      // The chip keeps the value's slug in the URL; variations store the
+      // definition's NAME ("Dilution", "Mother Tincture" — one spelling since
+      // the 2 Nov 2026 data fix), and the filter matches exactly, so send the name.
+      if (q('form')) params.attributes = JSON.stringify({ 'product-form': productForms.find((f) => f.slug === q('form'))?.name ?? q('form') });
       if (missing.length) params.missing = missing.join(',');
       const response = await productsAPI.getAll(params);
       let list: any[] = Array.isArray(response) ? response : (response?.data?.data || response?.data || []);

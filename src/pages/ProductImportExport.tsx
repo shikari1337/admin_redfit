@@ -161,7 +161,7 @@ const ProductImportExport: React.FC = () => {
   const totals = useMemo(() => {
     if (!result) return null;
     let created = 0, updated = 0, skipped = 0;
-    for (const r of Object.values(result.sheets)) { created += r.created; updated += r.updated; skipped += r.skipped; }
+    for (const r of Object.values(result.sheets ?? {})) { created += r.created; updated += r.updated; skipped += r.skipped; }
     return { created, updated, skipped };
   }, [result]);
 
@@ -354,7 +354,7 @@ const ProductImportExport: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {Object.entries(result.sheets).map(([key, r]) => (
+                {Object.entries(result.sheets ?? {}).map(([key, r]) => (
                   <tr key={key} className="border-t border-black/5">
                     <td className="py-1.5 pr-6 font-medium text-gray-800">{SHEET_LABELS[key] || key}</td>
                     <td className="py-1.5 pr-6">{r.created}</td>
