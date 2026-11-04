@@ -125,7 +125,7 @@ const ErpAtTheErp: React.FC<{
   } else {
     body = (
       <div className="space-y-3">
-        <dl className="grid grid-cols-2 gap-2 sm:max-w-md">
+        <dl className="grid grid-cols-2 gap-2 sm:max-w-3xl sm:grid-cols-4">
           <div className="rounded-lg bg-gray-50 px-3 py-2">
             <dt className="text-[11px] uppercase tracking-wide text-gray-500">Counted</dt>
             <dd className="text-lg font-semibold tabular-nums text-gray-900">{countedKnown ? unitsText(countedUnits) : '—'}</dd>
@@ -136,6 +136,24 @@ const ErpAtTheErp: React.FC<{
             <dd className="text-lg font-semibold tabular-nums text-gray-900">{unitsText(allUnits)}</dd>
             <dd className="text-[11px] text-gray-500">{plural(groups.length, 'branch', 'branches')} · {plural(batches.length, 'batch', 'batches')}</dd>
           </div>
+          {stock.data?.sellable_units !== undefined && (
+            <div className="rounded-lg bg-gray-50 px-3 py-2">
+              <dt className="text-[11px] uppercase tracking-wide text-gray-500">On sale</dt>
+              <dd className="text-lg font-semibold tabular-nums text-gray-900">{unitsText(stock.data.sellable_units)}</dd>
+              <dd className="text-[11px] text-gray-500">counted batches outside the order window</dd>
+            </div>
+          )}
+          {stock.data?.held_units !== undefined && (
+            <div className={cn('rounded-lg px-3 py-2', unitsNum(stock.data.held_units) > 0 ? 'bg-red-50' : 'bg-gray-50')}>
+              <dt className="text-[11px] uppercase tracking-wide text-gray-500">Held for expiry</dt>
+              <dd className="text-lg font-semibold tabular-nums text-gray-900">{unitsText(stock.data.held_units)}</dd>
+              <dd className="text-[11px] text-gray-500">
+                {stock.data.stop_selling === false
+                  ? 'store window off: only expired batches'
+                  : `stop selling ${typeof stock.data.store_stop_days === 'number' ? stock.data.store_stop_days : '—'} days before expiry`}
+              </dd>
+            </div>
+          )}
         </dl>
         {groups.map((g) => {
           const wh = facilityName(g.facilityId);
@@ -155,12 +173,12 @@ const ErpAtTheErp: React.FC<{
                   {g.counted === false && <Chip tone="neutral">Not counted</Chip>}
                 </div>
               </div>
-              <ErpBatchTable batches={g.batches} showBranch={false} />
+              <ErpBatchTable batches={g.batches} showBranch={false} connectionId={g.connectionId} onWindowChanged={() => void stock.reload()} />
             </div>
           );
         })}
         <p className="text-xs text-gray-500">
-          The ERP is the stock master: this SKU’s on-hand is set to the counted total at each hourly update.
+          The ERP is the stock master: this SKU’s on-hand is set to the counted batches still on sale at each hourly update; a batch inside its order window is held.
           {canReadErp && connId && <> Which branches count is chosen on the <Link className="font-medium underline" to={erpConnUrl(connId, 'warehouses')}>ERP Warehouses tab</Link>.</>}
         </p>
       </div>

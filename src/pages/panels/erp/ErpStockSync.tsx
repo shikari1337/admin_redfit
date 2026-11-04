@@ -20,9 +20,12 @@ import {
   downloadCsv,
 } from '@/components/erp';
 import {
-  applySecs, durationText, erpApi, erpConnUrl, errorText, isNotServed, n, outcomeText, plural, statusTone, stockFeed, whenText,
-  type ErpBranch, type ErpConnection, type ErpConnector, type StockApplyView,
+  applySecs, applyText, durationText, erpApi, erpConnUrl, errorText, isNotServed, n, outcomeText, plural, restartPhaseText, statusTone, stockFeed, whenText,
+  type ErpBranch, type ErpConnection, type ErpConnector, type StockApplyView, type StockRestartPreview, type StockRestartView,
 } from '../../../lib/v2/erp';
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
 import { useInventoryLock } from '../../../hooks/useInventoryLock';
 import { useErpStockRun } from '../../../hooks/useErpStockRun';
 import InventoryLockBanner from '../../../components/inventory/InventoryLockBanner';
@@ -82,6 +85,7 @@ const ErpStockSync: React.FC<{ c: ErpConnection; connector: ErpConnector | null;
         <LastUpdate c={c} last={latest} onApplied={() => { setPicked(null); setPage(1); reloadAll(); }} />
       )}
       <LockCard />
+      {!notServed && <RestartCard c={c} onDone={() => { setPicked(null); setPage(1); reloadAll(); }} />}
       <ApplySettings c={c} connector={connector} connectorError={connectorError} onSaved={onChange} />
       {!notServed && (
         <SectionCard
@@ -97,10 +101,10 @@ const ErpStockSync: React.FC<{ c: ErpConnection; connector: ErpConnector | null;
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[960px] text-sm">
                   <THead>
-                    <Th>Started</Th><Th>How</Th><Th>Result</Th><Th num>Matched</Th><Th num>SKUs changed</Th><Th num>Units ↑ / ↓</Th><Th num>Unchanged</Th><Th num>No SKU</Th><Th num>ERP items</Th><Th num>Took</Th>
+                    <Th>Started</Th><Th>How</Th><Th>Result</Th><Th num>Matched</Th><Th num>SKUs changed</Th><Th num>Units ↑ / ↓</Th><Th num>Unchanged</Th><Th num>No SKU</Th><Th num>Held for expiry</Th><Th num>ERP items</Th><Th num>Took</Th>
                   </THead>
                   <TBody>
-                    {applies.data.items.length === 0 && <EmptyRow colSpan={10}>Store stock has not been set from this ERP yet.</EmptyRow>}
+                    {applies.data.items.length === 0 && <EmptyRow colSpan={11}>Store stock has not been set from this ERP yet.</EmptyRow>}
                     {applies.data.items.map((a) => {
                       const on = shown?.id === a.id;
                       return (
@@ -124,6 +128,7 @@ const ErpStockSync: React.FC<{ c: ErpConnection; connector: ErpConnector | null;
                           <Td num>{a.unmatched > 0
                             ? <button type="button" className="font-medium text-amber-700 underline" onClick={() => setPicked(a)}>{n(a.unmatched)}</button>
                             : n(a.unmatched)}</Td>
+                          <Td num>{(a.held_lots ?? 0) > 0 ? `${n(a.held_lots)} lots / ${n(a.held_units)}` : '—'}</Td>
                           <Td num>{n(a.erp_items)}</Td>
                           <Td num>{a.finished_us == null ? '—' : durationText(applySecs(a))}</Td>
                         </Tr>
@@ -192,6 +197,12 @@ function LastUpdate({ c, last, onApplied }: { c: ErpConnection; last: StockApply
               <StatCard label="ERP codes with no SKU" value={n(last.unmatched)} tone={last.unmatched > 0 ? 'warn' : 'default'} sub={`of ${n(last.erp_items)} ERP items`} />
               <StatCard label="Part units dropped" value={n(last.fractional)} sub="Non-whole quantities are rounded down" />
             </StatGrid>
+            {last.held_lots !== undefined && (
+              <p className="text-sm text-gray-700">
+                Held for expiry: <strong>{plural(last.held_lots, 'lot')} / {plural(last.held_units ?? 0, 'unit')}</strong>
+                <span className="text-gray-500"> — batches inside their order window are left out of the stock customers can order.</span>
+              </p>
+            )}
             {last.message && <Notice tone={last.status === 'ok' ? 'info' : 'warn'}>{last.message}</Notice>}
             {last.fetch && (
               <p className="text-xs text-gray-500">
@@ -214,6 +225,149 @@ function LastUpdate({ c, last, onApplied }: { c: ErpConnection; last: StockApply
         {blocked && !running && <p className="text-xs text-gray-500">{blocked}</p>}
         {!c.enabled && <p className="text-xs text-amber-700">This connection is paused, so the hourly run is not updating stock.</p>}
       </div>
+    </SectionCard>
+  );
+}
+
+/* ── "Restart stock from ERP" (ERP-LOTS-1) ──────────────────────────────── */
+
+const RESTART_PERM = 'inventory.delete';
+
+function RestartFigures({ p }: { p: StockRestartPreview }) {
+  const rows: [string, string][] = [
+    ['Old batches to zero', `${plural(p.lots_to_zero, 'batch', 'batches')} · ${plural(p.lot_units_to_zero, 'unit')}${p.lots_to_zero !== p.lots ? ` (of ${n(p.lots)})` : ''}`],
+    ['SKUs with stock', `${n(p.skus_stocked)} · ${plural(p.sku_units, 'unit')}`],
+    ['… the ERP lists', n(p.skus_listed)],
+    ['… the ERP does not list', `${n(p.skus_unlisted)} · ${plural(p.unlisted_units, 'unit')}${p.keep_unlisted ? ' (kept)' : ' (become 0)'}`],
+    ['SKUs set to 0 first', n(p.skus_to_zero)],
+    ['Then the ERP sets', `${plural(p.erp_units, 'unit')} across ${plural(p.erp_matched, 'SKU')} (${n(p.erp_items)} ERP items)`],
+    ['Held for expiry', `${plural(p.held_lots, 'lot')} / ${plural(p.held_units, 'unit')} · ${p.stop_selling ? `stop selling ${p.stop_days} days before expiry` : 'store window off: expired only'}`],
+  ];
+  return (
+    <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-[max-content_1fr]">
+      {rows.map(([k, v]) => (
+        <React.Fragment key={k}>
+          <dt className="text-gray-500">{k}</dt>
+          <dd className="tabular-nums text-gray-900">{v}</dd>
+        </React.Fragment>
+      ))}
+    </dl>
+  );
+}
+
+function RestartCard({ c, onDone }: { c: ErpConnection; onDone: () => void }) {
+  const { hasPerm } = useAuth();
+  const allowed = hasPerm(RESTART_PERM);
+  const [keepUnlisted, setKeepUnlisted] = useState(false);
+  const [preview, setPreview] = useState<StockRestartPreview | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [err, setErr] = useState<unknown>(null);
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState('');
+  const [starting, setStarting] = useState(false);
+  const [current, setCurrent] = useState<StockRestartView | null>(null);
+  const last = useLoad(() => erpApi.restarts(c.id, 1), [c.id], allowed);
+  const shown = current ?? last.data?.items[0] ?? null;
+  const running = shown?.status === 'running';
+
+  // Follow a running restart until it closes, then re-read the page.
+  useEffect(() => {
+    if (!shown || shown.status !== 'running') return undefined;
+    const id = shown.id;
+    const t = setInterval(() => {
+      void erpApi.restartOne(c.id, id).then((r) => {
+        setCurrent(r);
+        if (r.status !== 'running') onDone();
+      }).catch(() => { /* the next tick tries again */ });
+    }, 4000);
+    return () => clearInterval(t);
+  }, [c.id, shown?.id, shown?.status]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!allowed) return null;
+  if (last.error && isNotServed(last.error)) return null;
+
+  const word = preview?.confirm_word || 'RESTART';
+  const runPreview = async () => {
+    setPreviewing(true); setErr(null);
+    try { setPreview(await erpApi.restartPreview(c.id, keepUnlisted)); } catch (e) { setErr(e); } finally { setPreviewing(false); }
+  };
+  const start = async () => {
+    setStarting(true); setErr(null);
+    try {
+      const r = await erpApi.restart(c.id, keepUnlisted, typed.trim());
+      setCurrent(r); setOpen(false); setTyped(''); setPreview(null);
+    } catch (e) { setErr(e); } finally { setStarting(false); }
+  };
+
+  return (
+    <SectionCard
+      title="Restart stock from ERP"
+      description="Seals the stock from before the ERP: every old batch and every SKU’s stock is set to 0 (recorded in the stock ledger under your name), then stock is set again from a full fetch of the ERP. Run the preview first. Nothing is deleted; it can be reversed with adjustments."
+    >
+      <div className="space-y-4">
+        {shown && (
+          <div className="space-y-2 rounded-lg border border-gray-200 p-3">
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              {running ? <StatusChip status="running" tone="blue" label="Running" /> : <StatusChip status={shown.status} tone={statusTone(shown.status)} />}
+              <span className="text-gray-700">{running ? restartPhaseText(shown.phase) : `Restart of ${whenText(shown.started_us)}`}</span>
+            </div>
+            <p className="text-sm text-gray-700">
+              Zeroed {plural(shown.lots_zeroed, 'batch', 'batches')} ({plural(shown.lot_units_zeroed, 'unit')}) and {plural(shown.skus_zeroed, 'SKU')} ({plural(shown.sku_units_zeroed, 'unit')})
+              {shown.keep_unlisted ? `; kept ${plural(shown.lots_kept, 'batch', 'batches')} and ${plural(shown.skus_kept, 'SKU')} the ERP does not list` : ''}.
+            </p>
+            {shown.apply && <p className="text-sm text-gray-700">{applyText(shown.apply, c.label || 'the ERP')} Held for expiry: {plural(shown.apply.held_lots ?? 0, 'lot')} / {plural(shown.apply.held_units ?? 0, 'unit')}.</p>}
+            {shown.message && <Notice tone={shown.status === 'ok' ? 'good' : shown.status === 'running' ? 'info' : 'warn'}>{shown.message}</Notice>}
+            {shown.failed > 0 && (
+              <details className="text-xs text-gray-600">
+                <summary className="cursor-pointer">{plural(shown.failed, 'write')} refused (left as they were)</summary>
+                <ul className="mt-1 max-h-48 list-disc space-y-0.5 overflow-auto pl-5">{shown.failures.map((f, i) => <li key={i}>{f}</li>)}</ul>
+              </details>
+            )}
+          </div>
+        )}
+        <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+          <input type="checkbox" checked={keepUnlisted} onChange={(e) => { setKeepUnlisted(e.target.checked); setPreview(null); }} disabled={running || previewing} />
+          Keep SKUs the ERP does not list (and their batches) as they are
+        </label>
+        <div className="flex flex-wrap gap-2">
+          <Btn variant="outline" onClick={() => void runPreview()} disabled={running || previewing}>
+            {previewing ? 'Counting…' : 'Preview restart'}
+          </Btn>
+          <Btn variant="danger" onClick={() => { setTyped(''); setOpen(true); }}
+            disabled={running || !preview || preview.blockers.length > 0}
+            title={!preview ? 'Run the preview first.' : preview.blockers[0]}>
+            Restart stock from ERP
+          </Btn>
+        </div>
+        {!!err && (isNotServed(err) ? <NotServed what="Restarting stock from the ERP" /> : <Notice tone="bad">{errorText(err)}</Notice>)}
+        {preview && (
+          <div className="space-y-2 rounded-lg bg-gray-50 p-3">
+            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Preview — nothing has changed yet</div>
+            <RestartFigures p={preview} />
+            {preview.blockers.map((b) => <Notice key={b} tone="bad">{b}</Notice>)}
+          </div>
+        )}
+      </div>
+      <Dialog open={open} onOpenChange={(o) => { if (!o && !starting) setOpen(false); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Restart stock from the ERP?</DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-2 text-sm text-gray-600">
+                {preview && <RestartFigures p={preview} />}
+                <p>Every SKU stands at 0 for a few minutes until the ERP’s figures are applied. Type <strong>{word}</strong> to confirm.</p>
+                <TextInput value={typed} onChange={(e) => setTyped(e.target.value)} aria-label={`Type ${word} to confirm`} autoFocus disabled={starting} />
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Btn variant="outline" onClick={() => setOpen(false)} disabled={starting}>Cancel</Btn>
+            <Btn variant="danger" onClick={() => void start()} disabled={starting || typed.trim() !== word}>
+              {starting ? 'Starting…' : 'Restart stock'}
+            </Btn>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </SectionCard>
   );
 }

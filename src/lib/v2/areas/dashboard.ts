@@ -30,6 +30,20 @@ function panelQuery(ctx: V2Ctx, panel: string): Record<string, unknown> {
   return q;
 }
 
+/**
+ * The delivery outcomes' query (insights `api/panels.rs` `OutcomesQuery`, deny_unknown_fields):
+ * exactly the keys it declares, nothing else.
+ */
+const OUTCOME_KEYS = ['from', 'to', 'group_by', 'campaign', 'source', 'medium', 'traffic', 'payment_method', 'gateway'] as const;
+function outcomesQuery(ctx: V2Ctx): Record<string, unknown> {
+  const q: Record<string, unknown> = {};
+  for (const k of OUTCOME_KEYS) {
+    const v = ctx.query[k];
+    if (v !== undefined && v !== null && v !== '') q[k] = v;
+  }
+  return q;
+}
+
 export const lift = (d: any) => (d && typeof d === 'object' && d.figures && typeof d.figures === 'object'
   ? { ...d.figures, panel: d.panel, range: d.range, bucket: d.bucket }
   : d);
@@ -43,6 +57,11 @@ export const DASHBOARD_ROUTES: V2Route[] = [
     to: (c) => `/api/v2/insights/panels/${panelName(c.params.panel)}`,
     query: (c) => panelQuery(c, panelName(c.params.panel)),
     reply: lift,
+  },
+  {
+    // Delivered / returned / RTO per payment, gateway, campaign, source, medium, ads vs organic (INS-OUTCOMES-1).
+    m: 'GET', from: '/analytics/panels/outcomes', row: 'insights panels.rs — GET /api/v2/insights/panels/outcomes',
+    to: '/api/v2/insights/panels/outcomes', query: outcomesQuery, reply: lift,
   },
   {
     m: 'GET', from: '/analytics/panels/inventory/intelligence', row: 'insights 31',

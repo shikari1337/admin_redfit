@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, CreditCard, Plus, Trash2, Percent, Loader2, Ban, Pencil } from 'lucide-react';
-import { paymentRulesAPI } from '../services/api';
+import { ArrowLeft, Save, CreditCard, Plus, Trash2, Percent, Loader2, Ban, Pencil, RotateCcw } from 'lucide-react';
+import { api, paymentRulesAPI } from '../services/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Switch } from '@/components/ui/switch';
 import { useSettingsSection } from '../hooks/useSettingsSection';
 
 interface QuantityDiscount {
@@ -44,6 +45,197 @@ const DEFAULT_FORM_DATA = {
 };
 
 type FormData = typeof DEFAULT_FORM_DATA;
+
+// ── Checkout setting `cod.block_after_rto` (growcord-rs apps/checkout/docs/SETTINGS.md) ─────────
+// Layered: Growcord's default → the organisation → this store; the deeper layer wins. The backend
+// answers the value in force and the layer it came from; each PUT replaces its layer whole, so the
+// layer read is sent back with this one key changed (lib/v2/areas/payments.ts, checkout rows).
+
+type Layer = Record<string, any> | null | undefined;
+interface CheckoutSettingsView {
+  settings?: { cod?: Record<string, unknown> } | null;
+  sources?: Record<string, string> | null;
+  store_layer?: Layer;
+  merchant_layer?: Layer;
+}
+
+const RTO_KEY = 'block_after_rto';
+const RTO_PATH = `cod.${RTO_KEY}`;
+const LAYER_LABEL: Record<string, string> = { platform: "Growcord's default", merchant: 'the organisation', store: 'this store' };
+
+/** The layer's own value, or undefined when the layer does not set it (it inherits). */
+const ownValue = (layer: Layer): boolean | undefined => {
+  const v = layer && typeof layer === 'object' ? (layer as any).cod?.[RTO_KEY] : undefined;
+  return typeof v === 'boolean' ? v : undefined;
+};
+
+/** The layer with the key set to `value` (or removed: `undefined` = inherit), every other key kept. */
+const withValue = (layer: Layer, value: boolean | undefined): Record<string, any> => {
+  const base: Record<string, any> = layer && typeof layer === 'object' && !Array.isArray(layer) ? { ...layer } : {};
+  const cod: Record<string, any> = base.cod && typeof base.cod === 'object' ? { ...base.cod } : {};
+  if (value === undefined) delete cod[RTO_KEY];
+  else cod[RTO_KEY] = value;
+  if (Object.keys(cod).length) base.cod = cod;
+  else delete base.cod;
+  return base;
+};
+
+const errorOf = (e: any, fallback: string): string => e?.response?.data?.message || e?.message || fallback;
+const onOff = (v: boolean | undefined) => (v === undefined ? '' : v ? ' (On)' : ' (Off)');
+
+/** One layer's switch: its own value when it sets one, else the value it inherits (when known). */
+const RtoLayerRow: React.FC<{
+  title: string;
+  hint: string;
+  own: boolean | undefined;
+  inherited: boolean | undefined;
+  parent: string;
+  busy: boolean;
+  disabled?: boolean;
+  onChange: (value: boolean | undefined) => void;
+}> = ({ title, hint, own, inherited, parent, busy, disabled, onChange }) => (
+  <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
+    <div className="space-y-0.5">
+      <p className="text-sm font-medium text-foreground">{title}</p>
+      <p className="text-xs text-muted-foreground">{hint}</p>
+      <p className="text-xs text-muted-foreground">
+        {own === undefined ? (
+          <>Not set here — follows {parent}{onOff(inherited)}.</>
+        ) : (
+          <>
+            Set here.{' '}
+            <button type="button" className="text-primary underline disabled:opacity-50" disabled={busy || disabled} onClick={() => onChange(undefined)}>
+              Follow {parent} instead
+            </button>
+          </>
+        )}
+      </p>
+    </div>
+    <div className="flex items-center gap-2 pt-0.5">
+      {busy && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+      <Switch checked={own ?? inherited ?? false} disabled={busy || disabled} onCheckedChange={(c) => onChange(c)} aria-label={title} />
+    </div>
+  </div>
+);
+
+/** "Turn off COD after a returned COD order (until a prepaid order is delivered)". */
+const CodAfterRtoCard: React.FC = () => {
+  const [view, setView] = useState<CheckoutSettingsView | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saving, setSaving] = useState<'store' | 'organisation' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = async () => {
+    setLoadError(null);
+    try {
+      const r = await api.get('/checkout/merchant/settings');
+      setView((r.data as CheckoutSettingsView) ?? null);
+    } catch (e) {
+      setView(null);
+      setLoadError(errorOf(e, "This store's checkout settings could not be read."));
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { load(); }, []);
+
+  const save = async (layer: 'store' | 'organisation', value: boolean | undefined) => {
+    if (!view) return;
+    setSaving(layer);
+    setError(null);
+    try {
+      if (layer === 'store') {
+        const r = await api.put('/checkout/merchant/settings', withValue(view.store_layer, value));
+        setView((r.data as CheckoutSettingsView) ?? view);
+      } else {
+        await api.put('/checkout/merchant/settings/organisation', withValue(view.merchant_layer, value));
+        await load();
+      }
+    } catch (e) {
+      setError(errorOf(e, 'The change was not saved.'));
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const inForceRaw = view?.settings?.cod?.[RTO_KEY];
+  const inForce = typeof inForceRaw === 'boolean' ? inForceRaw : undefined;
+  const source = view?.sources?.[RTO_PATH];
+  const orgOwn = ownValue(view?.merchant_layer);
+  const storeOwn = ownValue(view?.store_layer);
+  // Growcord's default is known only while it is the value in force (the answer carries no platform layer).
+  const platformValue = source === 'platform' ? inForce : undefined;
+  const orgEffective = orgOwn ?? platformValue;
+  const hasOrganisation = !!view?.merchant_layer && typeof view.merchant_layer === 'object';
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center gap-4">
+        <div className="flex-shrink-0 w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center">
+          <RotateCcw className="w-6 h-6 text-amber-600" />
+        </div>
+        <div>
+          <CardTitle>Turn off COD after a returned COD order</CardTitle>
+          <CardDescription>
+            Until a prepaid order is delivered. A buyer — the same account or the same phone — whose earlier
+            cash-on-delivery order was returned to origin (RTO) can only pay online; COD comes back once a later
+            prepaid order of theirs is delivered. Online payment is never affected.
+          </CardDescription>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {loading ? (
+          <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+        ) : loadError || !view ? (
+          <div className="rounded-md border bg-muted/50 px-4 py-3 text-sm space-y-1">
+            <p className="font-medium text-foreground">Read-only: the value in force could not be read here.</p>
+            <p className="text-muted-foreground">{loadError}</p>
+            <p className="text-muted-foreground">
+              These switches work for a store set up for Growcord Checkout. Without your change the rule follows Growcord's default.
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="text-muted-foreground">In force for this store:</span>
+              <Badge variant="outline" className={inForce ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-muted text-muted-foreground'}>
+                {inForce === undefined ? 'Unknown' : inForce ? 'On — COD turned off after a returned COD order' : 'Off'}
+              </Badge>
+              {source && <span className="text-muted-foreground">set by {LAYER_LABEL[source] ?? source}</span>}
+            </div>
+            <RtoLayerRow
+              title="Organisation"
+              hint={hasOrganisation ? 'Every store of the organisation, unless a store sets its own. Needs the organisation’s settings permission.' : 'This store has no Growcord Checkout organisation.'}
+              own={orgOwn}
+              inherited={platformValue}
+              parent={LAYER_LABEL.platform}
+              busy={saving === 'organisation'}
+              disabled={!hasOrganisation || saving !== null}
+              onChange={(v) => save('organisation', v)}
+            />
+            <RtoLayerRow
+              title="This store"
+              hint="Overrides the organisation for this store only."
+              own={storeOwn}
+              inherited={orgEffective}
+              parent={orgOwn === undefined ? LAYER_LABEL.platform : LAYER_LABEL.merchant}
+              busy={saving === 'store'}
+              disabled={saving !== null}
+              onChange={(v) => save('store', v)}
+            />
+          </>
+        )}
+        {error && (
+          <div className="flex items-start justify-between gap-4 rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            <span>{error}</span>
+            <button type="button" onClick={() => setError(null)} className="opacity-60 hover:opacity-100">✕</button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
 
 const PaymentDiscountSettings: React.FC = () => {
   const navigate = useNavigate();
@@ -384,6 +576,8 @@ const PaymentDiscountSettings: React.FC = () => {
           </Button>
         </div>
       </form>
+
+      <CodAfterRtoCard />
 
       {/* Payment Method Rules */}
       <Card>

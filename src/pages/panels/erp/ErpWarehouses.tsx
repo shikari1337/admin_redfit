@@ -497,7 +497,7 @@ function ItemDrawer({ c, code, onClose, facilityName }: {
           {one.data && !one.loading && batches.length > 0 && (
             <>
               {expired > 0 && <Notice tone="bad">{plural(expired, 'batch', 'batches')} of this item {expired === 1 ? 'has' : 'have'} expired at the ERP.</Notice>}
-              <ErpBatchTable batches={batches} currency={c.currency} facilityName={facilityName} className="rounded-lg border border-gray-200" />
+              <ErpBatchTable batches={batches} currency={c.currency} facilityName={facilityName} connectionId={c.id} onWindowChanged={() => void one.reload()} className="rounded-lg border border-gray-200" />
             </>
           )}
         </div>

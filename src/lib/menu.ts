@@ -162,6 +162,7 @@ export const MENU: MenuGroup[] = [
       children: [
         { label: 'Dashboard', to: '/analytics/dashboard', perm: 'reports.read', modules: ['analytics'], tip: 'Sales, orders and customers over a period.' },
         { label: 'Sales Insights', to: '/analytics/insights', perm: 'reports.read', modules: ['analytics'], tip: 'Brand, item and campaign sales, what moved, and what to act on.' },
+        { label: 'Delivery & RTO', to: '/analytics/outcomes', perm: 'orders.read', modules: ['analytics'], tip: 'Delivered, returned and RTO orders by payment, campaign, source and ads vs organic.' },
         { label: 'Store', to: '/analytics/store', perm: 'reports.read', modules: ['analytics'], tip: 'Products, categories and the checkout funnel.' },
         { label: 'Marketing', to: '/analytics/marketing', perm: 'reports.read', modules: ['analytics'], tip: 'Which channel brought the order.' },
         { label: 'Users', to: '/analytics/users', perm: 'reports.read', modules: ['analytics'], tip: 'Who is visiting, on what, and from where.' },

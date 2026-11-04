@@ -4,6 +4,7 @@ import { batchesAPI } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useInventoryLock } from '../../hooks/useInventoryLock';
 import { Btn } from '../erp';
+import { dayText, lastDayOnSale } from '../../lib/v2/erp';
 
 /**
  * Edit one batch: its prices, its dates, and — through the ledger — its quantity.
@@ -36,6 +37,21 @@ export interface BatchRecord {
   catalogue_mrp?: number | string | null;
   catalogue_selling_price?: number | string | null;
   catalogue_b2b_price?: number | string | null;
+  /** ERP-LOTS-1: this lot's own "stop selling N days before expiry" (null = the store's window). */
+  sell_stop_days?: number | null;
+  /** ERP-LOTS-1: the window that applies (its own, else the store's). */
+  stop_days?: number | null;
+  /** ERP-LOTS-1: no longer sold today. */
+  off_sale?: boolean | null;
+}
+
+/** ERP-LOTS-1: "On sale until 31 Dec 2026" / "Held — expires 31 Mar 2027" / "On sale" (no expiry). */
+export function lotSaleText(b: Pick<BatchRecord, 'expiry_date' | 'stop_days' | 'off_sale'>): { text: string; held: boolean } | null {
+  if (b.off_sale === undefined && b.stop_days === undefined) return null;
+  if (b.off_sale) return { text: `Held — expires ${dayText(b.expiry_date)}`, held: true };
+  if (!b.expiry_date) return { text: 'On sale', held: false };
+  const until = lastDayOnSale(b.expiry_date, b.stop_days ?? 0);
+  return { text: until ? `On sale until ${dayText(until)}` : 'On sale', held: false };
 }
 
 const money = (v: number | string | null | undefined) =>
@@ -68,7 +84,8 @@ const BatchEditDrawer: React.FC<{
 
   const [form, setForm] = useState<Record<string, string>>({});
   const [qty, setQty] = useState('');
-  const [busy, setBusy] = useState<'' | 'save' | 'count'>('');
+  const [busy, setBusy] = useState<'' | 'save' | 'count' | 'window'>('');
+  const [stopDays, setStopDays] = useState('');
   const [error, setError] = useState('');
   const [note, setNote] = useState('');
 
@@ -86,6 +103,7 @@ const BatchEditDrawer: React.FC<{
       supplierBatchRef: str(batch.supplier_batch_ref),
     });
     setQty(String(batch.qty_on_hand ?? 0));
+    setStopDays(batch.sell_stop_days != null ? String(batch.sell_stop_days) : '');
     setError(''); setNote('');
   }, [batch]);
 
@@ -161,6 +179,19 @@ const BatchEditDrawer: React.FC<{
       setError(e?.response?.data?.message ?? 'Could not update the quantity.');
     } finally { setBusy(''); }
   };
+
+  const saveWindow = async (value: number | null) => {
+    if (value !== null && (!Number.isInteger(value) || value < 0 || value > 730)) { setError('Enter whole days, 0 to 730.'); return; }
+    setBusy('window'); setError(''); setNote('');
+    try {
+      await batchesAPI.setSellWindow(batch.id, value);
+      setNote(value === null ? 'This lot follows the store setting again.' : `This lot stops selling ${value} days before it expires.`);
+      onSaved();
+    } catch (e: any) {
+      setError(e?.response?.data?.message ?? e?.response?.data?.error?.message ?? 'Could not save the order window.');
+    } finally { setBusy(''); }
+  };
+  const sale = lotSaleText(batch);
 
   const pricingLine =
     pricingMode === 'off'
@@ -254,6 +285,33 @@ const BatchEditDrawer: React.FC<{
               </div>
             )}
           </section>
+
+          {/* ── Order window (ERP-LOTS-1) ─────────────────────────────── */}
+          {sale && (
+            <section>
+              <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">Order window</h3>
+              <p className={`mb-2 text-sm ${sale.held ? 'font-medium text-red-700' : 'text-gray-700'}`}>
+                {sale.text}
+                {batch.expiry_date && typeof batch.stop_days === 'number' && (
+                  <span className="ml-1 text-xs font-normal text-gray-500">
+                    ({batch.stop_days} days before expiry{batch.sell_stop_days != null ? ', this lot’s own' : ', store setting'})
+                  </span>
+                )}
+              </p>
+              <div className="flex items-end gap-2">
+                <div className="w-40">
+                  <Field label="Stop selling days before expiry" hint="Blank = the store setting.">
+                    <input className={input} type="number" min="0" max="730" step="1" inputMode="numeric"
+                      value={stopDays} onChange={(e) => setStopDays(e.target.value)} disabled={!canEdit || !!busy} placeholder="store" />
+                  </Field>
+                </div>
+                <Btn variant="outline" disabled={!canEdit || !!busy}
+                  onClick={() => void saveWindow(stopDays.trim() === '' ? null : Number(stopDays))}>
+                  {busy === 'window' ? 'Saving…' : 'Save'}
+                </Btn>
+              </div>
+            </section>
+          )}
 
           {/* ── Identity ─────────────────────────────────────────────── */}
           <section>

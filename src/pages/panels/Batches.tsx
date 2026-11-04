@@ -10,7 +10,7 @@ import {
 import InfoTip from '../../components/common/InfoTip';
 import BatchBulkBar from '../../components/inventory/BatchBulkBar';
 import SheetsBar from '../../components/inventory/SheetsBar';
-import BatchEditDrawer, { type BatchRecord } from '../../components/inventory/BatchEditDrawer';
+import BatchEditDrawer, { lotSaleText, type BatchRecord } from '../../components/inventory/BatchEditDrawer';
 import { useInventoryLock } from '../../hooks/useInventoryLock';
 import InventoryLockBanner from '../../components/inventory/InventoryLockBanner';
 
@@ -381,13 +381,13 @@ const Batches: React.FC = () => {
           <table className="w-full text-sm">
             <THead>
               <Th>Product</Th><Th>SKU</Th><Th>Batch</Th><Th num>Qty in batch</Th>
-              <Th>Purchased</Th><Th>Expiry</Th><Th num>Days left</Th>
+              <Th>Purchased</Th><Th>Expiry</Th><Th num>Days left</Th><Th>On sale</Th>
               <Th num>Batch MRP</Th><Th num>Batch retail</Th><Th num>Batch B2B</Th><Th num>Catalogue</Th>
               <Th>Status</Th><Th> </Th>
             </THead>
             <TBody>
               {!loading && visible.length === 0 && (
-                <EmptyRow colSpan={13}>
+                <EmptyRow colSpan={14}>
                   {total === 0 && !search && view === 'all'
                     ? 'No batches yet — receive goods in Purchasing, add one above, or load them all at once with the Excel sheet.'
                     : 'No batches match these filters.'}
@@ -404,6 +404,16 @@ const Batches: React.FC = () => {
                   <Td className="whitespace-nowrap">{b.expiry_date ?? '—'}</Td>
                   <Td num className={b.days_to_expiry != null && b.days_to_expiry < 0 ? 'font-semibold text-red-700' : ''}>
                     {b.days_to_expiry ?? '—'}
+                  </Td>
+                  <Td className="whitespace-nowrap text-xs">
+                    {(() => {
+                      const sale = lotSaleText(b);
+                      if (!sale) return <span className="text-gray-400">—</span>;
+                      return <span className={sale.held ? 'font-medium text-red-700' : 'text-gray-700'}
+                                   title={typeof b.stop_days === 'number' ? `${b.stop_days} days before expiry${b.sell_stop_days != null ? ' (this lot’s own)' : ' (store setting)'}` : undefined}>
+                        {sale.text}
+                      </span>;
+                    })()}
                   </Td>
                   <Td num>{money(b.mrp) ?? <span className="text-gray-400">—</span>}</Td>
                   <Td num>

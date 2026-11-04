@@ -143,6 +143,17 @@ export const PAYMENT_ROUTES: V2Route[] = [
   }) },
   { m: 'POST', from: '/returns/:id/settle', row: 'commerce returns.ts:519', to: '/api/v2/commerce/returns/{id}/settle', bs: {'line_ids':['s'],'note':'s','resolution':'s','settlement':'j'} },
   { m: 'GET', from: '/returns/meta', row: 'commerce returns.ts:87', to: '/api/v2/commerce/returns/meta' },
+
+  // Checkout's settings layers (no old route; growcord-rs apps/checkout/core/src/api/saas/merchant.rs settings /
+  // put_settings / put_org_settings, routes api/saas/mod.rs "E: the merchant console"). GET answers SettingsView
+  // `{settings, sources, store_layer, merchant_layer}` (`sources` = leaf path → platform | merchant | store); each PUT
+  // REPLACES its layer whole, so the screen sends the layer it read with its one change. Store layer: checkout.manage
+  // (= settings.manage) on a store that is a Growcord Checkout workspace (else checkout.merchant_not_found). Organisation
+  // layer: a Growcord ID organisation member holding the organisation's settings.manage (a store-only seat is refused by
+  // kind); answers the merchant. Raw: the layers are written back as read, never camelCase-aliased.
+  { m: 'GET', from: '/checkout/merchant/settings', row: 'checkout merchant.rs settings (products/checkout.md §5)', to: '/api/v2/checkout/merchant/settings', raw: true },
+  { m: 'PUT', from: '/checkout/merchant/settings', row: 'checkout merchant.rs put_settings', to: '/api/v2/checkout/merchant/settings', raw: true },
+  { m: 'PUT', from: '/checkout/merchant/settings/organisation', row: 'checkout merchant.rs put_org_settings', to: '/api/v2/checkout/merchant/settings/organisation', raw: true },
 ];
 
 /* ── The store's money in: payment ledger, settlements, COD payouts (PAY-0 §2–§3; lane ADMIN-PAY-1) ───

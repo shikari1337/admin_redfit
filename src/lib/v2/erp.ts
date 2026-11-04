@@ -115,6 +115,10 @@ export interface StockApplyView {
   heartbeat_us?: number | null;
   /** A staff member stopped it (`status` is `failed`; `message` says when and who). */
   stopped?: boolean;
+  /** ERP-LOTS-1: lots holding units left out because they are inside their order window. 0 on an older server. */
+  held_lots?: number;
+  /** ERP-LOTS-1: their whole units. */
+  held_units?: number;
 }
 
 /**
@@ -360,9 +364,28 @@ export interface ErpBatch {
   /** Sent by `by-sku` (across connections); absent on one connection's item read. */
   connection_id?: string;
   connection_label?: string;
+  /** ERP-LOTS-1: the exact lot (item code, batch as kept, branch) — what the order-window route takes. */
+  lot_key?: string;
+  /** ERP-LOTS-1: this lot's own "stop selling N days before expiry", or null (the store's applies). */
+  own_stop_days?: number | null;
+  /** ERP-LOTS-1: the window that applies (its own, else the store's). */
+  stop_days?: number;
+  /** ERP-LOTS-1: the last day it is on sale (`YYYY-MM-DD`); null with no expiry. */
+  on_sale_until?: string | null;
+  /** ERP-LOTS-1: inside its window today — left out of the stock the storefront sells. */
+  held?: boolean;
+  window_set_by?: string | null;
+  window_set_us?: number | null;
 }
 
-export interface ErpItemBatches { item_code: string; batches: ErpBatch[] }
+export interface ErpItemBatches {
+  item_code: string;
+  batches: ErpBatch[];
+  /** ERP-LOTS-1: the store's order window (days) and whether it is on. */
+  store_stop_days?: number;
+  stop_selling?: boolean;
+  today?: string;
+}
 
 /** `GET /erp/stock/by-sku/{sku}` → `{ sku, batches, counted_units, total_units }`, across the store's enabled connections. */
 export interface ErpSkuStock {
@@ -371,6 +394,64 @@ export interface ErpSkuStock {
   /** Decimal strings. Optional only so a reply without them still renders (summed here). */
   counted_units?: string;
   total_units?: string;
+  /** ERP-LOTS-1: counted batches still on sale (what the stock update sets) and the held ones. */
+  sellable_units?: string;
+  held_units?: string;
+  store_stop_days?: number;
+  stop_selling?: boolean;
+}
+
+/** ERP-LOTS-1: the restart's dry run (nothing written). */
+export interface StockRestartPreview {
+  connection_id: string;
+  keep_unlisted: boolean;
+  locked: boolean;
+  lots: number;
+  lot_units: number;
+  lots_to_zero: number;
+  lot_units_to_zero: number;
+  skus_stocked: number;
+  sku_units: number;
+  skus_listed: number;
+  skus_unlisted: number;
+  unlisted_units: number;
+  skus_to_zero: number;
+  erp_items: number;
+  erp_matched: number;
+  erp_units: number;
+  held_lots: number;
+  held_units: number;
+  stop_days: number;
+  stop_selling: boolean;
+  blockers: string[];
+  confirm_word: string;
+}
+
+export type StockRestartPhase = 'fetching' | 'zeroing_lots' | 'zeroing_skus' | 'applying' | 'done';
+
+/** ERP-LOTS-1: one restart of the store's stock from the ERP (its log row). */
+export interface StockRestartView {
+  id: string;
+  connection_id: string;
+  status: 'running' | 'ok' | 'partial' | 'failed' | string;
+  phase: StockRestartPhase | string;
+  keep_unlisted: boolean;
+  actor_id: string;
+  preview: StockRestartPreview | null;
+  lots_zeroed: number;
+  lot_units_zeroed: number;
+  lots_kept: number;
+  skus_zeroed: number;
+  sku_units_zeroed: number;
+  skus_kept: number;
+  failed: number;
+  failures: string[];
+  fetch_run_id: string | null;
+  apply: StockApplyView | null;
+  message: string | null;
+  started_us: number;
+  finished_us: number | null;
+  heartbeat_us: number | null;
 }
 
 /** `unmatched: true` = only ERP codes no store SKU matches (filtered by the server before paging). */
@@ -472,7 +553,27 @@ export const erpApi = {
   /** ERP-WH-1: one item's batches, by branch then expiry. */
   stockItem: async (id: string, code: string) => {
     const r = await v2call<Partial<ErpItemBatches>>('GET', `${conn(id)}/stock/items/${enc(code)}`);
-    return { item_code: String(r?.item_code ?? code), batches: arr<ErpBatch>(r?.batches) } as ErpItemBatches;
+    return { ...(r ?? {}), item_code: String(r?.item_code ?? code), batches: arr<ErpBatch>(r?.batches) } as ErpItemBatches;
+  },
+  /**
+   * ERP-LOTS-1: set (days) or clear (null) one ERP lot's own order window (`inventory.adjust`).
+   * Kept under the exact lot, so every re-sync keeps it; the next stock update applies it.
+   */
+  setLotWindow: (id: string, lotKey: string, stopDays: number | null, note?: string) =>
+    v2call<ErpBatch>('PUT', `${conn(id)}/stock/lots/window`, { data: { lot_key: lotKey, stop_days: stopDays, ...(note ? { note } : {}) } }),
+  /** ERP-LOTS-1: what "Restart stock from ERP" would zero and set (`inventory.delete`; writes nothing). */
+  restartPreview: async (id: string, keepUnlisted: boolean) =>
+    readRestartPreview(await v2call<unknown>('POST', `${conn(id)}/stock/restart/preview`, { data: { keep_unlisted: keepUnlisted } })),
+  /** ERP-LOTS-1: start the restart (typed confirmation `RESTART`); answers the running restart. */
+  restart: async (id: string, keepUnlisted: boolean, confirm: string) =>
+    readRestart(await v2call<unknown>('POST', `${conn(id)}/stock/restart`, { data: { keep_unlisted: keepUnlisted, confirm } })),
+  /** ERP-LOTS-1: one restart, polled while it runs. */
+  restartOne: async (id: string, restartId: string) =>
+    readRestart(await v2call<unknown>('GET', `${conn(id)}/stock/restarts/${enc(restartId)}`)),
+  /** ERP-LOTS-1: the connection's restarts, newest first. */
+  restarts: async (id: string, limit = 10) => {
+    const p = paged<unknown>(await v2call('GET', `${conn(id)}/stock/restarts`, { params: { limit } }));
+    return { ...p, items: p.items.map(readRestart) } as Paged<StockRestartView>;
   },
   /** ERP-WH-1: one store SKU's batches at the ERP (`inventory.read`). */
   stockBySku: async (sku: string) => {
@@ -629,6 +730,66 @@ export function readApplyView(value: unknown): StockApplyView {
     finished_us: typeof o.finished_us === 'number' ? o.finished_us : null,
     heartbeat_us: numOrNull(o.heartbeat_us),
     stopped: o.stopped === true,
+    held_lots: numOr(o.held_lots),
+    held_units: numOr(o.held_units),
+  };
+}
+
+/** A StockRestartPreviewView, narrowed. */
+export function readRestartPreview(value: unknown): StockRestartPreview {
+  const o = isRow(value) ? value : {};
+  return {
+    connection_id: String(o.connection_id ?? ''),
+    keep_unlisted: o.keep_unlisted === true,
+    locked: o.locked === true,
+    lots: numOr(o.lots),
+    lot_units: numOr(o.lot_units),
+    lots_to_zero: numOr(o.lots_to_zero),
+    lot_units_to_zero: numOr(o.lot_units_to_zero),
+    skus_stocked: numOr(o.skus_stocked),
+    sku_units: numOr(o.sku_units),
+    skus_listed: numOr(o.skus_listed),
+    skus_unlisted: numOr(o.skus_unlisted),
+    unlisted_units: numOr(o.unlisted_units),
+    skus_to_zero: numOr(o.skus_to_zero),
+    erp_items: numOr(o.erp_items),
+    erp_matched: numOr(o.erp_matched),
+    erp_units: numOr(o.erp_units),
+    held_lots: numOr(o.held_lots),
+    held_units: numOr(o.held_units),
+    stop_days: numOr(o.stop_days),
+    stop_selling: o.stop_selling === true,
+    blockers: Array.isArray(o.blockers) ? o.blockers.filter((b): b is string => typeof b === 'string') : [],
+    confirm_word: typeof o.confirm_word === 'string' && o.confirm_word ? o.confirm_word : 'RESTART',
+  };
+}
+
+/** A StockRestartView, narrowed. */
+export function readRestart(value: unknown): StockRestartView {
+  const o = isRow(value) ? value : {};
+  const preview = isRow(o.preview) && 'lots' in o.preview ? readRestartPreview(o.preview) : null;
+  return {
+    id: String(o.id ?? ''),
+    connection_id: String(o.connection_id ?? ''),
+    status: String(o.status ?? ''),
+    phase: String(o.phase ?? ''),
+    keep_unlisted: o.keep_unlisted === true,
+    actor_id: String(o.actor_id ?? ''),
+    preview,
+    lots_zeroed: numOr(o.lots_zeroed),
+    lot_units_zeroed: numOr(o.lot_units_zeroed),
+    lots_kept: numOr(o.lots_kept),
+    skus_zeroed: numOr(o.skus_zeroed),
+    sku_units_zeroed: numOr(o.sku_units_zeroed),
+    skus_kept: numOr(o.skus_kept),
+    failed: numOr(o.failed),
+    failures: Array.isArray(o.failures) ? o.failures.filter((f): f is string => typeof f === 'string') : [],
+    fetch_run_id: strOrNull(o.fetch_run_id),
+    apply: isRow(o.apply) ? readApplyView(o.apply) : null,
+    message: strOrNull(o.message),
+    started_us: numOr(o.started_us),
+    finished_us: numOrNull(o.finished_us),
+    heartbeat_us: numOrNull(o.heartbeat_us),
   };
 }
 
@@ -819,6 +980,36 @@ export function expiryTone(iso: string | null | undefined): 'red' | 'amber' | 'n
   if (d === null) return 'neutral';
   if (d < 0) return 'red';
   return d <= 30 ? 'amber' : 'neutral';
+}
+
+/**
+ * ERP-LOTS-1: the last day a lot is on sale with a window of `stopDays` (expiry − days − 1), as
+ * `YYYY-MM-DD`; null without an expiry. The server's rule: sold only while expiry − days > today.
+ */
+export function lastDayOnSale(expiry: string | null | undefined, stopDays: number | null | undefined): string | null {
+  if (!expiry || !/^\d{4}-\d{2}-\d{2}/.test(expiry)) return null;
+  const [y, m, d] = expiry.slice(0, 10).split('-').map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d) - ((stopDays ?? 0) + 1) * 86_400_000);
+  return t.toISOString().slice(0, 10);
+}
+
+/** ERP-LOTS-1: "On sale until 12 Mar 2026" / "Held — expires 30 Jun 2026" / "On sale" (no expiry). */
+export function saleWindowText(expiry: string | null | undefined, onSaleUntil: string | null | undefined, held: boolean | undefined): { text: string; held: boolean } {
+  if (held) return { text: `Held — expires ${dayText(expiry)}`, held: true };
+  if (!expiry) return { text: 'On sale', held: false };
+  return { text: onSaleUntil ? `On sale until ${dayText(onSaleUntil)}` : 'On sale', held: false };
+}
+
+/** ERP-LOTS-1: the restart's phase in words. */
+export function restartPhaseText(phase: string): string {
+  switch (phase) {
+    case 'fetching': return 'Fetching all stock from the ERP';
+    case 'zeroing_lots': return 'Zeroing the store’s old batches';
+    case 'zeroing_skus': return 'Zeroing every SKU’s stock';
+    case 'applying': return 'Setting stock from the ERP';
+    case 'done': return 'Finished';
+    default: return phase || '—';
+  }
 }
 
 /** "12 Mar 2026 (in 20 days)" / "(expired 3 days ago)". */

@@ -84,6 +84,7 @@ const UserAnalytics = lazyRetry(() => import('./pages/analytics/UserAnalytics'))
 const RealtimeAnalytics = lazyRetry(() => import('./pages/analytics/RealtimeAnalytics'));
 const CustomAnalytics = lazyRetry(() => import('./pages/analytics/CustomAnalytics'));
 const SalesInsights = lazyRetry(() => import('./pages/analytics/SalesInsights'));
+const DeliveryOutcomes = lazyRetry(() => import('./pages/analytics/DeliveryOutcomes'));
 const MarketingAnalytics = lazyRetry(() => import('./pages/analytics/MarketingAnalytics'));
 const Modules = lazyRetry(() => import('./pages/Modules'));
 const PackageBoxes = lazyRetry(() => import('./pages/PackageBoxes'));
@@ -436,6 +437,7 @@ function App() {
           <Route path="analytics/users" element={<UserAnalytics />} />
           <Route path="analytics/realtime" element={<RealtimeAnalytics />} />
           <Route path="analytics/insights" element={<SalesInsights />} />
+          <Route path="analytics/outcomes" element={<DeliveryOutcomes />} />
           <Route path="analytics/custom" element={<CustomAnalytics />} />
           <Route path="analytics/marketing" element={<MarketingAnalytics />} />
           <Route path="products" element={<Products />} />

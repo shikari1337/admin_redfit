@@ -4888,6 +4888,14 @@ export const batchesAPI = {
     });
     return r.data?.data ?? r.data;
   },
+  /**
+   * ERP-LOTS-1: stop selling this lot `stopDays` days before it expires; null = the store's
+   * window (Settings ▸ Warehouse automation). Answers the lot with `stop_days` / `off_sale`.
+   */
+  setSellWindow: async (id: string, stopDays: number | null) => {
+    const r = await api.put(`/purchasing/batches/${id}/sell-window`, { stop_days: stopDays });
+    return r.data?.data ?? r.data;
+  },
 };
 
 // ─── TAX RULES API ────────────────────────────────────────────────────────────
