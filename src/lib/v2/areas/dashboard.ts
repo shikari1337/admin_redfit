@@ -9,6 +9,16 @@
 import type { V2Ctx, V2Route } from '../routes';
 import { cartList } from './carts';
 import { pageAs } from '../shape';
+import { asList } from '../http';
+
+/**
+ * ApplicationInboxView `{items, counts}` (trade views/b2b.rs:211) is no Page (no `limit`), so it arrived as
+ * that object and the inbox read neither an array nor `.data`: every application stayed hidden. The rows
+ * become the list, `counts` rides on it (B2BApplications, AttentionBoard read `.counts`).
+ */
+const applicationInbox = (d: any) => (d && typeof d === 'object' && !Array.isArray(d) && Array.isArray(d.items)
+  ? asList(d.items, { counts: d.counts ?? {} })
+  : d);
 
 const SERIES = new Set(['commerce', 'orders', 'inventory', 'accounting', 'marketing', 'shipping', 'fulfilment', 'custom-report', 'sales-team']);
 
@@ -69,7 +79,7 @@ export const DASHBOARD_ROUTES: V2Route[] = [
   { m: 'GET', from: '/ar/outstanding', row: 'books — GET /api/v2/books/receivables', to: '/api/v2/books/receivables' },
   { m: 'GET', from: '/billing/overview', row: 'platform S16', to: '/api/v2/platform/billing/overview' },
   { m: 'GET', from: '/wms/floor/today', row: 'wms — GET /api/v2/wms/floor/today', to: '/api/v2/wms/floor/today' },
-  { m: 'GET', from: '/b2b/applications', row: 'trade — GET /api/v2/trade/applications', to: '/api/v2/trade/applications', query: (c) => ({ status: c.query.status }) },
+  { m: 'GET', from: '/b2b/applications', row: 'trade — GET /api/v2/trade/applications', to: '/api/v2/trade/applications', query: (c) => ({ status: c.query.status }), reply: applicationInbox },
 ];
 
 /** A legacy `page` (1-based) + `limit` → the v2 `offset`. */
