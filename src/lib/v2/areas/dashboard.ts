@@ -34,15 +34,19 @@ function panelQuery(ctx: V2Ctx, panel: string): Record<string, unknown> {
  * The delivery outcomes' query (insights `api/panels.rs` `OutcomesQuery`, deny_unknown_fields):
  * exactly the keys it declares, nothing else.
  */
-const OUTCOME_KEYS = ['from', 'to', 'group_by', 'campaign', 'source', 'medium', 'traffic', 'payment_method', 'gateway'] as const;
-function outcomesQuery(ctx: V2Ctx): Record<string, unknown> {
+const OUTCOME_FILTERS = ['from', 'to', 'campaign', 'source', 'medium', 'traffic', 'payment_method', 'gateway', 'mature_days', 'stale_days', 'min_resolved'] as const;
+const OUTCOME_KEYS = [...OUTCOME_FILTERS, 'group_by'] as const;
+function pick(ctx: V2Ctx, keys: readonly string[]): Record<string, unknown> {
   const q: Record<string, unknown> = {};
-  for (const k of OUTCOME_KEYS) {
+  for (const k of keys) {
     const v = ctx.query[k];
     if (v !== undefined && v !== null && v !== '') q[k] = v;
   }
   return q;
 }
+const outcomesQuery = (ctx: V2Ctx) => pick(ctx, OUTCOME_KEYS);
+/** The overview (`OverviewQuery`): the same filters and knobs, no group-by. */
+const outcomesOverviewQuery = (ctx: V2Ctx) => pick(ctx, OUTCOME_FILTERS);
 
 export const lift = (d: any) => (d && typeof d === 'object' && d.figures && typeof d.figures === 'object'
   ? { ...d.figures, panel: d.panel, range: d.range, bucket: d.bucket }
@@ -62,6 +66,11 @@ export const DASHBOARD_ROUTES: V2Route[] = [
     // Delivered / returned / RTO per payment, gateway, campaign, source, medium, ads vs organic (INS-OUTCOMES-1).
     m: 'GET', from: '/analytics/panels/outcomes', row: 'insights panels.rs — GET /api/v2/insights/panels/outcomes',
     to: '/api/v2/insights/panels/outcomes', query: outcomesQuery, reply: lift,
+  },
+  {
+    // The Delivery & RTO decision view: COD/prepaid by ads/organic, weekly trend, open orders by stage, worst PIN codes, couriers, campaigns (OUT-2).
+    m: 'GET', from: '/analytics/panels/outcomes/overview', row: 'insights panels.rs: GET /api/v2/insights/panels/outcomes/overview',
+    to: '/api/v2/insights/panels/outcomes/overview', query: outcomesOverviewQuery, reply: lift,
   },
   {
     m: 'GET', from: '/analytics/panels/inventory/intelligence', row: 'insights 31',

@@ -51,12 +51,12 @@ export const INK = {
   get baseline() { return token('vizAxis'); },
 } as const;
 
-/** Compact Indian-locale number (12.3K, 1.2L style via en-IN compact). */
-export const fmtCompact = (n: number): string =>
-  new Intl.NumberFormat('en-IN', { notation: 'compact', maximumFractionDigits: 1 }).format(n ?? 0);
+/** Compact Indian-locale number (12.3K, 1.2L style via en-IN compact). `digits`: most fraction digits (1). */
+export const fmtCompact = (n: number, digits = 1): string =>
+  new Intl.NumberFormat('en-IN', { notation: 'compact', maximumFractionDigits: digits }).format(n ?? 0);
 
-/** Compact rupee amount for axis ticks / tiles. */
-export const fmtMoneyCompact = (n: number): string => `₹${fmtCompact(n ?? 0)}`;
+/** Compact rupee amount for axis ticks / tiles (₹4.68L, ₹1.2Cr with `digits` 2). */
+export const fmtMoneyCompact = (n: number, digits = 1): string => `₹${fmtCompact(n ?? 0, digits)}`;
 
 /** 'YYYY-MM-DD' bucket → short label; month buckets show "Jul 26". No Date parsing. */
 export function fmtBucket(bucket: string, granularity: 'day' | 'week' | 'month'): string {

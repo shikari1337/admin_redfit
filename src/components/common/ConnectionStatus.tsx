@@ -43,7 +43,7 @@ const SOURCE_LABEL: Record<CredentialSource, string> = {
 
 const SOURCE_HINT: Record<CredentialSource, string> = {
   store: 'Billed directly by the courier to you.',
-  platform: 'Uses the platform account — charges are billed to your wallet.',
+  platform: 'Uses the platform account. Charges are billed to your wallet.',
   env: 'Provided by the server environment, not entered in this form.',
   none: 'Enter credentials below to enable this integration.',
 };
@@ -72,7 +72,7 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
           )}
           {configured && (
             <span className="text-xs text-muted-foreground">
-              · {accountName || SOURCE_LABEL[source]}
+              {accountName || SOURCE_LABEL[source]}
             </span>
           )}
         </div>

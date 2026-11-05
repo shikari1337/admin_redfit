@@ -3,7 +3,8 @@ import {
   ResponsiveContainer, ComposedChart, Line, Area, Bar, BarChart, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts';
-import { ArrowDownRight, ArrowUpRight, Minus } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { ArrowDownRight, ArrowUpRight, Lightbulb, Minus, TrendingDown, TrendingUp } from 'lucide-react';
 import { token } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import { fmtRupees } from '@/lib/money';
@@ -211,7 +212,9 @@ export const TimeSeries: React.FC<{
   /** Tooltip heading; defaults to the x label. */
   tooltipLabel?: (v: any, payload: any[]) => React.ReactNode;
   legend?: boolean;
-}> = ({ data, series, granularity, height = 260, money, xKey = 'bucket', xFormat, tooltipLabel, legend }) => {
+  /** The values are percentages: ticks and tooltip values carry a % sign. */
+  percent?: boolean;
+}> = ({ data, series, granularity, height = 260, money, xKey = 'bucket', xFormat, tooltipLabel, legend, percent }) => {
   const fmtX = xFormat ?? ((b: any) => fmtBucket(String(b), granularity));
   const isMoney = (name: any) => series.find((s) => s.name === name)?.money ?? money;
   // In a stack only the top segment gets the rounded data end.
@@ -223,13 +226,13 @@ export const TimeSeries: React.FC<{
       <ComposedChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }} barGap={2}>
         <CartesianGrid stroke={INK.grid} vertical={false} />
         <XAxis dataKey={xKey} {...axisProps} tickFormatter={fmtX} minTickGap={24} />
-        <YAxis {...axisProps} width={56} tickFormatter={(v) => (money ? fmtMoneyCompact(v) : fmtCompact(v))} />
+        <YAxis {...axisProps} width={56} tickFormatter={(v) => (money ? fmtMoneyCompact(v) : percent ? `${fmtCompact(v)}%` : fmtCompact(v))} />
         <Tooltip
           cursor={{ stroke: INK.baseline, strokeWidth: 1, fill: INK.grid, fillOpacity: 0.35 }}
           content={(
             <VizTooltip
               labelFormat={(l, p) => (tooltipLabel ? tooltipLabel(l, p) : fmtX(l))}
-              valueFormat={(v, item) => (isMoney(item?.name) ? fmtRupees(v) : v.toLocaleString('en-IN'))} />
+              valueFormat={(v, item) => (isMoney(item?.name) ? fmtRupees(v) : percent ? `${v.toFixed(1)}%` : v.toLocaleString('en-IN'))} />
           )} />
         {showLegend && <Legend wrapperStyle={{ fontSize: 12 }} formatter={legendText} />}
         {series.map((s) =>
@@ -400,12 +403,24 @@ export interface TileDelta {
   label: string;
   /** Which direction is good news. Neutral = never green or red. */
   goodWhen?: 'up' | 'down' | 'neutral';
+  /** The previous figure as the reader should see it (e.g. "1,832" or "12.2%"): shown as "(was ...)". */
+  previousText?: string;
+  /** `points`: the two figures are percentages and the change is in percentage points, not relative. */
+  mode?: 'relative' | 'points';
 }
 
 function deltaParts(d: TileDelta): { text: string; dir: 'up' | 'down' | 'flat'; spoken: string } | null {
   if (d.previous === null || d.previous === undefined || !Number.isFinite(d.previous)) return null;
   const cur = Number(d.current) || 0;
   const prev = Number(d.previous) || 0;
+  if (d.mode === 'points') {
+    const diff = cur - prev;
+    if (Math.abs(diff) < 0.05) return { text: 'No change', dir: 'flat', spoken: `No change ${d.label}` };
+    const n = Math.abs(diff).toFixed(1);
+    return diff > 0
+      ? { text: `+${n} pts`, dir: 'up', spoken: `Up ${n} percentage points ${d.label}` }
+      : { text: `-${n} pts`, dir: 'down', spoken: `Down ${n} percentage points ${d.label}` };
+  }
   if (prev === 0 && cur === 0) return { text: 'No change', dir: 'flat', spoken: `No change ${d.label}` };
   if (prev === 0) return { text: 'Up from 0', dir: 'up', spoken: `Up from zero ${d.label}` };
   const pct = ((cur - prev) / Math.abs(prev)) * 100;
@@ -414,7 +429,7 @@ function deltaParts(d: TileDelta): { text: string; dir: 'up' | 'down' | 'flat'; 
   const n = abs >= 100 ? Math.round(abs).toLocaleString('en-IN') : abs.toFixed(1);
   return pct > 0
     ? { text: `+${n}%`, dir: 'up', spoken: `Up ${n}% ${d.label}` }
-    : { text: `−${n}%`, dir: 'down', spoken: `Down ${n}% ${d.label}` };
+    : { text: `-${n}%`, dir: 'down', spoken: `Down ${n}% ${d.label}` };
 }
 
 export const DeltaLine: React.FC<{ delta: TileDelta }> = ({ delta }) => {
@@ -426,10 +441,12 @@ export const DeltaLine: React.FC<{ delta: TileDelta }> = ({ delta }) => {
     : (p.dir === good ? 'text-good-ink' : 'text-bad-ink');
   const Icon = p.dir === 'up' ? ArrowUpRight : p.dir === 'down' ? ArrowDownRight : Minus;
   return (
-    <div className="mt-1 flex flex-wrap items-center gap-x-1 text-xs" aria-label={p.spoken} data-delta={p.text}>
+    <div className="mt-1 flex flex-wrap items-center gap-x-1 text-xs"
+      aria-label={delta.previousText ? `${p.spoken}, was ${delta.previousText}` : p.spoken} data-delta={p.text}>
       <Icon aria-hidden className={cn('size-3.5 shrink-0', tone)} />
       <span className={cn('font-medium', tone)}>{p.text}</span>
       <span className="text-gray-400">{delta.label}</span>
+      {delta.previousText && <span className="text-gray-400">(was {delta.previousText})</span>}
     </div>
   );
 };
@@ -536,3 +553,32 @@ export const KpiTile: React.FC<{
 export const Unavailable: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className }) => (
   <p className={cn('text-sm text-gray-400', className)} data-unavailable>{children}</p>
 );
+
+// Insight card ("What to act on")
+
+/** One plain sentence computed from the data, with an optional place to act on it. */
+export interface Insight {
+  tone: 'good' | 'bad' | 'info';
+  title: string;
+  body: React.ReactNode;
+  /** Where to act: an in-app route, or an anchor on the same page (`#...`). */
+  action?: { label: string; to: string };
+}
+
+export const InsightCard: React.FC<{ insight: Insight }> = ({ insight }) => {
+  const Icon = insight.tone === 'good' ? TrendingUp : insight.tone === 'bad' ? TrendingDown : Lightbulb;
+  const tone = insight.tone === 'good' ? 'text-good-ink' : insight.tone === 'bad' ? 'text-bad-ink' : 'text-gray-500';
+  const a = insight.action;
+  return (
+    <div className="flex gap-3 rounded-lg border bg-white p-4 shadow-sm">
+      <Icon aria-hidden className={`mt-0.5 size-4 shrink-0 ${tone}`} />
+      <div className="min-w-0 text-sm">
+        <div className="font-medium text-gray-900">{insight.title}</div>
+        <div className="mt-0.5 break-words text-gray-600">{insight.body}</div>
+        {a && (a.to.startsWith('#')
+          ? <a href={a.to} className="mt-1.5 inline-block text-sm font-medium text-gray-900 underline underline-offset-2 hover:text-gray-700">{a.label}</a>
+          : <Link to={a.to} className="mt-1.5 inline-block text-sm font-medium text-gray-900 underline underline-offset-2 hover:text-gray-700">{a.label}</Link>)}
+      </div>
+    </div>
+  );
+};

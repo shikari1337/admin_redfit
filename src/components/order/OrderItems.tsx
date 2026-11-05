@@ -1053,7 +1053,9 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                           note={c.rate ? `GST ${c.rate}%` : undefined}
                           info={nextFact()}
                           label={
-                            <>{c.label}
+                            <>{/* The stored charge key "COD handling" (migration 345 reads it) shows
+                                 under the fee's name, the COD convenience fee (lane PAY-ADV-1). */}
+                              {/^COD handling$/i.test(c.label ?? '') ? 'COD convenience fee' : c.label}
                               {remove && (
                                 <button type="button" onClick={remove} disabled={busy}
                                   className="ml-2 text-xs font-semibold text-red-600 hover:underline disabled:no-underline disabled:opacity-50">

@@ -395,7 +395,7 @@ const OrderDetail: React.FC = () => {
       toast(
         result.verified
           ? { title: 'Confirmed', description: 'Razorpay confirms this payment: captured, amount matches.' }
-          : { variant: 'destructive', title: 'Mismatch found', description: 'This payment does not match what Razorpay has on record — see details below.' }
+          : { variant: 'destructive', title: 'Mismatch found', description: 'This payment does not match what Razorpay has on record. See the details below.' }
       );
     } catch (error: any) {
       toast({ variant: "destructive", title: "Check Failed", description: error.response?.data?.message || 'Failed to verify against Razorpay.' });
@@ -438,7 +438,7 @@ const OrderDetail: React.FC = () => {
   };
 
   const handleRemoveCharge = async (charge: 'shipping' | 'cod') => {
-    const label = charge === 'shipping' ? 'shipping' : 'COD handling';
+    const label = charge === 'shipping' ? 'shipping' : 'COD convenience fee';
     if (!confirm(`Remove the ${label} charge from this order? This reduces the order total and cannot be undone from here.`)) return;
 
     setRemovingCharge(charge);
@@ -1418,6 +1418,7 @@ const OrderDetail: React.FC = () => {
                   orderId={order._id || order.id}
                   paymentMethod={order.paymentMethod}
                   paymentStatus={order.paymentStatus}
+                  amountReceived={Number(order.amountReceived ?? order.amount_received) || 0}
                   paymentGateway={order.paymentGateway}
                   gatewayRef={order.gatewayRef ?? order.gateway_ref}
                   presentmentCurrency={order.currency}
@@ -1664,15 +1665,39 @@ const OrderDetail: React.FC = () => {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 p-4">
-              {order.paymentMethod === 'cod' && (
-                <TrackRow k="COD check" v={
-                  <Badge className={(order.isOtpVerified ?? order.is_otp_verified)
-                    ? 'border-emerald-200 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20'
-                    : 'border-amber-200 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20'}>
-                    {(order.isOtpVerified ?? order.is_otp_verified) ? 'OTP verified' : 'Not verified'}
-                  </Badge>
-                } />
-              )}
+              {order.paymentMethod === 'cod' && (() => {
+                // growcord-rs lane PAY-ADV-1: the COD convenience fee paid online at checkout is money received
+                // against the order (amount_received) with its Razorpay payment; the courier collects the rest.
+                const received = Number(order.amountReceived ?? order.amount_received) || 0;
+                const payId = order.razorpayPaymentId ?? order.razorpay_payment_id;
+                const advance = received > 0 && !!payId && order.paymentStatus !== 'completed';
+                const collect = Math.max(0, (Number(order.total) || 0) - received);
+                return (
+                  <>
+                    {advance && (
+                      <>
+                        <TrackRow k="Paid online" v={
+                          <span className="block">
+                            <span className="block font-semibold text-slate-900 tabular-nums">{fmtRupees(received)}</span>
+                            <span className="block text-[12px] text-slate-600">COD convenience fee</span>
+                            <span className="block break-all font-mono text-[11px] text-slate-400" title="Razorpay payment">{payId}</span>
+                          </span>
+                        } />
+                        <TrackRow k="Collect" v={
+                          <span><span className="font-semibold text-slate-900 tabular-nums">{fmtRupees(collect)}</span> on delivery</span>
+                        } />
+                      </>
+                    )}
+                    <TrackRow k="COD check" v={
+                      <Badge className={(order.isOtpVerified ?? order.is_otp_verified) || advance
+                        ? 'border-emerald-200 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20'
+                        : 'border-amber-200 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20'}>
+                        {(order.isOtpVerified ?? order.is_otp_verified) ? 'OTP verified' : advance ? 'Fee paid online' : 'Not verified'}
+                      </Badge>
+                    } />
+                  </>
+                );
+              })()}
               {order.shippingProvider && (
                 <TrackRow k="Carrier" v={
                   <span className="capitalize">

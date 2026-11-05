@@ -10,6 +10,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
 import { useSettingsSection } from '../hooks/useSettingsSection';
 
 interface QuantityDiscount {
@@ -53,7 +54,7 @@ type FormData = typeof DEFAULT_FORM_DATA;
 
 type Layer = Record<string, any> | null | undefined;
 interface CheckoutSettingsView {
-  settings?: { cod?: Record<string, unknown> } | null;
+  settings?: { cod?: Record<string, unknown>; payments?: Record<string, unknown> } | null;
   sources?: Record<string, string> | null;
   store_layer?: Layer;
   merchant_layer?: Layer;
@@ -100,7 +101,7 @@ const RtoLayerRow: React.FC<{
       <p className="text-xs text-muted-foreground">{hint}</p>
       <p className="text-xs text-muted-foreground">
         {own === undefined ? (
-          <>Not set here — follows {parent}{onOff(inherited)}.</>
+          <>Not set here, follows {parent}{onOff(inherited)}.</>
         ) : (
           <>
             Set here.{' '}
@@ -178,7 +179,7 @@ const CodAfterRtoCard: React.FC = () => {
         <div>
           <CardTitle>Turn off COD after a returned COD order</CardTitle>
           <CardDescription>
-            Until a prepaid order is delivered. A buyer — the same account or the same phone — whose earlier
+            Until a prepaid order is delivered. A buyer (the same account or the same phone) whose earlier
             cash-on-delivery order was returned to origin (RTO) can only pay online; COD comes back once a later
             prepaid order of theirs is delivered. Online payment is never affected.
           </CardDescription>
@@ -200,13 +201,13 @@ const CodAfterRtoCard: React.FC = () => {
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <span className="text-muted-foreground">In force for this store:</span>
               <Badge variant="outline" className={inForce ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-muted text-muted-foreground'}>
-                {inForce === undefined ? 'Unknown' : inForce ? 'On — COD turned off after a returned COD order' : 'Off'}
+                {inForce === undefined ? 'Unknown' : inForce ? 'On: COD turned off after a returned COD order' : 'Off'}
               </Badge>
               {source && <span className="text-muted-foreground">set by {LAYER_LABEL[source] ?? source}</span>}
             </div>
             <RtoLayerRow
               title="Organisation"
-              hint={hasOrganisation ? 'Every store of the organisation, unless a store sets its own. Needs the organisation’s settings permission.' : 'This store has no Growcord Checkout organisation.'}
+              hint={hasOrganisation ? 'Every store of the organisation, unless a store sets its own. Needs the settings permission of the organisation.' : 'This store has no Growcord Checkout organisation.'}
               own={orgOwn}
               inherited={platformValue}
               parent={LAYER_LABEL.platform}
@@ -224,6 +225,255 @@ const CodAfterRtoCard: React.FC = () => {
               disabled={saving !== null}
               onChange={(v) => save('store', v)}
             />
+          </>
+        )}
+        {error && (
+          <div className="flex items-start justify-between gap-4 rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            <span>{error}</span>
+            <button type="button" onClick={() => setError(null)} className="opacity-60 hover:opacity-100">✕</button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
+// ── Checkout settings `payments.part_prepayment` (basis `cod_fee`) and `payments.cod_fee_advance` ──────────────
+// growcord-rs lane PAY-ADV-1: a cash-on-delivery buyer pays the COD convenience fee (the store's COD fee, set on
+// Shipping settings) online at checkout, and the courier collects the rest. Written to THIS store's layer of the
+// checkout settings (the same read and write as the card above); every word the shopper reads is here.
+
+interface AdvanceForm {
+  on: boolean;
+  skipCode: boolean;
+  storeCancel: boolean;
+  customerCancel: boolean;
+  refusedOrRto: boolean;
+  returned: boolean;
+  refundTo: 'gateway' | 'store_credit';
+  feeLabel: string;
+  payNowLabel: string;
+  onDeliveryLabel: string;
+  note: string;
+  policy: string;
+}
+
+type RefundKey = 'storeCancel' | 'customerCancel' | 'refusedOrRto' | 'returned';
+
+const advanceFormOf = (payments: any): AdvanceForm => {
+  const a = payments?.cod_fee_advance ?? {};
+  const r = a.refund ?? {};
+  const w = a.wording ?? {};
+  return {
+    on: payments?.part_prepayment === true && (payments?.part_prepayment_basis ?? 'cod_fee') === 'cod_fee',
+    skipCode: a.skip_cod_code !== false,
+    storeCancel: r.store_cancel !== false,
+    customerCancel: r.customer_cancel_before_dispatch !== false,
+    refusedOrRto: r.refused_or_rto === true,
+    returned: r.returned_after_delivery === true,
+    refundTo: r.to === 'store_credit' ? 'store_credit' : 'gateway',
+    feeLabel: String(w.fee_label ?? ''),
+    payNowLabel: String(w.pay_now_label ?? ''),
+    onDeliveryLabel: String(w.on_delivery_label ?? ''),
+    note: String(w.note ?? ''),
+    policy: String(w.policy ?? ''),
+  };
+};
+
+/** The store layer with the advance keys set from the form, every other key kept. */
+const withAdvance = (layer: Layer, f: AdvanceForm): Record<string, any> => {
+  const base: Record<string, any> = layer && typeof layer === 'object' && !Array.isArray(layer) ? { ...layer } : {};
+  const payments: Record<string, any> = base.payments && typeof base.payments === 'object' ? { ...base.payments } : {};
+  payments.part_prepayment = f.on;
+  if (f.on) payments.part_prepayment_basis = 'cod_fee';
+  payments.cod_fee_advance = {
+    ...(payments.cod_fee_advance && typeof payments.cod_fee_advance === 'object' ? payments.cod_fee_advance : {}),
+    skip_cod_code: f.skipCode,
+    refund: {
+      store_cancel: f.storeCancel,
+      customer_cancel_before_dispatch: f.customerCancel,
+      refused_or_rto: f.refusedOrRto,
+      returned_after_delivery: f.returned,
+      to: f.refundTo,
+    },
+    wording: {
+      fee_label: f.feeLabel.trim(),
+      pay_now_label: f.payNowLabel.trim(),
+      on_delivery_label: f.onDeliveryLabel.trim(),
+      note: f.note.trim(),
+      policy: f.policy.trim(),
+    },
+  };
+  base.payments = payments;
+  return base;
+};
+
+const SwitchRow: React.FC<{ title: string; hint?: string; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void }> = ({ title, hint, checked, disabled, onChange }) => (
+  <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
+    <div className="space-y-0.5">
+      <p className="text-sm font-medium text-foreground">{title}</p>
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+    </div>
+    <Switch checked={checked} disabled={disabled} onCheckedChange={(c) => onChange(c)} aria-label={title} />
+  </div>
+);
+
+/** "COD convenience fee paid online": on/off, the code, the refund policy and the words. */
+const CodAdvanceCard: React.FC = () => {
+  const [view, setView] = useState<CheckoutSettingsView | null>(null);
+  const [form, setForm] = useState<AdvanceForm | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  const load = async () => {
+    setLoadError(null);
+    try {
+      const r = await api.get('/checkout/merchant/settings');
+      const v = (r.data as CheckoutSettingsView) ?? null;
+      setView(v);
+      setForm(advanceFormOf((v?.settings as any)?.payments));
+    } catch (e) {
+      setView(null);
+      setLoadError(errorOf(e, "This store's checkout settings could not be read."));
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { load(); }, []);
+
+  const set = <K extends keyof AdvanceForm>(k: K, v: AdvanceForm[K]) => {
+    setSaved(false);
+    setForm((f) => (f ? { ...f, [k]: v } : f));
+  };
+
+  const save = async () => {
+    if (!view || !form) return;
+    const blank = (['feeLabel', 'payNowLabel', 'onDeliveryLabel', 'note', 'policy'] as const).find((k) => !form[k].trim());
+    if (blank) {
+      setError('Every line the shopper reads needs some words. Fill in the empty box, or reload to get the defaults back.');
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const r = await api.put('/checkout/merchant/settings', withAdvance(view.store_layer, form));
+      const v = (r.data as CheckoutSettingsView) ?? view;
+      setView(v);
+      setForm(advanceFormOf((v?.settings as any)?.payments));
+      setSaved(true);
+    } catch (e) {
+      setError(errorOf(e, 'The change was not saved.'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center gap-4">
+        <div className="flex-shrink-0 w-12 h-12 bg-emerald-100 rounded-lg flex items-center justify-center">
+          <CreditCard className="w-6 h-6 text-emerald-600" />
+        </div>
+        <div>
+          <CardTitle>COD convenience fee paid online</CardTitle>
+          <CardDescription>
+            A cash-on-delivery buyer pays the COD convenience fee (set on Shipping settings) online at checkout,
+            and the courier collects the rest. It cuts orders that are placed and then refused at the door. Until
+            the fee is paid, no order is placed.
+          </CardDescription>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {loading ? (
+          <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+        ) : loadError || !view || !form ? (
+          <div className="rounded-md border bg-muted/50 px-4 py-3 text-sm space-y-1">
+            <p className="font-medium text-foreground">Read-only: the value in force could not be read here.</p>
+            <p className="text-muted-foreground">{loadError}</p>
+          </div>
+        ) : (
+          <>
+            <SwitchRow
+              title="Take the COD convenience fee online at checkout"
+              hint="Off: cash on delivery works as before (the buyer confirms with a code and pays everything at the door)."
+              checked={form.on}
+              disabled={saving}
+              onChange={(v) => set('on', v)}
+            />
+            <SwitchRow
+              title="Skip the COD code when the fee is paid"
+              hint="Payment proves the buyer means it: the order is confirmed with no SMS code. Off: the code is still asked for after the payment."
+              checked={form.skipCode}
+              disabled={saving}
+              onChange={(v) => set('skipCode', v)}
+            />
+            <div className="rounded-lg border p-3 space-y-2">
+              <p className="text-sm font-medium text-foreground">When the paid fee is refunded</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {([
+                  ['storeCancel', 'We cancel the order (any time before delivery)'],
+                  ['customerCancel', 'The buyer cancels before the parcel is sent'],
+                  ['refusedOrRto', 'The parcel is refused at the door or comes back (RTO)'],
+                  ['returned', 'A delivered order is returned'],
+                ] as Array<[RefundKey, string]>).map(([k, label]) => (
+                  <label key={k} className="flex items-center gap-2 text-sm">
+                    <Checkbox checked={form[k]} disabled={saving} onCheckedChange={(c) => set(k, c === true)} />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-sm pt-1">
+                <span className="text-muted-foreground">Refund it to</span>
+                <select
+                  className="h-9 rounded-md border bg-background px-2 text-sm"
+                  value={form.refundTo}
+                  disabled={saving}
+                  onChange={(e) => set('refundTo', e.target.value === 'store_credit' ? 'store_credit' : 'gateway')}
+                >
+                  <option value="gateway">The original online payment</option>
+                  <option value="store_credit">The buyer's store credit</option>
+                </select>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Applied when an order is cancelled from the order page and no refund method is picked there. A
+                refused or returned parcel keeps the fee by default; when ticked, refund it from the Refunds screen.
+              </p>
+            </div>
+            <div className="rounded-lg border p-3 space-y-3">
+              <p className="text-sm font-medium text-foreground">What the buyer reads at checkout</p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Name of the fee</Label>
+                  <Input value={form.feeLabel} maxLength={60} disabled={saving} onChange={(e) => set('feeLabel', e.target.value)} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Line paid now</Label>
+                  <Input value={form.payNowLabel} maxLength={80} disabled={saving} onChange={(e) => set('payNowLabel', e.target.value)} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Line paid on delivery</Label>
+                  <Input value={form.onDeliveryLabel} maxLength={80} disabled={saving} onChange={(e) => set('onDeliveryLabel', e.target.value)} />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Note behind the info icon beside the fee</Label>
+                <Textarea rows={3} value={form.note} maxLength={400} disabled={saving} onChange={(e) => set('note', e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Refund policy (one short line under the note)</Label>
+                <Textarea rows={2} value={form.policy} maxLength={240} disabled={saving} onChange={(e) => set('policy', e.target.value)} />
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3">
+              {saved && <span className="text-sm text-emerald-700">Saved for this store.</span>}
+              <Button type="button" onClick={save} disabled={saving} className="bg-blue-600 hover:bg-blue-700">
+                {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                {saving ? 'Saving...' : 'Save'}
+              </Button>
+            </div>
           </>
         )}
         {error && (
@@ -348,9 +598,9 @@ const PaymentDiscountSettings: React.FC = () => {
         </Button>
         <h1 className="text-3xl font-bold tracking-tight text-foreground">Payment Methods &amp; Discounts</h1>
         <p className="text-sm text-muted-foreground mt-2">
-          Prepaid (gateway) discount, quantity discounts, and <strong>Payment Method Rules</strong> — restrict COD or online
-          payment by order value, pincode or customer type (e.g. no COD above ₹2,000). COD on/off and its fee live under
-          Settings → Shipping.
+          Prepaid (gateway) discount, quantity discounts, and <strong>Payment Method Rules</strong>: restrict COD or online
+          payment by order value, pincode or customer type (e.g. no COD above ₹2,000). COD on/off and the COD convenience
+          fee live under Settings, Shipping; taking that fee online at checkout is set below.
         </p>
       </div>
 
@@ -393,7 +643,7 @@ const PaymentDiscountSettings: React.FC = () => {
             <div className="bg-green-50 border border-green-200 rounded-lg p-4">
               <p className="text-sm text-green-800">
                 <strong>Server-enforced:</strong> checkout shows this discount AND the backend
-                applies the same percentage when charging the order — shown always equals charged.
+                applies the same percentage when charging the order: shown always equals charged.
                 COD orders never get the gateway discount.
               </p>
             </div>
@@ -404,7 +654,7 @@ const PaymentDiscountSettings: React.FC = () => {
                 <p className="text-sm font-semibold text-foreground">B2B customers</p>
                 <p className="text-xs text-muted-foreground">
                   What gateway discount approved B2B accounts get. Applies only while the B2B
-                  module is enabled — otherwise every customer gets the general settings above.
+                  module is enabled; otherwise every customer gets the general settings above.
                 </p>
               </div>
               <div className="flex flex-wrap items-end gap-4">
@@ -577,6 +827,8 @@ const PaymentDiscountSettings: React.FC = () => {
         </div>
       </form>
 
+      <CodAdvanceCard />
+
       <CodAfterRtoCard />
 
       {/* Payment Method Rules */}
@@ -589,7 +841,7 @@ const PaymentDiscountSettings: React.FC = () => {
             <div>
               <CardTitle>Payment Method Rules</CardTitle>
               <CardDescription>
-                Restrict a payment method under specific conditions — e.g. <em>method COD, min order value 2000</em> blocks COD for
+                Restrict a payment method under specific conditions, e.g. <em>method COD, min order value 2000</em> blocks COD for
                 every order of ₹2,000 or more. "Order value" is the items subtotal before discounts. A blocked method is hidden
                 at checkout and refused at placement.
               </CardDescription>
@@ -634,11 +886,11 @@ const PaymentDiscountSettings: React.FC = () => {
                   <p className="text-[10px] text-muted-foreground">B2B-only rules are ignored while the B2B module is disabled.</p>
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Block from order value ₹ (optional — this value and above)</Label>
+                  <Label className="text-xs">Block from order value ₹ (optional, this value and above)</Label>
                   <Input type="number" min="0" value={ruleForm.minOrderValue} onChange={e => setRuleForm(f => ({ ...f, minOrderValue: e.target.value }))} className="h-9" />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Block up to order value ₹ (optional — this value and below)</Label>
+                  <Label className="text-xs">Block up to order value ₹ (optional, this value and below)</Label>
                   <Input type="number" min="0" value={ruleForm.maxOrderValue} onChange={e => setRuleForm(f => ({ ...f, maxOrderValue: e.target.value }))} className="h-9" />
                 </div>
                 <div className="space-y-1.5 md:col-span-2">
@@ -663,7 +915,7 @@ const PaymentDiscountSettings: React.FC = () => {
           {rulesLoading ? (
             <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
           ) : rules.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-6">No payment rules configured — all methods are available unconditionally.</p>
+            <p className="text-sm text-muted-foreground text-center py-6">No payment rules configured: all methods are available unconditionally.</p>
           ) : (
             <Table>
               <TableHeader>
@@ -687,7 +939,7 @@ const PaymentDiscountSettings: React.FC = () => {
                         <Badge variant="outline" className="ml-1 bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">managed by Settings ▸ Cash on delivery</Badge>
                       )}
                       {r.conditions?.excludePincodes?.length ? <span>Excl. {r.conditions.excludePincodes.length} pincode(s)</span> : null}
-                      {!r.conditions?.minOrderValue && !r.conditions?.maxOrderValue && r.conditions?.orderValueAbove == null && !r.conditions?.excludePincodes?.length && (!r.conditions?.customerSegment || r.conditions.customerSegment === 'all') && '—'}
+                      {!r.conditions?.minOrderValue && !r.conditions?.maxOrderValue && r.conditions?.orderValueAbove == null && !r.conditions?.excludePincodes?.length && (!r.conditions?.customerSegment || r.conditions.customerSegment === 'all') && 'Any order'}
                     </TableCell>
                     <TableCell>
                       <Badge variant={r.is_active ? 'default' : 'secondary'} className={r.is_active ? 'bg-green-500/15 text-green-700 border-green-200 hover:bg-green-500/25' : ''}>

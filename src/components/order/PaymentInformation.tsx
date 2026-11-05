@@ -14,12 +14,20 @@ export interface RazorpayAuditResult {
   gatewayStatus: string;
   gatewayAmount: number;
   orderAmount: number;
+  /** What the payment was compared with: `order_total`, or `cod_fee` (a COD order's COD
+   *  convenience fee paid online at checkout). Older servers omit it. */
+  basis?: 'order_total' | 'cod_fee' | string;
+  /** The amount the payment had to show on that basis. */
+  expectedAmount?: number;
   checkedAt: string;
 }
 
 interface PaymentInformationProps {
   paymentMethod: 'cod' | 'prepaid';
   paymentStatus: string;
+  /** Money received against the order before it is paid in full (rupees): on a COD order with a
+   *  Razorpay payment, its COD convenience fee paid online at checkout. */
+  amountReceived?: number;
   paymentGateway?: 'razorpay' | 'upi' | 'manual' | 'paypal' | string;
   /** Adapter-backed gateways (PayPal, Stripe…): the settled payment id (mig 172 `orders.gateway_ref`). */
   gatewayRef?: string | null;
@@ -72,6 +80,7 @@ const MANUAL_METHOD_LABELS: Record<string, string> = {
 const PaymentInformation: React.FC<PaymentInformationProps> = ({
   paymentMethod,
   paymentStatus,
+  amountReceived = 0,
   paymentGateway,
   gatewayRef,
   presentmentCurrency,
@@ -99,6 +108,14 @@ const PaymentInformation: React.FC<PaymentInformationProps> = ({
   const routeId = useParams<{ id?: string }>().id;
   const ledgerOrderId = orderId || (routeId && UUID_RE.test(routeId) ? routeId : null);
   const hasManualPaymentDetails = !!(manualPaymentMethod || manualPaymentReference || manualPaymentNotes || manualPaymentMarkedAt);
+  // What the Razorpay payment is checked against: a COD order holding money received paid its COD
+  // convenience fee online at checkout; any other order paid its total. The audit's answer names the
+  // basis it used; before an audit the order's own facts decide.
+  const feeBasisLikely = paymentMethod === 'cod' && Number(amountReceived) > 0;
+  const auditOnFee = razorpayAuditResult
+    ? (razorpayAuditResult.basis ?? (feeBasisLikely ? 'cod_fee' : 'order_total')) === 'cod_fee'
+    : feeBasisLikely;
+  const expectedLabel = auditOnFee ? 'COD convenience fee' : 'order total';
 
   /**
    * What this order was ACTUALLY paid through, evidenced by the ids it carries.
@@ -214,8 +231,9 @@ const PaymentInformation: React.FC<PaymentInformationProps> = ({
                       {auditingRazorpay ? 'Checking with Razorpay…' : 'Verify with Razorpay'}
                     </button>
                     <p className="text-xs text-gray-500 mt-1">
-                      Re-checks this payment id directly against Razorpay — confirms it's really captured and the
-                      amount matches this order's total, to catch a tampered or mismatched transaction id.
+                      Re-checks this payment id directly against Razorpay: confirms it&apos;s really captured and the
+                      amount matches {auditOnFee ? 'the COD convenience fee paid online at checkout' : "this order's total"},
+                      to catch a tampered or mismatched transaction id.
                     </p>
                   </div>
                 )}
@@ -228,19 +246,19 @@ const PaymentInformation: React.FC<PaymentInformationProps> = ({
                     <div className="flex items-center gap-2 font-semibold mb-1.5">
                       {razorpayAuditResult.verified
                         ? <><FaCheckCircle /> Confirmed with Razorpay</>
-                        : <><FaExclamationTriangle /> Mismatch found — needs review</>}
+                        : <><FaExclamationTriangle /> Mismatch found: needs review</>}
                     </div>
                     <ul className="space-y-0.5 text-xs">
                       <li>
                         Status: <span className="font-mono">{razorpayAuditResult.gatewayStatus}</span>
-                        {razorpayAuditResult.statusOk ? ' ✓' : ' — expected "captured"'}
+                        {razorpayAuditResult.statusOk ? ' ✓' : ', expected "captured"'}
                       </li>
                       <li>
-                        Amount: gateway ₹{razorpayAuditResult.gatewayAmount} vs order ₹{razorpayAuditResult.orderAmount}
-                        {razorpayAuditResult.amountOk ? ' ✓' : ' — MISMATCH'}
+                        Amount: gateway ₹{razorpayAuditResult.gatewayAmount} vs {expectedLabel} ₹{razorpayAuditResult.expectedAmount ?? razorpayAuditResult.orderAmount}
+                        {razorpayAuditResult.amountOk ? ' ✓' : ', MISMATCH'}
                       </li>
                       <li>
-                        Order link: {razorpayAuditResult.orderIdMatch ? 'matches this order ✓' : 'does NOT match — possible tampering'}
+                        Order link: {razorpayAuditResult.orderIdMatch ? 'matches this order ✓' : 'does NOT match, possible tampering'}
                       </li>
                       <li className="text-gray-500">Checked {formatDate(razorpayAuditResult.checkedAt)}</li>
                     </ul>

@@ -279,7 +279,7 @@ const OrderItemsEditModal: React.FC<Props> = ({ isOpen, onClose, orderId, items,
               <Row label="Items" value={money(preview.subtotal)} />
               {preview.discount > 0 && <Row label="Discount" value={`− ${money(preview.discount)}`} tone="credit" />}
               {preview.shipping_cost > 0 && <Row label="Shipping" value={money(preview.shipping_cost)} />}
-              {preview.cod_fee > 0 && <Row label="COD handling" value={money(preview.cod_fee)} />}
+              {preview.cod_fee > 0 && <Row label="COD convenience fee" value={money(preview.cod_fee)} />}
               {preview.tax > 0 && <Row label="GST" value={money(preview.tax)} />}
               <div className="mt-1 flex items-baseline justify-between border-t pt-1.5">
                 <dt className="text-sm font-bold uppercase tracking-wider text-slate-700">New total</dt>

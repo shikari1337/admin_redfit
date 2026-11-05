@@ -35,6 +35,35 @@ interface PincodeZoneRow {
 const emptyPincodeForm = { id: '', pincode: '', zone: 'standard', city: '', state: '', is_serviceable: true };
 const PINCODE_PAGE_SIZE = 20;
 
+// Shipping by payment method (growcord-rs lane PAY-ADV-1, `shippingConfig.byPaymentMethod`): each method may
+// carry its own flat fee, free-shipping threshold and zone-rate adjustment. A blank box follows the store's
+// value above (saved as null, never as 0, which would mean "free").
+type MethodKey = 'prepaid' | 'cod';
+type MethodTerms = { shippingFee: string; freeShippingThreshold: string; rateAdjustment: string };
+const METHOD_TERM_KEYS: Array<keyof MethodTerms> = ['shippingFee', 'freeShippingThreshold', 'rateAdjustment'];
+const emptyTerms = (): MethodTerms => ({ shippingFee: '', freeShippingThreshold: '', rateAdjustment: '' });
+const METHOD_LABEL: Record<MethodKey, string> = { prepaid: 'Paid online', cod: 'Cash on delivery' };
+
+/** The stored object as the form's text boxes (a missing or null value is a blank box). */
+const termsOf = (raw: any): MethodTerms => {
+  const t = emptyTerms();
+  for (const k of METHOD_TERM_KEYS) {
+    const v = raw?.[k];
+    if (v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v))) t[k] = String(v);
+  }
+  return t;
+};
+
+/** The form's boxes as the stored object: a blank box is null (follow the store's value). */
+const storedTerms = (t: MethodTerms): Record<keyof MethodTerms, number | null> => {
+  const out = {} as Record<keyof MethodTerms, number | null>;
+  for (const k of METHOD_TERM_KEYS) {
+    const v = t[k].trim();
+    out[k] = v === '' || !Number.isFinite(Number(v)) ? null : Number(v);
+  }
+  return out;
+};
+
 const DEFAULT_FORM_DATA = {
   shippingConfig: {
     freeShippingThreshold: 500,
@@ -43,6 +72,7 @@ const DEFAULT_FORM_DATA = {
     codEnabled: true,
     deliveryEnabled: true,
     slaHours: 0,
+    byPaymentMethod: { prepaid: emptyTerms(), cod: emptyTerms() } as Record<MethodKey, MethodTerms>,
   },
   shiprocket: {
     email: '',
@@ -283,6 +313,10 @@ const ShippingSettings: React.FC = () => {
           codEnabled: settings.shippingConfig.codEnabled !== false,
           deliveryEnabled: settings.shippingConfig.deliveryEnabled !== false,
           slaHours: settings.shippingConfig.slaHours ?? 0,
+          byPaymentMethod: {
+            prepaid: termsOf(settings.shippingConfig.byPaymentMethod?.prepaid),
+            cod: termsOf(settings.shippingConfig.byPaymentMethod?.cod),
+          },
         };
       }
       if (creds) {
@@ -312,14 +346,26 @@ const ShippingSettings: React.FC = () => {
     onLoadError: () => alert('Failed to load shipping settings'),
     submitter: async (data) => {
       // Store-wide fee config stays in /settings…
+      // The COD switch and the COD convenience fee are the registry's `cod` setting (they live inside
+      // shippingConfig, but the shippingConfig definition does not declare them, so sent there they were
+      // dropped without a word).
       await api.put('/settings', {
         shippingConfig: {
           freeShippingThreshold: Number(data.shippingConfig.freeShippingThreshold) || 500,
           shippingFee: Number(data.shippingConfig.shippingFee) || 0,
-          codFee: Number(data.shippingConfig.codFee) || 0,
-          codEnabled: data.shippingConfig.codEnabled,
           deliveryEnabled: data.shippingConfig.deliveryEnabled,
           slaHours: Math.max(0, Number(data.shippingConfig.slaHours) || 0),
+        },
+        cod: {
+          codFee: Math.max(0, Number(data.shippingConfig.codFee) || 0),
+          codEnabled: data.shippingConfig.codEnabled,
+        },
+      });
+      // Shipping by payment method: one JSON field (`byPaymentMethod`), so a cleared box is stored as null.
+      await api.put('/settings/registry/shippingConfig', {
+        byPaymentMethod: {
+          prepaid: storedTerms(data.shippingConfig.byPaymentMethod.prepaid),
+          cod: storedTerms(data.shippingConfig.byPaymentMethod.cod),
         },
       });
 
@@ -351,8 +397,8 @@ const ShippingSettings: React.FC = () => {
       alert(
         'Shipping settings saved.\n' +
         `Shiprocket: ${saved?.shiprocket?.isEnabled ? 'enabled' : 'disabled'}` +
-        `${saved?.shiprocket?.email ? ` · ${saved.shiprocket.email}` : ''}` +
-        `${savedChannel ? ` · channel: ${savedChannel}` : ' · no channel selected'}`
+        `${saved?.shiprocket?.email ? `, ${saved.shiprocket.email}` : ''}` +
+        `${savedChannel ? `, channel: ${savedChannel}` : ', no channel selected'}`
       );
       await reload();
       // Credentials may have changed — a previous "Connected" result is now stale.
@@ -365,6 +411,19 @@ const ShippingSettings: React.FC = () => {
       alert(error?.response?.data?.message || 'Failed to save shipping settings');
     },
   });
+
+  const setMethodTerm = (method: MethodKey, key: keyof MethodTerms, value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      shippingConfig: {
+        ...prev.shippingConfig,
+        byPaymentMethod: {
+          ...prev.shippingConfig.byPaymentMethod,
+          [method]: { ...prev.shippingConfig.byPaymentMethod[method], [key]: value },
+        },
+      },
+    }));
+  };
 
   const handleChange = (section: keyof typeof formData, field: string, value: any) => {
     setFormData(prev => ({
@@ -455,7 +514,7 @@ const ShippingSettings: React.FC = () => {
               </div>
               <div>
                 <CardTitle>Shipping Fees & COD</CardTitle>
-                <CardDescription>Set flat shipping fee, free shipping threshold, and cash-on-delivery charge</CardDescription>
+                <CardDescription>Set the flat shipping fee, the free shipping threshold, the COD convenience fee, and shipping by payment method</CardDescription>
               </div>
             </div>
           </CardHeader>
@@ -493,12 +552,12 @@ const ShippingSettings: React.FC = () => {
                   placeholder="24"
                 />
                 <p className="text-[11px] text-muted-foreground">
-                  Website-level dispatch promise — the storefront shows "Ships within X hours"
+                  Website-level dispatch promise: the storefront shows "Ships within X hours"
                   and order pages show the expected ship-by time. 0 = don't promise.
                 </p>
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">COD Fee (₹) — extra charge</label>
+                <label className="text-sm font-medium text-foreground">COD convenience fee (₹)</label>
                 <Input
                   type="number"
                   min="0"
@@ -506,7 +565,10 @@ const ShippingSettings: React.FC = () => {
                   onChange={(e) => handleChange('shippingConfig', 'codFee', e.target.value)}
                   placeholder="0"
                 />
-                <p className="text-[11px] text-muted-foreground">Additional fee added for Cash on Delivery orders (0 = no extra charge)</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Added to cash-on-delivery orders (0 = no fee). To have buyers pay it online at checkout and the
+                  rest on delivery, switch on "COD convenience fee paid online" under Payment settings.
+                </p>
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground">COD Available</label>
@@ -528,6 +590,52 @@ const ShippingSettings: React.FC = () => {
                   <span className="text-sm">Show the delivery method on checkout</span>
                 </div>
               </div>
+            </div>
+
+            <div className="space-y-3 border-t pt-4">
+              <div>
+                <p className="text-sm font-medium text-foreground">Shipping by payment method</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Charge a different shipping fee or free-shipping threshold for orders paid online and for cash on
+                  delivery, for example free shipping on every prepaid order. Leave a box empty to use the value
+                  above. The checkout shows the difference on the payment step. The zone rate adjustment applies
+                  when shipping is rated by zone (a negative amount takes it off; free delivery stays free).
+                </p>
+              </div>
+              {(['prepaid', 'cod'] as MethodKey[]).map((m) => (
+                <div key={m} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end rounded-lg border p-3">
+                  <p className="text-sm font-medium text-foreground md:pb-2">{METHOD_LABEL[m]}</p>
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground">Flat shipping fee (₹)</label>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={formData.shippingConfig.byPaymentMethod[m].shippingFee}
+                      onChange={(e) => setMethodTerm(m, 'shippingFee', e.target.value)}
+                      placeholder={`Same as above (${formData.shippingConfig.shippingFee})`}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground">Free shipping from (₹)</label>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={formData.shippingConfig.byPaymentMethod[m].freeShippingThreshold}
+                      onChange={(e) => setMethodTerm(m, 'freeShippingThreshold', e.target.value)}
+                      placeholder={`Same as above (${formData.shippingConfig.freeShippingThreshold})`}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground">Zone rate adjustment (₹)</label>
+                    <Input
+                      type="number"
+                      value={formData.shippingConfig.byPaymentMethod[m].rateAdjustment}
+                      onChange={(e) => setMethodTerm(m, 'rateAdjustment', e.target.value)}
+                      placeholder="0"
+                    />
+                  </div>
+                </div>
+              ))}
             </div>
           </CardContent>
         </Card>
@@ -582,7 +690,7 @@ const ShippingSettings: React.FC = () => {
                   type="password"
                   value={formData.shiprocket.password}
                   onChange={(e) => handleChange('shiprocket', 'password', e.target.value)}
-                  placeholder={statusFor('shiprocket')?.configured ? 'Saved — leave blank to keep current' : 'Enter password'}
+                  placeholder={statusFor('shiprocket')?.configured ? 'Saved. Leave blank to keep current' : 'Enter password'}
                 />
               </div>
               <div className="space-y-2">
@@ -611,10 +719,10 @@ const ShippingSettings: React.FC = () => {
                     onChange={(e) => handleChange('shiprocket', 'channelId', e.target.value)}
                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                   >
-                    <option value="">— Select a channel —</option>
+                    <option value="">Select a channel</option>
                     {channels.map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.name} (#{c.id}){c.status && c.status.toLowerCase() !== 'active' ? ` — ${c.status}` : ''}
+                        {c.name} (#{c.id}){c.status && c.status.toLowerCase() !== 'active' ? `, ${c.status}` : ''}
                       </option>
                     ))}
                   </select>
@@ -631,18 +739,18 @@ const ShippingSettings: React.FC = () => {
                     stale value quietly misattributes the whole catalog. */}
                 {!formData.shiprocket.channelId && channels.length > 0 && (
                   <p className="text-[11px] text-amber-700">
-                    No channel selected — orders won&apos;t be attributed to a sales channel.
+                    No channel selected: orders won&apos;t be attributed to a sales channel.
                   </p>
                 )}
                 {formData.shiprocket.channelId && channels.length > 0 &&
                   !channels.some((c) => c.id === formData.shiprocket.channelId) && (
                   <p className="text-[11px] text-red-700">
-                    Channel {formData.shiprocket.channelId} isn&apos;t on this Shiprocket account — pick a current one.
+                    Channel {formData.shiprocket.channelId} isn&apos;t on this Shiprocket account. Pick a current one.
                   </p>
                 )}
                 {channelsMsg && <p className="text-[10px] text-muted-foreground">{channelsMsg}</p>}
                 <p className="text-[10px] text-muted-foreground">
-                  Shiprocket files orders under this channel — it&apos;s how catalog and orders reconcile back to your store.
+                  Shiprocket files orders under this channel. It&apos;s how catalog and orders reconcile back to your store.
                 </p>
               </div>
               <div className="space-y-2">
@@ -671,7 +779,7 @@ const ShippingSettings: React.FC = () => {
                 onClick={() => navigate('/warehouses')}
                 className="underline underline-offset-2 font-medium hover:opacity-80"
               >
-                Map warehouses →
+                Map warehouses
               </button>
             </div>
 
@@ -692,7 +800,7 @@ const ShippingSettings: React.FC = () => {
 
               {/* The URL to register in the Shiprocket dashboard */}
               <div className="space-y-1.5">
-                <Label className="text-xs">Webhook URL — paste into Shiprocket → Settings → API → Webhooks</Label>
+                <Label className="text-xs">Webhook URL: paste it into Shiprocket under Settings, API, Webhooks</Label>
                 <div className="flex gap-2">
                   <Input
                     readOnly
@@ -717,7 +825,7 @@ const ShippingSettings: React.FC = () => {
                 </div>
                 {genSecret && (
                   <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 space-y-1.5">
-                    <p className="text-[11px] font-medium text-amber-800">Copy this now — it is shown only once and cannot be retrieved later.</p>
+                    <p className="text-[11px] font-medium text-amber-800">Copy this now. It is shown only once and cannot be retrieved later.</p>
                     <div className="flex gap-2">
                       <Input readOnly value={genSecret} className="font-mono text-xs" onFocus={(e) => e.currentTarget.select()} />
                       <Button type="button" variant="outline" size="sm" onClick={() => copy(genSecret, 'secret')}>
@@ -753,7 +861,7 @@ const ShippingSettings: React.FC = () => {
                 {formData.shiprocket.requireSignedWebhook && webhookTokenSet && (
                   <p className="text-[11px] text-amber-700">
                     Only turn this on AFTER you&apos;ve set the secret in your Shiprocket dashboard, or your
-                    tracking updates will stop. Click &ldquo;Save Changes&rdquo; to apply.
+                    tracking updates will stop. Click &quot;Save Changes&quot; to apply.
                   </p>
                 )}
               </div>
@@ -802,10 +910,10 @@ const ShippingSettings: React.FC = () => {
                   type="password"
                   value={formData.delhivery.apiToken}
                   onChange={(e) => handleChange('delhivery', 'apiToken', e.target.value)}
-                  placeholder={statusFor('delhivery')?.configured ? 'Saved — leave blank to keep current' : 'Enter DELHIVERY API Token'}
+                  placeholder={statusFor('delhivery')?.configured ? 'Saved. Leave blank to keep current' : 'Enter DELHIVERY API Token'}
                 />
                 <p className="text-[10px] text-muted-foreground">
-                  Get your API token from DELHIVERY Dashboard → Settings → API Setup
+                  Get your API token from the DELHIVERY Dashboard under Settings, API Setup.
                 </p>
               </div>
               <div className="space-y-2">

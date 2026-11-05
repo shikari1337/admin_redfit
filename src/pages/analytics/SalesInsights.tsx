@@ -3,10 +3,10 @@ import { api } from '../../services/api';
 import { payload } from '../../lib/unwrap';
 import DateRangeBar, { useDateRange, previousRange, PanelRange } from '../../components/panelAnalytics/DateRangeBar';
 import { usePanelStats, fetchRanged } from '../../components/panelAnalytics/usePanelStats';
-import { ChartCard, CategoryBars, KpiTile, DeltaLine } from '../../components/panelAnalytics/Kit';
+import { ChartCard, CategoryBars, KpiTile, DeltaLine, InsightCard, Insight } from '../../components/panelAnalytics/Kit';
 import { SERIES } from '../../components/panelAnalytics/vizTheme';
 import { fmtRupees } from '../../lib/money';
-import { Download, Lightbulb, Search, TrendingDown, TrendingUp } from 'lucide-react';
+import { Download, Search } from 'lucide-react';
 
 /**
  * Analytics → Sales Insights. The decision view: which brands, items, categories, campaigns and
@@ -96,22 +96,6 @@ function movers(rows: Row[], dir: 'up' | 'down', n: number): Row[] {
 
 const pct = (v: number) => `${v.toFixed(v >= 10 ? 0 : 1)}%`;
 const signedRupees = (v: number) => `${v >= 0 ? '+' : '−'}${fmtRupees(Math.abs(v))}`;
-
-interface Insight { tone: 'good' | 'bad' | 'info'; title: string; body: React.ReactNode }
-
-const InsightCard: React.FC<{ insight: Insight }> = ({ insight }) => {
-  const Icon = insight.tone === 'good' ? TrendingUp : insight.tone === 'bad' ? TrendingDown : Lightbulb;
-  const tone = insight.tone === 'good' ? 'text-good-ink' : insight.tone === 'bad' ? 'text-bad-ink' : 'text-gray-500';
-  return (
-    <div className="flex gap-3 rounded-lg border bg-white p-4 shadow-sm">
-      <Icon aria-hidden className={`mt-0.5 size-4 shrink-0 ${tone}`} />
-      <div className="min-w-0 text-sm">
-        <div className="font-medium text-gray-900">{insight.title}</div>
-        <div className="mt-0.5 text-gray-600">{insight.body}</div>
-      </div>
-    </div>
-  );
-};
 
 const SalesInsights: React.FC = () => {
   const { range, preset, setPreset, custom, setCustom } = useDateRange('30d');
