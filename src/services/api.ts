@@ -188,6 +188,12 @@ if (!rawBaseUrl || rawBaseUrl.trim() === '') {
 const API_BASE_URL = rawBaseUrl;
 const API_URL = `${API_BASE_URL}/api/${API_VERSION}`;
 
+/** A download path the API answers. A root path (`/api/v2/...`) sits on the API host itself, so it is resolved
+ *  against the host, never glued onto the `/api/v1` base (that sent staff to `/api/v1/api/v2/...`, which the edge
+ *  hands to the old server). A relative path keeps the base. The base is `getApiBase()`, the one definition. */
+export const apiDownloadUrl = (path: string): string =>
+  new URL(String(path ?? ''), `${getApiBase()}/`).toString();
+
 console.log('🔧 Admin API Configuration:', {
   VITE_API_SERVER_URL: import.meta.env.VITE_API_SERVER_URL,
   VITE_API_KEY: API_KEY ? 'Present (Hidden)' : 'Missing',
@@ -1039,8 +1045,7 @@ export const productsAPI = {
   shareWorkbookExport: async (id: string): Promise<{ url: string; fileName: string | null; expiresAt: string }> => {
     const response = await api.post(`/products/workbook/exports/${id}/share-link`);
     const data = response.data?.data ?? response.data;
-    const base = String(api.defaults.baseURL ?? '').replace(/\/+$/, '');
-    return { url: `${base}${data.path}`, fileName: data.file_name ?? null, expiresAt: data.expires_at };
+    return { url: apiDownloadUrl(data.path), fileName: data.file_name ?? null, expiresAt: data.expires_at };
   },
   previewWorkbook: async (file: File) => {
     const form = new FormData();
@@ -4579,8 +4584,7 @@ export const exportsAPI = {
   downloadLink: async (id: string): Promise<{ url: string; fileName: string | null; fileSize: number | null; expiresAt: string }> => {
     const r = await api.post(`/exports/${id}/download-link`);
     const d = r.data?.data ?? r.data;
-    const base = String(api.defaults.baseURL ?? '').replace(/\/+$/, '');
-    return { url: `${base}${d.path}`, fileName: d.file_name ?? null, fileSize: d.file_size ?? null, expiresAt: d.expires_at };
+    return { url: apiDownloadUrl(d.path), fileName: d.file_name ?? null, fileSize: d.file_size ?? null, expiresAt: d.expires_at };
   },
 
   retry: async (id: string): Promise<DataJob> => {
