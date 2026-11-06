@@ -199,18 +199,33 @@ const Bundles: React.FC = () => {
       if (search.trim()) params.search = search.trim();
       const response = await productsAPI.getAll(params);
       const products = (response?.data?.products || response?.data || response || []) as any[];
+      const rows = Array.isArray(products) ? products : [];
 
-      const productsWithBundles = products
-        .filter((product) => Array.isArray(product.bundles) && product.bundles.length > 0)
-        .map((product) => ({
-          _id: product._id,
+      // The staff product row filters with has_bundles but does not carry the
+      // offers (ProductRowStaffView). Read them from the quantity-offers route
+      // the editor already saves through, unless the row already has them.
+      const withOffers = await Promise.all(rows.map(async (product) => {
+        const id = String(product._id ?? product.id ?? '');
+        let raw = product.bundles;
+        if ((!Array.isArray(raw) || raw.length === 0) && id) {
+          const got = await productQuantityBundlesAPI.get(id);
+          raw = Array.isArray(got) ? got : (Array.isArray(got?.items) ? got.items : (Array.isArray(got?.data) ? got.data : []));
+        }
+        const bundles = (Array.isArray(raw) ? raw : []).map(toEditableOffer);
+        if (!id || bundles.length === 0) return null;
+        return {
+          _id: id,
           name: product.name,
           slug: product.slug,
           price: basePriceOf(product),
           images: product.images || [],
           isActive: product.isActive !== false,
-          bundles: (product.bundles || []).map(toEditableOffer),
-        }))
+          bundles,
+        };
+      }));
+
+      const productsWithBundles = withOffers
+        .filter((product): product is QuantityBasedBundleProduct => product !== null)
         .filter((product) => {
           // Apply search filter if provided
           if (search.trim()) {
