@@ -204,7 +204,7 @@ const Bundles: React.FC = () => {
       // The staff product row filters with has_bundles but does not carry the
       // offers (ProductRowStaffView). Read them from the quantity-offers route
       // the editor already saves through, unless the row already has them.
-      const withOffers = await Promise.all(rows.map(async (product) => {
+      const withOffers = await Promise.all(rows.map(async (product): Promise<QuantityBasedBundleProduct | null> => {
         const id = String(product._id ?? product.id ?? '');
         let raw = product.bundles;
         if ((!Array.isArray(raw) || raw.length === 0) && id) {
@@ -215,32 +215,28 @@ const Bundles: React.FC = () => {
         if (!id || bundles.length === 0) return null;
         return {
           _id: id,
-          name: product.name,
-          slug: product.slug,
+          name: String(product.name ?? ''),
+          slug: String(product.slug ?? ''),
           price: basePriceOf(product),
-          images: product.images || [],
+          images: Array.isArray(product.images) ? product.images : [],
           isActive: product.isActive !== false,
           bundles,
         };
       }));
 
-      const productsWithBundles = withOffers
-        .filter((product): product is QuantityBasedBundleProduct => product !== null)
-        .filter((product) => {
-          // Apply search filter if provided
-          if (search.trim()) {
-            const searchLower = search.toLowerCase();
-            return (
-              product.name.toLowerCase().includes(searchLower) ||
-              product.slug.toLowerCase().includes(searchLower) ||
-              product.bundles.some((b: any) => 
-                b.title?.toLowerCase().includes(searchLower) ||
-                b.description?.toLowerCase().includes(searchLower)
-              )
-            );
-          }
-          return true;
-        });
+      const searchLower = search.trim().toLowerCase();
+      const productsWithBundles = withOffers.filter((product): product is QuantityBasedBundleProduct => {
+        if (!product) return false;
+        if (!searchLower) return true;
+        return (
+          product.name.toLowerCase().includes(searchLower) ||
+          product.slug.toLowerCase().includes(searchLower) ||
+          product.bundles.some((b) =>
+            b.title.toLowerCase().includes(searchLower) ||
+            b.description.toLowerCase().includes(searchLower)
+          )
+        );
+      });
       
       setQuantityBundleProducts(productsWithBundles);
     } catch (error: any) {
