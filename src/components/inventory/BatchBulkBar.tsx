@@ -80,7 +80,7 @@ const BatchBulkBar: React.FC<{ onImported?: () => void }> = ({ onImported }) => 
     try {
       await exportsAPI.request('batch_template');
       setQueued((n) => n + 1);
-      setNotice('Preparing the template — it will appear under Downloads in a moment.');
+      setNotice('Preparing the template. It will appear under Downloads in a moment.');
     } catch (e: any) {
       if (e?.response?.status === 503) { await directDownload(() => inventoryAPI.downloadBatchTemplate(), 'batch-inventory-template.xlsx'); }
       else setError(e?.response?.data?.message ?? 'Could not prepare the template.');
@@ -92,7 +92,7 @@ const BatchBulkBar: React.FC<{ onImported?: () => void }> = ({ onImported }) => 
     try {
       await exportsAPI.request('batches', { includeUnbatched, blankRowsPerSku: blankRows });
       setQueued((n) => n + 1);
-      setNotice('Building your batch sheet — it will appear under Downloads when it is ready. You can leave this page.');
+      setNotice('Building your batch sheet. It will appear under Downloads when it is ready. You can leave this page.');
     } catch (e: any) {
       // Until the download queue reaches this store, export directly so the
       // sheet is never simply unavailable.
@@ -123,13 +123,13 @@ const BatchBulkBar: React.FC<{ onImported?: () => void }> = ({ onImported }) => 
         // Nothing is applied yet, so there is nothing to summarise — point at
         // where the progress and the per-row log actually appear.
         setQueued((n) => n + 1);
-        setNotice(res.message ?? 'Accepted — it is being applied in the background.');
+        setNotice(res.message ?? 'Accepted. It is being applied in the background.');
         return;
       }
       setSummary(res as ImportSummary);
       if (res?.job_id) setQueued((n) => n + 1);
       if (res?.sheet && res.sheet !== 'batches') {
-        setNotice(`That was the ${res.sheet_label ?? res.sheet} — sent to the right importer. `
+        setNotice(`That was the ${res.sheet_label ?? res.sheet}, so it went to the right importer. `
           + 'No stock was moved; that only happens on the Batches sheet.');
       }
       onImported?.();
@@ -171,7 +171,7 @@ const BatchBulkBar: React.FC<{ onImported?: () => void }> = ({ onImported }) => 
             <div className="font-medium text-gray-900">Export what you have now</div>
             <p className="mt-0.5 text-gray-600">
               Every row arrives filled in with its Variation ID, current batch, quantity and the
-              catalogue prices to compare against. Start here — a sheet built from scratch has to
+              catalogue prices to compare against. Start here: a sheet built from scratch has to
               match SKUs by hand.
             </p>
             <label className="mt-2 flex items-start gap-2 text-gray-700">
@@ -195,14 +195,14 @@ const BatchBulkBar: React.FC<{ onImported?: () => void }> = ({ onImported }) => 
                 <span>blank row(s)</span>
                 <span className="w-full text-xs text-gray-500">
                   One product usually holds several batches at once. Pick how many empty rows you
-                  want per SKU so you can enter each lot — its own quantity, prices and dates —
+                  want per SKU so you can enter each lot, with its own quantity, prices and dates,
                   without copying rows by hand.
                 </span>
               </label>
             )}
             <div className="mt-2 flex flex-wrap gap-2">
               <Btn variant="outline" onClick={handleExport} disabled={!!busy}>
-                {busy === 'export' ? 'Requesting…' : '⬇ Export batches'}
+                {busy === 'export' ? 'Requesting…' : 'Export batches'}
               </Btn>
               <Btn variant="ghost" onClick={handleTemplate} disabled={!!busy}>
                 {busy === 'template' ? 'Preparing…' : 'Blank template instead'}
@@ -218,24 +218,24 @@ const BatchBulkBar: React.FC<{ onImported?: () => void }> = ({ onImported }) => 
             <p className="mt-0.5 text-gray-600">
               One row per SKU <span className="font-mono">×</span> batch. Each row carries its own{' '}
               <strong>Quantity</strong>, <strong>Batch MRP</strong>, <strong>Batch Retail Price</strong>{' '}
-              and <strong>Batch B2B Price</strong> — the same three prices the Inventory sheet holds
+              and <strong>Batch B2B Price</strong>, the same three prices the Inventory sheet holds
               per SKU, here per lot. To hold several batches of one product, repeat the SKU on more
               rows with different <strong>Batch Numbers</strong>.
             </p>
             <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs">
               <div className="font-medium text-gray-700">How the price is decided</div>
               <div className="mt-1 text-gray-600">
-                <strong>Retail:</strong> Batch Retail Price → Batch MRP → Catalogue Retail Price → Catalogue MRP.
+                <strong>Retail:</strong> Batch Retail Price, then Batch MRP, then Catalogue Retail Price, then Catalogue MRP.
                 Leave the retail price blank and the batch sells at its own printed MRP.
               </div>
               <div className="mt-1 text-gray-600">
                 <strong>Wholesale:</strong> a contract, price list or tier price agreed with the buyer,
-                then Batch B2B Price → Catalogue B2B Price. Leave it blank and the SKU's own B2B price applies.
+                then Batch B2B Price, then Catalogue B2B Price. Leave it blank and the SKU's own B2B price applies.
               </div>
               <div className="mt-1 text-gray-600">Nothing is ever worked out as a percentage.</div>
             </div>
             <p className="mt-2 text-gray-600">
-              The <strong>Action</strong> column says what each row does —{' '}
+              The <strong>Action</strong> column says what each row does:{' '}
               <span className="font-mono">update</span> (details only, the default),{' '}
               <span className="font-mono">receive</span> (new units in),{' '}
               <span className="font-mono">assign</span> (label stock you already hold) or{' '}
@@ -250,7 +250,7 @@ const BatchBulkBar: React.FC<{ onImported?: () => void }> = ({ onImported }) => 
           <div className="min-w-0 flex-1">
             <div className="font-medium text-gray-900">Send it back</div>
             <p className="mt-0.5 text-gray-600">
-              A bad row is reported on its own — the rows beside it still apply.
+              A bad row is reported on its own. The rows beside it still apply.
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               {canImport ? (
@@ -259,7 +259,7 @@ const BatchBulkBar: React.FC<{ onImported?: () => void }> = ({ onImported }) => 
                 </Btn>
               ) : (
                 <p className="text-xs text-gray-500">
-                  You can export batches but not import — importing needs the “adjust inventory”
+                  You can export batches but not import. Importing needs the adjust inventory
                   permission.
                 </p>
               )}
@@ -309,7 +309,7 @@ const BatchBulkBar: React.FC<{ onImported?: () => void }> = ({ onImported }) => 
               <ul className="mt-1 max-h-44 overflow-auto text-xs text-red-700">
                 {failed.slice(0, 100).map((f, i) => (
                   <li key={i} className="py-0.5">
-                    <span className="font-mono">{f.ref}</span> — {f.error}
+                    <span className="font-mono">{f.ref}</span>: {f.error}
                   </li>
                 ))}
               </ul>
@@ -317,8 +317,8 @@ const BatchBulkBar: React.FC<{ onImported?: () => void }> = ({ onImported }) => 
                 <p className="mt-1 text-xs text-gray-500">…and {failed.length - 100} more.</p>
               )}
               <p className="mt-1 text-xs text-gray-600">
-                Everything not listed here was applied — a bad row never rolls back the rest.
-                The same list, with its sheet line numbers, is kept under “Line by line” in
+                Everything not listed here was applied. A bad row never rolls back the rest.
+                The same list, with its sheet line numbers, is kept under Line by line in
                 Downloads &amp; imports.
               </p>
             </div>

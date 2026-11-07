@@ -48,14 +48,14 @@ export interface BatchRecord {
 /** ERP-LOTS-1: "On sale until 31 Dec 2026" / "Held — expires 31 Mar 2027" / "On sale" (no expiry). */
 export function lotSaleText(b: Pick<BatchRecord, 'expiry_date' | 'stop_days' | 'off_sale'>): { text: string; held: boolean } | null {
   if (b.off_sale === undefined && b.stop_days === undefined) return null;
-  if (b.off_sale) return { text: `Held — expires ${dayText(b.expiry_date)}`, held: true };
+  if (b.off_sale) return { text: `Held, expires ${dayText(b.expiry_date)}`, held: true };
   if (!b.expiry_date) return { text: 'On sale', held: false };
   const until = lastDayOnSale(b.expiry_date, b.stop_days ?? 0);
   return { text: until ? `On sale until ${dayText(until)}` : 'On sale', held: false };
 }
 
 const money = (v: number | string | null | undefined) =>
-  v == null || v === '' ? '—' : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+  v == null || v === '' ? '-' : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 const str = (v: any) => (v == null ? '' : String(v));
 
 const Field: React.FC<{ label: string; hint?: string; children: React.ReactNode }> = ({ label, hint, children }) => (
@@ -135,7 +135,7 @@ const BatchEditDrawer: React.FC<{
     if (!form.expiryDate) return '';
     const d = new Date(`${form.expiryDate}T00:00:00`);
     if (Number.isNaN(d.getTime())) return '';
-    if (d.getTime() < Date.now()) return 'This expiry is in the past — the batch will stop being sold or priced from.';
+    if (d.getTime() < Date.now()) return 'This expiry is in the past. The batch will stop being sold or priced from.';
     return '';
   }, [form.expiryDate]);
 
@@ -173,7 +173,7 @@ const BatchEditDrawer: React.FC<{
     try {
       const res = await batchesAPI.setQuantity(batch.id, n);
       const d = res?.data ?? res;
-      setNote(`Counted: ${d?.before} → ${d?.after} (${d?.delta > 0 ? '+' : ''}${d?.delta}). Recorded in the stock ledger.`);
+      setNote(`Counted: ${d?.before} to ${d?.after} (${d?.delta > 0 ? '+' : ''}${d?.delta}). Recorded in the stock ledger.`);
       onSaved();
     } catch (e: any) {
       setError(e?.response?.data?.message ?? 'Could not update the quantity.');
@@ -198,7 +198,7 @@ const BatchEditDrawer: React.FC<{
       ? 'Batch pricing is off, so these prices are recorded but do not bill. Turn it on above to use them.'
       : pricingMode === 'mrp_only'
         ? 'Batch pricing is on (MRP only): this MRP shows on the bill; the catalogue prices are charged.'
-        : 'Batch pricing is on (full): retail shoppers pay this batch’s retail price and B2B accounts pay its B2B price.';
+        : "Batch pricing is on (full): retail shoppers pay this batch's retail price and B2B accounts pay its B2B price.";
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label="Edit batch">
@@ -206,12 +206,10 @@ const BatchEditDrawer: React.FC<{
       <div className="relative flex h-full w-full max-w-md flex-col overflow-y-auto bg-white shadow-2xl">
         <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-gray-200 bg-white px-5 py-4">
           <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-gray-900">{batch.product_name}</div>
+            <div className="truncate text-sm font-semibold text-gray-900">{batch.product_name ?? 'Product no longer in the catalogue'}</div>
             <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-gray-500">
-              <span className="font-mono">{batch.sku}</span>
-              <span>·</span>
+              <span className="font-mono">{batch.sku ?? 'No SKU'}</span>
               <span className="font-mono font-medium text-gray-700">{batch.batch_number}</span>
-              <span>·</span>
               <span>{batch.qty_on_hand} on hand</span>
             </div>
           </div>
@@ -224,32 +222,32 @@ const BatchEditDrawer: React.FC<{
           {!canEdit && (
             <div className="flex gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
               <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              You can view this batch but not change it — editing needs the “adjust inventory” permission.
+              You can view this batch but not change it. Editing needs the adjust inventory permission.
             </div>
           )}
 
           {/* ── Prices ───────────────────────────────────────────────── */}
           <section>
-            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">This batch’s prices</h3>
+            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">This batch's prices</h3>
             <p className="mb-2.5 text-[11px] leading-snug text-gray-500">{pricingLine}</p>
             <div className="grid grid-cols-3 gap-3">
               <Field label="Batch MRP" hint={`Printed on the pack. Catalogue: ${money(batch.catalogue_mrp)}`}>
                 <input className={input} type="number" step="0.01" min="0" inputMode="decimal"
-                  value={val('mrp')} onChange={set('mrp')} disabled={!canEdit} placeholder="—" />
+                  value={val('mrp')} onChange={set('mrp')} disabled={!canEdit} placeholder="-" />
               </Field>
               <Field label="Batch retail price" hint={`Blank ⇒ sells at the Batch MRP. Catalogue: ${money(batch.catalogue_selling_price)}`}>
                 <input className={input} type="number" step="0.01" min="0" inputMode="decimal"
-                  value={val('sellingPrice')} onChange={set('sellingPrice')} disabled={!canEdit} placeholder="—" />
+                  value={val('sellingPrice')} onChange={set('sellingPrice')} disabled={!canEdit} placeholder="-" />
               </Field>
               <Field label="Batch B2B price" hint={`Blank ⇒ the SKU's B2B price. Catalogue: ${money(batch.catalogue_b2b_price)}`}>
                 <input className={input} type="number" step="0.01" min="0" inputMode="decimal"
-                  value={val('b2bPrice')} onChange={set('b2bPrice')} disabled={!canEdit} placeholder="—" />
+                  value={val('b2bPrice')} onChange={set('b2bPrice')} disabled={!canEdit} placeholder="-" />
               </Field>
             </div>
             <p className="mt-2 text-[11px] leading-snug text-gray-500">
-              Retail: <strong>batch retail price → batch MRP → catalogue retail price → catalogue
+              Retail: <strong>batch retail price, then batch MRP, then catalogue retail price, then catalogue
               MRP</strong>. Wholesale: a contract, price list or tier price agreed with the buyer,
-              then <strong>batch B2B price → catalogue B2B price</strong>. Three stated numbers per
+              then <strong>batch B2B price, then catalogue B2B price</strong>. Three stated numbers per
               lot; nothing is worked out as a percentage of anything else.
             </p>
             {priceWarning && (
@@ -294,7 +292,7 @@ const BatchEditDrawer: React.FC<{
                 {sale.text}
                 {batch.expiry_date && typeof batch.stop_days === 'number' && (
                   <span className="ml-1 text-xs font-normal text-gray-500">
-                    ({batch.stop_days} days before expiry{batch.sell_stop_days != null ? ', this lot’s own' : ', store setting'})
+                    ({batch.stop_days} days before expiry{batch.sell_stop_days != null ? ", this lot's own" : ', store setting'})
                   </span>
                 )}
               </p>
@@ -320,7 +318,7 @@ const BatchEditDrawer: React.FC<{
               <Field label="Batch number">
                 <input className={input} value={val('batchNumber')} onChange={set('batchNumber')} disabled={!canEdit} />
               </Field>
-              <Field label="Supplier’s batch code" hint="If the vendor calls it something else.">
+              <Field label="Supplier's batch code" hint="If the vendor calls it something else.">
                 <input className={input} value={val('supplierBatchRef')} onChange={set('supplierBatchRef')} disabled={!canEdit} />
               </Field>
             </div>
@@ -331,7 +329,7 @@ const BatchEditDrawer: React.FC<{
             <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Physical count</h3>
             <p className="mt-1 text-[11px] leading-snug text-gray-500">
               A quantity is moved, never typed over. Entering the counted figure records the
-              difference in the stock ledger as a count correction — the same as everywhere else
+              difference in the stock ledger as a count correction, the same as everywhere else
               stock moves.
             </p>
             <div className="mt-2.5 flex items-end gap-2">
@@ -348,7 +346,7 @@ const BatchEditDrawer: React.FC<{
           </section>
 
           <p className="text-[11px] leading-snug text-gray-500">
-            Quarantined, damaged and expired stock is moved on the Stock Condition screen, not here —
+            Quarantined, damaged and expired stock is moved on the Stock Condition screen, not here,
             so the units always have exactly one home.
           </p>
         </div>

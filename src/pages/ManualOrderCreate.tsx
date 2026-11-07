@@ -26,6 +26,7 @@ import {
   ordersAPI, productsAPI, salesAPI,
   type ManualOrderPreview,
 } from '../services/api';
+import { shortStockLines, type ShortStockLine } from '../lib/v2/areas/orders';
 import { usePincodeLookup } from '../hooks/usePincodeLookup';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -117,6 +118,9 @@ const ManualOrderCreate: React.FC = () => {
   const [priceError, setPriceError] = useState<string | null>(null);
   /** Guards an out-of-order response: only the newest request may write. */
   const previewSeq = useRef(0);
+  /** Create was refused for short stock. Stays up until the basket changes, unlike the toast. */
+  const [stockRefusal, setStockRefusal] = useState<{ message: string; lines: ShortStockLine[] } | null>(null);
+  const stockRefusalRef = useRef<HTMLDivElement | null>(null);
 
   const pickCustomer = (c: PickedCustomer) => {
     setCustomer(c);
@@ -255,6 +259,7 @@ const ManualOrderCreate: React.FC = () => {
   }), [customer, lines, address.state, address.pincode, paymentMethod, orderDiscount, shippingCost, gstin]);
 
   useEffect(() => {
+    setStockRefusal(null);
     if (!lines.length) { setPreview(null); setPriceError(null); setPricing(false); return; }
     const seq = ++previewSeq.current;
     setPricing(true);
@@ -277,6 +282,11 @@ const ManualOrderCreate: React.FC = () => {
     // actually moves the money, so only it may trigger a re-price.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [priceKey]);
+
+  // Create sits at both ends of the page, so bring the refusal to whichever was pressed.
+  useEffect(() => {
+    if (stockRefusal) stockRefusalRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [stockRefusal]);
 
   const canSubmit = canCreate && !!lines.length && !!address.fullName.trim() && !!address.mobileNumber.trim()
     && !!preview && !pricing && !priceError;
@@ -301,10 +311,10 @@ const ManualOrderCreate: React.FC = () => {
       setCreated(order);
       toast({ title: order?.replayed ? 'Order already created' : 'Order created', description: `#${order.orderId ?? order.order_id}` });
     } catch (error: any) {
-      toast({
-        variant: 'destructive', title: 'Not created',
-        description: error?.response?.data?.message || 'The order could not be created.',
-      });
+      const message = error?.response?.data?.message || 'The order could not be created.';
+      const short = shortStockLines(error);
+      if (short) setStockRefusal({ message, lines: short });
+      toast({ variant: 'destructive', title: 'Not created', description: message });
     } finally { setCreating(false); }
   };
 
@@ -568,6 +578,27 @@ const ManualOrderCreate: React.FC = () => {
                 <p className="mb-2 flex items-start gap-1.5 rounded-md border border-bad bg-bad-bg px-2.5 py-2 text-xs text-bad-ink">
                   <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {priceError}
                 </p>
+              )}
+              {stockRefusal && (
+                <div ref={stockRefusalRef} role="alert"
+                  className="mb-2 rounded-md border border-bad bg-bad-bg px-2.5 py-2 text-xs text-bad-ink">
+                  <p className="flex items-start gap-1.5 text-sm font-semibold">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    {stockRefusal.lines.length ? 'Not created: not enough stock' : stockRefusal.message}
+                  </p>
+                  {stockRefusal.lines.length > 0 && (
+                    <ul className="mt-1.5 space-y-1">
+                      {stockRefusal.lines.map((l) => (
+                        <li key={`${l.product_id ?? ''}-${l.variation_id ?? l.sku ?? l.name}`}>
+                          <span className="font-semibold">{l.name}</span>
+                          {l.sku && <span className="font-mono"> (SKU {l.sku})</span>}
+                          <span className="block tabular-nums">{l.asked} asked, {l.available} available</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <p className="mt-1.5">Lower the quantity or remove the line, then create the order again.</p>
+                </div>
               )}
               {!preview ? (
                 <p className="py-4 text-center text-xs text-ink-soft">

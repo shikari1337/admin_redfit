@@ -21,7 +21,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Moon, Sun, Monitor, Search, WifiOff, Clock, ArrowRight, ExternalLink, Plus, CornerDownLeft } from 'lucide-react';
-import { api, searchAPI, type SearchResult } from '../../services/api';
+import { api, apiReachable, searchAPI, type SearchResult } from '../../services/api';
 import { SETTINGS_AREA_LIST } from '../../lib/menu';
 import type { VisibleGroup } from './menuAccess';
 
@@ -85,34 +85,60 @@ export const ThemeToggle: React.FC = () => {
 
 /* ── banners ─────────────────────────────────────────────────────────────── */
 
+/** How often the connection is asked again while it is in doubt. */
+const OFFLINE_RECHECK_MS = 15000;
+
 /**
  * The two states every page shares and no page should have to detect itself:
- * the browser is offline, and the server said "too many requests" (429) with a
+ * the connection is down, and the server said "too many requests" (429) with a
  * `retry-after`. The 429 is observed with a response interceptor registered for
- * the life of the shell — it only WATCHES; the rejection still reaches the page
+ * the life of the shell. It only WATCHES; the rejection still reaches the page
  * that made the call, exactly as before.
+ *
+ * "Offline" is decided by a real request to the API (`apiReachable`), never by
+ * `navigator.onLine` alone: that flag can stay false while the network works, and
+ * a banner driven by it stayed up through refresh and re-login with every page
+ * loading fine. The flag and a request that got no answer only START the check.
+ * While the connection is in doubt it is asked again on a timer, so the banner
+ * clears by itself and a browser stuck on "offline" still catches a real failure.
  */
 export const Banners: React.FC = () => {
-  const [offline, setOffline] = useState(() => typeof navigator !== 'undefined' && navigator.onLine === false);
+  const [offline, setOffline] = useState(false);
   const [limitedUntil, setLimitedUntil] = useState<number | null>(null);
   const [, tick] = useState(0);
 
   useEffect(() => {
-    const on = () => setOffline(false);
-    const off = () => setOffline(true);
-    window.addEventListener('online', on);
-    window.addEventListener('offline', off);
+    let stopped = false;
+    let checking = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const check = async () => {
+      if (checking || stopped) return;
+      checking = true;
+      if (timer) clearTimeout(timer);
+      const reachable = await apiReachable();
+      checking = false;
+      if (stopped) return;
+      setOffline(!reachable);
+      if (!reachable || navigator.onLine === false) timer = setTimeout(check, OFFLINE_RECHECK_MS);
+    };
+    if (navigator.onLine === false) void check();
+    window.addEventListener('online', check);
+    window.addEventListener('offline', check);
     const id = api.interceptors.response.use(undefined, (error) => {
       if (error?.response?.status === 429) {
         const header = Number(error.response.headers?.['retry-after']);
         const seconds = Number.isFinite(header) && header > 0 ? header : 60;
         setLimitedUntil(Date.now() + seconds * 1000);
       }
+      // No answer at all: the one thing a network failure looks like from here.
+      if (error && !error.response && error.code !== 'ERR_CANCELED') void check();
       return Promise.reject(error);
     });
     return () => {
-      window.removeEventListener('online', on);
-      window.removeEventListener('offline', off);
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      window.removeEventListener('online', check);
+      window.removeEventListener('offline', check);
       api.interceptors.response.eject(id);
     };
   }, []);

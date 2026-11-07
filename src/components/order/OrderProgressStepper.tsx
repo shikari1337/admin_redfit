@@ -12,6 +12,10 @@ interface OrderProgressStepperProps {
   createdAt?: string | Date | null;
   /** Stamped on delivery; used when history has no explicit delivered entry. */
   deliveredAt?: string | Date | null;
+  /** Why the order is on hold, in the words the server or a person gave. */
+  holdReason?: string | null;
+  /** What to do about this hold, drawn under the reason. The page owns any action in it. */
+  holdNext?: React.ReactNode;
 }
 
 /** "06 Sep, 07:10 pm" — short enough to sit under a stage label. */
@@ -68,7 +72,7 @@ const CIRCLE_CLASS: Record<StepState, string> = {
  * instead of a bare status pill buried in the sidebar.
  */
 const OrderProgressStepper: React.FC<OrderProgressStepperProps> = ({
-  orderStatus, paymentStatus, paymentMethod, statusHistory, createdAt, deliveredAt,
+  orderStatus, paymentStatus, paymentMethod, statusHistory, createdAt, deliveredAt, holdReason, holdNext,
 }) => {
   /**
    * The EARLIEST time each stage was reached, read off `status_history`.
@@ -139,9 +143,15 @@ const OrderProgressStepper: React.FC<OrderProgressStepperProps> = ({
     <Card className="shadow-sm">
       <CardContent className="pt-3 pb-3 px-4">
         {isOnHold && (
-          <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 mb-3">
-            <FaPause className="h-3.5 w-3.5 shrink-0" />
-            <span className="font-medium">This order is on hold — progress is paused.</span>
+          <div role="alert" className="mb-3 rounded-md border border-l-4 border-warn bg-warn-bg px-3 py-2.5 text-sm text-warn-ink">
+            <p className="flex items-center gap-2 font-bold">
+              <FaPause className="h-3.5 w-3.5 shrink-0" />
+              This order is on hold. Progress is paused until it is released.
+            </p>
+            <p className="mt-1.5 whitespace-pre-line break-words font-medium">
+              {holdReason || 'No reason was recorded for this hold.'}
+            </p>
+            {holdNext}
           </div>
         )}
         {(isReturnRequested || isReturned) && (

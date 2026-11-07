@@ -8,7 +8,7 @@ import { useInventoryLock } from '../../hooks/useInventoryLock';
 import { formatDateTime } from '../../utils/date';
 
 /** Epoch microseconds → the store's wall clock. */
-const when = (us: number | null | undefined) => (typeof us === 'number' ? formatDateTime(new Date(us / 1000)) : '—');
+const when = (us: number | null | undefined) => (typeof us === 'number' ? formatDateTime(new Date(us / 1000)) : 'unknown');
 
 /**
  * The inventory lock, said once at the top of a stock screen (DEC-069):
@@ -63,7 +63,7 @@ export default function InventoryLockBanner({ className = '' }: { className?: st
             <div className="min-w-0">
               <p className="font-semibold"><span aria-hidden>🔒 </span>{lock.message}</p>
               <p className="mt-0.5 text-xs text-amber-800">
-                Locked {when(s.since_us)}{s.by_name ? ` by ${s.by_name}` : ''}{s.reason ? ` — ${s.reason}` : ''}.
+                Locked {when(s.since_us)}{s.by_name ? ` by ${s.by_name}` : ''}{s.reason ? `: ${s.reason}` : ''}.
                 {' '}Downloads, sheet exports and the ERP order export still work.
                 {!lock.canUnlock && ' Only an admin can unlock it.'}
               </p>
@@ -81,7 +81,7 @@ export default function InventoryLockBanner({ className = '' }: { className?: st
           <div className="flex min-w-0 items-start gap-2">
             <LockOpen className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
             <p className="min-w-0">
-              Stock is unlocked for manual changes{s.by_name ? ` by ${s.by_name}` : ''} since {when(s.since_us)}{s.reason ? ` — ${s.reason}` : ''}.
+              Stock is unlocked for manual changes{s.by_name ? ` by ${s.by_name}` : ''} since {when(s.since_us)}{s.reason ? `: ${s.reason}` : ''}.
               {' '}The hourly update from {lock.label} is paused until it is locked again.
             </p>
           </div>
@@ -105,8 +105,8 @@ export default function InventoryLockBanner({ className = '' }: { className?: st
                   </p>
                 ) : (
                   <p>
-                    Manual stock changes will be refused again, and the next hourly run sets every matching SKU to {lock.label}’s quantity —
-                    manual changes made while unlocked are overwritten then.
+                    Manual stock changes will be refused again, and the next hourly run sets every matching SKU to {lock.label}'s quantity.
+                    Manual changes made while unlocked are overwritten then.
                   </p>
                 )}
               </div>

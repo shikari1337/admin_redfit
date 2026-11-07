@@ -88,10 +88,30 @@ function createdOrder(d: any): any {
   return { ...orderRow(d.order), pay_link: r.pay_link ?? null, lines: r.lines, commission: r.commission, replayed: r.replayed === true };
 }
 
+/** The staff order refused because units are short and backorder is off (HTTP 409). */
+const OUT_OF_STOCK_CODE = 'commerce.out_of_stock';
+
+/** One line of that refusal: `details.lines[]`, as the server sent it. */
+export interface ShortStockLine {
+  product_id?: string | null;
+  variation_id?: string | null;
+  sku?: string | null;
+  name: string;
+  asked: number;
+  available: number;
+}
+
+/** The short lines of an out-of-stock refusal; null for any other error. */
+export function shortStockLines(e: any): ShortStockLine[] | null {
+  const data = e?.response?.data;
+  if (data?.code !== OUT_OF_STOCK_CODE) return null;
+  return Array.isArray(data.details?.lines) ? data.details.lines : [];
+}
+
 /**
  * The create, with the screen's per-submit `Idempotency-Key` forwarded (claimed in the order's own unit of work,
- * commerce api/orders/manual.rs:312-434). A 409 is either the same key still in flight or the key reused with
- * another body; both get words a person can act on.
+ * commerce api/orders/manual.rs:312-434). A 409 is the same key still in flight, the key reused with another body
+ * (both get words a person can act on), or units short of stock, whose own sentence and lines go through untouched.
  */
 async function createManualOrder(body: unknown, headers: Record<string, string> | undefined): Promise<any> {
   try {
@@ -99,7 +119,7 @@ async function createManualOrder(body: unknown, headers: Record<string, string> 
     return normaliseEnvelope(res.data);
   } catch (e: any) {
     const data = e?.response?.data;
-    if (e?.response?.status === 409 && data && typeof data === 'object') {
+    if (e?.response?.status === 409 && data && typeof data === 'object' && data.code !== OUT_OF_STOCK_CODE) {
       const inFlight = /in progress/i.test(String(data.message ?? ''));
       e.response.data = {
         ...data,
@@ -201,6 +221,7 @@ const listQuery = (c: V2Ctx) => ({
   search: c.query.search ?? c.query.mobileNumber,
   from: c.query.from ?? c.query.startDate,
   to: c.query.to ?? c.query.endDate,
+  cod_over: c.query.cod_over,
   limit: c.query.limit,
   offset: c.query.offset ?? (c.query.page ? (Number(c.query.page) - 1) * (Number(c.query.limit) || 20) : undefined),
 });
@@ -227,7 +248,7 @@ export const ORDER_ROUTES: V2Route[] = [
   { m: 'GET', from: '/orders/assignable-staff', row: 'commerce orders.ts:376', to: `${O}/assignable-staff` },
   { m: 'GET', from: '/orders/sales-claims/queue', row: 'commerce orders.ts:390', to: `${O}/sales-claims`, query: (c) => ({ state: c.query.state, limit: c.query.limit, offset: c.query.offset }), reply: (d) => (Array.isArray(d) ? pageAs('items')(mapList(d, (r: any) => ({ ...r, order_id: r.order_id ?? r.order_number }))) : d) }, // ClaimQueueRowView {order_number …} (commerce views/order_desk.rs:760); ordersAPI.salesClaimQueue reads {items, total}, SalesTeam reads o.order_id
   { m: 'GET', from: '/orders/assignment-queue', row: 'commerce orders.ts:407', to: `${O}/order-queue`, query: (c) => ({ assigned_to: c.query.assignedTo, limit: c.query.limit, offset: c.query.offset }) },
-  { m: 'GET', from: '/orders/export/csv', row: 'commerce orders.ts:1885', to: `${O}/orders/export`, query: (c) => ({ ids: Array.isArray(c.query.ids) ? c.query.ids.join(',') : c.query.ids, status: c.query.status, from: c.query.from, to: c.query.to }) },
+  { m: 'GET', from: '/orders/export/csv', row: 'commerce orders.ts:1885', to: `${O}/orders/export`, query: (c) => ({ ids: Array.isArray(c.query.ids) ? c.query.ids.join(',') : c.query.ids, status: c.query.status, from: c.query.from, to: c.query.to, cod_over: c.query.cod_over }) },
   { m: 'GET', from: '/orders/export', row: 'commerce orders.ts:1885 (merged)', to: `${O}/orders/export`, query: (c) => ({ status: c.query.status, from: c.query.startDate ?? c.query.from, to: c.query.endDate ?? c.query.to }) },
   { m: 'GET', from: '/orders/export/erp/status', row: 'commerce orders.ts:1966', to: `${O}/erp-exports/status` },
   // PreviewQuery (commerce api/order_desk/export.rs:260) is closed: `excludeCancelled` → `exclude_cancelled`.

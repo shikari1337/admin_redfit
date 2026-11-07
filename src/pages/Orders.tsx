@@ -129,6 +129,25 @@ const OPTIONAL_COLUMNS: OptionalColumn[] = [
       : <span className="text-muted-foreground">—</span>,
   },
   {
+    key: 'cod', label: 'COD', defaultOn: false, align: 'right',
+    title: 'What the courier was told to collect, against what the customer owes',
+    cell: (o) => {
+      const sent = o.codSent ?? o.cod_sent;
+      const due = num(o.codDue ?? o.cod_due);
+      const over = num(o.codOver ?? o.cod_over);
+      const basis = o.codSentBasis ?? o.cod_sent_basis;
+      if (sent == null && !due) return <span className="text-muted-foreground">-</span>;
+      return (
+        <div className="leading-tight">
+          <div className="whitespace-nowrap font-medium tabular-nums">{sent == null ? 'Not booked' : fmtRupees(num(sent))}</div>
+          <div className="whitespace-nowrap text-[11px] tabular-nums text-muted-foreground">due {fmtRupees(due)}</div>
+          {over > 0 && <div className="whitespace-nowrap text-[11px] font-semibold tabular-nums text-rose-700">{fmtRupees(over)} too much</div>}
+          {sent != null && basis !== 'recorded' && <div className="text-[11px] italic text-muted-foreground">estimated</div>}
+        </div>
+      );
+    },
+  },
+  {
     key: 'salesperson', label: 'Sold by', defaultOn: false,
     cell: (o) => {
       const who = o.salesAgentName ?? o.sales_agent_name ?? o.salesperson;
@@ -182,7 +201,9 @@ const Orders: React.FC = () => {
     return OPTIONAL_COLUMNS.filter((c) => c.defaultOn).map((c) => c.key);
   });
   const [showColumnPicker, setShowColumnPicker] = useState(false);
-  const activeCols = OPTIONAL_COLUMNS.filter((c) => visibleCols.includes(c.key));
+  /** Every order whose courier was told to collect more than the buyer owes: a SERVER filter. */
+  const [codOver, setCodOver] = useState(false);
+  const activeCols = OPTIONAL_COLUMNS.filter((c) => visibleCols.includes(c.key) || (codOver && c.key === 'cod'));
   const toggleCol = (key: string) => {
     setVisibleCols((cur) => {
       const next = cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key];
@@ -273,7 +294,7 @@ const Orders: React.FC = () => {
   // result set can leave the page number pointing past the last real page.
   useEffect(() => {
     setPage(1);
-  }, [statusFilter, typeFilter, channelFilter, paymentFilter, debouncedSearch, dates.from, dates.to]);
+  }, [statusFilter, typeFilter, channelFilter, paymentFilter, codOver, debouncedSearch, dates.from, dates.to]);
 
   /** Filters that are applied to the page already fetched, not to the query. */
   const onPageFiltered = React.useMemo(() => orders.filter((o: any) => {
@@ -291,7 +312,7 @@ const Orders: React.FC = () => {
   const hidingOnPage = orders.length - onPageFiltered.length;
 
   /** Every filter as one object — what a saved view is. */
-  const currentView = { statusFilter, typeFilter, channelFilter, paymentFilter, flagFilter, fulfilFilter, datePreset, search };
+  const currentView = { statusFilter, typeFilter, channelFilter, paymentFilter, flagFilter, fulfilFilter, datePreset, search, codOver };
   const { views, save: saveView, remove: removeView } = useSavedViews<typeof currentView>('orders');
   const applyView = (v: typeof currentView) => {
     setStatusFilter(v.statusFilter ?? 'all');
@@ -300,13 +321,14 @@ const Orders: React.FC = () => {
     setPaymentFilter((v.paymentFilter ?? 'all') as any);
     setFlagFilter((v.flagFilter ?? 'all') as any);
     setFulfilFilter((v.fulfilFilter ?? 'all') as any);
+    setCodOver(!!v.codOver);
     pickDate(v.datePreset ?? 'all');
     setSearch(v.search ?? '');
     setPage(1);
   };
   const clearFilters = () => applyView({
     statusFilter: 'all', typeFilter: 'all', channelFilter: 'all',
-    paymentFilter: 'all', flagFilter: 'all', fulfilFilter: 'all', datePreset: 'all', search: '',
+    paymentFilter: 'all', flagFilter: 'all', fulfilFilter: 'all', datePreset: 'all', search: '', codOver: false,
   } as any);
   /** A preset is recomputed when applied, so a saved "Past 7 days" means the last 7 days TODAY. */
   function pickDate(key: string) {
@@ -318,7 +340,7 @@ const Orders: React.FC = () => {
 
   useEffect(() => {
     fetchOrders();
-  }, [statusFilter, typeFilter, channelFilter, paymentFilter, debouncedSearch, page, dates.from, dates.to]);
+  }, [statusFilter, typeFilter, channelFilter, paymentFilter, codOver, debouncedSearch, page, dates.from, dates.to]);
 
   const fetchOrders = async () => {
     try {
@@ -328,6 +350,7 @@ const Orders: React.FC = () => {
       if (typeFilter !== 'all') params.order_type = typeFilter;
       if (channelFilter !== 'all') params.channel = channelFilter;
       if (paymentFilter !== 'all') params.payment_status = paymentFilter;
+      if (codOver) params.cod_over = true;
       if (dates.from) params.from = dates.from;
       if (dates.to) params.to = dates.to;
       if (debouncedSearch) params.search = debouncedSearch;
@@ -451,6 +474,7 @@ const Orders: React.FC = () => {
       await ordersAPI.exportCsv({
         ids: onlySelected ? selectedIds : undefined,
         status: statusFilter !== 'all' ? statusFilter : undefined,
+        cod_over: codOver || undefined,
       });
     } catch (error: any) {
       toast({ variant: "destructive", title: "Export failed", description: error?.response?.data?.message || 'Could not export orders' });
@@ -466,7 +490,7 @@ const Orders: React.FC = () => {
   // payment-status display in the admin.
 
   const anyFilter = statusFilter !== 'all' || paymentFilter !== 'all' || flagFilter !== 'all'
-    || typeFilter !== 'all' || channelFilter !== 'all' || fulfilFilter !== 'all' || datePreset !== 'all' || !!search;
+    || typeFilter !== 'all' || channelFilter !== 'all' || fulfilFilter !== 'all' || datePreset !== 'all' || !!search || codOver;
 
   /**
    * THE TABS — where the sale came from, and which price book priced it.
@@ -601,7 +625,7 @@ const Orders: React.FC = () => {
               <DropdownMenuContent align="end" className="w-60">
                 <DropdownMenuLabel className="text-xs text-ink-mute">Export</DropdownMenuLabel>
                 <DropdownMenuItem onClick={() => handleExport(false)} disabled={exporting}>
-                  <FaDownload className="mr-2 h-3 w-3" /> {exporting ? 'Exporting…' : 'All orders (CSV)'}
+                  <FaDownload className="mr-2 h-3 w-3" /> {exporting ? 'Exporting…' : codOver ? 'COD sent above due (CSV)' : 'All orders (CSV)'}
                 </DropdownMenuItem>
                 {/* Exporting the SELECTION lives on the bulk bar, where the
                     selection is — one place per action, not two. */}
@@ -641,6 +665,7 @@ const Orders: React.FC = () => {
             onClick={() => setFlagFilter(flagFilter === 'flagged' ? 'all' : 'flagged')}>Flagged</FilterChip>
           <FilterChip on={flagFilter === 'po'}
             onClick={() => setFlagFilter(flagFilter === 'po' ? 'all' : 'po')}>Has a customer PO</FilterChip>
+          <FilterChip on={codOver} tone="bad" onClick={() => setCodOver((v) => !v)}>COD sent above due</FilterChip>
           {anyFilter && (
             <Button size="sm" variant="ghost" className="h-7 px-2 text-xs text-ink-soft" onClick={clearFilters}>
               Clear all
@@ -739,6 +764,12 @@ const Orders: React.FC = () => {
                 const confirmBlocked = order.paymentMethod === 'prepaid' && order.paymentStatus !== 'completed';
                 const canShip = canAccess('shipping') && canManageShipments
                   && (order.orderStatus === 'confirmed' || order.orderStatus === 'processing');
+                const flagged = order.isFlagged ?? order.is_flagged;
+                // Why it needs a person. The list row carries the flag's words; a hold's own
+                // reason shows here only once the row carries it too.
+                const why: string | undefined = (order.orderStatus === 'on_hold' ? order.holdReason ?? order.hold_reason : undefined)
+                  || (flagged ? order.flagReason ?? order.flag_reason : undefined)
+                  || undefined;
                 return (
                   <TableRow key={order._id} className="group hover:bg-surface-2">
                     <TableCell className="px-3 py-2.5">
@@ -759,8 +790,8 @@ const Orders: React.FC = () => {
                             {channels.find(c => c.code === channelCode)?.label ?? channelCode}
                           </Badge>
                         )}
-                        {(order.isFlagged ?? order.is_flagged) && (
-                          <Badge variant="outline" className="border-bad bg-bad-bg px-1.5 py-0 text-[10px] text-bad-ink">Flagged</Badge>
+                        {flagged && (
+                          <Badge variant="outline" className="border-bad bg-bad-bg px-1.5 py-0 text-[10px] text-bad-ink" title={why}>Flagged</Badge>
                         )}
                         {/Source:\s*Bulk Order Platform/i.test(String(order.notes ?? '')) && (
                           <Badge variant="outline" className="border-warn bg-warn-bg px-1.5 py-0 text-[10px] text-warn-ink">Bulk platform</Badge>
@@ -770,6 +801,7 @@ const Orders: React.FC = () => {
                             title="The buyer's purchase-order reference">PO {poRef}</Badge>
                         )}
                       </div>
+                      {why && <p className="mt-0.5 max-w-[12rem] truncate text-[11px] text-bad-ink" title={why}>{why}</p>}
                     </TableCell>
                     <TableCell className="px-3 py-2.5">
                       {b2b ? (

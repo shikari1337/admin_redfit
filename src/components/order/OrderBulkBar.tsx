@@ -4,7 +4,7 @@ import {
   FaTruck, FaUserCheck, FaCheck, FaTimes, FaMinus,
 } from 'react-icons/fa';
 import Modal from './Modal';
-import { ordersAPI, shippingAPI } from '../../services/api';
+import { ordersAPI, shipmentsAPI, shippingAPI } from '../../services/api';
 
 /**
  * Bulk actions for the Orders list.
@@ -71,7 +71,7 @@ const NOTIFY_EVENTS: Array<[string, string]> = [
   ['payment_link', 'Payment link'],
 ];
 
-type ActionKey = 'status' | 'assign' | 'flag' | 'unflag' | 'note' | 'notify' | 'ship';
+type ActionKey = 'status' | 'assign' | 'flag' | 'unflag' | 'note' | 'notify' | 'ship' | 'codrebook';
 
 export interface BulkOrderRow {
   _id: string;
@@ -84,6 +84,9 @@ export interface BulkOrderRow {
   is_flagged?: boolean;
   fulfilment?: string;
   fulfillment_state?: string;
+  /** The parcels a COD rebook can still correct (the courier has not picked them up). */
+  cod_rebook_ids?: string[];
+  codRebookIds?: string[];
 }
 
 interface Props {
@@ -116,6 +119,7 @@ interface RunResult {
 const statusOf = (o: BulkOrderRow) => String(o.orderStatus ?? o.order_status ?? '');
 const flaggedOf = (o: BulkOrderRow) => Boolean(o.isFlagged ?? o.is_flagged);
 const fulfilOf = (o: BulkOrderRow) => String(o.fulfilment ?? o.fulfillment_state ?? 'none');
+const rebookIdsOf = (o: BulkOrderRow) => o.cod_rebook_ids ?? o.codRebookIds ?? [];
 const nameOf = (o: BulkOrderRow) => o.orderId || o._id.slice(0, 8).toUpperCase();
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
@@ -187,6 +191,8 @@ const OrderBulkBar: React.FC<Props> = ({
       else if (action === 'ship') {
         if (fulfilOf(o) === 'shipped') why = 'everything is already shipped';
         else if (st === 'cancelled' || st === 'completed' || st === 'returned') why = `order is ${st}`;
+      } else if (action === 'codrebook' && rebookIdsOf(o).length === 0) {
+        why = 'nothing to correct, or the courier already has the parcel';
       }
       if (why) skip.push({ row: o, why });
       else run.push(o);
@@ -239,6 +245,20 @@ const OrderBulkBar: React.FC<Props> = ({
         case 'ship':
           await shippingAPI.createShipment(o._id, { shippingProvider: 'shiprocket' });
           return { id: o._id, label, state: 'ok' };
+        case 'codrebook': {
+          // One parcel at a time: each is a cancel and a booking at the courier, and the
+          // server's own words, what to print again included, are what the person reads.
+          const lines: string[] = [];
+          let failed = false;
+          for (const id of rebookIdsOf(o)) {
+            const r = await shipmentsAPI.codRebook(id);
+            failed = failed || r?.state === 'needs_booking';
+            lines.push(String(r?.message ?? ''));
+            if (r?.pickup && !r.pickup.scheduled) lines.push(String(r.pickup.reason ?? ''));
+            lines.push(...(Array.isArray(r?.reprint) ? r.reprint.slice(0, 2).map(String) : []));
+          }
+          return { id: o._id, label, state: failed ? 'fail' : 'ok', detail: lines.filter(Boolean).join(' ') };
+        }
         default:
           return { id: o._id, label, state: 'fail', detail: 'unknown action' };
       }
@@ -253,21 +273,23 @@ const OrderBulkBar: React.FC<Props> = ({
     setResults([]);
     // Shipment booking calls a courier per order — keep it gentle. The rest are
     // our own DB writes and tolerate more.
-    await runPooled(plan.run, action === 'ship' ? 2 : 4, perform, (r) => {
+    await runPooled(plan.run, action === 'codrebook' ? 1 : action === 'ship' ? 2 : 4, perform, (r) => {
       acc.push(r);
       setResults([...acc]);
     });
     setRunning(false);
     onDone();
     const failed = acc.filter((r) => r.state === 'fail').length;
-    // Clean sweep closes itself; anything unresolved stays on screen to be read.
-    if (failed === 0) {
+    // Clean sweep closes itself; anything unresolved stays on screen to be read. A rebook always
+    // stays: it says what to print again.
+    if (failed === 0 && action !== 'codrebook') {
       onClear();
       close();
     }
   };
 
-  if (selectedIds.length === 0) return null;
+  // The list reloads after a run and clears the ticks, but the result still has to be read.
+  if (selectedIds.length === 0 && action === null) return null;
 
   const n = selectedIds.length;
   const btn = 'inline-flex h-7 items-center gap-1.5 rounded border border-line bg-surface px-2.5 text-xs font-medium text-ink hover:bg-surface-2 disabled:opacity-50';
@@ -280,6 +302,7 @@ const OrderBulkBar: React.FC<Props> = ({
     note: 'Add an internal note',
     notify: 'Message these customers',
     ship: 'Create shipments',
+    codrebook: 'Rebook at correct COD amount',
   };
 
   const okCount = results?.filter((r) => r.state === 'ok').length ?? 0;
@@ -294,7 +317,7 @@ const OrderBulkBar: React.FC<Props> = ({
 
   return (
     <>
-      <div
+      {n > 0 && <div
         className="flex flex-wrap items-center gap-2 rounded-md border border-brand/25 bg-brand/10 px-3 py-2 text-sm"
         role="region"
         aria-label="Actions for the selected orders"
@@ -328,6 +351,11 @@ const OrderBulkBar: React.FC<Props> = ({
             <FaTruck className="h-3 w-3" /> Create shipments
           </button>
         )}
+        {canManageShipments && selected.some((o) => rebookIdsOf(o).length > 0) && (
+          <button className={btn} onClick={() => setAction('codrebook')}>
+            <FaTruck className="h-3 w-3" /> Rebook at correct COD amount
+          </button>
+        )}
         <button className={btn} onClick={onExportSelected} disabled={exporting}>
           <FaDownload className="h-3 w-3" /> {exporting ? 'Exporting…' : 'Export CSV'}
         </button>
@@ -335,7 +363,7 @@ const OrderBulkBar: React.FC<Props> = ({
         <button className="ml-auto text-xs text-ink-soft underline-offset-2 hover:text-ink hover:underline" onClick={onClear}>
           Clear selection
         </button>
-      </div>
+      </div>}
 
       <Modal
         isOpen={action !== null}
@@ -368,6 +396,20 @@ const OrderBulkBar: React.FC<Props> = ({
       >
         <div className="space-y-4 text-sm">
           {/* ── What the action needs ─────────────────────────────────── */}
+          {!results && action === 'codrebook' && (
+            <div className="space-y-2 text-ink">
+              <p>
+                Each parcel is cancelled at the courier first. If the courier refuses, that order is
+                left as it is. It is then booked again with the same courier at the due amount, under
+                your name, and the order keeps its status.
+              </p>
+              <p className="text-xs text-ink-soft">
+                The AWB changes, so printed labels and manifests must be replaced. The result below
+                says what to print for each order. A parcel the courier has picked up is refused.
+              </p>
+            </div>
+          )}
+
           {!results && action === 'status' && (
             <label className="block">
               <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-ink-mute">Move to</span>
@@ -482,7 +524,7 @@ const OrderBulkBar: React.FC<Props> = ({
               </p>
               <ul className="mt-1.5 max-h-32 space-y-0.5 overflow-y-auto text-xs text-ink-soft">
                 {plan.skip.map(({ row, why }) => (
-                  <li key={row._id}><span className="font-medium text-ink">{nameOf(row)}</span> — {why}</li>
+                  <li key={row._id}><span className="font-medium text-ink">{nameOf(row)}</span>: {why}</li>
                 ))}
               </ul>
             </div>
@@ -501,7 +543,7 @@ const OrderBulkBar: React.FC<Props> = ({
                   ? `Working… ${results.length} of ${plan.run.length}`
                   : failCount
                     ? `${plural(failCount, 'order')} could not be done${okCount ? `; ${okCount} went through` : ''}.`
-                    : `Done — ${plural(okCount, 'order')} updated${noChange ? `, ${noChange} already as asked` : ''}.`}
+                    : `Done: ${plural(okCount, 'order')} updated${noChange ? `, ${noChange} already as asked` : ''}.`}
               </p>
               <ul className="mt-2 max-h-64 space-y-1 overflow-y-auto text-xs">
                 {results.map((r) => (
@@ -510,7 +552,7 @@ const OrderBulkBar: React.FC<Props> = ({
                     {r.state === 'fail' && <FaTimes className="mt-0.5 h-3 w-3 shrink-0 text-red-600" />}
                     {r.state === 'nochange' && <FaMinus className="mt-0.5 h-3 w-3 shrink-0 text-ink-mute" />}
                     <span className="font-medium text-ink">{r.label}</span>
-                    {r.detail && <span className="text-ink-soft">— {r.detail}</span>}
+                    {r.detail && <span className="text-ink-soft">{r.detail}</span>}
                   </li>
                 ))}
               </ul>

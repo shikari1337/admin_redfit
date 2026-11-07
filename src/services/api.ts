@@ -1088,6 +1088,28 @@ export function getApiBase(): string {
 }
 
 /**
+ * Can this browser reach the API right now? `navigator.onLine` and the window's
+ * `offline` event only report what the operating system thinks, and they can be
+ * wrong while requests work (VPNs, virtual adapters, some Windows and Chrome
+ * builds), so a person who wants to know is answered by a real request to the
+ * public health route. `no-cors`: any answer at all proves the network, so CORS
+ * and the server's own state have no say in it. The one definition.
+ */
+export async function apiReachable(timeoutMs = 6000): Promise<boolean> {
+  const origin = getApiBase().replace(/\/api\/v\d+\/?$/, '');
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), timeoutMs);
+  try {
+    await fetch(`${origin}${V2_ENABLED ? '/api/v2/health' : '/health'}`, { method: 'GET', mode: 'no-cors', cache: 'no-store', signal: ctl.signal });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * The message a human should be shown for a caught error — one definition
  * (WS-L L.11). `errMsg` was hand-written in three panels with a body that
  * predates the `{error:{…}}` unwrap below, so a module or permission refusal
@@ -2037,7 +2059,7 @@ export const ordersAPI = {
     return (response.data?.data ?? response.data) as { orderId: string; links: OrderLinkGroup[] };
   },
   /** CSV export — all filtered orders, or just `ids` when a selection was made. */
-  exportCsv: async (params?: { ids?: string[]; status?: string; from?: string; to?: string }) => {
+  exportCsv: async (params?: { ids?: string[]; status?: string; from?: string; to?: string; cod_over?: boolean }) => {
     const response = await api.get('/orders/export/csv', {
       params: { ...params, ids: params?.ids?.length ? params.ids.join(',') : undefined },
       responseType: 'blob',
@@ -3207,6 +3229,16 @@ export const shipmentsAPI = {
   },
   generateAWB: async (id: string) => {
     const response = await api.post(`/shipments/${id}/generate-awb`);
+    return response.data;
+  },
+  /**
+   * Cancels a parcel at its courier and books it again with the same courier at
+   * the due amount; on a parcel left at "needs booking" it books it again. Answers
+   * `{ state: 'replaced' | 'needs_booking', message, reprint, pickup, ... }`. A
+   * refusal (picked up, the courier said no) throws with nothing changed.
+   */
+  codRebook: async (id: string, note?: string) => {
+    const response = await api.post(`/shipments/${id}/cod-rebook`, { note: note || undefined });
     return response.data;
   },
   updateStatus: async (id: string, status: string, notes?: string) => {

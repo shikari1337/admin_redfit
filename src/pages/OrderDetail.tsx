@@ -46,6 +46,7 @@ import {
 } from '../components/order';
 import type { RazorpayAuditResult, RefundOutcome } from '../components/order';
 import { PickupModal } from '../components/shipments';
+import CodSentPanel from '../components/order/CodSentPanel';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import InfoTip from '../components/common/InfoTip';
 import { Button } from "@/components/ui/button";
@@ -855,6 +856,18 @@ const OrderDetail: React.FC = () => {
   const poRef = String(order.notes ?? '').match(/PO Ref:\s*([^\n]+)/i)?.[1]?.trim();
   const viaBulkPortal = /Source:\s*Bulk Order Platform/i.test(String(order.notes ?? ''));
 
+  // Why the order is parked: its own `hold_reason`, else the note typed on the hold
+  // itself, because the Hold button writes only to the status history.
+  const holdReason: string | null = order.orderStatus === 'on_hold'
+    ? (order.holdReason ?? order.hold_reason)
+      || [...(order.statusHistory ?? [])].reverse().find((h: any) => h.status === 'on_hold')?.notes
+      || null
+    : null;
+  // No code rides with the reason, so the words decide. If the wording ever moves the
+  // reason still shows; only the next-step line below it goes.
+  const stockHold = /out of stock/i.test(holdReason ?? '');
+  const paidInFull = order.paymentStatus === 'completed';
+
   return (
     /* Full-bleed: cancels Layout's own page padding (var(--content-pad-phone)/
        var(--content-pad)) so the command bar spans the whole width and the
@@ -913,7 +926,8 @@ const OrderDetail: React.FC = () => {
             </Badge>
           )}
           {(order.isFlagged ?? order.is_flagged) && (
-            <Badge variant="outline" className="border-red-300 bg-red-50 font-medium text-red-700">Flagged</Badge>
+            <Badge variant="outline" className="border-red-300 bg-red-50 font-medium text-red-700"
+              title={order.flagReason ?? order.flag_reason ?? undefined}>Flagged</Badge>
           )}
           {/* Market + presentment (mig 172) and the export tax treatment (the
               order's own GST snapshot, never re-derived from the address). */}
@@ -1252,6 +1266,29 @@ const OrderDetail: React.FC = () => {
             statusHistory={order.statusHistory}
             createdAt={order.createdAt ?? order.created_at}
             deliveredAt={order.deliveredAt ?? order.delivered_at}
+            holdReason={holdReason}
+            holdNext={stockHold ? (
+              <div className="mt-2 border-t border-warn/30 pt-2">
+                <p>
+                  <span className="font-bold">What to do next:</span> buy in the units, then release the hold so
+                  the order can ship. If you cannot get them, cancel the order{paidInFull ? ' and refund the customer' : ''}.
+                </p>
+                {/* The command bar scrolls sideways on a phone, so its Release Hold can be
+                    off screen. Same handlers: release asks first, cancel opens the refund dialog. */}
+                {hasPerm('orders.manage') && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Button size="sm" variant="outline" className="h-8 bg-surface text-xs font-semibold"
+                      onClick={() => handleStatusUpdate('confirmed')} disabled={updating}>
+                      Release Hold
+                    </Button>
+                    <Button size="sm" variant="outline" className="h-8 border-rose-200 bg-surface text-xs font-semibold text-rose-700 hover:bg-rose-50"
+                      onClick={() => handleStatusUpdate('cancelled')} disabled={updating}>
+                      {paidInFull ? 'Cancel and refund' : 'Cancel order'}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ) : undefined}
           />
 
           {/* The whole money story of the order — line columns, a total for every
@@ -1698,6 +1735,7 @@ const OrderDetail: React.FC = () => {
                   </>
                 );
               })()}
+              <CodSentPanel order={order} canManage={canAccess('shipping') && hasPerm('shipments.manage')} onChanged={fetchOrder} />
               {order.shippingProvider && (
                 <TrackRow k="Carrier" v={
                   <span className="capitalize">

@@ -309,6 +309,7 @@ export const SHIPPING_ROUTES: V2Route[] = [
   { m: 'POST', from: '/shipments/:id/ndr-update-phone', row: 'ship routes/shipments.ts', to: '/api/v2/ship/shipments/{id}/ndr/phone', bs: {'phone':'s'} },
   { m: 'POST', from: '/shipments/:id/schedule-pickup', row: 'ship routes/shipments.ts', to: '/api/v2/ship/shipments/{id}/pickup', bs: {'notes':'s','pickup_time_slot':'s','scheduled_date':'s'}, reply: pickupReply }, // PickupOneView → {pickup, meta}
   { m: 'PUT', from: '/shipments/:id/status', row: 'ship routes/shipments.ts', method: 'POST', to: '/api/v2/ship/shipments/{id}/status', bs: {'notes':'s','status':'s','tracking_number':'s'} },
+  { m: 'POST', from: '/shipments/:id/cod-rebook', row: 'ship COD-SENT-1', to: '/api/v2/ship/shipments/{id}/cod-rebook', bs: {'note':'s'} }, // CodRebookView (ship views/store.rs)
   { m: 'POST', from: '/shipments/attach-awb', row: 'ship routes/shipments.ts', to: '/api/v2/ship/shipments/attach-awb', bs: {'awb':'s','order_id':'s','provider':'s'} },
   { m: 'POST', from: '/shipments/documents/labels', row: 'ship routes/shipments.ts', to: '/api/v2/ship/shipments/labels', bs: {'pdf_size':'s','shipment_ids':['s']} },
   { m: 'POST', from: '/shipments/documents/manifests', row: 'ship routes/shipments.ts', to: '/api/v2/ship/shipments/manifests', bs: {'pdf_size':'s','shipment_ids':['s']} },
