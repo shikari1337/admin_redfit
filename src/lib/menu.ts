@@ -285,6 +285,7 @@ export const MENU: MenuGroup[] = [
     { label: 'Email', to: '/messaging/email', icon: Mail, perm: 'marketing.read', tip: 'Sender, SMTP, branding and what was sent.' },
     { label: 'SMS', to: '/messaging/sms', icon: Smartphone, perm: 'marketing.read', tip: 'Provider, DLT mapping and what was sent.' },
     { label: 'Cart recovery', to: '/messaging/cart-recovery', icon: ShoppingBag, perm: 'marketing.read', tip: 'The reminders sent after a cart is left behind.' },
+    { label: 'Retention', to: '/messaging/retention', icon: Repeat, perm: 'marketing.read', tip: 'Journeys that bring buyers back, reorder timing and back-in-stock sign-ups.' },
   ]),
 
   one('customers', 'Store Customers', Users, '/customers', [

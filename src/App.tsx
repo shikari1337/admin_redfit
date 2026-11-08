@@ -39,6 +39,7 @@ const MessagingWhatsApp = lazyRetry(() => import('./pages/messaging/WhatsApp'));
 const MessagingEmail = lazyRetry(() => import('./pages/messaging/Email'));
 const MessagingSms = lazyRetry(() => import('./pages/messaging/Sms'));
 const MessagingCartRecovery = lazyRetry(() => import('./pages/messaging/CartRecovery'));
+const MessagingRetention = lazyRetry(() => import('./pages/messaging/Retention'));
 const CartRecoveryAutomation = lazyRetry(() => import('./pages/CartRecoveryAutomation'));
 const ApiIntegrationSettings = lazyRetry(() => import('./pages/ApiIntegrationSettings'));
 const PaymentGatewaySettings = lazyRetry(() => import('./pages/PaymentGatewaySettings'));
@@ -519,6 +520,7 @@ function App() {
           <Route path="messaging/email" element={<MessagingEmail />} />
           <Route path="messaging/sms" element={<MessagingSms />} />
           <Route path="messaging/cart-recovery" element={<MessagingCartRecovery />} />
+          <Route path="messaging/retention" element={<MessagingRetention />} />
           <Route path="settings/cart-recovery-automation" element={<CartRecoveryAutomation />} />
           <Route path="settings/gst" element={<GstSettings />} />
           <Route path="settings/markets" element={<Markets />} />

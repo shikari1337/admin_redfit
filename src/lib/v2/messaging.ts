@@ -508,12 +508,69 @@ export interface ReviewMessagingSettings {
   incentive_text: string | null;
   answer_notices: boolean;
   reply_notices: boolean;
+  /** Who gets a review request (REV-0 decision, lane REV-1); null = this server does not have the setting yet. */
+  consent_mode: ReviewConsentMode | null;
+  /** The Google "write a review" link the store typed (null = none typed). */
+  google_write_review_url: string | null;
+  /** Read only: the link requests use now, the typed one or else the Business Profile sync's. */
+  google_review_url: string | null;
+  /** Read only: the link the Business Profile sync found (used while none is typed). */
+  google_synced_url: string | null;
+  /** Days after a buyer's product review before the one Google review ask goes. */
+  google_ask_after_days: number | null;
+  /** The Google review ask on or off (nothing goes while no link is known). */
+  google_ask_enabled: boolean | null;
+  /** Where this server keeps each REV-1 field; a field missing here is not on this server yet and is never sent. */
+  wire: ReviewWire;
 }
-export type ReviewMessagingInput = Partial<Omit<ReviewMessagingSettings, 'incentive_text'>>;
-/** Reviews' bounds (`settings.rs` put + `domain::settings::MAX_REMINDERS`). */
+/**
+ * Who gets a review request (REV-0 "Decisions", `reviews.requests.consentMode`):
+ * `email_all_phone_opt_in` (the default) e-mails every buyer and uses WhatsApp or SMS only with
+ * marketing consent; `all` uses every channel; `opt_in_only` asks only buyers with marketing consent.
+ */
+export type ReviewConsentMode = 'email_all_phone_opt_in' | 'all' | 'opt_in_only';
+export const REVIEW_CONSENT_MODES: ReviewConsentMode[] = ['email_all_phone_opt_in', 'all', 'opt_in_only'];
+export const REVIEW_CONSENT_DEFAULT: ReviewConsentMode = 'email_all_phone_opt_in';
+
+/** The fields lane REV-1 adds to `GET|PUT /reviews/settings/messaging`. */
+export type ReviewExtraField = 'consent_mode' | 'google_write_review_url' | 'google_ask_after_days' | 'google_ask_enabled';
+export type ReviewWire = Partial<Record<ReviewExtraField, string[]>>;
+/**
+ * Where each REV-1 field may sit in the reply (flat snake case first, the route's own style).
+ * The PUT refuses unknown fields (`deny_unknown_fields`), so a field is written back only under
+ * the key the GET answered it with, and never when the GET did not answer it.
+ */
+const REVIEW_EXTRA_PATHS: Record<ReviewExtraField, string[][]> = {
+  consent_mode: [['consent_mode'], ['consentMode']],
+  google_write_review_url: [['google_write_review_url'], ['google', 'write_review_url'], ['google', 'writeReviewUrl']],
+  google_ask_after_days: [['google_ask_after_days'], ['google', 'ask_after_days'], ['google', 'askAfterDays']],
+  google_ask_enabled: [['google_ask_enabled'], ['google', 'ask_enabled'], ['google', 'askEnabled']],
+};
+const REVIEW_GOOGLE_EFFECTIVE: string[][] = [['google_review_url'], ['google', 'review_url'], ['google', 'reviewUrl']];
+const REVIEW_GOOGLE_SYNCED: string[][] = [['google_synced_review_url'], ['google', 'synced_review_url'], ['google', 'new_review_uri']];
+
+export type ReviewMessagingInput = Partial<Omit<ReviewMessagingSettings, 'incentive_text' | 'google_review_url' | 'google_synced_url' | 'wire'>>;
+/** Reviews' bounds (`settings.rs` put + `domain::settings::MAX_REMINDERS`); the Google ask delay is the admin's guard, the server decides. */
 export const REVIEW_BOUNDS = {
   delay_days: [0, 180], reminder_count: [0, 5], reminder_after_days: [1, 60], expire_after_days: [1, 365], promise_text: 200,
+  google_ask_after_days: [0, 60],
 } as const;
+
+/**
+ * A Google review link as Reviews accepts it (https, a Google host): `g.page/r/.../review` from
+ * Business Profile's "Ask for reviews", `search.google.com/local/writereview?placeid=...`, a
+ * `google.<tld>` maps link or a `goo.gl` / `g.co` short link. The server checks again and has the last word.
+ */
+export function googleReviewUrlProblem(raw: string): string | null {
+  const v = raw.trim();
+  if (!v) return null;
+  let u: URL;
+  try { u = new URL(v); } catch { return 'Paste the whole link, starting with https://'; }
+  if (u.protocol !== 'https:') return 'The link must start with https://';
+  const host = u.hostname.toLowerCase();
+  const google = /(^|\.)google\.[a-z]{2,3}(\.[a-z]{2})?$/.test(host) || ['g.page', 'goo.gl', 'g.co'].some((h) => host === h || host.endsWith(`.${h}`));
+  return google ? null : 'This is not a Google link. Copy it from your Google Business Profile (it starts with https://g.page/r/).';
+}
 
 export interface IncentiveRule {
   id: string; name: string; trigger_on: string; reward: string;
@@ -538,20 +595,72 @@ async function callAt<T>(method: string, path: string, opts: Parameters<typeof v
 }
 const nOrNull = (v: unknown): number | null => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
 
+/** The first of `paths` present in `d` (present with null counts: the server knows the field). */
+function findPath(d: any, paths: string[][]): { path: string[]; value: unknown } | null {
+  for (const p of paths) {
+    let cur = d;
+    let found = true;
+    for (const k of p) {
+      if (cur && typeof cur === 'object' && !Array.isArray(cur) && k in cur) cur = cur[k];
+      else { found = false; break; }
+    }
+    if (found) return { path: p, value: cur };
+  }
+  return null;
+}
+function setPath(target: Record<string, any>, path: string[], value: unknown): void {
+  let cur = target;
+  path.slice(0, -1).forEach((k) => { cur = (cur[k] = cur[k] && typeof cur[k] === 'object' ? cur[k] : {}); });
+  cur[path[path.length - 1]] = value;
+}
+
 function reviewSettings(d: any): ReviewMessagingSettings {
+  const wire: ReviewWire = {};
+  const extra = (f: ReviewExtraField): unknown => {
+    const hit = findPath(d, REVIEW_EXTRA_PATHS[f]);
+    if (hit) wire[f] = hit.path;
+    return hit ? hit.value : undefined;
+  };
+  const mode = extra('consent_mode');
+  const url = extra('google_write_review_url');
+  const after = extra('google_ask_after_days');
+  const ask = extra('google_ask_enabled');
   return {
     requests_enabled: !!d?.requests_enabled, delay_days: n(d?.delay_days), reminder_count: n(d?.reminder_count),
     reminder_after_days: n(d?.reminder_after_days), expire_after_days: n(d?.expire_after_days),
     for_outside_sites: !!d?.for_outside_sites, incentives_enabled: !!d?.incentives_enabled,
     promise_text: s(d?.promise_text), incentive_text: s(d?.incentive_text),
     answer_notices: d?.answer_notices !== false, reply_notices: d?.reply_notices !== false,
+    consent_mode: wire.consent_mode
+      ? (REVIEW_CONSENT_MODES.includes(mode as ReviewConsentMode) ? (mode as ReviewConsentMode) : REVIEW_CONSENT_DEFAULT)
+      : null,
+    google_write_review_url: s(url),
+    google_review_url: s(findPath(d, REVIEW_GOOGLE_EFFECTIVE)?.value) ?? s(url),
+    google_synced_url: s(findPath(d, REVIEW_GOOGLE_SYNCED)?.value),
+    google_ask_after_days: wire.google_ask_after_days ? nOrNull(after) : null,
+    google_ask_enabled: wire.google_ask_enabled ? ask !== false : null,
+    wire,
   };
+}
+
+/** The PUT body: the MSG-4 fields as they are, each REV-1 field under the key the GET used (else left out). */
+function reviewBody(body: ReviewMessagingInput, wire: ReviewWire): Record<string, unknown> {
+  const out: Record<string, any> = {};
+  (Object.keys(body) as Array<keyof ReviewMessagingInput>).forEach((k) => {
+    const v = body[k];
+    if (v === undefined) return;
+    if (k in REVIEW_EXTRA_PATHS) {
+      const path = wire[k as ReviewExtraField];
+      if (path) setPath(out, path, v);
+    } else out[k] = v;
+  });
+  return out;
 }
 
 export const messagingAppsAPI = {
   reviewSettings: async (): Promise<ReviewMessagingSettings> => reviewSettings(await callAt<any>('GET', `${R}/settings/messaging`)),
-  saveReviewSettings: async (body: ReviewMessagingInput): Promise<ReviewMessagingSettings> =>
-    reviewSettings(await callAt<any>('PUT', `${R}/settings/messaging`, { data: body })),
+  saveReviewSettings: async (body: ReviewMessagingInput, wire: ReviewWire = {}): Promise<ReviewMessagingSettings> =>
+    reviewSettings(await callAt<any>('PUT', `${R}/settings/messaging`, { data: reviewBody(body, wire) })),
 
   incentiveRules: async (): Promise<IncentiveRule[]> => {
     const d = await callAt<any>('GET', `${R}/incentives/rules`, { params: { limit: 50 } });
@@ -587,6 +696,164 @@ export const messagingAppsAPI = {
     return { enabled: !!(d?.current?.recovery_automation_enabled ?? enabled) };
   },
 };
+
+/* ── Retention (lane ADMIN-REV-1, routes of lane RET-1) ────────────────────────
+ * Messaging, Retention reads Retain's own routes, never a copy:
+ *  - journeys: the declared list `GET /api/v2/retain/journeys` (marketing.read), switched with
+ *    `POST /journeys/{id}/install|activate|pause` (activate and pause need marketing.approve);
+ *    RET-1 adds `sent` / `converted` to each row.
+ *  - the recommended set: `POST /api/v2/retain/journeys/install-recommended` (RET-1, marketing.manage),
+ *    every journey it adds stays off.
+ *  - the reorder interval: inside Retain's settings key, `GET|PUT /api/v2/retain/settings` (`{value}`;
+ *    the PUT replaces the whole key, so the value read is sent back with one field changed).
+ *  - notify-me sign-ups per product: `GET /api/v2/retain/alerts/by-product` (RET-1 staff read).
+ * A route this server does not serve yet is a gap (`isGap`), shown as "Not available on this server yet".
+ */
+const RT = '/api/v2/retain';
+
+export interface RetentionJourney {
+  id: string;
+  name: string;
+  template_code: string | null;
+  trigger: string;
+  /** `draft`, `ready`, `active`, `paused` or `retired` (Retain `domain::journey::Status`). */
+  status: string;
+  /** "3 messages" or "5 steps", whichever the server gives; null when it gives neither. */
+  steps: string | null;
+  sent: number | null;
+  converted: number | null;
+  /** Message keys the store has not written yet (activation waits for them). */
+  needs_templates: string[];
+  activated_at: string | null;
+}
+export interface InstallRecommendedResult { added: number | null; existing: number | null }
+export interface RetentionSettings {
+  /** The whole `retain` key as read (sent back whole on save). */
+  value: Record<string, any>;
+  /** The default days between an order and its reorder reminder; null = not on this server yet. */
+  reorder_days: number | null;
+  reorder_path: string[] | null;
+}
+export interface StockSignupRow {
+  item_id: string;
+  product_name: string;
+  variant: string | null;
+  sku: string | null;
+  image: string | null;
+  /** People waiting for the item to be back. */
+  back_in_stock: number;
+  /** People waiting for a lower price. */
+  price_drop: number;
+  /** Sign-ups already told. */
+  notified: number;
+  last_signup_at: string | null;
+  /** Whether the item can be bought now (null = not given). */
+  in_stock: boolean | null;
+}
+
+/** Where RET-1 may keep the reorder interval inside the `retain` key. */
+const REORDER_PATHS: string[][] = [
+  ['reorder', 'interval_days'], ['reorder', 'default_interval_days'], ['reorder', 'default_days'],
+  ['journeys', 'reorder_interval_days'], ['reorder_interval_days'],
+];
+export const REORDER_BOUNDS = [1, 365] as const;
+
+const firstNum = (...vs: unknown[]): number | null => {
+  for (const v of vs) { const x = nOrNull(v); if (x !== null) return x; }
+  return null;
+};
+const countOf = (v: unknown): number | null => (Array.isArray(v) ? v.length : nOrNull(v));
+
+function journeyRow(r: any): RetentionJourney {
+  const defSteps = Array.isArray(r?.definition?.steps) ? r.definition.steps : Array.isArray(r?.steps) ? r.steps : null;
+  const sends = defSteps ? defSteps.filter((x: any) => x?.type === 'send').length : null;
+  const stepCount = firstNum(typeof r?.steps === 'number' ? r.steps : null, r?.step_count, r?.steps_count);
+  const msgCount = firstNum(r?.message_count, r?.messages, sends);
+  const plural = (k: number, w: string) => `${k} ${w}${k === 1 ? '' : 's'}`;
+  return {
+    id: String(r?.id ?? r?.journey_id ?? ''),
+    name: String(r?.name ?? ''),
+    template_code: s(r?.template_code),
+    trigger: String(r?.trigger_type ?? r?.trigger ?? ''),
+    status: String(r?.status ?? 'draft'),
+    steps: msgCount !== null ? plural(msgCount, 'message') : stepCount !== null ? plural(stepCount, 'step') : null,
+    sent: firstNum(r?.sent, r?.stats?.sent, r?.sent_count),
+    converted: firstNum(r?.converted, r?.stats?.converted, r?.converted_count),
+    needs_templates: Array.isArray(r?.needs_templates) ? r.needs_templates.map(String) : [],
+    activated_at: s(r?.activated_at),
+  };
+}
+
+function retentionSettings(d: any): RetentionSettings {
+  const value = d?.value && typeof d.value === 'object' ? d.value : (d && typeof d === 'object' ? d : {});
+  const hit = findPath(value, REORDER_PATHS);
+  return { value, reorder_days: hit ? nOrNull(hit.value) : null, reorder_path: hit ? hit.path : null };
+}
+
+function stockSignupRow(r: any): StockSignupRow {
+  const c = r?.counts ?? {};
+  const stock = nOrNull(r?.stock ?? r?.available);
+  return {
+    item_id: String(r?.item_id ?? r?.variation_id ?? r?.product_id ?? ''),
+    product_name: String(r?.product_name ?? r?.name ?? r?.title ?? ''),
+    variant: s(r?.variant_name ?? r?.variant ?? r?.variation_name),
+    sku: s(r?.sku),
+    image: s(r?.image ?? r?.image_url),
+    back_in_stock: n(r?.back_in_stock ?? c.back_in_stock),
+    price_drop: n(r?.price_drop ?? c.price_drop),
+    notified: n(r?.notified ?? c.notified),
+    last_signup_at: s(r?.last_signup_at ?? r?.latest_at),
+    in_stock: typeof r?.in_stock === 'boolean' ? r.in_stock : stock === null ? null : stock > 0,
+  };
+}
+
+export const retentionAPI = {
+  journeys: async (): Promise<RetentionJourney[]> => {
+    const d = await callAt<any>('GET', `${RT}/journeys`, { params: { limit: 200 } });
+    return listOf(d).map(journeyRow).filter((j) => j.id);
+  },
+  /** On: a draft is put on the engine first, then switched on. Off: paused (people already in it finish). */
+  setJourneyOn: async (j: RetentionJourney, on: boolean): Promise<string> => {
+    const id = encodeURIComponent(j.id);
+    if (on && j.status === 'draft') await callAt<any>('POST', `${RT}/journeys/${id}/install`, { data: {} });
+    const d = await callAt<any>('POST', `${RT}/journeys/${id}/${on ? 'activate' : 'pause'}`, { data: {} });
+    return String(d?.status ?? (on ? 'active' : 'paused'));
+  },
+  installRecommended: async (): Promise<InstallRecommendedResult> => {
+    const d = await callAt<any>('POST', `${RT}/journeys/install-recommended`, { data: {} });
+    return {
+      added: countOf(d?.added ?? d?.installed ?? d?.created ?? d?.added_count),
+      existing: countOf(d?.existing ?? d?.skipped ?? d?.existing_count),
+    };
+  },
+  settings: async (): Promise<RetentionSettings> => retentionSettings(await callAt<any>('GET', `${RT}/settings`)),
+  saveReorderDays: async (cur: RetentionSettings, days: number): Promise<RetentionSettings> => {
+    if (!cur.reorder_path) backendGap('the reorder interval in GET /retain/settings');
+    const next = JSON.parse(JSON.stringify(cur.value ?? {}));
+    setPath(next, cur.reorder_path, days);
+    return retentionSettings(await callAt<any>('PUT', `${RT}/settings`, { data: next }));
+  },
+  stockSignups: async (): Promise<StockSignupRow[]> => {
+    const d = await callAt<any>('GET', `${RT}/alerts/by-product`, { params: { limit: 200 } });
+    return listOf(d).map(stockSignupRow).filter((r) => r.item_id);
+  },
+};
+
+/** A journey trigger in plain words (Retain `contract::triggers::LIFECYCLE`); an unknown one shows its key. */
+export const JOURNEY_TRIGGER_LABEL: Record<string, string> = {
+  'order.placed': 'An order is placed',
+  'order.delivered': 'An order is delivered',
+  'customer.signed_up': 'Someone signs up',
+  'cart.abandoned': 'A cart is left behind',
+  'payment.failed': 'A payment does not go through',
+  'customer.inactive_for': 'A buyer has not ordered for a while',
+  'reorder.due': 'A product is due for a reorder',
+  'points.expiring': 'Points are about to expire',
+  'subscription.renewal_due': 'A subscription is due',
+  'review.requested': 'A review is asked for',
+  'customer.birthday': 'A buyer has a birthday',
+};
+export const journeyTriggerLabel = (t: string): string => JOURNEY_TRIGGER_LABEL[t] ?? (t ? t.replace(/[._]/g, ' ') : 'No trigger');
 
 /** An SMS route's country in words (`*` = the row serving every country no named row serves). */
 export const smsRouteCountry = (c: string): string => (c === '*' ? 'Every other country' : c);
