@@ -19,7 +19,7 @@ import { isoDate, localeTime, todayIso } from '@/utils/date';
 import { metaSocialApi, type SocialChannel, type SocialPost } from '@/lib/v2/areas/meta';
 import MetaHeader from '../MetaHeader';
 import { Lead, LoadFailure, Section, StateChip, ago, linkCls, plural, useLoad, writeError } from '../common';
-import { META_ROUTES, metaHref } from '../routes';
+import { connectionsHref } from '../routes';
 import Composer, { type ComposerCan } from './Composer';
 import PublisherSettings from './PublisherSettings';
 import LivePanel from './LivePanel';
@@ -90,7 +90,7 @@ const PublisherPage: React.FC = () => {
     setBusy('page');
     try {
       const r = await metaSocialApi.syncPage();
-      const words: Record<string, string> = { pushed: 'Page details sent to Facebook', unchanged: 'Nothing changed since the last push', nothing: 'The store settings hold no Page details to send', skipped: 'Page details are not sent: there is no Facebook Page the Publisher can write to. Pick the Page in setup, or reconnect Meta.' };
+      const words: Record<string, string> = { pushed: 'Page details sent to Facebook', unchanged: 'Nothing changed since the last push', nothing: 'The store settings hold no Page details to send', skipped: 'Page details are not sent: there is no Facebook Page the Publisher can write to. Pick the Page on the Meta connection, or reconnect Meta.' };
       toast({ title: words[r.status] ?? `Page details: ${r.status}`, description: r.error ?? undefined, variant: r.status === 'failed' ? 'destructive' : undefined });
     } catch (e) { toast({ title: 'Page details not sent', description: writeError(e, 'Facebook refused.'), variant: 'destructive' }); }
     finally { setBusy(null); }
@@ -140,7 +140,7 @@ const PublisherPage: React.FC = () => {
                 {blocked.map((c: SocialChannel) => (
                   <li key={String(c.key)} className="flex flex-wrap items-baseline gap-x-2">
                     <span><b>{channelName(String(c.key))}:</b> {c.reason ?? 'Not connected.'}</span>
-                    <Link className={linkCls} to={c.key === 'threads' ? '/panel/marketing/connections' : metaHref(META_ROUTES.setup)}>{c.key === 'threads' ? 'Open Connections' : 'Open setup'}</Link>
+                    <Link className={linkCls} to={connectionsHref(c.key === 'threads' ? 'threads' : 'meta')}>Open the connection</Link>
                   </li>
                 ))}
               </ul>

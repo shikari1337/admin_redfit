@@ -22,7 +22,7 @@ import {
   type AdsDraft, type AdsDraftInput, type AssistantAnswer, type AssistantProposal, type AssistantStatus, type AssistantTools, type AssistantTurn,
 } from '@/lib/v2/areas/meta';
 import { Lead, LoadFailure, StateChip, ago, linkCls, money, plural, useLoad, writeError, type Tone } from '../common';
-import { ADS_ROUTES, metaHref } from '../routes';
+import { ADS_ROUTES, connectionsHref, metaHref } from '../routes';
 import { PreviewGrid } from './pieces';
 
 const SUGGESTIONS = [
@@ -131,7 +131,7 @@ export const AssistantPanel: React.FC<{
               {!s.can_manage && <p className="mt-2">Ask a person with the ads manage permission to turn it on.</p>}
             </Lead>
           )}
-          {s && enabled && s.state === 'not_connected' && <Lead tone="warn" title="Meta is not connected for ads">{s.note}</Lead>}
+          {s && enabled && s.state === 'not_connected' && <Lead tone="warn" title="Meta is not connected for ads" actions={<Button size="sm" variant="outline" className="bg-white" asChild><Link to={connectionsHref('meta')}>Open the Meta connection</Link></Button>}>{s.note}</Lead>}
 
           {s && enabled && exchanges.length === 0 && (
             <div className="space-y-2">

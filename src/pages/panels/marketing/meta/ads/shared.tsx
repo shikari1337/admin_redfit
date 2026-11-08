@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { metaAdsApi, type AdBudget, type AdLevel, type AdMetrics, type AdRow, type AdsOptions, type MetaAlert } from '@/lib/v2/areas/meta';
 import type { ColumnDef } from '@/components/erp';
 import { Lead, money, num, useLoad, type Tone } from '../common';
-import { ADS_ROUTES, META_ROUTES, metaHref } from '../routes';
+import { ADS_ROUTES, connectionsHref, metaHref } from '../routes';
 import type { MetaCtx } from '../useMetaCtx';
 
 /* Options: one load per visit, shared by every screen that asks. */
@@ -145,8 +145,8 @@ export function columnsFor(level: AdLevel): ColumnDef[] {
 /** Shown in place of an Ads screen when no ad account is picked in Setup. */
 export const NeedsAdAccount: React.FC<{ ctx: MetaCtx }> = ({ ctx }) => (
   <Lead tone="warn" title="Pick an ad account first"
-    actions={<Button size="sm" variant="outline" className="bg-white" asChild><Link to={metaHref(META_ROUTES.setup)}>Go to Facebook and Instagram setup</Link></Button>}>
-    Ads, audiences and numbers come from the ad account picked in setup{ctx.setup?.connection ? '' : ', after you connect Meta'}.
+    actions={<Button size="sm" variant="outline" className="bg-white" asChild><Link to={connectionsHref('meta')}>Open the Meta connection</Link></Button>}>
+    Ads, audiences and numbers come from the ad account picked on the Meta connection{ctx.setup?.connection ? '' : ', after you connect Meta'}.
   </Lead>
 );
 
@@ -164,9 +164,9 @@ export const Facts: React.FC<{ rows: Array<[string, React.ReactNode]>; className
   </dl>
 );
 
-/** Where a Meta alert is fixed: setup for token and account problems, the object in the Ads Manager, else analytics. */
+/** Where a Meta alert is fixed: the Meta tab of Platform Connections for token and account problems, the object in the Ads Manager, else analytics. */
 export const alertLink = (a: MetaAlert): { to: string; label: string } => {
-  if (a.kind === 'token' || a.kind === 'account_issue') return { to: metaHref(META_ROUTES.setup), label: 'Open setup' };
+  if (a.kind === 'token' || a.kind === 'account_issue') return { to: connectionsHref('meta'), label: 'Open the Meta connection' };
   if (a.id && (a.level === 'campaign' || a.level === 'adset' || a.level === 'ad')) {
     return { to: metaHref(ADS_ROUTES.manager, { ...(a.level !== 'campaign' ? { level: a.level } : {}), focus: a.id }), label: 'Open' };
   }

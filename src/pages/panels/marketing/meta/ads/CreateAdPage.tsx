@@ -34,7 +34,7 @@ import MetaHeader from '../MetaHeader';
 import RemarketingWizard from '../RemarketingWizard';
 import { Lead, LoadFailure, Section, linkCls, money, num, useLoad, writeError } from '../common';
 import { useMetaCtx } from '../useMetaCtx';
-import { ADS_ROUTES, META_ROUTES, metaHref } from '../routes';
+import { ADS_ROUTES, META_ROUTES, connectionsHref, metaHref } from '../routes';
 import { AiFeatureList, LibThumb, PreviewGrid, aiValues } from './pieces';
 import { Facts, NeedsAdAccount, adAccountOf, dayIso, labelFrom, sizeText, useAdsOptions } from './shared';
 import { CANVAS_RULE_FALLBACK, type Canvas } from '@/lib/v2/areas/meta'; // META-19
@@ -881,7 +881,7 @@ const SaveAudience: React.FC<{ targeting: () => AdsDraftInput['adset']['targetin
 const SetupFact: React.FC<{ label: string; picked: { id: string; name: string } | null }> = ({ label, picked }) => (
   picked
     ? <p className="text-sm text-gray-700">{label}: <b>{picked.name}</b>, picked in <Link className={linkCls} to={metaHref(META_ROUTES.setup)}>setup</Link>.</p>
-    : <Lead tone="warn" title={`No ${label.toLowerCase()} picked`}>Pick it in <Link className={linkCls} to={metaHref(META_ROUTES.setup)}>Facebook and Instagram setup</Link> first.</Lead>
+    : <Lead tone="warn" title={`No ${label.toLowerCase()} picked`}>Pick it on <Link className={linkCls} to={connectionsHref('meta')}>the Meta connection</Link> first.</Lead>
 );
 
 const HitChips: React.FC<{ hits: TargetingHit[]; onRemove: (id: string) => void }> = ({ hits, onRemove }) => (

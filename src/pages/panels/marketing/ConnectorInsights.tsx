@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { connectionsHref } from './meta/routes';
 import { api } from '../../../services/api';
 import { payload } from '../../../lib/unwrap';
 import { localeDateTime } from '../../../utils/date';
@@ -45,7 +46,7 @@ const Block: React.FC<{
     <h2 className="mb-3 text-lg font-semibold">{title}</h2>
     {!state?.connected ? (
       <div className="rounded-lg border border-dashed bg-gray-50 p-6 text-center text-sm text-gray-600">
-        Not connected. <Link to="/panel/marketing/connections" className="text-primary hover:underline">
+        Not connected. <Link to={connectionsHref('google')} className="text-primary hover:underline">
           {connectHint}
         </Link>
       </div>
@@ -124,7 +125,7 @@ const ConnectorInsights: React.FC = () => {
         </div>
         <div className="flex gap-2">
           <button onClick={load} className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50">Refresh</button>
-          <Link to="/panel/marketing/connections"
+          <Link to={connectionsHref('google')}
             className="rounded bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground">
             Manage connections
           </Link>

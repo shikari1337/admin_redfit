@@ -30,7 +30,7 @@ import { metaApi, metaEventsApi, metaMatchApi, type EventDay, type EventQuality,
 import { useMetaCtx, type MetaCtx } from './useMetaCtx';
 import MetaHeader from './MetaHeader';
 import { Figure, Lead, LoadFailure, Section, StateChip, ago, linkCls, num, plural, useLoad, writeError, type Tone } from './common';
-import { META_ROUTES, metaHref } from './routes';
+import { META_ROUTES, connectionsHref, metaHref } from './routes';
 
 /** The look backs the page offers (the route takes 1 to 90 days). */
 const RANGES = [{ key: '7', label: '7 days' }, { key: '14', label: '14 days' }, { key: '28', label: '28 days' }, { key: '90', label: '90 days' }] as const;
@@ -91,11 +91,11 @@ const EventsTab: React.FC<{ ctx: MetaCtx }> = ({ ctx }) => {
   const acts: Array<{ tone: Tone; text: React.ReactNode; action?: React.ReactNode }> = [];
   if (s && h) {
     if (!s.pixelId) acts.push({ tone: 'bad', text: 'No pixel id is saved, so the store sends events nowhere.', action: <Link className={linkCls} to="/settings/api-integrations">Add it in API and Integrations</Link> });
-    else if (setupPixel && setupPixel.id !== s.pixelId) acts.push({ tone: 'bad', text: <>Events go to pixel <span className="font-mono">{s.pixelId}</span>, but setup picked {setupPixel.name} (<span className="font-mono">{setupPixel.id}</span>).</>, action: <Link className={linkCls} to={metaHref(META_ROUTES.setup)}>Check setup</Link> });
+    else if (setupPixel && setupPixel.id !== s.pixelId) acts.push({ tone: 'bad', text: <>Events go to pixel <span className="font-mono">{s.pixelId}</span>, but setup picked {setupPixel.name} (<span className="font-mono">{setupPixel.id}</span>).</>, action: <Link className={linkCls} to={connectionsHref('meta')}>Check the Meta connection</Link> });
     // META-23: the server's own answer decides (a Meta connection with this pixel needs no pasted token).
     if (!h.server_events) {
-      if (s.serverEventsOn || match?.connection_pixel_id) acts.push({ tone: 'bad', text: 'Server events are on, but there is neither a Meta connection with a picked pixel nor an access token, so none are sent.', action: <Link className={linkCls} to={metaHref(META_ROUTES.setup)}>Pick the pixel in setup</Link> });
-      else acts.push({ tone: 'warn', text: 'Server events are off, so Meta sees only what the browser sends.', action: <Link className={linkCls} to={metaHref(META_ROUTES.setup)}>Connect Meta and pick the pixel</Link> });
+      if (s.serverEventsOn || match?.connection_pixel_id) acts.push({ tone: 'bad', text: 'Server events are on, but there is neither a Meta connection with a picked pixel nor an access token, so none are sent.', action: <Link className={linkCls} to={connectionsHref('meta')}>Pick the pixel</Link> });
+      else acts.push({ tone: 'warn', text: 'Server events are off, so Meta sees only what the browser sends.', action: <Link className={linkCls} to={connectionsHref('meta')}>Connect Meta and pick the pixel</Link> });
     }
     for (const low of match?.low_match_quality ?? []) acts.push({ tone: 'warn', text: <>Meta scores <b>{eventWords(low.event)}</b> {low.match_quality.toFixed(1)} of 10, under your alert of {match!.match_alert.match_quality_below}.</>, action: <button type="button" className={linkCls} onClick={() => setPicked(low.event)}>See what is missing</button> });
     const resendable = (match?.refused ?? []).filter((r) => r.resend.allowed).length;

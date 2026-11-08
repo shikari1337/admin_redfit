@@ -21,7 +21,7 @@ import { formatDateTime } from '@/utils/date';
 import MetaHeader from '../MetaHeader';
 import { Lead, LoadFailure, Section, StateChip, ago, linkCls, num, plural, useLoad, writeError } from '../common';
 import { useMetaCtx } from '../useMetaCtx';
-import { ADS_ROUTES, META_ROUTES, metaHref } from '../routes';
+import { ADS_ROUTES, connectionsHref, metaHref } from '../routes';
 import FormDialog from './FormDialog';
 
 const PAGE = 25;
@@ -62,14 +62,14 @@ const LeadFormsPage: React.FC = () => {
 
       {noPage ? (
         <Lead tone="warn" title="Pick the Facebook Page for lead ads first"
-          actions={<Button size="sm" variant="outline" className="bg-white" asChild><Link to={metaHref(META_ROUTES.setup)}>Open setup</Link></Button>}>
-          Lead forms live on a Facebook Page. Pick it in Facebook and Instagram setup, then come back.
+          actions={<Button size="sm" variant="outline" className="bg-white" asChild><Link to={connectionsHref('meta')}>Open the Meta connection</Link></Button>}>
+          Lead forms live on a Facebook Page. Pick it on the Meta connection, then come back.
         </Lead>
       ) : (
         <>
           {failing.map((f) => (
             <Lead key={f.id} tone="bad" title={`Leads from ${f.name ?? f.id} are not being read`}
-              actions={<Button size="sm" variant="outline" className="bg-white" asChild><Link to={metaHref(META_ROUTES.setup)}>Open setup</Link></Button>}>
+              actions={<Button size="sm" variant="outline" className="bg-white" asChild><Link to={connectionsHref('meta')}>Open the Meta connection</Link></Button>}>
               The last read failed {ago(f.last_read_at)}: {f.last_read_error ?? 'no reason given'} Leads wait at Meta; they are read again on the next hourly pass once this is fixed.
             </Lead>
           ))}

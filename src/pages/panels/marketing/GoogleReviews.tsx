@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { connectionsHref } from './meta/routes';
 import {
   RefreshCw, Eye, EyeOff, Pin, PinOff, MessageSquare, ExternalLink,
   AlertTriangle, Loader2, Plug, Send, Trash2, X,
@@ -237,7 +238,7 @@ const GoogleReviews: React.FC = () => {
                 reply to each one publicly on Google.
               </p>
             </div>
-            <Link to="/panel/marketing/connections">
+            <Link to={connectionsHref('google')}>
               <Btn variant="primary"><Plug className="mr-1.5 h-4 w-4" />Go to Platform Connections</Btn>
             </Link>
           </div>

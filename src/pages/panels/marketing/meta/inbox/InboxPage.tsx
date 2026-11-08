@@ -17,7 +17,7 @@ import { INBOX_CHANNELS, INBOX_CHANNEL_LABEL, isGap, messagingAPI, type InboxCha
 import { metaApi } from '@/lib/v2/areas/meta';
 import MetaHeader from '../MetaHeader';
 import { Lead, ago, linkCls, plural, useLoad } from '../common';
-import { ADS_ROUTES, META_ROUTES, SOCIAL_ROUTES, metaHref } from '../routes';
+import { ADS_ROUTES, SOCIAL_ROUTES, connectionsHref, metaHref } from '../routes';
 
 interface ChannelSummary { items: InboxItem[]; unread: number; gap: boolean; error: boolean }
 
@@ -77,8 +77,8 @@ const InboxPage: React.FC = () => {
 
       {notReaching && (
         <Lead tone="warn" title="Messenger and Instagram messages do not reach this inbox yet"
-          actions={<Button size="sm" variant="outline" className="bg-white" asChild><Link to={metaHref(META_ROUTES.setup)}>Open setup</Link></Button>}>
-          {messagingRow?.missing_permissions?.length ? `Meta has not allowed: ${messagingRow.missing_permissions.join(', ')}. Reconnect Meta and allow messages. ` : 'Finish the messaging row in setup. '}
+          actions={<Button size="sm" variant="outline" className="bg-white" asChild><Link to={connectionsHref('meta')}>Open the Meta connection</Link></Button>}>
+          {messagingRow?.missing_permissions?.length ? `Meta has not allowed: ${messagingRow.missing_permissions.join(', ')}. Reconnect Meta and allow messages. ` : 'Finish the Messenger and Instagram messages row on the Meta connection. '}
           {messagingRow?.note ?? ''}
         </Lead>
       )}

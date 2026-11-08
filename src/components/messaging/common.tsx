@@ -48,16 +48,24 @@ export const SettingsPermNotice: React.FC<{ what: string }> = ({ what }) => (
 export interface LoadFailure { gap: boolean; message: string }
 export const failureOf = (e: any, fallback: string): LoadFailure => ({ gap: isGap(e), message: errText(e, fallback) });
 
-/** The page's tab, kept in `?tab=` so a tab is linkable and survives a reload. */
-export function useTabParam<T extends string>(tabs: readonly T[], fallback: T): [T, (t: T) => void] {
+/**
+ * The page's tab, kept in the URL (`?tab=` unless `param` names another) so a tab is linkable and survives a
+ * reload. With `push`, each pick adds a browser history entry so Back returns to the previous tab, and the
+ * fallback tab is written too, because a `fallback` that depends on live data is not a stable address.
+ */
+export function useTabParam<T extends string>(
+  tabs: readonly T[],
+  fallback: T,
+  { param = 'tab', push = false }: { param?: string; push?: boolean } = {},
+): [T, (t: T) => void] {
   const [params, setParams] = useSearchParams();
-  const raw = params.get('tab') as T | null;
+  const raw = params.get(param) as T | null;
   const tab = raw && tabs.includes(raw) ? raw : fallback;
   const setTab = useCallback((t: T) => {
     const next = new URLSearchParams(params);
-    if (t === fallback) next.delete('tab'); else next.set('tab', t);
-    setParams(next, { replace: true });
-  }, [params, setParams, fallback]);
+    if (t === fallback && !push) next.delete(param); else next.set(param, t);
+    setParams(next, { replace: !push });
+  }, [params, setParams, fallback, param, push]);
   return [tab, setTab];
 }
 

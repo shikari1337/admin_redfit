@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { connectionsHref } from './meta/routes';
 import { api } from '../../../services/api';
 import { useAuth } from '../../../contexts/AuthContext';
 import { payload } from '../../../lib/unwrap';
@@ -86,7 +87,7 @@ const AdsManager: React.FC = () => {
           <p className="text-sm text-gray-500">
             Google · Meta (Facebook/Instagram) · Snapchat — search, display, video, shopping, all placements & remarketing.
             Custom audiences live in <Link className="underline" to="/panel/marketing/ads/audiences">Custom Audiences</Link>.
-            {' '}Connect Google and choose its Ads customer in <Link className="underline" to="/panel/marketing/connections">Platform Connections</Link>; it appears here automatically.
+            {' '}Connect Google and choose its Ads customer in <Link className="underline" to={connectionsHref('google')}>Platform Connections</Link>; it appears here automatically.
           </p>
         </div>
         <div className="flex gap-2">

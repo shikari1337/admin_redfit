@@ -25,7 +25,7 @@ import { cn } from '@/lib/utils';
 import { fromStoreDateTimeInput, storeDateTimeInput } from '@/utils/date';
 import { metaLiveApi, metaSocialApi, type LiveSettings, type LiveStreamKey, type SocialLive, type SocialSettingsGroups } from '@/lib/v2/areas/meta';
 import { Lead, LoadFailure, Section, StateChip, ago, num, plural, useLoad, writeError, type Tone } from '../common';
-import { META_ROUTES, metaHref } from '../routes';
+import { connectionsHref } from '../routes';
 import { CommentRow } from './CommentsPage';
 import { when } from './shared';
 
@@ -107,8 +107,8 @@ const LivePanel: React.FC<{ can: LiveCan }> = ({ can }) => {
       ))}
       {blocked && elig && (
         <Lead tone="warn" title="This store cannot go live on Facebook yet"
-          actions={!elig.page ? <Button size="sm" variant="outline" className="bg-white" asChild><Link to={metaHref(META_ROUTES.setup)}>Open setup</Link></Button> : undefined}>
-          <p className="break-words">{elig.reason ?? 'Pick the Facebook Page in setup.'}</p>
+          actions={!elig.page ? <Button size="sm" variant="outline" className="bg-white" asChild><Link to={connectionsHref('meta')}>Open the Meta connection</Link></Button> : undefined}>
+          <p className="break-words">{elig.reason ?? 'Pick the Facebook Page on the Meta connection.'}</p>
           <p className="mt-1 text-xs">Meta also asks that the Facebook account going live is at least 60 days old.</p>
         </Lead>
       )}

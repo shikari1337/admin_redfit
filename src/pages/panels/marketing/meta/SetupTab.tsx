@@ -12,6 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import { formatDay } from '@/utils/date';
 import { metaAdsApi, metaApi, type MetaConnection, type PickableResource, type SetupItem } from '@/lib/v2/areas/meta';
 import { useMetaCtx, type MetaCtx } from './useMetaCtx';
+import { connectionsHref } from './routes';
 import MetaHeader from './MetaHeader';
 import { Lead, LoadFailure, Section, StateChip, daysUntil, linkCls, plural, useLoad, writeError } from './common';
 
@@ -30,7 +31,7 @@ const LABEL: Record<string, { title: string; noun: string; what: string }> = {
  * The connection service a row's picker lists, when the row does not name one (CONTRACT QUESTION in the lane
  * report: `action.service`).
  */
-const SERVICE_FALLBACK: Record<string, string> = {
+export const SERVICE_FALLBACK: Record<string, string> = {
   business: 'business', page: 'pages', instagram: 'instagram', ad_account: 'ads', pixel: 'pixel', catalog: 'merchant_feed', whatsapp: 'whatsapp',
   messaging: 'messaging',
 };
@@ -63,7 +64,7 @@ const titleOf = (key: string) => LABEL[key]?.title ?? key.replace(/_/g, ' ');
 const nounOf = (key: string) => LABEL[key]?.noun ?? key.replace(/_/g, ' ');
 
 /** What is missing, in plain words. */
-function needText(item: SetupItem, perms: string[]): string[] {
+export function needText(item: SetupItem, perms: string[]): string[] {
   const out: string[] = [];
   for (const n of item.needs) {
     if (n === 'permission') out.push(perms.length ? `Meta has not allowed: ${perms.join(', ')}. Reconnect and tick it on Meta's screen.` : 'A permission is missing. Reconnect and allow everything Meta asks for.');
@@ -153,7 +154,7 @@ const SetupTab: React.FC<{ ctx: MetaCtx }> = ({ ctx }) => {
                 {busy === 'connect' && <Loader2 className="animate-spin" />} Connect with Facebook
               </Button>
             ) : <p className="text-sm text-gray-600">Ask someone who can change settings to connect.</p>}
-            <span className="text-sm text-gray-500">Already connected Google or Meta? It is the same sign-in as <Link className={linkCls} to="/panel/marketing/connections">Platform Connections</Link>.</span>
+            <span className="text-sm text-gray-500">Already connected Google or Meta? It is the same sign-in as <Link className={linkCls} to={connectionsHref('meta')}>Platform Connections</Link>.</span>
           </div>
         </Section>
       ) : tokenBad || endsIn !== null ? (
@@ -338,7 +339,7 @@ const ConnectionCard: React.FC<{ conn: MetaConnection; warnDays: number; canReco
         )}
       </dl>
       <p className="mt-4 text-xs text-gray-500">
-        The same connection serves every Meta feature. Its services and webhooks are on <Link className={linkCls} to="/panel/marketing/connections">Platform Connections</Link>.
+        The same connection serves every Meta feature. Its services and webhooks are on <Link className={linkCls} to={connectionsHref('meta')}>Platform Connections</Link>.
       </p>
     </Section>
   );

@@ -6,6 +6,7 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { connectionsHref } from './routes';
 import { ImageOff, Loader2, Plus, RefreshCw, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -481,7 +482,7 @@ const WhatsAppSection: React.FC<{ ctx: MetaCtx; summary: CatalogSummary | null }
           <div className="space-y-3">
             <p className="text-sm text-gray-800">
               {number.name}: {st.linked ? <StateChip tone="good">Catalog linked</StateChip> : <StateChip tone="warn">Catalog not linked</StateChip>}
-              {!catalogId && <span className="ml-2 text-amber-800">Pick the catalog in Setup first.</span>}
+              {!catalogId && <span className="ml-2 text-amber-800">Pick the catalog on <Link className={linkCls} to={connectionsHref('meta')}>the Meta connection</Link> first.</span>}
             </p>
             <label className="flex items-start gap-3">
               <Switch checked={form.visible} onCheckedChange={(v) => setForm({ ...form, visible: v })} disabled={!ctx.can.catalog} className="mt-0.5" />

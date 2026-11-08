@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { connectionsHref } from './meta/routes';
 import { api } from '../../../services/api';
 import { useAuth } from '../../../contexts/AuthContext';
 import { payload } from '../../../lib/unwrap';
@@ -151,7 +152,7 @@ const AdsAiStudio: React.FC = () => {
           </p>
         </div>
         <div className="flex gap-2">
-          <Link to="/panel/marketing/connections" className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50">
+          <Link to={connectionsHref('google')} className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50">
             Connections
           </Link>
           <Link to="/panel/marketing/ads" className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50">

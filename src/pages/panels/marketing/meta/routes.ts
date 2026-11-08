@@ -33,6 +33,13 @@ export const ADS_ROUTES = {
   leads: '/panel/marketing/ads/leads',
 } as const;
 
+/** Platform Connections. A `?platform=` value is a provider key from the backend's list and opens that tab. */
+export const CONNECTIONS_ROUTE = '/panel/marketing/connections';
+
+/** Link to a platform's tab on Platform Connections; with no platform the page opens the one that needs attention. */
+export const connectionsHref = (platform?: string): string =>
+  (platform ? metaHref(CONNECTIONS_ROUTE, { platform }) : metaHref(CONNECTIONS_ROUTE));
+
 /** The old tabbed page's tabs, and the page each one became. */
 export const TAB_ROUTE: Record<MetaTab, string> = {
   setup: META_ROUTES.setup,

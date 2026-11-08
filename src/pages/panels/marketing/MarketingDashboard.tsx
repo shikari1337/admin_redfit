@@ -22,7 +22,7 @@ import { metaAdsApi, metaApi, metaLeadsApi, metaSocialApi, type MetaAlert } from
 import { readinessLabel, type ChannelStatus } from './campaigns/ChannelReadiness';
 import { CHANNEL_LIST, CHANNEL_META } from './campaigns/channelMeta';
 import { ago, money, moneyMajor, num, plural, useLoad, type Tone } from './meta/common';
-import { ADS_ROUTES, META_ROUTES, SOCIAL_ROUTES, metaHref } from './meta/routes';
+import { ADS_ROUTES, META_ROUTES, SOCIAL_ROUTES, connectionsHref, metaHref } from './meta/routes';
 import { alertLink, dayIso, roasText, toneOfAlert } from './meta/ads/shared';
 import { tokenEndsSoon, useTokenWarnDays } from './meta/SetupTab';
 import { useInboxSummary } from './meta/inbox/InboxPage';
@@ -78,12 +78,12 @@ const MarketingDashboard: React.FC = () => {
       out.push({ key: `alert-${a.kind}-${a.id ?? ''}`, tone: toneOfAlert(a.kind), text: a.text, to: l.to, label: l.label, since: a.since });
     }
     if (setupQ.data && !conn) {
-      out.push({ key: 'connect', tone: 'warn', text: 'Meta is not connected: the catalog, ads, posts and Messenger and Instagram chats need it.', to: metaHref(META_ROUTES.setup), label: 'Connect' });
+      out.push({ key: 'connect', tone: 'warn', text: 'Meta is not connected: the catalog, ads, posts and Messenger and Instagram chats need it.', to: connectionsHref('meta'), label: 'Connect' });
     }
     const ends = tokenEndsSoon(conn, warnDays);
     const tokenBad = conn?.token_valid === false || !!conn?.token_error;
     if ((tokenBad || ends !== null) && !alerts.some((a) => a.kind === 'token')) {
-      out.push({ key: 'token', tone: 'bad', text: tokenBad ? `Meta no longer accepts the store's connection${conn?.token_error ? `: ${conn.token_error}` : '.'}` : ends !== null && ends < 0 ? 'Meta access has ended; catalog, ads and messages have stopped.' : `Meta access ends in ${plural(ends ?? 0, 'day')}. Reconnect with the business login so it does not end.`, to: metaHref(META_ROUTES.setup), label: 'Reconnect' });
+      out.push({ key: 'token', tone: 'bad', text: tokenBad ? `Meta no longer accepts the store's connection${conn?.token_error ? `: ${conn.token_error}` : '.'}` : ends !== null && ends < 0 ? 'Meta access has ended; catalog, ads and messages have stopped.' : `Meta access ends in ${plural(ends ?? 0, 'day')}. Reconnect with the business login so it does not end.`, to: connectionsHref('meta'), label: 'Reconnect' });
     }
     const errors = catalogQ.data?.counts?.errors ?? 0;
     if (errors > 0) out.push({ key: 'catalog', tone: 'bad', text: `Meta refused ${plural(errors, 'product')} in your catalog, so they do not show in the shop or in ads.`, to: metaHref(META_ROUTES.catalog, { status: 'error' }), label: 'Fix products' });
@@ -141,7 +141,7 @@ const MarketingDashboard: React.FC = () => {
     const t = sIns[s.key]?.totals ?? {};
     const views = t.views ?? t.page_media_view;
     rows.push({ key: `social-${s.key}`, name, state: s.can_publish ? { text: 'Can post', tone: 'good' } : { text: s.connected ? 'Cannot post' : 'Not connected', tone: s.connected ? 'warn' : 'neutral' },
-      activity: views != null ? `${num(views)} views` : s.account?.name ?? '', money: '', to: metaHref(s.can_publish ? SOCIAL_ROUTES.publisher : META_ROUTES.setup) });
+      activity: views != null ? `${num(views)} views` : s.account?.name ?? '', money: '', to: s.can_publish ? metaHref(SOCIAL_ROUTES.publisher) : connectionsHref(s.key === 'threads' ? 'threads' : 'meta') });
   }
   if (mayMarketing) {
     for (const c of INBOX_CHANNELS.filter((x) => x !== 'whatsapp')) {

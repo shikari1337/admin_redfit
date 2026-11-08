@@ -6,6 +6,7 @@
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { connectionsHref } from './routes';
 import { Film, Images, Loader2, RefreshCw, Search, Tag, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -52,7 +53,7 @@ const InstagramTab: React.FC<{ ctx: MetaCtx }> = ({ ctx }) => {
       {feed && !feed.isEnabled ? (
         <Lead tone="warn" title="The Instagram feed is off on your store">Turn it on below to show your latest posts, with their tagged products, on the store.</Lead>
       ) : postsQ.data && posts.length === 0 ? (
-        <Lead tone="info" title="No posts yet">{account ? `Nothing has come in from ${account}. Press Refresh to ask Instagram again.` : 'Pick your Instagram account in Setup first.'}</Lead>
+        <Lead tone="info" title="No posts yet">{account ? `Nothing has come in from ${account}. Press Refresh to ask Instagram again.` : <>Pick your Instagram account on <Link className={linkCls} to={connectionsHref('meta')}>the Meta connection</Link> first.</>}</Lead>
       ) : untagged.length > 0 ? (
         <Lead tone="warn" title={`${num(untagged.length)} of ${plural(posts.length, 'post')} have no products tagged`}
           actions={<Button size="sm" variant="outline" className="bg-white" onClick={() => setOnlyUntagged(true)}>Show them</Button>}>

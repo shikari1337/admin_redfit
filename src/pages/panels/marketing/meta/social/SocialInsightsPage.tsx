@@ -18,7 +18,7 @@ import { isoDaysFromToday } from '@/utils/date';
 import { metaSocialApi, type SocialInsightsChannel, type SocialPost } from '@/lib/v2/areas/meta';
 import MetaHeader from '../MetaHeader';
 import { Figure, Lead, LoadFailure, Section, ago, linkCls, num, plural, useLoad, writeError } from '../common';
-import { META_ROUTES, SOCIAL_ROUTES, metaHref } from '../routes';
+import { SOCIAL_ROUTES, connectionsHref, metaHref } from '../routes';
 import { ChannelMark, channelName, civilDay, firstLine, metricLabel, metricValue, useSetup, useSocialChannels, when } from './shared';
 
 /** Range presets in days (a screen choice; the server caps the range with its own setting). */
@@ -65,7 +65,7 @@ const SocialInsightsPage: React.FC = () => {
                 {notConnected.map((c) => (
                   <li key={String(c.key)} className="flex flex-wrap items-baseline gap-x-2">
                     <span>{c.reason ?? 'Not connected.'}</span>
-                    <Link className={linkCls} to={c.key === 'threads' ? '/panel/marketing/connections' : metaHref(META_ROUTES.setup)}>{c.key === 'threads' ? 'Open Connections' : 'Open setup'}</Link>
+                    <Link className={linkCls} to={connectionsHref(c.key === 'threads' ? 'threads' : 'meta')}>Open the connection</Link>
                   </li>
                 ))}
               </ul>
