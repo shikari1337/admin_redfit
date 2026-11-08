@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import CompanyPicker from '../components/brands/CompanyPicker';
+import { useCountries } from '../lib/v2/reference';
 import BrandLicenses from '../components/brands/BrandLicenses';
 import BrandProducts from '../components/brands/BrandProducts';
 import BrandRanges from '../components/brands/BrandRanges';
@@ -82,6 +83,9 @@ const emptyForm = {
   nickname: '',
   ownerPartyId: null as string | null,
   manufacturerPartyId: null as string | null,
+  // CAT-11 (META-9C, tenant 411): what the Meta catalog sends as this brand's country of origin and importer.
+  originCountry: '',
+  importerPartyId: null as string | null,
 };
 
 const rankOf = (b: Brand): number | null => {
@@ -154,6 +158,7 @@ function SortableRankRow({
 }
 
 const Brands: React.FC = () => {
+  const COUNTRIES = useCountries();
   const { toast } = useToast();
   const { hasPerm } = useAuth();
   // Backend requires products.manage for create/update (incl. quick Active/
@@ -295,6 +300,8 @@ const Brands: React.FC = () => {
       nickname: b.nickname || '',
       ownerPartyId: b.ownerPartyId ?? b.owner_party_id ?? null,
       manufacturerPartyId: b.manufacturerPartyId ?? b.manufacturer_party_id ?? null,
+      originCountry: b.originCountry ?? b.origin_country ?? '',
+      importerPartyId: b.importerPartyId ?? b.importer_party_id ?? null,
     };
     setFormState(form);
     setOpenedForm(form);
@@ -310,6 +317,8 @@ const Brands: React.FC = () => {
         metaTitle: full.meta_title || full.metaTitle || '',
         metaDesc: full.meta_desc || full.metaDesc || '',
         ogImageUrl: full.og_image_url || full.ogImageUrl || '',
+        originCountry: full.origin_country || full.originCountry || '',
+        importerPartyId: full.importer_party_id ?? full.importerPartyId ?? null,
       };
       setOpenedForm((o) => (o ? { ...o, ...extra } : o));
       setFormState((f) => {
@@ -356,6 +365,9 @@ const Brands: React.FC = () => {
         // `orNull` exists for exactly this, and `undefined` would be dropped.
         ownerPartyId: formState.ownerPartyId || null,
         manufacturerPartyId: formState.manufacturerPartyId || null,
+        // CAT-11: sent as null to clear, like the companies above.
+        originCountry: formState.originCountry || null,
+        importerPartyId: formState.importerPartyId || null,
       };
 
       if (formState.slug?.trim()) {
@@ -953,6 +965,26 @@ const Brands: React.FC = () => {
 
                     />
 
+                  </div>
+
+                  {/* CAT-11 (META-9C): sent to the Meta catalog for this brand's products; Meta asks for both to sell in India. */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <Label htmlFor="brand-origin">Country of origin</Label>
+                      <select id="brand-origin" value={formState.originCountry} onChange={(e) => setFormState({ ...formState, originCountry: e.target.value })}
+                        className="h-9 w-full rounded-md border bg-white px-2 text-sm">
+                        <option value="">Not recorded</option>
+                        {COUNTRIES.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
+                      </select>
+                      <p className="text-xs text-muted-foreground">Where this brand's products are made, unless a product says otherwise.</p>
+                    </div>
+                    <CompanyPicker
+                      label="Importer"
+                      hint="The company that imports them, with its registered address. Used when they are made outside your country."
+                      createRole="importer"
+                      value={formState.importerPartyId}
+                      onChange={(id) => setFormState({ ...formState, importerPartyId: id })}
+                    />
                   </div>
 
 

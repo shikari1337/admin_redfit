@@ -387,6 +387,13 @@ function blockToHtml(block: any): string {
       });
     case 'google-reviews':
       return storeBlock('google-reviews', { title: d.title, subtitle: d.subtitle });
+    case 'instagram-feed':
+      return storeBlock('instagram-feed', {
+        title: d.title, subtitle: d.subtitle, count: d.count, layout: d.layout,
+        'show-products': d.showProducts === undefined ? undefined : String(!!d.showProducts),
+      });
+    case 'embed-post':
+      return storeBlock('embed-post', { title: d.title, subtitle: d.subtitle, url: d.url });
     case 'stats-bar':
       // Each stat's value is resolved live from a `source` ("products",
       // "customers"…), so this can't become static numbers.

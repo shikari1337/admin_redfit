@@ -146,8 +146,12 @@ export interface DltProposal {
   content: string; provider_text: string; confidence: string; score: number;
 }
 
-/** §6 route 8: a WhatsApp conversation (inbox). */
-export interface InboxContact { name: string | null; phone_masked: string | null }
+/** §6 route 8: a conversation (inbox). META-13 adds Messenger and Instagram threads to the same model (`channel`). */
+export type InboxChannel = 'whatsapp' | 'messenger' | 'instagram';
+export const INBOX_CHANNELS: InboxChannel[] = ['whatsapp', 'messenger', 'instagram'];
+export const INBOX_CHANNEL_LABEL: Record<InboxChannel, string> = { whatsapp: 'WhatsApp', messenger: 'Messenger', instagram: 'Instagram' };
+/** `handle`: the Instagram username (META-13). */
+export interface InboxContact { name: string | null; phone_masked: string | null; handle?: string | null }
 export interface InboxItem {
   id: string; channel: string; contact: InboxContact;
   last: { text: string | null; direction: 'in' | 'out'; at: string | null } | null;
@@ -156,9 +160,34 @@ export interface InboxItem {
 export interface InboxMessage {
   id: string; direction: 'in' | 'out'; kind: string; text: string | null; media_url: string | null;
   template_key: string | null; status: string | null; at: string | null;
+  /** META-13 (Messenger, Instagram): who sent it from the store's side, attachment count, removed by the person. */
+  by?: string | null; attachments?: number; deleted?: boolean;
+}
+/** META-13: the store customer beside a Messenger or Instagram thread, matched by a phone or e-mail shared in the chat. */
+export interface InboxCustomer {
+  matched_by: string; name: string | null; phone_masked: string | null; email_masked: string | null;
+  orders: Array<{ id: string; number: string | null; status: string | null; payment_status: string | null; total: string | null; at: string | null }>;
+  orders_found: number; more: boolean;
 }
 export interface InboxThread {
   id: string; channel: string; contact: InboxContact; window_open: boolean; window_closes_at: string | null; messages: InboxMessage[];
+  /** META-13: only for a caller who may read orders, and only once the person shared a phone or e-mail. */
+  customer?: InboxCustomer | null;
+  /** Where the chat began when Meta said (`ADS`, a link) and the ad's id. */
+  origin_source?: string | null; origin_ad_id?: string | null;
+}
+/** META-13 `GET|PUT /inbox/settings`: the Messenger profile (greeting, ice breakers, menu) and each push's result. */
+export interface MessengerProfile {
+  greeting: Array<{ locale: string; text: string }>;
+  ice_breakers: Array<{ locale: string; questions: Array<{ question: string; payload?: string | null }> }>;
+  persistent_menu: Array<{ locale: string; composer_input_disabled?: boolean; items: Array<{ type: 'postback' | 'web_url' | string; title: string; url?: string | null; payload?: string | null }> }>;
+  /** Also push the ice breakers and menu to Instagram. */
+  instagram: boolean;
+}
+export interface InboxSettings {
+  profile: MessengerProfile;
+  pushed: Array<{ platform: string; ok: boolean; error: string | null; at: string | null; by: string | null }>;
+  updated_by: string | null;
 }
 /** §6 route 9: one row of the SMS routing table. */
 export interface SmsRoute { country: string; provider: string | null; sender: string | null; source: 'growcord' | 'own' | null; reachable: boolean }
@@ -190,9 +219,15 @@ export function errCode(e: any): string | null {
   return typeof c === 'string' ? c : null;
 }
 
-/** A refused inbox reply in the screen's words (route 8: 409 `comms.wrong_state` = the 24-hour window closed). */
-export function inboxReplyErrText(e: any): string {
+/**
+ * A refused inbox reply in the screen's words (route 8: 409 `comms.wrong_state` = the 24-hour window closed).
+ * Messenger and Instagram have no templates yet, so there the server's own sentence is shown (META-13).
+ */
+export function inboxReplyErrText(e: any, channel: string = 'whatsapp'): string {
   const code = errCode(e);
+  if (channel !== 'whatsapp' && (code === 'comms.wrong_state' || e?.response?.status === 409)) {
+    return errText(e, 'The 24 hour reply window is closed: the customer has not written in the last 24 hours. Nothing was sent; you can reply once they write again.');
+  }
   if (code === 'comms.wrong_state' || e?.response?.status === 409) return 'The 24-hour window is closed — send an approved template';
   if (code === 'comms.not_configured') return 'This store’s WhatsApp line is not on Growcord’s WhatsApp Platform yet, so replies cannot be sent from here.';
   if (code === 'comms.gateway_refused') return `The WhatsApp Platform refused the reply: ${errText(e, 'no reason given')}`;
@@ -261,7 +296,40 @@ function dispatchRow(r: any): DispatchRow {
 }
 
 function contactOf(c: any): InboxContact {
-  return { name: s(c?.name), phone_masked: s(c?.phone_masked) };
+  return { name: s(c?.name), phone_masked: s(c?.phone_masked), handle: s(c?.handle) };
+}
+function inboxMessage(m: any): InboxMessage {
+  return {
+    id: String(m?.id ?? ''), direction: m?.direction === 'out' ? 'out' : 'in', kind: String(m?.kind ?? 'text'),
+    text: s(m?.text), media_url: s(m?.media_url), template_key: s(m?.template_key), status: s(m?.status), at: s(m?.at),
+    by: s(m?.by), attachments: n(m?.attachments), deleted: !!m?.deleted,
+  };
+}
+function inboxCustomer(c: any): InboxCustomer | null {
+  if (!c || typeof c !== 'object') return null;
+  return {
+    matched_by: String(c.matched_by ?? ''), name: s(c.name), phone_masked: s(c.phone_masked), email_masked: s(c.email_masked),
+    orders: listOf(c.orders).map((o: any) => ({ id: String(o?.id ?? ''), number: s(o?.number), status: s(o?.status), payment_status: s(o?.payment_status), total: s(o?.total), at: s(o?.at) })),
+    orders_found: n(c.orders_found), more: !!c.more,
+  };
+}
+/** Development only: `?mock=meta` on a dev server answers the inbox from the Meta mock (a production build drops this). */
+async function inboxMock() {
+  if (!import.meta.env.DEV) return null;
+  const { metaMockOn } = await import('./areas/meta');
+  return metaMockOn() ? (await import('./areas/meta.mock')).metaMock : null;
+}
+function inboxSettingsOf(d: any): InboxSettings {
+  const p = d?.profile ?? {};
+  return {
+    profile: {
+      greeting: listOf(p.greeting), ice_breakers: listOf(p.ice_breakers).map((i: any) => ({ locale: String(i?.locale ?? 'default'), questions: listOf(i?.questions) })),
+      persistent_menu: listOf(p.persistent_menu).map((m: any) => ({ locale: String(m?.locale ?? 'default'), composer_input_disabled: !!m?.composer_input_disabled, items: listOf(m?.items) })),
+      instagram: !!p.instagram,
+    },
+    pushed: listOf(d?.pushed).map((x: any) => ({ platform: String(x?.platform ?? ''), ok: !!x?.ok, error: s(x?.error), at: s(x?.at), by: s(x?.by) })),
+    updated_by: s(d?.updated_by),
+  };
 }
 function inboxItem(r: any): InboxItem {
   return {
@@ -431,22 +499,22 @@ export const messagingAPI = {
   },
 
   /** §6 route 8: conversations, newest first, a keyset page at a time. */
-  inbox: async (q: { status?: 'open' | 'all'; cursor?: string | null } = {}): Promise<{ items: InboxItem[]; cursor: string | null }> => {
-    const params: Record<string, unknown> = { channel: 'whatsapp', status: q.status ?? 'open' };
+  inbox: async (q: { status?: 'open' | 'all'; cursor?: string | null; channel?: InboxChannel } = {}): Promise<{ items: InboxItem[]; cursor: string | null }> => {
+    const dev = await inboxMock(); if (dev) return dev.inbox(q);
+    const params: Record<string, unknown> = { channel: q.channel ?? 'whatsapp', status: q.status ?? 'open' };
     if (q.cursor) params.cursor = q.cursor;
     const d = await call<any>('GET', '/inbox', { params });
     const next = (d as any)?.cursor ?? null;
     return { items: listOf(d).map(inboxItem), cursor: typeof next === 'string' && next ? next : null };
   },
   inboxThread: async (id: string): Promise<InboxThread> => {
+    const dev = await inboxMock(); if (dev) return dev.inboxThread(id);
     const d = await call<any>('GET', `/inbox/${encodeURIComponent(id)}`);
     return {
       id: String(d?.id ?? id), channel: String(d?.channel ?? 'whatsapp'), contact: contactOf(d?.contact),
       window_open: !!d?.window_open, window_closes_at: s(d?.window_closes_at),
-      messages: listOf(d?.messages).map((m: any) => ({
-        id: String(m?.id ?? ''), direction: m?.direction === 'out' ? 'out' : 'in', kind: String(m?.kind ?? 'text'),
-        text: s(m?.text), media_url: s(m?.media_url), template_key: s(m?.template_key), status: s(m?.status), at: s(m?.at),
-      })),
+      messages: listOf(d?.messages).map(inboxMessage),
+      customer: inboxCustomer(d?.customer), origin_source: s(d?.origin_source), origin_ad_id: s(d?.origin_ad_id),
     };
   },
   /**
@@ -455,6 +523,7 @@ export const messagingAPI = {
    * `comms.wrong_state` (`inboxReplyErrText`).
    */
   inboxReply: async (id: string, body: { text: string } | { template_key: string; variables: Record<string, string> }): Promise<InboxMessage> => {
+    const dev = await inboxMock(); if (dev) return dev.inboxReply(id, body);
     const m = await call<any>('POST', `/inbox/${encodeURIComponent(id)}/reply`, { data: body });
     return {
       id: String(m?.id ?? ''), direction: m?.direction === 'in' ? 'in' : 'out', kind: String(m?.kind ?? 'text'),
@@ -462,7 +531,23 @@ export const messagingAPI = {
     };
   },
   inboxRead: async (id: string): Promise<void> => {
+    const dev = await inboxMock(); if (dev) { await dev.inboxRead(id); return; }
     await call<any>('POST', `/inbox/${encodeURIComponent(id)}/read`, { data: {} });
+  },
+  /** META-13: the Messenger profile (greeting, ice breakers, persistent menu) and the last push per platform. */
+  inboxSettings: async (): Promise<InboxSettings> => {
+    const dev = await inboxMock(); if (dev) return dev.inboxSettings();
+    return inboxSettingsOf(await call<any>('GET', '/inbox/settings'));
+  },
+  /** Saved, checked against Meta's limits and pushed to Meta; a failed push keeps the save and answers Meta's words. */
+  saveInboxSettings: async (profile: MessengerProfile): Promise<InboxSettings> => {
+    const dev = await inboxMock(); if (dev) return dev.saveInboxSettings(profile);
+    return inboxSettingsOf(await call<any>('PUT', '/inbox/settings', { data: profile }));
+  },
+  /** The stored profile pushed to Meta again. */
+  pushInboxSettings: async (): Promise<InboxSettings> => {
+    const dev = await inboxMock(); if (dev) return dev.pushInboxSettings();
+    return inboxSettingsOf(await call<any>('POST', '/inbox/settings/push', { data: {} }));
   },
 
   /** §6 route 9: the SMS routing table (read-only for a store). */

@@ -203,7 +203,6 @@ const MarketingTemplates = lazyRetry(() => import('./pages/panels/marketing/Mark
 const MarketingAudiences = lazyRetry(() => import('./pages/panels/marketing/MarketingAudiences'));
 const MarketingAutomation = lazyRetry(() => import('./pages/panels/marketing/MarketingAutomation'));
 const AdsManager = lazyRetry(() => import('./pages/panels/marketing/AdsManager'));
-const AdsAudiences = lazyRetry(() => import('./pages/panels/marketing/AdsAudiences'));
 const Connections = lazyRetry(() => import('./pages/panels/marketing/Connections'));
 const ConnectorCallback = lazyRetry(() => import('./pages/panels/marketing/ConnectorCallback'));
 const ConnectorInsights = lazyRetry(() => import('./pages/panels/marketing/ConnectorInsights'));
@@ -215,6 +214,24 @@ const MarketingSettings = lazyRetry(() => import('./pages/panels/marketing/Marke
 const AdsOAuthCallback = lazyRetry(() => import('./pages/panels/marketing/AdsOAuthCallback'));
 const MarketingPerformance = lazyRetry(() => import('./pages/panels/marketing/MarketingPerformance'));
 const GrowthAnalytics = lazyRetry(() => import('./pages/panels/marketing/GrowthAnalytics'));
+const MetaHub = lazyRetry(() => import('./pages/panels/marketing/meta/MetaHub'));
+// Marketing menu redesign (META-15A): each former Facebook and Instagram tab is a page; the Meta ads screens.
+const MetaCatalogPage = lazyRetry(() => import('./pages/panels/marketing/meta/CatalogTab').then((m) => ({ default: m.CatalogPage })));
+const MetaInstagramPage = lazyRetry(() => import('./pages/panels/marketing/meta/InstagramTab').then((m) => ({ default: m.InstagramPage })));
+const MetaEventsPage = lazyRetry(() => import('./pages/panels/marketing/meta/EventsTab').then((m) => ({ default: m.EventsPage })));
+const MetaAdsManager = lazyRetry(() => import('./pages/panels/marketing/meta/ads/AdsManagerPage'));
+const MetaCreateAd = lazyRetry(() => import('./pages/panels/marketing/meta/ads/CreateAdPage'));
+const MetaAudiences = lazyRetry(() => import('./pages/panels/marketing/meta/ads/AudiencesPage'));
+const MetaCreativeLibrary = lazyRetry(() => import('./pages/panels/marketing/meta/ads/CreativeLibraryPage'));
+const MetaRulesTests = lazyRetry(() => import('./pages/panels/marketing/meta/ads/RulesTestsPage'));
+const MetaAdsAnalytics = lazyRetry(() => import('./pages/panels/marketing/meta/ads/AdsAnalyticsPage'));
+// META-15B: Publisher, comments, social insights, the inbox with Messenger and Instagram, its settings, lead forms.
+const MetaPublisher = lazyRetry(() => import('./pages/panels/marketing/meta/social/PublisherPage'));
+const MetaComments = lazyRetry(() => import('./pages/panels/marketing/meta/social/CommentsPage'));
+const MetaSocialInsights = lazyRetry(() => import('./pages/panels/marketing/meta/social/SocialInsightsPage'));
+const MarketingInbox = lazyRetry(() => import('./pages/panels/marketing/meta/inbox/InboxPage'));
+const MessengerSettings = lazyRetry(() => import('./pages/panels/marketing/meta/inbox/MessengerSettingsPage'));
+const MetaLeadForms = lazyRetry(() => import('./pages/panels/marketing/meta/leads/LeadFormsPage'));
 import { useAuth } from './contexts/AuthContext';
 import { ROLE_SURFACE, ErpRole } from './lib/rbac';
 import { PRODUCT, IS_SUITE } from './lib/product';
@@ -418,7 +435,19 @@ function App() {
           <Route path="panel/marketing/audiences" element={<MarketingAudiences />} />
           <Route path="panel/marketing/automation" element={<MarketingAutomation />} />
           <Route path="panel/marketing/ads" element={<AdsManager />} />
-          <Route path="panel/marketing/ads/audiences" element={<AdsAudiences />} />
+          {/* Audiences: Meta audiences, plus the consented customer lists (AdsAudiences) as its second tab. */}
+          <Route path="panel/marketing/ads/audiences" element={<MetaAudiences />} />
+          <Route path="panel/marketing/ads/manager" element={<MetaAdsManager />} />
+          <Route path="panel/marketing/ads/create" element={<MetaCreateAd />} />
+          <Route path="panel/marketing/ads/library" element={<MetaCreativeLibrary />} />
+          <Route path="panel/marketing/ads/rules" element={<MetaRulesTests />} />
+          <Route path="panel/marketing/ads/analytics" element={<MetaAdsAnalytics />} />
+          <Route path="panel/marketing/ads/leads" element={<MetaLeadForms />} />
+          <Route path="panel/marketing/social/publisher" element={<MetaPublisher />} />
+          <Route path="panel/marketing/social/comments" element={<MetaComments />} />
+          <Route path="panel/marketing/social/insights" element={<MetaSocialInsights />} />
+          <Route path="panel/marketing/inbox" element={<MarketingInbox />} />
+          <Route path="panel/marketing/inbox/settings" element={<MessengerSettings />} />
           <Route path="panel/marketing/ads/oauth/callback" element={<AdsOAuthCallback />} />
           {/* Connector platform (migration 114) — one identity per provider, many services. */}
           <Route path="panel/marketing/connections" element={<Connections />} />
@@ -432,6 +461,11 @@ function App() {
           <Route path="panel/marketing/analytics" element={<MarketingAnalyticsHub />} />
           <Route path="panel/marketing/compliance" element={<MarketingCompliance />} />
           <Route path="panel/marketing/settings" element={<MarketingSettings />} />
+          {/* Facebook and Instagram (META-0): setup here; an old `?tab=` link lands on the page that tab became. */}
+          <Route path="panel/marketing/meta" element={<MetaHub />} />
+          <Route path="panel/marketing/meta/catalog" element={<MetaCatalogPage />} />
+          <Route path="panel/marketing/meta/instagram" element={<MetaInstagramPage />} />
+          <Route path="panel/marketing/meta/events" element={<MetaEventsPage />} />
           <Route path="analytics" element={<Navigate to="/analytics/dashboard" replace />} />
           <Route path="analytics/dashboard" element={<AnalyticsDashboard />} />
           <Route path="analytics/store" element={<StoreAnalytics />} />

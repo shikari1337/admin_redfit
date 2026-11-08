@@ -22,6 +22,10 @@ const DEFAULT_FORM_DATA = {
     accessToken: '',
     apiVersion: 'v18.0',
     isEnabled: false,
+    // META-16 (EVT-05): Meta's test code while testing, business events and product level events (both on by default).
+    testEventCode: '',
+    businessEvents: true,
+    productLevelEvents: true,
   },
   ga4: {
     useEnvVars: false,
@@ -586,6 +590,7 @@ const ApiIntegrationSettings: React.FC = () => {
               <div>
                 <CardTitle>Meta Pixel (Facebook)</CardTitle>
                 <CardDescription>Configure Meta Conversion API tracking</CardDescription>
+                <Link to="/panel/marketing/meta?tab=events" className="mt-1 inline-block text-xs font-medium text-primary hover:underline">Manage in Facebook and Instagram</Link>
               </div>
             </div>
             <div className="flex items-center gap-6">
@@ -642,7 +647,44 @@ const ApiIntegrationSettings: React.FC = () => {
                   placeholder="v18.0"
                 />
               </div>
+              {/* META-15B (EVT-05, EVT-08): the test code and the two switches META-16 reads; the same fields as Events health. */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground" htmlFor="mp-test-code">Test event code</label>
+                <Input
+                  id="mp-test-code"
+                  type="text"
+                  value={formData.metaPixel.testEventCode ?? ''}
+                  onChange={(e) => handleChange('metaPixel', 'testEventCode', e.target.value.trim())}
+                  placeholder="TEST12345"
+                />
+                <p className="text-xs text-muted-foreground">From Events Manager, Test events. While set, server events go only to Test Events; clear it when you are done.</p>
+              </div>
             </div>
+            <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${formData.metaPixel.useEnvVars ? 'opacity-50 pointer-events-none' : ''}`}>
+              <label className="flex items-start gap-2 cursor-pointer">
+                <Checkbox
+                  checked={formData.metaPixel.businessEvents !== false}
+                  onCheckedChange={(checked) => handleChange('metaPixel', 'businessEvents', checked === true)}
+                  className="mt-0.5"
+                />
+                <span className="text-sm">
+                  <span className="font-medium">Business events</span>
+                  <span className="block text-xs text-muted-foreground">Delivered, returned to origin, COD confirmed, staff placed and WhatsApp orders, sent to Meta as their own events.</span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 cursor-pointer">
+                <Checkbox
+                  checked={formData.metaPixel.productLevelEvents !== false}
+                  onCheckedChange={(checked) => handleChange('metaPixel', 'productLevelEvents', checked === true)}
+                  className="mt-0.5"
+                />
+                <span className="text-sm">
+                  <span className="font-medium">Product level events</span>
+                  <span className="block text-xs text-muted-foreground">Each event names the products (SKUs) in it, so catalog ads learn what sells. Off: only the value and currency.</span>
+                </span>
+              </label>
+            </div>
+            <Link to="/panel/marketing/meta/events" className="inline-block text-xs font-medium text-primary hover:underline">See what Meta received in Events health</Link>
           </CardContent>
         </Card>
 

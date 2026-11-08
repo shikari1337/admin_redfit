@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Loader2, Save, RefreshCw, Copy, Check, BarChart3, CircleCheck, CircleDashed, Star } from 'lucide-react';
 import api, { seoAPI } from '../services/api';
 import RedirectsManager from '../components/seo/RedirectsManager';
+import { metaApi, pixelIdOf } from '../lib/v2/areas/meta';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettingsSection } from '../hooks/useSettingsSection';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -40,7 +41,8 @@ const parseTrackingIds = (settingsRes: any): TrackingIds => {
   return {
     ga4Id: t.ga4Id || settingsRes?.ga4?.measurementId || '',
     gtmId: t.gtmId || '',
-    metaPixelId: t.metaPixelId || settingsRes?.metaPixel?.pixelId || '',
+    // EVT-08: the one pixel id is `metaPixel.pixelId`; `tracking.metaPixelId` is read only as its fallback.
+    metaPixelId: pixelIdOf(settingsRes).id,
     clarityId: t.clarityId || '',
     hotjarId: t.hotjarId || '',
     googleAdsConversionId: t.googleAdsConversionId || '',
@@ -92,7 +94,8 @@ const TRACKING_FIELDS: Array<{
   },
   {
     key: 'metaPixelId', label: 'Meta (Facebook) Pixel ID', placeholder: '123456789012345',
-    help: <>Events Manager ▸ Data Sources ▸ your pixel. The server-side Conversion API token is set separately in API &amp; Integrations.</>,
+    help: <>Events Manager, Data sources, your pixel. The browser pixel and the server events use this one id; the server token is in API and Integrations.
+      {' '}<Link to="/panel/marketing/meta/events" className="font-medium text-primary hover:underline">See Events health</Link></>,
   },
   {
     key: 'clarityId', label: 'Microsoft Clarity — Project ID', placeholder: 'abcdef1234',
@@ -157,10 +160,9 @@ const Seo: React.FC = () => {
     skipInitialFetch: true,
     parse: parseTrackingIds,
     submitter: async (data) => {
-      const value: TrackingIds = {
+      const value: Omit<TrackingIds, 'metaPixelId'> = {
         ga4Id: data.ga4Id.trim(),
         gtmId: data.gtmId.trim(),
-        metaPixelId: data.metaPixelId.trim(),
         clarityId: data.clarityId.trim(),
         hotjarId: data.hotjarId.trim(),
         googleAdsConversionId: data.googleAdsConversionId.trim(),
@@ -168,7 +170,11 @@ const Seo: React.FC = () => {
       };
       // Stored PUBLIC so the storefront's GET /settings returns it (non-secret IDs).
       await api.put('/settings/tracking', { value, is_public: true, group_name: 'analytics' });
-      setTracking(value);
+      // EVT-08 (META-16 section 6): the Meta pixel id is saved once, on `metaPixel.pixelId`, which the browser pixel
+      // and the server events both read; `tracking` no longer keeps a second copy.
+      const pixelId = data.metaPixelId.trim();
+      await metaApi.saveEventSettings({ pixelId });
+      setTracking({ ...value, metaPixelId: pixelId });
     },
     onSuccess: () => {
       setSuccess('Tracking & analytics IDs saved. The storefront picks them up within a minute.');

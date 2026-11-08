@@ -177,6 +177,11 @@ const AdsManager: React.FC = () => {
               </label>
             ))}
           </div>
+          {accForm.platform === 'meta' && (
+            <p className="text-xs">
+              <Link className="font-medium text-primary hover:underline" to="/panel/marketing/meta">Manage in Facebook and Instagram</Link>
+            </p>
+          )}
           <p className="rounded bg-blue-50 px-3 py-2 text-xs text-blue-700">
             OAuth flow: save the app credentials (Google: OAuth client id/secret + developer token · Meta: app id/secret ·
             Snapchat: client id/secret), then press <b>Connect (OAuth)</b> on the account — tokens are fetched and stored

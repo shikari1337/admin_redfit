@@ -9,9 +9,11 @@
 
 export interface CountryRef { code: string; name: string; currency: string; dial: string; }
 
-/** A pragmatic country list weighted toward the platform's markets, then major
+/** FALLBACK ONLY (REUSE-14): the full list comes from the backend reference registry through
+ *  `useCountries()` in `lib/v2/reference.ts`; this small list shows until that read answers, or if it fails.
+ *  A pragmatic country list weighted toward the platform's markets, then major
  *  economies. `currency` is the country's default ISO-4217 code. */
-export const COUNTRIES: CountryRef[] = [
+export const COUNTRIES_FALLBACK: CountryRef[] = [
   { code: 'IN', name: 'India',                currency: 'INR', dial: '+91' },
   { code: 'US', name: 'United States',        currency: 'USD', dial: '+1' },
   { code: 'GB', name: 'United Kingdom',       currency: 'GBP', dial: '+44' },
@@ -37,3 +39,6 @@ export const COUNTRIES: CountryRef[] = [
   { code: 'ES', name: 'Spain',                currency: 'EUR', dial: '+34' },
   { code: 'NL', name: 'Netherlands',          currency: 'EUR', dial: '+31' },
 ];
+
+/** Kept for older imports; the same fallback. New code uses `useCountries()`. */
+export const COUNTRIES = COUNTRIES_FALLBACK;

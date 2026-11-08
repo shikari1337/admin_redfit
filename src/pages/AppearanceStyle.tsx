@@ -276,6 +276,7 @@ const AppearanceStyle: React.FC = () => {
               <input type="checkbox" checked={formData.instagram.isEnabled} onChange={(e) => handleChange('instagram', 'isEnabled', e.target.checked)} className="w-4 h-4 text-red-600 rounded focus:ring-red-500" />
               Enable Instagram Feed
             </label>
+            <Link to="/panel/marketing/meta?tab=instagram" className="block text-xs font-medium text-primary hover:underline">Manage in Facebook and Instagram</Link>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Instagram Username</label>
               <input type="text" value={formData.instagram.username} onChange={(e) => handleChange('instagram', 'username', e.target.value)} placeholder="thestreetwear_clothings" disabled={!formData.instagram.isEnabled} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500" />

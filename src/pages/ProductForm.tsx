@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useNavigate, useParams, useLocation, useSearchParams } from 'react-router-dom';
+import MetaStatusChip from './panels/marketing/meta/MetaStatusChip';
 import {
   productsAPI, uploadAPI, categoriesAPI, sizeChartsAPI, specificationsAPI,
   tagsAPI, taxRulesAPI, brandsAPI, manufacturersAPI, returnPoliciesAPI, faqGroupsAPI, productConfigAPI,
@@ -1368,6 +1369,8 @@ const ProductForm: React.FC = () => {
                 {isEdit && slug && (
                   <span className="hidden xl:block px-2 py-0.5 bg-gray-100 text-gray-500 text-xs rounded-full font-mono truncate max-w-48">{slug}</span>
                 )}
+                {/* CAT-08 (META-15B): how this product stands on the Meta catalog. */}
+                {isEdit && <MetaStatusChip productId={resolvedProductId || id} className="hidden sm:block" />}
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 {canAccess('aplus_content') && (

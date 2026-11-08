@@ -20,13 +20,15 @@ import {
 } from 'lucide-react';
 import {
   StoreConfig, EMPTY_STORE_CONFIG, loadStoreConfig, storeConfigSavePayload,
-  COUNTRIES, CURRENCIES, LANGUAGES, INDIAN_STATES, WEEKDAYS,
+  CURRENCIES, LANGUAGES, INDIAN_STATES, WEEKDAYS,
 } from '@/lib/storeConfig';
+import { useCountries } from '@/lib/v2/reference';
 
 // Small helpers to update deeply-nested config immutably.
 type Section = keyof StoreConfig;
 
 const StoreConfiguration: React.FC = () => {
+  const COUNTRIES = useCountries();
   const navigate = useNavigate();
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);

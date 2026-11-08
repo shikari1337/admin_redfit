@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { COUNTRIES, type CountryRef } from '../lib/countries';
+import { type CountryRef } from '../lib/countries';
+import { useCountries } from '../lib/v2/reference';
 
 /**
  * Phone input with a country-code (dial code) selector for the admin panel.
@@ -12,7 +13,6 @@ import { COUNTRIES, type CountryRef } from '../lib/countries';
  * below, so the richer shared shape is a drop-in.
  */
 export type Country = CountryRef;
-export { COUNTRIES };
 
 export const DEFAULT_DIAL = '+91';
 
@@ -31,7 +31,8 @@ export default function PhoneInput({
   placeholder = 'Mobile number', required, disabled, className = '',
 }: Props) {
   const dial = dialCode || DEFAULT_DIAL;
-  const options = useMemo(() => COUNTRIES, []);
+  const all = useCountries();
+  const options = useMemo(() => all.filter((c) => c.dial), [all]);
   const known = options.some((c) => c.dial === dial);
 
   return (

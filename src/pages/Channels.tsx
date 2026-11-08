@@ -237,6 +237,9 @@ export default function Channels() {
                       ? <Badge className="bg-green-100 text-green-700">Connected</Badge>
                       : <Badge variant="secondary">Paused</Badge>)}
                   </div>
+                  {(p.code === 'facebook_catalog' || p.code === 'whatsapp_catalog') && (
+                    <Link to="/panel/marketing/meta?tab=catalog" className="block text-xs font-medium text-primary hover:underline">Manage in Facebook and Instagram</Link>
+                  )}
 
                   {conn ? (
                     <>

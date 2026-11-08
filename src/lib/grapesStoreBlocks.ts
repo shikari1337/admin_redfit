@@ -380,6 +380,36 @@ export default function storeBlocks(editor: Editor, opts: StoreBlocksOpts = {}) 
           </div>`).join('')}</div>`);
     });
 
+  homeSection('instagram-feed', 'store-instagram-feed', 'Instagram feed (live)',
+    [
+      { type: 'text', name: 'data-title', label: 'Heading' },
+      { type: 'text', name: 'data-subtitle', label: 'Sub-heading' },
+      { type: 'number', name: 'data-count', label: 'Posts shown (blank: store setting)' },
+      { type: 'select', name: 'data-layout', label: 'Layout', options: [
+        { id: '', label: 'Store setting' }, { id: 'grid', label: 'Grid' }, { id: 'carousel', label: 'Carousel' },
+      ] },
+      { type: 'select', name: 'data-show-products', label: 'Tagged products', options: [
+        { id: 'true', label: 'Show' }, { id: 'false', label: 'Hide' },
+      ] },
+    ],
+    (el, a) => {
+      const n = Math.max(1, Math.min(6, Number(a['data-count']) || 6));
+      el.innerHTML = shell('Instagram feed', a['data-title'], 'posts from your Instagram account, set in Marketing, Facebook and Instagram',
+        `<div style="display:grid;grid-template-columns:repeat(${n},1fr);gap:8px">${Array.from({ length: n }, () =>
+          `<div style="aspect-ratio:1;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:8px"></div>`).join('')}</div>`);
+    });
+
+  homeSection('embed-post', 'store-embed-post', 'Embed post (live)',
+    [
+      { type: 'text', name: 'data-title', label: 'Heading' },
+      { type: 'text', name: 'data-subtitle', label: 'Sub-heading' },
+      { type: 'text', name: 'data-url', label: 'Post address (Facebook, Instagram or Threads)' },
+    ],
+    (el, a) => {
+      el.innerHTML = shell('Embed post', a['data-title'], a['data-url'] ? esc(a['data-url']) : 'add the post address',
+        `<div style="height:120px;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:8px"></div>`);
+    });
+
   homeSection('stats-bar', 'store-stats-bar', 'Stats bar (live)',
     [],
     (el, a) => {

@@ -1,5 +1,6 @@
 import React from 'react';
 import ImageInputWithActions from '../common/ImageInputWithActions';
+import { v2call } from '@/lib/v2/http';
 
 /**
  * Schema-driven editors for the STOREFRONT HOME PAGE block types
@@ -12,7 +13,7 @@ import ImageInputWithActions from '../common/ImageInputWithActions';
  * new section types only need a schema entry.
  */
 
-type FieldType = 'text' | 'textarea' | 'number' | 'url' | 'image' | 'select' | 'list' | 'group' | 'stringlist';
+type FieldType = 'text' | 'textarea' | 'number' | 'url' | 'image' | 'select' | 'list' | 'group' | 'stringlist' | 'boolean';
 
 interface Field {
   key: string;                    // supports dot paths e.g. "config.collection"
@@ -198,6 +199,24 @@ export const HOMEPAGE_SCHEMAS: Record<string, Field[]> = {
   'google-reviews': [
     ...titleSub,
   ],
+  // The store's own Instagram posts with their tagged products (META-0). The account and the tags are set in
+  // Marketing, Facebook and Instagram; blank fields fall back to the store's Instagram feed settings there.
+  'instagram-feed': [
+    ...titleSub,
+    { key: 'count', label: 'Posts shown', type: 'number', help: 'Blank uses the store setting.' },
+    { key: 'layout', label: 'Layout', type: 'select', options: [
+      { value: '', label: 'Store setting' },
+      { value: 'grid', label: 'Grid' },
+      { value: 'carousel', label: 'Carousel' },
+    ] },
+    { key: 'showProducts', label: 'Show tagged products under each post', type: 'boolean' },
+  ],
+  // One chosen public post of Facebook, Instagram or Threads (META-14). The storefront asks Meta's oEmbed through the
+  // backend (cached a day); nothing shows when the address is empty or Meta gives no embed.
+  'embed-post': [
+    ...titleSub,
+    { key: 'url', label: 'Post address', type: 'url', help: 'A public post on facebook.com, instagram.com or threads.com.' },
+  ],
 };
 
 export const HOMEPAGE_BLOCK_TYPES = Object.keys(HOMEPAGE_SCHEMAS);
@@ -223,6 +242,8 @@ export function homepageBlockDefault(blockType: string): any {
     case 'faq-accordion': return { title: 'Frequently Asked Questions', subtitle: '', source: 'api', limit: 8 };
     case 'cta-banner': return { title: 'Start your wellness journey today', subtitle: '', buttonText: 'Shop All Products', buttonUrl: '/products', secondaryButtonText: 'Browse Categories', secondaryButtonUrl: '/categories' };
     case 'google-reviews': return { title: 'Loved by customers on Google', subtitle: 'Real reviews from our Google Business profile' };
+    case 'instagram-feed': return { title: 'Shop our Instagram', subtitle: 'Tap a post to see the products in it', showProducts: true };
+    case 'embed-post': return { title: '', subtitle: '', url: '' };
     default: return {};
   }
 }
@@ -296,6 +317,15 @@ function FieldInput({ field, data, onChange }: { field: Field; data: any; onChan
     );
   }
 
+  if (field.type === 'boolean') {
+    return (
+      <label className="flex items-center gap-2 text-sm text-gray-700">
+        <input type="checkbox" checked={val === true} onChange={(e) => set(e.target.checked)} />
+        {field.label}
+      </label>
+    );
+  }
+
   // An image field is a PICKER, not a URL box. Every other block editor in the
   // admin (BlockEditors / BlockEditorsExtra) already used ImageInputWithActions
   // — upload, choose from the media library, preview — but the homepage blocks
@@ -334,6 +364,31 @@ function FieldInput({ field, data, onChange }: { field: Field; data: any; onChan
   );
 }
 
+/** Preview of an embed-post block through the staff route (the same HTML the storefront shows, in a sandboxed frame). */
+const EmbedPreview: React.FC<{ url: string }> = ({ url }) => {
+  const [state, setState] = React.useState<{ html?: string; error?: string; busy?: boolean }>({});
+  const run = () => {
+    setState({ busy: true });
+    v2call<{ html?: string | null }>('GET', '/api/v2/marketing/embed/preview', { params: { url } })
+      .then((r) => setState(r?.html ? { html: r.html } : { error: 'Meta gave no embed for that post.' }))
+      .catch((e: any) => setState({ error: e?.response?.data?.error?.message || e?.message || 'The preview could not be loaded.' }));
+  };
+  return (
+    <div className="space-y-2">
+      <button type="button" disabled={!url || state.busy} onClick={run}
+        className="text-xs font-semibold px-3 py-1.5 rounded border border-gray-300 disabled:opacity-50">
+        {state.busy ? 'Loading preview' : 'Preview post'}
+      </button>
+      {state.error && <p className="text-[11px] text-red-700">{state.error}</p>}
+      {state.html && (
+        <iframe title="Embed preview" sandbox="allow-scripts allow-popups"
+          srcDoc={`<!doctype html><meta charset="utf-8"><body style="margin:0">${state.html}`}
+          className="w-full h-96 border border-gray-200 rounded" />
+      )}
+    </div>
+  );
+};
+
 const HomepageBlockEditor: React.FC<{ blockType: string; data: any; onChange: (d: any) => void }> = ({ blockType, data, onChange }) => {
   const schema = HOMEPAGE_SCHEMAS[blockType];
   if (!schema) return null;
@@ -344,9 +399,15 @@ const HomepageBlockEditor: React.FC<{ blockType: string; data: any; onChange: (d
           The reviews widget embed is configured in <strong>SEO &amp; Analytics ▸ Google Reviews</strong>. This section just sets the heading.
         </p>
       )}
+      {blockType === 'instagram-feed' && (
+        <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+          Posts come from the Instagram account picked in <strong>Marketing, Facebook and Instagram</strong>. Turn the feed on and tag products there.
+        </p>
+      )}
       {schema.map((f) => (
         <FieldInput key={f.key} field={f} data={data || {}} onChange={onChange} />
       ))}
+      {blockType === 'embed-post' && <EmbedPreview url={String((data || {}).url || '')} />}
     </div>
   );
 };

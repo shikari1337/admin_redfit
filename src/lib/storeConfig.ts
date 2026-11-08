@@ -101,8 +101,9 @@ export interface StoreConfig {
 // Canonical list now in lib/countries.ts (was near-duplicated in
 // components/PhoneInput.tsx — L1-redundancy.md item 13); imported (not just
 // re-exported) because `countryName()` below reads `COUNTRIES` locally.
-import { COUNTRIES, type CountryRef } from './countries';
-export { COUNTRIES, type CountryRef };
+import { type CountryRef } from './countries';
+import { countriesNow } from './v2/reference';
+export { type CountryRef };
 
 export interface CurrencyRef { code: string; symbol: string; name: string; }
 
@@ -319,7 +320,7 @@ export function storeConfigSavePayload(cfg: StoreConfig) {
 }
 
 export function countryName(code: string): string {
-  return COUNTRIES.find((c) => c.code === code)?.name ?? code;
+  return countriesNow().find((c) => c.code === code)?.name ?? code;
 }
 
 export function currencySymbol(code: string): string {

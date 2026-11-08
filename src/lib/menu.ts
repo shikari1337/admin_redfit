@@ -31,6 +31,10 @@
 import type { LucideIcon } from 'lucide-react';
 // Messaging group (ADMIN-MSG-1) — kept on its own line so the shared import above stays untouched.
 import { MessagesSquare, MessageCircle, Smartphone, ShoppingBag } from 'lucide-react';
+// Marketing group (META-15A), on its own line for the same reason.
+import { Target, Share2, Send } from 'lucide-react';
+// Marketing inbox (META-15B), on its own line for the same reason.
+import { Inbox as InboxIcon } from 'lucide-react';
 import {
   Home, ShoppingCart, Package2, Wallet, Truck, Users, LineChart, Settings,
   RotateCcw, FileText, Store, Megaphone, Ticket, Plug, Palette, Star,
@@ -238,43 +242,109 @@ export const MENU: MenuGroup[] = [
     { label: 'Gallery', to: '/gallery', icon: Images, perm: 'content.read', tip: 'Every image this store has uploaded.' },
   ]),
 
-  one('marketing', 'Marketing', Megaphone, '/panel/marketing', [
-    {
-      label: 'Marketing', to: '/panel/marketing', icon: Megaphone, perm: 'marketing.read', modules: ['marketing'],
-      tip: 'What is running and what it is bringing in.',
-      children: [
-        { label: 'Overview', to: '/panel/marketing', perm: 'marketing.read', modules: ['marketing'], tip: 'What is running and what it is bringing in.' },
-        { label: 'Campaigns', to: '/panel/marketing/campaigns', perm: 'marketing.read', modules: ['marketing'], tip: 'One panel per channel: SMS, WhatsApp, email, push.', owns: ['/panel/marketing/campaigns/:channel'] },
-        { label: 'Templates', to: '/panel/marketing/templates', perm: 'marketing.read', modules: ['marketing'], tip: 'Approve the message designs campaigns are allowed to send.' },
-        { label: 'Audiences & Lists', to: '/panel/marketing/audiences', perm: 'marketing.manage', modules: ['marketing'], tip: 'Saved lists of people to send to.' },
-        { label: 'Automation', to: '/panel/marketing/automation', perm: 'marketing.read', modules: ['marketing'], tip: 'Triggered journeys and scheduled marketing work.' },
-        { label: 'Performance', to: '/panel/marketing/performance', perm: 'marketing.read', modules: ['marketing'], tip: 'Campaign performance, attribution and conversions.' },
-        { label: 'Growth', to: '/panel/marketing/growth', perm: 'marketing.read', modules: ['marketing'], tip: 'Growth metrics and opportunities.' },
-        { label: 'Marketing Analytics', to: '/panel/marketing/analytics', perm: 'marketing.read', modules: ['marketing'], tip: 'Channel, campaign and customer marketing analytics.' },
-        { label: 'Ads Manager', to: '/panel/marketing/ads', perm: 'ads.read', modules: ['marketing', 'ads_management'], tip: 'Google and Meta campaigns, spend and results.', owns: ['/panel/marketing/ads/oauth/callback'] },
-        { label: 'AI Ads Studio', to: '/panel/marketing/ads/ai-studio', perm: 'ads.read', modules: ['marketing', 'ads_management', 'connectors'], tip: 'AI drafts a campaign; you review before anything runs.' },
-        { label: 'Custom Audiences', to: '/panel/marketing/ads/audiences', perm: 'ads.read', modules: ['marketing', 'ads_management'], tip: 'Custom audiences pushed to Google and Meta.' },
-        { label: 'Platform Connections', to: '/panel/marketing/connections', perm: 'marketing.read', modules: ['connectors'], tip: 'Sign in to Google and Meta once; every service follows.', owns: ['/panel/marketing/connections/callback'] },
-        { label: 'Search & Analytics', to: '/panel/marketing/connections/insights', perm: 'marketing.read', modules: ['connectors'], tip: 'What people searched for before they found you.' },
-        { label: 'Google Reviews', to: '/panel/marketing/google-reviews', perm: 'content.read', modules: ['connectors'], tip: 'Your Business Profile reviews — reply and publish.' },
-        { label: 'Messaging', to: '/marketing', perm: 'marketing.read', modules: ['marketing'], tip: 'The single-screen sender, with its history.' },
-        { label: 'Compliance', to: '/panel/marketing/compliance', perm: 'marketing.read', modules: ['marketing'], tip: 'Consent, suppression and marketing data controls.' },
-        { label: 'Marketing Settings', to: '/panel/marketing/settings', perm: 'marketing.read', modules: ['marketing'], tip: 'Channel readiness and marketing configuration.' },
-      ],
-    },
-    {
-      label: 'Multi-Channel Sync', to: '/channels', icon: Plug, perm: 'channels.read', modules: ['channel_sync'],
-      tip: 'Marketplaces and feeds this catalog is sold on.',
-      children: [
-        { label: 'Channels', to: '/channels', perm: 'channels.read', modules: ['channel_sync'], tip: 'Marketplaces and feeds this catalog is sold on.' },
-        { label: 'Daily file', to: '/channels/daily', perm: 'channels.read', modules: ['channel_sync'], tip: 'The manual upload/download for marketplaces with no API.' },
-        { label: 'Excel Import', to: '/channels/import', perm: 'channels.manage', modules: ['channel_sync'], tip: 'Bring a marketplace’s orders in from their sheet.' },
-        { label: 'Mapping', to: '/channels/mapping', perm: 'channels.manage', modules: ['channel_sync'], tip: 'Which of their columns is which of your fields.' },
-        { label: 'Allocation', to: '/channels/allocation', perm: 'channels.manage', modules: ['channel_sync'], tip: 'How much stock each channel may sell.' },
-      ],
-    },
-    { label: 'Coupons', to: '/coupons', icon: Ticket, perm: 'marketing.read', modules: ['coupons'], tip: 'Discount codes and who may use them.', owns: ['/coupons/new', '/coupons/:id/edit'] },
-  ]),
+  // META-MASTER section 1 (lane META-15A, 8 Nov 2026): the Marketing group in sub groups, each folded under one item
+  // so the sidebar stays short (rule at the top of this file). Every item keeps the gate it had; the new Ads and
+  // Meta pages take the ads routes' gate (`ads.read` or `ads.manage`, modules marketing and ads_management) or the
+  // Facebook and Instagram page's (`marketing.read`, connectors). Only pages that exist are listed.
+  {
+    id: 'marketing', label: 'Marketing', icon: Megaphone, home: '/panel/marketing',
+    subs: [
+      { label: 'Overview', items: [
+        { label: 'Marketing home', to: '/panel/marketing', icon: Megaphone, perm: 'marketing.read', modules: ['marketing'], tip: 'What to act on today, then what is running and what it brings in.' },
+      ] },
+      { label: 'Ads', items: [
+        {
+          label: 'Ads', to: '/panel/marketing/ads/manager', icon: Target, perm: 'ads.read', modules: ['marketing', 'ads_management'],
+          tip: 'Create and run Meta ads, with audiences, creatives, rules and tests.',
+          children: [
+            { label: 'Ads Manager', to: '/panel/marketing/ads/manager', perm: 'ads.read', modules: ['marketing', 'ads_management'], tip: 'Every Meta campaign, ad set and ad, with spend and results.' },
+            { label: 'Create ad', to: '/panel/marketing/ads/create', perm: 'ads.manage', modules: ['marketing', 'ads_management'], tip: 'Any objective and format, created paused until you resume it.' },
+            { label: 'Audiences', to: '/panel/marketing/ads/audiences', perm: 'ads.read', modules: ['marketing', 'ads_management'], tip: 'Website visitors, engaged people, lookalikes and customer lists.' },
+            { label: 'Creative library', to: '/panel/marketing/ads/library', perm: 'ads.read', modules: ['marketing', 'ads_management'], tip: 'Pictures and videos on your ad account, ready to reuse.' },
+            { label: 'Lead forms', to: '/panel/marketing/ads/leads', perm: 'marketing.read', modules: ['marketing'], tip: 'Instant forms on your Page and the leads they brought.' },
+            { label: 'Rules and tests', to: '/panel/marketing/ads/rules', perm: 'ads.read', modules: ['marketing', 'ads_management'], tip: 'Meta suggestions, automatic rules and split tests.' },
+            { label: 'AI Ads Studio', to: '/panel/marketing/ads/ai-studio', perm: 'ads.read', modules: ['marketing', 'ads_management', 'connectors'], tip: 'AI drafts a campaign; you review before anything runs.' },
+            { label: 'Ad accounts', to: '/panel/marketing/ads', perm: 'ads.read', modules: ['marketing', 'ads_management'], tip: 'Google, Meta and Snapchat accounts, and Google campaigns.', owns: ['/panel/marketing/ads/oauth/callback'] },
+          ],
+        },
+      ] },
+      { label: 'Social', items: [
+        {
+          label: 'Social', to: '/panel/marketing/meta', icon: Share2, perm: 'marketing.read', modules: ['connectors'],
+          tip: 'Facebook, Instagram and Google reviews.',
+          children: [
+            { label: 'Facebook and Instagram', to: '/panel/marketing/meta', perm: 'marketing.read', modules: ['connectors'], tip: 'Connect Meta, pick your Page, accounts and pixel, and see what is missing.' },
+            { label: 'Publisher', to: '/panel/marketing/social/publisher', perm: 'marketing.read', modules: ['marketing'], tip: 'Plan, schedule and post to your Page, Instagram and Threads.' },
+            { label: 'Comments', to: '/panel/marketing/social/comments', perm: 'marketing.read', modules: ['marketing'], tip: 'Answer, hide or message people who commented.' },
+            { label: 'Instagram', to: '/panel/marketing/meta/instagram', perm: 'marketing.read', modules: ['connectors'], tip: 'Your posts, product tags and the feed on your store.' },
+            { label: 'Google Reviews', to: '/panel/marketing/google-reviews', perm: 'content.read', modules: ['connectors'], tip: 'Your Business Profile reviews: reply and publish.' },
+          ],
+        },
+      ] },
+      { label: 'Messaging', items: [
+        {
+          label: 'Inbox', to: '/panel/marketing/inbox', icon: InboxIcon, perm: 'marketing.read',
+          tip: 'WhatsApp, Messenger and Instagram chats in one place.', owns: ['/panel/marketing/inbox/settings'],
+          children: [
+            { label: 'All chats', to: '/panel/marketing/inbox', perm: 'marketing.read', tip: 'WhatsApp, Messenger and Instagram chats, with the customer beside them.' },
+            { label: 'Messenger settings', to: '/panel/marketing/inbox/settings', perm: 'marketing.read', tip: 'Greeting, ice breakers and the menu people see in a chat.' },
+          ],
+        },
+        {
+          label: 'Message campaigns', to: '/panel/marketing/campaigns', icon: Send, perm: 'marketing.read', modules: ['marketing'],
+          tip: 'SMS, WhatsApp, email and push campaigns to your lists.', owns: ['/panel/marketing/campaigns/:channel'],
+          children: [
+            { label: 'Campaigns', to: '/panel/marketing/campaigns', perm: 'marketing.read', modules: ['marketing'], tip: 'One panel per channel: SMS, WhatsApp, email, push.', owns: ['/panel/marketing/campaigns/:channel'] },
+            { label: 'Quick send', to: '/marketing', perm: 'marketing.read', modules: ['marketing'], tip: 'The single screen sender, with its history.' },
+            { label: 'Templates', to: '/panel/marketing/templates', perm: 'marketing.read', modules: ['marketing'], tip: 'Approve the message designs campaigns may send.' },
+            { label: 'Automation', to: '/panel/marketing/automation', perm: 'marketing.read', modules: ['marketing'], tip: 'Triggered journeys and scheduled marketing work.' },
+            { label: 'Contact lists', to: '/panel/marketing/audiences', perm: 'marketing.manage', modules: ['marketing'], tip: 'Saved lists of people to send to.' },
+          ],
+        },
+      ] },
+      { label: 'Catalog and shopping', items: [
+        { label: 'Meta catalog', to: '/panel/marketing/meta/catalog', icon: ShoppingBag, perm: 'marketing.read', modules: ['connectors'], tip: 'Your products on Facebook, Instagram and WhatsApp, and what Meta refused.' },
+        {
+          label: 'Multi-Channel Sync', to: '/channels', icon: Plug, perm: 'channels.read', modules: ['channel_sync'],
+          tip: 'Marketplaces and feeds this catalog is sold on.',
+          children: [
+            { label: 'Channels', to: '/channels', perm: 'channels.read', modules: ['channel_sync'], tip: 'Marketplaces and feeds this catalog is sold on.' },
+            { label: 'Daily file', to: '/channels/daily', perm: 'channels.read', modules: ['channel_sync'], tip: 'The manual upload and download for marketplaces with no API.' },
+            { label: 'Excel Import', to: '/channels/import', perm: 'channels.manage', modules: ['channel_sync'], tip: "Bring a marketplace's orders in from their sheet." },
+            { label: 'Mapping', to: '/channels/mapping', perm: 'channels.manage', modules: ['channel_sync'], tip: 'Which of their columns is which of your fields.' },
+            { label: 'Allocation', to: '/channels/allocation', perm: 'channels.manage', modules: ['channel_sync'], tip: 'How much stock each channel may sell.' },
+          ],
+        },
+        { label: 'Coupons', to: '/coupons', icon: Ticket, perm: 'marketing.read', modules: ['coupons'], tip: 'Discount codes and who may use them.', owns: ['/coupons/new', '/coupons/:id/edit'] },
+      ] },
+      { label: 'Insights', items: [
+        {
+          label: 'Insights', to: '/panel/marketing/performance', icon: LineChart, perm: 'marketing.read', modules: ['marketing'],
+          tip: 'What your ads and campaigns brought in, and what people searched.',
+          children: [
+            { label: 'Ads analytics', to: '/panel/marketing/ads/analytics', perm: 'ads.read', modules: ['marketing', 'ads_management'], tip: 'Meta ad results by day and audience, next to your store orders.' },
+            { label: 'Social analytics', to: '/panel/marketing/social/insights', perm: 'marketing.read', modules: ['marketing'], tip: 'Views, reach and followers on your Page and Instagram.' },
+            { label: 'Performance', to: '/panel/marketing/performance', perm: 'marketing.read', modules: ['marketing'], tip: 'Campaign performance, attribution and conversions.' },
+            { label: 'Marketing reports', to: '/panel/marketing/analytics', perm: 'marketing.read', modules: ['marketing'], tip: 'Channel, campaign and customer marketing analytics.' },
+            { label: 'Growth', to: '/panel/marketing/growth', perm: 'marketing.read', modules: ['marketing'], tip: 'Cohorts, lifetime value and the funnel.' },
+            { label: 'Search insights', to: '/panel/marketing/connections/insights', perm: 'marketing.read', modules: ['connectors'], tip: 'What people searched for before they found you.' },
+          ],
+        },
+      ] },
+      { label: 'Setup', items: [
+        {
+          label: 'Marketing setup', to: '/panel/marketing/connections', icon: SlidersHorizontal, perm: 'marketing.read',
+          tip: 'Connections, the pixel, consent and sending settings.',
+          children: [
+            { label: 'Connections', to: '/panel/marketing/connections', perm: 'marketing.read', modules: ['connectors'], tip: 'Sign in to Google and Meta once; every service follows.', owns: ['/panel/marketing/connections/callback'] },
+            { label: 'Events health', to: '/panel/marketing/meta/events', perm: 'marketing.read', modules: ['connectors'], tip: 'What Meta received from your pixel and server, and how well it matched.' },
+            { label: 'Compliance', to: '/panel/marketing/compliance', perm: 'marketing.read', modules: ['marketing'], tip: 'Consent, suppression and marketing data controls.' },
+            { label: 'Settings', to: '/panel/marketing/settings', perm: 'marketing.read', modules: ['marketing'], tip: 'Channel readiness and marketing configuration.' },
+          ],
+        },
+      ] },
+    ],
+  },
 
   // MSG-0 (lane ADMIN-MSG-1): ONE place for every message the store sends and receives. Built beside the old
   // places (Settings ▸ Message templates, API Integrations ▸ SMTP/WhatsApp, Cart Recovery Automation); those

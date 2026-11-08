@@ -4,6 +4,7 @@ import { api } from '../../../services/api';
 import { useAuth } from '../../../contexts/AuthContext';
 import { payload } from '../../../lib/unwrap';
 import MetaWebhooksCard from './MetaWebhooksCard';
+import { startConnect } from '../../../lib/connectorConnect';
 
 /**
  * Platform Connections — the Site Kit-style hub.
@@ -95,16 +96,9 @@ const Connections: React.FC = () => {
     if (!services.length) { setError('Pick at least one service to connect.'); return; }
     setError(''); setInfo(''); setBusy(provider.key);
     try {
-      const redirectUri = `${window.location.origin}/panel/marketing/connections/callback`;
-      const existing = connectionFor(provider.key);
-      const res = await api.post(`/connectors/${provider.key}/connect`, {
-        services, redirectUri, connectionId: existing?.id ?? null,
-      });
-      const data = payload<any>(res);
-      if (!data?.url) { setError(data?.note ?? 'Could not build the consent URL.'); return; }
-      // Remember where to come back to; the callback page reads this.
-      sessionStorage.setItem('connector_return', window.location.pathname);
-      window.location.href = data.url;
+      // The one consent flow (lib/connectorConnect.ts), shared with Facebook and Instagram.
+      const problem = await startConnect(provider.key, services, connectionFor(provider.key)?.id ?? null);
+      if (problem) setError(problem);
     } catch (e: any) {
       const d = e?.response?.data;
       setError(d?.note ?? d?.message ?? e.message);
@@ -316,6 +310,11 @@ const Connections: React.FC = () => {
                     {conn?.lastError && (
                       <p className="mt-1 text-xs text-red-600">{conn.lastError}</p>
                     )}
+                    {provider.key === 'meta' && (
+                      <p className="mt-1 text-xs">
+                        <Link to="/panel/marketing/meta" className="font-medium text-primary hover:underline">Manage in Facebook and Instagram</Link>
+                      </p>
+                    )}
                     {!provider.platformAppConfigured && !conn && (
                       <p className="mt-1 text-xs text-amber-700">
                         No platform-wide {provider.label} app configured — this store must supply its own
@@ -480,8 +479,8 @@ const Connections: React.FC = () => {
                             <p className="text-sm text-gray-500">Loading…</p>
                           ) : resources[pickerKey].length === 0 ? (
                             <p className="text-sm text-gray-600">
-                              Nothing available. Make sure the connected Google account has access to a
-                              {' '}{def.resourceLabel} — then reload.
+                              Nothing available. Make sure the connected {provider.label} account has access to a
+                              {' '}{def.resourceLabel}, then reload.
                             </p>
                           ) : (
                             <ul className="max-h-56 space-y-1 overflow-auto">

@@ -15,8 +15,9 @@ import {
 } from 'lucide-react';
 import {
   StoreConfig, EMPTY_STORE_CONFIG, loadStoreConfig, storeConfigSavePayload,
-  COUNTRIES, CURRENCIES, LANGUAGES, INDIAN_STATES,
+  CURRENCIES, LANGUAGES, INDIAN_STATES,
 } from '@/lib/storeConfig';
+import { useCountries } from '@/lib/v2/reference';
 
 // ─── Step definitions ─────────────────────────────────────────────────────────
 
@@ -41,6 +42,7 @@ const STEPS = [
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const SetupWizard: React.FC = () => {
+  const COUNTRIES = useCountries();
   const navigate = useNavigate();
   const [currentStep, setCurrentStep] = useState(0);
   const [saving, setSaving]           = useState(false);
