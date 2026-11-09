@@ -50,6 +50,14 @@ export const LoadFailure: React.FC<{ failure: Failure; what: string; onRetry?: (
 /** The server's words for a refused write. */
 export const writeError = (e: any, fallback: string) => errText(e, fallback);
 
+/** A pixel's role and how its events travel, in the words a store owner uses (META-SETS). */
+export const PIXEL_ROLE: Record<string, string> = { store: 'Your own pixel', connected: 'Added through the Meta connection' };
+export const PIXEL_SERVER: Record<string, string> = {
+  connection: 'Browser and server events, through the Meta connection.',
+  pasted_token: 'Browser and server events, with the token you pasted.',
+  browser_only: 'Browser events only.',
+};
+
 /** One titled section of a tab. */
 export const Section: React.FC<{
   title: React.ReactNode;

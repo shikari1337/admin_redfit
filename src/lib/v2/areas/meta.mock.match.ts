@@ -79,6 +79,7 @@ export const matchMock = {
     const match: EventsMatch = {
       server_events_source: fresh() ? 'pasted_token' : 'connection',
       connection_pixel_id: fresh() ? null : '1187654321098765',
+      connected_pixel_id: null,
       pixel_setup: fresh() ? null : {
         pixel_id: '1187654321098765', automatic_matching: true, fields: ['em', 'fn', 'ln', 'ph', 'ct', 'st', 'zp', 'country', 'external_id'],
         first_party_cookies: 'FIRST_PARTY_COOKIE_ENABLED', fields_asked: ['em', 'fn', 'ln', 'ph', 'ct', 'st', 'zp', 'country', 'external_id'],

@@ -4,6 +4,9 @@
  * its own diagnostics, what our server sent or failed to send, the last error, "Read from Meta now", the test event
  * code and the two switches of the `metaPixel` setting (business events, product level events, EVT-05).
  *
+ * Two pixels (META-SETS): the pixel picked through the Meta connection is added beside the store's own, and the page
+ * shows one pixel's figures at a time with its role.
+ *
  * One pixel id (EVT-08): the page reads and writes `metaPixel.pixelId` only; an id still kept under the older
  * `tracking.metaPixelId` is shown with a button that saves it as the one id. The pixel picked in Facebook and
  * Instagram setup is compared with it, as the wave 1 Events tab did.
@@ -29,7 +32,7 @@ import { localeDate } from '@/utils/date';
 import { metaApi, metaEventsApi, metaMatchApi, type EventDay, type EventQuality, type EventSettings, type EventsMatch, type MatchGap, type RefusedEvent } from '@/lib/v2/areas/meta';
 import { useMetaCtx, type MetaCtx } from './useMetaCtx';
 import MetaHeader from './MetaHeader';
-import { Figure, Lead, LoadFailure, Section, StateChip, ago, linkCls, num, plural, useLoad, writeError, type Tone } from './common';
+import { Figure, Lead, LoadFailure, PIXEL_ROLE, PIXEL_SERVER, Section, StateChip, ago, linkCls, num, plural, useLoad, writeError, type Tone } from './common';
 import { META_ROUTES, connectionsHref, metaHref } from './routes';
 
 /** The look backs the page offers (the route takes 1 to 90 days). */
@@ -54,7 +57,8 @@ const EventsTab: React.FC<{ ctx: MetaCtx }> = ({ ctx }) => {
   const { toast } = useToast();
   const [range, setRange] = useState<string>('14');
   // One read: META-16's part and META-23's (match quality, the pixel's setup, META-18's refused rows).
-  const healthQ = useLoad(() => metaMatchApi.health(Number(range)), [range]);
+  const [pixelChoice, setPixelChoice] = useState<string>('');
+  const healthQ = useLoad(() => metaMatchApi.health(Number(range), pixelChoice || undefined), [range, pixelChoice]);
   const settingsQ = useLoad(() => metaApi.eventSettings(), []);
   const [reading, setReading] = useState(false);
   const [picked, setPicked] = useState<string>('');
@@ -91,10 +95,11 @@ const EventsTab: React.FC<{ ctx: MetaCtx }> = ({ ctx }) => {
   const acts: Array<{ tone: Tone; text: React.ReactNode; action?: React.ReactNode }> = [];
   if (s && h) {
     if (!s.pixelId) acts.push({ tone: 'bad', text: 'No pixel id is saved, so the store sends events nowhere.', action: <Link className={linkCls} to="/settings/api-integrations">Add it in API and Integrations</Link> });
-    else if (setupPixel && setupPixel.id !== s.pixelId) acts.push({ tone: 'bad', text: <>Events go to pixel <span className="font-mono">{s.pixelId}</span>, but setup picked {setupPixel.name} (<span className="font-mono">{setupPixel.id}</span>).</>, action: <Link className={linkCls} to={connectionsHref('meta')}>Check the Meta connection</Link> });
+    else if (setupPixel && setupPixel.id !== s.pixelId && !h.pixels.some((p) => p.pixel_id === setupPixel.id)) acts.push({ tone: 'bad', text: <>Events go to pixel <span className="font-mono">{s.pixelId}</span>, but setup picked {setupPixel.name} (<span className="font-mono">{setupPixel.id}</span>).</>, action: <Link className={linkCls} to={connectionsHref('meta')}>Check the Meta connection</Link> });
     // META-23: the server's own answer decides (a Meta connection with this pixel needs no pasted token).
     if (!h.server_events) {
-      if (s.serverEventsOn || match?.connection_pixel_id) acts.push({ tone: 'bad', text: 'Server events are on, but there is neither a Meta connection with a picked pixel nor an access token, so none are sent.', action: <Link className={linkCls} to={connectionsHref('meta')}>Pick the pixel</Link> });
+      if (h.pixels.length > 1 && h.pixels.find((p) => p.pixel_id === h.pixel_id)?.server === 'browser_only') acts.push({ tone: 'warn', text: 'Your own pixel gets browser events only, because it has no pasted token. The pixel added through the Meta connection gets browser and server events.', action: <Link className={linkCls} to="/settings/api-integrations">Paste its token</Link> });
+      else if (s.serverEventsOn || match?.connection_pixel_id) acts.push({ tone: 'bad', text: 'Server events are on, but there is neither a Meta connection with a picked pixel nor an access token, so none are sent.', action: <Link className={linkCls} to={connectionsHref('meta')}>Pick the pixel</Link> });
       else acts.push({ tone: 'warn', text: 'Server events are off, so Meta sees only what the browser sends.', action: <Link className={linkCls} to={connectionsHref('meta')}>Connect Meta and pick the pixel</Link> });
     }
     for (const low of match?.low_match_quality ?? []) acts.push({ tone: 'warn', text: <>Meta scores <b>{eventWords(low.event)}</b> {low.match_quality.toFixed(1)} of 10, under your alert of {match!.match_alert.match_quality_below}.</>, action: <button type="button" className={linkCls} onClick={() => setPicked(low.event)}>See what is missing</button> });
@@ -122,6 +127,24 @@ const EventsTab: React.FC<{ ctx: MetaCtx }> = ({ ctx }) => {
 
   return (
     <div className="space-y-5">
+      {h.pixels.length > 0 && (
+        <Section title={h.pixels.length > 1 ? 'Your two pixels' : 'Your pixel'} hint={h.pixels.length > 1 ? 'Each pixel gets its own events and its own figures. This page shows one at a time.' : 'Where this store sends its events.'}>
+          <ul className="divide-y rounded-md border">
+            {h.pixels.map((p) => (
+              <li key={p.pixel_id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-3 py-2 text-sm">
+                <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                  <StateChip tone={p.server === 'browser_only' ? 'warn' : 'good'} className="font-normal">{PIXEL_ROLE[p.role] ?? p.role}</StateChip>
+                  <span className="break-all font-mono text-xs text-gray-700">{p.pixel_id}</span>
+                  <span className="text-xs text-gray-600">{PIXEL_SERVER[p.server] ?? p.server}</span>
+                </span>
+                {h.pixels.length > 1 && (p.pixel_id === h.pixel_id
+                  ? <StateChip tone="neutral">Showing</StateChip>
+                  : <Button size="sm" variant="outline" onClick={() => setPixelChoice(p.pixel_id)}>Show this pixel</Button>)}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
       {acts.length ? (
         <Lead tone={worst} title={acts.length === 1 ? 'One thing to act on' : `${acts.length} things to act on`}>
           <ul className="mt-1 space-y-1.5">
@@ -133,7 +156,7 @@ const EventsTab: React.FC<{ ctx: MetaCtx }> = ({ ctx }) => {
           </ul>
         </Lead>
       ) : (
-        <Lead tone="good" title="Meta receives every event and matches it well">Browser and server events reach pixel {s.pixelId}, Meta pairs them, and nothing was refused in this period.</Lead>
+        <Lead tone="good" title="Meta receives every event and matches it well">Browser and server events reach pixel {h.pixel_id ?? s.pixelId}, Meta pairs them, and nothing was refused in this period.</Lead>
       )}
       {s.pixelIdFromFallback && <OldPixelId id={s.pixelId ?? ''} onSaved={settingsQ.reload} canSave={ctx.can.setup} />}
 
@@ -153,7 +176,7 @@ const EventsTab: React.FC<{ ctx: MetaCtx }> = ({ ctx }) => {
       </div>
 
       <Section title="By event" hint="Totals for the period. Pick an event to see each day, its match keys and Meta's advice.">
-        {!rows.length ? <p className="text-sm text-gray-600">Meta has counted no events for pixel {s.pixelId} in this period.</p> : (
+        {!rows.length ? <p className="text-sm text-gray-600">Meta has counted no events for pixel {h.pixel_id ?? s.pixelId} in this period.</p> : (
           <>
             <div className="hidden overflow-x-auto md:block">
               <table className="w-full text-sm">
@@ -201,7 +224,7 @@ const EventsTab: React.FC<{ ctx: MetaCtx }> = ({ ctx }) => {
         )}
       </Section>
 
-      {match && <MatchSection match={match} rows={rows} onOpen={setPicked} />}
+      {match && <MatchSection match={match} rows={rows} onOpen={setPicked} ownOfTwo={h.pixels.length > 1 && h.pixels.find((p) => p.pixel_id === h.pixel_id)?.role === 'store'} />}
 
       {current && <EventDetail row={current} gaps={(match?.gaps ?? []).filter((g) => g.event === current.event)} />}
 
@@ -243,14 +266,14 @@ const FIELD_WORDS: Record<string, string> = {
  * META-23: how well Meta can match the store's events to people. The lines come from the server (one per identifier
  * under the store's coverage alert); the pixel's own setup is what the pixel pick switched on at Meta.
  */
-const MatchSection: React.FC<{ match: EventsMatch; rows: EventRow[]; onOpen: (event: string) => void }> = ({ match, rows, onOpen }) => {
+const MatchSection: React.FC<{ match: EventsMatch; rows: EventRow[]; onOpen: (event: string) => void; ownOfTwo: boolean }> = ({ match, rows, onOpen, ownOfTwo }) => {
   const byEvent = new Map<string, MatchGap[]>();
   for (const g of match.gaps) byEvent.set(g.event, [...(byEvent.get(g.event) ?? []), g]);
   const score = (event: string) => rows.find((r) => r.event === event)?.quality?.match_quality ?? null;
   const events = [...byEvent.keys()].sort((a, b) => (score(a) ?? 11) - (score(b) ?? 11));
   const p = match.pixel_setup;
   const source = match.server_events_source === 'connection' ? 'Server events go with the store\'s Meta connection (set up when the pixel was picked).'
-    : match.server_events_source === 'pasted_token' ? 'Server events go with the access token pasted in API and Integrations. Picking the pixel on the Facebook and Instagram page moves them to the Meta connection.'
+    : match.server_events_source === 'pasted_token' ? 'Server events go with the access token pasted in API and Integrations.'
     : 'No server events are sent.';
   return (
     <Section title="Match quality" hint={`Meta matches an event to a person by the identifiers it carries. Listed: identifiers on fewer than ${match.match_alert.coverage_below}% of an event; an event under ${match.match_alert.match_quality_below} of 10 is told to the team.`}>
@@ -288,6 +311,8 @@ const MatchSection: React.FC<{ match: EventsMatch; rows: EventRow[]; onOpen: (ev
               {p.error && <p className="break-words text-amber-800">{p.error}</p>}
               {p.checked_at && <p className="text-xs text-gray-500">Checked {ago(p.checked_at)}.</p>}
             </>
+          ) : ownOfTwo ? (
+            <p>Automatic advanced matching and first party cookies are set only on the pixel added through the Meta connection, so this pixel keeps its own settings at Meta.</p>
           ) : (
             <p>Automatic advanced matching and first party cookies are switched on when the pixel is picked on the <Link className={linkCls} to={metaHref(META_ROUTES.setup)}>Facebook and Instagram setup</Link>.</p>
           )}
@@ -307,7 +332,7 @@ const RefusedSection: React.FC<{ rows: RefusedEvent[]; canResend: boolean; onDon
     if (!ask) return;
     setBusy(true);
     try {
-      const r = await metaMatchApi.resend(ask.event, ask.event_id);
+      const r = await metaMatchApi.resend(ask.event, ask.event_id, ask.platform);
       toast({
         title: r.status === 'sent' ? 'Sent again, Meta counted it' : r.status === 'skipped' ? 'Not sent' : 'Meta refused it again',
         description: r.message ?? undefined,
@@ -324,10 +349,11 @@ const RefusedSection: React.FC<{ rows: RefusedEvent[]; canResend: boolean; onDon
       <div id="refused-events" />
       <ul className="divide-y rounded-md border">
         {rows.map((r) => (
-          <li key={`${r.event}:${r.event_id}`} className="flex flex-wrap items-start justify-between gap-3 px-3 py-2.5 text-sm">
+          <li key={`${r.platform ?? 'meta'}:${r.event}:${r.event_id}`} className="flex flex-wrap items-start justify-between gap-3 px-3 py-2.5 text-sm">
             <div className="min-w-0 flex-1">
               <p className="font-medium text-gray-900">{eventWords(r.event)}{r.order_id ? <span className="font-normal text-gray-600"> for order <span className="font-mono">{r.order_id}</span></span> : null}</p>
               <p className="mt-0.5 break-words text-gray-700">{r.message}</p>
+              {r.platform === 'meta_app' && <p className="mt-0.5 text-xs text-gray-500">For the pixel added through the connection.</p>}
               <p className="mt-0.5 text-xs text-gray-500">First sent {ago(r.at)}{r.attempts && r.attempts > 1 ? `, tried ${plural(r.attempts, 'time')}` : ''}{r.resend.allowed && r.resend.until ? `; Meta takes it until ${localeDate(r.resend.until, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}` : ''}</p>
               {!r.resend.allowed && r.resend.reason && <p className="mt-0.5 text-xs text-gray-600">Cannot be sent again: {r.resend.reason}</p>}
             </div>

@@ -14,7 +14,7 @@ import { metaAdsApi, metaApi, type MetaConnection, type PickableResource, type S
 import { useMetaCtx, type MetaCtx } from './useMetaCtx';
 import { connectionsHref } from './routes';
 import MetaHeader from './MetaHeader';
-import { Lead, LoadFailure, Section, StateChip, daysUntil, linkCls, plural, useLoad, writeError } from './common';
+import { Lead, LoadFailure, PIXEL_ROLE, PIXEL_SERVER, Section, StateChip, daysUntil, linkCls, plural, useLoad, writeError } from './common';
 
 const LABEL: Record<string, { title: string; noun: string; what: string }> = {
   business: { title: 'Business', noun: 'business', what: 'The Meta business account your Page, ads and catalog belong to.' },
@@ -25,6 +25,7 @@ const LABEL: Record<string, { title: string; noun: string; what: string }> = {
   catalog: { title: 'Catalog', noun: 'catalog', what: 'Your products on Meta, for the shop, tags, WhatsApp and ads.' },
   whatsapp: { title: 'WhatsApp number', noun: 'WhatsApp number', what: 'The business number that shows your catalog in chats.' },
   messaging: { title: 'Messenger and Instagram messages', noun: 'Page for messages', what: 'Lets the inbox receive and answer Messenger and Instagram chats.' },
+  leads: { title: 'Lead forms', noun: 'Page for lead forms', what: 'Brings leads from your Facebook and Instagram forms into the CRM.' },
 };
 
 /**
@@ -33,7 +34,7 @@ const LABEL: Record<string, { title: string; noun: string; what: string }> = {
  */
 export const SERVICE_FALLBACK: Record<string, string> = {
   business: 'business', page: 'pages', instagram: 'instagram', ad_account: 'ads', pixel: 'pixel', catalog: 'merchant_feed', whatsapp: 'whatsapp',
-  messaging: 'messaging',
+  messaging: 'messaging', leads: 'lead_ads',
 };
 
 /**
@@ -67,7 +68,8 @@ const nounOf = (key: string) => LABEL[key]?.noun ?? key.replace(/_/g, ' ');
 export function needText(item: SetupItem, perms: string[]): string[] {
   const out: string[] = [];
   for (const n of item.needs) {
-    if (n === 'permission') out.push(perms.length ? `Meta has not allowed: ${perms.join(', ')}. Reconnect and tick it on Meta's screen.` : 'A permission is missing. Reconnect and allow everything Meta asks for.');
+    if (n === 'connect') out.push('Not connected yet. Use the button on this row to give access for this step only.');
+    else if (n === 'permission') out.push(perms.length ? `Meta has not allowed: ${perms.join(', ')}. Reconnect and tick it on Meta's screen.` : 'A permission is missing. Reconnect and allow everything Meta asks for.');
     else if (n === 'pick') out.push(`Pick the ${nounOf(String(item.key))} this store uses.`);
     else if (n === 'review') out.push('Meta is reviewing it. Nothing to do here; the result shows on this page.');
     else if (n === 'shopping_approval') out.push('Instagram Shopping is not approved for this account yet. Products can be tagged on your store\'s feed, but not on Instagram itself.');
@@ -99,6 +101,19 @@ const SetupTab: React.FC<{ ctx: MetaCtx }> = ({ ctx }) => {
       const provider = await metaApi.provider();
       const services = provider?.services.map((s) => s.key) ?? [];
       const problem = await metaApi.connect(services, conn?.id ?? null, `${window.location.pathname}?tab=setup`);
+      if (problem) toast({ title: 'Could not open Meta', description: problem });
+    } catch (e) {
+      toast({ title: 'Could not open Meta', description: writeError(e, 'The connection could not start.'), variant: 'destructive' });
+    } finally { setBusy(null); }
+  };
+
+  /** One row's own consent: Facebook is asked for this row's permissions only (META-SETS). */
+  const connectSet = async (item: SetupItem) => {
+    const set = item.login_set;
+    if (!set) return;
+    setBusy(`set:${set.key}`);
+    try {
+      const problem = await metaApi.connect(set.services, conn?.id ?? null, `${window.location.pathname}?tab=setup`);
       if (problem) toast({ title: 'Could not open Meta', description: problem });
     } catch (e) {
       toast({ title: 'Could not open Meta', description: writeError(e, 'The connection could not start.'), variant: 'destructive' });
@@ -147,11 +162,11 @@ const SetupTab: React.FC<{ ctx: MetaCtx }> = ({ ctx }) => {
   return (
     <div className="space-y-5">
       {!conn ? (
-        <Section title="Connect Facebook and Instagram" hint="Sign in with the Facebook account that manages your Page, Instagram, ad account and catalog. You choose what to share on Meta's own screen.">
+        <Section title="Connect Facebook and Instagram" hint="Use the button on each row below to give access one step at a time, so a problem on one step does not hold up the others. Sign in with the Facebook account that manages your Page, Instagram, ad account and catalog.">
           <div className="flex flex-wrap items-center gap-3">
             {ctx.can.setup ? (
-              <Button onClick={connect} disabled={busy === 'connect'}>
-                {busy === 'connect' && <Loader2 className="animate-spin" />} Connect with Facebook
+              <Button variant="outline" onClick={connect} disabled={busy === 'connect'}>
+                {busy === 'connect' && <Loader2 className="animate-spin" />} Connect everything at once
               </Button>
             ) : <p className="text-sm text-gray-600">Ask someone who can change settings to connect.</p>}
             <span className="text-sm text-gray-500">Already connected Google or Meta? It is the same sign-in as <Link className={linkCls} to={connectionsHref('meta')}>Platform Connections</Link>.</span>
@@ -174,7 +189,7 @@ const SetupTab: React.FC<{ ctx: MetaCtx }> = ({ ctx }) => {
         <Lead tone="good" title="Everything is set up">Your catalog, Instagram, ads and pixel are all connected to this store.</Lead>
       )}
 
-      <Section title="Checklist" hint={conn ? `${items.length - open.length} of ${items.length} done` : 'Connect first, then pick each of these.'}>
+      <Section title="Checklist" hint={conn ? `${items.length - open.length} of ${items.length} done` : 'Connect each step with its own button, then pick what it needs.'}>
         <ol className="-my-2 divide-y">
           {items.map((item) => {
             const key = String(item.key);
@@ -196,7 +211,19 @@ const SetupTab: React.FC<{ ctx: MetaCtx }> = ({ ctx }) => {
                       {item.picked && <span className="truncate rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-700" title={item.picked.id}>{item.picked.name}</span>}
                     </div>
                     <p className="mt-0.5 text-sm text-gray-600">{LABEL[key]?.what}</p>
+                    {item.pixels && item.pixels.length > 0 && (
+                      <ul className="mt-1.5 space-y-1">
+                        {item.pixels.map((p) => (
+                          <li key={p.pixel_id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm text-gray-800">
+                            <StateChip tone={p.server === 'browser_only' ? 'warn' : 'good'} className="font-normal">{PIXEL_ROLE[p.role] ?? p.role}</StateChip>
+                            <span className="font-mono text-xs text-gray-700">{p.name ? `${p.name} ${p.pixel_id}` : p.pixel_id}</span>
+                            <span className="text-xs text-gray-600">{PIXEL_SERVER[p.server] ?? p.server}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                     {item.note && <p className="mt-1 text-sm text-gray-800">{item.note}</p>}
+                    {item.login_set?.error && <p className="mt-1 text-sm text-amber-800">The last attempt for this step did not finish: {item.login_set.error}</p>}
                     {needs.map((t, i) => (
                       <p key={i} className={`mt-1 flex items-start gap-1.5 text-sm ${item.state === 'blocked' ? 'text-amber-800' : 'text-gray-800'}`}>
                         {item.needs[i] === 'review' ? <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0" /> : <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-current" />}
@@ -204,7 +231,14 @@ const SetupTab: React.FC<{ ctx: MetaCtx }> = ({ ctx }) => {
                       </p>
                     ))}
                   </div>
-                  {conn && item.action && kind !== 'wait' && (
+                  {ctx.can.setup && item.login_set?.label && (
+                    <div className="w-full shrink-0 pl-8 sm:w-auto sm:pl-0">
+                      <Button size="sm" variant={item.state === 'done' ? 'outline' : 'default'} onClick={() => connectSet(item)} disabled={busy === `set:${item.login_set.key}`}>
+                        {busy === `set:${item.login_set.key}` && <Loader2 className="animate-spin" />} {item.login_set.label}
+                      </Button>
+                    </div>
+                  )}
+                  {conn && item.action && kind !== 'wait' && !(kind === 'reconnect' && item.login_set) && (
                     <div className="w-full shrink-0 pl-8 sm:w-auto sm:pl-0">
                       {kind === 'pick' && ctx.can.setup && (
                         <Button size="sm" variant={item.state === 'done' ? 'outline' : 'default'} onClick={() => openPicker(item)} disabled={busy === key}>

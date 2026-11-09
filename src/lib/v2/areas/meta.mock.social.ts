@@ -318,6 +318,7 @@ function health(daysN = 14): EventsHealth {
     last_read: { at: LAST_READ, status: 'ok', token: 'connection', error: null },
     last_error: { at: minutesAgo(60 * 50), source: 'send', event: 'Purchase', message: 'Meta refused 4 Purchase events: (#100) Invalid parameter: event_time is more than 7 days in the past.' },
     test_event_code: EVENT_SETTINGS.testEventCode || null, server_events: EVENT_SETTINGS.serverEventsOn, product_level_events: EVENT_SETTINGS.productLevelEvents, business_events: EVENT_SETTINGS.businessEvents,
+    pixels: [],
     notes: EVENT_SETTINGS.testEventCode ? [`Test events are on: every server event carries the code ${EVENT_SETTINGS.testEventCode} and shows in Test Events. Remove the code when you are done.`] : [],
   };
 }

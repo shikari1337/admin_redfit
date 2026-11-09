@@ -104,7 +104,7 @@ export const META_PATHS = {
 
 export type SetupKey = 'business' | 'page' | 'instagram' | 'ad_account' | 'pixel' | 'catalog' | 'whatsapp';
 export type SetupState = 'done' | 'todo' | 'blocked';
-export type SetupNeed = 'permission' | 'pick' | 'review' | 'shopping_approval';
+export type SetupNeed = 'connect' | 'permission' | 'pick' | 'review' | 'shopping_approval';
 
 /**
  * The one action that fixes a row. The contract names `action` without a shape (CONTRACT QUESTION in the
@@ -129,6 +129,28 @@ export interface SetupItem {
   missing_permissions?: string[];
   /** A sentence from the server for this row (META-9C: the `messaging` row says Instagram must allow message access). */
   note?: string | null;
+  /** The row's own consent button (META-SETS); absent on a row no permission set covers. */
+  login_set?: SetupLoginSet | null;
+  /** The `pixel` row: every pixel of the store with its role (META-SETS). */
+  pixels?: SetupPixel[];
+}
+
+/** One row's own Facebook consent: it asks for `services` only, so a freeze on another step cannot block it. */
+export interface SetupLoginSet {
+  key: string;
+  state: 'connect' | 'reconnect' | 'connected' | string;
+  /** Empty when there is nothing to press. */
+  label: string;
+  services: string[];
+  error?: string | null;
+}
+
+/** `role` store = the store's own pixel, connected = added through the Meta connection. */
+export interface SetupPixel {
+  role: 'store' | 'connected' | string;
+  pixel_id: string;
+  name?: string | null;
+  server: 'connection' | 'pasted_token' | 'browser_only' | string;
 }
 
 export interface MetaConnection {
@@ -1436,6 +1458,8 @@ export interface EventsHealth {
   product_level_events: boolean;
   business_events: boolean;
   notes: string[];
+  /** Every pixel of the store with its role (META-SETS); the figures above are for `pixel_id`. */
+  pixels: SetupPixel[];
 }
 export interface EventsReadResult { pixel_id: string | null; status: 'ok' | 'partial' | 'failed' | string; events: number | null; days: number | null; token: string | null; error: string | null }
 
@@ -1546,6 +1570,7 @@ export const metaLeadsApi = {
 const eventsHealthOf = (d: any): EventsHealth => ({
   ...d,
   days: asArray<EventDay>(d?.days), quality: asArray<EventQuality>(d?.quality), notes: asArray<string>(d?.notes),
+  pixels: asArray<SetupPixel>(d?.pixels),
   server_events: !!d?.server_events, product_level_events: d?.product_level_events !== false, business_events: d?.business_events !== false,
 });
 
@@ -2007,6 +2032,8 @@ export interface PixelSetup {
 }
 /** A server event Meta did not count (META-18), with whether a person may send it again. */
 export interface RefusedEvent {
+  /** Which pixel's row (META-SETS): `meta` the store's own, `meta_app` the one added through the connection. */
+  platform?: string | null;
   event: string;
   event_id: string;
   order_id: string | null;
@@ -2021,6 +2048,8 @@ export interface EventsMatch {
   /** Where the server's token comes from: the store's Meta connection, a token pasted in API and Integrations, or none. */
   server_events_source: 'connection' | 'pasted_token' | string | null;
   connection_pixel_id: string | null;
+  /** The pixel added beside the store's own through the Meta connection (META-SETS). */
+  connected_pixel_id: string | null;
   pixel_setup: PixelSetup | null;
   /** The store's `metaPixel.matchQualityAlert` (out of 10) and `matchKeyCoverageAlert` (%). */
   match_alert: { match_quality_below: number; coverage_below: number };
@@ -2033,6 +2062,7 @@ export interface ResendResult { event: string; event_id: string; order_id: strin
 const eventsMatchOf = (d: any): EventsMatch => ({
   server_events_source: d?.server_events_source ?? null,
   connection_pixel_id: d?.connection_pixel_id ?? null,
+  connected_pixel_id: d?.connected_pixel_id ?? null,
   pixel_setup: d?.pixel_setup && typeof d.pixel_setup === 'object' ? { ...d.pixel_setup, fields: d.pixel_setup.fields ?? null } : null,
   match_alert: {
     match_quality_below: Number(d?.match_alert?.match_quality_below ?? 6),
@@ -2051,9 +2081,9 @@ const matchMock = () => import('./meta.mock.match').then((m) => m.matchMock);
 
 export const metaMatchApi = {
   /** The events health answer: META-16's part and META-23's (with META-18's refused rows). */
-  health: (days?: number) => via<{ health: EventsHealth; match: EventsMatch }>(
+  health: (days?: number, pixel?: string) => via<{ health: EventsHealth; match: EventsMatch }>(
     async () => {
-      const d = await call<any>('GET', META_PATHS.eventsHealth, { params: days ? { days } : {} });
+      const d = await call<any>('GET', META_PATHS.eventsHealth, { params: { ...(days ? { days } : {}), ...(pixel ? { pixel } : {}) } });
       return { health: eventsHealthOf(d), match: eventsMatchOf(d) };
     },
     async (m) => {
@@ -2063,8 +2093,8 @@ export const metaMatchApi = {
     },
   ),
   /** META-18: a person sends again a server event Meta refused (same event id; ads manage permission). */
-  resend: (event: string, eventId: string) => via<ResendResult>(
-    () => call<ResendResult>('POST', `${MK}/meta/events/resend`, { data: { event, event_id: eventId } }),
+  resend: (event: string, eventId: string, platform?: string | null) => via<ResendResult>(
+    () => call<ResendResult>('POST', `${MK}/meta/events/resend`, { data: { event, event_id: eventId, ...(platform ? { platform } : {}) } }),
     async () => (await matchMock()).resend(event, eventId),
   ),
 };
