@@ -118,6 +118,16 @@ export const HOMEPAGE_SCHEMAS: Record<string, Field[]> = {
     { key: 'limit', label: 'Max concerns', type: 'number' },
     { key: 'viewAllUrl', label: 'View-all link', type: 'url' },
   ],
+  'icon-grid': [
+    ...titleSub,
+    { key: 'source', label: 'Show', type: 'select', options: [
+      { value: 'category', label: 'Children of a category' },
+      { value: 'product-form', label: 'Product forms' },
+    ] },
+    { key: 'parentSlug', label: 'Parent category slug', type: 'text', help: 'Only for children of a category, e.g. shop-by-body-part' },
+    { key: 'limit', label: 'Max tiles', type: 'number' },
+    { key: 'viewAllUrl', label: 'View-all link', type: 'url' },
+  ],
   'product-row': [
     { key: 'title', label: 'Title', type: 'text' },
     { key: 'subtitle', label: 'Subtitle', type: 'text' },
@@ -129,6 +139,7 @@ export const HOMEPAGE_SCHEMAS: Record<string, Field[]> = {
     { key: 'config.categorySlug', label: 'Category slug (optional)', type: 'text', help: 'Limit the row to one category' },
     { key: 'config.sort', label: 'Sort (when no collection)', type: 'select', options: SORT_OPTS },
     { key: 'config.limit', label: 'Number of products', type: 'number' },
+    { key: 'minRating', label: 'Lowest rating shown', type: 'number', help: 'For a top rated row, e.g. 4. Blank shows every product.' },
   ],
   'promo-banners': [
     { key: 'columns', label: 'Columns', type: 'number' },
@@ -230,6 +241,7 @@ export function homepageBlockDefault(blockType: string): any {
     case 'category-grid': return { title: 'Shop by Category', subtitle: 'Explore our range', limit: 14, viewAllUrl: '/categories' };
     case 'brand-grid': return { title: 'Trusted Brands', subtitle: "From India's top manufacturers", limit: 12, viewAllUrl: '/brands' };
     case 'health-concerns-grid': return { title: 'Shop by Health Concern', subtitle: 'Find remedies for your needs', parentSlug: 'health-concerns', limit: 16 };
+    case 'icon-grid': return { title: 'Shop by Body Part', subtitle: '', source: 'category', parentSlug: 'shop-by-body-part', limit: 12 };
     case 'product-row': return { title: 'New Section', subtitle: '', accentColor: 'primary', viewAllUrl: '/products', config: { collection: 'bestsellers', limit: 12 } };
     case 'promo-banners': return { columns: 1, banners: [{ imageUrl: '', buttonUrl: '/products' }] };
     case 'full-width-banner': return { badge: 'Free Shipping', title: 'Free delivery on orders above ₹500', subtitle: '', bgColor: 'emerald-teal', buttonText: 'Shop Now', buttonUrl: '/products' };

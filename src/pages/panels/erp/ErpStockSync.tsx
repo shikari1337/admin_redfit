@@ -17,7 +17,6 @@ import { Copy, Download, RefreshCw } from 'lucide-react';
 import { useAuth } from '../../../contexts/AuthContext';
 import {
   Btn, EmptyRow, Field, Pagination, SearchInput, SectionCard, StatCard, StatGrid, StatusChip, TBody, Td, TextInput, Th, THead, Tr,
-  downloadCsv,
 } from '@/components/erp';
 import {
   applySecs, applyText, durationText, erpApi, erpConnUrl, errorText, isNotServed, n, outcomeText, plural, restartPhaseText, statusTone, stockFeed, whenText,
@@ -29,8 +28,7 @@ import {
 import { useInventoryLock } from '../../../hooks/useInventoryLock';
 import { useErpStockRun } from '../../../hooks/useErpStockRun';
 import InventoryLockBanner from '../../../components/inventory/InventoryLockBanner';
-import { ErpStockRunPanel } from '../../../components/inventory/ErpStockRunPanel';
-import { isoDate } from '../../../utils/date';
+import { ErpStockRunPanel, useUnmatchedCsv } from '../../../components/inventory/ErpStockRunPanel';
 import { ErrorNote, Loading, MANAGE, Notice, NotServed, useLoad, whyDisabled, Code } from './shared';
 
 const PAGE = 20;
@@ -142,7 +140,7 @@ const ErpStockSync: React.FC<{ c: ErpConnection; connector: ErpConnector | null;
           )}
         </SectionCard>
       )}
-      {!notServed && <Unmatched apply={shown} />}
+      {!notServed && <Unmatched apply={shown} connectionId={c.id} />}
     </div>
   );
 };
@@ -552,10 +550,12 @@ function ApplySettings({ c, connector, connectorError, onSaved }: { c: ErpConnec
 
 /* ── ERP codes with no matching SKU ─────────────────────────────────────── */
 
-function Unmatched({ apply }: { apply: StockApplyView | null }) {
+function Unmatched({ apply, connectionId }: { apply: StockApplyView | null; connectionId: string }) {
   const [q, setQ] = useState('');
   const [copied, setCopied] = useState<string | null>(null);
+  const csv = useUnmatchedCsv(apply, connectionId);
   const codes = apply?.unmatched_codes ?? [];
+  const partial = (apply?.unmatched ?? 0) > codes.length;
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return needle ? codes.filter((code) => code.toLowerCase().includes(needle)) : codes;
@@ -571,12 +571,6 @@ function Unmatched({ apply }: { apply: StockApplyView | null }) {
     setTimeout(() => setCopied(null), 4000);
   };
 
-  const csv = () => downloadCsv(
-    `erp-unmatched-codes-${apply ? isoDate(new Date(apply.started_us / 1000)) || 'none' : 'none'}`,
-    [{ key: 'code', label: 'ERP item code' }],
-    codes.map((code) => ({ code })),
-  );
-
   return (
     <div id="unmatched" className="scroll-mt-20">
       <SectionCard
@@ -584,20 +578,21 @@ function Unmatched({ apply }: { apply: StockApplyView | null }) {
         description={apply
           ? `From the update of ${whenText(apply.started_us)}. Each is an ERP item whose code is not the SKU of any product here, so its stock was not used. Add the SKU (or correct it) and the next update picks it up.`
           : 'Nothing to show until stock has been set from the ERP once.'}
-        action={codes.length > 0 && (
+        action={(apply?.unmatched ?? 0) > 0 && (
           <div className="flex flex-wrap gap-2">
-            <Btn size="sm" variant="outline" onClick={() => void copy()}><Copy /> Copy all</Btn>
-            <Btn size="sm" variant="outline" onClick={csv}><Download /> CSV</Btn>
+            {codes.length > 0 && <Btn size="sm" variant="outline" onClick={() => void copy()}><Copy /> {partial ? `Copy the ${n(codes.length)} shown` : 'Copy all'}</Btn>}
+            <Btn size="sm" variant="outline" onClick={() => void csv.download()} disabled={csv.busy}><Download /> {csv.label}</Btn>
           </div>
         )}
       >
+        {csv.note && <p className="mb-3 text-xs text-gray-600" role="status">{csv.note}</p>}
         {apply && codes.length === 0 && (
           <p className="text-sm text-gray-600">{apply.unmatched > 0 ? `${plural(apply.unmatched, 'code')} had no SKU, but this update did not keep the list.` : 'Every ERP code matched a SKU.'}</p>
         )}
         {codes.length > 0 && (
           <div className="space-y-3">
-            {apply && apply.unmatched > codes.length && (
-              <p className="text-xs text-amber-700">Showing the first {n(codes.length)} of {n(apply.unmatched)} — the server keeps a limited list per update.</p>
+            {apply && partial && (
+              <p className="text-xs text-amber-700">Showing the first {n(codes.length)} of {n(apply.unmatched)} here. The download has all of them.</p>
             )}
             <SearchInput value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a code" aria-label="Find a code" className="w-full sm:w-64" />
             {copied && <p className="text-xs text-gray-600" role="status">{copied}</p>}

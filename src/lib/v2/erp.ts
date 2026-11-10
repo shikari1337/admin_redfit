@@ -663,15 +663,33 @@ export function readOrderPush(value: unknown, orderId: string): OrderErpPush {
   };
 }
 
+/** One page of stock items, asked again after a short wait when a request fails, so one bad reply does not end a long read. */
+async function stockPageRetrying(id: string, query: ErpStockQuery, tries = 3) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await erpApi.stockItems(id, query);
+    } catch (e) {
+      if (attempt >= tries) throw e;
+      await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+    }
+  }
+}
+
 /** Read every page of a stock-items filter (CSV export, the browser-side "no matching SKU" filter). */
-export async function allStockItems(id: string, query: Omit<ErpStockQuery, 'limit' | 'offset'>, cap = 5000): Promise<{ items: ErpStockItem[]; total: number; capped: boolean }> {
+export async function allStockItems(
+  id: string,
+  query: Omit<ErpStockQuery, 'limit' | 'offset'>,
+  cap = 5000,
+  onProgress?: (done: number, total: number) => void,
+): Promise<{ items: ErpStockItem[]; total: number; capped: boolean }> {
   const size = 200;
   const items: ErpStockItem[] = [];
   let total = 0;
   for (let offset = 0; offset < cap; offset += size) {
-    const page = await erpApi.stockItems(id, { ...query, limit: size, offset });
+    const page = await stockPageRetrying(id, { ...query, limit: size, offset });
     total = page.total;
     items.push(...page.items);
+    onProgress?.(items.length, total);
     if (page.items.length < size || items.length >= total) break;
   }
   return { items: items.slice(0, cap), total, capped: total > cap };

@@ -373,11 +373,49 @@ export function ErpStockRunPanel({ run, now, label, connectionId, onRetry, onSto
 
 const SHOWN_CODES = 50;
 
+/**
+ * The CSV of every ERP code with no matching SKU: the list the update kept when that is the whole
+ * list, else every page of the ERP copy. A failed read downloads nothing, so a short file is never
+ * mistaken for the whole list.
+ */
+export function useUnmatchedCsv(apply: StockApplyView | null, connectionId: string) {
+  const [read, setRead] = useState<{ done: number; total: number } | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const startedUs = apply?.started_us;
+  useEffect(() => setNote(null), [startedUs]);
+
+  const download = async () => {
+    if (!apply) return;
+    setNote(null);
+    const day = isoDate(apply.started_us ? new Date(apply.started_us / 1000) : new Date()) || todayIso();
+    const file = `erp-codes-without-sku-${day}`;
+    const codes = apply.unmatched_codes;
+    if (apply.unmatched <= codes.length) {
+      downloadCsv(file, [{ key: 'code', label: 'ERP item code' }], codes.map((code) => ({ code })));
+      return;
+    }
+    setRead({ done: 0, total: apply.unmatched });
+    try {
+      const all = await allStockItems(connectionId, { unmatched: true }, Number.MAX_SAFE_INTEGER, (done, total) => setRead({ done, total }));
+      downloadCsv(file, [
+        { key: 'item_code', label: 'ERP item code' },
+        { key: 'total_units', label: 'Units at the ERP' },
+      ], all.items.map((i) => ({ item_code: i.item_code, total_units: i.total_units })));
+      setNote(`${plural(all.items.length, 'code')} from the ERP copy as it is now.`);
+    } catch (e) {
+      setNote(`The full list could not be read (${errorText(e)}), so nothing was downloaded. Please try again.`);
+    } finally {
+      setRead(null);
+    }
+  };
+
+  const label = read ? `Reading ${n(read.done)} of ${n(read.total)}` : `Download all ${n(apply?.unmatched ?? 0)} (CSV)`;
+  return { busy: read !== null, label, note, download };
+}
+
 export function ApplyResult({ a, label, connectionId }: { a: StockApplyView; label: string; connectionId: string }) {
-  const [csvBusy, setCsvBusy] = useState(false);
-  const [csvNote, setCsvNote] = useState<string | null>(null);
+  const csv = useUnmatchedCsv(a, connectionId);
   const codes = a.unmatched_codes;
-  const day = isoDate(a.started_us ? new Date(a.started_us / 1000) : new Date()) || todayIso();
 
   if (a.status === 'skipped') {
     return (
@@ -386,30 +424,6 @@ export function ApplyResult({ a, label, connectionId }: { a: StockApplyView; lab
       </div>
     );
   }
-
-  /** Every unmatched code: the list the update kept when it is complete, else the ERP copy's full list. */
-  const csv = async () => {
-    setCsvNote(null);
-    const file = `erp-codes-without-sku-${day}`;
-    if (a.unmatched <= codes.length) {
-      downloadCsv(file, [{ key: 'code', label: 'ERP item code' }], codes.map((code) => ({ code })));
-      return;
-    }
-    setCsvBusy(true);
-    try {
-      const all = await allStockItems(connectionId, { unmatched: true }, 20000);
-      downloadCsv(file, [
-        { key: 'item_code', label: 'ERP item code' },
-        { key: 'total_units', label: 'Units at the ERP' },
-      ], all.items.map((i) => ({ item_code: i.item_code, total_units: i.total_units })));
-      setCsvNote(`${plural(all.items.length, 'code')} from the ERP copy as it is now${all.capped ? ` (the first ${n(all.items.length)} of ${n(all.total)})` : ''}.`);
-    } catch (e) {
-      downloadCsv(file, [{ key: 'code', label: 'ERP item code' }], codes.map((code) => ({ code })));
-      setCsvNote(`The full list could not be read (${errorText(e)}), so the file has the ${plural(codes.length, 'code')} this update kept.`);
-    } finally {
-      setCsvBusy(false);
-    }
-  };
 
   return (
     <div className="space-y-3">
@@ -435,15 +449,15 @@ export function ApplyResult({ a, label, connectionId }: { a: StockApplyView; lab
         <div className="space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="text-sm font-medium text-gray-900">ERP codes with no matching SKU</div>
-            <Btn size="sm" variant="outline" onClick={() => void csv()} disabled={csvBusy}>
-              <Download /> {csvBusy ? 'Building the file…' : `Download all ${n(a.unmatched)} (CSV)`}
+            <Btn size="sm" variant="outline" onClick={() => void csv.download()} disabled={csv.busy}>
+              <Download /> {csv.label}
             </Btn>
           </div>
           <p className="text-xs text-gray-500">
             Their stock was not used. Add (or correct) the SKU on the product and the next update picks it up.
             {codes.length > SHOWN_CODES && ` Showing the first ${SHOWN_CODES}.`}
           </p>
-          {csvNote && <p className="text-xs text-gray-600" role="status">{csvNote}</p>}
+          {csv.note && <p className="text-xs text-gray-600" role="status">{csv.note}</p>}
           {codes.length > 0 ? (
             <ul className="flex max-h-48 flex-wrap gap-1.5 overflow-auto" aria-label="ERP codes with no matching SKU">
               {codes.slice(0, SHOWN_CODES).map((code) => (
