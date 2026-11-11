@@ -207,9 +207,15 @@ const Connections: React.FC = () => {
   };
 
   const disconnect = async (conn: Connection, providerLabel: string) => {
-    if (!window.confirm(
-      `Disconnect ${providerLabel}?\n\nThis removes the sign-in and every service set up on it `
-      + `(${conn.services.map((s) => s.service).join(', ') || 'none'}). Reconnecting later starts fresh.`)) return;
+    const services = conn.services.map((s) => s.service).join(', ') || 'none';
+    // Meta: the server never revokes at Meta, because the same login can also carry WhatsApp.
+    const question = conn.provider === 'meta'
+      ? `Disconnect ${providerLabel}?\n\nThis removes the sign-in from Growcord only, with every service set up on it `
+        + `(${services}). WhatsApp keeps working. To remove the access fully, do it in Meta's business settings. `
+        + 'Reconnecting later starts fresh.'
+      : `Disconnect ${providerLabel}?\n\nThis removes the sign-in and every service set up on it `
+        + `(${services}). Reconnecting later starts fresh.`;
+    if (!window.confirm(question)) return;
     setBusy(conn.id);
     try {
       await api.delete(`/connectors/${conn.id}`);
