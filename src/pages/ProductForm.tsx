@@ -28,6 +28,7 @@ import {
 import ProductAttributeVariations from '../components/product/ProductAttributeVariations';
 import ProductAttributes from '../components/product/ProductAttributes';
 import ProductMedicalPanel from '../components/product/ProductMedicalPanel';
+import SimilarProductsNote from '../components/product/SimilarProductsNote';
 import ProductVariantGroupPanel from '../components/product/ProductVariantGroupPanel';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
@@ -1061,8 +1062,11 @@ const ProductForm: React.FC = () => {
         variations: productType === 'variation' ? (cleanedVariations ?? []) : undefined,
         categories: sanitizedCategories, featuredCategory: fd.featuredCategory || null,
         tags: fd.tags.map(t => (typeof t === 'object' && t._id ? t._id : t)).filter(Boolean),
-        ...(fd.specificationId ? { specificationId: fd.specificationId } : {}),
-        ...(fd.specifications ? { specifications: fd.specifications } : {}),
+        // An edit always says what the product's specs are now: "Clear specifications" left both keys out,
+        // so the server kept the old linked set and rows (an explicit null unlinks the set).
+        // Only where the section is on screen: a store without the module never wipes what it cannot see.
+        ...(fd.specificationId ? { specificationId: fd.specificationId } : isEdit && canAccess('product_specifications') ? { specificationId: null } : {}),
+        ...(fd.specifications ? { specifications: fd.specifications } : isEdit && canAccess('product_specifications') ? { specifications: [] } : {}),
         sizeChart: sizeChartPayload,
         washCareInstructions: (fd.washCareInstructions || []).filter(i => i?.text?.trim()),
         customerOrderImages: fd.customerOrderImages,
@@ -1476,6 +1480,9 @@ const ProductForm: React.FC = () => {
                   draft={buildAiDraft}
                 />
 
+                {/* One page per product: a new name close to an existing page points staff at that page. */}
+                {!isEdit && <SimilarProductsNote name={formData.name} />}
+
                 {isEdit && productTypeCard}
 
                 {formData.productType === 'single' && (
@@ -1740,7 +1747,7 @@ const ProductForm: React.FC = () => {
               {/* Additional Specifications (free-form) */}
               <FieldGroup title="Additional specifications" description="Extra spec tables shown on the product page (e.g. Composition, Directions).">
                 <div className="space-y-4">
-                  <Field label="Linked template" htmlFor="pfSpecTemplate" help="Reuse a saved specification set instead of typing it here.">
+                  <Field label="Linked template" htmlFor="pfSpecTemplate" help="Reuse a saved set (Products, Specifications). The product page shows it while this product has no rows of its own.">
                     <select id="pfSpecTemplate" value={formData.specificationId || ''} onChange={e => setFormData(p => ({ ...p, specificationId: e.target.value || undefined }))}
                       className={fieldInputCls}>
                       <option value="">None</option>

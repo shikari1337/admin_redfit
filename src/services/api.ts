@@ -1014,7 +1014,7 @@ export const productsAPI = {
     const path = kind === 'template'
       ? '/products/workbook/template'
       : `/products/workbook/export?entity=${encodeURIComponent(entity)}`;
-    const response = await api.get(path, { responseType: 'blob' });
+    const response = await api.get(path, { responseType: 'blob', timeout: BULK_TRANSFER_TIMEOUT_MS });
     const blob = new Blob([response.data], {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     });
@@ -1029,6 +1029,12 @@ export const productsAPI = {
     a.download = kind === 'template' ? 'catalog-import-template.xlsx' : `${stem[entity] ?? 'catalog'}-${date}.xlsx`;
     a.click();
     URL.revokeObjectURL(objUrl);
+  },
+  /** True when a queued export was refused because this store has no download queue (not switched on, or its
+   *  module is off): the caller downloads the same workbook directly with `downloadWorkbook('export', entity)`. */
+  isExportQueueOff: (e: any): boolean => {
+    const code = String(e?.response?.data?.code ?? e?.code ?? '');
+    return code === 'V2_BACKEND_GAP' || code.endsWith('port_not_wired') || code.startsWith('access.module_');
   },
   /** Queue a private, retained product workbook instead of holding an export request open. */
   requestWorkbookExport: async (

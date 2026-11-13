@@ -57,6 +57,133 @@ async function saveBundle(c: V2Ctx, id: string | null): Promise<unknown> {
   return v2call('PUT', `/api/v2/commerce/bundles/${encodeURIComponent(bundleId)}/items`, { data: items });
 }
 
+/* ── specifications: the form's sections and the table's `items` ─────────────────────────────────────
+ * `product_specifications.items` is a list of rows `{label, value}` (the sheet import's own shape, commerce
+ * domain/catalog_mgmt/workbook.rs parse_spec_items_cell). A row may carry `group`: the section heading the
+ * form shows it under and the shop's product page groups it by. The form edits sections; these two
+ * functions are the only translation between the two shapes. */
+
+export interface SpecSection { heading: string; items: Array<{ key: string; value: string }> }
+
+const cellText = (v: unknown): string => (v === null || v === undefined ? '' : String(v));
+
+/** The form's sections as the table's rows (blank rows left out). */
+export function specItems(sections: unknown): Array<Record<string, string>> {
+  if (!Array.isArray(sections)) return [];
+  const out: Array<Record<string, string>> = [];
+  for (const s of sections) {
+    if (!s || typeof s !== 'object') continue;
+    const heading = cellText((s as any).heading).trim();
+    const rows: any[] = Array.isArray((s as any).items) ? (s as any).items : [];
+    for (const it of rows) {
+      const label = cellText(it?.key ?? it?.label).trim();
+      const value = cellText(it?.value).trim();
+      if (!label && !value) continue;
+      out.push(heading ? { label, value, group: heading } : { label, value });
+    }
+  }
+  return out;
+}
+
+/** The table's rows (flat `{label, value, group}`, or already grouped `{heading, items}`) as the form's sections, first-seen order. */
+export function specSections(items: unknown): SpecSection[] {
+  if (!Array.isArray(items)) return [];
+  const out: SpecSection[] = [];
+  const section = (heading: string): SpecSection => {
+    let s = out.find((x) => x.heading === heading);
+    if (!s) { s = { heading, items: [] }; out.push(s); }
+    return s;
+  };
+  for (const it of items) {
+    if (!it || typeof it !== 'object') continue;
+    const r = it as Record<string, any>;
+    if (Array.isArray(r.items)) {
+      const s = section(cellText(r.heading).trim());
+      for (const x of r.items) s.items.push({ key: cellText(x?.key ?? x?.label ?? x?.name), value: cellText(x?.value) });
+      continue;
+    }
+    section(cellText(r.group ?? r.heading).trim()).items.push({ key: cellText(r.label ?? r.key ?? r.name), value: cellText(r.value) });
+  }
+  return out;
+}
+
+/** A specification row with the form's `sections` beside the stored `items`. */
+export function specRow(r: any): any {
+  return r && typeof r === 'object' && !Array.isArray(r) ? { ...r, sections: specSections(r.items) } : r;
+}
+
+/** The form's body (`name`, `sections` or `items`, `isActive`) as the resource input; `slug` and `productId` have no column. */
+function specBody(c: V2Ctx): Record<string, unknown> {
+  const b = (c.body ?? {}) as Record<string, any>;
+  const out: Record<string, unknown> = {};
+  if (b.name !== undefined) out.name = cellText(b.name).trim();
+  if (Array.isArray(b.items)) out.items = b.items;
+  else if (b.sections !== undefined) out.items = specItems(b.sections);
+  const active = b.is_active ?? b.isActive;
+  if (active !== undefined) out.is_active = active === true || active === 'true';
+  return out;
+}
+
+/* ── size charts: the page's measurement table and the table's `headers` + `rows` ────────────────────
+ * `size_charts` (tenant schema) keeps `headers` (the column keys, `size` first) and `rows` (one object per
+ * size, keyed by those headers). The page edits `measurementKeys` and `entries`; the table has no
+ * description or image column, so those two stay on the screen only. */
+
+const SIZE_KEY = 'size';
+
+/** A size chart row with the page's `measurementKeys` and `entries` beside the stored `headers` and `rows`. */
+export function sizeChartRow(r: any): any {
+  if (!r || typeof r !== 'object' || Array.isArray(r)) return r;
+  const headers: string[] = Array.isArray(r.headers) ? r.headers.map(cellText).filter(Boolean) : [];
+  const rows: any[] = Array.isArray(r.rows) ? r.rows : [];
+  const entries = rows.map((row) => {
+    if (Array.isArray(row)) {
+      // a positional row: the headers name its cells
+      const e: Record<string, string> = {};
+      row.forEach((v, i) => { const k = headers[i] ?? `col${i + 1}`; e[k.toLowerCase() === SIZE_KEY ? SIZE_KEY : k] = cellText(v); });
+      return e;
+    }
+    return row && typeof row === 'object' ? Object.fromEntries(Object.entries(row).map(([k, v]) => [k, cellText(v)])) : { [SIZE_KEY]: cellText(row) };
+  });
+  const keys = headers.filter((h) => h.toLowerCase() !== SIZE_KEY);
+  const measurementKeys = keys.length ? keys : Array.from(new Set(entries.flatMap((e) => Object.keys(e)).filter((k) => k !== SIZE_KEY && k !== 'imageUrl')));
+  return { ...r, measurementKeys, entries };
+}
+
+/** The page's body (`name`, `measurementKeys`, `entries`) as the resource input. */
+function sizeChartBody(c: V2Ctx): Record<string, unknown> {
+  const b = (c.body ?? {}) as Record<string, any>;
+  const out: Record<string, unknown> = {};
+  if (b.name !== undefined) out.name = cellText(b.name).trim();
+  const keys: string[] = Array.isArray(b.measurementKeys ?? b.measurement_keys)
+    ? (b.measurementKeys ?? b.measurement_keys).map(cellText).map((k: string) => k.trim()).filter((k: string) => k && k !== SIZE_KEY)
+    : [];
+  if (Array.isArray(b.entries)) {
+    const headers = [SIZE_KEY, ...keys];
+    out.headers = headers;
+    out.rows = b.entries.map((e: any) => {
+      const row: Record<string, string> = {};
+      for (const k of headers) row[k] = cellText(e?.[k]).trim();
+      if (e?.imageUrl) row.imageUrl = cellText(e.imageUrl).trim();
+      return row;
+    });
+  } else {
+    if (Array.isArray(b.headers)) out.headers = b.headers;
+    if (Array.isArray(b.rows)) out.rows = b.rows;
+  }
+  const attr = b.attribute_id ?? b.attributeId;
+  if (attr !== undefined) out.attribute_id = attr || null;
+  const active = b.is_active ?? b.isActive;
+  if (active !== undefined) out.is_active = active === true || active === 'true';
+  return out;
+}
+
+/* ── the product workbook through the download queue ─────────────────────────────────────────────────
+ * The queue (commerce api/catalog_mgmt/data_jobs.rs, dataset `product_workbook`, svc/downloads.rs:83) builds
+ * the file in the background and keeps it for the dataset's retention; a download is a two-minute signed
+ * ticket (POST /exports/{id}/download-link), so the screen asks for a fresh one on every click. */
+const workbookExportBody = (c: V2Ctx) => ({ dataset: 'product_workbook', params: { entity: cellText(c.body?.entity).trim() || 'catalog' } });
+
 const ATTR_VALUE: Spec = { attribute_id: 's', description: 'j', display_order: 'i', image_url: 'j', is_active: 'b', name: 's', size_chart: 'j', slug: 's', swatch_color: 'j', value: 'j' };
 
 const VARIANT_GROUP: Spec = { display_attribute_slug: 'j', is_active: 'b', name: 's' };
@@ -157,18 +284,21 @@ export const CATALOG_ROUTES: V2Route[] = [
   { m: 'GET', from: '/products/:id/duplicate', row: 'commerce — not in this binary', gap: 'the duplicate preview is not mounted in this binary (ROUTE_MAP: GET /products/{id}/duplicate-preview); duplicating itself works' },
   { m: 'POST', from: '/products/:id/generate-content', row: 'commerce — not in this binary', gap: 'whole-product AI content is not mounted in this binary (ROUTE_MAP: POST /products/{id}/ai/content); per-section and per-field AI are' },
   { m: 'POST', from: '/products/:id/generate-field', row: 'commerce products/products.ts:53', to: '/api/v2/commerce/products/{id}/ai/field', bs: {'custom_prompt':'s','field_path':'s','field_type':'s','section_id':'s'} },
-  { m: 'POST', from: '/products/workbook/exports', row: 'commerce — not in this binary', gap: 'queued workbook exports have no v2 route (commerce ROUTE_MAP: no row); the direct workbook export works' },
-  { m: 'GET', from: '/products/workbook/exports/:p1', row: 'commerce — not in this binary', gap: 'queued workbook exports have no v2 route (commerce ROUTE_MAP: no row)' },
-  { m: 'POST', from: '/products/workbook/exports/:p1/share-link', row: 'commerce — not in this binary', gap: 'workbook export share links have no v2 route (commerce ROUTE_MAP: no row)' },
+  // MENU-1 products: the product workbook is the download queue's `product_workbook` dataset (see workbookExportBody).
+  { m: 'POST', from: '/products/workbook/exports', row: 'commerce dataJobs.ts:68 (dataset product_workbook)', to: '/api/v2/commerce/exports', body: workbookExportBody },
+  { m: 'GET', from: '/products/workbook/exports/:p1', row: 'commerce dataJobs.ts:121', to: '/api/v2/commerce/exports/{p1}' },
+  { m: 'POST', from: '/products/workbook/exports/:p1/share-link', row: 'commerce dataJobs.ts:204 (a two-minute signed link)', to: '/api/v2/commerce/exports/{p1}/download-link', body: () => ({}) },
   // raw: a map by kind must not grow camelCase twins (`attribute_value` → `attributeValue`); the readers take id/label/sublabel/type.
   { m: 'GET', from: '/search', row: 'commerce search.ts:16', to: '/api/v2/commerce/public/search', qs: ['kinds','limit','q'], query: searchQuery, reply: searchReply, raw: true },
-  { m: 'POST', from: '/size-charts', row: 'commerce sizeCharts.ts:26', to: '/api/v2/commerce/size-charts', bs: {'attribute_id':'j','headers':'j','is_active':'b','name':'s','rows':'j'} },
-  { m: 'GET', from: '/size-charts/:id', row: 'commerce sizeCharts.ts:18', to: '/api/v2/commerce/public/size-charts/{id}' },
-  { m: 'PUT', from: '/size-charts/:id', row: 'commerce sizeCharts.ts:39', method: 'PATCH', to: '/api/v2/commerce/size-charts/{id}', bs: {'attribute_id':'j','headers':'j','is_active':'b','name':'s','rows':'j'} },
+  // MENU-1 products: the page's `entries`/`measurementKeys` and the form's `sections` were dropped by the typed
+  // body (only `name` saved, every chart and set came back empty); sizeChartBody/specBody translate both ways.
+  { m: 'POST', from: '/size-charts', row: 'commerce sizeCharts.ts:26', to: '/api/v2/commerce/size-charts', body: sizeChartBody, reply: sizeChartRow },
+  { m: 'GET', from: '/size-charts/:id', row: 'commerce sizeCharts.ts:18 (staff read: paused charts too)', to: '/api/v2/commerce/size-charts/{id}', reply: sizeChartRow },
+  { m: 'PUT', from: '/size-charts/:id', row: 'commerce sizeCharts.ts:39', method: 'PATCH', to: '/api/v2/commerce/size-charts/{id}', body: sizeChartBody, reply: sizeChartRow },
   { m: 'DELETE', from: '/size-charts/:id', row: 'commerce sizeCharts.ts:47', to: '/api/v2/commerce/size-charts/{id}' },
-  { m: 'POST', from: '/specifications', row: 'commerce specifications.ts:28', to: '/api/v2/commerce/specifications', bs: {'is_active':'b','items':'j','name':'s'} },
-  { m: 'GET', from: '/specifications/:id', row: 'commerce specifications.ts:20', to: '/api/v2/commerce/public/specifications/{id}' },
-  { m: 'PUT', from: '/specifications/:id', row: 'commerce specifications.ts:40', method: 'PATCH', to: '/api/v2/commerce/specifications/{id}', bs: {'is_active':'b','items':'j','name':'s'} },
+  { m: 'POST', from: '/specifications', row: 'commerce specifications.ts:28', to: '/api/v2/commerce/specifications', body: specBody, reply: specRow },
+  { m: 'GET', from: '/specifications/:id', row: 'commerce specifications.ts:20 (staff read: paused sets too)', to: '/api/v2/commerce/specifications/{id}', reply: specRow },
+  { m: 'PUT', from: '/specifications/:id', row: 'commerce specifications.ts:40', method: 'PATCH', to: '/api/v2/commerce/specifications/{id}', body: specBody, reply: specRow },
   { m: 'DELETE', from: '/specifications/:id', row: 'commerce specifications.ts:56', to: '/api/v2/commerce/specifications/{id}' },
   { m: 'POST', from: '/specifications/:p1/assign-to-product', row: 'commerce — not in this binary', gap: 'assigning a specification set to a product has no v2 route (commerce ROUTE_MAP: no row; specifications are a Resource)' },
   { m: 'GET', from: '/specifications/product/:p1', row: 'commerce — not in this binary', gap: 'a product’s specification sets have no v2 route (commerce ROUTE_MAP: no row)' },

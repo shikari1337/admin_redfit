@@ -21,6 +21,7 @@ import type { V2Ctx, V2Route } from '../routes';
 import { mapList, v2call, asList, backendGap } from '../http';
 import { toMoney } from '../money';
 import { wrapData, pageAs } from '../shape';
+import { sizeChartRow, specRow } from './catalog';
 
 const P = '/api/v2/commerce';
 
@@ -331,7 +332,7 @@ export const PRODUCT_ROUTES: V2Route[] = [
   { m: 'GET', from: '/products', row: 'commerce products.ts:39 (staff table GET /products)', to: `${P}/products`, query: productQuery, reply: (d) => (Array.isArray(d) ? mapList(d, productRow) : d) }, // ProductRowStaffView.categories[].parent_id (commerce views/catalog.rs:362) → `parent`
   { m: 'GET', from: '/products/skus', row: 'commerce products.ts:28', to: `${P}/products/skus` },
   { m: 'GET', from: '/products/export', row: 'commerce products.ts:30', to: `${P}/products/export` },
-  { m: 'GET', from: '/products/workbook/export', row: 'commerce products.ts:32', to: `${P}/products/workbook/export` },
+  { m: 'GET', from: '/products/workbook/export', row: 'commerce products.ts:32', to: `${P}/products/workbook/export`, qs: ['entity'] }, // product_tools.rs ExportQuery: without it every file was the whole catalogue
   { m: 'GET', from: '/products/workbook/template', row: 'commerce products.ts:33', to: `${P}/products/workbook/template` },
   { m: 'GET', from: '/products/workbook/schema', row: 'commerce products.ts:34', to: `${P}/products/workbook/schema` },
   { m: 'POST', from: '/products/workbook/preview', row: 'commerce products.ts:35', to: `${P}/products/workbook/preview`, reply: (d) => d?.preview ?? d }, // WorkbookPreviewView {preview} (commerce views/catalog_admin.rs:1116); ProductImportExport iterates pv.sheets
@@ -394,8 +395,8 @@ export const PRODUCT_ROUTES: V2Route[] = [
   { m: 'GET', from: '/attributes', row: 'commerce attributes.ts — R:Attribute.list', to: `${P}/attributes`, query: (c) => resourceQuery(c, 'isActive') },
   { m: 'GET', from: '/attributes/:slug/values', row: 'commerce attributes.ts — R:AttributeValue.list ?attribute_id=', run: async (c) => attributeValuesBySlug(c) },
   { m: 'GET', from: '/attribute-values', row: 'commerce — R:AttributeValue.list', to: `${P}/attribute-values`, query: (c) => ({ ...resourceQuery(c, 'isActive'), attribute_id: c.query.attributeId ?? c.query.attribute_id }) },
-  { m: 'GET', from: '/size-charts', row: 'commerce sizeCharts.ts — R:SizeChart.list', to: `${P}/size-charts`, query: (c) => resourceQuery(c) },
-  { m: 'GET', from: '/specifications', row: 'commerce specifications.ts — R:Specification.list', to: `${P}/specifications`, query: (c) => resourceQuery(c) },
+  { m: 'GET', from: '/size-charts', row: 'commerce sizeCharts.ts, R:SizeChart.list', to: `${P}/size-charts`, query: (c) => resourceQuery(c), reply: (d) => (Array.isArray(d) ? mapList(d, sizeChartRow) : d) },
+  { m: 'GET', from: '/specifications', row: 'commerce specifications.ts, R:Specification.list', to: `${P}/specifications`, query: (c) => resourceQuery(c), reply: (d) => (Array.isArray(d) ? mapList(d, specRow) : d) },
   { m: 'GET', from: '/tags', row: 'commerce tags.ts — R:Tag.list', to: `${P}/tags`, query: (c) => resourceQuery(c) },
   { m: 'GET', from: '/manufacturers', row: 'commerce manufacturers.ts — R:Manufacturer.list', to: `${P}/manufacturers`, query: (c) => resourceQuery(c) },
   { m: 'GET', from: '/faq-groups', row: 'commerce faqGroups.ts — R:FaqGroup.list', to: `${P}/faq-groups`, query: (c) => resourceQuery(c) },

@@ -291,8 +291,6 @@ const SizeCharts: React.FC = () => {
 
     const payload = {
       name: formState.name.trim(),
-      description: formState.description?.trim() || undefined,
-      defaultImageUrl: formState.defaultImageUrl?.trim() || undefined,
       measurementKeys: measurementKeys.length > 0 ? measurementKeys : undefined,
       entries: normalizedEntries,
     };
@@ -519,25 +517,8 @@ const SizeCharts: React.FC = () => {
               />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-              <textarea
-                rows={3}
-                value={formState.description}
-                onChange={e => setFormState({ ...formState, description: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500"
-                placeholder="Optional description"
-              />
-            </div>
-
-            <ImageInputWithActions
-              value={formState.defaultImageUrl || ''}
-              onChange={(url) => setFormState({ ...formState, defaultImageUrl: url })}
-              label="Default image"
-              spec="size_chart.image"
-              folder="size-charts"
-              placeholder="https://example.com/size-chart.png"
-            />
+            {/* No description or chart-wide image: the size_charts table has no column for either, so
+                what was typed there was dropped on save. A picture per size stays on each row below. */}
 
             <div className="border border-gray-200 rounded-lg">
               <div className="flex justify-between items-center px-4 py-2 bg-gray-50 border-b border-gray-200">

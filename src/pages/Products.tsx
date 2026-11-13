@@ -804,9 +804,16 @@ const Products: React.FC = () => {
         // (with b2b_price), categories, tags, attributes, A+ content, brands and
         // cross-sell/upsell links — and it re-imports. The old flat CSV only had
         // 12 product columns and dropped variations, B2B, categories and links.
-        const job = await productsAPI.requestWorkbookExport('all');
-        sessionStorage.setItem('product-workbook-export-job', job.id);
-        navigate('/products/import-export');
+        try {
+          const job = await productsAPI.requestWorkbookExport('all');
+          sessionStorage.setItem('product-workbook-export-job', job.id);
+          navigate('/products/import-export');
+        } catch (e: any) {
+          // A store without the download queue (not switched on, or its module off) gets the same
+          // workbook straight down while this request waits.
+          if (!productsAPI.isExportQueueOff(e)) throw e;
+          await productsAPI.downloadWorkbook('export', 'all');
+        }
         return;
       }
 

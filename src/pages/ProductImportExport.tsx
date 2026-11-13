@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Download, Upload, FileSpreadsheet, ArrowLeft, Loader2, CheckCircle2, AlertTriangle, Table2, Copy, Link } from 'lucide-react';
+import { Download, Upload, FileSpreadsheet, ArrowLeft, Loader2, CheckCircle2, AlertTriangle, Table2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { productsAPI } from '../services/api';
+import { formatDay } from '../utils/date';
 
 interface SheetPreview {
   sheetKey: string;
@@ -31,6 +32,16 @@ const SHEET_LABELS: Record<string, string> = {
 };
 const SKIP = '__skip__';
 
+type Entity = 'catalog' | 'brands' | 'categories' | 'attributes' | 'tags' | 'specgroups' | 'all';
+
+const errorText = (e: any, fallback: string): string => e?.response?.data?.message || e?.message || fallback;
+
+/** The export this browser tab is waiting for (the Products list hands its "Export all" job over the same way). */
+const JOB_KEY = 'product-workbook-export-job';
+const rememberJob = (id: string | null) => {
+  try { if (id) sessionStorage.setItem(JOB_KEY, id); else sessionStorage.removeItem(JOB_KEY); } catch { /* private mode */ }
+};
+
 const ProductImportExport: React.FC = () => {
   const navigate = useNavigate();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -44,70 +55,65 @@ const ProductImportExport: React.FC = () => {
   const [result, setResult] = useState<ImportResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [exportJob, setExportJob] = useState<WorkbookExport | null>(null);
-  const [shareUrl, setShareUrl] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  // Set when the last export came straight down because the store has no download queue.
+  const [directNote, setDirectNote] = useState<string | null>(null);
 
-  type Entity = 'catalog' | 'brands' | 'categories' | 'attributes' | 'tags' | 'specgroups' | 'all';
   const downloadTemplate = async () => {
     setBusy('template'); setError(null);
     try { await productsAPI.downloadWorkbook('template'); }
-    catch (e: any) { setError(e?.response?.data?.message || e?.message || 'Download failed'); }
+    catch (e: any) { setError(errorText(e, 'Download failed')); }
     finally { setBusy(null); }
   };
 
   const requestExport = async (entity: Entity = 'catalog') => {
-    setBusy(`export:${entity}`); setError(null); setShareUrl(null); setCopied(false);
-    try { setExportJob(await productsAPI.requestWorkbookExport(entity)); }
-    catch (e: any) { setError(e?.response?.data?.message || e?.message || 'Could not request the export'); }
-    finally { setBusy(null); }
+    setBusy(`export:${entity}`); setError(null); setDirectNote(null);
+    try {
+      const job = await productsAPI.requestWorkbookExport(entity);
+      rememberJob(job?.id ?? null);
+      setExportJob(job);
+    } catch (e: any) {
+      if (!productsAPI.isExportQueueOff(e)) { setError(errorText(e, 'Could not request the export')); return; }
+      // No queue on this store: the same workbook, built while this request waits.
+      try {
+        await productsAPI.downloadWorkbook('export', entity);
+        setExportJob(null);
+        setDirectNote('Downloaded straight away. This store keeps no list of past exports.');
+      } catch (e2: any) { setError(errorText(e2, 'Export failed')); }
+    } finally { setBusy(null); }
   };
 
-  // A download request survives navigation; this lightweight polling merely
-  // discovers when the stored workbook can be shared or downloaded.
+  // A queued export survives navigation; this light polling only finds out when the file is ready.
   useEffect(() => {
     if (!exportJob || !['queued', 'running'].includes(exportJob.status)) return;
     const timer = window.setTimeout(async () => {
       try { setExportJob(await productsAPI.getWorkbookExport(exportJob.id)); }
-      catch (e: any) { setError(e?.response?.data?.message || 'Could not check export status'); }
+      catch (e: any) { setError(errorText(e, 'Could not check the export')); }
     }, 1500);
     return () => window.clearTimeout(timer);
   }, [exportJob]);
 
-  // The Products list can initiate a full export too. Carry that job across
-  // navigation so its link appears here instead of leaving a completed file
-  // stranded in the background.
+  // The job survives leaving this page (and the Products list's "Export all" starts one here): it is picked
+  // up again on return, and forgotten once it can no longer give a file.
   useEffect(() => {
-    const id = sessionStorage.getItem('product-workbook-export-job');
-    if (!id || exportJob) return;
-    sessionStorage.removeItem('product-workbook-export-job');
-    setExportJob({ id, status: 'queued' });
+    if (exportJob) {
+      if (['failed', 'expired', 'cancelled'].includes(exportJob.status)) rememberJob(null);
+      return;
+    }
+    let id: string | null = null;
+    try { id = sessionStorage.getItem(JOB_KEY); } catch { /* private mode */ }
+    if (id) setExportJob({ id, status: 'queued' });
   }, [exportJob]);
 
-  // The first share link is produced as soon as the artifact is ready. It is
-  // bound to this one export and its seven-day retention window; the Copy link
-  // control below is therefore immediately useful without a second action.
-  useEffect(() => {
-    if (!exportJob || exportJob.status !== 'ready' || shareUrl) return;
-    let cancelled = false;
-    productsAPI.shareWorkbookExport(exportJob.id)
-      .then((link) => { if (!cancelled) setShareUrl(link.url); })
-      .catch((e: any) => { if (!cancelled) setError(e?.response?.data?.message || 'Could not create the secure link'); });
-    return () => { cancelled = true; };
-  }, [exportJob, shareUrl]);
-
-  const shareExport = async () => {
+  // Every download asks for a fresh signed link (it works for two minutes) and lets the browser save
+  // the file itself: no large file held in the page.
+  const downloadExport = async () => {
     if (!exportJob || exportJob.status !== 'ready') return;
-    setBusy('share'); setError(null);
-    try { setShareUrl((await productsAPI.shareWorkbookExport(exportJob.id)).url); }
-    catch (e: any) { setError(e?.response?.data?.message || e?.message || 'Could not create the secure link'); }
+    setBusy('download'); setError(null);
+    try { window.location.assign((await productsAPI.shareWorkbookExport(exportJob.id)).url); }
+    catch (e: any) { setError(errorText(e, 'Could not start the download')); }
     finally { setBusy(null); }
   };
 
-  const copyShareUrl = async () => {
-    if (!shareUrl) return;
-    try { await navigator.clipboard.writeText(shareUrl); setCopied(true); }
-    catch { setError('Could not copy the link. Select and copy it from the field below.'); }
-  };
   // Separate files per entity: products + their variations together; every other
   // schema (brands, categories, attributes, tags) as its own downloadable file.
   const ENTITY_EXPORTS: Array<{ entity: Entity; label: string }> = [
@@ -117,6 +123,7 @@ const ProductImportExport: React.FC = () => {
     { entity: 'tags', label: 'Tags' },
     { entity: 'specgroups', label: 'Spec Groups' },
   ];
+  const exportBusy = !!busy || ['queued', 'running'].includes(exportJob?.status ?? '');
 
   const onFile = async (f: File | null) => {
     setFile(f); setPreview(null); setResult(null); setError(null);
@@ -168,21 +175,21 @@ const ProductImportExport: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <button onClick={() => navigate('/products')} className="text-gray-500 hover:text-gray-900"><ArrowLeft size={20} /></button>
-        <div>
+        <button onClick={() => navigate('/products')} aria-label="Back to products" className="text-gray-500 hover:text-gray-900"><ArrowLeft size={20} /></button>
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold text-gray-900">Import / Export Catalog</h1>
-          <p className="text-sm text-gray-500">One linked workbook — products, variations, A+ content, specs, brands, categories, tags & attributes.</p>
+          <p className="text-sm text-gray-500">One linked workbook: products, variations, A+ content, specs, brands, categories, tags and attributes.</p>
         </div>
       </div>
 
       {/* Export */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
-        <div className="flex items-center gap-3">
+      <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-5 space-y-4">
+        <div className="flex flex-wrap items-center gap-3">
           <FileSpreadsheet className="h-5 w-5 text-red-600" />
-          <div className="flex-1 min-w-[220px]">
+          <div className="flex-1 min-w-[200px]">
             <p className="font-medium text-gray-900">Export</p>
             <p className="text-sm text-gray-500">
-              Products &amp; their variations download as one file (each attribute gets its own column);
+              Products and their variations download as one file (each attribute gets its own column);
               every other schema exports separately.
             </p>
           </div>
@@ -193,45 +200,42 @@ const ProductImportExport: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={() => requestExport('catalog')} disabled={!!busy || ['queued', 'running'].includes(exportJob?.status ?? '')} className="bg-red-600 hover:bg-red-700">
+          <Button onClick={() => requestExport('catalog')} disabled={exportBusy} className="bg-red-600 hover:bg-red-700">
             {busy === 'export:catalog' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
             Products &amp; Variations
           </Button>
           <span className="text-xs text-gray-400 px-1">or a single schema:</span>
           {ENTITY_EXPORTS.map(({ entity, label }) => (
-            <Button key={entity} variant="outline" size="sm" onClick={() => requestExport(entity)} disabled={!!busy || ['queued', 'running'].includes(exportJob?.status ?? '')}>
+            <Button key={entity} variant="outline" size="sm" onClick={() => requestExport(entity)} disabled={exportBusy}>
               {busy === `export:${entity}` ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Download className="mr-2 h-3.5 w-3.5" />}
               {label}
             </Button>
           ))}
           <div className="flex-1" />
-          <Button variant="ghost" size="sm" onClick={() => requestExport('all')} disabled={!!busy || ['queued', 'running'].includes(exportJob?.status ?? '')} className="text-gray-500">
+          <Button variant="ghost" size="sm" onClick={() => requestExport('all')} disabled={exportBusy} className="text-gray-500">
             {busy === 'export:all' ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
             Everything in one file
           </Button>
         </div>
+        {directNote && (
+          <p className="rounded-lg border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-800">{directNote}</p>
+        )}
         {exportJob && (
           <div className={`rounded-lg border px-4 py-3 text-sm ${exportJob.status === 'failed' ? 'border-red-200 bg-red-50 text-red-700' : 'border-blue-200 bg-blue-50 text-blue-800'}`}>
-            {['queued', 'running'].includes(exportJob.status) && <span className="inline-flex items-center"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Preparing your private workbook. You can leave this page.</span>}
+            {['queued', 'running'].includes(exportJob.status) && <span className="inline-flex items-center"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Preparing your workbook. You can leave this page and come back to download it.</span>}
             {exportJob.status === 'failed' && <span>{exportJob.error || 'The export failed. Please request it again.'}</span>}
             {exportJob.status === 'cancelled' && <span>This export was cancelled. Request a new export.</span>}
             {exportJob.status === 'expired' && <span>This workbook expired and was deleted. Request a new export.</span>}
             {exportJob.status === 'ready' && (
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-green-600" />
-                  <span className="font-medium text-gray-900">Workbook ready.</span>
-                  <span className="text-gray-600">Private link is authorised and valid for 7 days.</span>
-                  <Button size="sm" variant="outline" onClick={shareExport} disabled={busy === 'share'}>
-                    {busy === 'share' ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Link className="mr-2 h-3.5 w-3.5" />}
-                    Create secure link
-                  </Button>
-                </div>
-                {shareUrl && <div className="flex flex-wrap gap-2 items-center">
-                  <input readOnly value={shareUrl} aria-label="Secure product workbook link" className="flex-1 min-w-[280px] rounded border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-700" />
-                  <Button size="sm" onClick={copyShareUrl}><Copy className="mr-2 h-3.5 w-3.5" />{copied ? 'Copied' : 'Copy link'}</Button>
-                  <a href={shareUrl} className="text-sm text-red-700 underline" rel="noreferrer">Download</a>
-                </div>}
+              <div className="flex flex-wrap items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 text-green-600" />
+                <span className="font-medium text-gray-900">Workbook ready.</span>
+                {exportJob.file_name && <span className="text-gray-600 break-all">{exportJob.file_name}</span>}
+                {exportJob.expires_at && <span className="text-gray-600">Kept until {formatDay(exportJob.expires_at)}.</span>}
+                <Button size="sm" onClick={downloadExport} disabled={busy === 'download'} className="bg-red-600 hover:bg-red-700">
+                  {busy === 'download' ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Download className="mr-2 h-3.5 w-3.5" />}
+                  Download
+                </Button>
               </div>
             )}
           </div>
@@ -239,7 +243,7 @@ const ProductImportExport: React.FC = () => {
       </div>
 
       {/* Import: file picker */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+      <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-5 space-y-4">
         <div className="flex items-center gap-2">
           <Upload className="h-5 w-5 text-red-600" />
           <p className="font-medium text-gray-900">Import</p>
@@ -253,10 +257,10 @@ const ProductImportExport: React.FC = () => {
           <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden"
             onChange={(e) => onFile(e.target.files?.[0] ?? null)} />
           {busy === 'preview'
-            ? <span className="inline-flex items-center text-gray-600"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Reading workbook…</span>
+            ? <span className="inline-flex items-center text-gray-600"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Reading workbook...</span>
             : file
               ? <span className="text-gray-800 font-medium">{file.name}</span>
-              : <span className="text-gray-500">Drop an <b>.xlsx</b> workbook here, or click to choose. Column names don’t have to match — you’ll map them below.</span>}
+              : <span className="text-gray-500">Drop an <b>.xlsx</b> workbook here, or click to choose. Column names do not have to match; you map them below.</span>}
         </div>
       </div>
 
@@ -280,7 +284,7 @@ const ProductImportExport: React.FC = () => {
               <div className="flex items-center gap-2 px-5 py-3 bg-gray-50 border-b border-gray-200">
                 <Table2 className="h-4 w-4 text-gray-500" />
                 <span className="font-semibold text-gray-900">{SHEET_LABELS[s.sheetKey] || s.sheetKey}</span>
-                <span className="text-xs text-gray-500">from “{s.fileSheet}” · {s.rowCount} row(s)</span>
+                <span className="text-xs text-gray-500">from "{s.fileSheet}", {s.rowCount} row(s)</span>
               </div>
               <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {s.canonicalColumns.map((col) => {
@@ -298,7 +302,7 @@ const ProductImportExport: React.FC = () => {
                         }))}
                         className={`w-full px-2 py-1.5 border rounded-md text-sm focus:ring-2 focus:ring-red-500 ${val === SKIP ? 'border-gray-200 text-gray-400' : 'border-gray-300'}`}
                       >
-                        <option value={SKIP}>— skip —</option>
+                        <option value={SKIP}>Skip</option>
                         {s.headers.map((h) => <option key={h} value={h}>{h}</option>)}
                       </select>
                     </label>
@@ -341,7 +345,7 @@ const ProductImportExport: React.FC = () => {
             <p className="font-semibold text-gray-900">
               {result.dryRun ? 'Validation complete (nothing written)' : 'Import complete'}
               {totals && <span className="ml-2 text-sm font-normal text-gray-600">
-                {totals.created} created · {totals.updated} updated · {totals.skipped} skipped · {result.totalErrors} error(s)
+                {totals.created} created, {totals.updated} updated, {totals.skipped} skipped, {result.totalErrors} error(s)
               </span>}
             </p>
           </div>
@@ -361,12 +365,12 @@ const ProductImportExport: React.FC = () => {
                     <td className="py-1.5 pr-6">{r.updated}</td>
                     <td className="py-1.5 pr-6">{r.skipped}</td>
                     <td className="py-1.5">
-                      {r.errors.length === 0 ? <span className="text-gray-400">—</span> : (
+                      {r.errors.length === 0 ? <span className="text-gray-400">None</span> : (
                         <details>
                           <summary className="cursor-pointer text-amber-700">{r.errors.length} error(s)</summary>
                           <ul className="mt-1 list-disc pl-5 text-amber-800 space-y-0.5">
                             {r.errors.slice(0, 15).map((e, i) => <li key={i}>{e}</li>)}
-                            {r.errors.length > 15 && <li>…and {r.errors.length - 15} more</li>}
+                            {r.errors.length > 15 && <li>and {r.errors.length - 15} more</li>}
                           </ul>
                         </details>
                       )}

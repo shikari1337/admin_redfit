@@ -483,7 +483,7 @@ const Bundles: React.FC = () => {
           <h1 className="text-3xl font-bold text-gray-900">Product Bundles</h1>
           <p className="text-sm text-gray-600 mt-1">
             {viewType === 'combo' 
-              ? 'Curate bundles of two or more products. Bundles surface in the storefront as swatch-style shortcuts so shoppers can jump directly to each product page.'
+              ? 'Sell products together at one price. Each product page in the combo shows it with Add combo to cart; the cart and the order charge the combo price for every full set and the usual price for the rest.'
               : 'Manage quantity-based bundles for individual products. These bundles offer discounts when customers buy multiple quantities of the same product.'}
           </p>
         </div>
