@@ -51,8 +51,8 @@ const MarketingSettings: React.FC = () => {
         </label>
         {policy?.requireConsent === false && (
           <div className="rounded bg-red-50 px-3 py-2 text-xs text-red-700">
-            ⚠ Disabling consent filtering may violate GDPR / the DPDP Act for contacts in covered regions.
-            Sharing data with ad platforms ALWAYS requires user consent + admin approval — that gate cannot be disabled.
+            Switching off consent filtering may break GDPR or the DPDP Act for contacts in covered regions.
+            Sharing data with ad platforms ALWAYS needs the person's consent and an approval in the admin. That gate cannot be switched off.
           </div>
         )}
         <div className="grid gap-2 md:grid-cols-3">
@@ -84,7 +84,7 @@ const MarketingSettings: React.FC = () => {
               <input type="number" min={0} max={23} value={policy?.quietHours?.endHour ?? 10}
                 onChange={(e) => setPolicy({ ...policy, quietHours: { ...policy.quietHours, endHour: Number(e.target.value) } })}
                 className="w-16 rounded border px-2 py-1.5" />
-              <span className="text-xs text-gray-400">IST (TRAI DND 21–10)</span>
+              <span className="text-xs text-gray-400">IST (TRAI DND 21 to 10)</span>
             </div>
           </label>
           <label className="text-sm">Monthly marketing budget ₹ <span className="text-gray-400">(pacing on Performance)</span>
@@ -157,21 +157,21 @@ const MarketingSettings: React.FC = () => {
         )}
       </div>
 
-      {/* Channel credentials — existing homes */}
+      {/* Channel credentials: their existing homes */}
       <div className="rounded-lg border bg-white p-4 shadow-sm">
         <div className="mb-2 font-semibold">Channel providers</div>
         <div className="grid gap-2 text-sm md:grid-cols-2">
           <Link className="rounded border p-3 hover:bg-gray-50" to="/settings/api-integrations">
-            WhatsApp / Email (SMTP) / Meta pixel credentials → <b>API Integrations</b>
+            WhatsApp, email (SMTP) and Meta pixel credentials: <b>API Integrations</b>
           </Link>
           <Link className="rounded border p-3 hover:bg-gray-50" to="/settings/sms-templates">
-            SMS & WhatsApp operational templates (order updates, OTP) → <b>Message templates</b>
+            SMS and WhatsApp order updates and OTP templates: <b>Message templates</b>
           </Link>
           <Link className="rounded border p-3 hover:bg-gray-50" to="/settings/wallet">
-            Campaign billing balance → <b>Wallet</b>
+            Campaign billing balance: <b>Wallet</b>
           </Link>
           <Link className="rounded border p-3 hover:bg-gray-50" to="/channels">
-            Product feeds for Shopping/Catalog ads → <b>Multi-Channel Sync</b>
+            Product feeds for Shopping and catalog ads: <b>Multi-Channel Sync</b>
           </Link>
         </div>
       </div>

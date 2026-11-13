@@ -26,6 +26,7 @@ import { ADS_ROUTES, META_ROUTES, SOCIAL_ROUTES, connectionsHref, metaHref } fro
 import { alertLink, dayIso, roasText, toneOfAlert } from './meta/ads/shared';
 import { tokenEndsSoon, useTokenWarnDays } from './meta/SetupTab';
 import { useInboxSummary } from './meta/inbox/InboxPage';
+import { paceState, pctOf } from './budgetPace';
 
 /** The KPI tiles and the channel table cover the last 30 store days (yesterday back). */
 const PERIOD_DAYS = 30;
@@ -59,6 +60,8 @@ const MarketingDashboard: React.FC = () => {
   const commentsQ = useLoad(() => (mayMarketing ? metaSocialApi.comments({ status: 'open', limit: 1 }) : Promise.resolve(null)), [mayMarketing]);
   const socialInsightsQ = useLoad(() => (mayMarketing ? metaSocialApi.insights({ from, to }) : Promise.resolve(null)), [mayMarketing, from, to]);
   const leadsQ = useLoad(() => (mayMarketing ? metaLeadsApi.leads({ from, to, limit: 1 }) : Promise.resolve(null)), [mayMarketing, from, to]);
+  /* The store's own attribution and budget pace (MENU-1: the spec's "revenue attributed" on the home) */
+  const kpisQ = useLoad(() => (mayMarketing ? api.get('/marketing-hub/analytics/kpis', { params: { days: PERIOD_DAYS } }).then((r) => payload<any>(r)) : Promise.resolve(null)), [mayMarketing]);
   const inbox = useInboxSummary(mayMarketing ? INBOX_CHANNELS : []);
   const warnDays = useTokenWarnDays();
 
@@ -101,9 +104,15 @@ const MarketingDashboard: React.FC = () => {
     if (data?.templates_pending > 0 && hasPerm('marketing.approve')) {
       out.push({ key: 'templates', tone: 'info', text: `${plural(data.templates_pending, 'template')} waiting for your approval.`, to: '/panel/marketing/templates', label: 'Review' });
     }
+    const budget = kpisQ.data?.budget;
+    const pace = budget && Number(budget.monthly_total) > 0 ? paceState(budget.pace) : null;
+    if (pace?.tone === 'bad') {
+      const kc = kpisQ.data?.currency ?? 'INR';
+      out.push({ key: 'budget', tone: 'warn', text: `Marketing is ${pace.text}: ${moneyMajor(Number(budget.mtd_spend ?? 0), kc)} spent of ${moneyMajor(Number(budget.monthly_total), kc)} with ${pctOf(budget.month_progress)} of the month gone.`, to: '/panel/marketing/performance', label: 'See pacing' });
+    }
     const rank: Record<Tone, number> = { bad: 0, warn: 1, info: 2, neutral: 3, good: 4 };
     return out.sort((a, b) => rank[a.tone] - rank[b.tone]);
-  }, [alerts, conn, setupQ.data, warnDays, catalogQ.data, failedPostsQ.data, unread, commentsQ.data, doctor, data, hasPerm]);
+  }, [alerts, conn, setupQ.data, warnDays, catalogQ.data, failedPostsQ.data, unread, commentsQ.data, doctor, data, hasPerm, kpisQ.data]);
 
   const reading = overviewQ.loading || alertsQ.loading || setupQ.loading || catalogQ.loading || failedPostsQ.loading || commentsQ.loading;
 
@@ -115,6 +124,11 @@ const MarketingDashboard: React.FC = () => {
     tiles.push({ label: 'Sales Meta counts', value: money(ins.totals.purchase_value_minor, cur), sub: `${plural(ins.totals.purchases, 'purchase')}` });
     tiles.push({ label: 'Return on ad spend', value: roasText(ins.totals.roas), tone: ins.totals.roas !== null && ins.totals.roas < 1 ? 'bad' : 'default', sub: 'Meta sales divided by spend' });
     if (truth) tiles.push({ label: 'Orders your store matched', value: money(truth.revenue_minor, truth.currency ?? cur), sub: `${plural(truth.orders, 'order')} from ad clicks` });
+  }
+  const k = kpisQ.data;
+  if (k) {
+    const kc = k.currency ?? cur;
+    tiles.push({ label: 'Sales from marketing', value: moneyMajor(Number(k.attributed_revenue ?? 0), kc), sub: <>{pctOf(k.attributed_share)} of {moneyMajor(Number(k.revenue ?? 0), kc)} store sales, by last click. <Link className="hover:underline" to="/panel/marketing/performance">Performance</Link></> });
   }
   if (data) {
     tiles.push({ label: 'Messages sent', value: num(data.messages_30d), sub: `${moneyMajor(Number(data.spend_30d ?? 0), cur)} spent on messages` });

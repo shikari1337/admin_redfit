@@ -162,7 +162,8 @@ export const MARKETING_ROUTES: V2Route[] = [
     },
   },
   { m: 'POST', from: '/connectors/google/merchant/sync-status', row: 'marketing 8.2 Service features — Marketing’s own o', to: '/api/v2/marketing/google/merchant/sync-status', bs: 'j' },
-  { m: 'GET', from: '/connectors/google/pagespeed', row: 'no ROUTE_MAP row', gap: 'the PageSpeed report has no v2 route (marketing ROUTE_MAP: no row)' },
+  // MENU-1 mkt-overview: GoogleBlockView {currency, data{url, strategy, fetched_at, scores, metrics}}; the snake keys inside `data` pass as they are
+  { m: 'GET', from: '/connectors/google/pagespeed', row: 'marketing 8.2 (MENU-1, connectors.ts:543)', to: '/api/v2/marketing/google/pagespeed', qs: ['url', 'strategy'] },
   { m: 'POST', from: '/connectors/google/search-console/inspect', row: 'marketing 8.2 Service features — Marketing’s own o', to: '/api/v2/marketing/google/search-console/inspect', bs: {'url':'s'} },
   { m: 'POST', from: '/connectors/google/search-console/sitemaps', row: 'marketing 8.2 Service features — Marketing’s own o', to: '/api/v2/marketing/google/search-console/sitemaps', bs: {'url':'s'}, reply: (d: any) => (isObj(d) && isObj(d.data) ? { ...d, data: { ...d.data, sitemapUrl: d.data.sitemapUrl ?? d.data.sitemap_url } } : d) }, // GoogleBlockView {currency, data{sitemap_url}} (marketing google/search_console.rs:103); `data` gets no alias, the alert reads sitemapUrl
   { m: 'GET', from: '/connectors/meta/webhooks', row: 'marketing 8.1 The connections organ’s face (15)', to: '/api/v2/marketing/connections/meta/webhooks', qs: ['limit','object','status'] },

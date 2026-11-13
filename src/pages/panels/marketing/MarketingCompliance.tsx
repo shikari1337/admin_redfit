@@ -6,11 +6,15 @@ import { localeDateTime } from '../../../utils/date';
 
 /**
  * Compliance & Consent (GDPR / DPDP): consent ledger, manual consent
- * recording, and DSAR export / erase (admin only).
+ * recording, and DSAR export / erase. The data request tools follow the server's own gates
+ * (`GET /compliance/export` needs `customers.read`, `POST /compliance/erase` needs `customers.delete`),
+ * not the staff role's name.
  */
 const MarketingCompliance: React.FC = () => {
-  const { user, hasPerm } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const { hasPerm } = useAuth();
+  const mayExport = hasPerm('customers.read');
+  const mayErase = hasPerm('customers.delete');
+  const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<any[]>([]);
   const [filter, setFilter] = useState<{ channel?: string; status?: string }>({});
   const [consentForm, setConsentForm] = useState<any>({ channels: ['email'], granted: true });
@@ -20,8 +24,11 @@ const MarketingCompliance: React.FC = () => {
   const [info, setInfo] = useState('');
 
   const load = async () => {
-    const r = await api.get('/marketing-hub/compliance/consents', { params: filter });
-    setRows(payload(r) ?? []);
+    setLoading(true);
+    try {
+      const r = await api.get('/marketing-hub/compliance/consents', { params: filter });
+      setRows(payload(r) ?? []);
+    } finally { setLoading(false); }
   };
   useEffect(() => { load().catch((e) => setError(e?.response?.data?.message ?? e.message)); }, [filter]);
 
@@ -43,7 +50,7 @@ const MarketingCompliance: React.FC = () => {
         <h1 className="text-xl font-semibold tracking-tight text-gray-900">Compliance & Consent</h1>
         <p className="text-sm text-gray-500">
           Opt-in first: marketing sends and ad-platform sharing only reach contacts with recorded consent.
-          Ad sharing additionally requires admin approval of each audience — both gates are enforced server-side.
+          Ad sharing also needs a person to approve each audience. The server enforces both.
         </p>
       </div>
       {error && <div className="rounded bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
@@ -118,14 +125,15 @@ const MarketingCompliance: React.FC = () => {
                 <td className="text-xs text-gray-400">{localeDateTime(r.occurred_at)}</td>
               </tr>
             ))}
-            {rows.length === 0 && <tr><td colSpan={5} className="p-6 text-center text-gray-500">No consent records yet.</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={5} className="p-6 text-center text-gray-500">{loading ? 'Loading the consent records...' : 'No consent records yet.'}</td></tr>}
           </tbody>
         </table>
       </div>
 
-      {isAdmin && (
+      {(mayExport || mayErase) && (
         <div className="rounded-lg border bg-white p-4 shadow-sm space-y-2">
-          <div className="text-sm font-semibold">DSAR tools (admin only)</div>
+          <div className="text-sm font-semibold">Data requests from a person</div>
+          <p className="text-xs text-gray-500">Export what marketing holds on one contact, or erase them from every list. An erase keeps a record that they withdrew consent.</p>
           <div className="flex flex-wrap items-end gap-2 text-sm">
             <label>Email
               <input value={dsar.email ?? ''} onChange={(e) => setDsar({ ...dsar, email: e.target.value })}
@@ -135,16 +143,16 @@ const MarketingCompliance: React.FC = () => {
               <input value={dsar.phone ?? ''} onChange={(e) => setDsar({ ...dsar, phone: e.target.value })}
                 className="mt-1 block w-40 rounded border px-2 py-1.5" />
             </label>
-            <button onClick={() => act(async () => {
+            {mayExport && <button onClick={() => act(async () => {
               const r = await api.get('/marketing-hub/compliance/export', { params: dsar });
               setDsarResult(payload(r));
-            })} className="rounded border px-3 py-1.5">Export data</button>
-            <button onClick={() => act(async () => {
+            })} disabled={!dsar.email && !dsar.phone} className="rounded border px-3 py-1.5 disabled:opacity-50">Export data</button>}
+            {mayErase && <button onClick={() => act(async () => {
               if (!window.confirm('Erase this contact from ALL marketing data? This cannot be undone.')) return;
               const r = await api.post('/marketing-hub/compliance/erase', dsar);
               setInfo(`Erased: ${payload(r).members} list memberships, ${payload(r).consents} consent rows (revocation tombstones written).`);
               setDsarResult(null); await load();
-            })} className="rounded border px-3 py-1.5 text-red-600">Erase (right to be forgotten)</button>
+            })} disabled={!dsar.email && !dsar.phone} className="rounded border px-3 py-1.5 text-red-600 disabled:opacity-50">Erase (right to be forgotten)</button>}
           </div>
           {dsarResult && (
             <pre className="max-h-80 overflow-auto rounded bg-gray-50 p-3 text-xs">{JSON.stringify(dsarResult, null, 2)}</pre>

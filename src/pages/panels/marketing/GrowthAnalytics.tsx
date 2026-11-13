@@ -10,7 +10,7 @@ import { fmtRupees } from '../../../lib/money';
  * Growth & Funnel (performance marketer view). Behavioural layer: full funnel,
  * UTM attribution, cohort retention & LTV, new-vs-returning, coupon economics,
  * geo/device conversion, AOV distribution, abandonment. Economics (MER, CAC,
- * ROAS, budget pace) live in Performance (CMO) — ad spend is entered there.
+ * ROAS, budget pace) live in Performance; ad spend is entered there.
  */
 
 const FUNNEL_STEPS: Array<[key: string, label: string]> = [
@@ -22,7 +22,7 @@ const FUNNEL_STEPS: Array<[key: string, label: string]> = [
   ['orders', 'Placed order'],
 ];
 
-/** Sequential blue ramp (light) for the cohort heatmap — one hue, light→dark. */
+/** Sequential blue ramp (light) for the cohort heatmap: one hue, light to dark. */
 const SEQ = ['var(--i-50)', 'var(--i-100)', 'var(--i-300)', 'var(--i-400)', 'var(--i-500)', 'var(--i-600)', 'var(--i-700)'];
 const seqFor = (pct: number) => SEQ[Math.min(SEQ.length - 1, Math.ceil((pct / 100) * (SEQ.length - 1)))];
 
@@ -34,7 +34,7 @@ const GrowthAnalytics: React.FC = () => {
   const f = data?.funnel;
   const bucket = data?.bucket ?? 'day';
 
-  // Cohort matrix: cohort → month_offset → {customers, revenue}
+  // Cohort matrix: cohort, then month_offset, then {customers, revenue}
   const cohortRows: any[] = data?.cohorts ?? [];
   const cohortKeys = [...new Set(cohortRows.map((r) => r.cohort))].sort();
   const maxOffset = Math.min(11, Math.max(0, ...cohortRows.map((r) => Number(r.month_offset))));
@@ -60,8 +60,8 @@ const GrowthAnalytics: React.FC = () => {
           <h1 className="text-xl font-semibold tracking-tight text-gray-900">Growth & Funnel Analytics</h1>
           <p className="text-sm text-gray-500">
             Acquisition, conversion, retention and promo economics.
-            Spend-side KPIs (MER · CAC · ROAS · pacing) are in{' '}
-            <Link to="/panel/marketing/performance" className="text-primary underline">Performance (CMO)</Link>.
+            Spend figures (sales per rupee, cost per customer, return on ads, pacing) are in{' '}
+            <Link to="/panel/marketing/performance" className="text-primary underline">Performance</Link>.
           </p>
         </div>
         <DateRangeBar preset={preset} onPreset={setPreset} custom={custom} onCustom={setCustom} />
@@ -75,11 +75,11 @@ const GrowthAnalytics: React.FC = () => {
           {/* KPI row */}
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
             <StatTile label="Gross sales" value={fmtRupees(s.gross_sales)}
-              sub={`${s.orders.toLocaleString('en-IN')} orders · AOV ${fmtRupees(s.aov)}`} />
+              sub={`${s.orders.toLocaleString('en-IN')} orders, average ${fmtRupees(s.aov)}`} />
             <StatTile label="Sessions" value={s.sessions.toLocaleString('en-IN')}
               sub={`Conversion ${s.conversion_rate.toFixed(1)}%`} />
             <StatTile label="Returning order share" value={`${s.returning_order_share.toFixed(0)}%`}
-              sub={`${s.returning_orders} repeat · ${s.new_orders} first · ${s.guest_orders} guest`} />
+              sub={`${s.returning_orders} repeat, ${s.new_orders} first, ${s.guest_orders} guest`} />
             <StatTile label="Discounts given" value={fmtRupees(s.discount_total)}
               sub={`${s.coupon_orders} coupon orders`} />
             <StatTile label="Collected revenue" value={fmtRupees(s.collected_revenue)}
@@ -87,12 +87,12 @@ const GrowthAnalytics: React.FC = () => {
             <StatTile label="New-customer revenue" value={fmtRupees(s.new_revenue)} />
             <StatTile label="Returning revenue" value={fmtRupees(s.returning_revenue)} />
             <StatTile label="Abandoned carts" value={s.abandoned_carts.toLocaleString('en-IN')}
-              sub={<Link to="/orders/abandoned-carts" className="text-primary">Recover →</Link>} />
+              sub={<Link to="/orders/abandoned-carts" className="text-primary">Recover carts</Link>} />
           </div>
 
           {/* Funnel */}
           <ChartCard title="Conversion funnel"
-            sub="Distinct sessions per step (orders from the orders table — not consent-gated)">
+            sub="Distinct sessions per step (orders come from the orders table, not consent-gated)">
             <div className="space-y-2">
               {FUNNEL_STEPS.map(([key, label], i) => {
                 const val = Number(f?.[key] ?? 0);
@@ -144,7 +144,7 @@ const GrowthAnalytics: React.FC = () => {
             <div className="lg:col-span-2 overflow-x-auto rounded-lg border bg-white shadow-sm">
               <div className="border-b px-4 py-3">
                 <div className="font-semibold text-gray-900">Campaign / UTM performance</div>
-                <div className="text-xs text-gray-500">Last-touch source · medium · campaign. For ROAS/CPA add spend in Performance (CMO).</div>
+                <div className="text-xs text-gray-500">Last-touch source, medium and campaign. For return on spend, add spend in Performance.</div>
               </div>
               <table className="w-full text-sm">
                 <thead className="text-left text-xs uppercase text-gray-500">
@@ -169,7 +169,7 @@ const GrowthAnalytics: React.FC = () => {
                   ))}
                   {(data.utm ?? []).length === 0 && (
                     <tr><td colSpan={4} className="p-6 text-center text-gray-500">
-                      No UTM-tagged orders in range — tag campaign links (utm_source/medium/campaign) to populate this.
+                      No UTM-tagged orders in range. Tag campaign links (utm_source, utm_medium, utm_campaign) to fill this.
                     </td></tr>
                   )}
                 </tbody>
@@ -208,9 +208,9 @@ const GrowthAnalytics: React.FC = () => {
                             return (
                               <td key={off} className="px-1 py-0.5 text-center">
                                 <div className="rounded px-1.5 py-1 font-mono"
-                                  title={cell ? `${cell.customers} customers · ${fmtRupees(cell.revenue)}` : 'no activity'}
+                                  title={cell ? `${cell.customers} customers, ${fmtRupees(cell.revenue)}` : 'no activity'}
                                   style={{ background: bg, color: darkBg ? 'var(--surface)' : INK.primary }}>
-                                  {cell ? `${Math.round(pct)}%` : '·'}
+                                  {cell ? `${Math.round(pct)}%` : ''}
                                 </div>
                               </td>
                             );
@@ -222,7 +222,7 @@ const GrowthAnalytics: React.FC = () => {
                   </tbody>
                 </table>
               </div>
-            ) : <div className="py-8 text-center text-sm text-gray-500">No identified-customer orders yet — cohorts need signed-in buyers.</div>}
+            ) : <div className="py-8 text-center text-sm text-gray-500">No identified-customer orders yet: cohorts need signed-in buyers.</div>}
           </ChartCard>
 
           {/* Promos + AOV */}
@@ -299,8 +299,8 @@ const GrowthAnalytics: React.FC = () => {
                       <tr key={d.device}>
                         <td className="px-4 py-1.5 capitalize">{d.device}</td>
                         <td className="py-1.5 text-right">{Number(d.sessions).toLocaleString('en-IN')}</td>
-                        <td className="py-1.5 text-right">{o ? o.orders : '—'}</td>
-                        <td className="px-4 py-1.5 text-right font-mono">{o ? fmtRupees(o.revenue) : '—'}</td>
+                        <td className="py-1.5 text-right">{o ? o.orders : 0}</td>
+                        <td className="px-4 py-1.5 text-right font-mono">{o ? fmtRupees(o.revenue) : fmtRupees(0)}</td>
                       </tr>
                     );
                   })}

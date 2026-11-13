@@ -8,7 +8,7 @@ import { payload } from '../../../lib/unwrap';
  *
  * The provider returns ?code=…&state=… . The state is an opaque single-use
  * token minted server-side, so this page does not (and cannot) know which
- * provider it belongs to beyond the `provider` query param we round-trip — the
+ * provider it belongs to beyond the `provider` query param we round-trip; the
  * backend re-derives everything from the stored state row and rejects replays.
  *
  * The code is exchanged SERVER-SIDE: no client id, secret or token ever exists
