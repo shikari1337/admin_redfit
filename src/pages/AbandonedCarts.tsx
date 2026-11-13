@@ -7,6 +7,11 @@ import { FaCog, FaDownload, FaEye, FaSms, FaSyncAlt } from 'react-icons/fa';
 import { cartsAPI } from '../services/api';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ButtonLoader from '../components/ButtonLoader';
+import RecoverySummary from '../components/carts/RecoverySummary';
+import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/hooks/use-toast';
+import { errText } from '@/lib/v2/messaging';
+import { fmtRupeesOrDash } from '@/lib/money';
 import { localeDateTime } from '../utils/date';
 
 interface CartItem {
@@ -57,17 +62,14 @@ interface CartRecord {
   } | null;
 }
 
-/** Same money rendering as everywhere else in the admin — no local copy. */
-const formatMoney = (value?: number | null) =>
-  typeof value === 'number' && Number.isFinite(value)
-    ? value.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 })
-    : '—';
+/** Same money rendering as everywhere else in the admin (lib/money). */
+const formatMoney = (value?: number | null) => fmtRupeesOrDash(value);
 
 /** Matches the admin Orders list, so paging feels the same across the panel. */
 const PAGE_SIZE = 50;
 
 const formatDate = (value?: string) =>
-  value ? localeDateTime(value) : '—';
+  value ? localeDateTime(value) : 'not yet';
 
 const AbandonedCarts: React.FC = () => {
   const [loading, setLoading] = useState(false);
@@ -86,6 +88,13 @@ const AbandonedCarts: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [cartSettings, setCartSettings] = useState<any>(null);
   const [savingSettings, setSavingSettings] = useState(false);
+  // Bumped after a send or a settings save so the summary on top reads again.
+  const [summaryKey, setSummaryKey] = useState(0);
+  const { hasPerm } = useAuth();
+  const { toast } = useToast();
+  // Retain's send route needs marketing.manage, and only an abandoned cart has a step to send.
+  const canSend = hasPerm('marketing.manage');
+  const canSaveSettings = hasPerm('settings.manage');
 
   /**
    * Monotonic request id. `page`, `search`, `status` and `includeGuests` can
@@ -182,13 +191,26 @@ const AbandonedCarts: React.FC = () => {
   const saveCartSettings = async () => {
     setSavingSettings(true);
     try {
+      // Only the two fields this panel edits. Sending the whole reply sent its
+      // snake_case twins too (abandonment_minutes, recovery_automation_enabled),
+      // and the v2 body shaper lets a snake key win over its camel alias, so the
+      // OLD values were saved and the change silently did nothing.
+      // A field the panel never loaded is left out, never sent as a default.
+      if (!cartSettings) { setError('The cart settings did not load, so there is nothing to save.'); return; }
+      const minutes = Number(cartSettings.abandonmentMinutes);
+      const body = {
+        ...(cartSettings.abandonmentMinutes !== '' && cartSettings.abandonmentMinutes != null && Number.isFinite(minutes) ? { abandonmentMinutes: minutes } : {}),
+        ...(typeof cartSettings.recoveryAutomationEnabled === 'boolean' ? { recoveryAutomationEnabled: cartSettings.recoveryAutomationEnabled } : {}),
+      };
       // The server clamps out-of-range values, so echo BACK what it stored
-      // rather than what was typed — otherwise the form shows a value that
-      // isn't in effect.
-      setCartSettings(await cartsAPI.updateSettings(cartSettings ?? {}));
+      // rather than what was typed; otherwise the form shows a value that
+      // is not in effect.
+      setCartSettings(await cartsAPI.updateSettings(body));
       setError(null);
-    } catch {
-      setError('Could not save cart settings.');
+      setSummaryKey((k) => k + 1);
+      toast({ title: 'Cart settings saved' });
+    } catch (e: any) {
+      setError(errText(e, 'Could not save cart settings.'));
     } finally {
       setSavingSettings(false);
     }
@@ -205,7 +227,6 @@ const AbandonedCarts: React.FC = () => {
         'Customer Name',
         'Phone',
         'Email',
-        'Recovery Token',
         'Status',
         'Last Active',
         'Last Recovery',
@@ -224,7 +245,6 @@ const AbandonedCarts: React.FC = () => {
             row.user?.name || '',
             row.user?.phoneNumber || '',
             row.user?.email || '',
-            row.recoveryToken || '',
             row.status || '',
             row.lastActiveAt || '',
             row.lastRecoveredAt || '',
@@ -257,11 +277,20 @@ const AbandonedCarts: React.FC = () => {
       // Ensure _id is a string
       const cartIdStr = String(cart._id || '');
       setSendingSmsIds((prev) => new Set(prev).add(cartIdStr));
-      await cartsAPI.sendRecovery(cartIdStr);
+      // The route answers 200 even when nothing went (no reachable channel, a
+      // provider refusal): the outcome is in `data.ok` / `data.reason`.
+      const res = await cartsAPI.sendRecovery(cartIdStr);
+      const out = res?.data ?? res;
+      const who = cart.user?.name || cart.cartId || 'this cart';
+      if (out?.ok) {
+        toast({ title: 'Reminder sent', description: `${who}${out.channel ? `, on ${out.channel}` : ''}.` });
+      } else {
+        toast({ variant: 'destructive', title: 'Nothing was sent', description: out?.reason || 'No reason was given.' });
+      }
       fetchCarts();
+      setSummaryKey((k) => k + 1);
     } catch (err: any) {
-      console.error('Failed to send recovery message', err);
-      alert(err.message || 'Failed to send recovery message');
+      toast({ variant: 'destructive', title: 'Nothing was sent', description: errText(err, 'The reminder could not be sent.') });
     } finally {
       setSendingSmsIds((prev) => {
         const next = new Set(prev);
@@ -285,7 +314,7 @@ const AbandonedCarts: React.FC = () => {
     <div className="space-y-4">
       <ListHeader
         title="Abandoned carts"
-        purpose="Carts that went quiet before checkout — who they belong to, what was in them, and whether a nudge brought them back."
+        purpose="Carts that went quiet before checkout: who they belong to, what was in them, and whether a reminder brought them back."
         aside={
           <div className="flex items-center gap-2">
             <span className="hidden text-xs text-ink-soft lg:inline">
@@ -306,42 +335,16 @@ const AbandonedCarts: React.FC = () => {
         }
       />
 
-      {/* Automation state, stated plainly at the top. This is the answer to
-          "why has nothing been sent" — the engine tracks and snapshots carts
-          regardless, but SENDING stays off until a human arms it, so that
-          fixing a data gap can never turn into a mass send nobody chose. */}
-      {cartSettings && (
-        cartSettings.recoveryAutomationEnabled === true ? (
-          <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg border border-emerald-200 bg-emerald-50">
-            <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-600 text-white">
-              AUTOMATION ON
-            </span>
-            <span className="text-sm text-emerald-900">
-              Reminder → Persuasion → Discount messages go out automatically on the 15-minute sweep.
-            </span>
-            <Link to="/settings/cart-recovery-automation" className="ml-auto shrink-0 text-sm font-medium text-emerald-800 hover:underline">
-              Edit flow →
-            </Link>
-          </div>
-        ) : (
-          <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg border border-amber-200 bg-amber-50">
-            <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-500 text-white">
-              AUTOMATION OFF
-            </span>
-            <span className="text-sm text-amber-900">
-              No automated reminders are being sent. Carts are still tracked and you can still send by hand
-              from any cart. Turn it on under <strong>Cart timing</strong>.
-            </span>
-            <button
-              type="button"
-              onClick={() => setShowSettings(true)}
-              className="ml-auto shrink-0 text-sm font-medium text-amber-900 hover:underline"
-            >
-              Turn on →
-            </button>
-          </div>
-        )
-      )}
+      {/* What to act on first, then the numbers (MENU-1). Whether reminders go
+          out at all is stated here: the engine tracks and snapshots carts
+          regardless, but SENDING stays off until a person arms it, so fixing a
+          data gap can never turn into a mass send nobody chose. */}
+      <RecoverySummary switchHref="/messaging/cart-recovery" refreshKey={summaryKey} />
+      <p className="text-xs text-ink-soft">
+        The reminders themselves (when each goes, on which channel, with which discount) are set in{' '}
+        <Link to="/messaging/cart-recovery" className="underline underline-offset-2">Messaging, Cart recovery</Link>.
+        A cart counts as abandoned after the idle time under Cart timing.
+      </p>
 
       {/* ONE toolbar. `converted` stays reachable — it is the proof a nudge worked. */}
       <div className="space-y-2">
@@ -396,7 +399,7 @@ const AbandonedCarts: React.FC = () => {
                 />
                 <span className="text-xs text-gray-500">minutes</span>
               </div>
-              <p className="mt-1 text-[11px] text-gray-400">5 min – 7 days</p>
+              <p className="mt-1 text-[11px] text-gray-400">5 minutes to 7 days</p>
             </div>
           </div>
           <div className="border-t border-gray-100 pt-3">
@@ -415,7 +418,7 @@ const AbandonedCarts: React.FC = () => {
                   <span className="ml-2 align-middle inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600">OFF</span>
                 )}
                 <span className="block text-xs text-gray-500 mt-1">
-                  While this is off nothing goes out on its own — carts are still tracked, and you
+                  While this is off nothing goes out on its own: carts are still tracked, and you
                   can still send a recovery message by hand from any cart&apos;s detail page. Turning
                   it on lets the 15-minute sweep message <strong>every</strong> contactable customer
                   whose cart went idle in the last 7 days, so the first pass after enabling it can
@@ -427,25 +430,28 @@ const AbandonedCarts: React.FC = () => {
           <div className="flex items-center gap-2">
             <button
               onClick={saveCartSettings}
-              disabled={savingSettings}
+              disabled={savingSettings || !canSaveSettings}
+              title={!canSaveSettings ? 'Needs the settings.manage permission' : undefined}
               className="px-3 py-2 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-400"
             >
               {savingSettings ? 'Saving…' : 'Save settings'}
             </button>
             <span className="text-xs text-gray-500">
-              Values outside the allowed range are clamped by the server.
+              {canSaveSettings
+                ? 'Values outside the allowed range are clamped by the server.'
+                : 'Changing these needs the settings.manage permission.'}
             </span>
           </div>
           <div className="border-t border-gray-100 pt-3">
             <p className="text-sm text-gray-600">
-              What actually gets sent — the Reminder → Persuasion → Discount flow, timing and
-              message content per channel — now lives in its own settings page.
+              What actually gets sent (each step, its timing and its message per channel) is set
+              with the recovery steps.
             </p>
             <Link
-              to="/settings/cart-recovery-automation"
+              to="/messaging/cart-recovery"
               className="inline-flex items-center mt-2 px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
             >
-              Open Cart Recovery Automation →
+              Open the recovery steps
             </Link>
           </div>
         </div>
@@ -553,11 +559,11 @@ const AbandonedCarts: React.FC = () => {
                             to={`/orders/${cart.orderId}`}
                             className="inline-flex items-center text-xs font-semibold text-emerald-700 hover:underline"
                           >
-                            → {cart.orderId}
+                            Order {cart.orderId}
                           </Link>
                           {cart.hasUnorderedItems && (
                             <div className="text-[11px] text-amber-700">
-                              + items added after this order — not part of it
+                              Items added after this order are not part of it
                             </div>
                           )}
                           <div className="text-xs text-gray-500">
@@ -568,7 +574,7 @@ const AbandonedCarts: React.FC = () => {
                                 )}
                               </>
                             ) : (
-                              <span className="text-gray-400">Unassisted — nobody worked this cart</span>
+                              <span className="text-gray-400">Unassisted: nobody worked this cart</span>
                             )}
                           </div>
                         </div>
@@ -606,7 +612,7 @@ const AbandonedCarts: React.FC = () => {
                         actually triage on, was never shown at all. */}
                     <td className="px-3 py-2 align-top">
                       <div className="text-sm font-semibold text-slate-900 tabular-nums">
-                        {cartTotal != null ? formatMoney(cartTotal) : '—'}
+                        {cartTotal != null ? formatMoney(cartTotal) : 'No value'}
                       </div>
                       {differs && (
                         <div className="text-xs text-slate-500" title={`Priced for this customer${cart.priceBasis === 'b2b' ? ' on their B2B price book' : ''}. Saved line prices add up to ${formatMoney(savedTotal)}.`}>
@@ -620,7 +626,7 @@ const AbandonedCarts: React.FC = () => {
                         {itemCount} {itemCount === 1 ? 'line' : 'lines'}
                       </div>
                       <div className="text-xs text-slate-500 truncate max-w-[22rem]" title={itemSummary}>
-                        {itemSummary || '—'}
+                        {itemSummary || 'No items'}
                       </div>
                     </td>
                     <td className="px-3 py-2 align-top text-xs text-slate-600 whitespace-nowrap hidden xl:table-cell">
@@ -652,15 +658,22 @@ const AbandonedCarts: React.FC = () => {
                           <FaEye className="mr-1.5" />
                           View
                         </Link>
-                        <button
-                          onClick={() => handleSendRecovery(cart)}
-                          disabled={sendingSmsIds.has(cartIdStr)}
-                          className="inline-flex items-center px-2.5 py-1.5 text-xs bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-400"
-                          title="Send a recovery message now"
-                        >
-                          <FaSms className="mr-1.5" />
-                          {sendingSmsIds.has(cartIdStr) ? 'Sending…' : 'Send'}
-                        </button>
+                        {/* Only an abandoned cart has a next step to send, and the
+                            send route needs marketing.manage: elsewhere the
+                            button could only ever fail. */}
+                        {cart.status === 'abandoned' && (
+                          <button
+                            onClick={() => handleSendRecovery(cart)}
+                            disabled={!canSend || !cart.userId || sendingSmsIds.has(cartIdStr)}
+                            className="inline-flex items-center px-2.5 py-1.5 text-xs bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-400"
+                            title={!canSend ? 'Needs the marketing.manage permission'
+                              : !cart.userId ? 'A guest cart has no phone or email to message'
+                              : 'Send this cart its next reminder now'}
+                          >
+                            <FaSms className="mr-1.5" />
+                            {sendingSmsIds.has(cartIdStr) ? 'Sending…' : 'Send'}
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -677,7 +690,7 @@ const AbandonedCarts: React.FC = () => {
         {total > 0 && (
           <div className="flex items-center justify-between gap-3 border-t border-line px-3 py-2.5">
             <span className="text-xs text-slate-500 tabular-nums">
-              Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total} carts
+              Showing {(page - 1) * PAGE_SIZE + 1} to {Math.min(page * PAGE_SIZE, total)} of {total} carts
             </span>
             {total > PAGE_SIZE && <div className="flex items-center gap-2">
               <button

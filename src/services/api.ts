@@ -3724,6 +3724,23 @@ export const productQuantityBundlesAPI = {
   },
 };
 
+/** `GET /api/v2/commerce/carts/summary` (CartRecoverySummaryView, MENU-1); money in rupees, null when unknown. */
+export interface CartRecoverySummary {
+  days: number;
+  automation_enabled: boolean;
+  abandoned: number;
+  abandoned_value: number | null;
+  active: number;
+  chaseable: number;
+  never_messaged: number;
+  sent: number;
+  failed: number;
+  carts_messaged: number;
+  links_opened: number;
+  recovered: number;
+  recovered_value: number | null;
+}
+
 export const cartsAPI = {
   /** Store-configurable cart timings (abandonment threshold, nudge cadence). */
   getSettings: async () => {
@@ -3733,8 +3750,14 @@ export const cartsAPI = {
   updateSettings: async (data: {
     abandonmentMinutes?: number; recoveryDelayHours?: number;
     maxRecoveryAttempts?: number; recoveryGapHours?: number;
+    recoveryAutomationEnabled?: boolean;
   }) => {
     const response = await api.put('/carts/admin/settings', data);
+    return response.data?.data ?? response.data;
+  },
+  /** The desk at a glance (MENU-1): carts to act on, then what the reminders brought back in `days` days. */
+  getRecoverySummary: async (days?: number): Promise<CartRecoverySummary> => {
+    const response = await api.get('/carts/admin/summary', { params: days ? { days } : undefined });
     return response.data?.data ?? response.data;
   },
   /** Paged by limit/offset — the same contract routes/orders.ts uses, so the

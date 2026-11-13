@@ -4,6 +4,7 @@ import { FaArrowLeft, FaCopy, FaExternalLinkAlt, FaSms, FaWhatsapp, FaEnvelope }
 import { cartsAPI, journeyAPI, couponsAPI } from '../services/api';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ButtonLoader from '../components/ButtonLoader';
+import { useAuth } from '@/contexts/AuthContext';
 import { localeDateTime } from '../utils/date';
 
 interface CartDetailItem {
@@ -212,6 +213,9 @@ const AbandonedCartDetail: React.FC = () => {
   // button's own loading state independently, and disables the other two
   // while one is in flight so a double-click can't fire two channels at once.
   const [sendingChannel, setSendingChannel] = useState<'whatsapp' | 'sms' | 'email' | null>(null);
+  // Retain's send route needs marketing.manage (MENU-1); without it the buttons could only fail.
+  const { hasPerm } = useAuth();
+  const canSend = hasPerm('marketing.manage');
   const [recoveryResult, setRecoveryResult] = useState<{ ok: boolean; channel: string; reason?: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [clearing, setClearing] = useState(false);
@@ -592,7 +596,7 @@ const AbandonedCartDetail: React.FC = () => {
             />
           </div>
           <div className="flex-1" />
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
           {(
             [
               { channel: 'whatsapp' as const, label: 'WhatsApp', Icon: FaWhatsapp, className: 'bg-green-600 hover:bg-green-700 disabled:bg-green-400' },
@@ -603,7 +607,10 @@ const AbandonedCartDetail: React.FC = () => {
             <button
               key={channel}
               onClick={() => handleSendRecovery(channel)}
-              disabled={sendingChannel !== null}
+              disabled={!canSend || cart.status !== 'abandoned' || sendingChannel !== null}
+              title={!canSend ? 'Needs the marketing.manage permission'
+                : cart.status !== 'abandoned' ? 'Only an abandoned cart has a reminder to send'
+                : `Send this cart its next reminder on ${label} now`}
               className={`inline-flex items-center px-3 py-2 text-sm text-white rounded-md ${className}`}
             >
               {sendingChannel === channel ? (

@@ -8,6 +8,7 @@ import { useToast } from '@/hooks/use-toast';
 import { messagingAppsAPI, errText } from '@/lib/v2/messaging';
 import { cn } from '@/lib/utils';
 import SentLog from '@/components/messaging/SentLog';
+import RecoverySummary from '@/components/carts/RecoverySummary';
 import { ErrorNotice, GapNotice, MessagingHeader, MessagingTabs, failureOf, useNotificationRows, useTabParam, type LoadFailure } from '@/components/messaging/common';
 
 /**
@@ -32,17 +33,20 @@ const TABS = [
 const CartRecovery: React.FC = () => {
   const [tab, setTab] = useTabParam(TABS.map((t) => t.key), 'steps');
   const { messages } = useNotificationRows();
+  // The summary reads again after the arm switch moves (MENU-1).
+  const [summaryKey, setSummaryKey] = useState(0);
   return (
     <div className="space-y-4 pb-12">
       <MessagingHeader icon={ShoppingCart} title="Cart recovery"
-        purpose="The reminders a shopper gets after leaving a cart — when each goes out, on which channel, with which discount — and what was sent." />
-      <AutomationSwitch />
+        purpose="The reminders a shopper gets after leaving a cart: when each goes out, on which channel, with which discount, and what was sent." />
+      <AutomationSwitch onChanged={() => setSummaryKey((k) => k + 1)} />
+      <RecoverySummary armStateShown logHref="/messaging/cart-recovery?tab=log" refreshKey={summaryKey} />
       <MessagingTabs label="Cart recovery" tabs={TABS} active={tab} onChange={setTab} />
-      {tab === 'steps' && <Suspense fallback={<BlockSkeleton lines={8} />}><CartRecoveryAutomation /></Suspense>}
+      {tab === 'steps' && <Suspense fallback={<BlockSkeleton lines={8} />}><CartRecoveryAutomation embedded /></Suspense>}
       {tab === 'log' && (
         <div className="space-y-2">
           <p className="text-xs text-ink-soft">
-            Every cart-recovery message, on every channel. One cart’s own attempts — and sending its next step now — are on that cart in{' '}
+            Every cart-recovery message, on every channel. One cart's own attempts, and sending its next step now, are on that cart in{' '}
             <Link to="/orders/abandoned-carts" className="underline underline-offset-2">Abandoned Carts</Link>.
           </p>
           <SentLog fixedKey="cart_recovery" messages={messages} />
@@ -53,7 +57,7 @@ const CartRecovery: React.FC = () => {
 };
 
 /** The arm switch: off = no shopper is messaged automatically (a staff "send now" still works). */
-const AutomationSwitch: React.FC = () => {
+const AutomationSwitch: React.FC<{ onChanged?: () => void }> = ({ onChanged }) => {
   const { hasPerm } = useAuth();
   const canWrite = hasPerm('settings.manage');
   const { toast } = useToast();
@@ -69,10 +73,14 @@ const AutomationSwitch: React.FC = () => {
   useEffect(() => { load(); }, [load]);
 
   const flip = async (next: boolean) => {
+    // Arming is a send to many people at once: the next pass messages every contactable
+    // shopper whose cart went idle in the last 7 days. Say so before it happens.
+    if (next && !window.confirm('Switch on automatic cart reminders?\n\nThe next pass (every 15 minutes) messages every contactable shopper whose cart went idle in the last 7 days, so the first batch can be large. You can switch it off again at any time.')) return;
     setBusy(true);
     try {
       setOn((await messagingAppsAPI.setCartAutomation(next)).enabled);
       toast({ title: next ? 'Cart recovery switched on' : 'Cart recovery switched off' });
+      onChanged?.();
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Not changed', description: errText(e, 'The server refused the change.') });
     } finally { setBusy(false); }
@@ -87,7 +95,7 @@ const AutomationSwitch: React.FC = () => {
       <Switch checked={on} onCheckedChange={flip} disabled={!canWrite || busy} aria-label="Send cart-recovery messages automatically"
         title={!canWrite ? 'Needs the settings.manage permission' : undefined} />
       <div className="min-w-0 flex-1">
-        <p className="font-semibold">{on ? 'On — shoppers who leave a cart get the steps below' : 'Off — no shopper is messaged until you turn it on'}</p>
+        <p className="font-semibold">{on ? 'On: shoppers who leave a cart get the steps below' : 'Off: no shopper is messaged until you turn it on'}</p>
         <p className="text-xs opacity-90">
           {on
             ? 'It stops as soon as the cart becomes an order or the shopper opts out.'

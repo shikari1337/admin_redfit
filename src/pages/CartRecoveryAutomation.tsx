@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { FaArrowLeft, FaSave, FaUndo } from 'react-icons/fa';
 import { cartsAPI, smsTemplatesAPI } from '../services/api';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -8,7 +8,9 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, MessageSquare, Mail, Phone, Percent, ExternalLink, AlertTriangle } from 'lucide-react';
+import { Loader2, MessageSquare, Mail, Phone, Percent, ExternalLink, AlertTriangle, Info } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { errText } from '@/lib/v2/messaging';
 
 type WhatsAppMode = 'default' | 'custom';
 
@@ -32,10 +34,11 @@ interface StepForm {
 
 interface WaTemplateSummary { id: string; name: string; language: string; category?: string; status: string }
 
-/** Human labels for the variables a step's content may reference — mirrors the
- *  backend's RECOVERY_VARIABLE_KEYS (source of truth for which keys are valid;
- *  `recoveryUrl` is omitted here since it's a value-identical alias of
- *  cartRecoveryLink and would only confuse the picker). */
+/** Human labels for the variables a step's content may reference. WHICH keys
+ *  are valid is the server's answer (`variable_keys`, Retain's
+ *  RECOVERY_VARIABLE_KEYS); this map only names them, and a key it does not
+ *  know is shown by its own name. `recoveryUrl` is left out of the picker: it
+ *  is the same value as cartRecoveryLink and would only confuse. */
 const VARIABLE_LABELS: Record<string, string> = {
   customerName: 'Customer Name',
   cartRecoveryLink: 'Cart Recovery Link',
@@ -47,11 +50,22 @@ const VARIABLE_LABELS: Record<string, string> = {
   storeUrl: 'Store URL',
 };
 const PICKABLE_VARIABLES = Object.keys(VARIABLE_LABELS);
+const HIDDEN_VARIABLES = new Set(['recoveryUrl']);
+const labelOf = (k: string): string =>
+  VARIABLE_LABELS[k] ?? k.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^./, (c) => c.toUpperCase());
 
 const asArray = (res: any): any[] => (Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : []);
 
-const CartRecoveryAutomation: React.FC = () => {
+/**
+ * `embedded`: shown inside Messaging, Cart recovery (its Steps tab), whose header
+ * already names the page; the back link and the page title are then left out.
+ */
+const CartRecoveryAutomation: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const navigate = useNavigate();
+  const { hasPerm } = useAuth();
+  // Retain's PUT /carts/recovery-steps needs marketing.manage (the menu row is settings.manage).
+  const canSave = hasPerm('marketing.manage');
+  const [variables, setVariables] = useState<string[]>(PICKABLE_VARIABLES);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,6 +89,10 @@ const CartRecoveryAutomation: React.FC = () => {
         ]);
         const loaded: StepForm[] = stepsData?.steps ?? [];
         setSteps(loaded);
+        const keys: unknown = stepsData?.variable_keys ?? stepsData?.variableKeys;
+        if (Array.isArray(keys) && keys.length) {
+          setVariables(keys.map(String).filter((k) => !HIDDEN_VARIABLES.has(k)));
+        }
         setOriginal(JSON.parse(JSON.stringify(loaded)));
 
         // ONE cart SMS body, not one per step: an Indian SMS must match a
@@ -93,7 +111,7 @@ const CartRecoveryAutomation: React.FC = () => {
           .catch((err: any) => setWaLoadError(err.message || 'Could not load WhatsApp templates'))
           .finally(() => setWaTemplatesLoading(false));
       } catch (err: any) {
-        setError(err.message || 'Failed to load the cart recovery flow');
+        setError(errText(err, 'Failed to load the cart recovery flow'));
       } finally {
         setLoading(false);
       }
@@ -117,7 +135,7 @@ const CartRecoveryAutomation: React.FC = () => {
       setNotice('Cart recovery flow saved.');
       setTimeout(() => setNotice(null), 4000);
     } catch (err: any) {
-      setError(err.message || 'Failed to save the cart recovery flow');
+      setError(errText(err, 'Failed to save the cart recovery flow'));
     } finally {
       setSaving(false);
     }
@@ -161,18 +179,28 @@ const CartRecoveryAutomation: React.FC = () => {
 
   return (
     <div className="space-y-6 pb-12">
-      <div>
-        <Button variant="ghost" size="sm" onClick={() => navigate('/settings')} className="text-muted-foreground mb-4">
-          <FaArrowLeft className="mr-2 h-4 w-4" /> Back to Settings
-        </Button>
-        <h1 className="text-3xl font-bold tracking-tight text-foreground">Cart Recovery Automation</h1>
-        <p className="text-sm text-muted-foreground mt-2">
-          The flow a shopper's abandoned cart runs through — a Reminder, then a stronger Persuasion
-          nudge, then a Discount-backed final push. Each step has its own timing and its own message
-          per channel. A disabled step is skipped without waiting; a disabled channel is simply not
-          sent for that step.
+      {!embedded && (
+        <div>
+          <Button variant="ghost" size="sm" onClick={() => navigate('/settings')} className="text-muted-foreground mb-4">
+            <FaArrowLeft className="mr-2 h-4 w-4" /> Back to Settings
+          </Button>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">Cart Recovery Automation</h1>
+        </div>
+      )}
+      <p className="text-sm text-muted-foreground">
+        The steps an abandoned cart runs through: a reminder, then a stronger nudge, then a final
+        push with a discount. Each step has its own timing and its own message per channel. A
+        switched-off step is skipped without waiting; a switched-off channel is not sent for that step.
+        {!embedded && (
+          <> Whether any of this goes out at all is the switch in{' '}
+            <Link to="/messaging/cart-recovery" className="underline underline-offset-2">Messaging, Cart recovery</Link>.</>
+        )}
+      </p>
+      {!canSave && (
+        <p role="status" className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+          You can read the steps. Saving them needs the marketing.manage permission.
         </p>
-      </div>
+      )}
 
       {error && (
         <div className="bg-red-50 text-red-700 p-4 border border-red-200 rounded-lg text-sm font-medium flex justify-between items-start gap-3">
@@ -186,7 +214,7 @@ const CartRecoveryAutomation: React.FC = () => {
         {steps.map((s, i) => (
           <React.Fragment key={s.key}>
             <span className={`font-medium ${s.enabled ? '' : 'text-muted-foreground line-through'}`}>{s.name}</span>
-            {i < steps.length - 1 && <span className="text-muted-foreground">→ {steps[i + 1].delayHours}h →</span>}
+            {i < steps.length - 1 && <span className="text-muted-foreground">then {steps[i + 1].delayHours}h later</span>}
           </React.Fragment>
         ))}
       </div>
@@ -292,16 +320,24 @@ const CartRecoveryAutomation: React.FC = () => {
                     </div>
                     {step.channels.whatsapp.mode === 'default' ? (
                       <p className="text-xs text-muted-foreground">
-                        Sends via your existing approved <span className="font-mono">cart_recovery</span> template — Meta
-                        requires a pre-approved template for every WhatsApp message, so wording can't be freely typed
-                        here. The discount code shown/hidden automatically depends on this step's settings above.
+                        Sends your approved <span className="font-mono">cart_recovery</span> template. Meta
+                        requires a pre-approved template for every WhatsApp message, so the wording cannot be typed
+                        here. Whether the discount code shows depends on this step's discount above.
                       </p>
                     ) : (
                       <div className="space-y-2">
+                        {/* Retain's sender does not take a template per step yet (a
+                            LIBRARY REQUEST on Comms::notify): it still sends the
+                            store's cart_recovery template. Said, not hidden. */}
+                        <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md p-2 flex items-start gap-1.5">
+                          <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" aria-hidden />
+                          The template picked here is saved with the step, but messages still go out on your
+                          approved cart_recovery template until per-step templates are supported.
+                        </p>
                         {waLoadError && <p className="text-xs text-amber-700 flex items-center gap-1"><AlertTriangle className="h-3.5 w-3.5" />{waLoadError}</p>}
                         {waTemplatesLoading ? (
                           <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Fetching your approved templates from WhatsApp…
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Fetching your approved templates from WhatsApp...
                           </p>
                         ) : (
                           <select
@@ -309,7 +345,7 @@ const CartRecoveryAutomation: React.FC = () => {
                             value={step.channels.whatsapp.templateId || ''}
                             onChange={(e) => pickWhatsAppTemplate(step.key, e.target.value)}
                           >
-                            <option value="">— select an approved template —</option>
+                            <option value="">Select an approved template</option>
                             {waTemplates.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.language})</option>)}
                           </select>
                         )}
@@ -331,8 +367,8 @@ const CartRecoveryAutomation: React.FC = () => {
                                     return { ...s, channels: { ...s.channels, whatsapp: { ...s.channels.whatsapp, paramOrder } } };
                                   })}
                                 >
-                                  <option value="">— choose —</option>
-                                  {PICKABLE_VARIABLES.map((k) => <option key={k} value={k}>{VARIABLE_LABELS[k]}</option>)}
+                                  <option value="">Choose a variable</option>
+                                  {variables.map((k) => <option key={k} value={k}>{labelOf(k)}</option>)}
                                 </select>
                               </div>
                             ))}
@@ -357,15 +393,15 @@ const CartRecoveryAutomation: React.FC = () => {
                 {step.channels.sms.enabled && (
                   <div className="space-y-2 pl-1">
                     <p className="text-sm bg-muted/50 border rounded-md p-3 font-mono">
-                      {smsPreview.cart_recovery || <span className="text-muted-foreground italic">No cart SMS template registered yet — nothing will send on SMS.</span>}
+                      {smsPreview.cart_recovery || <span className="text-muted-foreground italic">No cart SMS template registered yet, so nothing will send on SMS.</span>}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       Every step sends this same text. An SMS in India must match your DLT-registered
-                      template word for word, and you register one cart template — so the wording cannot
+                      template word for word, and you register one cart template, so the wording cannot
                       change per step. Vary the message on email and WhatsApp instead.
                     </p>
                     <Button type="button" variant="outline" size="sm" onClick={() => navigate('/settings/sms-templates')}>
-                      Edit wording in Settings → SMS Templates <ExternalLink className="ml-2 h-3.5 w-3.5" />
+                      Edit the wording in Message templates <ExternalLink className="ml-2 h-3.5 w-3.5" />
                     </Button>
                   </div>
                 )}
@@ -401,10 +437,10 @@ const CartRecoveryAutomation: React.FC = () => {
                     <div className="bg-muted/50 border rounded-md p-3 space-y-2">
                       <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Variables</p>
                       <div className="grid gap-2 sm:grid-cols-2">
-                        {PICKABLE_VARIABLES.map((k) => (
+                        {variables.map((k) => (
                           <div key={k} className="text-sm flex items-center gap-2">
                             <Badge variant="outline" className="font-mono bg-background">{`{{${k}}}`}</Badge>
-                            <span className="text-muted-foreground text-xs">{VARIABLE_LABELS[k]}</span>
+                            <span className="text-muted-foreground text-xs">{labelOf(k)}</span>
                           </div>
                         ))}
                       </div>
@@ -421,7 +457,8 @@ const CartRecoveryAutomation: React.FC = () => {
         <Button type="button" variant="outline" onClick={handleReset} disabled={!hasChanges}>
           <FaUndo className="mr-2 h-4 w-4" /> Reset
         </Button>
-        <Button type="button" onClick={handleSave} disabled={!hasChanges || saving} className="bg-blue-600 hover:bg-blue-700">
+        <Button type="button" onClick={handleSave} disabled={!hasChanges || saving || !canSave} className="bg-blue-600 hover:bg-blue-700"
+          title={!canSave ? 'Needs the marketing.manage permission' : undefined}>
           {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FaSave className="mr-2 h-4 w-4" />}
           Save flow
         </Button>

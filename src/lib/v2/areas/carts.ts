@@ -111,6 +111,8 @@ export const CART_ROUTES: V2Route[] = [
   { m: 'GET', from: '/carts/admin/:id/team', row: 'commerce carts.ts:801', to: '/api/v2/commerce/carts/{id}/team' },
   { m: 'GET', from: '/carts/admin/export', row: 'commerce carts.ts:373', to: '/api/v2/commerce/carts/export', qs: ['include_guests'], reply: cartList }, // CartDeskView rows (commerce views/shoppers.rs:765); the CSV reads cartId / user.{name,phoneNumber,email}
   { m: 'GET', from: '/carts/admin/:id', row: 'commerce carts.ts:456', to: '/api/v2/commerce/carts/{id}', reply: cartRow },
+  // MENU-1 cart-recovery: the desk at a glance (`carts_admin::summary`, CartRecoverySummaryView; money arrives as rupees).
+  { m: 'GET', from: '/carts/admin/summary', row: 'commerce MENU-1 GET /carts/summary', to: '/api/v2/commerce/carts/summary', qs: ['days'] },
   { m: 'GET', from: '/carts/admin/recovery-steps', row: 'retain carts.rs — GET /carts/recovery-steps (MSG-4)', to: '/api/v2/retain/carts/recovery-steps' },
   { m: 'GET', from: '/carts/admin/whatsapp-templates', row: 'retain carts.rs — GET /carts/whatsapp-templates (MSG-4)', to: '/api/v2/retain/carts/whatsapp-templates', reply: recoveryTemplates },
   { m: 'PUT', from: '/carts/admin/recovery-steps', row: 'retain carts.rs — PUT /carts/recovery-steps (MSG-4)', to: '/api/v2/retain/carts/recovery-steps', body: (c) => ({ steps: c.body?.steps ?? [] }) },
