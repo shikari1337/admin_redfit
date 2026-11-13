@@ -1,8 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save, Truck, Warehouse, Loader2, MapPin, Plus, Pencil, Trash2, ShieldCheck, Copy, KeyRound } from 'lucide-react';
-import api, { shippingZonesAPI, pincodeZonesAPI, shippingAPI, getApiBase, type ShippingProviderStatus } from '../services/api';
+import api, { shippingZonesAPI, pincodeZonesAPI, shippingAPI, getApiBase, errorText, type ShippingProviderStatus, type GrowcordShipConnection } from '../services/api';
 import ConnectionStatus, { type ConnState } from '../components/common/ConnectionStatus';
+import GrowcordShipCard from '../components/shipments/GrowcordShipCard';
+import ZoneRates from '../components/shipments/ZoneRates';
+import { useAuth } from '../contexts/AuthContext';
 import { useSettingsSection } from '../hooks/useSettingsSection';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -72,6 +75,8 @@ const DEFAULT_FORM_DATA = {
     codEnabled: true,
     deliveryEnabled: true,
     slaHours: 0,
+    // Registry `shippingConfig.zoneRatingEnabled` (default off): Indian orders priced by the zones' rates below.
+    zoneRatingEnabled: false,
     byPaymentMethod: { prepaid: emptyTerms(), cod: emptyTerms() } as Record<MethodKey, MethodTerms>,
   },
   shiprocket: {
@@ -105,6 +110,12 @@ const ShippingSettings: React.FC = () => {
   const [genSecret, setGenSecret] = useState<string | null>(null); // shown ONCE after generate
   const [genLoading, setGenLoading] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  // Growcord Ship, the one aggregator: its connection rides the credentials read.
+  const [growcordShip, setGrowcordShip] = useState<GrowcordShipConnection | null>(null);
+  const { hasPerm } = useAuth();
+  const canManage = hasPerm('settings.manage');
+  // The zone whose rates are open under its row.
+  const [ratesZoneId, setRatesZoneId] = useState<string | null>(null);
 
   // ── Shipping zones ──────────────────────────────────────────────────────
   const [zones, setZones] = useState<ShippingZone[]>([]);
@@ -159,7 +170,7 @@ const ShippingSettings: React.FC = () => {
       setShowZoneForm(false);
       setZoneForm(emptyZoneForm);
     } catch (err: any) {
-      setZoneError(err?.response?.data?.message || 'Failed to save zone');
+      setZoneError(errorText(err, 'Failed to save zone'));
     } finally {
       setSavingZone(false);
     }
@@ -253,6 +264,13 @@ const ShippingSettings: React.FC = () => {
   const statusFor = (provider: string): ShippingProviderStatus | undefined =>
     providerStatus.find((p) => p.provider === provider);
 
+  /** After Growcord Ship is switched on or off: read its connection and the carrier strip again, keeping unsaved edits in the form. */
+  const refreshGrowcordShip = async () => {
+    const c = await shippingAPI.getProviderCredentials().catch(() => null);
+    setGrowcordShip(c?.growcordShip ?? null);
+    await loadProviderStatus();
+  };
+
   /** Sales channels on the connected Shiprocket account (for the picker). */
   const loadChannels = async () => {
     setChannelsLoading(true);
@@ -313,6 +331,7 @@ const ShippingSettings: React.FC = () => {
           codEnabled: settings.shippingConfig.codEnabled !== false,
           deliveryEnabled: settings.shippingConfig.deliveryEnabled !== false,
           slaHours: settings.shippingConfig.slaHours ?? 0,
+          zoneRatingEnabled: settings.shippingConfig.zoneRatingEnabled === true,
           byPaymentMethod: {
             prepaid: termsOf(settings.shippingConfig.byPaymentMethod?.prepaid),
             cod: termsOf(settings.shippingConfig.byPaymentMethod?.cod),
@@ -342,6 +361,7 @@ const ShippingSettings: React.FC = () => {
     onLoaded: ({ creds }) => {
       setWebhookTokenSet(!!creds?.shiprocket.webhookTokenSet);
       setStoreSlug(creds?.slug ?? null);
+      setGrowcordShip(creds?.growcordShip ?? null);
     },
     onLoadError: () => alert('Failed to load shipping settings'),
     submitter: async (data) => {
@@ -367,6 +387,7 @@ const ShippingSettings: React.FC = () => {
           prepaid: storedTerms(data.shippingConfig.byPaymentMethod.prepaid),
           cod: storedTerms(data.shippingConfig.byPaymentMethod.cod),
         },
+        zoneRatingEnabled: !!data.shippingConfig.zoneRatingEnabled,
       });
 
       // …courier credentials go to the endpoint that writes `shipping_providers`
@@ -489,20 +510,28 @@ const ShippingSettings: React.FC = () => {
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Settings
         </Button>
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-foreground">Shipping Settings</h1>
-            <p className="text-sm text-muted-foreground mt-2">Configure shipping providers and manage warehouses</p>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">Shipping Settings</h1>
+            <p className="text-sm text-muted-foreground mt-2">What shoppers pay for delivery, where you deliver, and the couriers that carry it.</p>
           </div>
           <Button
             onClick={() => navigate('/warehouses')}
-            className="bg-blue-600 hover:bg-blue-700"
+            className="bg-blue-600 hover:bg-blue-700 self-start sm:self-auto"
           >
             <Warehouse className="mr-2 w-4 h-4" />
             Manage Warehouses
           </Button>
         </div>
       </div>
+
+      {/* Growcord Ship first: it is the one aggregator, and the own-account cards below are the alternative. */}
+      <GrowcordShipCard
+        connection={growcordShip}
+        status={statusFor('growcord_ship')}
+        canManage={canManage}
+        onChanged={refreshGrowcordShip}
+      />
 
       <form onSubmit={handleSubmit} className="space-y-6 pb-12">
         {/* Shipping Fees & COD */}
@@ -588,6 +617,25 @@ const ShippingSettings: React.FC = () => {
                     onCheckedChange={(checked) => handleChange('shippingConfig', 'deliveryEnabled', checked as boolean)}
                   />
                   <span className="text-sm">Show the delivery method on checkout</span>
+                </div>
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <label className="text-sm font-medium text-foreground">Rate by zone</label>
+                <div className="flex items-start gap-3 pt-1">
+                  <Checkbox
+                    className="mt-0.5"
+                    checked={formData.shippingConfig.zoneRatingEnabled}
+                    onCheckedChange={(checked) => handleChange('shippingConfig', 'zoneRatingEnabled', checked as boolean)}
+                  />
+                  <span className="text-sm">
+                    Price Indian orders by the shipping zones and their rates below
+                    <span className="block text-[11px] text-muted-foreground mt-0.5">
+                      Off: every Indian order pays the flat fee above. On: the zone the address falls in and its
+                      cheapest fitting rate decide the charge; the flat fee stays the fallback. Orders abroad are always
+                      priced by their zone.
+                      {formData.shippingConfig.zoneRatingEnabled && zones.length === 0 && ' No zone exists yet, so every order still pays the flat fee.'}
+                    </span>
+                  </span>
                 </div>
               </div>
             </div>
@@ -709,7 +757,7 @@ const ShippingSettings: React.FC = () => {
                     type="button" onClick={loadChannels} disabled={channelsLoading}
                     className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
                   >
-                    {channelsLoading ? 'Loading…' : 'Refresh'}
+                    {channelsLoading ? 'Loading' : 'Refresh'}
                   </button>
                 </div>
 
@@ -964,10 +1012,13 @@ const ShippingSettings: React.FC = () => {
             </div>
             <div>
               <CardTitle>Shipping Zones</CardTitle>
-              <CardDescription>Group countries, states or pincodes into zones for region-based shipping.</CardDescription>
+              <CardDescription>
+                Group countries, states or pincodes into zones, then give each zone its rates.
+                {formData.shippingConfig.zoneRatingEnabled ? ' Rate by zone is on.' : ' Indian orders use these rates only when Rate by zone is on.'}
+              </CardDescription>
             </div>
           </div>
-          <Button size="sm" onClick={openCreateZone}><Plus className="mr-1.5 h-4 w-4" /> Add Zone</Button>
+          {canManage && <Button size="sm" onClick={openCreateZone}><Plus className="mr-1.5 h-4 w-4" /> Add Zone</Button>}
         </CardHeader>
         <CardContent className="space-y-4">
           {zoneError && (
@@ -1022,22 +1073,50 @@ const ShippingSettings: React.FC = () => {
               </TableHeader>
               <TableBody>
                 {zones.map(z => (
-                  <TableRow key={z.id}>
+                  <React.Fragment key={z.id}>
+                  <TableRow>
                     <TableCell className="font-medium">{z.name}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">
-                      {[...(z.countries || []), ...(z.states || [])].slice(0, 4).join(', ') || '—'}
-                      {(z.countries?.length || 0) + (z.states?.length || 0) > 4 ? '…' : ''}
+                      {(() => {
+                        // What checkout matches on (commerce zone_matches): countries (none = India), then states, then pincodes.
+                        const places = [...(z.countries || []), ...(z.states || [])];
+                        const pins = z.pincodes?.length || 0;
+                        const pinText = pins ? `${pins} pincode${pins === 1 ? '' : 's'}` : '';
+                        if (!places.length) return pinText ? `India, ${pinText}` : 'All of India';
+                        const shown = places.slice(0, 4).join(', ');
+                        const more = places.length > 4 ? `, and ${places.length - 4} more` : '';
+                        return `${shown}${more}${pinText ? `, ${pinText}` : ''}`;
+                      })()}
                     </TableCell>
                     <TableCell>
                       <Badge variant={z.is_active ? 'default' : 'secondary'} className={z.is_active ? 'bg-green-500/15 text-green-700 border-green-200 hover:bg-green-500/25' : ''}>
                         {z.is_active ? 'Active' : 'Inactive'}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-right">
-                      <Button variant="outline" size="sm" className="h-7 w-7 p-0 mr-1" onClick={() => openEditZone(z)}><Pencil className="h-3.5 w-3.5" /></Button>
-                      <Button variant="outline" size="sm" className="h-7 w-7 p-0 text-destructive" onClick={() => deleteZone(z.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                    <TableCell className="text-right whitespace-nowrap">
+                      <Button
+                        variant={ratesZoneId === z.id ? 'default' : 'outline'} size="sm" className="h-7 px-2 mr-1 text-xs"
+                        onClick={() => setRatesZoneId(ratesZoneId === z.id ? null : z.id)}
+                        aria-expanded={ratesZoneId === z.id}
+                      >
+                        Rates
+                      </Button>
+                      {canManage && (
+                        <>
+                          <Button variant="outline" size="sm" className="h-7 w-7 p-0 mr-1" onClick={() => openEditZone(z)} aria-label={`Edit ${z.name}`}><Pencil className="h-3.5 w-3.5" /></Button>
+                          <Button variant="outline" size="sm" className="h-7 w-7 p-0 text-destructive" onClick={() => deleteZone(z.id)} aria-label={`Delete ${z.name}`}><Trash2 className="h-3.5 w-3.5" /></Button>
+                        </>
+                      )}
                     </TableCell>
                   </TableRow>
+                  {ratesZoneId === z.id && (
+                    <TableRow className="hover:bg-transparent">
+                      <TableCell colSpan={4} className="p-2 sm:p-3">
+                        <ZoneRates zoneId={z.id} zoneName={z.name} canManage={canManage} />
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  </React.Fragment>
                 ))}
               </TableBody>
             </Table>
@@ -1116,7 +1195,7 @@ const ShippingSettings: React.FC = () => {
                     <TableRow key={p.id}>
                       <TableCell className="font-mono text-sm">{p.pincode}</TableCell>
                       <TableCell className="text-sm capitalize">{p.zone}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{[p.city, p.state].filter(Boolean).join(', ') || '—'}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{[p.city, p.state].filter(Boolean).join(', ') || 'Not given'}</TableCell>
                       <TableCell>
                         <Badge variant={p.is_serviceable ? 'default' : 'destructive'} className={p.is_serviceable ? 'bg-green-500/15 text-green-700 border-green-200 hover:bg-green-500/25' : ''}>
                           {p.is_serviceable ? 'Serviceable' : 'Not serviceable'}
@@ -1132,7 +1211,7 @@ const ShippingSettings: React.FC = () => {
               </Table>
               {pincodeTotal > PINCODE_PAGE_SIZE && (
                 <div className="flex items-center justify-between pt-2">
-                  <p className="text-xs text-muted-foreground">Page {pincodePage} of {Math.ceil(pincodeTotal / PINCODE_PAGE_SIZE)} · {pincodeTotal} total</p>
+                  <p className="text-xs text-muted-foreground">Page {pincodePage} of {Math.ceil(pincodeTotal / PINCODE_PAGE_SIZE)}, {pincodeTotal} total</p>
                   <div className="flex gap-2">
                     <Button variant="outline" size="sm" disabled={pincodePage <= 1} onClick={() => setPincodePage(p => p - 1)}>Previous</Button>
                     <Button variant="outline" size="sm" disabled={pincodePage >= Math.ceil(pincodeTotal / PINCODE_PAGE_SIZE)} onClick={() => setPincodePage(p => p + 1)}>Next</Button>

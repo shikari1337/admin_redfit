@@ -78,6 +78,9 @@ const boxDims = (box: any) => ({
 const itemUnitWeightKg = (item?: OrderItem): number =>
   Number(item?.weight_kg ?? item?.weightKg ?? 0.5) || 0.5;
 
+/** Who books the parcel. `growcord_ship` = Growcord Ship, the one aggregator: it picks the courier itself. */
+export type ShipProviderId = 'shiprocket' | 'delhivery' | 'manual' | 'growcord_ship';
+
 interface ShipmentCreationModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -94,7 +97,11 @@ interface ShipmentCreationModalProps {
     packageBoxId?: string;
   }) => void;
   loading: boolean;
-  selectedShippingProvider: 'shiprocket' | 'delhivery' | 'manual';
+  selectedShippingProvider: ShipProviderId;
+  /**
+   * Typed with the three original providers so a caller whose state is that narrower union (Order Detail)
+   * still fits; the modal hands `growcord_ship` through `chooseProvider` below, a plain string at run time.
+   */
   onShippingProviderChange: (provider: 'shiprocket' | 'delhivery' | 'manual') => void;
   selectedWarehouseId: string;
   onWarehouseChange: (warehouseId: string) => void;
@@ -217,6 +224,10 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
       setHasDelhivery(shippingProviders.some(p => p.id === 'delhivery'));
     }
   }, [shippingProviders]);
+  // Growcord Ship is offered whenever the store has it switched on (GET /shipping/providers lists it); it needs
+  // no per-warehouse courier mapping because Growcord Ship allocates the courier for each parcel.
+  const hasGrowcordShip = Array.isArray(shippingProviders) && shippingProviders.some(p => p.id === 'growcord_ship');
+  const chooseProvider = onShippingProviderChange as (provider: ShipProviderId) => void;
 
   useEffect(() => {
     if (isOpen) {
@@ -1268,6 +1279,33 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
                 <FaTruck className="text-blue-600" size={16} />
                 Select Shipping Method *
               </label>
+
+              {/* Growcord Ship: the one aggregator, so it leads the list when the store has it on. */}
+              {hasGrowcordShip && (
+                <div
+                  onClick={() => chooseProvider('growcord_ship')}
+                  className={`border-2 rounded-xl p-5 cursor-pointer transition-all ${
+                    selectedShippingProvider === 'growcord_ship'
+                      ? 'border-blue-600 bg-blue-50 shadow-md'
+                      : 'border-gray-200 hover:border-gray-400 hover:shadow-sm bg-white'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="radio"
+                      checked={selectedShippingProvider === 'growcord_ship'}
+                      onChange={() => chooseProvider('growcord_ship')}
+                      className="h-4 w-4 text-blue-600"
+                    />
+                    <div className="flex-1">
+                      <h4 className="font-semibold text-gray-900">Growcord Ship</h4>
+                      <p className="text-sm text-gray-500">
+                        Growcord Ship picks the courier for this parcel and books it. Freight comes off your wallet.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Manual Option */}
               <div

@@ -2994,6 +2994,25 @@ export interface ShippingProviderStatus {
   details: Record<string, string | undefined>;
 }
 
+/** The store's Growcord Ship connection, as the credentials read carries it (MENU-1 shipments). */
+export interface GrowcordShipConnection {
+  isEnabled: boolean;
+  keySet: boolean;
+  keyPrefix: string;
+  shipperCode: string;
+  enabledAt: string;
+}
+
+const growcordShipOf = (g: any): GrowcordShipConnection | null => (g && typeof g === 'object'
+  ? {
+    isEnabled: !!(g.isEnabled ?? g.is_enabled),
+    keySet: !!(g.keySet ?? g.key_set),
+    keyPrefix: String(g.keyPrefix ?? g.key_prefix ?? ''),
+    shipperCode: String(g.shipperCode ?? g.shipper_code ?? ''),
+    enabledAt: String(g.enabledAt ?? g.enabled_at ?? ''),
+  }
+  : null);
+
 export const shippingAPI = {
   /** Which carriers are actually configured, and whose account is in effect. */
   getProviderStatus: async (): Promise<ShippingProviderStatus[]> => {
@@ -3021,11 +3040,35 @@ export const shippingAPI = {
   getProviderCredentials: async (): Promise<{
     shiprocket: { isEnabled: boolean; email: string; apiUrl: string; pickupLocation: string; channelId: string; passwordSet: boolean; webhookTokenSet: boolean; requireSignedWebhook: boolean };
     delhivery: { isEnabled: boolean; apiUrl: string; apiTokenSet: boolean };
+    /** Growcord Ship, the one aggregator: on, the shipper it books as, the key's prefix (never the key). */
+    growcordShip?: GrowcordShipConnection | null;
     slug?: string | null;
   }> => {
     const response = await api.get('/shipping/providers/credentials');
     const raw = response.data;
-    return raw?.data ?? raw;
+    const d = raw?.data ?? raw;
+    return d && typeof d === 'object' ? { ...d, growcordShip: growcordShipOf(d.growcordShip ?? d.growcord_ship) } : d;
+  },
+  /**
+   * Switch Growcord Ship on for this store: it becomes a shipper of Growcord Ship and gets its own
+   * key, shown ONCE in the answer (`apiKey`). Parcels then book through Growcord Ship with no markup on top.
+   */
+  enableGrowcordShip: async (): Promise<{ shipper?: { id?: string; code?: string; name?: string; status?: string }; apiKey?: string; keyPrefix?: string; warning?: string; nextSteps?: string[] }> => {
+    const response = await api.post('/shipping/providers/growcord_ship/enable');
+    const raw = response.data;
+    const d = raw?.data ?? raw ?? {};
+    return {
+      shipper: d.shipper ?? undefined,
+      apiKey: d.apiKey ?? d.api_key,
+      keyPrefix: d.keyPrefix ?? d.key_prefix,
+      warning: d.warning,
+      nextSteps: Array.isArray(d.nextSteps ?? d.next_steps) ? (d.nextSteps ?? d.next_steps) : [],
+    };
+  },
+  /** Stop offering Growcord Ship for new shipments; parcels already booked keep moving and tracking. */
+  disableGrowcordShip: async () => {
+    const response = await api.post('/shipping/providers/growcord_ship/disable');
+    return response.data?.data ?? response.data;
   },
   /** Save the store's own courier credentials. Blank secret = keep existing. */
   saveProviderCredentials: async (data: {
@@ -5097,7 +5140,54 @@ export const shippingZonesAPI = {
     const response = await api.delete(`/shipping/zones/${id}`);
     return response.data;
   },
+  /** A zone's priced methods (its rates), switched-off ones included so they can be switched on again. */
+  getMethods: async (zoneId: string): Promise<ShippingMethodRow[]> => {
+    const response = await api.get(`/shipping/zones/${zoneId}/methods`, { params: { include_inactive: true } });
+    const raw = response.data;
+    return Array.isArray(raw) ? raw : (Array.isArray(raw?.data) ? raw.data : []);
+  },
+  createMethod: async (zoneId: string, data: ShippingMethodInput) => {
+    const response = await api.post(`/shipping/zones/${zoneId}/methods`, data);
+    return response.data?.data ?? response.data;
+  },
+  updateMethod: async (methodId: string, data: Partial<ShippingMethodInput>) => {
+    const response = await api.put(`/shipping/zones/methods/${methodId}`, data);
+    return response.data?.data ?? response.data;
+  },
 };
+
+/**
+ * A zone's rate rule as checkout reads it (commerce `rate_for_method`): `flat` = `base`;
+ * `weight` = `base` + `perKg` x weight rounded up to the half kg; `slab` = the first slab whose
+ * `uptoGrams` holds the parcel, then `perExtraKg` for each kilogram past the last slab.
+ */
+export interface ShippingRateConfig {
+  type: 'flat' | 'weight' | 'slab';
+  base?: number;
+  perKg?: number;
+  slabs?: Array<{ uptoGrams: number; rate: number }>;
+  perExtraKg?: number;
+}
+
+export interface ShippingMethodInput {
+  name: string;
+  type: ShippingRateConfig['type'];
+  rate_config: ShippingRateConfig;
+  estimated_days_min?: number | null;
+  estimated_days_max?: number | null;
+  /** Rupees; the order ships free at or above it. */
+  free_above?: number | null;
+  /** Rupees; the method is offered only from this order value. */
+  min_order?: number | null;
+  max_weight_grams?: number | null;
+  is_active?: boolean;
+  sort_order?: number;
+}
+
+export interface ShippingMethodRow extends Partial<ShippingMethodInput> {
+  id: string;
+  zone_id?: string;
+}
 
 // ─── PINCODE LOOKUP (India Post, proxied by the backend to avoid browser CORS) ─
 // Mirrors the storefront checkout's primary shipping-address lookup

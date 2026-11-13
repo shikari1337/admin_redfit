@@ -104,7 +104,10 @@ function ewbConnection(api: any): any {
   };
 }
 
-const EWB_CREDENTIALS_GAP = 'saving or testing the e-way bill API credentials has no v2 route (the account is set up by Growcord; its state shows here)';
+/** `MethodIn` (ship api/shipping_zones.rs): a zone's priced method; `free_above`/`min_order` rupees to Money, `markup_value` an exact decimal. */
+const SHIPPING_METHOD: Spec = { courier: 's', estimated_days_max: 'i', estimated_days_min: 'i', free_above: 'm', is_active: 'b', markup_type: 's', markup_value: 'd', max_weight_grams: 'i', min_order: 'm', name: 's', rate_config: 'j', sort_order: 'i', type: 's', warehouse_id: 's' };
+
+const EWB_CREDENTIALS_GAP ='saving or testing the e-way bill API credentials has no v2 route (the account is set up by Growcord; its state shows here)';
 
 
 /** A wms facility → the warehouse the Warehouses screen reads (`address{…}`, `contact{…}`, `shippingProviders`). */
@@ -329,6 +332,13 @@ export const SHIPPING_ROUTES: V2Route[] = [
   { m: 'GET', from: '/shipping/providers/credentials', row: 'ship routes/shipping.ts', to: '/api/v2/ship/providers/credentials' },
   { m: 'PUT', from: '/shipping/providers/credentials', row: 'ship routes/shipping.ts', method: 'PATCH', to: '/api/v2/ship/providers/credentials', bs: {'delhivery':{'api_token':'s','api_url':'s','is_enabled':'b'},'shiprocket':{'api_url':'s','channel_id':'s','email':'s','is_enabled':'b','password':'s','pickup_location':'s','require_signed_webhook':'b'}} },
   { m: 'POST', from: '/shipping/providers/shiprocket/webhook-secret', row: 'ship routes/shipping.ts', to: '/api/v2/ship/shiprocket/webhook-secret', bs: 'j' },
+  // Growcord Ship, the one aggregator (MENU-1 shipments): switch it on (mints the store's shipper key, shown once) or off.
+  { m: 'POST', from: '/shipping/providers/growcord_ship/enable', row: 'ship routes/shipping.ts:339', to: '/api/v2/ship/growcord-ship/enable', bs: 'j' }, // GrowcordShipEnabledView
+  { m: 'POST', from: '/shipping/providers/growcord_ship/disable', row: 'ship routes/shipping.ts:415', to: '/api/v2/ship/growcord-ship/disable', bs: 'j' }, // CredentialsView
+  // A zone's rates (MENU-1 shipments). `include_inactive` lists switched-off methods too, so one can be switched on again.
+  { m: 'GET', from: '/shipping/zones/:id/methods', row: 'ship routes/shippingZones.ts:53', to: '/api/v2/ship/zones/{id}/methods', qs: ['include_inactive'] }, // MethodView (free_above, min_order Money)
+  { m: 'POST', from: '/shipping/zones/:id/methods', row: 'ship routes/shippingZones.ts:60', to: '/api/v2/ship/zones/{id}/methods', bs: SHIPPING_METHOD },
+  { m: 'PUT', from: '/shipping/zones/methods/:methodId', row: 'ship routes/shippingZones.ts:67', method: 'PATCH', to: '/api/v2/ship/shipping-methods/{methodId}', bs: SHIPPING_METHOD },
   { m: 'GET', from: '/shipping/providers/status', row: 'ship routes/shipping.ts', to: '/api/v2/ship/providers/status' },
   { m: 'POST', from: '/shipping/shiprocket/assign-awb', row: 'ship routes/shipping.ts', to: '/api/v2/ship/shiprocket/assign-awb', bs: {'courier_id':'i','shipment_id':'s'}, reply: (d) => { const x = carrierData(d); return x && typeof x === 'object' && !Array.isArray(x) ? { ...x, provider: d?.provider } : d; } }, // CarrierAnswer.data {awb_code, courier_name, order} (ship api/shipping.rs:947); its `data` is opaque to the aliases, OrderDetail.tsx:222 reads awbCode
   { m: 'GET', from: '/shipping/shiprocket/channels', row: 'ship routes/shipping.ts', to: '/api/v2/ship/shiprocket/channels' },

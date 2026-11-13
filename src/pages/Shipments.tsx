@@ -4,11 +4,11 @@
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { shipmentsAPI, warehousesAPI, errorText } from '../services/api';
+import { shipmentsAPI, warehousesAPI, shippingAPI, errorText } from '../services/api';
 import { FaSync, FaSpinner, FaLink } from 'react-icons/fa';
-import { ShipmentTabs, ShipmentFilters, ShipmentTable, PendingOrdersTable, PickupModal, BulkActionsBar, ReconcileModal, ShipmentDetailDrawer } from '../components/shipments';
+import { ShipmentTabs, ShipmentFilters, ShipmentTable, PendingOrdersTable, PickupModal, BulkActionsBar, ReconcileModal, ShipmentDetailDrawer, ActNow } from '../components/shipments';
 import type { TabType, StatusCounts, ReconcileResultData } from '../components/shipments';
-import ShipmentCreationModal from '../components/order/ShipmentCreationModal';
+import ShipmentCreationModal, { type ShipProviderId } from '../components/order/ShipmentCreationModal';
 
 const Shipments: React.FC = () => {
   const [shipments, setShipments] = useState<any[]>([]);
@@ -39,7 +39,12 @@ const Shipments: React.FC = () => {
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [creatingShipment, setCreatingShipment] = useState(false);
   // ShipmentCreationModal state
-  const [selectedShippingProvider, setSelectedShippingProvider] = useState<'shiprocket' | 'delhivery' | 'manual'>('delhivery');
+  const [selectedShippingProvider, setSelectedShippingProvider] = useState<ShipProviderId>('manual');
+  // The carriers this store can actually book through (GET /shipping/providers): Growcord Ship when it is on, and
+  // any own account. The modal used to get a fixed Delhivery + Shiprocket list whatever the store had connected.
+  const [providers, setProviders] = useState<Array<{ id: string; name: string }>>([]);
+  const [providersKnown, setProvidersKnown] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState('');
   const [manualTrackingId, setManualTrackingId] = useState('');
   const [manualCarrierName, setManualCarrierName] = useState('');
@@ -59,7 +64,26 @@ const Shipments: React.FC = () => {
 
   useEffect(() => {
     fetchWarehouses();
+    fetchProviders();
   }, []);
+
+  const fetchProviders = async () => {
+    try {
+      const res: any = await shippingAPI.getProviders();
+      const rows: any[] = Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : [];
+      const list = rows
+        .filter((p) => p && p.id && p.enabled !== false)
+        .map((p) => ({ id: String(p.id), name: String(p.name || p.id) }));
+      setProviders(list);
+      setProvidersKnown(true);
+      // Growcord Ship first (the one aggregator), else the first own account, else a manual entry.
+      const first = list.find((p) => p.id === 'growcord_ship') ?? list.find((p) => p.id === 'shiprocket' || p.id === 'delhivery');
+      setSelectedShippingProvider((first?.id as ShipProviderId) ?? 'manual');
+    } catch {
+      setProviders([]);
+    }
+  };
+  const hasShiprocket = providers.some((p) => p.id === 'shiprocket');
 
   useEffect(() => {
     // Map tab to status filter
@@ -123,6 +147,7 @@ const Shipments: React.FC = () => {
   const fetchShipments = async () => {
     try {
       setLoading(true);
+      setLoadError(null);
 
       if (activeTab === 'pending_orders') {
         const response = await shipmentsAPI.getPendingOrders({
@@ -190,6 +215,7 @@ const Shipments: React.FC = () => {
       }
     } catch (error) {
       console.error('Failed to fetch shipments:', error);
+      setLoadError(errorText(error, 'The shipments could not be loaded.'));
     } finally {
       setLoading(false);
     }
@@ -494,9 +520,9 @@ const Shipments: React.FC = () => {
   return (
     <div>
       {/* Page Header */}
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Shipments</h1>
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-6">
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Shipments</h1>
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <button
             onClick={async () => {
               setFetchingStatus(true);
@@ -520,6 +546,7 @@ const Shipments: React.FC = () => {
             {fetchingStatus ? <FaSpinner className="animate-spin" size={14} /> : <FaSync size={14} />}
             {fetchingStatus ? 'Fetching...' : 'Sync Status'}
           </button>
+          {hasShiprocket && (
           <button
             onClick={() => handleReconcile('shiprocket')}
             disabled={reconciling}
@@ -529,8 +556,24 @@ const Shipments: React.FC = () => {
             {reconciling ? <FaSpinner className="animate-spin" size={14} /> : <FaLink size={14} />}
             {reconciling ? 'Reconciling...' : 'Reconcile with Shiprocket'}
           </button>
+          )}
         </div>
       </div>
+
+      {loadError && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert">
+          <span>{loadError}</span>
+          <button onClick={() => fetchShipments()} className="rounded-md border border-red-300 bg-white px-3 py-1 text-xs font-medium hover:bg-red-100">
+            Try again
+          </button>
+        </div>
+      )}
+
+      <ActNow
+        counts={statusCounts}
+        onOpen={setActiveTab}
+        hasCarrier={!providersKnown || providers.length > 0}
+      />
 
       {/* Filters - ABOVE the tabs */}
       <ShipmentFilters
@@ -709,10 +752,7 @@ const Shipments: React.FC = () => {
         selectedWarehouseId={selectedWarehouseId}
         onWarehouseChange={setSelectedWarehouseId}
         warehouses={warehouses}
-        shippingProviders={[
-          { id: 'delhivery', name: 'Delhivery' },
-          { id: 'shiprocket', name: 'Shiprocket' },
-        ]}
+        shippingProviders={providers}
         manualTrackingId={manualTrackingId}
         manualCarrierName={manualCarrierName}
         manualTrackingUrl={manualTrackingUrl}

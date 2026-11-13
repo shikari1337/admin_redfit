@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { packageBoxesAPI } from '../services/api';
+import { fmtMinor } from '../lib/money';
+import { packageBoxesAPI, errorText } from '../services/api';
 
 /**
  * THE BOX CATALOGUE — the boxes the packing bench actually has on the shelf.
@@ -49,16 +50,20 @@ interface PackageBox {
   cost_minor?: number | null;
   is_active?: boolean;
   description?: string;
+  is_default?: boolean;
   isDefault?: boolean;
 }
 
 /** The API returns `id`; older callers wrote `_id`. Accept both, trust neither. */
 const boxId = (b: PackageBox): string => String(b.id ?? b._id ?? '');
 
+/** The box the booking screen picks first (one per store: saving one as default clears the others on the server). */
+const isDefaultBox = (b: PackageBox): boolean => !!(b.is_default ?? b.isDefault);
+
 const emptyForm = {
   name: '', code: '', length: '', breadth: '', height: '',
   innerLength: '', innerBreadth: '', innerHeight: '',
-  tare: '', maxWeightKg: '', cost: '', description: '', isActive: true,
+  tare: '', maxWeightKg: '', cost: '', description: '', isActive: true, isDefault: false,
 };
 
 export default function PackageBoxes() {
@@ -69,6 +74,7 @@ export default function PackageBoxes() {
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [defaultingId, setDefaultingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -78,7 +84,7 @@ export default function PackageBoxes() {
       const data = await packageBoxesAPI.getAll();
       setBoxes(Array.isArray(data) ? data : data?.packages ?? data?.data ?? []);
     } catch (err: any) {
-      setError(err?.response?.data?.error?.message || 'Failed to load package boxes');
+      setError(errorText(err, 'Failed to load package boxes'));
     } finally {
       setLoading(false);
     }
@@ -110,6 +116,7 @@ export default function PackageBoxes() {
       cost: box.cost_minor ? String(box.cost_minor / 100) : '',
       description: box.description ?? '',
       isActive: box.is_active !== false,
+      isDefault: isDefaultBox(box),
     });
     setShowForm(true);
   };
@@ -117,7 +124,7 @@ export default function PackageBoxes() {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name.trim()) {
-      setError('Give the box a name — what the packers call it.');
+      setError('Give the box a name: what the packers call it.');
       return;
     }
     try {
@@ -126,6 +133,8 @@ export default function PackageBoxes() {
       const payload: Record<string, unknown> = {
         name: form.name.trim(),
         is_active: form.isActive,
+        // A box not in use cannot be the one the booking screen picks first.
+        is_default: form.isActive && form.isDefault,
         ...(form.code.trim() ? { code: form.code.trim() } : {}),
         ...(form.length ? { length: Number(form.length) } : {}),
         ...(form.breadth ? { breadth: Number(form.breadth) } : {}),
@@ -160,7 +169,7 @@ export default function PackageBoxes() {
       setTimeout(() => setSuccess(null), 4000);
       loadBoxes();
     } catch (err: any) {
-      setError(err?.response?.data?.error?.message || 'Failed to save the box');
+      setError(errorText(err, 'Failed to save the box'));
     } finally {
       setSaving(false);
     }
@@ -176,14 +185,33 @@ export default function PackageBoxes() {
       setSuccess('Box removed.');
       setTimeout(() => setSuccess(null), 3000);
     } catch (err: any) {
-      setError(err?.response?.data?.error?.message || 'Failed to remove the box');
+      setError(errorText(err, 'Failed to remove the box'));
     } finally {
       setDeletingId(null);
     }
   };
 
+  /** One click to make a box the store's default (the server takes the mark off the others). */
+  const handleMakeDefault = async (id: string) => {
+    if (!id) return;
+    try {
+      setDefaultingId(id);
+      setError(null);
+      await packageBoxesAPI.update(id, { is_default: true, is_active: true });
+      setSuccess('Default box changed. The booking screen picks it first.');
+      setTimeout(() => setSuccess(null), 3000);
+      await loadBoxes();
+    } catch (err: any) {
+      setError(errorText(err, 'Failed to change the default box'));
+    } finally {
+      setDefaultingId(null);
+    }
+  };
+
   const unmeasured = boxes.filter(b => !(b.inner_length_mm && b.inner_breadth_mm && b.inner_height_mm)).length;
   const noTare = boxes.filter(b => !b.tare_g && !b.weight).length;
+  const inUse = boxes.filter(b => b.is_active !== false);
+  const defaultBox = inUse.find(isDefaultBox);
 
   return (
     <div className="pkg-page">
@@ -205,6 +233,15 @@ export default function PackageBoxes() {
         </div>
       )}
       {success && <div className="alert alert-success"><span>{success}</span></div>}
+
+      {!loading && inUse.length > 0 && !defaultBox && (
+        <div className="alert alert-info">
+          <span>
+            No default box yet, so the booking screen starts with {inUse[0]?.name ? <b>{inUse[0].name}</b> : 'the first box'}. Mark the
+            box you pack most into as the default.
+          </span>
+        </div>
+      )}
 
       {!loading && boxes.length > 0 && (unmeasured > 0 || noTare > 0) && (
         <div className="alert alert-info">
@@ -243,7 +280,7 @@ export default function PackageBoxes() {
                 />
               </div>
 
-              <p className="section-note">Outer size, in centimetres — what the courier charges on.</p>
+              <p className="section-note">Outer size, in centimetres: what the courier charges on.</p>
               <div className="form-row">
                 <label>Length (cm)</label>
                 <input type="number" min="0.1" step="0.1" value={form.length}
@@ -267,8 +304,8 @@ export default function PackageBoxes() {
               </div>
 
               <p className="section-note">
-                Inner size, in millimetres — measured inside the walls, so it can say what fits. Leave blank if nobody
-                has measured it; blank reads as “not measured”, a zero would read as “holds nothing”.
+                Inner size, in millimetres: measured inside the walls, so it can say what fits. Leave blank if nobody
+                has measured it; blank reads as "not measured", a zero would read as "holds nothing".
               </p>
               <div className="form-row">
                 <label>Inner length (mm)</label>
@@ -313,12 +350,19 @@ export default function PackageBoxes() {
                   <span>Offer this box at the packing bench</span>
                 </label>
               </div>
+              <div className="form-row full">
+                <label className="inline">
+                  <input type="checkbox" checked={form.isActive && form.isDefault} disabled={!form.isActive}
+                    onChange={e => setForm(f => ({ ...f, isDefault: e.target.checked }))} />
+                  <span>Default box: the booking screen picks it first (only one box can be the default)</span>
+                </label>
+              </div>
               <div className="form-actions">
                 <button type="button" className="btn btn-secondary" onClick={() => setShowForm(false)}>
                   Cancel
                 </button>
                 <button type="submit" className="btn btn-primary" disabled={saving}>
-                  {saving ? 'Saving…' : editId ? 'Save the box' : 'Add the box'}
+                  {saving ? 'Saving' : editId ? 'Save the box' : 'Add the box'}
                 </button>
               </div>
             </form>
@@ -327,7 +371,7 @@ export default function PackageBoxes() {
       )}
 
       {loading ? (
-        <div className="loading"><div className="spinner" /><p>Loading…</p></div>
+        <div className="loading"><div className="spinner" /><p>Loading the boxes</p></div>
       ) : boxes.length === 0 ? (
         <div className="empty">
           <p>No box has been fed into the system yet.</p>
@@ -346,25 +390,35 @@ export default function PackageBoxes() {
                   <span className="box-name">{box.name}</span>
                   {box.code && <span className="badge-code">{box.code}</span>}
                   {box.is_active === false && <span className="badge-off">not in use</span>}
-                  {box.isDefault && <span className="badge-default">Default</span>}
+                  {isDefaultBox(box) && <span className="badge-default">Default</span>}
                   <div className="box-dims">
                     {box.length && box.breadth && box.height
                       ? <span>{box.length} × {box.breadth} × {box.height} cm outer</span>
                       : <span className="muted">no outer size</span>}
-                    {tare != null && <span> · {tare} g empty</span>}
+                    {tare != null && <span>, {tare} g empty</span>}
                   </div>
                   <div className="box-dims">
                     {innerKnown
                       ? <span>{box.inner_length_mm} × {box.inner_breadth_mm} × {box.inner_height_mm} mm inside</span>
                       : <span className="muted">inner size not measured</span>}
-                    {box.max_weight_g ? <span> · carries {(box.max_weight_g / 1000).toFixed(1)} kg</span> : null}
-                    {box.cost_minor ? <span> · ₹{(box.cost_minor / 100).toFixed(2)} each</span> : null}
+                    {box.max_weight_g ? <span>, carries {(box.max_weight_g / 1000).toFixed(1)} kg</span> : null}
+                    {box.cost_minor ? <span>, {fmtMinor(box.cost_minor)} each</span> : null}
                   </div>
                   {box.description && <p className="box-desc">{box.description}</p>}
                 </div>
                 <div className="box-actions">
                   {id ? (
                     <>
+                      {!isDefaultBox(box) && box.is_active !== false && (
+                        <button
+                          className="btn-link"
+                          title="The booking screen picks this box first"
+                          disabled={defaultingId === id}
+                          onClick={() => handleMakeDefault(id)}
+                        >
+                          {defaultingId === id ? 'Saving' : 'Make default'}
+                        </button>
+                      )}
                       <button className="btn-icon" title="Edit" onClick={() => openEdit(box)}>✏️</button>
                       <button
                         className="btn-icon btn-danger"
@@ -376,7 +430,7 @@ export default function PackageBoxes() {
                       </button>
                     </>
                   ) : (
-                    <span className="muted" title="This row has no id, so it cannot be edited from here.">—</span>
+                    <span className="muted" title="This row has no id, so it cannot be edited from here.">No id</span>
                   )}
                 </div>
               </div>
@@ -387,6 +441,7 @@ export default function PackageBoxes() {
 
       <style>{`
         .pkg-page { padding: 24px; max-width: 980px; margin: 0 auto; }
+        @media (max-width: 640px) { .pkg-page { padding: 16px 0; } .page-header { flex-wrap: wrap; } }
         .page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 24px; }
         .page-header h1 { margin: 0 0 4px; font-size: 1.5rem; }
         .subtitle { margin: 0; color: var(--n-500); font-size: 0.875rem; max-width: 62ch; }
@@ -404,7 +459,7 @@ export default function PackageBoxes() {
         .empty .subtitle { margin: 6px auto 16px; }
         .spinner { width: 32px; height: 32px; border: 3px solid var(--n-200); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; margin: 0 auto 12px; }
         @keyframes spin { to { transform: rotate(360deg); } }
-        .boxes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+        .boxes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 12px; }
         .box-card { background: var(--surface); border: 1px solid var(--n-200); border-radius: 10px; padding: 16px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
         .box-info { flex: 1; min-width: 0; }
         .box-name { font-weight: 600; font-size: 0.95rem; margin-right: 6px; }
@@ -417,6 +472,9 @@ export default function PackageBoxes() {
         .box-actions { display: flex; gap: 8px; }
         .btn-icon { background: none; border: none; cursor: pointer; font-size: 1rem; padding: 4px; border-radius: 4px; }
         .btn-icon:hover { background: var(--n-100); }
+        .btn-link { background: none; border: none; cursor: pointer; font-size: 0.75rem; color: var(--accent); padding: 4px; white-space: nowrap; }
+        .btn-link:disabled { opacity: 0.5; cursor: not-allowed; }
+        .box-actions { flex-wrap: wrap; justify-content: flex-end; align-items: center; }
         .btn-danger:hover { background: var(--d-50); }
         .modal-overlay { position: fixed; inset: 0; background: var(--scrim); display: flex; align-items: center; justify-content: center; z-index: 1000; }
         .modal { background: var(--surface); border-radius: 12px; padding: 24px; width: 100%; max-width: 620px; max-height: 90vh; overflow-y: auto; }
