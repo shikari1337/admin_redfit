@@ -22,7 +22,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { inventoryAPI } from '@/services/api';
 import { PeriodPicker } from './PeriodPicker';
 import {
-  type Granularity, type PanelRange, compareLabel, daysBetween, periodByKey, rangeLabel, shortDay,
+  type Granularity, type PanelRange, PERIODS, compareLabel, daysBetween, periodByKey, rangeLabel, shortDay,
 } from './periods';
 import {
   BlockTitle, FilterRow, fmtInt, fmtPct, orderTypeColor, orderTypeLabel, paymentColor, paymentLabel,
@@ -109,9 +109,24 @@ const SHOW_BY: Array<{ key: Granularity; label: string }> = [
   { key: 'auto', label: 'Auto' }, { key: 'day', label: 'Day' }, { key: 'week', label: 'Week' }, { key: 'month', label: 'Month' },
 ];
 
+/**
+ * The period the tab opens on: the one this browser picked last, else this month so far, which is
+ * compared with the same days of last month. "Today" against the whole of yesterday reads as a
+ * drop for most of the day, so it is never the default (owner, 13 Nov 2026: the comparison that
+ * matters).
+ */
+const PERIOD_KEY = 'admin_dashboard_period';
+const DEFAULT_PERIOD = 'month';
+function rememberedPeriod(): string {
+  try {
+    const v = localStorage.getItem(PERIOD_KEY);
+    return v && PERIODS.some((p) => p.key === v) ? v : DEFAULT_PERIOD;
+  } catch { return DEFAULT_PERIOD; }
+}
+
 export const OverviewTab: React.FC = () => {
   const { hasPerm, canAccess, modulesLoaded } = useAuth();
-  const [periodKey, setPeriodKey] = useState('today');
+  const [periodKey, setPeriodKey] = useState(rememberedPeriod);
   const [custom, setCustom] = useState<PanelRange | null>(null);
   const [granularity, setGranularity] = useState<Granularity>('auto');
 
@@ -123,7 +138,11 @@ export const OverviewTab: React.FC = () => {
   const prevRange = useMemo(() => def.compare(range), [def, range]);
   const vsLabel = compareLabel(def, prevRange);
 
-  const salesRead = hasPerm('orders.read');
+  const salesPerm = hasPerm('orders.read');
+  // The sales panel is the `analytics` module's (insights api/panels.rs); asked for only once the
+  // module map has landed, so a store without it never fires a doomed request.
+  const analyticsOff = modulesLoaded && !canAccess('analytics');
+  const salesRead = salesPerm && modulesLoaded && !analyticsOff;
   const extra = granularity === 'auto' ? undefined : { granularity };
   const cur = usePanelStats<any>('commerce', range, salesRead, extra);
   // The previous period has the same length, so the server picks the same bucket for it.
@@ -158,7 +177,8 @@ export const OverviewTab: React.FC = () => {
   const shippingEnabled = below && modulesLoaded && canAccess('shipping') && hasPerm('shipments.read');
   const marketingEnabled = below && modulesLoaded && canAccess('marketing') && hasPerm('marketing.read');
   // GA4 reads go through the Google connector; a 409 "not connected" is swallowed by design.
-  const gaEnabled = below && modulesLoaded && canAccess('connectors') && hasPerm('reports.read');
+  // All time has no window GA can match (it would answer the last 28 days), so it is not asked.
+  const gaEnabled = below && modulesLoaded && canAccess('connectors') && hasPerm('reports.read') && !!range.from;
 
   const { data: qa } = useRangedGet<any>('/product-questions/admin/counts', range, qaEnabled);
   const { data: reviews } = useRangedGet<any>('/reviews/admin/counts', range, reviewsEnabled);
@@ -214,8 +234,11 @@ export const OverviewTab: React.FC = () => {
     detail: fmtRupees(r.value),
   }));
 
-  if (!salesRead) {
+  if (!salesPerm) {
     return <Unavailable className="rounded-xl border border-gray-200 bg-white p-4">Sales figures need permission to read orders. Ask the store owner if you need them.</Unavailable>;
+  }
+  if (analyticsOff) {
+    return <Unavailable className="rounded-xl border border-gray-200 bg-white p-4">Sales figures come from the Analytics module, which is not switched on for this store.</Unavailable>;
   }
 
   const periodText = rangeLabel(range);
@@ -224,7 +247,12 @@ export const OverviewTab: React.FC = () => {
     <div className="space-y-5" data-tab-panel="overview">
       <FilterRow aside={dim ? 'Updating…' : (prevRange ? `Compared with ${rangeLabel(prevRange)}` : 'No comparison for all time')}>
         <PeriodPicker value={periodKey} range={range} custom={custom}
-          onChange={(k, c) => { if (c) setCustom(c); setPeriodKey(k); }} />
+          onChange={(k, c) => {
+            if (c) setCustom(c);
+            setPeriodKey(k);
+            // A preset is remembered on this browser; a custom range is a one-off look.
+            if (k !== 'custom') { try { localStorage.setItem(PERIOD_KEY, k); } catch { /* private mode */ } }
+          }} />
         <div className="flex items-center gap-2">
           <span className="text-sm text-gray-500">Show by</span>
           <Segmented label="Show by" value={granularity} onChange={(k) => setGranularity(k as Granularity)} options={SHOW_BY} testId="show-by" />
@@ -233,7 +261,7 @@ export const OverviewTab: React.FC = () => {
 
       {cur.error && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">Could not load sales: {cur.error}</div>}
 
-      {!s && cur.loading && (
+      {!s && (cur.loading || !modulesLoaded) && (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-busy="true">
           <div className="col-span-2 h-56 animate-pulse rounded-xl bg-gray-100 lg:row-span-2" />
           {[0, 1, 2, 3].map((i) => <div key={i} className="h-28 animate-pulse rounded-xl bg-gray-100" />)}
@@ -245,7 +273,7 @@ export const OverviewTab: React.FC = () => {
           {/* Headline tiles */}
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <KpiTile hero className="col-span-2 lg:row-span-2" testId="tile-gross"
-              label={`Gross sales · ${periodText}`} value={fmtRupees(s.gross_sales)}
+              label={`Gross sales, ${periodText}`} value={fmtRupees(s.gross_sales)}
               sub={`${s.orders.toLocaleString('en-IN')} orders, cancellations left out`}
               delta={d('gross_sales')} spark={trend(ts, 'gross_sales')}
               compareRows={p && prevRange ? [
@@ -301,7 +329,7 @@ export const OverviewTab: React.FC = () => {
           <div className="grid gap-5 lg:grid-cols-3">
             <div className="min-w-0 lg:col-span-2">
               <ChartCard title="Sales over time" testId="chart-sales"
-                sub={`Gross is order value less cancellations · collected is money kept${prevTs.length ? ' · grey is the period before' : ''}`}
+                sub={`Gross is order value less cancellations, collected is money kept${prevTs.length ? ', grey is the period before' : ''}`}
                 table={{
                   columns: [
                     { key: 'bucket', label: bucket === 'week' ? 'Week of' : 'Period', format: (v) => bucketLabel(v, bucket) },
@@ -389,9 +417,9 @@ export const OverviewTab: React.FC = () => {
               <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
                 <KpiTile label="Delivered" value={fmtPct(shipping.delivery_rate)} sub="Of shipments created" />
                 <KpiTile label="Failed delivery attempts" value={fmtPct(shipping.ndr_rate)}
-                  sub={`${sc.ndr_failed_delivery} shipments${shipping.ndr_rate > 5 ? ' · above 5%, worth a look' : ''}`} />
+                  sub={`${sc.ndr_failed_delivery} shipments${shipping.ndr_rate > 5 ? ', above 5%, worth a look' : ''}`} />
                 <KpiTile className="col-span-2 lg:col-span-1" label="Returned to you" value={fmtPct(shipping.rto_rate)}
-                  sub={`${rtoCount} shipments came back${shipping.rto_rate > 5 ? ' · above 5%, worth a look' : ''}`} />
+                  sub={`${rtoCount} shipments came back${shipping.rto_rate > 5 ? ', above 5%, worth a look' : ''}`} />
               </div>
             </div>
           )}

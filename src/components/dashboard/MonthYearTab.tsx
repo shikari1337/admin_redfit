@@ -39,8 +39,11 @@ interface FyMonth {
 const MONTH_FIELDS = ['orders', 'gross_sales', 'collected_revenue', 'cancelled', 'units', 'new_customers'] as const;
 
 export const MonthYearTab: React.FC = () => {
-  const { hasPerm } = useAuth();
-  const salesRead = hasPerm('orders.read');
+  const { hasPerm, canAccess, modulesLoaded } = useAuth();
+  const salesPerm = hasPerm('orders.read');
+  // The sales panel is the `analytics` module's; never asked for before the module map lands.
+  const analyticsOff = modulesLoaded && !canAccess('analytics');
+  const salesRead = salesPerm && modulesLoaded && !analyticsOff;
   const all = useAllTimeMonthly(salesRead);
   const months: MonthRow[] = all.data?.timeseries ?? [];
   const byBucket = useMemo(() => new Map(months.map((m) => [m.bucket, m])), [months]);
@@ -160,7 +163,7 @@ export const MonthYearTab: React.FC = () => {
   const int = (v: any, row: any) => (row?.empty ? '' : fmtInt(v));
   const monthColumns = [
     { key: 'month', label: 'Month', format: (v: any, row: any) => (
-      <span className={cn(row?.empty && 'text-gray-400')}>{v}{row?.empty ? (row?.future ? ' · not yet' : ' · before your first order') : ''}</span>) },
+      <span className={cn(row?.empty && 'text-gray-400')}>{v}{row?.empty ? (row?.future ? ' (not yet)' : ' (before your first order)') : ''}</span>) },
     { key: 'orders', label: 'Orders', format: int },
     { key: 'gross', label: 'Gross sales', format: money },
     { key: 'collected', label: 'Collected', format: money },
@@ -187,8 +190,11 @@ export const MonthYearTab: React.FC = () => {
     downloadCsv(`sales-by-month-${fyLabel(fy).replace(/\s+/g, '-')}.csv`, rows);
   };
 
-  if (!salesRead) {
+  if (!salesPerm) {
     return <Unavailable className="rounded-xl border border-gray-200 bg-white p-4">Sales figures need permission to read orders.</Unavailable>;
+  }
+  if (analyticsOff) {
+    return <Unavailable className="rounded-xl border border-gray-200 bg-white p-4">Sales figures come from the Analytics module, which is not switched on for this store.</Unavailable>;
   }
 
   const grey = lastYearGrey();
@@ -207,7 +213,7 @@ export const MonthYearTab: React.FC = () => {
         <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">Could not load sales: {ytd.error || all.error}</div>
       )}
 
-      {!s && ytd.loading ? (
+      {!s && (ytd.loading || !modulesLoaded) ? (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-5" aria-busy="true">
           {[0, 1, 2, 3, 4].map((i) => <div key={i} className="h-28 animate-pulse rounded-xl bg-gray-100" />)}
         </div>
@@ -328,7 +334,7 @@ export const MonthYearTab: React.FC = () => {
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-5 py-3.5">
             <div>
               <div className="font-semibold text-gray-900">{thisName}, month by month</div>
-              <div className="mt-0.5 text-xs text-gray-500">Months still to come are left empty{compare ? ' · vs last year compares gross sales with the same month' : ''}</div>
+              <div className="mt-0.5 text-xs text-gray-500">Months still to come are left empty{compare ? ', and vs last year compares gross sales with the same month' : ''}</div>
             </div>
             <button type="button" onClick={exportCsv} data-testid="month-csv"
               className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">

@@ -103,11 +103,34 @@ export const DASHBOARD_ROUTES: V2Route[] = [
   { m: 'GET', from: '/contact/stats', row: 'crm — GET /api/v2/crm/inbox/stats', to: '/api/v2/crm/inbox/stats' },
   { m: 'GET', from: '/reviews/admin/counts', row: 'reviews 10', to: '/api/v2/reviews/moderation/reviews/counts' },
   { m: 'GET', from: '/product-questions/admin/counts', row: 'reviews 31', to: '/api/v2/reviews/moderation/questions/counts' },
-  // `?excludeImported` has no v2 parameter: the receivables report answers live money only.
-  { m: 'GET', from: '/ar/outstanding', row: 'books — GET /api/v2/books/receivables', to: '/api/v2/books/receivables' },
+  {
+    // books api/ar.rs OutstandingIn {as_of, exclude_imported} (deny_unknown_fields; a flag reads only true/false).
+    // The board and the Money tab send `excludeImported=1` (live money only, old website history left out);
+    // the Receivables page sends `asOf`, and `format=csv` for its server CSV (the export route answers the file).
+    m: 'GET', from: '/ar/outstanding', row: 'books ar.rs: GET /api/v2/books/receivables (+ /export)',
+    to: (c) => (c.query.format === 'csv' ? '/api/v2/books/receivables/export' : '/api/v2/books/receivables'),
+    query: (c) => ({
+      as_of: c.query.asOf ?? c.query.as_of,
+      exclude_imported: ['1', 'true', 1, true].includes((c.query.excludeImported ?? c.query.exclude_imported) as any) || undefined,
+    }),
+  },
   { m: 'GET', from: '/billing/overview', row: 'platform S16', to: '/api/v2/platform/billing/overview' },
   { m: 'GET', from: '/wms/floor/today', row: 'wms — GET /api/v2/wms/floor/today', to: '/api/v2/wms/floor/today' },
   { m: 'GET', from: '/b2b/applications', row: 'trade — GET /api/v2/trade/applications', to: '/api/v2/trade/applications', query: (c) => ({ status: c.query.status }), reply: applicationInbox },
+  {
+    // The Overview's Google Analytics tile. GoogleBlockView {currency, data} (marketing api/connectors.rs:1121,
+    // google/analytics.rs overview): the tile reads `totals` and `deltas`, so the block's `data` is the answer.
+    // WindowQuery {from, to, limit} refuses other keys. Not connected answers an error the tile leaves silent.
+    m: 'GET', from: '/connectors/google/analytics/overview', row: 'marketing connectors.ts:396: GET /api/v2/marketing/google/analytics/overview',
+    to: '/api/v2/marketing/google/analytics/overview',
+    query: (c) => ({ from: c.query.from, to: c.query.to }),
+    reply: (d) => (d && typeof d === 'object' && !Array.isArray(d) && d.data && typeof d.data === 'object' ? d.data : d),
+  },
+
+  // The Setup Guide's "Taking payment" step reads what shoppers are offered at checkout, the same answer the
+  // storefront reads: GatewaysView {gateways[{id, name, ...}], market, currency} (checkout api/checkout.rs:505,
+  // ROUTE_MAP row 32). Razorpay is listed only with a live key id, UPI only with a payee id. Public route.
+  { m: 'GET', from: '/settings/payment-gateways', row: 'checkout 32: GET /api/v2/checkout/gateways', to: '/api/v2/checkout/gateways' },
 ];
 
 /** A legacy `page` (1-based) + `limit` → the v2 `offset`. */

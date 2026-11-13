@@ -182,7 +182,8 @@ export function periodByKey(key: string): PeriodDef {
 /** "vs yesterday" / "vs 1 Sep to 2 Sep". */
 export function compareLabel(def: PeriodDef, prev: PanelRange | null): string {
   if (!prev) return '';
-  if (def.key === 'today') return 'vs yesterday';
+  // Today is still running; yesterday is a whole day. Say so, so a morning's figure is not read as a fall.
+  if (def.key === 'today') return 'vs all of yesterday';
   return `vs ${rangeLabel(prev)}`;
 }
 

@@ -112,3 +112,19 @@ export function modulesForPath(pathname: string): string[] {
 export function moduleForPath(pathname: string): string | null {
   return modulesForPath(pathname)[0] ?? null;
 }
+
+/**
+ * Whether a viewer may open a link: one of the path's permissions (none needed when the table names
+ * none) and every module it needs, by the same tables RouteGuard reads. A query string is ignored.
+ * Screens use it to leave out a link the viewer would only be refused at (Setup Guide; the same
+ * test Connections.tsx writes inline).
+ */
+export function canOpenPath(
+  to: string,
+  hasPerm: (permission: string) => boolean,
+  canAccess: (module: string) => boolean,
+): boolean {
+  const path = to.split('?')[0];
+  const perms = permissionsForPath(path);
+  return (!perms.length || perms.some((p) => hasPerm(p))) && modulesForPath(path).every((m) => canAccess(m));
+}

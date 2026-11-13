@@ -19,7 +19,7 @@
  */
 import { useEffect, useState } from 'react';
 import { api } from '../../services/api';
-import { payload } from '../../lib/unwrap';
+import { listTotal, payload } from '../../lib/unwrap';
 
 export interface HomeSources {
   orders: any | null;        // /analytics/panels/orders         (orders.read)
@@ -78,7 +78,7 @@ export function useHomeFeed(gate: Gate): HomeSources {
     'orders.read', 'inventory.read', 'warehouse.read', 'warehouse.operate', 'accounting.read',
     'billing.read', 'content.read', 'b2b.read', 'customers.read',
   ].map((p) => (gate.hasPerm(p) ? 1 : 0)).join('')
-    + ':' + ['inventory', 'wms', 'accounting', 'reviews', 'product_qa', 'b2b'].map((m) => (gate.canAccess(m) ? 1 : 0)).join('');
+    + ':' + ['analytics', 'inventory', 'wms', 'accounting', 'reviews', 'product_qa', 'b2b'].map((m) => (gate.canAccess(m) ? 1 : 0)).join('');
 
   useEffect(() => {
     // Wait for the module map: `canAccess` fails OPEN before it lands, so
@@ -91,6 +91,10 @@ export function useHomeFeed(gate: Gate): HomeSources {
     // needs (refund-due). The floor is only a warehouse role's concern, and
     // only when the store has the WMS.
     const sellRead = gate.hasPerm('orders.read');
+    // The order queues and the stock counts are read from the insights panels, which the
+    // `analytics` module gates (insights api/panels.rs). Without it they are not asked for, so a
+    // store without the module sees "not in your plan", never a failure and an access notice.
+    const panels = gate.canAccess('analytics');
     const stockRead = gate.hasPerm('inventory.read') && gate.canAccess('inventory');
     const floorRead = (gate.hasPerm('warehouse.read') || gate.hasPerm('warehouse.operate')) && gate.canAccess('wms');
     const booksRead = gate.hasPerm('accounting.read') && gate.canAccess('accounting');
@@ -101,8 +105,8 @@ export function useHomeFeed(gate: Gate): HomeSources {
     const custRead = gate.hasPerm('customers.read');
 
     const sources: SourceDef[] = [
-      { key: 'orders', name: 'Order queues', url: '/analytics/panels/orders', allowed: sellRead },
-      { key: 'inventory', name: 'Stock', url: '/analytics/panels/inventory', allowed: stockRead },
+      { key: 'orders', name: 'Order queues', url: '/analytics/panels/orders', allowed: sellRead && panels },
+      { key: 'inventory', name: 'Stock', url: '/analytics/panels/inventory', allowed: stockRead && panels },
       { key: 'refunds', name: 'Refunds', url: '/refunds/summary', allowed: sellRead },
       { key: 'floor', name: 'The floor', url: '/wms/floor/today', allowed: floorRead },
       // Live money only: order history imported from an old website keeps the old
@@ -122,14 +126,7 @@ export function useHomeFeed(gate: Gate): HomeSources {
 
     for (const s of asked) {
       api.get(s.url, { params: s.params })
-        .then((r: any) => {
-          if (!s.totalOnly) return payload<any>(r);
-          // The interceptor keeps `total` on the array as a non-enumerable
-          // property, which `payload()` would drop.
-          const body = r?.data ?? r;
-          const t = body?.total ?? r?.total ?? body?.data?.total;
-          return { total: Number(t ?? 0) };
-        })
+        .then((r: any) => (s.totalOnly ? { total: listTotal(r) } : payload<any>(r)))
         .then((value) => {
           if (!alive) return;
           setState((prev) => {

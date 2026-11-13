@@ -45,19 +45,23 @@ export const MoneyTab: React.FC<{ feed: HomeSources }> = ({ feed }) => {
   const booksPerm = hasPerm('accounting.read');
   const booksOk = modulesLoaded && canAccess('accounting') && booksPerm;
   const salesRead = hasPerm('orders.read');
+  // The GST and books charts read the accounting panel, which the `analytics` module gates
+  // (insights api/panels.rs) on top of `accounting`. Read like `accountingOn`: open until the map lands.
+  const analyticsOn = !modulesLoaded || canAccess('analytics');
+  const panelsOk = modulesLoaded && canAccess('analytics');
 
   const today = todayIso();
   const currentFy = fyStartYear(today);
-  const all = useAllTimeMonthly(salesRead);
+  const all = useAllTimeMonthly(salesRead && panelsOk);
   const firstBucket = (all.data?.timeseries ?? []).find((m: any) => m.orders > 0 || m.cancelled > 0)?.bucket ?? null;
   const options = fyOptions(firstBucket);
   const [fy, setFy] = useState(currentFy);
 
   const ap = useRangedGet<any>('/ap/ageing', NO_RANGE, booksOk);
   // As of today (this FY to date): GST this month + the books' balances today.
-  const accNow = usePanelStats<any>('accounting', fyToDate(currentFy), booksOk, MONTHLY);
+  const accNow = usePanelStats<any>('accounting', fyToDate(currentFy), booksOk && panelsOk, MONTHLY);
   // The FY picked for the GST chart (the same request when it is this year).
-  const accFy = usePanelStats<any>('accounting', fyToDate(fy), booksOk, MONTHLY);
+  const accFy = usePanelStats<any>('accounting', fyToDate(fy), booksOk && panelsOk, MONTHLY);
 
   // ── receivables (shared with the board) ──
   const ar = feed.receivables;
@@ -80,11 +84,14 @@ export const MoneyTab: React.FC<{ feed: HomeSources }> = ({ feed }) => {
 
   // ── refunds, COD, Growcord bill (shared with the board) ──
   const refundState = whyNot({ perm: salesRead, pending: feed.pending.includes('Refunds'), failed: feed.failed.includes('Refunds') });
-  const codState = whyNot({ perm: salesRead, pending: feed.pending.includes('Order queues'), failed: feed.failed.includes('Order queues') });
+  // COD comes from the order queues, which the board asks only when the store has Analytics: never a zero that looks real.
+  const codState = whyNot({ module: analyticsOn, moduleName: 'analytics', perm: salesRead, pending: feed.pending.includes('Order queues'), failed: feed.failed.includes('Order queues') });
   const billState = whyNot({ perm: hasPerm('billing.read'), pending: feed.pending.includes('Your Growcord bill'), failed: feed.failed.includes('Your Growcord bill') });
 
   // ── GST ──
-  const gstState = whyNot({ module: accountingOn, perm: booksPerm, pending: accNow.loading && !accNow.data, failed: !!accNow.error });
+  const gstState = whyNot({ module: accountingOn, perm: booksPerm })
+    ?? whyNot({ module: analyticsOn, moduleName: 'analytics' })
+    ?? whyNot({ pending: (accNow.loading && !accNow.data) || !modulesLoaded, failed: !!accNow.error });
   const gstNowRow = (accNow.data?.gst_by_month ?? []).find((r: any) => r.bucket === currentMonthBucket());
   const gstNow = gstNowRow ? n(gstNowRow.cgst) + n(gstNowRow.sgst) + n(gstNowRow.igst) : 0;
   const gstByBucket = new Map<string, any>((accFy.data?.gst_by_month ?? []).map((r: any) => [r.bucket, r]));
@@ -122,7 +129,7 @@ export const MoneyTab: React.FC<{ feed: HomeSources }> = ({ feed }) => {
 
   return (
     <div className="space-y-5" data-tab-panel="money">
-      <FilterRow aside={`Figures as of ${shortDay(today, true)} · the year picks the GST and books charts`}>
+      <FilterRow aside={`Figures as of ${shortDay(today, true)}. The year picks the GST and books charts`}>
         <span className="inline-flex items-center rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm font-medium text-gray-700">As of today</span>
         <FySelect value={fy} options={options} onChange={setFy} label="GST and books for" testId="money-fy" />
       </FilterRow>
@@ -131,16 +138,16 @@ export const MoneyTab: React.FC<{ feed: HomeSources }> = ({ feed }) => {
         <KpiTile testId="money-ar" label="Customers owe you"
           value={arState ? undefined : fmtRupees(arTotal)} unavailable={arState ?? undefined}
           sub={!arState ? (arTotal > 0
-            ? `${fmtInt(arCustomers.length)} customers · ${fmtPct(arTotal > 0 ? (ar90 / arTotal) * 100 : 0)} is over 90 days old`
+            ? `${fmtInt(arCustomers.length)} customers, ${fmtPct(arTotal > 0 ? (ar90 / arTotal) * 100 : 0)} is over 90 days old`
             : 'Nobody owes you anything') : undefined} />
         <KpiTile testId="money-ap" label="You owe suppliers"
           value={apState ? undefined : fmtRupees(apTotal)} unavailable={apState ?? undefined}
           sub={!apState ? (n(ap.data?.summary?.msme_breached_amount) > 0
             ? `${fmtRupees(ap.data.summary.msme_breached_amount)} owed to ${breachedVendors} small suppliers past the ${maxDays}-day limit`
-            : `${fmtInt(apVendors.length)} suppliers · no small-supplier bill past ${maxDays} days`) : undefined} />
+            : `${fmtInt(apVendors.length)} suppliers, no small-supplier bill past ${maxDays} days`) : undefined} />
         <KpiTile testId="money-refunds" label="Refunds waiting for approval"
           value={refundState ? undefined : fmtMinor(feed.refunds?.awaitingApproval?.amountMinor)} unavailable={refundState ?? undefined}
-          sub={!refundState ? `${fmtInt(n(feed.refunds?.awaitingApproval?.count))} requests${n(feed.refunds?.readyToSend?.count) ? ` · ${fmtInt(feed.refunds.readyToSend.count)} approved, not sent` : ''}` : undefined} />
+          sub={!refundState ? `${fmtInt(n(feed.refunds?.awaitingApproval?.count))} requests${n(feed.refunds?.readyToSend?.count) ? `, ${fmtInt(feed.refunds.readyToSend.count)} approved, not sent` : ''}` : undefined} />
         <KpiTile testId="money-cod" label="COD still to collect"
           value={codState ? undefined : fmtRupees(feed.orders?.summary?.cod_value_pending)} unavailable={codState ?? undefined}
           sub={!codState ? `${fmtInt(n(feed.orders?.summary?.cod_orders_pending))} cash-on-delivery orders not delivered yet` : undefined} />
@@ -157,7 +164,7 @@ export const MoneyTab: React.FC<{ feed: HomeSources }> = ({ feed }) => {
       {/* Receivables + payables */}
       <div className="grid gap-5 lg:grid-cols-2">
         <ChartCard title="What customers owe, by age" testId="chart-ar"
-          sub={arState ? undefined : `${fmtRupees(arTotal)} across ${fmtInt(arCustomers.length)} customers · deeper colour is older · old website history left out`}
+          sub={arState ? undefined : `${fmtRupees(arTotal)} across ${fmtInt(arCustomers.length)} customers, deeper colour is older, old website history left out`}
           action={!arState ? <Link to="/panel/accounting/receivables" className="text-xs font-medium text-brand hover:underline">Receivables</Link> : undefined}>
           {arState ? <Unavailable>{arState}</Unavailable> : (
             <div className="space-y-4">
@@ -179,7 +186,7 @@ export const MoneyTab: React.FC<{ feed: HomeSources }> = ({ feed }) => {
                           <span className="block truncate text-gray-800">{customerName(c)}</span>
                           <span className="block text-xs text-gray-400">
                             {c.oldest_unpaid_age_days !== null && c.oldest_unpaid_age_days !== undefined ? `Oldest unpaid ${fmtInt(c.oldest_unpaid_age_days)} days` : ''}
-                            {c.unpaid_count ? ` · ${fmtInt(c.unpaid_count)} unpaid orders` : ''}
+                            {c.unpaid_count ? `, ${fmtInt(c.unpaid_count)} unpaid orders` : ''}
                           </span>
                         </span>
                         <span className="flex shrink-0 items-center gap-1 tabular-nums text-gray-900">
@@ -195,7 +202,7 @@ export const MoneyTab: React.FC<{ feed: HomeSources }> = ({ feed }) => {
         </ChartCard>
 
         <ChartCard title="What you owe suppliers, by age" testId="chart-ap"
-          sub={apState ? undefined : `${fmtRupees(apTotal)} across ${fmtInt(apVendors.length)} suppliers · deeper colour is older`}
+          sub={apState ? undefined : `${fmtRupees(apTotal)} across ${fmtInt(apVendors.length)} suppliers, deeper colour is older`}
           action={!apState ? <Link to="/panel/accounting/payables" className="text-xs font-medium text-brand hover:underline">Payables</Link> : undefined}>
           {apState ? <Unavailable>{apState}</Unavailable> : (
             <div className="space-y-4">
@@ -217,8 +224,8 @@ export const MoneyTab: React.FC<{ feed: HomeSources }> = ({ feed }) => {
                           <span className="block truncate text-gray-800">{v.vendor_name ?? 'Supplier'}</span>
                           <span className="block text-xs text-gray-400">
                             {fmtInt(v.open_count)} open bills
-                            {v.oldest_open_age_days !== null && v.oldest_open_age_days !== undefined ? ` · oldest ${fmtInt(v.oldest_open_age_days)} days` : ''}
-                            {n(v.breached_amount) > 0 ? ` · ${fmtRupees(v.breached_amount)} past ${maxDays} days` : ''}
+                            {v.oldest_open_age_days !== null && v.oldest_open_age_days !== undefined ? `, oldest ${fmtInt(v.oldest_open_age_days)} days` : ''}
+                            {n(v.breached_amount) > 0 ? `, ${fmtRupees(v.breached_amount)} past ${maxDays} days` : ''}
                           </span>
                         </span>
                         <span className="flex shrink-0 items-center gap-1 tabular-nums text-gray-900">
@@ -239,7 +246,7 @@ export const MoneyTab: React.FC<{ feed: HomeSources }> = ({ feed }) => {
         sub="From each order's own GST record, cancellations left out"
         table={gstState ? undefined : {
           columns: [
-            { key: 'month', label: 'Month', format: (v, row) => <span className={cn(row?.future && 'text-gray-400')}>{v}{row?.future ? ' · not yet' : ''}</span> },
+            { key: 'month', label: 'Month', format: (v, row) => <span className={cn(row?.future && 'text-gray-400')}>{v}{row?.future ? ' (not yet)' : ''}</span> },
             { key: 'taxable', label: 'Taxable value', format: (v) => (v === null ? '' : fmtRupees(v)) },
             { key: 'cgst', label: 'CGST', format: (v) => (v === null ? '' : fmtRupees(v)) },
             { key: 'sgst', label: 'SGST', format: (v) => (v === null ? '' : fmtRupees(v)) },

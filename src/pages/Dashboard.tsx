@@ -5,6 +5,7 @@ import { useHomeFeed } from '../components/home/useHomeFeed';
 import { AttentionBoard } from '../components/home/AttentionBoard';
 import { TabBar } from '../components/erp/Tabs';
 import { OverviewTab } from '../components/dashboard/OverviewTab';
+import { Headline } from '../components/dashboard/Headline';
 import { useAllTimeMonthly } from '../components/dashboard/shared';
 
 // The two horizons a store owner reads less often load only when opened.
@@ -62,17 +63,20 @@ const Dashboard: React.FC = () => {
 
   // The board's money-held figure (paid, cancelled, not refunded) is a pendency
   // of the whole history, never of the period picked below — so it reads the
-  // all-time feed, which Month & year and Money share.
-  const allTime = useAllTimeMonthly(hasPerm('orders.read'));
+  // all-time feed, which Month & year and Money share. The sales panel is the `analytics`
+  // module's, so it is asked for only once the module map says the store has it.
+  const allTime = useAllTimeMonthly(hasPerm('orders.read') && modulesLoaded && canAccess('analytics'));
 
   return (
     <div className="space-y-6" data-dashboard>
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-sm text-gray-500">What needs you first, then how the business is doing.</p>
+        <p className="text-sm text-gray-500">What needs you first, then how sales compare, then the details.</p>
       </div>
 
       <AttentionBoard feed={feed} commerce={allTime.data?.summary ?? null} />
+
+      <Headline />
 
       <div className="space-y-5">
         <TabBar tabs={TABS} active={tab} onChange={setTab} />

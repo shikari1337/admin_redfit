@@ -55,6 +55,15 @@ const statusValue = (v: any): number => (v && typeof v === 'object' ? n(v.value)
 export interface CommerceSummary {
   refund_due_orders?: number;
   refund_due?: number;
+  /** Of the refund due, the orders with no refund requested, approved, being sent or failed (insights commerce panel). */
+  refund_unraised_orders?: number;
+  refund_unraised?: number;
+}
+
+/** The orders panel's returns per status (`[{status, count, refund_value}]`), all time. */
+function returnsIn(f: HomeSources, status: string): number {
+  const rows: any[] = Array.isArray(f.orders?.returns) ? f.orders.returns : [];
+  return rows.filter((r) => r?.status === status).reduce((s, r) => s + n(r?.count), 0);
 }
 
 const AREAS: Array<{ key: TaskArea; title: string; icon: React.ComponentType<{ className?: string }> }> = [
@@ -82,8 +91,12 @@ export function buildTasks(f: HomeSources, commerce?: CommerceSummary | null): T
     icon: PackageCheck, area: 'orders', severity: 'normal', note: money(statusValue(byStatus.processing)), amount: statusValue(byStatus.processing) });
   add({ count: statusCount(byStatus.on_hold), label: 'orders on hold', to: '/orders?status=on_hold',
     icon: PauseCircle, area: 'orders', severity: 'warn', note: money(statusValue(byStatus.on_hold)), amount: statusValue(byStatus.on_hold) });
-  add({ count: n(f.orders?.summary?.returns), label: 'returns to deal with', to: '/returns',
+  // Only the returns that wait on someone here: a decision to take, or goods in to inspect and
+  // close. `summary.returns` counts every return ever made, finished ones included.
+  add({ count: returnsIn(f, 'pending'), label: 'returns waiting for your decision', to: '/returns',
     icon: RotateCcw, area: 'orders', severity: 'warn' });
+  add({ count: returnsIn(f, 'received'), label: 'returned parcels to inspect and close', to: '/returns',
+    icon: RotateCcw, area: 'orders', severity: 'normal' });
   const floor = f.floor?.counts ?? {};
   add({ count: n(floor.dispatchReady), label: 'parcels ready to hand over', to: '/shipments', icon: Truck, area: 'orders', severity: 'normal' });
   add({ count: n(floor.packExceptionsOpen), label: 'packing problems to sort out', to: '/panel/inventory/pick-lists', icon: AlertTriangle, area: 'orders', severity: 'warn' });
@@ -92,8 +105,12 @@ export function buildTasks(f: HomeSources, commerce?: CommerceSummary | null): T
   add({ count: n(f.refunds?.failed?.count), label: 'refunds that failed to send', to: '/panel/orders/refunds',
     icon: AlertTriangle, area: 'money', severity: 'critical',
     note: n(f.refunds?.failed?.amountMinor) ? fmtMinor(f.refunds.failed.amountMinor) : undefined, amount: n(f.refunds?.failed?.amountMinor) / 100 });
-  add({ count: n(commerce?.refund_due_orders), label: 'paid orders cancelled with no refund raised', to: '/panel/orders/refunds',
-    icon: AlertTriangle, area: 'money', severity: 'critical', note: money(n(commerce?.refund_due)), amount: n(commerce?.refund_due) });
+  // Paid, cancelled or returned, and no refund in the pipeline yet: the refunds already raised are
+  // the three refund lines around this one, so the same rupee is never listed twice.
+  const unraisedOrders = n(commerce?.refund_unraised_orders ?? commerce?.refund_due_orders);
+  const unraised = n(commerce?.refund_unraised ?? commerce?.refund_due);
+  add({ count: unraisedOrders, label: 'paid orders cancelled with no refund raised', to: '/panel/orders/refunds',
+    icon: AlertTriangle, area: 'money', severity: 'critical', note: money(unraised), amount: unraised });
   add({ count: n(f.refunds?.readyToSend?.count), label: 'refunds approved but not sent', to: '/panel/orders/refunds',
     icon: Undo2, area: 'money', severity: 'critical',
     note: fmtMinor(f.refunds?.readyToSend?.amountMinor), amount: n(f.refunds?.readyToSend?.amountMinor) / 100 });
@@ -168,9 +185,9 @@ export const AttentionBoard: React.FC<{ feed: HomeSources; commerce?: CommerceSu
         <h2 className="text-base font-semibold text-gray-900">Needs your attention</h2>
         <span className="text-xs text-gray-500" data-attention-summary>
           {tasks.length > 0
-            ? `${tasks.length} thing${tasks.length === 1 ? '' : 's'} to do${critical ? ` · ${critical} urgent` : ''}`
+            ? `${tasks.length} thing${tasks.length === 1 ? '' : 's'} to do${critical ? `, ${critical} urgent` : ''}`
             : feed.loading ? 'Checking your queues…' : ''}
-          {tasks.length > 0 && feed.pending.length > 0 ? ` · still checking ${feed.pending.length}` : ''}
+          {tasks.length > 0 && feed.pending.length > 0 ? `, still checking ${feed.pending.length}` : ''}
         </span>
       </div>
 
@@ -227,9 +244,9 @@ export const AttentionBoard: React.FC<{ feed: HomeSources; commerce?: CommerceSu
 
       {(feed.failed.length > 0 || (!feed.loading && feed.withheld.length > 0)) && (
         <div className="mt-2 space-y-0.5 text-xs text-gray-400">
-          {feed.failed.length > 0 && <p>Could not check right now: {feed.failed.join(' · ')}.</p>}
+          {feed.failed.length > 0 && <p>Could not check right now: {feed.failed.join(', ')}.</p>}
           {!feed.loading && feed.withheld.length > 0 && (
-            <p>Not shown because your role or your plan does not include it: {feed.withheld.join(' · ')}.</p>
+            <p>Not shown because your role or your plan does not include it: {feed.withheld.join(', ')}.</p>
           )}
         </div>
       )}
