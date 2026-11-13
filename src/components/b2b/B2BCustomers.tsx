@@ -13,6 +13,7 @@ import { FilterChip, MenuChip, SearchBox } from '../sales/ListChrome';
 import { ExportMenu, inr, type CsvColumn } from '@/components/erp';
 import { CreditPosition, pushCreditTerms, type CreditStatus } from './CreditPosition';
 import InfoTip from '../common/InfoTip';
+import B2BTeamCard from './B2BTeamCard';
 
 // The admin axios interceptor unwraps { success, data } → the array/object AND
 // adds camelCase aliases for snake_case keys, so a row exposes both id/entity_id
@@ -447,6 +448,9 @@ export default function B2BCustomers() {
             </div>
           )}
         </div>
+
+        {/* HMAPP-T6: other logins that buy for this business. */}
+        <B2BTeamCard customerId={activeCustomer.customer_id} />
       </div>
     );
   }

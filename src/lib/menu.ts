@@ -35,6 +35,10 @@ import { MessagesSquare, MessageCircle, Smartphone, ShoppingBag } from 'lucide-r
 import { Target, Share2, Send } from 'lucide-react';
 // Marketing inbox (META-15B), on its own line for the same reason.
 import { Inbox as InboxIcon } from 'lucide-react';
+// The store app (HMAPP lane D1), on its own line for the same reason.
+import { Handshake, Clapperboard } from 'lucide-react';
+// The store app, round two (HMAPP-3 lane DA), on its own line for the same reason.
+import { BadgePercent } from 'lucide-react';
 import {
   Home, ShoppingCart, Package2, Wallet, Truck, Users, LineChart, Settings,
   RotateCcw, FileText, Store, Megaphone, Ticket, Plug, Palette, Star,
@@ -172,6 +176,9 @@ export const MENU: MenuGroup[] = [
         { label: 'Users', to: '/analytics/users', perm: 'reports.read', modules: ['analytics'], tip: 'Who is visiting, on what, and from where.' },
         { label: 'Realtime', to: '/analytics/realtime', perm: 'reports.read', modules: ['analytics'], tip: 'What is happening on the shop right now.' },
         { label: 'Custom', to: '/analytics/custom', perm: 'reports.read', modules: ['analytics'], tip: 'Build the report you actually want.' },
+        // HMAPP-3 point 7: installs, use, app orders and sales against the website, steps, searches, returns.
+        // Read with orders.read, as Delivery & RTO (lane BB's route).
+        { label: 'App', to: '/analytics/app', perm: 'orders.read', modules: ['analytics'], tip: 'Installs, devices using the app, and app orders and sales against the website.' },
       ],
     },
   ]),
@@ -316,6 +323,8 @@ export const MENU: MenuGroup[] = [
           ],
         },
         { label: 'Coupons', to: '/coupons', icon: Ticket, perm: 'marketing.read', modules: ['coupons'], tip: 'Discount codes and who may use them.', owns: ['/coupons/new', '/coupons/:id/edit'] },
+        // HMAPP-3 point 6: discounts only for orders placed in the app (read as coupons are, marketing.read).
+        { label: 'App Offers', to: '/app/offers', icon: BadgePercent, perm: 'marketing.read', modules: ['coupons'], tip: 'Discounts only for orders placed in the app, shown there as the App price.' },
       ] },
       { label: 'Insights', items: [
         {
@@ -362,6 +371,8 @@ export const MENU: MenuGroup[] = [
     { label: 'All Customers', to: '/customers', icon: Users, perm: 'customers.read', tip: 'Everyone who has bought or signed up.', owns: ['/customers/:id', '/customers/duplicates', '/users', '/users/:id'] },
     { label: 'CRM', to: '/leads', icon: UserCheck, perm: 'marketing.read', modules: ['crm'], tip: 'Enquiries and the people behind them.' },
     { label: 'B2B', to: '/b2b', icon: Building2, perm: 'b2b.read', modules: ['b2b'], tip: 'Trade accounts, their tier and their price list.' },
+    // HMAPP design 60 AD02 to AD04: the partner programme (Retain), read on the partners intent's mapping `marketing.read`.
+    { label: 'Partners', to: '/partners', icon: Handshake, perm: 'marketing.read', tip: 'People who earn by sharing your shop: applications, commissions, payouts and terms.' },
     { label: 'Credit Control', to: '/panel/customers/credit', icon: ShieldCheck, perm: 'customers.read', tip: 'Who owes money and who is over their limit.' },
   ]),
 
@@ -383,6 +394,8 @@ export const MENU: MenuGroup[] = [
     { label: 'Questions & Answers', to: '/questions', icon: MessageCircleQuestion, perm: 'content.read', modules: ['product_qa'], tip: 'Questions asked on a product page.' },
     { label: 'Wishlists', to: '/wishlists', icon: Heart, perm: 'reports.read', modules: ['wishlist'], tip: 'What shoppers saved but have not bought.' },
     { label: 'Blog Posts', to: '/blogs', icon: BookOpen, perm: 'content.read', modules: ['blog'], tip: 'Articles on the shop.', owns: ['/blogs/new', '/blogs/:id/edit'] },
+    // HMAPP design 60 AD07: a person approves every reel before the app's feed shows it.
+    { label: 'App Feed', to: '/app/feed', icon: Clapperboard, perm: 'content.read', tip: 'Reels and Instagram posts waiting for a person before the app shows them.' },
     { label: 'SEO', to: '/seo', icon: Rss, perm: 'content.read', tip: 'Tracking tags, redirects, robots and the sitemap.' },
   ]),
 
@@ -405,6 +418,14 @@ export const MENU: MenuGroup[] = [
         { label: 'Invoice', to: '/settings/invoice', perm: 'settings.manage', tip: 'Legal name, GSTIN, licences, bank and the layout.' },
         { label: 'Order Numbering', to: '/settings/order-numbering', perm: 'settings.manage', tip: 'The prefix and counter new orders take.' },
         { label: 'Shipping', to: '/settings/shipping', perm: 'settings.manage', tip: 'Fees, free-shipping threshold, zones and couriers.' },
+        // HMAPP design 60 AD05, AD06, AD08 and the app's order words (HMAPP-T4c), beside the other store settings.
+        { label: 'Mobile App', to: '/settings/app', perm: 'settings.read', tip: 'Versions, switches, banners, support, sign in, legal pages and privacy for the app.' },
+        { label: 'App Audience', to: '/settings/app/audience', perm: 'settings.read', tip: 'The who are you and interests lists the app asks, and the answers so far.' },
+        // HMAPP-3 points 7 to 9: the assistant and scan, and where app events may go beyond our own server
+        // (lane BB's destinations route sits in the Connections module).
+        { label: 'App Assistant', to: '/settings/app/assistant', perm: 'settings.read', tip: 'Ordering in words and by photo: switches, the daily budget, reply words and usage.' },
+        { label: 'App Tracking', to: '/settings/app/tracking', perm: 'settings.read', modules: ['connectors'], tip: 'Which ad platforms may get app events. Off until you turn one on.' },
+        { label: 'Customer Orders', to: '/settings/customer-orders', perm: 'settings.read', tip: 'Until when customers may cancel, their reasons, and the words for each order status.' },
         { label: 'Packages', to: '/settings/packages', perm: 'settings.manage', tip: 'The cartons you pack into, and their size.' },
         { label: 'Wallet', to: '/settings/wallet', perm: 'billing.read', tip: 'The balance shipping and messaging are paid from.' },
         { label: 'Modules', to: '/settings/modules', perm: 'settings.manage', tip: 'Which features are switched on for this store.' },

@@ -15,6 +15,7 @@ import { localeDate, localeDateTime } from '../../utils/date';
 import { FilterChip, SearchBox } from '../sales/ListChrome';
 import { ExportMenu, inr, type CsvColumn } from '@/components/erp';
 import { CreditPosition, pushCreditTerms } from './CreditPosition';
+import B2BApplicationFacts from './B2BApplicationFacts';
 
 /** The applications on screen as a file. */
 const APPLICATION_CSV: CsvColumn<any>[] = [
@@ -164,7 +165,8 @@ export default function B2BApplications() {
     if (!rejecting) return;
     setSaving(true); setError(null);
     try {
-      await b2bAPI.rejectApplication(rejecting.id, rejectNote.trim() || undefined);
+      // A refusal always says why (HMAPP design 60, AD09): the applicant is told in the app.
+      await b2bAPI.rejectApplication(rejecting.id, rejectNote.trim());
       setSuccess(`${rejecting.company_name}: application rejected.`);
       setTimeout(() => setSuccess(null), 3000);
       setRejecting(null);
@@ -332,14 +334,14 @@ export default function B2BApplications() {
         <DialogContent>
           <DialogHeader><DialogTitle>Reject {rejecting?.company_name}</DialogTitle></DialogHeader>
           <div className="space-y-2 py-2">
-            <Label htmlFor="b2b-reject-note">Reason (optional)</Label>
+            <Label htmlFor="b2b-reject-note">Reason (required)</Label>
             <Textarea id="b2b-reject-note" rows={3} value={rejectNote} onChange={(e) => setRejectNote(e.target.value)}
               placeholder="e.g. GSTIN does not match the company name" />
             <p className="text-xs text-muted-foreground">Kept on the application. A rejected application can still be approved later.</p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRejecting(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={doReject} disabled={saving}>
+            <Button variant="destructive" onClick={doReject} disabled={saving || rejectNote.trim().length < 3}>
               {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <X className="mr-2 h-4 w-4" />}
               Reject application
             </Button>
@@ -388,6 +390,10 @@ export default function B2BApplications() {
                     )}
                   </dl>
                 </section>
+
+                <Separator />
+
+                <B2BApplicationFacts applicationId={viewing.id} customerId={viewing.customer_id} />
 
                 <Separator />
 

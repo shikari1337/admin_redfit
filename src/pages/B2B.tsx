@@ -2,14 +2,16 @@ import { useState } from 'react';
 import { ListHeader } from '../components/sales/ListChrome';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Inbox, Users, Layers, Tags, Settings } from 'lucide-react';
+import { Inbox, Users, Layers, Tags, Settings, Briefcase, FileQuestion } from 'lucide-react';
 import B2BPriceLists from '../components/b2b/B2BPriceLists';
 import B2BSettings from '../components/b2b/B2BSettings';
 import B2BApplications from '../components/b2b/B2BApplications';
 import B2BCustomers from '../components/b2b/B2BCustomers';
 import B2BTiers from '../components/b2b/B2BTiers';
+import B2BBusinessTypes from '../components/b2b/B2BBusinessTypes';
+import B2BQuotes from '../components/b2b/B2BQuotes';
 
-type Tab = 'applications' | 'customers' | 'tiers' | 'price-lists' | 'settings';
+type Tab = 'applications' | 'customers' | 'quotes' | 'business-types' | 'tiers' | 'price-lists' | 'settings';
 
 /**
  * B2B management.
@@ -42,6 +44,14 @@ export default function B2B() {
             <Users className="h-4 w-4" />
             Customers
           </TabsTrigger>
+          <TabsTrigger value="quotes" className="gap-2">
+            <FileQuestion className="h-4 w-4" />
+            Quotes
+          </TabsTrigger>
+          <TabsTrigger value="business-types" className="gap-2">
+            <Briefcase className="h-4 w-4" />
+            Business types
+          </TabsTrigger>
           <TabsTrigger value="tiers" className="gap-2">
             <Layers className="h-4 w-4" />
             Plans &amp; Tiers
@@ -64,6 +74,15 @@ export default function B2B() {
 
             <TabsContent value="customers" className="m-0 border-0 p-0">
               <B2BCustomers />
+            </TabsContent>
+
+            {/* HMAPP-T6 (B11): quote requests from the app, and the apply form's business types. */}
+            <TabsContent value="quotes" className="m-0 border-0 p-0">
+              <B2BQuotes />
+            </TabsContent>
+
+            <TabsContent value="business-types" className="m-0 border-0 p-0">
+              <B2BBusinessTypes />
             </TabsContent>
 
             <TabsContent value="tiers" className="m-0 border-0 p-0">

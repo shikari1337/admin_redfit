@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { couponsAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { FaArrowLeft, FaSave } from 'react-icons/fa';
@@ -9,6 +9,10 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { fmtRupees } from '@/lib/money';
 import { fromStoreDateTimeInput, isoDaysFromToday, storeDateTimeInput } from '../utils/date';
+import { codeLabel } from '@/lib/v2/appSettings';
+import {
+  APP_SALES_CHANNEL, WEBSITE_SALES_CHANNEL, couponChannels, couponFirstChannelOrder, couponKnowsChannels,
+} from '@/lib/v2/appGrowth';
 
 type CouponType = 'percentage' | 'fixed' | 'b2g1';
 type Segment = 'all' | 'retail' | 'b2b';
@@ -75,6 +79,17 @@ const CouponForm: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [usedCount, setUsedCount] = useState<number>(0);
   const [formData, setFormData] = useState<CouponFormData>(blankForm);
+  // Where it may be used (HMAPP-3 point 6, tenant 450 `sales_channels`, at most the two of `online_store` and
+  // `app`): none = everywhere; `["app"]` = an app offer, which the server applies by itself on app orders.
+  // `?channel=app` (from App Offers) starts a new one so.
+  const [search] = useSearchParams();
+  const [channels, setChannels] = useState<string[]>(() => (!id && search.get('channel') === APP_SALES_CHANNEL ? [APP_SALES_CHANNEL] : []));
+  const [firstChannelOrder, setFirstChannelOrder] = useState(false);
+  // The coupon read carried the channel fields: this server keeps them, so they are always sent back.
+  const [knowsChannels, setKnowsChannels] = useState(false);
+  const [savedChannels, setSavedChannels] = useState<string[]>([]);
+  const only = (code: string) => channels.length === 1 && channels[0] === code;
+  const channelMode = channels.length === 0 ? 'all' : only(APP_SALES_CHANNEL) ? 'app' : only(WEBSITE_SALES_CHANNEL) ? 'website' : 'kept';
 
   const fetchCoupon = useCallback(async () => {
     if (!id) return;
@@ -105,6 +120,10 @@ const CouponForm: React.FC = () => {
         customerSegment: (['all', 'retail', 'b2b'].includes(segment) ? segment : 'all') as Segment,
       });
       setUsedCount(Number(c.usageCount ?? c.usage_count ?? 0) || 0);
+      setChannels(couponChannels(c));
+      setSavedChannels(couponChannels(c));
+      setFirstChannelOrder(couponFirstChannelOrder(c));
+      setKnowsChannels(couponKnowsChannels(c));
     } catch (err: any) {
       setLoadError(err.response?.data?.message || err.message || 'Could not load the coupon');
     } finally {
@@ -168,6 +187,11 @@ const CouponForm: React.FC = () => {
       isPublic: f.isPublic,
       clubbedWithOthers: f.clubbedWithOthers,
       customerSegment: f.customerSegment,
+      // The channel fields go only when this server keeps them (the coupon read carried them) or the
+      // person limited the coupon: a server before tenant 450 refuses a field it does not know.
+      ...(knowsChannels || channels.length > 0 || firstChannelOrder
+        ? { sales_channels: channels, first_channel_order: channels.length > 0 && firstChannelOrder }
+        : {}),
     };
   };
 
@@ -377,6 +401,42 @@ const CouponForm: React.FC = () => {
                     </p>
                   </div>
                 )}
+
+                {/* Where it may be used (HMAPP-3 point 6). An app offer is a coupon limited to the app. */}
+                <div className="space-y-2 rounded-md border p-3">
+                  <label htmlFor="coupon-channels" className={LABEL}>Where can it be used?</label>
+                  <select
+                    id="coupon-channels"
+                    value={channelMode}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setChannels(v === 'all' ? [] : v === 'app' ? [APP_SALES_CHANNEL] : v === 'website' ? [WEBSITE_SALES_CHANNEL] : savedChannels);
+                      if (v === 'all') setFirstChannelOrder(false);
+                    }}
+                    className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                  >
+                    <option value="all">Everywhere: the website, the app and every other channel</option>
+                    <option value="website">Only orders placed on the website</option>
+                    <option value="app">Only orders placed in the app (an app offer)</option>
+                    {savedChannels.length > 1 && (
+                      <option value="kept">As saved: {savedChannels.map(codeLabel).join(', ')}</option>
+                    )}
+                  </select>
+                  {channels.length > 0 && (
+                    <label className="flex cursor-pointer items-start gap-2">
+                      <Checkbox checked={firstChannelOrder} onCheckedChange={(v) => setFirstChannelOrder(v === true)} />
+                      <span>
+                        <span className="text-sm font-medium leading-none">Only the customer's first order there</span>
+                        <span className={`block ${HINT}`}>Their first order on that channel, cancelled and failed ones aside. The shopper must be signed in.</span>
+                      </span>
+                    </label>
+                  )}
+                  {channelMode === 'app' && (
+                    <p className={HINT}>
+                      The server applies the best live app offer to orders placed in the app by itself, with no code typed, and the app shows the result as the App price. The website never lists it or accepts it.
+                    </p>
+                  )}
+                </div>
               </div>
             </fieldset>
 

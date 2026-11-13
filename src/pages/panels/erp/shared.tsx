@@ -10,14 +10,17 @@ import { BlockSkeleton, Btn } from '@/components/erp';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
-import { errorText, isNotServed } from '../../../lib/v2/erp';
+import { errorProblems, errorText, isNotServed } from '../../../lib/v2/erp';
 
 export const READ = 'settings.read';
 export const MANAGE = 'settings.manage';
 
-/** Why a control is off, in the words the person needs — or null when it is on. */
-export function whyDisabled(canManage: boolean, blockers: (string | false | null | undefined)[]): string | null {
-  if (!canManage) return 'You need the Manage settings permission.';
+/**
+ * Why a control is off, in the words the person needs, or null when it is on. `permission` names
+ * the permission the control needs when it is not Manage settings (for example "Manage marketing").
+ */
+export function whyDisabled(canManage: boolean, blockers: (string | false | null | undefined)[], permission = 'Manage settings'): string | null {
+  if (!canManage) return `You need the ${permission} permission.`;
   for (const b of blockers) if (b) return b;
   return null;
 }
@@ -99,9 +102,15 @@ export const ErrorNote: React.FC<{ error: unknown; what?: string; onRetry?: () =
   error, what = 'This', onRetry, className,
 }) => {
   if (isNotServed(error)) return <NotServed what={what} className={className} />;
+  const problems = errorProblems(error);
   return (
     <Notice tone="bad" title="That did not work" className={className}>
       <p>{errorText(error)}</p>
+      {problems.length > 0 && (
+        <ul className="list-disc space-y-0.5 pl-5">
+          {problems.map((p, i) => <li key={i}>{p}</li>)}
+        </ul>
+      )}
       {onRetry && <Btn variant="outline" size="sm" onClick={onRetry}>Try again</Btn>}
     </Notice>
   );
@@ -123,10 +132,12 @@ export const ConfirmDialog: React.FC<{
   confirmLabel: string;
   busy?: boolean;
   danger?: boolean;
+  /** The confirm button is off (with Cancel still on), e.g. until a required reason fits. */
+  confirmDisabled?: boolean;
   onClose: () => void;
   onConfirm: () => void;
   children: React.ReactNode;
-}> = ({ open, title, confirmLabel, busy, danger, onClose, onConfirm, children }) => (
+}> = ({ open, title, confirmLabel, busy, danger, confirmDisabled, onClose, onConfirm, children }) => (
   <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
     <DialogContent className="max-w-lg">
       <DialogHeader>
@@ -137,13 +148,65 @@ export const ConfirmDialog: React.FC<{
       </DialogHeader>
       <DialogFooter className="gap-2">
         <Btn variant="outline" onClick={onClose} disabled={busy}>Cancel</Btn>
-        <Btn variant={danger ? 'danger' : 'primary'} onClick={onConfirm} disabled={busy}>
-          {busy ? 'Working…' : confirmLabel}
+        <Btn variant={danger ? 'danger' : 'primary'} onClick={onConfirm} disabled={busy || confirmDisabled}>
+          {busy ? 'Working' : confirmLabel}
         </Btn>
       </DialogFooter>
     </DialogContent>
   </Dialog>
 );
+
+/**
+ * ConfirmDialog with a reason the person must write (HMAPP design 60, request A1): the
+ * backend's own length rule (`min` to `max` characters) is shown as a counter, and the
+ * confirm button stays off until the reason fits. `optional` lets an empty reason through
+ * (an approval's note), still capped at `max`.
+ */
+export const ReasonDialog: React.FC<{
+  open: boolean;
+  title: string;
+  confirmLabel: string;
+  label?: string;
+  min?: number;
+  max?: number;
+  optional?: boolean;
+  busy?: boolean;
+  danger?: boolean;
+  /** A refusal from the last try, shown above the buttons. */
+  error?: unknown;
+  onClose: () => void;
+  onConfirm: (reason: string) => void;
+  children?: React.ReactNode;
+}> = ({ open, title, confirmLabel, label = 'Reason', min = 5, max = 500, optional, busy, danger, error, onClose, onConfirm, children }) => {
+  const [text, setText] = useState('');
+  useEffect(() => { if (open) setText(''); }, [open]);
+  const n = text.trim().length;
+  const fits = (optional && n === 0) || (n >= min && n <= max);
+  const id = React.useId();
+  return (
+    <ConfirmDialog
+      open={open} title={title} confirmLabel={confirmLabel} busy={busy} confirmDisabled={!fits} danger={danger}
+      onClose={onClose} onConfirm={() => { if (fits) onConfirm(text.trim()); }}
+    >
+      {children}
+      <label htmlFor={id} className="block pt-1 text-xs font-medium text-gray-700">
+        {label}{optional ? ' (optional)' : ''}
+      </label>
+      <textarea
+        id={id}
+        value={text}
+        maxLength={max}
+        rows={3}
+        onChange={(e) => setText(e.target.value)}
+        className="w-full rounded-lg border border-gray-200 bg-white p-2 text-sm text-gray-900 focus:border-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-200"
+      />
+      <span className={cn('block text-xs tabular-nums', fits ? 'text-gray-500' : 'text-amber-700')} aria-live="polite">
+        {n} of {max} characters{optional ? '' : `, at least ${min}`}
+      </span>
+      {error ? <ErrorNote error={error} /> : null}
+    </ConfirmDialog>
+  );
+};
 
 /** A switch-like on/off button with a real pressed state for screen readers. */
 export const OnOff: React.FC<{

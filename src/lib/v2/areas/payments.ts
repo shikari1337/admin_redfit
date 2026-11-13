@@ -82,7 +82,10 @@ const paiseInto = (b: Record<string, any>, key: string) => {
 };
 /** The coupon resource's money fields take `{minor, currency}` only (commerce resources/catalog_mgmt.rs:797-814; kernel resource
  *  value.rs:563 money_parts), so the binary's free-JSON `j` is shaped as Money here; CouponForm sends rupees and `clubbedWithOtherCoupons`. */
-const COUPON_IN: Spec = {'amount_off':'m','applies_to':'s','clubbed_with_others':'b','code':'s','currency':'s','customer_segment':'s','description':'s','is_active':'b','is_public':'b','max_discount':'m','min_purchase':'m','type':'s','usage_limit':'j','user_limit':'j','valid_from':'s','valid_until':'s','value':'j'};
+/*  `sales_channels` (the channels a coupon is limited to, `["app"]` for an app only offer) and `first_channel_order` are
+ *  tenant 450's (HMAPP-3 lane BA). The resource refuses a field it does not know, so CouponForm sends them only when the
+ *  coupon it read carried them or the person set them; an absent key is never sent (shapeObject skips undefined). */
+const COUPON_IN: Spec = {'amount_off':'m','applies_to':'s','clubbed_with_others':'b','code':'s','currency':'s','customer_segment':'s','description':'s','first_channel_order':'b','is_active':'b','is_public':'b','max_discount':'m','min_purchase':'m','sales_channels':'j','type':'s','usage_limit':'j','user_limit':'j','valid_from':'s','valid_until':'s','value':'j'};
 const couponBody = respelt(COUPON_IN, (b) => {
   if (b.clubbed_with_others === undefined && b.clubbedWithOthers === undefined && b.clubbedWithOtherCoupons !== undefined) b.clubbed_with_others = b.clubbedWithOtherCoupons;
   delete b.clubbedWithOtherCoupons;

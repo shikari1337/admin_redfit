@@ -27,6 +27,8 @@ export {
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow,
 } from './DataTable';
 export { FilterBar, Field, TextInput, SelectInput, SearchInput } from './FilterBar';
+// Percent (milli-percent) and money (minor units) boxes (HMAPP design 60, request A4).
+export { RateInput, MoneyInput, rateText } from './RateMoneyInput';
 export { TabBar } from './Tabs';
 export type { TabDef } from './Tabs';
 export { EmptyState } from './EmptyState';

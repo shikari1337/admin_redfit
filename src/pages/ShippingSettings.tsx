@@ -6,6 +6,7 @@ import ConnectionStatus, { type ConnState } from '../components/common/Connectio
 import GrowcordShipCard from '../components/shipments/GrowcordShipCard';
 import ZoneRates from '../components/shipments/ZoneRates';
 import { useAuth } from '../contexts/AuthContext';
+import DispatchCalendarCard from '../components/shipments/DispatchCalendarCard';
 import { useSettingsSection } from '../hooks/useSettingsSection';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -1002,6 +1003,9 @@ const ShippingSettings: React.FC = () => {
           </Button>
         </div>
       </form>
+
+      {/* When parcels leave: cut-off, weekdays, closed days (Ship dispatch calendar, HMAPP-T3). */}
+      <DispatchCalendarCard />
 
       {/* Shipping Zones */}
       <Card>

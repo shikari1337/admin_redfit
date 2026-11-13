@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { couponsAPI } from '../services/api';
+import { codeLabel } from '@/lib/v2/appSettings';
+import { APP_SALES_CHANNEL, couponChannels, couponFirstChannelOrder } from '@/lib/v2/appGrowth';
 import { useAuth } from '../contexts/AuthContext';
 import { FaPlus, FaEdit, FaTrash, FaCheckCircle, FaTimesCircle } from 'react-icons/fa';
 import { Card, CardContent } from '@/components/ui/card';
@@ -123,8 +125,8 @@ const rowsOf = (response: any): any[] => {
   return [];
 };
 
-/** Every coupon: v2 answers 200 at a time with a total; the old API answered all at once. */
-async function fetchAllCoupons(): Promise<Coupon[]> {
+/** Every coupon: v2 answers 200 at a time with a total; the old API answered all at once. App Offers reads its list here too. */
+export async function fetchAllCoupons(): Promise<Coupon[]> {
   const all: any[] = [];
   const seen = new Set<string>();
   for (let offset = 0; offset < MAX_ROWS; offset += PAGE) {
@@ -471,6 +473,13 @@ const Coupons: React.FC = () => {
                             <span className={`text-[11px] ${isPublicOf(coupon) ? 'text-blue-600' : 'text-muted-foreground'}`}>
                               {isPublicOf(coupon) ? 'Shown to shoppers' : 'Hidden, works when typed'}
                             </span>
+                            {/* HMAPP-3 point 6: a coupon limited to channels (an app offer is limited to the app). */}
+                            {couponChannels(coupon).length > 0 && (
+                              <span className="text-[11px] text-indigo-700">
+                                {couponChannels(coupon).join() === APP_SALES_CHANNEL ? 'App only' : `Only: ${couponChannels(coupon).map(codeLabel).join(', ')}`}
+                                {couponFirstChannelOrder(coupon) ? ', first order' : ''}
+                              </span>
+                            )}
                           </div>
                         </TableCell>
                         <TableCell className="text-right">

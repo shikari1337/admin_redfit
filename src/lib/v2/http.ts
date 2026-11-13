@@ -60,13 +60,13 @@ export function mapList<T, U>(list: T[], fn: (row: T) => U): U[] & ListMeta {
   return asList(list.map(fn), meta);
 }
 
-/** Envelope → data; Money → rupees; a Page → array-with-total. */
-export function normaliseEnvelope(body: unknown): unknown {
+/** Envelope to data; Money to rupees (unless `keepMoney`: the wire's `{minor, currency}`); a Page to array-with-total. */
+export function normaliseEnvelope(body: unknown, keepMoney = false): unknown {
   let data: unknown = body;
   if (body && typeof body === 'object' && !Array.isArray(body) && 'success' in (body as object) && 'data' in (body as object)) {
     data = (body as { data: unknown }).data;
   }
-  data = moneyToMajorDeep(data);
+  if (!keepMoney) data = moneyToMajorDeep(data);
   if (isPage(data)) {
     const { items, ...meta } = data as { items: unknown[] } & ListMeta;
     return asList(items, meta);
@@ -74,15 +74,19 @@ export function normaliseEnvelope(body: unknown): unknown {
   return data;
 }
 
-/** A v2 call answering the NORMALISED data (composite routes, session code). Errors propagate as AxiosError. */
+/**
+ * A v2 call answering the NORMALISED data (composite routes, session code). Errors propagate as AxiosError.
+ * `keepMoney` keeps every Money as the wire's `{minor, currency}` (a form that writes Money back, in the
+ * store's own currency, e.g. the partner terms' minimum payout).
+ */
 export async function v2call<T = any>(
   method: string,
   path: string,
-  opts: { params?: Record<string, unknown>; data?: unknown; responseType?: 'json' | 'blob' | 'arraybuffer' } = {},
+  opts: { params?: Record<string, unknown>; data?: unknown; responseType?: 'json' | 'blob' | 'arraybuffer'; keepMoney?: boolean } = {},
 ): Promise<T> {
   const res = await v2http.request({ method, url: path, params: opts.params, data: opts.data, responseType: opts.responseType || 'json' });
   if (opts.responseType === 'blob' || opts.responseType === 'arraybuffer') return res.data as T;
-  return normaliseEnvelope(res.data) as T;
+  return normaliseEnvelope(res.data, opts.keepMoney === true) as T;
 }
 
 /**

@@ -859,21 +859,71 @@ function errBody(err: unknown): { status?: number; code: string; message?: strin
 }
 
 /**
- * True when THIS server does not serve the route at all (an older build): a 404/405/501
- * that is not one of the ERP app's own answers (`erp.not_found` for an unknown
- * connection is a real answer), or the admin's own `v2.backend_gap`.
+ * An app's own answer code (`erp.not_found`, `retain.port_not_wired`, `commerce.not_found`):
+ * lower case `<app>.<name>`. The host's fallback for a route it does not mount answers
+ * `RESOURCE_NOT_FOUND` (growcord-rs `hosts/api/src/serve.rs` `not_found`), never a dotted code.
+ */
+const APP_CODE = /^[a-z][a-z0-9_]*\.[a-z0-9_.]+$/;
+
+/**
+ * The host's fallback words for a route it does not mount, 404 and 405 alike (growcord-rs
+ * `hosts/api/src/serve.rs` `not_found`, also `method_not_allowed_fallback`). The kernel's record
+ * layer answers the same `RESOURCE_NOT_FOUND` code for a missing record, with "<Entity> not found"
+ * (`lib/kernel/resource/src/resource/ops.rs`), which is a real answer.
+ */
+const NO_SUCH_ROUTE = 'no such route';
+
+/**
+ * True when THIS server does not serve the route at all (an older build, or a route mounted
+ * only behind a switch that is off): a 404/405/501 that is not one of an app's own answers
+ * (`erp.not_found` for an unknown connection, `retain.port_not_wired` for a port not bound
+ * yet, `RESOURCE_NOT_FOUND` naming a missing record are real answers), or the admin's own
+ * `v2.backend_gap`.
  */
 export function isNotServed(err: unknown): boolean {
-  const { status, code } = errBody(err);
+  const { status, code, message } = errBody(err);
   if (code === 'v2.backend_gap' || code === 'v2.not_migrated') return true;
-  if (status === 404 || status === 405 || status === 501) return !code.startsWith('erp.');
+  if (status === 404 || status === 405 || status === 501) {
+    if (code === 'RESOURCE_NOT_FOUND') {
+      const said = (message ?? '').trim().toLowerCase();
+      return !said || said === NO_SUCH_ROUTE || said.startsWith('request failed with status');
+    }
+    return !APP_CODE.test(code) || code.startsWith('v2.');
+  }
   return false;
+}
+
+/**
+ * The problems a refusal listed (`details.problems`, `details.reasons`, `details.issues`), each
+ * in the server's words, with the field it named (`details.field`) first when there is one.
+ */
+export function errorProblems(err: unknown): string[] {
+  const { details } = errBody(err);
+  if (!details) return [];
+  const out: string[] = [];
+  for (const k of ['problems', 'reasons', 'issues'] as const) {
+    const list = details[k];
+    if (Array.isArray(list)) for (const p of list) if (typeof p === 'string' && p.trim()) out.push(p.trim());
+  }
+  return out;
+}
+
+/** The field a refusal named (`details.field`), or ''. */
+export function errorField(err: unknown): string {
+  const f = errBody(err).details?.field;
+  return typeof f === 'string' ? f : '';
 }
 
 /** The sentence to show for a refused or failed call. */
 export function errorText(err: unknown, fallback = 'Something went wrong.'): string {
   const { status, code, message, details } = errBody(err);
   if (isNotServed(err)) return 'Not available on this server yet.';
+  if (status === 403 && code === 'access.module_disabled') {
+    return `${message || 'This feature is switched off for this store.'} Turn it on in Settings, Modules, or ask Growcord.`;
+  }
+  // A refusal that is not about the role (a key or agent where a person must act, the builder
+  // approving their own batch) keeps the server's own words.
+  if (status === 403 && message && code && code !== 'access.permission_denied' && code !== 'FORBIDDEN') return message;
   if (status === 403) return 'You do not have permission to do this. Ask an owner to add it to your role.';
   if (!status && !code) return message ? `Could not reach the server: ${message}` : 'Could not reach the server.';
   const said = typeof details?.source_message === 'string' && details.source_message ? ` The ERP said: “${details.source_message}”.` : '';
@@ -882,7 +932,8 @@ export function errorText(err: unknown, fallback = 'Something went wrong.'): str
     return `${lockedMessage(inventoryLockSnapshot().erpLabel)} An admin can unlock it on the Inventory page.`;
   }
   if (code === 'erp.already_running') return `${message || 'This is already running.'} Wait for it to finish, then try again.`;
-  return `${message || fallback}${said}`;
+  const field = typeof details?.field === 'string' && details.field && !(message ?? '').includes(details.field) ? ` (${details.field})` : '';
+  return `${message || fallback}${field}${said}`;
 }
 
 /* ── formatting ─────────────────────────────────────────────────────────── */

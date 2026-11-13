@@ -46,7 +46,7 @@ export function scaleDecimal(value: unknown, digits: number): number | null {
 }
 
 /** Integer ÷ 10^digits → the number a screen shows (string arithmetic). */
-function unscale(n: unknown, digits: number): unknown {
+export function unscale(n: unknown, digits: number): unknown {
   if (typeof n !== 'number' && !(typeof n === 'string' && /^-?\d+$/.test(n))) return n;
   let s = String(typeof n === 'number' ? Math.trunc(n) : n);
   const neg = s.startsWith('-');

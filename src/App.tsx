@@ -107,6 +107,17 @@ const SetupWizard = lazyRetry(() => import('./pages/SetupWizard'));
 const StoreConfiguration = lazyRetry(() => import('./pages/StoreConfiguration'));
 const Wallet = lazyRetry(() => import('./pages/Wallet'));
 const Seo = lazyRetry(() => import('./pages/Seo'));
+// The store app (HMAPP design 60, lane D1): partners, the app's settings and lists, the feed queue, order words.
+const Partners = lazyRetry(() => import('./pages/partners/Partners'));
+const AppSettings = lazyRetry(() => import('./pages/app/AppSettings'));
+const AppAudience = lazyRetry(() => import('./pages/app/AppAudience'));
+const AppFeedReview = lazyRetry(() => import('./pages/app/AppFeedReview'));
+const CustomerOrdersSettings = lazyRetry(() => import('./pages/app/CustomerOrdersSettings'));
+// The store app, round two (HMAPP-3, lane DA): analytics, app offers, the assistant and scan, tracking.
+const AppAnalytics = lazyRetry(() => import('./pages/app/AppAnalytics'));
+const AppOffers = lazyRetry(() => import('./pages/app/AppOffers'));
+const AppAssistant = lazyRetry(() => import('./pages/app/AppAssistant'));
+const AppTracking = lazyRetry(() => import('./pages/app/AppTracking'));
 
 // ERP panels (per-role workspaces)
 const AccountingDashboard = lazyRetry(() => import('./pages/panels/AccountingDashboard'));
@@ -475,6 +486,7 @@ function App() {
           <Route path="analytics/outcomes" element={<DeliveryOutcomes />} />
           <Route path="analytics/custom" element={<CustomAnalytics />} />
           <Route path="analytics/marketing" element={<MarketingAnalytics />} />
+          <Route path="analytics/app" element={<AppAnalytics />} />
           <Route path="products" element={<Products />} />
           <Route path="products/import-export" element={<ProductImportExport />} />
           <Route path="products/new" element={<ProductForm />} />
@@ -566,9 +578,17 @@ function App() {
           <Route path="settings/wallet" element={<Wallet />} />
           <Route path="seo" element={<Seo />} />
           <Route path="settings/billing" element={<Billing />} />
+          <Route path="settings/app" element={<AppSettings />} />
+          <Route path="settings/app/audience" element={<AppAudience />} />
+          <Route path="settings/app/assistant" element={<AppAssistant />} />
+          <Route path="settings/app/tracking" element={<AppTracking />} />
+          <Route path="settings/customer-orders" element={<CustomerOrdersSettings />} />
           <Route path="warehouses" element={<Warehouses />} />
           <Route path="inventory" element={<Inventory />} />
           <Route path="b2b" element={<B2B />} />
+          <Route path="partners" element={<Partners />} />
+          <Route path="app/feed" element={<AppFeedReview />} />
+          <Route path="app/offers" element={<AppOffers />} />
           <Route path="channels" element={<Channels />} />
           <Route path="channels/allocation" element={<ChannelAllocation />} />
           <Route path="channels/mapping" element={<ChannelMapping />} />

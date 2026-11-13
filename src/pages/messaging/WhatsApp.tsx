@@ -7,6 +7,7 @@ import ChannelTemplates from '@/components/messaging/ChannelTemplates';
 import SentLog from '@/components/messaging/SentLog';
 import WhatsAppConnection from '@/components/messaging/WhatsAppConnection';
 import WhatsAppInbox from '@/components/messaging/WhatsAppInbox';
+import AppCustomersWhatsAppCard from '@/components/messaging/AppCustomersWhatsAppCard';
 import { MessagingHeader, MessagingTabs, SettingsPermNotice, useCommerceCatalogue, useNotificationRows, useTabParam } from '@/components/messaging/common';
 
 /**
@@ -44,7 +45,13 @@ const WhatsApp: React.FC = () => {
       {tab === 'overview' && <ChannelOverview channel="whatsapp" />}
       {tab === 'inbox' && <WhatsAppInbox canWrite={canWrite} entries={waEntries} />}
       {tab === 'connection' && (canReadConnection
-        ? <WhatsAppConnection canWrite={canWriteConnection} canWriteTemplates={canWrite} live={live} entries={waEntries} />
+        ? (
+          <>
+            <WhatsAppConnection canWrite={canWriteConnection} canWriteTemplates={canWrite} live={live} entries={waEntries} />
+            {/* HMAPP-T4b: whether customers who have the store's app also get WhatsApp or SMS. */}
+            <AppCustomersWhatsAppCard canWrite={canWriteConnection} />
+          </>
+        )
         : <SettingsPermNotice what="the WhatsApp connection" />)}
       {tab === 'templates' && <ChannelTemplates channel="whatsapp" catalogue={catalogue} canWrite={canWrite} live={live} />}
       {tab === 'log' && <SentLog channel="whatsapp" messages={messages} />}

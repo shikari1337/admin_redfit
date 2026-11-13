@@ -36,6 +36,7 @@ import { getStatusColorClass } from '../components/order/StatusBadge';
 import { formatDate } from '../utils/date';
 import InfoTip from '../components/common/InfoTip';
 import { ListHeader } from '../components/sales/ListChrome';
+import AppAnswersCard from '../components/app/AppAnswersCard';
 import {
   Table,
   TableBody,
@@ -341,6 +342,9 @@ const UserDetail: React.FC = () => {
           onSaved={(v) => setUser((u: any) => ({ ...u, tags: v.tags, notes: v.notes }))}
         />
       )}
+
+      {/* The customer's own answers in the store's app (HMAPP-3 point 4), kept only with their consent. */}
+      {id && !user.person_erased_at && <AppAnswersCard customerId={id} />}
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">

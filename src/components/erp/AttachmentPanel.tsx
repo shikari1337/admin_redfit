@@ -40,6 +40,8 @@ const ENTITY_PERMS: Record<string, { read: string; write: string }> = {
   shipment: { read: 'shipments.read', write: 'shipments.manage' },
   product: { read: 'products.read', write: 'products.manage' },
   customer: { read: 'customers.read', write: 'customers.manage' },
+  // A business application's licence photo or PDF (HMAPP-T6): the applicant's own files, read on b2b.read.
+  b2b_application: { read: 'b2b.read', write: 'b2b.manage' },
 };
 const DEFAULT_PERMS = { read: 'content.read', write: 'content.manage' };
 const permFor = (entityType: string, action: PermAction) =>
@@ -67,9 +69,11 @@ export const AttachmentPanel: React.FC<{
   title?: string;
   description?: string;
   className?: string;
-}> = ({ entityType, entityId, title = 'Attachments', description, className }) => {
+  /** List and open only: no upload or delete (files someone else sent, such as an applicant's licence). */
+  readOnly?: boolean;
+}> = ({ entityType, entityId, title = 'Attachments', description, className, readOnly }) => {
   const { hasPerm } = useAuth();
-  const canManage = hasPerm(permFor(entityType, 'write') as any);
+  const canManage = !readOnly && hasPerm(permFor(entityType, 'write') as any);
 
   const [rows, setRows] = useState<AttachmentRow[]>([]);
   const [loading, setLoading] = useState(false);
