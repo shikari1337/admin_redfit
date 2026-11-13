@@ -345,10 +345,10 @@ export const ORDER_ROUTES: V2Route[] = [
   { m: 'GET', from: '/shipping/warehouses', row: 'ship — GET /api/v2/ship/warehouses + wms facility detail', run: shipWarehouses },
 
   // Refunds the order page reads.
-  // RefundableView {paid, refunded, in_flight, refundable: Money} (commerce views/refunds.rs:156) → rupees; CancelOrderModal,
+  // RefundableView {paid, refunded, in_flight, refundable, owed: Money} (commerce views/refunds.rs:156) to rupees; CancelOrderModal,
   // RaiseRefundModal and the Refunds panel read the paise twins (`refundableMinor` …, the old answer).
   { m: 'GET', from: '/refunds/refundable/:identifier', row: 'commerce refunds.ts:101 (binary path /refunds/refundable/{identifier})', to: `${O}/refunds/refundable/{identifier}`,
-    reply: (d) => (d && typeof d === 'object' && !Array.isArray(d) ? { ...d, paid_minor: d.paid_minor ?? majorToMinor(d.paid), refunded_minor: d.refunded_minor ?? majorToMinor(d.refunded), in_flight_minor: d.in_flight_minor ?? majorToMinor(d.in_flight), refundable_minor: d.refundable_minor ?? majorToMinor(d.refundable) } : d) },
+    reply: (d) => (d && typeof d === 'object' && !Array.isArray(d) ? { ...d, paid_minor: d.paid_minor ?? majorToMinor(d.paid), refunded_minor: d.refunded_minor ?? majorToMinor(d.refunded), in_flight_minor: d.in_flight_minor ?? majorToMinor(d.in_flight), refundable_minor: d.refundable_minor ?? majorToMinor(d.refundable), owed_minor: d.owed_minor ?? (d.owed != null ? majorToMinor(d.owed) : undefined) } : d) },
   // RefundConfigView {auto_approve_under: Money} (commerce views/refunds.rs:120); CancelOrderModal reads `autoApproveUnderMinor` (paise).
   { m: 'GET', from: '/refunds/config', row: 'commerce refunds.ts:79', to: `${O}/refunds/config`,
     reply: (d) => (d && typeof d === 'object' && !Array.isArray(d) ? { ...d, auto_approve_under_minor: d.auto_approve_under_minor ?? majorToMinor(d.auto_approve_under) } : d) },

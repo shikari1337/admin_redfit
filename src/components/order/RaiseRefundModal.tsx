@@ -31,6 +31,8 @@ interface Snapshot {
   refundedMinor: string;
   inFlightMinor: string;
   refundableMinor: string;
+  /** What the customer is owed back now (REF-OWED-1); absent from an older api. */
+  owedMinor?: string | null;
   gatewayPaymentId: string | null;
 }
 
@@ -63,8 +65,10 @@ const RaiseRefundModal: React.FC<Props> = ({ isOpen, onClose, orderId, orderNumb
         if (cancelled) return;
         const s: Snapshot = res?.data ?? res;
         setSnap(s ?? null);
-        const refundable = Number(s?.refundableMinor ?? 0) / 100;
-        setAmount(refundable > 0 ? refundable.toFixed(2) : '');
+        // Offer what is owed (paid above what the order now charges, or everything on a
+        // cancelled order), never the whole payment on an order whose goods were kept.
+        const offer = Number(s?.owedMinor ?? s?.refundableMinor ?? 0) / 100;
+        setAmount(offer > 0 ? offer.toFixed(2) : '');
         // Pre-select the rail that can actually run.
         if (s?.gatewayPaymentId) setMethod('gateway');
       })
@@ -77,7 +81,9 @@ const RaiseRefundModal: React.FC<Props> = ({ isOpen, onClose, orderId, orderNumb
   const paid = Number(snap?.paidMinor ?? 0) / 100;
   const already = Number(snap?.refundedMinor ?? 0) / 100;
   const inFlight = Number(snap?.inFlightMinor ?? 0) / 100;
+  const owed = Number(snap?.owedMinor ?? snap?.refundableMinor ?? 0) / 100;
   const amt = Number(amount);
+  const aboveOwed = Number.isFinite(amt) && amt > owed + 0.005;
   const amountValid = Number.isFinite(amt) && amt > 0 && amt <= refundable + 0.005;
 
   const submit = async () => {
@@ -117,7 +123,7 @@ const RaiseRefundModal: React.FC<Props> = ({ isOpen, onClose, orderId, orderNumb
           <p className="py-6 text-center text-sm font-semibold text-slate-400">Reading the order's paid position…</p>
         ) : (
           <>
-            <div className="grid grid-cols-3 gap-2 rounded-lg border-2 border-slate-100 p-3 text-center">
+            <div className="grid grid-cols-2 gap-2 rounded-lg border-2 border-slate-100 p-3 text-center sm:grid-cols-4">
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Paid</p>
                 <p className="text-base font-semibold tabular-nums text-slate-900">{fmtRupees(paid)}</p>
@@ -127,10 +133,21 @@ const RaiseRefundModal: React.FC<Props> = ({ isOpen, onClose, orderId, orderNumb
                 <p className="text-base font-semibold tabular-nums text-slate-600">{fmtRupees(already)}</p>
               </div>
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Refundable</p>
-                <p className="text-base font-semibold tabular-nums text-emerald-700">{fmtRupees(refundable)}</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Owed now</p>
+                <p className="text-base font-semibold tabular-nums text-emerald-700">{fmtRupees(owed)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Most allowed</p>
+                <p className="text-base font-semibold tabular-nums text-slate-600">{fmtRupees(refundable)}</p>
               </div>
             </div>
+            {refundable > 0 && (
+              <p className="text-xs font-medium text-slate-500">
+                {owed > 0
+                  ? `${fmtRupees(owed)} is owed: what the customer paid above what the order now charges, less anything already refunded.`
+                  : 'Nothing is owed: the customer has paid only for what they kept. A refund here is a goodwill refund.'}
+              </p>
+            )}
 
             {inFlight > 0 && (
               <p className="rounded border-2 border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800">
@@ -172,6 +189,11 @@ const RaiseRefundModal: React.FC<Props> = ({ isOpen, onClose, orderId, orderNumb
                     <input type="number" step="0.01" min="0.01" max={refundable}
                       value={amount} onChange={(e) => setAmount(e.target.value)}
                       className="w-full rounded border-2 border-slate-200 px-2 py-1.5 text-sm font-bold tabular-nums" />
+                    {aboveOwed && amountValid && (
+                      <p className="mt-1 text-xs font-semibold text-amber-700">
+                        {fmtRupees(amt - owed)} more than is owed: that part refunds goods the customer kept.
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-500">
