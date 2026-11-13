@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { FaArrowLeft, FaPlus, FaEdit, FaTrash, FaWarehouse, FaStore, FaTruck, FaSave, FaTimes, FaSync } from 'react-icons/fa';
-import { warehousesAPI } from '../services/api';
+import { FaPlus, FaEdit, FaTrash, FaWarehouse, FaStore, FaTruck, FaSave, FaTimes, FaSync } from 'react-icons/fa';
+import { api, warehousesAPI } from '../services/api';
+import { payload } from '@/lib/unwrap';
 import PhoneInput from '../components/PhoneInput';
 import CarrierLocationMap from '../components/shipments/CarrierLocationMap';
 import { useAuth } from '../contexts/AuthContext';
 import {
   Page, PageHeader, EmptyState, FilterChips, BlockSkeleton, downloadCsv, type ChipGroup,
+  StatCard, StatGrid, Chip, num,
 } from '@/components/erp';
 import { usePincodeLookup } from '../hooks/usePincodeLookup';
 import ErpWarehouseLine, { useErpFacilityBranches } from '../components/inventory/ErpWarehouseLine';
@@ -44,7 +45,24 @@ interface Warehouse {
   priority?: number;
   linkedStores?: Array<{ name: string; storeIndex: number }>;
   gstin?: string;
+  /** `warehouse` or `outlet` (a shop counter, DEC-035); the old API had no kind, so absent means warehouse. */
+  kind?: string;
+  id?: string;
 }
+
+/** A facility's stock in numbers (wms api/facilities.rs `stock-summary`). */
+interface StockSummary {
+  sku_count?: number; on_hand?: number; available?: number; reserved?: number;
+  quarantine?: number; damaged?: number; expired?: number; grain?: string;
+  /** Stock in no building (the store-wide pool); counted into a store's only building, apart once there are several. */
+  unassigned_pool_on_hand?: number;
+}
+
+type Notice = { tone: 'good' | 'bad'; text: string } | null;
+
+const KIND_LABEL: Record<string, string> = { warehouse: 'Warehouse', outlet: 'Shop outlet' };
+const kindOf = (w: Warehouse) => (w.kind === 'outlet' ? 'outlet' : 'warehouse');
+const errText = (e: any, fallback: string) => e?.response?.data?.message || e?.message || fallback;
 
 /** Safely extract string ID from MongoDB _id (handles ObjectId, object, or string) */
 const toIdString = (id: any): string => {
@@ -56,10 +74,17 @@ const toIdString = (id: any): string => {
 };
 
 const Warehouses: React.FC = () => {
-  const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [providerFilter, setProviderFilter] = useState('');
+  const [kindFilter, setKindFilter] = useState('');
+  // Results are said on the page, not in a browser pop-up; a delete asks on the card itself.
+  const [notice, setNotice] = useState<Notice>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  // Stock per facility, by id: what each building holds (read on its own, so one refusal leaves the rest).
+  const [stockBy, setStockBy] = useState<Record<string, StockSummary | null>>({});
   const { hasPerm } = useAuth();
   // Backend (routes/warehouses.ts): create/update/sync-with-store -> inventory.manage,
   // delete -> inventory.delete. This page has no stock-adjust actions (those live on
@@ -103,11 +128,21 @@ const Warehouses: React.FC = () => {
     gstin: '',
     isActive: true,
     priority: 0,
+    kind: 'warehouse',
   });
 
   useEffect(() => {
     fetchWarehouses();
   }, []);
+
+  /** Each facility's stock in numbers. A store with many buildings reads the first 50 shown. */
+  const fetchStock = async (list: Warehouse[]) => {
+    const ids = list.map((w) => toIdString(w._id) || toIdString(w.id)).filter(Boolean).slice(0, 50);
+    const answers = await Promise.allSettled(ids.map((id) => api.get(`/warehouses/${id}/stock-summary`)));
+    const next: Record<string, StockSummary | null> = {};
+    answers.forEach((a, i) => { next[ids[i]] = a.status === 'fulfilled' ? payload<StockSummary>(a.value) ?? null : null; });
+    setStockBy(next);
+  };
 
   const fetchWarehouses = async () => {
     try {
@@ -130,9 +165,11 @@ const Warehouses: React.FC = () => {
         warehousesData = response.data.data;
       }
       setWarehouses(warehousesData);
+      setLoadError('');
+      fetchStock(warehousesData);
     } catch (error: any) {
       console.error('Failed to fetch warehouses:', error);
-      alert('Failed to load warehouses');
+      setLoadError(errText(error, 'Could not load the warehouses.'));
     } finally {
       setLoading(false);
     }
@@ -141,13 +178,16 @@ const Warehouses: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (saving) return;
+    setSaving(true);
+    setNotice(null);
     try {
       if (editingWarehouse) {
-        await warehousesAPI.update(editingWarehouse._id, formData);
-        alert('Warehouse updated successfully!');
+        await warehousesAPI.update(toIdString(editingWarehouse._id) || toIdString(editingWarehouse.id), formData);
+        setNotice({ tone: 'good', text: `${formData.name} saved.` });
       } else {
         await warehousesAPI.create(formData);
-        alert('Warehouse created successfully!');
+        setNotice({ tone: 'good', text: `${formData.name} added.` });
       }
       setShowForm(false);
       setEditingWarehouse(null);
@@ -155,11 +195,30 @@ const Warehouses: React.FC = () => {
       fetchWarehouses();
     } catch (error: any) {
       console.error('Failed to save warehouse:', error);
-      alert(error.response?.data?.message || 'Failed to save warehouse');
+      setNotice({ tone: 'bad', text: errText(error, 'Could not save the warehouse.') });
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleEdit = (warehouse: Warehouse) => {
+  /**
+   * Edit opens from the record, not from the list row: a list row may leave out a field the record has (on v2 the
+   * courier pickup setup was list-hidden until MENU-1), and a save from a row missing it wrote it back empty.
+   */
+  const handleEdit = async (row: Warehouse) => {
+    setNotice(null);
+    let warehouse = row;
+    const id = toIdString(row._id) || toIdString(row.id);
+    if (id) {
+      try {
+        const res: any = await warehousesAPI.getById(id);
+        const full = res && typeof res === 'object' && !Array.isArray(res) && res.address ? res : res?.data;
+        if (full && typeof full === 'object' && full.address) warehouse = { ...row, ...full };
+      } catch (error: any) {
+        setNotice({ tone: 'bad', text: errText(error, 'Could not open this warehouse.') });
+        return;
+      }
+    }
     setEditingWarehouse(warehouse);
     setFormData({
       name: warehouse.name,
@@ -186,35 +245,36 @@ const Warehouses: React.FC = () => {
       gstin: warehouse.gstin || '',
       isActive: warehouse.isActive,
       priority: warehouse.priority || 0,
+      kind: kindOf(warehouse),
     });
     setShowForm(true);
   };
 
+  /** The delete runs after the card's own "Delete it" button (the first press only asks). */
   const handleDelete = async (warehouse: Warehouse) => {
-    if (!confirm('Are you sure you want to delete this warehouse?')) return;
-    const id = toIdString(warehouse._id);
-    if (!id) return alert('Invalid warehouse ID');
+    const id = toIdString(warehouse._id) || toIdString(warehouse.id);
+    setConfirmDelete(null);
+    if (!id) { setNotice({ tone: 'bad', text: 'This warehouse has no id, so it cannot be deleted from here.' }); return; }
     try {
       await warehousesAPI.delete(id);
-      alert('Warehouse deleted successfully!');
+      setNotice({ tone: 'good', text: `${warehouse.name} deleted.` });
       fetchWarehouses();
     } catch (error: any) {
       console.error('Failed to delete warehouse:', error);
-      alert(error.response?.data?.message || 'Failed to delete warehouse');
+      setNotice({ tone: 'bad', text: errText(error, 'Could not delete the warehouse.') });
     }
   };
 
   const handleSyncWithStore = async (warehouse: Warehouse) => {
-    if (!confirm('This will sync the warehouse address and contact info with the linked GST store. Continue?')) return;
-    const id = toIdString(warehouse._id);
-    if (!id) return alert('Invalid warehouse ID');
+    const id = toIdString(warehouse._id) || toIdString(warehouse.id);
+    if (!id) return;
     try {
       await warehousesAPI.syncWithStore(id, { syncAddress: true, syncContact: true });
-      alert('Warehouse synced with GST store successfully!');
+      setNotice({ tone: 'good', text: `${warehouse.name} now has the GST store's address and contact.` });
       fetchWarehouses();
     } catch (error: any) {
       console.error('Failed to sync warehouse:', error);
-      alert(error.response?.data?.message || 'Failed to sync warehouse');
+      setNotice({ tone: 'bad', text: errText(error, 'Could not copy the GST store details.') });
     }
   };
 
@@ -249,6 +309,7 @@ const Warehouses: React.FC = () => {
       gstin: '',
       isActive: true,
       priority: 0,
+      kind: 'warehouse',
     });
   };
 
@@ -257,6 +318,7 @@ const Warehouses: React.FC = () => {
     const q = search.trim().toLowerCase();
     return warehouses.filter((w) => {
       if (q && !`${w.name} ${w.code} ${w.address?.city ?? ''} ${w.address?.pincode ?? ''}`.toLowerCase().includes(q)) return false;
+      if (kindFilter && kindOf(w) !== kindFilter) return false;
       if (statusFilter === 'active' && !w.isActive) return false;
       if (statusFilter === 'inactive' && w.isActive) return false;
       const sr = !!w.shippingProviders?.shiprocket?.enabled;
@@ -266,7 +328,23 @@ const Warehouses: React.FC = () => {
       if (providerFilter === 'none' && (sr || dl)) return false;
       return true;
     });
-  }, [warehouses, search, statusFilter, providerFilter]);
+  }, [warehouses, search, statusFilter, providerFilter, kindFilter]);
+
+  /** What to act on first: an active warehouse no courier can collect from cannot ship an order. */
+  const noPickup = React.useMemo(() => warehouses.filter((w) => w.isActive && kindOf(w) === 'warehouse'
+    && !w.shippingProviders?.shiprocket?.enabled && !w.shippingProviders?.delhivery?.enabled), [warehouses]);
+  const outletCount = warehouses.filter((w) => kindOf(w) === 'outlet').length;
+  const stockTotals = React.useMemo(() => {
+    let onHand = 0; let held = 0; let known = 0;
+    for (const s of Object.values(stockBy)) {
+      if (!s) continue;
+      known += 1;
+      onHand += Number(s.on_hand) || 0;
+      held += (Number(s.quarantine) || 0) + (Number(s.damaged) || 0) + (Number(s.expired) || 0);
+    }
+    const split = Object.values(stockBy).find((s) => s && s.grain === 'warehouse');
+    return { onHand, held, known, pool: Number(split?.unassigned_pool_on_hand) || 0 };
+  }, [stockBy]);
 
   /**
    * Pincode -> city + state, the same India Post lookup the checkout and the
@@ -317,6 +395,10 @@ const Warehouses: React.FC = () => {
   };
 
   const chipGroups: ChipGroup[] = [
+    ...(outletCount > 0 ? [{
+      key: 'kind', label: 'Kind', value: kindFilter, onChange: setKindFilter,
+      options: [{ value: 'warehouse', label: KIND_LABEL.warehouse }, { value: 'outlet', label: KIND_LABEL.outlet }],
+    }] : []),
     {
       key: 'status', label: 'Status', value: statusFilter, onChange: setStatusFilter,
       options: [{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }],
@@ -337,6 +419,7 @@ const Warehouses: React.FC = () => {
     [
       { key: 'name', label: 'Name' },
       { key: 'code', label: 'Code' },
+      { key: 'kind', label: 'Kind', format: (w: Warehouse) => KIND_LABEL[kindOf(w)] },
       { key: 'city', label: 'City', format: (w: Warehouse) => w.address?.city ?? '' },
       { key: 'state', label: 'State', format: (w: Warehouse) => w.address?.state ?? '' },
       { key: 'pincode', label: 'Pincode', format: (w: Warehouse) => w.address?.pincode ?? '' },
@@ -352,15 +435,9 @@ const Warehouses: React.FC = () => {
     <Page width="full">
       <PageHeader
         title="Warehouses"
-        description="The addresses you ship from. Each one can have its own courier pickup set up."
+        description="The buildings you keep stock in and ship from, and your shop outlets. Each one can have its own courier pickup set up."
         actions={
           <>
-            <button
-              onClick={() => navigate('/settings')}
-              className="inline-flex h-9 items-center gap-2 rounded-lg border border-line px-3 text-sm text-ink-soft hover:text-ink"
-            >
-              <FaArrowLeft className="h-3 w-3" /> Settings
-            </button>
             <button
               onClick={exportWarehouses}
               disabled={!visibleWarehouses.length}
@@ -380,26 +457,59 @@ const Warehouses: React.FC = () => {
         }
       />
 
+      {notice && (
+        <div
+          role={notice.tone === 'bad' ? 'alert' : 'status'}
+          className={`flex items-start justify-between gap-3 rounded-lg border px-3 py-2 text-sm ${notice.tone === 'bad' ? 'border-red-200 bg-red-50 text-red-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}
+        >
+          <span>{notice.text}</span>
+          <button type="button" onClick={() => setNotice(null)} aria-label="Close" className="shrink-0 opacity-70 hover:opacity-100"><FaTimes className="h-3.5 w-3.5" /></button>
+        </div>
+      )}
+
+      {/* What to act on first, then the numbers. */}
+      {!loading && noPickup.length > 0 && (
+        <button
+          type="button"
+          onClick={() => { setProviderFilter('none'); setStatusFilter('active'); setKindFilter(''); }}
+          className="flex w-full items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-left text-sm text-amber-800 hover:bg-amber-100"
+        >
+          <FaTruck className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            {noPickup.length === 1 ? `${noPickup[0].name} has` : `${noPickup.length} warehouses have`} no courier pickup set up, so no courier can collect from {noPickup.length === 1 ? 'it' : 'them'}. Show {noPickup.length === 1 ? 'it' : 'them'}.
+          </span>
+        </button>
+      )}
+
+      {!loading && warehouses.length > 0 && (
+        <StatGrid cols={4}>
+          <StatCard label="Buildings" value={num(warehouses.length - outletCount)} sub={outletCount ? `and ${num(outletCount)} shop outlet${outletCount === 1 ? '' : 's'}` : 'No shop outlets'} />
+          <StatCard label="Units held" value={stockTotals.known ? num(stockTotals.onHand) : '-'} sub={stockTotals.known ? `Across ${num(stockTotals.known)} of them` : 'Stock not readable here'} />
+          <StatCard label="Held back" value={stockTotals.known ? num(stockTotals.held) : '-'} tone={stockTotals.held > 0 ? 'warn' : 'default'} sub="In quarantine, damaged or expired" />
+          <StatCard label="In no building" value={num(stockTotals.pool)} sub={stockTotals.pool ? 'Stock not yet placed in a building' : 'Every unit has a building'} />
+        </StatGrid>
+      )}
+
       <div className="flex flex-wrap items-center gap-3">
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by name, code or city…"
+          placeholder="Search by name, code or city"
           aria-label="Search warehouses"
           data-testid="warehouses-search"
           className="h-9 w-72 max-w-full rounded-lg border border-line bg-surface px-3 text-sm shadow-sm focus:border-line-strong focus:outline-none focus:ring-2 focus:ring-focus/30"
         />
-        <FilterChips groups={chipGroups} onClearAll={() => { setStatusFilter(''); setProviderFilter(''); }} />
+        <FilterChips groups={chipGroups} onClearAll={() => { setStatusFilter(''); setProviderFilter(''); setKindFilter(''); }} />
         <span className="ml-auto text-sm text-ink-soft">
           {visibleWarehouses.length} of {warehouses.length}
         </span>
       </div>
 
       {showForm && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6 mb-6">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-semibold text-gray-900">
-              {editingWarehouse ? 'Edit Warehouse' : 'Add New Warehouse'}
+              {editingWarehouse ? `Edit ${KIND_LABEL[formData.kind] ?? 'warehouse'}` : 'Add a warehouse or shop'}
             </h2>
             <button
               onClick={() => {
@@ -415,8 +525,23 @@ const Warehouses: React.FC = () => {
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {!editingWarehouse && (
+                <div className="md:col-span-2">
+                  <span className="block text-sm font-medium text-gray-700 mb-2">What is it?</span>
+                  <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Kind">
+                    {(['warehouse', 'outlet'] as const).map((k) => (
+                      <label key={k} className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm ${formData.kind === k ? 'border-gray-900 bg-gray-50' : 'border-gray-300'}`}>
+                        <input type="radio" name="facility-kind" checked={formData.kind === k} onChange={() => handleChange('kind', k)} />
+                        {k === 'outlet' ? <FaStore className="h-3.5 w-3.5" /> : <FaWarehouse className="h-3.5 w-3.5" />}
+                        {KIND_LABEL[k]}
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">A shop outlet keeps its own shelf stock and sells at its counter; stock is sent to it from Outlets & Transfers.</p>
+                </div>
+              )}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Warehouse Name *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Name *</label>
                 <input
                   type="text"
                   required
@@ -427,7 +552,7 @@ const Warehouses: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Warehouse Code *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Code *</label>
                 <input
                   type="text"
                   required
@@ -658,10 +783,11 @@ const Warehouses: React.FC = () => {
               {canManageWarehouses && (
                 <button
                   type="submit"
-                  className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
+                  disabled={saving}
+                  className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50"
                 >
                   <FaSave className="w-4 h-4" />
-                  {editingWarehouse ? 'Update Warehouse' : 'Create Warehouse'}
+                  {saving ? 'Saving...' : editingWarehouse ? 'Save changes' : 'Create'}
                 </button>
               )}
             </div>
@@ -676,14 +802,19 @@ const Warehouses: React.FC = () => {
             key={toIdString(warehouse._id) || warehouse.name}
             className={`bg-white rounded-lg shadow-sm border ${
               warehouse.isActive ? 'border-gray-200' : 'border-gray-300 opacity-60'
-            } p-6`}
+            } p-4 sm:p-6`}
           >
-            <div className="flex items-start justify-between">
-              <div className="flex-1">
+            <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-3 mb-3">
-                  <FaWarehouse className={`w-6 h-6 ${warehouse.isActive ? 'text-red-600' : 'text-gray-400'}`} />
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900">{warehouse.name}</h3>
+                  {kindOf(warehouse) === 'outlet'
+                    ? <FaStore className={`w-6 h-6 shrink-0 ${warehouse.isActive ? 'text-blue-600' : 'text-gray-400'}`} />
+                    : <FaWarehouse className={`w-6 h-6 shrink-0 ${warehouse.isActive ? 'text-red-600' : 'text-gray-400'}`} />}
+                  <div className="min-w-0">
+                    <h3 className="flex flex-wrap items-center gap-2 text-lg font-semibold text-gray-900">
+                      {warehouse.name}
+                      {kindOf(warehouse) === 'outlet' && <Chip tone="blue">{KIND_LABEL.outlet}</Chip>}
+                    </h3>
                     <p className="text-sm text-gray-500">Code: {warehouse.code}</p>
                     <ErpWarehouseLine entries={erpByFacility.get(toIdString(warehouse._id)) ?? erpByFacility.get(toIdString((warehouse as { id?: string }).id))} />
                     {warehouse.linkedStores && warehouse.linkedStores.length > 0 && (
@@ -756,9 +887,24 @@ const Warehouses: React.FC = () => {
                   )}
                   {(!warehouse.shippingProviders?.shiprocket?.enabled &&
                     !warehouse.shippingProviders?.delhivery?.enabled) && (
-                    <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded">No providers enabled</span>
+                    <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded">No courier pickup</span>
                   )}
                 </div>
+
+                {/* What this building holds (wms stock-summary); absent when the read was refused. */}
+                {(() => {
+                  const st = stockBy[toIdString(warehouse._id) || toIdString(warehouse.id)];
+                  if (!st) return null;
+                  const held = (Number(st.quarantine) || 0) + (Number(st.damaged) || 0) + (Number(st.expired) || 0);
+                  return (
+                    <p className="mb-3 text-sm text-gray-700">
+                      <span className="font-semibold tabular-nums">{num(st.on_hand)}</span> units of {num(st.sku_count)} SKUs,{' '}
+                      <span className="tabular-nums">{num(st.available)}</span> free to sell
+                      {held > 0 && <span className="text-amber-700">, {num(held)} held back</span>}
+                      {st.grain === 'warehouse+pool' && <span className="text-xs text-gray-500"> (your only building, so all store stock)</span>}
+                    </p>
+                  );
+                })()}
 
                 {/* Linked Stores */}
                 {warehouse.linkedStores && warehouse.linkedStores.length > 0 && (
@@ -783,7 +929,7 @@ const Warehouses: React.FC = () => {
                 )}
               </div>
 
-              <div className="flex gap-2 ml-4">
+              <div className="flex flex-wrap items-center gap-2 sm:ml-4 sm:justify-end">
                 {canManageWarehouses && warehouse.linkedStores && warehouse.linkedStores.length > 0 && (
                   <button
                     onClick={() => handleSyncWithStore(warehouse)}
@@ -798,25 +944,49 @@ const Warehouses: React.FC = () => {
                     onClick={() => handleEdit(warehouse)}
                     className="p-2 text-blue-600 hover:bg-blue-50 rounded"
                     title="Edit"
+                    aria-label={`Edit ${warehouse.name}`}
                   >
                     <FaEdit className="w-5 h-5" />
                   </button>
                 )}
-                {canDeleteWarehouses && (
+                {canDeleteWarehouses && confirmDelete !== (toIdString(warehouse._id) || toIdString(warehouse.id)) && (
                   <button
-                    onClick={() => handleDelete(warehouse)}
+                    onClick={() => setConfirmDelete(toIdString(warehouse._id) || toIdString(warehouse.id))}
                     className="p-2 text-red-600 hover:bg-red-50 rounded"
                     title="Delete"
+                    aria-label={`Delete ${warehouse.name}`}
                   >
                     <FaTrash className="w-5 h-5" />
                   </button>
+                )}
+                {canDeleteWarehouses && confirmDelete === (toIdString(warehouse._id) || toIdString(warehouse.id)) && (
+                  <span className="flex flex-wrap items-center gap-2 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-800">
+                    Delete {warehouse.name} for good?
+                    <button type="button" onClick={() => handleDelete(warehouse)} className="rounded bg-red-600 px-2 py-1 font-medium text-white hover:bg-red-700">Delete it</button>
+                    <button type="button" onClick={() => setConfirmDelete(null)} className="rounded border border-red-200 bg-white px-2 py-1 hover:bg-red-50">Keep</button>
+                  </span>
                 )}
               </div>
             </div>
           </div>
         ))}
 
-        {!loading && visibleWarehouses.length === 0 && (
+        {!loading && loadError && warehouses.length === 0 && (
+          <div className="rounded-lg border border-line bg-surface">
+            <EmptyState
+              icon={FaWarehouse as any}
+              title="Could not load the warehouses"
+              description={loadError}
+              action={(
+                <button onClick={fetchWarehouses} className="inline-flex h-8 items-center rounded-lg border border-line px-3 text-sm">
+                  Try again
+                </button>
+              )}
+            />
+          </div>
+        )}
+
+        {!loading && !(loadError && warehouses.length === 0) && visibleWarehouses.length === 0 && (
           <div className="rounded-lg border border-line bg-surface">
             <EmptyState
               icon={FaWarehouse as any}
@@ -827,7 +997,7 @@ const Warehouses: React.FC = () => {
               action={warehouses.length
                 ? (
                   <button
-                    onClick={() => { setSearch(''); setStatusFilter(''); setProviderFilter(''); }}
+                    onClick={() => { setSearch(''); setStatusFilter(''); setProviderFilter(''); setKindFilter(''); }}
                     className="inline-flex h-8 items-center rounded-lg border border-line px-3 text-sm"
                   >
                     Clear search and filters

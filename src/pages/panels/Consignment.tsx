@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { payload } from '@/lib/unwrap';
+import { formatDateTime } from '../../utils/date';
 import {
   Page, PageHeader, Btn, TabBar, FilterBar, Field, TextInput, SelectInput, SearchInput,
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow, EmptyState, StatCard, StatGrid, StatusChip, Chip,
@@ -66,6 +67,24 @@ interface SwitchEvent {
   consignments_closed: number; effective_date: string; switched_at: string;
   settlement_number?: string | null; notes?: string | null;
 }
+/** One thing done through a partner's portal link (trade views/consignment.rs `PortalEventView`). */
+interface PortalEvent { id: string; event: string; detail?: Record<string, any> | null; created_at?: string | null }
+/** Plain words for the portal's own event names (trade api/portal.rs, domain/portal.rs); others show as written. */
+const PORTAL_EVENT_LABEL: Record<string, string> = {
+  token_issued: 'Link shared',
+  token_revoked: 'Link revoked',
+  opened: 'Opened the link',
+  sales_reported: 'Reported sales',
+  royalty_pdf_downloaded: 'Downloaded a royalty bill',
+};
+const portalEventText = (e: PortalEvent): string => {
+  const d = e.detail ?? {};
+  if (e.event === 'sales_reported' && d.totalQty != null) return `${Number(d.totalQty).toLocaleString('en-IN')} units`;
+  if (e.event === 'royalty_pdf_downloaded' && d.number) return String(d.number);
+  if (e.event === 'token_issued' && d.label) return String(d.label);
+  return '';
+};
+
 interface CustomerHit { customer_id: string; name: string | null; company?: string | null; phone: string | null; }
 interface Item {
   id: string; variation_id: string; sku?: string; product_name?: string;
@@ -151,6 +170,18 @@ const Consignment: React.FC = () => {
   const [portalLink, setPortalLink] = useState<{ partnerName: string; url: string; plain: string } | null>(null);
   const [portalBusy, setPortalBusy] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  /** What a partner did through their link: opened it, reported sales, downloaded a bill. */
+  const [activity, setActivity] = useState<{ partner: Partner; rows: PortalEvent[] | null; error?: string } | null>(null);
+  const openActivity = async (p: Partner) => {
+    if (activity?.partner.id === p.id) { setActivity(null); return; }
+    setActivity({ partner: p, rows: null });
+    try {
+      const rows = payload<PortalEvent[]>(await api.get(`/consignments/partners/${p.id}/portal-activity`, { params: { limit: 30 } })) ?? [];
+      setActivity({ partner: p, rows });
+    } catch (e: any) {
+      setActivity({ partner: p, rows: [], error: e?.response?.data?.message ?? 'Could not load what happened on this link.' });
+    }
+  };
 
   // sell-through / return entry
   const [sold, setSold] = useState<Record<string, string>>({});
@@ -984,6 +1015,11 @@ const Consignment: React.FC = () => {
                             {p.portal_link_live && (
                               <Btn variant="outline" disabled={portalBusy === p.id} onClick={() => revokePortalLink(p)}>Revoke link</Btn>
                             )}
+                            {(p.portal_link_live || p.portal_token_issued_at || p.portal_token_revoked_at) && (
+                              <Btn variant={activity?.partner.id === p.id ? 'primary' : 'outline'} onClick={() => openActivity(p)} aria-pressed={activity?.partner.id === p.id}>
+                                <History className="h-4 w-4" />Link activity
+                              </Btn>
+                            )}
                             <Btn variant="outline" onClick={() => openSwitch(p)}>
                               <ArrowRightLeft className="h-4 w-4" />
                               {p.model === 'outright' ? 'Back to consignment' : 'Switch to outright'}
@@ -996,6 +1032,35 @@ const Consignment: React.FC = () => {
                 </table>
               </TableShell>
             )}
+
+          {activity && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-sm font-semibold text-gray-800">
+                  <History className="h-4 w-4 text-gray-500" />What {activity.partner.name} did through their link
+                </div>
+                <Btn variant="ghost" size="sm" onClick={() => setActivity(null)}><X className="h-3.5 w-3.5" />Close</Btn>
+              </div>
+              <TableShell>
+                <table className="w-full text-sm">
+                  <THead><Th>When</Th><Th>What</Th><Th>Detail</Th></THead>
+                  <TBody>
+                    {activity.rows === null ? (
+                      <EmptyRow colSpan={3}>Loading...</EmptyRow>
+                    ) : activity.rows.length === 0 ? (
+                      <EmptyRow colSpan={3}>{activity.error ?? 'Nothing yet: the link has not been used.'}</EmptyRow>
+                    ) : activity.rows.map((e) => (
+                      <Tr key={e.id}>
+                        <Td muted className="whitespace-nowrap text-xs">{formatDateTime(e.created_at, '-')}</Td>
+                        <Td>{PORTAL_EVENT_LABEL[e.event] ?? e.event.replace(/_/g, ' ')}</Td>
+                        <Td muted className="text-xs">{portalEventText(e) || '-'}</Td>
+                      </Tr>
+                    ))}
+                  </TBody>
+                </table>
+              </TableShell>
+            </div>
+          )}
         </div>
       )}
 

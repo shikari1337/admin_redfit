@@ -192,4 +192,9 @@ export const WMS_ROUTES: V2Route[] = [
   { m: 'GET', from: '/wms/warehouses/:id/layout', row: 'wms The table', to: '/api/v2/wms/facilities/{id}/layout', qs: ['limit','max_depth','offset','root_id'] },
   { m: 'POST', from: '/wms/work/assign', row: 'wms The table', to: '/api/v2/wms/work/assignments', bs: {'assigned_to':'s','id':'s','kind':'s'} },
   { m: 'GET', from: '/wms/work/mine', row: 'wms The table', to: '/api/v2/wms/work/mine', qs: ['include_unassigned','limit'] },
+  // MENU-1 stock-network: a facility's stock in numbers and one page of its SKUs (wms api/facilities.rs:36,45), read
+  // by the Warehouses screen; an outlet's latest stock moves (wms api/outlets.rs, new), read by Outlets & Transfers.
+  { m: 'GET', from: '/warehouses/:id/stock-summary', row: 'wms warehouses.ts:101', to: '/api/v2/wms/facilities/{id}/stock-summary' },
+  { m: 'GET', from: '/warehouses/:id/stock', row: 'wms warehouses.ts:92', to: '/api/v2/wms/facilities/{id}/stock', qs: ['limit','offset'] },
+  { m: 'GET', from: '/outlets/:id/movements', row: 'wms outlets (new, MENU-1)', to: '/api/v2/wms/outlets/{id}/movements', qs: ['limit','offset'] },
 ];

@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import {
   Network, Plus, X, Layers, Users, ReceiptIndianRupee, Calculator, Send,
-  CheckCircle2, AlertTriangle, Loader2, Power,
+  CheckCircle2, AlertTriangle, Loader2, Power, FileDown, Lock,
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { payload } from '@/lib/unwrap';
+import { useAuth } from '../../contexts/AuthContext';
 import {
   Page, PageHeader, Btn, TabBar, SectionCard, FilterBar, Field, TextInput, SelectInput,
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow, EmptyState, StatCard, StatGrid, Chip,
@@ -81,13 +82,26 @@ const STATUS_LABEL: Record<string, string> = {
 const RATE_SOURCE_LABEL: Record<string, string> = {
   statutory_registry: 'from the cited statutory rule',
   store_config: 'your configured service rate',
-  store_default: 'your DEFAULT product rate — probably wrong for a service',
+  store_default: 'your DEFAULT product rate, probably wrong for a service',
   gst_disabled: 'GST is off for this store',
 };
 
 const blankTier = () => ({ name: '', level: '2', discountPct: '', notes: '' });
 
+/** A refusal because the store's module is off or not in its plan (v2 `access.module_*`, the old `MODULE_*`). */
+const isModuleRefusal = (e: any): boolean => {
+  const code = String(e?.response?.data?.code ?? e?.response?.data?.error?.code ?? '');
+  return code.startsWith('access.module_') || code.startsWith('MODULE_');
+};
+
 const DistributorNetwork: React.FC = () => {
+  const { hasPerm } = useAuth();
+  // Levels and partner terms are product pricing (`products.*`); royalty invoices are accounting documents
+  // (`accounting.read` to see, `accounting.post` to issue, trade api/royalty.rs). A person with only the menu's
+  // `products.read` still gets levels and partners; the royalty reads are not asked for, so they are not refused.
+  const canManage = hasPerm('products.manage');
+  const canBooks = hasPerm('accounting.read');
+  const canPost = hasPerm('accounting.post');
   const [tab, setTab] = useState<'levels' | 'partners' | 'royalty'>('levels');
   const [tiers, setTiers] = useState<Tier[] | null>(null);
   const [partners, setPartners] = useState<NetPartner[] | null>(null);
@@ -110,25 +124,28 @@ const DistributorNetwork: React.FC = () => {
   const [preview, setPreview] = useState<Preview | null>(null);
 
   const err = (e: any) => {
-    const status = e?.response?.status;
-    if (status === 403) { setModuleOff(true); return; }
+    // Only a module refusal means the screen is unavailable; a permission refusal is one action the person may not do.
+    if (e?.response?.status === 403 && isModuleRefusal(e)) { setModuleOff(true); return; }
     setMsg(e?.response?.data?.message ?? e.message);
   };
 
   const reload = async () => {
-    try {
-      const [t, p, i, per] = await Promise.all([
-        api.get('/network/tiers'),
-        api.get('/network/partners'),
-        api.get('/network/royalty-invoices'),
-        api.get('/network/royalty/period'),
-      ]);
-      setTiers(payload<Tier[]>(t) ?? []);
-      setPartners(payload<NetPartner[]>(p) ?? []);
-      setInvoices(payload<Invoice[]>(i) ?? []);
-      const pr = payload<{ periodFrom: string; periodTo: string }>(per);
+    // Each read stands alone: one refused or failed read no longer blanks the others.
+    const [t, p, i, per] = await Promise.allSettled([
+      api.get('/network/tiers'),
+      api.get('/network/partners'),
+      canBooks ? api.get('/network/royalty-invoices') : Promise.resolve(null),
+      canBooks ? api.get('/network/royalty/period') : Promise.resolve(null),
+    ]);
+    const failed = [t, p, i, per].find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined;
+    if (failed) err(failed.reason);
+    setTiers(t.status === 'fulfilled' ? payload<Tier[]>(t.value) ?? [] : []);
+    setPartners(p.status === 'fulfilled' ? payload<NetPartner[]>(p.value) ?? [] : []);
+    setInvoices(canBooks && i.status === 'fulfilled' && i.value ? payload<Invoice[]>(i.value) ?? [] : []);
+    if (per.status === 'fulfilled' && per.value) {
+      const pr = payload<{ periodFrom: string; periodTo: string }>(per.value);
       if (pr) setPeriod(pr);
-    } catch (e: any) { err(e); }
+    }
   };
 
   useEffect(() => { reload(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
@@ -226,9 +243,25 @@ const DistributorNetwork: React.FC = () => {
       setOkMsg(
         action === 'issue' ? (out?.plain ?? `Invoice ${out?.number ?? ''} issued.`)
           : action === 'paid' ? 'Marked as paid.'
-            : 'Draft cancelled — that period can be billed again.');
+            : 'Draft cancelled. That period can be billed again.');
       await reload();
     } catch (e: any) { err(e); } finally { setBusy(false); }
+  };
+
+  // The royalty bill as the partner sees it on their portal (trade api/royalty.rs `invoice_pdf`).
+  const [pdfBusy, setPdfBusy] = useState<string | null>(null);
+  const openPdf = async (inv: Invoice) => {
+    setPdfBusy(inv.id); setMsg(''); setOkMsg('');
+    try {
+      const res = await api.get(`/network/royalty-invoices/${inv.id}/pdf`, { responseType: 'blob' });
+      window.open(URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' })), '_blank');
+    } catch (e: any) {
+      // A blob error body cannot be read as text here; say what is known.
+      // 501 `gc_api.port_partial`: the host does not build this PDF yet (hosts/api wiring/render.rs); 503: no PDF engine.
+      setMsg([501, 503].includes(Number(e?.response?.status))
+        ? 'The royalty bill PDF is not available on this server yet. The figures on this screen are the bill.'
+        : `Could not open the PDF for ${inv.number ?? 'this invoice'}. Try again in a moment.`);
+    } finally { setPdfBusy(null); }
   };
 
   if (moduleOff) {
@@ -249,23 +282,44 @@ const DistributorNetwork: React.FC = () => {
   const owed = (invoices ?? []).filter((i) => i.status === 'issued')
     .reduce((s, i) => s + Number(i.total_minor || 0), 0);
   const drafts = (invoices ?? []).filter((i) => i.status === 'draft');
+  // What to act on first: drafts waiting for a person, then money owed.
+  const actOn = canBooks && drafts.length > 0
+    ? `${drafts.length} royalty invoice${drafts.length === 1 ? '' : 's'} prepared and not sent. Check and issue ${drafts.length === 1 ? 'it' : 'them'} on the Royalty invoices tab.`
+    : canBooks && owed > 0
+      ? `${inr(owed)} of issued royalty is still unpaid.`
+      : '';
 
   return (
     <Page>
       <PageHeader
-        title="Distributor network — levels, royalty & marketing fund"
+        title="Distributor network"
         icon={Network}
-        description="Set up the levels your network buys at (Super Stockist → Distributor → Retailer), then bill each partner the royalty and marketing-fund share your agreement says they owe. Nothing is ever billed automatically — invoices are only ever prepared for you to check and send."
+        description="Set up the levels your network buys at (for example Super Stockist, then Distributor, then Retailer), then bill each partner the royalty and marketing fund share your agreement says they owe. Nothing is billed automatically: invoices are only prepared for you to check and send."
       />
 
       {msg && <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{msg}</div>}
       {okMsg && <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{okMsg}</div>}
+      {actOn && !msg && !okMsg && (
+        <button
+          type="button"
+          onClick={() => setTab('royalty')}
+          className="flex w-full items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-left text-sm text-blue-800 hover:bg-blue-100"
+        >
+          <ReceiptIndianRupee className="mt-0.5 h-4 w-4 shrink-0" />{actOn}
+        </button>
+      )}
 
       <StatGrid cols={4}>
-        <StatCard label="Buying levels" value={activeTiers.length} sub={activeTiers.length ? activeTiers.map((t) => `${t.name} ${t.discount_pct}%`).join(' · ') : 'No levels yet'} icon={Layers} />
-        <StatCard label="Partners paying royalty" value={royaltyPartners.length} sub={`${(partners ?? []).length} partner(s) in the network`} icon={Users} />
-        <StatCard label="Royalty owed to you" value={inr(owed)} sub={`${(invoices ?? []).filter((i) => i.status === 'issued').length} invoice(s) awaiting payment`} tone={owed > 0 ? 'warn' : 'default'} icon={ReceiptIndianRupee} />
-        <StatCard label="Prepared, not sent" value={drafts.length} sub={drafts.length ? 'Check and issue them' : 'Nothing waiting'} tone={drafts.length ? 'info' : 'default'} />
+        <StatCard label="Buying levels" value={tiers === null ? '...' : activeTiers.length} sub={activeTiers.length ? activeTiers.map((t) => `${t.name} ${t.discount_pct}%`).join(', ') : 'No levels yet'} icon={Layers} />
+        <StatCard label="Partners paying royalty" value={partners === null ? '...' : royaltyPartners.length} sub={`${(partners ?? []).length} partner(s) in the network`} icon={Users} />
+        {canBooks ? (
+          <>
+            <StatCard label="Royalty owed to you" value={inr(owed)} sub={`${(invoices ?? []).filter((i) => i.status === 'issued').length} invoice(s) awaiting payment`} tone={owed > 0 ? 'warn' : 'default'} icon={ReceiptIndianRupee} />
+            <StatCard label="Prepared, not sent" value={drafts.length} sub={drafts.length ? 'Check and issue them' : 'Nothing waiting'} tone={drafts.length ? 'info' : 'default'} />
+          </>
+        ) : (
+          <StatCard label="Royalty" value={<Lock className="h-5 w-5 text-gray-400" />} sub="Royalty invoices need accounting access." icon={ReceiptIndianRupee} />
+        )}
       </StatGrid>
 
       <TabBar
@@ -283,11 +337,11 @@ const DistributorNetwork: React.FC = () => {
         <SectionCard
           title="The ladder"
           description="Level 1 sits closest to you and normally gets the deepest discount. A partner on a level buys at that level's discount off your catalogue price; an agreed price on a specific dispatch always wins."
-          action={
+          action={canManage ? (
             <Btn variant={creatingTier ? 'outline' : 'primary'} onClick={() => { setCreatingTier((v) => !v); setMsg(''); setOkMsg(''); }}>
               {creatingTier ? <><X className="h-4 w-4" />Cancel</> : <><Plus className="h-4 w-4" />Add a level</>}
             </Btn>
-          }
+          ) : undefined}
         >
           {creatingTier && (
             <div className="mb-5 rounded-lg border border-gray-200 bg-gray-50/60 p-4">
@@ -315,15 +369,14 @@ const DistributorNetwork: React.FC = () => {
             <EmptyState
               icon={Layers}
               title="No buying levels yet"
-              description="Add the levels your network buys at — for example Super Stockist at 30% off, Distributor at 20%, Retailer at 10%."
+              description="Add the levels your network buys at, for example Super Stockist at 30% off, Distributor at 20%, Retailer at 10%."
             />
           ) : (
             <TableShell>
+              <table className="w-full text-sm">
               <THead>
-                <tr>
                   <Th>Rung</Th><Th>Level</Th><Th align="right">Buys at</Th>
                   <Th align="right">Partners</Th><Th>Status</Th><Th>Note</Th><Th align="right">Change</Th>
-                </tr>
               </THead>
               <TBody>
                 {tiers.map((t) => (
@@ -335,9 +388,11 @@ const DistributorNetwork: React.FC = () => {
                     <Td><Chip tone={t.is_active ? 'green' : 'neutral'}>{t.is_active ? 'In use' : 'Switched off'}</Chip></Td>
                     <Td className="max-w-xs truncate text-xs text-gray-500">{t.notes ?? '—'}</Td>
                     <Td align="right">
+                      {!canManage ? <span className="text-xs text-gray-400">View only</span> : (
                       <div className="flex justify-end gap-2">
                         <input
                           type="number" min={0} max={100} step="0.001" defaultValue={t.discount_pct}
+                          aria-label={`Discount for ${t.name}`}
                           className="h-8 w-20 rounded-lg border border-gray-200 px-2 text-sm"
                           onBlur={(e) => {
                             const v = Number(e.target.value);
@@ -352,10 +407,12 @@ const DistributorNetwork: React.FC = () => {
                           <Btn variant="outline" size="sm" onClick={() => patchTier(t, { isActive: true }, `"${t.name}" is back in use.`)} disabled={busy}>Turn back on</Btn>
                         )}
                       </div>
+                      )}
                     </Td>
                   </Tr>
                 ))}
               </TBody>
+              </table>
             </TableShell>
           )}
         </SectionCard>
@@ -376,7 +433,7 @@ const DistributorNetwork: React.FC = () => {
                   value={terms.tierId}
                   onChange={(e) => setTerms((t) => ({ ...t, tierId: e.target.value }))}
                 >
-                  <option value="">— no level (keeps their own {editing.margin_pct}% margin) —</option>
+                  <option value="">No level (keeps their own {editing.margin_pct}% margin)</option>
                   {activeTiers.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.discount_pct}% off)</option>)}
                 </select>
                 , and owes you{' '}
@@ -421,12 +478,11 @@ const DistributorNetwork: React.FC = () => {
             />
           ) : (
             <TableShell>
+              <table className="w-full text-sm">
               <THead>
-                <tr>
                   <Th>Partner</Th><Th>Buys as</Th><Th align="right">Their price basis</Th>
                   <Th align="right">Royalty</Th><Th align="right">Marketing fund</Th>
                   <Th>Charged on</Th><Th align="right">Change</Th>
-                </tr>
               </THead>
               <TBody>
                 {partners.map((p) => (
@@ -445,17 +501,27 @@ const DistributorNetwork: React.FC = () => {
                     <Td align="right">{Number(p.royalty_pct) > 0 ? `${p.royalty_pct}%` : '—'}</Td>
                     <Td align="right">{Number(p.marketing_fund_pct) > 0 ? `${p.marketing_fund_pct}%` : '—'}</Td>
                     <Td className="text-xs text-gray-500">{Number(p.royalty_pct) + Number(p.marketing_fund_pct) > 0 ? BASIS_LABEL[p.royalty_base] ?? p.royalty_base : '—'}</Td>
-                    <Td align="right"><Btn variant="outline" size="sm" onClick={() => openTerms(p)}>Set terms</Btn></Td>
+                    <Td align="right">{canManage ? <Btn variant="outline" size="sm" onClick={() => openTerms(p)}>Set terms</Btn> : <span className="text-xs text-gray-400">View only</span>}</Td>
                   </Tr>
                 ))}
               </TBody>
+              </table>
             </TableShell>
           )}
         </SectionCard>
       )}
 
       {/* ══ ROYALTY ══════════════════════════════════════════════════════════ */}
-      {tab === 'royalty' && (
+      {tab === 'royalty' && !canBooks && (
+        <SectionCard title="Royalty invoices">
+          <EmptyState
+            icon={Lock}
+            title="Royalty invoices need accounting access"
+            description="A royalty invoice is an accounting document. Ask an owner to give you accounting access to see, issue or download them. Levels and partner terms stay open to you."
+          />
+        </SectionCard>
+      )}
+      {tab === 'royalty' && canBooks && (
         <>
           <SectionCard
             title="Work out what a partner owes"
@@ -470,9 +536,9 @@ const DistributorNetwork: React.FC = () => {
               </Field>
               <Field label="Partner" className="w-72">
                 <SelectInput value={previewFor} onChange={(e) => runPreview(e.target.value)}>
-                  <option value="">— choose a partner —</option>
+                  <option value="">Choose a partner</option>
                   {royaltyPartners.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name} — {p.royalty_pct}% + {p.marketing_fund_pct}%</option>
+                    <option key={p.id} value={p.id}>{p.name}: {p.royalty_pct}% + {p.marketing_fund_pct}%</option>
                   ))}
                 </SelectInput>
               </Field>
@@ -525,7 +591,7 @@ const DistributorNetwork: React.FC = () => {
                     <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{a}
                   </p>
                 ))}
-                {Number(preview.totalMinor) > 0 && (
+                {Number(preview.totalMinor) > 0 && canPost && (
                   <div className="mt-4">
                     <Btn onClick={issueNow} disabled={busy}>
                       {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
@@ -537,18 +603,17 @@ const DistributorNetwork: React.FC = () => {
             )}
           </SectionCard>
 
-          <SectionCard title="Royalty invoices" description="Drafts prepared for you can still be changed or cancelled. Once an invoice is issued it has a number and cannot be taken back — correct it with a credit note.">
+          <SectionCard title="Royalty invoices" description="Drafts prepared for you can still be changed or cancelled. Once an invoice is issued it has a number and cannot be taken back: correct it with a credit note.">
             {invoices === null ? (
               <div className="py-8 text-center text-sm text-gray-500">Loading…</div>
             ) : (
               <TableShell>
+                <table className="w-full text-sm">
                 <THead>
-                  <tr>
                     <Th>Invoice</Th><Th>Partner</Th><Th>Period</Th>
                     <Th align="right">Sales base</Th><Th align="right">Royalty</Th>
                     <Th align="right">Fund</Th><Th align="right">GST</Th><Th align="right">Total</Th>
                     <Th>Status</Th><Th align="right">Action</Th>
-                  </tr>
                 </THead>
                 <TBody>
                   {invoices.length === 0 && <EmptyRow colSpan={10}>No royalty invoices yet.</EmptyRow>}
@@ -559,7 +624,7 @@ const DistributorNetwork: React.FC = () => {
                         {i.created_source === 'scheduler' && <Chip tone="neutral" className="ml-2">prepared for you</Chip>}
                       </Td>
                       <Td>{i.partner_name ?? '—'}</Td>
-                      <Td className="text-xs text-gray-600">{i.period_from} → {i.period_to}</Td>
+                      <Td className="text-xs text-gray-600">{i.period_from} to {i.period_to}</Td>
                       <Td align="right">{inr(i.base_amount_minor)}</Td>
                       <Td align="right">{inr(i.royalty_minor)}<span className="ml-1 text-xs text-gray-400">{i.royalty_pct}%</span></Td>
                       <Td align="right">{inr(i.marketing_fund_minor)}</Td>
@@ -567,22 +632,28 @@ const DistributorNetwork: React.FC = () => {
                       <Td align="right" className="font-semibold">{inr(i.total_minor)}</Td>
                       <Td><Chip tone={STATUS_TONE[i.status] ?? 'neutral'}>{STATUS_LABEL[i.status] ?? i.status}</Chip></Td>
                       <Td align="right">
-                        <div className="flex justify-end gap-2">
-                          {i.status === 'draft' && (
+                        <div className="flex flex-wrap justify-end gap-2">
+                          {i.status === 'draft' && canPost && (
                             <>
                               <Btn size="sm" onClick={() => invoiceAction(i, 'issue')} disabled={busy}><Send className="h-3.5 w-3.5" />Issue</Btn>
                               <Btn variant="outline" size="sm" onClick={() => invoiceAction(i, 'cancel')} disabled={busy}>Discard</Btn>
                             </>
                           )}
-                          {i.status === 'issued' && (
+                          {i.status === 'issued' && canPost && (
                             <Btn variant="outline" size="sm" onClick={() => invoiceAction(i, 'paid')} disabled={busy}><CheckCircle2 className="h-3.5 w-3.5" />Mark paid</Btn>
                           )}
-                          {['paid', 'cancelled'].includes(i.status) && <span className="text-xs text-gray-400">—</span>}
+                          {['issued', 'paid'].includes(i.status) && (
+                            <Btn variant="ghost" size="sm" onClick={() => openPdf(i)} disabled={pdfBusy === i.id} aria-label={`PDF of ${i.number ?? 'this invoice'}`}>
+                              {pdfBusy === i.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileDown className="h-3.5 w-3.5" />}PDF
+                            </Btn>
+                          )}
+                          {i.status === 'cancelled' && <span className="text-xs text-gray-400">Cancelled</span>}
                         </div>
                       </Td>
                     </Tr>
                   ))}
                 </TBody>
+                </table>
               </TableShell>
             )}
           </SectionCard>

@@ -232,8 +232,8 @@ export const MENU: MenuGroup[] = [
         // DEC-068: the distributor's ERP is the stock master; its connections, mapping and the hourly stock update live here.
         { label: 'ERP Sync', to: '/panel/inventory/erp', perm: 'settings.read', tip: 'Stock set from your distributor’s ERP, every hour.', owns: ['/panel/inventory/erp/connect', '/panel/inventory/erp/c/:id'] },
         { label: 'Approvals', to: '/panel/inventory/approvals', perm: 'inventory.manage', tip: 'Stock changes waiting for a second pair of eyes.' },
-        { label: 'Outlets & Transfers', to: '/panel/inventory/outlets', perm: 'inventory.read', tip: 'Shops that hold their own stock.' },
-        { label: 'Consignment', to: '/panel/inventory/consignment', perm: 'inventory.read', tip: 'Stock sitting with a partner, still yours.' },
+        { label: 'Outlets & Transfers', to: '/panel/inventory/outlets', perm: 'inventory.read', modules: ['inventory'], tip: 'Shops that hold their own stock.' },
+        { label: 'Consignment', to: '/panel/inventory/consignment', perm: 'inventory.read', modules: ['inventory'], tip: 'Stock sitting with a partner, still yours.' },
         { label: 'Distributor Network', to: '/panel/inventory/network', perm: 'products.read', modules: ['b2b'], tip: 'Distributor tiers and the royalty they pay.' },
       ],
     },

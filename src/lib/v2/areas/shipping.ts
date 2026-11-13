@@ -122,17 +122,34 @@ export function facilityRow(f: any): any {
 }
 const facilities = (d: any) => (Array.isArray(d) ? mapList(d, facilityRow) : facilityRow(d));
 const FACILITY: Spec = { addr_line1: 's', addr_line2: 'j', city: 's', code: 's', contact_email: 'j', contact_name: 's', contact_phone: 's', country: 's', gstin: 'j', is_active: 'b', kind: 's', name: 's', pincode: 's', priority: 'i', shipping_providers: 'j', state: 's' };
+/**
+ * A blank box on the warehouse form (MENU-1 stock-network). The facility's optional columns refuse an empty
+ * string under their length or e-mail rule (wms resources.rs `addr_line2`, `contact_email`, `gstin`), so a save
+ * without an address line 2 was refused: a blank there goes as null. A blank in a column the register fills by
+ * itself (address line 1, city, state, PIN, country, contact) is left out: a create takes the default, an update
+ * keeps what is stored.
+ */
+const FACILITY_NULLABLE = ['addr_line2', 'contact_email', 'gstin'];
+const FACILITY_DEFAULTED = ['addr_line1', 'city', 'state', 'pincode', 'country', 'contact_name', 'contact_phone', 'kind'];
+const isBlank = (v: unknown) => typeof v === 'string' && v.trim() === '';
+function facilityBlanks(out: any): any {
+  if (!out || typeof out !== 'object' || Array.isArray(out)) return out;
+  const o = { ...out };
+  for (const k of FACILITY_NULLABLE) if (isBlank(o[k])) o[k] = null;
+  for (const k of FACILITY_DEFAULTED) if (isBlank(o[k])) delete o[k];
+  return o;
+}
 /** The legacy warehouse form (`address{…}`, `contact{…}`) → the facility's flat typed input. */
 const facilityBody = (c: any) => {
   const b = c.body ?? {};
   const a = b.address ?? {}; const k = b.contact ?? {};
-  return shapeBody(FACILITY)({ ...c, body: {
+  return facilityBlanks(shapeBody(FACILITY)({ ...c, body: {
     ...b, address: undefined, contact: undefined, shippingProviders: undefined,
     addr_line1: a.line1 ?? b.addr_line1, addr_line2: a.line2 ?? b.addr_line2, city: a.city ?? b.city, state: a.state ?? b.state,
     pincode: a.pincode ?? b.pincode, country: a.country ?? b.country,
     contact_name: k.name ?? b.contact_name, contact_phone: k.phone ?? b.contact_phone, contact_email: k.email ?? b.contact_email,
     shipping_providers: b.shippingProviders ?? b.shipping_providers,
-  } });
+  } }));
 };
 
 /* ── reply reshapers: the v2 ship views → the names the screens read ── */

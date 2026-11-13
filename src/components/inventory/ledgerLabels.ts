@@ -43,6 +43,10 @@ export const REF_DOC_LABELS: Record<string, string> = {
   cycle_count: 'Cycle count',
   transfer: 'Transfer',
   return: 'Return',
+  // The shop outlets' own rows (wms db/outlets.rs): a send to or from the shop, a counter sale, a counter refund.
+  outlet_transfer: 'Outlet transfer',
+  outlet_sale: 'Counter sale',
+  pos_refund: 'Counter refund',
 };
 
 export const refDocLabel = (t?: string | null): string =>
