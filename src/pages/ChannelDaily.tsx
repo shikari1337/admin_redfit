@@ -25,6 +25,10 @@ import { useToast } from '@/hooks/use-toast';
 import { Page, PageHeader } from '@/components/erp';
 import { useAuth } from '../contexts/AuthContext';
 import { Link } from 'react-router-dom';
+import { fmtMinor, fmtRupees } from '../lib/money';
+import { saveBlob } from '../lib/saveBlob';
+import { localeDateTime } from '../utils/date';
+import { channelFileRefusal } from '../lib/v2/areas/channels';
 import {
   UploadCloud, Download, FileSpreadsheet, CheckCircle2, AlertTriangle, Loader2,
   RotateCcw, Info, ArrowRight, PackageSearch, ClipboardList, Copy,
@@ -103,18 +107,15 @@ interface CreateResult {
 }
 
 const NONE = '__none__';
-const money = (n: number) => `₹${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const TIER_WORDS: Record<string, string> = {
   retail: 'Retail rate', b2b: 'Wholesale rate', manual: 'Manual / Books rate', none: 'No commission',
 };
-
-function saveBlob(blob: Blob, fileName: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = fileName;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
-}
+/** A produced file's one line: the job's file name or its error (v2 `detail` is JSON, never printed raw). */
+const jobNote = (j: any): string => {
+  if (typeof j?.error === 'string' && j.error) return j.error;
+  if (typeof j?.detail === 'string' && j.detail) return j.detail;
+  return typeof j?.file_name === 'string' ? j.file_name : '';
+};
 
 export default function ChannelDaily() {
   const { toast } = useToast();
@@ -225,11 +226,16 @@ export default function ChannelDaily() {
       loadChannel(channelId);
     } catch (e: any) {
       // A refusal is a real answer, not a crash: the server sends back the rows
-      // to fix along with a 422, and this screen must show them.
+      // to fix along with a 422 (v2: in `details.result`), and this screen must show them.
       const payload = e?.response?.data;
-      if (payload?.data) { setResult(payload.data as CreateResult); setResultMessage(payload.message ?? ''); }
+      const refused = channelFileRefusal(payload) as CreateResult | null;
+      if (refused && Array.isArray(refused.created)) {
+        setResult({ ...refused, problems: refused.problems ?? [], duplicates: refused.duplicates ?? [] });
+        setResultMessage(payload?.message ?? '');
+        if (refused.created.length) loadChannel(channelId);
+      }
       toast({
-        title: payload?.data?.rejected ? 'Nothing was created' : 'Import stopped',
+        title: refused?.rejected ? 'Nothing was created' : 'Import stopped',
         description: payload?.message ?? e?.message ?? 'Please try again.',
         variant: 'destructive',
       });
@@ -249,6 +255,16 @@ export default function ChannelDaily() {
       }
     } catch (e: any) {
       toast({ title: 'Could not produce the stock file', description: e?.message ?? '', variant: 'destructive' });
+    } finally { setBusy(''); }
+  }
+
+  async function downloadSample() {
+    setBusy('export');
+    try {
+      const { blob, fileName } = await channelsAPI.inventoryTemplate(channelId);
+      saveBlob(blob, fileName);
+    } catch (e: any) {
+      toast({ title: 'Could not make the sample file', description: e?.message ?? '', variant: 'destructive' });
     } finally { setBusy(''); }
   }
 
@@ -284,7 +300,7 @@ export default function ChannelDaily() {
       {/* ── Which channel ─────────────────────────────────────────────── */}
       <Card className="mb-4">
         <CardContent className="p-4 flex flex-wrap items-end gap-4">
-          <div className="min-w-[280px]">
+          <div className="w-full sm:w-auto sm:min-w-[280px]">
             <Label className="text-xs text-gray-500">Channel</Label>
             <Select value={channelId} onValueChange={setChannelId}>
               <SelectTrigger><SelectValue placeholder="Choose a channel" /></SelectTrigger>
@@ -446,7 +462,7 @@ export default function ChannelDaily() {
                           <Stat label="Orders to create" value={String(plan.totals.orders)} tone="good" />
                           <Stat label="Already here" value={String(plan.duplicates.length)} />
                           <Stat label="Units" value={String(plan.totals.units)} />
-                          <Stat label="Value" value={money(plan.totals.value)} />
+                          <Stat label="Value" value={fmtRupees(plan.totals.value)} />
                         </div>
 
                         {plan.unmatchedSkuCount > 0 && (
@@ -477,7 +493,7 @@ export default function ChannelDaily() {
                         )}
 
                         {plan.orders.length > 0 && (
-                          <div className="border rounded-lg overflow-hidden mb-3">
+                          <div className="border rounded-lg overflow-x-auto mb-3">
                             <table className="w-full text-xs">
                               <thead className="bg-gray-50 text-gray-600">
                                 <tr>
@@ -497,7 +513,7 @@ export default function ChannelDaily() {
                                     <td className="p-2">{o.buyer}{o.city ? ` · ${o.city}` : ''}</td>
                                     <td className="p-2 text-right">{o.lines}</td>
                                     <td className="p-2 text-right">{o.units}</td>
-                                    <td className="p-2 text-right tabular-nums">{money(o.money.total)}</td>
+                                    <td className="p-2 text-right tabular-nums">{fmtRupees(o.money.total)}</td>
                                   </tr>
                                 ))}
                               </tbody>
@@ -552,9 +568,9 @@ export default function ChannelDaily() {
                         <div className="mt-1 space-y-0.5">
                           {result.created.slice(0, 30).map((c) => (
                             <div key={c.order_id}>
-                              {c.order_ref} → <Link className="underline font-medium" to={`/orders/${c.order_id}`}>{c.order_number}</Link>
-                              {' · '}{money(c.total)}{c.stock_deducted ? ' · stock taken off' : ' · stock NOT changed'}
-                              {c.commission_tier ? ` · ${TIER_WORDS[c.commission_tier]}` : ''}
+                              {c.order_ref}: <Link className="underline font-medium" to={`/orders/${c.order_id}`}>{c.order_number}</Link>
+                              {', '}{fmtRupees(c.total)}{c.stock_deducted ? ', stock taken off' : ', stock NOT changed'}
+                              {c.commission_tier ? `, ${TIER_WORDS[c.commission_tier]}` : ''}
                             </div>
                           ))}
                         </div>
@@ -579,7 +595,7 @@ export default function ChannelDaily() {
                 {!documents.length ? (
                   <p className="text-sm text-gray-500">No orders have been imported from this channel yet.</p>
                 ) : (
-                  <div className="border rounded-lg overflow-hidden">
+                  <div className="border rounded-lg overflow-x-auto">
                     <table className="w-full text-xs">
                       <thead className="bg-gray-50 text-gray-600">
                         <tr>
@@ -602,7 +618,7 @@ export default function ChannelDaily() {
                             </td>
                             <td className="p-2">{d.order_date ?? '—'}</td>
                             <td className="p-2">{d.buyer_name ?? '—'}</td>
-                            <td className="p-2 text-right tabular-nums">{d.total_minor != null ? money(Number(d.total_minor) / 100) : '—'}</td>
+                            <td className="p-2 text-right tabular-nums">{d.total_minor != null ? fmtMinor(d.total_minor) : '-'}</td>
                             <td className="p-2">{d.status}{d.error ? ` — ${d.error}` : ''}</td>
                           </tr>
                         ))}
@@ -616,8 +632,8 @@ export default function ChannelDaily() {
                     <ul className="text-xs text-gray-600 space-y-0.5">
                       {imports.slice(0, 8).map((i) => (
                         <li key={i.id}>
-                          {new Date(i.created_at).toLocaleString('en-IN')} · {i.file_name ?? 'file'} ·
-                          {' '}{i.row_count} rows · {i.applied_count} applied · {i.skipped_count} skipped · {i.status}
+                          {localeDateTime(i.created_at, undefined, 'en-IN')}, {i.file_name ?? 'file'},
+                          {' '}{i.row_count} rows, {i.applied_count} applied, {i.skipped_count} skipped, {i.status}
                         </li>
                       ))}
                     </ul>
@@ -642,9 +658,12 @@ export default function ChannelDaily() {
                   {busy === 'export' ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Download className="h-4 w-4 mr-1" />}
                   Download the {cfg?.export.format.toUpperCase()} file
                 </Button>
+                <Button variant="ghost" size="sm" className="mt-1 w-full" onClick={downloadSample} disabled={busy !== ''}>
+                  Download a one-row sample
+                </Button>
                 <div className="mt-3 text-[11px] text-gray-500">
                   <div className="font-medium text-gray-600 mb-0.5">Columns it will have</div>
-                  {info.exportColumns.map((c) => c.header).join(' · ') || 'None configured yet.'}
+                  {info.exportColumns.map((c) => c.header).join(', ') || 'None configured yet.'}
                 </div>
                 {exports.length > 0 && (
                   <div className="mt-4 border-t pt-3">
@@ -653,8 +672,8 @@ export default function ChannelDaily() {
                       {exports.slice(0, 8).map((j) => (
                         <li key={j.id} className="text-xs flex items-center justify-between gap-2">
                           <span className="truncate">
-                            {new Date(j.created_at).toLocaleString('en-IN')} · {j.status}
-                            {j.detail ? ` · ${j.detail}` : ''}
+                            {localeDateTime(j.created_at, undefined, 'en-IN')}, {j.status}
+                            {jobNote(j) ? `, ${jobNote(j)}` : ''}
                           </span>
                           {j.status === 'ready' && (
                             <Button size="sm" variant="ghost" onClick={() => downloadJob(j.id)}>

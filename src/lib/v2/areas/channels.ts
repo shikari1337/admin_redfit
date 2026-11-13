@@ -8,7 +8,7 @@
  */
 import type { V2Route } from '../routes';
 import { v2http, mapList } from '../http';
-import { majorToMinor } from '../money';
+import { majorToMinor, moneyToMajorDeep } from '../money';
 import type { Spec } from '../shape';
 import { wrapData, shapeBody, pageAs } from '../shape';
 
@@ -16,6 +16,76 @@ import { wrapData, shapeBody, pageAs } from '../shape';
 const APPLY_PARTS: Spec = { '#mp': 'j', create_orders: 's', dry_run: 's', file: 'f', mapping: 's', mode: 's', purpose: 's' };
 const EXPORT_FIELDS: Spec = { format: 's', include_zero: 'b', only_mapped: 'b' };
 const BULK_ROWS: Spec = { rows: [{ buffer_qty: 'j', channel_id: 's', external_id: 's', external_sku: 'j', external_title: 'j', is_active: 'b', product_id: 'j', sync_inventory: 'b', sync_listing: 'b', variation_id: 'j' }] };
+
+const rowsOf = (v: unknown): any[] => (Array.isArray(v) ? v : []);
+const textOf = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v : null);
+
+/**
+ * An order file's dry run answers the FULL plan (ChannelOrderPlanView, commerce views/channels.rs:649: `lines` an
+ * array, `buyer` an object, no counts). ChannelDaily renders the brief plan the preview carries (PlanPreviewView), so
+ * the full one is briefed exactly as `PlanPreviewView::of` does it (views/channels.rs:730): 200 orders, 20 items each,
+ * 100 problems, 50 unknown SKUs, with the full counts beside them. Money is already rupees (normaliseEnvelope).
+ */
+function briefPlan(p: any): any {
+  if (!p || typeof p !== 'object') return p;
+  const problems = rowsOf(p.problems);
+  const unmatched = rowsOf(p.unmatched_skus);
+  const address = (o: any, k: string) => (o?.address && typeof o.address === 'object' ? textOf(o.address[k]) : null);
+  const buyer = (o: any) => (o?.buyer && typeof o.buyer === 'object' ? textOf(o.buyer.name) ?? '' : textOf(o?.buyer) ?? '');
+  return {
+    register_available: !!p.register_available,
+    totals: p.totals,
+    problems: problems.slice(0, 100),
+    problem_count: problems.length,
+    unmatched_skus: unmatched.slice(0, 50),
+    unmatched_sku_count: unmatched.length,
+    duplicates: rowsOf(p.duplicates).map((o) => ({
+      order_ref: o?.order_ref,
+      order_number: o?.duplicate_of?.order_number ?? null,
+      lines: rowsOf(o?.lines).length,
+      total: o?.money?.total ?? 0,
+    })),
+    orders: rowsOf(p.orders).slice(0, 200).map((o) => {
+      const lines = rowsOf(o?.lines);
+      return {
+        order_ref: o?.order_ref,
+        order_date: o?.order_date ?? null,
+        lines: lines.length,
+        units: lines.reduce((s, l) => s + (Number(l?.quantity) || 0), 0),
+        buyer: buyer(o),
+        phone: o?.buyer && typeof o.buyer === 'object' ? textOf(o.buyer.phone) : null,
+        city: address(o, 'city'),
+        state: address(o, 'state'),
+        payment_method: o?.payment_method,
+        money: o?.money,
+        notes: rowsOf(o?.notes),
+        items: lines.slice(0, 20).map((l) => ({ sku: l?.sku, name: l?.product_name, quantity: l?.quantity, unit_price: l?.unit_price, line_total: l?.line_total })),
+      };
+    }),
+  };
+}
+
+/**
+ * ChannelApplyView {kind, order_plan, orders, stock} (commerce views/channels.rs:911) to the member `kind` names, which
+ * is what ChannelImport (stock and register files) and ChannelDaily (order plan, orders created) read.
+ */
+function applyReply(d: any): any {
+  if (!d || typeof d !== 'object' || typeof d.kind !== 'string') return d;
+  if (d.kind === 'order_plan') return briefPlan(d.order_plan);
+  if (d.kind === 'orders') return d.orders ?? d;
+  if (d.kind === 'stock') return d.stock ?? d;
+  return d;
+}
+
+/**
+ * A refused or stopped channel file (422 `commerce.channel_import_incomplete` with `details.result`, or
+ * `commerce.import_rolled_back` with `details.report`, commerce api/channels/files.rs:278, :464): the result the screen
+ * shows, money in rupees. Errors skip the reply path, so the screens call this on the error body.
+ */
+export function channelFileRefusal(body: any): any | null {
+  const raw = body?.details?.result ?? body?.details?.report ?? body?.data ?? null;
+  return raw && typeof raw === 'object' ? moneyToMajorDeep(raw) : null;
+}
 
 export const CHANNEL_ROUTES: V2Route[] = [
   { m: 'GET', from: '/channel-allocations', row: 'commerce channelAllocations.ts:38', to: '/api/v2/commerce/channel-allocations', qs: ['limit','offset','page','sort','q','channel_id','channel_code','variation_id','product_id','active'], reply: wrapData },
@@ -48,6 +118,8 @@ export const CHANNEL_ROUTES: V2Route[] = [
     },
   },
   { m: 'GET', from: '/channels/:id/file-config', row: 'commerce channels.ts:515', to: '/api/v2/commerce/channels/{id}/file-config' },
+  // A one-row sample in the channel's layout (commerce api/channels/files.rs:1000, a file download); the caller asks for a blob.
+  { m: 'GET', from: '/channels/:id/export/template', row: 'commerce channels.ts:591', to: '/api/v2/commerce/channels/{id}/export-template' },
   {
     // The write mode travels in the legacy query (`?mode=partial`; `mode` in the form is the stock set/adjust switch); v2 takes it as the `write_mode` part.
     m: 'POST', from: '/channels/:id/import/apply', row: 'commerce channels.ts:372', to: '/api/v2/commerce/channels/{id}/import/apply',
@@ -56,6 +128,7 @@ export const CHANNEL_ROUTES: V2Route[] = [
       if (c.query.mode === 'partial' && typeof FormData !== 'undefined' && form instanceof FormData) form.append('write_mode', 'partial');
       return form;
     },
+    reply: applyReply,
   },
   { m: 'GET', from: '/channels/:id/import/history', row: 'commerce channels.ts:497', to: '/api/v2/commerce/channels/{id}/import-history', qs: ['limit'] },
   { m: 'POST', from: '/channels/:id/import/preview', row: 'commerce channels.ts:291', to: '/api/v2/commerce/channels/{id}/import/preview', bs: {'#mp':'j','create_orders':'s','file':'f','purpose':'s'} },

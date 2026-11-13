@@ -76,11 +76,13 @@ const ChannelAllocation: React.FC = () => {
   };
 
   const toggleFlag = async () => {
-    setFlagBusy(true);
+    setFlagBusy(true); setMsg('');
     try {
       const c = await channelAllocationAPI.setEnabled(!enabled);
-      setEnabled(!!c.enabled);
+      setEnabled(!!c?.enabled);
       if (data) await load(data.variation.sku ?? data.variation.id);
+    } catch (e: any) {
+      setMsg(e?.response?.data?.message ?? 'Could not change the switch. Please try again.');
     } finally { setFlagBusy(false); }
   };
 
@@ -91,10 +93,22 @@ const ChannelAllocation: React.FC = () => {
     if (!data) return;
     const ed = edits[c.channel_id];
     setEdit(c.channel_id, { saving: true });
-    const cap_units = ed.mode === 'units' && ed.value !== '' ? Number(ed.value) : null;
-    const cap_pct = ed.mode === 'pct' && ed.value !== '' ? Number(ed.value) : null;
+    const cap_units = ed.mode === 'units' && ed.value !== '' ? Math.max(0, Math.round(Number(ed.value))) : null;
+    const cap_pct = ed.mode === 'pct' && ed.value !== '' ? Math.min(100, Math.max(0, Number(ed.value))) : null;
     try {
-      await channelAllocationAPI.save({ channel_id: c.channel_id, variation_id: data.variation.id, cap_units, cap_pct });
+      // One cap per channel and SKU (unique on the table). The old POST was an upsert; v2 creates with POST
+      // and changes with PATCH, so find the cap first. "Unlimited" keeps the row with no number, as before:
+      // the channel still takes part in the proportional squeeze, so the total promised never passes the pool.
+      const existing = (await channelAllocationAPI.list({ channelId: c.channel_id, variationId: data.variation.id }))
+        .find((a: any) => a?.channel_id === c.channel_id && a?.variation_id === data.variation.id);
+      if (existing?.id) {
+        await channelAllocationAPI.update(existing.id, { cap_units, cap_pct, active: true });
+      } else {
+        await channelAllocationAPI.save({
+          channel_id: c.channel_id, variation_id: data.variation.id, cap_units, cap_pct,
+          channel_code: c.platform_code, product_id: data.variation.product_id ?? undefined,
+        });
+      }
       await load(data.variation.sku ?? data.variation.id);
       setEdit(c.channel_id, { saving: false, saved: true });
     } catch (e: any) {
@@ -143,7 +157,7 @@ const ChannelAllocation: React.FC = () => {
       {/* SKU search */}
       <SectionCard>
         <form className="flex flex-wrap items-end gap-3" onSubmit={(e) => { e.preventDefault(); load(); }}>
-          <Field label="Find a product by SKU" className="min-w-[280px] flex-1">
+          <Field label="Find a product by SKU" className="w-full flex-1 sm:min-w-[280px]">
             <TextInput value={sku} onChange={(e) => setSku(e.target.value)} placeholder="e.g. HM-ARN-30CH-30ML" />
           </Field>
           <Btn type="submit" disabled={loading || !sku.trim()}>

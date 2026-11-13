@@ -15,8 +15,10 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { Link } from 'react-router-dom';
 import { localeDateTime } from '../utils/date';
+import { META_ROUTES } from './panels/marketing/meta/routes';
 import {
   Plug, RefreshCw, Trash2, Settings2, Rss, CheckCircle2, XCircle, Link2, ExternalLink, ClipboardList, Upload,
+  AlertTriangle, Loader2,
 } from 'lucide-react';
 
 interface FieldDef { key: string; label: string; type: string; required?: boolean; secret?: boolean; default?: string; options?: string[]; }
@@ -30,9 +32,27 @@ interface Connection {
   credentials: Record<string, { set: boolean; preview: string }>;
   config: Record<string, any>; is_active: boolean;
   sync_inventory: boolean; sync_listings: boolean; sync_orders: boolean;
-  inventory_buffer_pct: number; push_schedule?: string; pull_schedule?: string;
+  /** A decimal on v2 (sent back as text, "10.00"). */
+  inventory_buffer_pct: number | string; push_schedule?: string; pull_schedule?: string;
   last_push_at?: string; last_error?: string; feed_url?: string | null;
 }
+interface SyncLog {
+  id: string; channel_id?: string; platform_code?: string; direction?: string; status?: string;
+  items_total?: number; items_ok?: number; items_error?: number; created_at?: string;
+  error_detail?: { message?: string; errors?: Array<{ external_id?: string; message?: string }> } | null;
+}
+
+/** The channel's own words for a failed run: the first item error, or the run's message. */
+const logError = (l: SyncLog): string => {
+  const d = l.error_detail;
+  if (!d || typeof d !== 'object') return '';
+  const first = Array.isArray(d.errors) ? d.errors.find((e) => e?.message) : undefined;
+  if (first?.message) return first.external_id ? `${first.external_id}: ${first.message}` : first.message;
+  return typeof d.message === 'string' ? d.message : '';
+};
+const errText = (e: any, fallback: string): string => e?.response?.data?.message || e?.message || fallback;
+/** The store's buffer is a whole percent from 0 to 100 on v2 (`u8`). */
+const bufferPct = (v: unknown): number => Math.min(100, Math.max(0, Math.round(Number(v) || 0)));
 
 const TYPE_BADGE: Record<string, string> = {
   marketplace: 'bg-blue-100 text-blue-700',
@@ -45,18 +65,18 @@ const typeBadge = (t: string) => TYPE_BADGE[t] || 'bg-gray-100 text-gray-700';
 const initials = (n: string) => n.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase();
 const isCatalog = (code: string) => ['google_shopping', 'facebook_catalog', 'whatsapp_catalog'].includes(code);
 
-// NATIVE channels have no external API and none is wanted — the online store
+// NATIVE channels have no external API and none is wanted: the online store
 // (its stock IS the pool), the offline/manual channel, and owner-created custom
-// channels. Mirrors services/channels/registry.ts isNativePlatform: they are
+// channels. Mirrors commerce domain/channels/registry.rs NATIVE_PLATFORMS: they are
 // never pushed and never tested, so offering "Test" / "Sync now" here only ever
 // produced a failure for a channel that is working exactly as designed.
 const NATIVE_CODES = ['online_store', 'offline', 'custom'];
 const isNative = (code: string, config?: Record<string, any>, schema?: Platform['config_schema']) =>
   NATIVE_CODES.includes(code) || schema?.native === true || config?.native === true || config?.custom === true;
 const NATIVE_HELP: Record<string, string> = {
-  online_store: 'Your own website — already selling. Nothing syncs: its stock is the shared pool and its orders are in Orders.',
-  offline: 'No API to sync. Record its sales with Manual Order and its stock with a ledgered adjustment — both attribute here.',
-  custom: 'No API to sync. Upload this channel’s stock or order file from Channels ▸ Import.',
+  online_store: 'Your own website, already selling. Nothing syncs: its stock is the shared pool and its orders are in Orders.',
+  offline: 'No API to sync. Record its sales with Manual Order and its stock with a ledgered adjustment; both count here.',
+  custom: "No API to sync. Upload this channel's stock or order file on Excel Import.",
 };
 const nativeHelp = (code: string) => NATIVE_HELP[code] ?? NATIVE_HELP.custom;
 
@@ -64,12 +84,14 @@ export default function Channels() {
   const { toast } = useToast();
   const [platforms, setPlatforms] = useState<Platform[]>([]);
   const [connections, setConnections] = useState<Connection[]>([]);
-  const [logs, setLogs] = useState<any[]>([]);
+  const [logs, setLogs] = useState<SyncLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogPlatform, setDialogPlatform] = useState<Platform | null>(null);
   const [editing, setEditing] = useState<Connection | null>(null);
   const [form, setForm] = useState<Record<string, any>>({});
   const [saving, setSaving] = useState(false);
+  // The connection an action (test, sync, feed, remove) is running on, so its buttons show it and cannot double fire.
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -90,10 +112,11 @@ export default function Channels() {
     const native = isNative(platform.code, conn?.config, platform.config_schema);
     const base: Record<string, any> = {
       display_name: conn?.display_name ?? platform.name,
+      is_active: conn?.is_active ?? true,
       sync_inventory: conn?.sync_inventory ?? !native,
       sync_listings: conn?.sync_listings ?? (!native && isCatalog(platform.code)),
       sync_orders: conn?.sync_orders ?? false,
-      inventory_buffer_pct: conn?.inventory_buffer_pct ?? 0,
+      inventory_buffer_pct: bufferPct(conn?.inventory_buffer_pct ?? 0),
       push_schedule: conn?.push_schedule ?? (native ? '' : '*/15 * * * *'),
       pull_schedule: conn?.pull_schedule ?? (native ? '' : '*/30 * * * *'),
     };
@@ -113,66 +136,86 @@ export default function Channels() {
         if (f.secret && (form[f.key] === '' || form[f.key] === undefined)) continue;
         fields[f.key] = form[f.key];
       }
-      const payload = {
+      const native = isNative(dialogPlatform.code, editing?.config, dialogPlatform.config_schema);
+      const payload: Record<string, any> = {
         platform_code: dialogPlatform.code,
         display_name: form.display_name,
         fields,
         sync_inventory: form.sync_inventory,
         sync_listings: form.sync_listings,
         sync_orders: form.sync_orders,
-        inventory_buffer_pct: Number(form.inventory_buffer_pct) || 0,
+        inventory_buffer_pct: bufferPct(form.inventory_buffer_pct),
         push_schedule: form.push_schedule,
         pull_schedule: form.pull_schedule,
       };
+      // Pausing is a change to an existing connection (the create body has no switch: a new channel starts on).
+      if (editing) payload.is_active = !!form.is_active;
+      if (native) { delete payload.push_schedule; delete payload.pull_schedule; }
       if (editing) await channelsAPI.updateConnection(editing.id, payload);
       else await channelsAPI.createConnection(payload);
       toast({ title: editing ? 'Channel updated' : 'Channel connected' });
       setDialogPlatform(null); setEditing(null);
       await load();
     } catch (e: any) {
-      toast({ title: 'Save failed', description: e?.response?.data?.message || e.message, variant: 'destructive' });
+      toast({ title: 'Save failed', description: errText(e, 'Please try again.'), variant: 'destructive' });
     } finally { setSaving(false); }
   };
 
-  const test = async (conn: Connection) => {
+  /** Runs one action on a connection with its buttons held, and says what went wrong instead of failing silently. */
+  const act = async (conn: Connection, what: string, fn: () => Promise<void>) => {
+    if (busyId) return;
+    setBusyId(conn.id);
+    try { await fn(); }
+    catch (e: any) { toast({ title: `${what} failed`, description: errText(e, 'Please try again.'), variant: 'destructive' }); }
+    finally { setBusyId(null); }
+  };
+
+  const test = (conn: Connection) => act(conn, 'Test', async () => {
     const res = await channelsAPI.testConnection(conn.id);
     toast({
       title: res?.ok ? 'Connection OK' : 'Connection failed',
       description: res?.message,
       variant: res?.ok ? undefined : 'destructive',
     });
-  };
-  const sync = async (conn: Connection) => {
-    toast({ title: 'Sync started', description: 'Pushing current stock to the channel…' });
+    await load();
+  });
+  const sync = (conn: Connection) => act(conn, 'Sync', async () => {
+    toast({ title: 'Sync started', description: 'Pushing current stock to the channel.' });
     const res = await channelsAPI.syncNow(conn.id);
     if (res) {
-      toast({ title: 'Sync complete', description: `${res.ok}/${res.total} items OK, ${res.error} errors` });
+      toast({
+        title: res.error ? 'Sync finished with errors' : 'Sync complete',
+        description: `${res.ok} of ${res.total} items accepted, ${res.error} refused.`,
+        variant: res.error && !res.ok ? 'destructive' : undefined,
+      });
     } else {
       // The engine returns nothing whenever it deliberately skips a push. That
-      // used to surface as SILENCE — the button looked dead, so people clicked
+      // used to surface as SILENCE: the button looked dead, so people clicked
       // it again (visible as paired entries in the activity log). Say why.
       const reason = isNative(conn.platform_code, conn.config)
         ? nativeHelp(conn.platform_code)
         : (isCatalog(conn.platform_code) && (conn.config?.connect_method ?? 'feed') === 'feed')
-          ? 'This channel pulls your hosted feed URL on its own schedule — there is nothing to push from here.'
+          ? 'This channel pulls your hosted feed URL on its own schedule, so there is nothing to push from here.'
           : !conn.is_active
             ? 'This channel is paused. Turn it back on in Configure.'
-            : 'No SKUs are mapped to this channel yet, or inventory sync is off for it. Check SKU Mapping.';
+            : 'No SKUs are mapped to this channel yet, or inventory sync is off for it. Check Mapping.';
       toast({ title: 'Nothing to push', description: reason });
     }
     await load();
+  });
+  const remove = (conn: Connection) => {
+    if (!confirm(`Disconnect ${conn.display_name || conn.platform_code}? Its SKU mappings will be removed too.`)) return;
+    return act(conn, 'Disconnect', async () => {
+      await channelsAPI.deleteConnection(conn.id);
+      toast({ title: 'Channel disconnected' });
+      await load();
+    });
   };
-  const remove = async (conn: Connection) => {
-    if (!confirm(`Disconnect ${conn.platform_code}? Mappings for this channel will be removed.`)) return;
-    await channelsAPI.deleteConnection(conn.id);
-    toast({ title: 'Channel disconnected' });
-    await load();
-  };
-  // Copies the EXISTING feed URL without touching the token — only mints a new
+  // Copies the EXISTING feed URL without touching the token; only mints a new
   // one the first time (no token yet). Re-clicking this to re-copy the link
   // must never invalidate a URL already registered in Merchant Center / Commerce
   // Manager; that used to happen because this always rotated the token.
-  const getFeed = async (conn: Connection) => {
+  const getFeed = (conn: Connection) => act(conn, 'Feed URL', async () => {
     if (conn.feed_url) {
       await navigator.clipboard.writeText(conn.feed_url).catch(() => {});
       toast({ title: 'Feed URL copied', description: conn.feed_url });
@@ -184,33 +227,86 @@ export default function Channels() {
       toast({ title: 'Feed URL copied', description: res.feed_url });
       await load();
     }
-  };
+  });
   // Explicit, separate action for actually invalidating the old URL.
-  const rotateFeed = async (conn: Connection) => {
-    if (!confirm('Generate a NEW feed URL? The current one — if already added in Google Merchant Center or Meta Commerce Manager — will start returning 404 until you replace it there too.')) return;
-    const res = await channelsAPI.rotateFeedToken(conn.id);
-    if (res?.feed_url) {
-      await navigator.clipboard.writeText(res.feed_url).catch(() => {});
-      toast({ title: 'New feed URL copied', description: 'Update this in Merchant Center / Commerce Manager too.' });
-      await load();
-    }
+  const rotateFeed = (conn: Connection) => {
+    if (!confirm('Make a NEW feed URL? If the current one is already added in Google Merchant Center or Meta Commerce Manager, it stops working there until you replace it.')) return;
+    return act(conn, 'New feed URL', async () => {
+      const res = await channelsAPI.rotateFeedToken(conn.id);
+      if (res?.feed_url) {
+        await navigator.clipboard.writeText(res.feed_url).catch(() => {});
+        toast({ title: 'New feed URL copied', description: 'Replace it in Merchant Center or Commerce Manager too.' });
+        await load();
+      }
+    });
   };
 
   const enabledCount = connections.filter((c) => c.is_active).length;
+  const pausedCount = connections.length - enabledCount;
   const ownChannels = connections.filter((c) => !platforms.some((p) => p.code === c.platform_code));
+  const nameOf = (id?: string, code?: string) => {
+    const c = id ? connections.find((x) => x.id === id) : undefined;
+    return c?.display_name || c?.platform_code || code || '';
+  };
+  // What to act on first: an active, API-synced channel whose last push failed, or whose newest run failed.
+  const attention = connections
+    .filter((c) => c.is_active && !isNative(c.platform_code, c.config))
+    .map((c) => {
+      const newest = logs.find((l) => l.channel_id === c.id && l.direction !== 'test');
+      const failedRun = newest && (newest.status === 'failed' || newest.status === 'partial') ? newest : undefined;
+      const reason = c.last_error || (failedRun ? (logError(failedRun) || `The last ${failedRun.direction ?? 'sync'} run ${failedRun.status === 'partial' ? 'was only partly accepted' : 'failed'}.`) : '');
+      return { conn: c, reason, when: failedRun?.created_at ?? c.last_push_at };
+    })
+    .filter((a) => a.reason);
+  const platformOf = (code: string) => platforms.find((p) => p.code === code);
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
+        <div className="min-w-0">
           <h1 className="text-2xl font-semibold flex items-center gap-2"><Plug className="h-6 w-6" /> Multi-Channel Sync</h1>
-          <p className="text-sm text-muted-foreground">Sync inventory & listings to marketplaces and catalog channels. {enabledCount} active.</p>
+          <p className="text-sm text-muted-foreground">
+            Sync stock and listings to marketplaces and catalog channels.
+            {!loading && connections.length > 0 && <> {enabledCount} active{pausedCount > 0 ? `, ${pausedCount} paused` : ''}.</>}
+          </p>
         </div>
-        <Button asChild variant="outline"><Link to="/channels/mapping"><Link2 className="h-4 w-4 mr-2" /> SKU Mapping</Link></Button>
+        <Button asChild variant="outline"><Link to="/channels/mapping"><Link2 className="h-4 w-4 mr-2" /> Mapping</Link></Button>
       </div>
 
+      {/* What to act on first: channels whose last push or newest run failed. */}
+      {!loading && attention.length > 0 && (
+        <Card className="border-red-200 bg-red-50">
+          <CardContent className="p-4 space-y-3">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-red-900">
+              <AlertTriangle className="h-4 w-4" /> {attention.length} channel{attention.length === 1 ? ' needs' : 's need'} attention
+            </h2>
+            <ul className="space-y-2">
+              {attention.map(({ conn, reason, when }) => {
+                const p = platformOf(conn.platform_code);
+                return (
+                  <li key={conn.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-red-200 bg-white p-2.5 text-sm">
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium text-gray-900">{conn.display_name || p?.name || conn.platform_code}</div>
+                      <div className="break-words text-xs text-red-700">{reason}</div>
+                      {when && <div className="text-[11px] text-gray-500">{localeDateTime(when)}</div>}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {p && <Button size="sm" variant="outline" onClick={() => openConfigure(p, conn)}><Settings2 className="h-3.5 w-3.5 mr-1" /> Configure</Button>}
+                      <Button size="sm" variant="outline" disabled={busyId === conn.id} onClick={() => test(conn)}><CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Test</Button>
+                      <Button size="sm" disabled={busyId === conn.id} onClick={() => sync(conn)}>
+                        {busyId === conn.id ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />} Sync now
+                      </Button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
       {loading ? (
-        <p className="text-sm text-muted-foreground">Loading channels…</p>
+        <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading channels</p>
       ) : platforms.length === 0 ? (
         <Card><CardContent className="p-6 text-sm text-muted-foreground">
           No channels have been enabled by the platform administrator yet. Ask your super admin to enable channels in the platform Channels registry.
@@ -238,7 +334,7 @@ export default function Channels() {
                       : <Badge variant="secondary">Paused</Badge>)}
                   </div>
                   {(p.code === 'facebook_catalog' || p.code === 'whatsapp_catalog') && (
-                    <Link to="/panel/marketing/meta?tab=catalog" className="block text-xs font-medium text-primary hover:underline">Manage in Facebook and Instagram</Link>
+                    <Link to={META_ROUTES.catalog} className="block text-xs font-medium text-primary hover:underline">Open Meta catalog</Link>
                   )}
 
                   {conn ? (
@@ -248,25 +344,29 @@ export default function Channels() {
                           <div>{nativeHelp(p.code)}</div>
                         ) : (
                           <>
-                            <div>Sync: {[conn.sync_inventory && 'Inventory', conn.sync_listings && 'Listings', conn.sync_orders && 'Orders'].filter(Boolean).join(', ') || 'none'}</div>
-                            {conn.inventory_buffer_pct > 0 && <div>Safety buffer: {conn.inventory_buffer_pct}%</div>}
+                            <div>Sync: {[conn.sync_inventory && 'Stock', conn.sync_listings && 'Listings', conn.sync_orders && 'Orders'].filter(Boolean).join(', ') || 'none'}</div>
+                            {bufferPct(conn.inventory_buffer_pct) > 0 && <div>Safety buffer: {bufferPct(conn.inventory_buffer_pct)}%</div>}
                             {conn.last_push_at && <div>Last push: {localeDateTime(conn.last_push_at)}</div>}
-                            {conn.last_error && <div className="text-red-600 flex items-center gap-1"><XCircle className="h-3 w-3" /> {conn.last_error}</div>}
+                            {conn.last_error && <div className="text-red-600 flex items-start gap-1 break-words"><XCircle className="mt-0.5 h-3 w-3 shrink-0" /> {conn.last_error}</div>}
                           </>
                         )}
                       </div>
                       <div className="flex flex-wrap gap-2 pt-1">
                         <Button size="sm" variant="outline" onClick={() => openConfigure(p, conn)}><Settings2 className="h-3.5 w-3.5 mr-1" /> Configure</Button>
-                        {/* Test / Sync now are meaningless on a native channel — there is
+                        {/* Test / Sync now are meaningless on a native channel: there is
                             no endpoint behind them. They used to report a failure for a
                             channel that was working exactly as designed. */}
-                        {!native && <Button size="sm" variant="outline" onClick={() => test(conn)}><CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Test</Button>}
-                        {!native && <Button size="sm" variant="outline" onClick={() => sync(conn)}><RefreshCw className="h-3.5 w-3.5 mr-1" /> Sync now</Button>}
+                        {!native && <Button size="sm" variant="outline" disabled={busyId === conn.id} onClick={() => test(conn)}><CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Test</Button>}
+                        {!native && (
+                          <Button size="sm" variant="outline" disabled={busyId === conn.id} onClick={() => sync(conn)}>
+                            {busyId === conn.id ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />} Sync now
+                          </Button>
+                        )}
                         {native && p.code !== 'online_store' &&
                           <Button size="sm" variant="outline" asChild><Link to="/channels/import"><Upload className="h-3.5 w-3.5 mr-1" /> Import file</Link></Button>}
                         {!native && (isCatalog(p.code) || p.config_schema.capabilities?.feed) &&
-                          <Button size="sm" variant="outline" onClick={() => getFeed(conn)}><Rss className="h-3.5 w-3.5 mr-1" /> Feed URL</Button>}
-                        <Button size="sm" variant="ghost" className="text-red-600" onClick={() => remove(conn)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                          <Button size="sm" variant="outline" disabled={busyId === conn.id} onClick={() => getFeed(conn)}><Rss className="h-3.5 w-3.5 mr-1" /> Feed URL</Button>}
+                        <Button size="sm" variant="ghost" className="text-red-600" disabled={busyId === conn.id} onClick={() => remove(conn)} aria-label="Disconnect"><Trash2 className="h-3.5 w-3.5" /></Button>
                       </div>
                       {!native && conn.feed_url && (
                         <div className="text-xs bg-gray-50 rounded p-2 border space-y-1">
@@ -301,8 +401,8 @@ export default function Channels() {
         </div>
       )}
 
-      {/* Channels the owner created themselves (Channels ▸ Import) have no
-          registry platform, so the grid above could never show them — they were
+      {/* Channels the owner created themselves (on Excel Import) have no
+          registry platform, so the grid above could never show them; they were
           invisible everywhere except the import wizard's dropdown. */}
       {ownChannels.length > 0 && (
         <div className="space-y-3">
@@ -326,7 +426,7 @@ export default function Channels() {
                   <div className="text-xs text-muted-foreground">{nativeHelp('custom')}</div>
                   <div className="flex flex-wrap gap-2 pt-1">
                     <Button size="sm" variant="outline" asChild><Link to="/channels/import"><Upload className="h-3.5 w-3.5 mr-1" /> Import file</Link></Button>
-                    <Button size="sm" variant="ghost" className="text-red-600" onClick={() => remove(conn)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                    <Button size="sm" variant="ghost" className="text-red-600" disabled={busyId === conn.id} onClick={() => remove(conn)} aria-label="Disconnect"><Trash2 className="h-3.5 w-3.5" /></Button>
                   </div>
                 </CardContent>
               </Card>
@@ -338,28 +438,34 @@ export default function Channels() {
       {/* Recent sync activity */}
       <Card>
         <CardContent className="p-5">
-          <h2 className="font-medium flex items-center gap-2 mb-3"><ClipboardList className="h-4 w-4" /> Recent Sync Activity</h2>
-          {logs.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No sync runs yet.</p>
+          <h2 className="font-medium flex items-center gap-2 mb-3"><ClipboardList className="h-4 w-4" /> Recent sync activity</h2>
+          {loading ? (
+            <p className="text-sm text-muted-foreground">Loading</p>
+          ) : logs.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No sync runs yet. Runs appear here after Test, Sync now or the scheduled push.</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="text-left text-muted-foreground border-b">
-                  <tr><th className="py-2 pr-4">When</th><th className="pr-4">Channel</th><th className="pr-4">Direction</th><th className="pr-4">Status</th><th className="pr-4">OK / Total</th><th>Errors</th></tr>
+                  <tr><th className="py-2 pr-4">When</th><th className="pr-4">Channel</th><th className="pr-4">Run</th><th className="pr-4">Status</th><th className="pr-4 text-right">Accepted</th><th className="text-right">Refused</th></tr>
                 </thead>
                 <tbody>
-                  {logs.map((l) => (
-                    <tr key={l.id} className="border-b last:border-0">
-                      <td className="py-2 pr-4 whitespace-nowrap">{localeDateTime(l.created_at)}</td>
-                      <td className="pr-4">{l.platform_code}</td>
-                      <td className="pr-4">{l.direction}</td>
-                      <td className="pr-4">
-                        <span className={`px-2 py-0.5 rounded text-xs ${l.status === 'success' ? 'bg-green-100 text-green-700' : l.status === 'partial' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>{l.status}</span>
-                      </td>
-                      <td className="pr-4">{l.items_ok}/{l.items_total}</td>
-                      <td className="text-red-600">{l.items_error || 0}</td>
-                    </tr>
-                  ))}
+                  {logs.map((l) => {
+                    const why = l.status !== 'success' ? logError(l) : '';
+                    return (
+                      <tr key={l.id} className="border-b last:border-0 align-top">
+                        <td className="py-2 pr-4 whitespace-nowrap">{localeDateTime(l.created_at)}</td>
+                        <td className="py-2 pr-4">{nameOf(l.channel_id, l.platform_code)}</td>
+                        <td className="py-2 pr-4">{l.direction}</td>
+                        <td className="py-2 pr-4">
+                          <span className={`px-2 py-0.5 rounded text-xs ${l.status === 'success' ? 'bg-green-100 text-green-700' : l.status === 'partial' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>{l.status}</span>
+                          {why && <div className="mt-1 max-w-xs break-words text-xs text-red-700">{why}</div>}
+                        </td>
+                        <td className="py-2 pr-4 text-right tabular-nums">{l.items_ok ?? 0} of {l.items_total ?? 0}</td>
+                        <td className="py-2 text-right tabular-nums text-red-600">{l.items_error || 0}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -404,27 +510,46 @@ export default function Channels() {
                 </div>
               ))}
 
+              {/* Pausing keeps the connection, its credentials and its mappings, and stops every push and pull. */}
+              {editing && (
+                <label className="flex items-start justify-between gap-3 rounded-md border p-3 text-sm">
+                  <span>
+                    <span className="font-medium">Selling on this channel</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {form.is_active ? 'On: stock and listings sync as set below.' : 'Paused: nothing is pushed or pulled until you turn it back on.'}
+                    </span>
+                  </span>
+                  <Switch checked={!!form.is_active} onCheckedChange={(v) => setForm({ ...form, is_active: v })} />
+                </label>
+              )}
+
               {/* A native channel has nothing to sync, no oversell risk to buffer
-                  against and no schedule to run — showing those controls only
+                  against and no schedule to run; showing those controls only
                   implied a sync that never happens. */}
               {!isNative(dialogPlatform.code, editing?.config, dialogPlatform.config_schema) && (
                 <>
-                  <div className="grid grid-cols-3 gap-3 pt-1">
-                    <label className="flex items-center gap-2 text-sm"><Switch checked={!!form.sync_inventory} onCheckedChange={(v) => setForm({ ...form, sync_inventory: v })} /> Inventory</label>
+                  <div className="grid grid-cols-1 gap-3 pt-1 sm:grid-cols-3">
+                    <label className="flex items-center gap-2 text-sm"><Switch checked={!!form.sync_inventory} onCheckedChange={(v) => setForm({ ...form, sync_inventory: v })} /> Stock</label>
                     <label className="flex items-center gap-2 text-sm"><Switch checked={!!form.sync_listings} onCheckedChange={(v) => setForm({ ...form, sync_listings: v })} /> Listings</label>
                     <label className="flex items-center gap-2 text-sm"><Switch checked={!!form.sync_orders} onCheckedChange={(v) => setForm({ ...form, sync_orders: v })} /> Orders</label>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div>
                       <Label>Safety buffer %</Label>
-                      <Input type="number" min={0} max={100} value={form.inventory_buffer_pct ?? 0} onChange={(e) => setForm({ ...form, inventory_buffer_pct: e.target.value })} />
-                      <p className="text-[11px] text-muted-foreground mt-1">Hold back this % of stock from the channel to avoid oversell.</p>
+                      <Input type="number" min={0} max={100} step={1} value={form.inventory_buffer_pct ?? 0} onChange={(e) => setForm({ ...form, inventory_buffer_pct: e.target.value })} />
+                      <p className="text-[11px] text-muted-foreground mt-1">Hold back this share of stock from the channel to avoid overselling. Whole numbers, 0 to 100.</p>
                     </div>
                     <div>
                       <Label>Push schedule (cron)</Label>
                       <Input value={form.push_schedule ?? ''} onChange={(e) => setForm({ ...form, push_schedule: e.target.value })} />
                     </div>
+                    {form.sync_orders && (
+                      <div>
+                        <Label>Order pull schedule (cron)</Label>
+                        <Input value={form.pull_schedule ?? ''} onChange={(e) => setForm({ ...form, pull_schedule: e.target.value })} />
+                      </div>
+                    )}
                   </div>
                 </>
               )}

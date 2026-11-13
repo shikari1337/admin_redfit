@@ -5763,6 +5763,9 @@ export const channelsAPI = {
     form.append('mode', opts.mode);
     form.append('dryRun', String(opts.dryRun));
     form.append('mapping', JSON.stringify(opts.mapping));
+    // An order file here goes to the register only; real orders are made on the Daily file page (importOrders).
+    // The server's default for a channel whose file config creates orders is the real-order path.
+    if (opts.purpose === 'orders') form.append('createOrders', 'false');
     // `mode` in the body is the inventory set/adjust switch, so the write mode
     // travels in the query string.
     const qs = opts.writeMode === 'partial' ? '?mode=partial' : '';
@@ -5825,6 +5828,13 @@ export const channelsAPI = {
     const name = /filename="?([^";]+)"?/.exec(cd)?.[1] ?? 'channel-inventory.xlsx';
     return { queued: false, blob: new Blob([r.data as ArrayBuffer]), fileName: name };
   },
+  /** A one-row sample in the marketplace's own stock layout, to check the columns before the first real file. */
+  inventoryTemplate: async (channelId: string) => {
+    const r = await api.get(`/channels/${channelId}/export/template`, { responseType: 'blob', timeout: 120000 });
+    const cd = String(r.headers?.['content-disposition'] ?? '');
+    const name = /filename="?([^";]+)"?/.exec(cd)?.[1] ?? 'channel-sample.xlsx';
+    return { blob: r.data as Blob, fileName: name };
+  },
   /** The files already produced for this channel. */
   exportHistory: async (channelId: string) => {
     try { const r = await api.get(`/channels/${channelId}/export/history`); return r.data?.data ?? { rows: [] }; }
@@ -5856,7 +5866,7 @@ export const channelAllocationAPI = {
     const r = await api.get('/channel-allocations/preview', { params: isUuid ? { variationId: skuOrId } : { sku: skuOrId } });
     return r.data?.data;
   },
-  save: async (payload: { channel_id: string; variation_id: string; cap_units?: number | null; cap_pct?: number | null; priority?: number; active?: boolean; notes?: string }) => {
+  save: async (payload: { channel_id: string; variation_id: string; cap_units?: number | null; cap_pct?: number | null; priority?: number; active?: boolean; notes?: string; channel_code?: string; product_id?: string }) => {
     const r = await api.post('/channel-allocations', payload); return r.data?.data;
   },
   update: async (id: string, payload: Record<string, any>) => {

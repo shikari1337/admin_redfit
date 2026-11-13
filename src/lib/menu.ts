@@ -310,7 +310,7 @@ export const MENU: MenuGroup[] = [
         },
       ] },
       { label: 'Catalog and shopping', items: [
-        { label: 'Meta catalog', to: '/panel/marketing/meta/catalog', icon: ShoppingBag, perm: 'marketing.read', modules: ['connectors'], tip: 'Your products on Facebook, Instagram and WhatsApp, and what Meta refused.' },
+        { label: 'Meta catalog', to: '/panel/marketing/meta/catalog', icon: ShoppingBag, perm: 'marketing.read', modules: ['connectors', 'channel_sync'], tip: 'Your products on Facebook, Instagram and WhatsApp, and what Meta refused.' },
         {
           label: 'Multi-Channel Sync', to: '/channels', icon: Plug, perm: 'channels.read', modules: ['channel_sync'],
           tip: 'Marketplaces and feeds this catalog is sold on.',

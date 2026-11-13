@@ -11,6 +11,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { Link } from 'react-router-dom';
 import { Page, PageHeader } from '@/components/erp';
+import { channelFileRefusal } from '@/lib/v2/areas/channels';
 import {
   UploadCloud, FileSpreadsheet, CheckCircle2, AlertTriangle, ArrowLeft, ArrowRight,
   Plus, Boxes, ClipboardList, RotateCcw, Loader2, PartyPopper,
@@ -32,6 +33,8 @@ interface Preview {
   guessed: Record<string, string>;
   savedMapping: Record<string, string> | null;
   savedOptions: Record<string, any> | null;
+  /** The channel's file config turns order files into real orders (on the Daily file page). */
+  createOrders?: boolean;
 }
 interface RowProblem { row: number; message: string; field?: string }
 interface ApplyResult {
@@ -153,6 +156,17 @@ export default function ChannelImport() {
       setDone(r); setStep('done');
       toast({ title: 'Import complete', description: `${r.applied} ${purpose === 'inventory' ? 'products updated' : 'orders recorded'}` });
     } catch (e: any) {
+      // All or nothing: the server names every row it refused (v2 `details.report`). Keep the person on the
+      // review step with those rows, so the file can be fixed or the good rows imported on their own.
+      const report = channelFileRefusal(e?.response?.data) as ApplyResult | null;
+      if (report && Array.isArray(report.problems) && report.problems.length) {
+        const total = Number(report.total) || review?.total || 0;
+        setReview({
+          ...(review ?? report), ...report, total,
+          applied: Math.max(0, total - report.problems.length), skipped: report.problems.length, dryRun: true,
+        });
+        setSkipBadRows(false);
+      }
       toast({ title: 'Import failed', description: e?.response?.data?.message || e.message, variant: 'destructive' });
     } finally { setBusy(false); }
   };
@@ -231,7 +245,7 @@ export default function ChannelImport() {
       </CardContent></Card>
 
       {/* Stepper */}
-      <div className="flex items-center gap-2 text-sm">
+      <div className="flex flex-wrap items-center gap-2 text-sm">
         {STEPS.map((s, i) => (
           <div key={s.key} className="flex items-center gap-2">
             <span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${i <= stepIndex ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>{i + 1}</span>
@@ -268,6 +282,13 @@ export default function ChannelImport() {
             We found <b>{preview.headers.length}</b> columns and <b>{preview.rowCount}</b> rows in <b>{file?.name}</b>.
             Match your columns to ours below — we filled in the obvious ones{preview.savedMapping ? ' (and remembered your last match)' : ''}.
           </div>
+
+          {purpose === 'orders' && preview.createOrders && (
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+              Here the orders only go into the marketplace register. To turn this file into real orders (stock taken off,
+              invoice and pick list made), use <Link to="/channels/daily" className="font-medium underline">Daily file</Link>.
+            </div>
+          )}
 
           {purpose === 'inventory' && (
             <div className="rounded-lg border p-3">

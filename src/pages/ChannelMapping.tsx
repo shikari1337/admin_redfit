@@ -42,10 +42,13 @@ export default function ChannelMapping() {
   const [exporting, setExporting] = useState(false);
   const [csv, setCsv] = useState('');
   const [showCsv, setShowCsv] = useState(false);
+  const [busyRow, setBusyRow] = useState<string | null>(null);
+  const [working, setWorking] = useState(false);
+  const [connLoaded, setConnLoaded] = useState(false);
 
   useEffect(() => { channelsAPI.getConnections().then((c: Connection[]) => {
     setConnections(c); if (c.length) setChannelId(c[0].id);
-  }); }, []);
+  }).finally(() => setConnLoaded(true)); }, []);
 
   // Debounce the search box, then land on page 1 for the new term.
   useEffect(() => {
@@ -80,34 +83,69 @@ export default function ChannelMapping() {
   const patch = (id: string, key: keyof Mapping, value: any) =>
     setRows((rs) => rs.map((r) => (r.id === id ? { ...r, [key]: value } : r)));
 
+  const failed = (title: string, e: any) =>
+    toast({ title, description: e?.response?.data?.message || e?.message || 'Please try again.', variant: 'destructive' });
+
   const saveRow = async (r: Mapping) => {
-    await channelsAPI.updateMapping(r.id, { external_id: r.external_id, buffer_qty: Number(r.buffer_qty) || 0, sync_inventory: r.sync_inventory });
-    toast({ title: 'Mapping saved', description: r.external_title || r.external_sku || r.external_id });
+    const externalId = (r.external_id || '').trim();
+    if (!externalId) { toast({ title: 'The marketplace ID cannot be empty', variant: 'destructive' }); return; }
+    setBusyRow(r.id);
+    try {
+      await channelsAPI.updateMapping(r.id, {
+        external_id: externalId, buffer_qty: Math.max(0, Math.round(Number(r.buffer_qty) || 0)), sync_inventory: r.sync_inventory,
+      });
+      toast({ title: 'Mapping saved', description: r.external_title || r.external_sku || externalId });
+    } catch (e: any) { failed('Could not save the mapping', e); } finally { setBusyRow(null); }
   };
   const removeRow = async (r: Mapping) => {
-    await channelsAPI.deleteMapping(r.id);
-    setRows((rs) => rs.filter((x) => x.id !== r.id));
+    if (!confirm(`Remove the mapping for ${r.external_sku || r.external_id}? The channel stops getting its stock.`)) return;
+    setBusyRow(r.id);
+    try {
+      await channelsAPI.deleteMapping(r.id);
+      setRows((rs) => rs.filter((x) => x.id !== r.id));
+      setTotal((t) => Math.max(0, t - 1));
+    } catch (e: any) { failed('Could not remove the mapping', e); } finally { setBusyRow(null); }
   };
   const autoMap = async () => {
-    const res = await channelsAPI.autoMap(channelId);
-    toast({ title: 'Auto-map complete', description: res?.message });
-    await reload();
+    setWorking(true);
+    try {
+      const res = await channelsAPI.autoMap(channelId);
+      toast({ title: 'Auto-map complete', description: res?.message });
+      await reload();
+    } catch (e: any) { failed('Auto-map failed', e); } finally { setWorking(false); }
   };
 
-  // CSV bulk fill: lines of "internalSKU,marketplaceID" → set external_id on the matching row.
+  // CSV bulk fill: lines of "internalSKU,marketplaceID" set external_id on the matching row.
   // Looks each SKU up via the search endpoint (not the currently-loaded page) since
   // the table only ever holds one page of a channel that can run to 40k+ rows.
   const applyCsv = async () => {
     let updated = 0;
-    for (const line of csv.split(/\r?\n/)) {
-      const [sku, ext] = line.split(',').map((s) => s?.trim());
-      if (!sku || !ext) continue;
-      const res = await channelsAPI.getMappings({ channelId, search: sku, limit: 10 });
-      const row = res.data.find((r: Mapping) => r.external_sku === sku);
-      if (row) { await channelsAPI.updateMapping(row.id, { external_id: ext }); updated++; }
-    }
-    toast({ title: 'CSV applied', description: `${updated} mappings updated` });
-    setShowCsv(false); setCsv('');
+    const missing: string[] = [];
+    const errors: string[] = [];
+    setWorking(true);
+    try {
+      for (const line of csv.split(/\r?\n/)) {
+        const [sku, ext] = line.split(',').map((s) => s?.trim());
+        if (!sku || !ext) continue;
+        try {
+          const res = await channelsAPI.getMappings({ channelId, search: sku, limit: 10 });
+          const row = res.data.find((r: Mapping) => r.external_sku === sku);
+          if (!row) { missing.push(sku); continue; }
+          await channelsAPI.updateMapping(row.id, { external_id: ext });
+          updated++;
+        } catch { errors.push(sku); }
+      }
+    } finally { setWorking(false); }
+    const notes = [
+      missing.length ? `${missing.length} not mapped yet (${missing.slice(0, 5).join(', ')}${missing.length > 5 ? ', and more' : ''}); run Auto-map first` : '',
+      errors.length ? `${errors.length} could not be saved (${errors.slice(0, 5).join(', ')})` : '',
+    ].filter(Boolean).join('. ');
+    toast({
+      title: `${updated} mapping${updated === 1 ? '' : 's'} updated`,
+      description: notes || undefined,
+      variant: errors.length && !updated ? 'destructive' : undefined,
+    });
+    if (!errors.length && !missing.length) { setShowCsv(false); setCsv(''); }
     await reload();
   };
 
@@ -135,16 +173,16 @@ export default function ChannelMapping() {
   };
 
   return (
-    <div className="p-6 space-y-5">
+    <div className="p-4 sm:p-6 space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Channel SKU Mapping</h1>
-          <p className="text-sm text-muted-foreground">Map each product to its ID on the selected channel. <Link to="/channels" className="text-primary">← Channels</Link></p>
+          <p className="text-sm text-muted-foreground">Map each product to its ID on the selected channel. <Link to="/channels" className="text-primary">All channels</Link></p>
         </div>
       </div>
 
       <Card><CardContent className="p-4 flex flex-wrap items-end gap-3">
-        <div className="min-w-[240px]">
+        <div className="w-full sm:w-auto sm:min-w-[240px]">
           <Label>Channel</Label>
           <Select value={channelId} onValueChange={setChannelId}>
             <SelectTrigger><SelectValue placeholder="Select a channel" /></SelectTrigger>
@@ -153,11 +191,11 @@ export default function ChannelMapping() {
             </SelectContent>
           </Select>
         </div>
-        <div className="min-w-[200px]">
+        <div className="w-full sm:w-auto sm:min-w-[200px]">
           <Label>Search</Label>
           <Input value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder="SKU, title, or ID…" className="h-9" disabled={!channelId} />
         </div>
-        <Button variant="outline" onClick={autoMap} disabled={!channelId}><Wand2 className="h-4 w-4 mr-2" /> Auto-map by SKU</Button>
+        <Button variant="outline" onClick={autoMap} disabled={!channelId || working}><Wand2 className="h-4 w-4 mr-2" /> Auto-map by SKU</Button>
         <Button variant="outline" onClick={() => setShowCsv((s) => !s)} disabled={!channelId}><Upload className="h-4 w-4 mr-2" /> Bulk fill (CSV)</Button>
         <Button variant="outline" onClick={exportCsv} disabled={!total || exporting}>
           <Download className="h-4 w-4 mr-2" /> {exporting ? 'Exporting…' : 'Export'}
@@ -168,13 +206,13 @@ export default function ChannelMapping() {
         <Card><CardContent className="p-4 space-y-2">
           <Label>Paste lines of <code>internal_sku,marketplace_id</code></Label>
           <Textarea rows={6} value={csv} onChange={(e) => setCsv(e.target.value)} placeholder={'HM-ARN-30CH-30ML,B0ABCD1234\nHM-BEL-200,B0EFGH5678'} />
-          <div className="flex gap-2"><Button onClick={applyCsv}>Apply</Button><Button variant="ghost" onClick={() => setShowCsv(false)}>Cancel</Button></div>
+          <div className="flex gap-2"><Button onClick={applyCsv} disabled={working || !csv.trim()}>{working ? 'Applying' : 'Apply'}</Button><Button variant="ghost" onClick={() => setShowCsv(false)}>Cancel</Button></div>
         </CardContent></Card>
       )}
 
       <Card><CardContent className="p-0">
         {loading ? <p className="p-4 text-sm text-muted-foreground">Loading…</p>
-          : !channelId ? <p className="p-4 text-sm text-muted-foreground">Connect a channel first.</p>
+          : !channelId ? <p className="p-4 text-sm text-muted-foreground">{connLoaded ? <>No channel is connected yet. <Link to="/channels" className="text-primary underline">Connect one</Link> first.</> : 'Loading channels'}</p>
           : rows.length === 0 ? (
             <p className="p-4 text-sm text-muted-foreground">
               {search ? 'No mappings match your search.' : <>No mappings yet. Click <b>Auto-map by SKU</b> to create a row per product, then fill in the {idLabel}.</>}
@@ -202,8 +240,8 @@ export default function ChannelMapping() {
                         <td className="p-3"><Input type="number" min={0} value={r.buffer_qty ?? 0} onChange={(e) => patch(r.id, 'buffer_qty', e.target.value)} className="h-8 w-20" /></td>
                         <td className="p-3"><Switch checked={r.sync_inventory} onCheckedChange={(v) => patch(r.id, 'sync_inventory', v)} /></td>
                         <td className="p-3 flex gap-1">
-                          <Button size="sm" variant="outline" onClick={() => saveRow(r)}><Save className="h-3.5 w-3.5" /></Button>
-                          <Button size="sm" variant="ghost" className="text-red-600" onClick={() => removeRow(r)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                          <Button size="sm" variant="outline" disabled={busyRow === r.id} onClick={() => saveRow(r)} aria-label="Save"><Save className="h-3.5 w-3.5" /></Button>
+                          <Button size="sm" variant="ghost" className="text-red-600" disabled={busyRow === r.id} onClick={() => removeRow(r)} aria-label="Remove"><Trash2 className="h-3.5 w-3.5" /></Button>
                         </td>
                       </tr>
                     ))}
