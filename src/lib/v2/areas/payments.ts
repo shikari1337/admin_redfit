@@ -94,6 +94,7 @@ export const PAYMENT_ROUTES: V2Route[] = [
   { m: 'PUT', from: '/coupons/:id', row: 'commerce coupons.ts:104', method: 'PATCH', to: '/api/v2/commerce/coupons/{id}', body: couponBody },
   { m: 'DELETE', from: '/coupons/:id', row: 'commerce coupons.ts:112', to: '/api/v2/commerce/coupons/{id}' },
   { m: 'GET', from: '/coupons/admin', row: 'commerce coupons.ts:64', to: '/api/v2/commerce/coupons', qs: ['limit','offset','page','sort','q','code','type','is_active','is_public','applies_to','customer_segment'] },
+  { m: 'GET', from: '/coupons/usage', row: 'commerce new: MENU-1 coupons', to: '/api/v2/commerce/coupons/usage', qs: ['days'] },
   { m: 'GET', from: '/orders/:p1/timeline', row: 'commerce — no row', gap: 'the order timeline has no v2 route (commerce ROUTE_MAP: no row; the order page reads /orders/{id}/activity)' },
   { m: 'GET', from: '/outlets', row: 'wms The table', to: '/api/v2/wms/outlets' },
   { m: 'POST', from: '/outlets/:id/transfer', row: 'wms outlets.ts:38', to: '/api/v2/wms/outlets/{id}/transfer', bs: {'qty':'i','variation_id':'s'} },

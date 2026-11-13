@@ -3462,9 +3462,14 @@ export const warehousesAPI = {
 };
 
 export const couponsAPI = {
-  getAll: async () => {
-    // Admin route - get all coupons (including inactive)
-    const response = await api.get('/coupons/admin');
+  getAll: async (params?: { limit?: number; offset?: number }) => {
+    // Admin route - get all coupons (including inactive); v2 pages it (at most 200 a call)
+    const response = await api.get('/coupons/admin', { params });
+    return response.data;
+  },
+  /** What each code brought in: orders (not cancelled), shoppers, sales, last use. `days` = only the last N days. */
+  usage: async (days?: number) => {
+    const response = await api.get('/coupons/usage', { params: days ? { days } : undefined });
     return response.data;
   },
   getById: async (id: string) => {
