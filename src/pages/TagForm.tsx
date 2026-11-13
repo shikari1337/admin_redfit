@@ -64,7 +64,8 @@ const TagForm: React.FC = () => {
     try {
       const payload: any = {
         name: formData.name.trim(),
-        description: formData.description?.trim() || undefined,
+        // null on an edit so an emptied description really clears.
+        description: formData.description?.trim() || (isEdit ? null : undefined),
         isActive: formData.isActive,
       };
 

@@ -17,6 +17,17 @@ const QTY_OFFERS: Spec = { offers: [{ at_least: 'b', description: 's', discount_
 const BUNDLE: Spec = { compare_at_price: 'm', currency: 's', description: 'j', images: 'j', is_active: 'b', name: 's', price: 'm', slug: 'j' };
 const BUNDLE_ITEMS: Spec = { items: [{ product_id: 's', quantity: 'i', discount_percent: 'd' }] };
 const BUNDLE_ID = /^[0-9a-f-]{36}$/i;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * One catalogue record for its editor (MENU-1 taxonomy): an id goes to the staff Resource read, any state
+ * (the public read answers active rows only, so an inactive tag or attribute could not be opened); a slug
+ * keeps the public read.
+ */
+const staffOrPublic = (resource: string) => (c: V2Ctx): string => {
+  const key = encodeURIComponent(c.params.id ?? '');
+  return UUID_RE.test(c.params.id ?? '') ? `/api/v2/commerce/${resource}/${key}` : `/api/v2/commerce/public/${resource}/${key}`;
+};
 
 /** The legacy list query (`active`, `search`) → the resource's filters; every bundle on one page. */
 function bundleListQuery(c: V2Ctx): Record<string, unknown> {
@@ -94,7 +105,7 @@ function searchReply(d: any, c: V2Ctx): any {
 
 export const CATALOG_ROUTES: V2Route[] = [
   { m: 'POST', from: '/attributes', row: 'commerce attributes.ts:48', to: '/api/v2/commerce/attributes', bs: {'chart_type':'j','description':'j','display_order':'i','icon':'j','image_url':'j','is_active':'b','name':'s','show_as_product':'b','slug':'s','type':'s'} },
-  { m: 'GET', from: '/attributes/:id', row: 'commerce attributes.ts:31', to: '/api/v2/commerce/public/attributes/{id}' },
+  { m: 'GET', from: '/attributes/:id', row: 'commerce attributes.ts:31 (staff read by id, any state)', to: staffOrPublic('attributes') },
   { m: 'PUT', from: '/attributes/:id', row: 'commerce attributes.ts:59', method: 'PATCH', to: '/api/v2/commerce/attributes/{id}', bs: {'chart_type':'j','description':'j','display_order':'i','icon':'j','image_url':'j','is_active':'b','name':'s','show_as_product':'b','slug':'s','type':'s'} },
   { m: 'DELETE', from: '/attributes/:id', row: 'commerce attributes.ts:67', to: '/api/v2/commerce/attributes/{id}' },
   // ATTR-ORDER: the store's attribute order (product page selectors, listing filters); answers {items:[{id, slug, display_order}]}.
@@ -129,6 +140,8 @@ export const CATALOG_ROUTES: V2Route[] = [
   { m: 'POST', from: '/manufacturers', row: 'commerce manufacturers.ts:53', to: '/api/v2/commerce/manufacturers', bs: {'address':'j','country':'j','email':'j','is_active':'b','license_no':'j','logo_url':'j','name':'s','party_id':'j','phone':'j','slug':'s','website':'j'} },
   { m: 'PUT', from: '/manufacturers/:id', row: 'commerce manufacturers.ts:70', method: 'PATCH', to: '/api/v2/commerce/manufacturers/{id}', bs: {'address':'j','country':'j','email':'j','is_active':'b','license_no':'j','logo_url':'j','name':'s','party_id':'j','phone':'j','slug':'s','website':'j'} },
   { m: 'DELETE', from: '/manufacturers/:id', row: 'commerce manufacturers.ts:99', to: '/api/v2/commerce/manufacturers/{id}' },
+  // The editor opens from the full record (the list leaves `address` out; MENU-1 taxonomy).
+  { m: 'GET', from: '/manufacturers/:id', row: 'commerce manufacturers.ts:41 R:Manufacturer.read', to: '/api/v2/commerce/manufacturers/{id}' },
   // Combo bundles: the bundle's own fields are the `Bundle` resource; its items are their own route
   // (PUT /bundles/{id}/items), so a save is two calls. The staff reads (`/bundles`, `/bundles/{id}/items`)
   // answer paused bundles too; the public reads answer active ones only.
@@ -160,7 +173,7 @@ export const CATALOG_ROUTES: V2Route[] = [
   { m: 'POST', from: '/specifications/:p1/assign-to-product', row: 'commerce — not in this binary', gap: 'assigning a specification set to a product has no v2 route (commerce ROUTE_MAP: no row; specifications are a Resource)' },
   { m: 'GET', from: '/specifications/product/:p1', row: 'commerce — not in this binary', gap: 'a product’s specification sets have no v2 route (commerce ROUTE_MAP: no row)' },
   { m: 'POST', from: '/tags', row: 'commerce tags.ts:31', to: '/api/v2/commerce/tags', bs: {'description':'j','is_active':'b','name':'s','slug':'s'} },
-  { m: 'GET', from: '/tags/:id', row: 'commerce tags.ts:23', to: '/api/v2/commerce/public/tags/{id}' },
+  { m: 'GET', from: '/tags/:id', row: 'commerce tags.ts:23 (staff read by id, any state)', to: staffOrPublic('tags') },
   { m: 'PUT', from: '/tags/:id', row: 'commerce tags.ts:66', method: 'PATCH', to: '/api/v2/commerce/tags/{id}', bs: {'description':'j','is_active':'b','name':'s','slug':'s'} },
   { m: 'DELETE', from: '/tags/:id', row: 'commerce tags.ts:74', to: '/api/v2/commerce/tags/{id}' },
   { m: 'POST', from: '/tags/bulk-create', row: 'commerce tags.ts:50', to: '/api/v2/commerce/tags/import', bs: {'rows':[{'description':'j','is_active':'b','name':'s','slug':'s'}]} },

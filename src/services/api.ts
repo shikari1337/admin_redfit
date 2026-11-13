@@ -1167,9 +1167,10 @@ const safeError = (error: any) => {
 };
 
 export const categoriesAPI = {
-  list: async () => {
+  /** Active categories (the old default); `{ active: 'all' }` = every state (the Categories screen). */
+  list: async (params?: { active?: boolean | 'all' }) => {
     try {
-      const response = await api.get('/categories');
+      const response = await api.get('/categories', params ? { params } : undefined);
       return response.data;
     } catch (error: any) {
       safeError(error);

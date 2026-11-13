@@ -13,9 +13,9 @@
  *    camelCase, so the body adapter renames the declared fields, turns rupee
  *    amounts into Money and drops what v2 does not take (`sizeChart`, the duplicate
  *    description keys);
- *  - categories/brands: there is NO staff list in v2 (BACKEND GAP — the ROUTE_MAP
- *    names a Resource list that is not mounted); the screens read the public list,
- *    which returns active, public rows only.
+ *  - categories/brands: the screens read the staff list and read (`GET /categories`,
+ *    `GET /brands`, any state, with product counts; MENU-1 taxonomy). The public
+ *    routes stay for the slug, tree and children reads.
  */
 import type { V2Ctx, V2Route } from '../routes';
 import { mapList, v2call, asList, backendGap } from '../http';
@@ -50,8 +50,31 @@ export function productDetail(d: any): any {
 
 function categoryRow(c: any): any {
   if (!c || typeof c !== 'object') return c;
-  // Only active, public categories are listed by the surviving route.
+  // The staff read carries is_active / is_public; the public slug read (active, public rows only) does not.
   return { ...c, parent: c.parent ?? c.parent_id ?? null, is_active: c.is_active ?? true, is_public: c.is_public ?? true };
+}
+
+/** A legacy true/false flag of a list query (`true`, `'true'`, `false`, `'false'`); anything else = not given. */
+function flagOf(v: unknown): boolean | undefined {
+  if (v === true || v === 'true') return true;
+  if (v === false || v === 'false') return false;
+  return undefined;
+}
+
+/**
+ * `GET /categories` goes to the staff list (`GET /categories`, any state, `product_count`; MENU-1 taxonomy).
+ * The old staff branch listed active categories unless `active=false` (categories.ts:27); `active=all`
+ * asks for every state (the Categories screen, which shows and filters inactive ones itself).
+ */
+function categoryListQuery(c: V2Ctx): Record<string, unknown> {
+  const a = c.query.active ?? c.query.isActive;
+  if (String(a) === 'all') return {};
+  return { is_active: flagOf(a) ?? true };
+}
+
+/** `GET /brands` goes to the staff list: the old `active` / `featured` filters (brands.ts:51-52), absent = every brand. */
+function brandListQuery(c: V2Ctx): Record<string, unknown> {
+  return { is_active: flagOf(c.query.active ?? c.query.isActive), featured: flagOf(c.query.featured) };
 }
 
 /** A public brand page (`BrandPageView`, commerce views/storefront.rs:124) as one row: `brand` plus its
@@ -335,20 +358,22 @@ export const PRODUCT_ROUTES: V2Route[] = [
   { m: 'DELETE', from: '/products/:id', row: 'commerce products.ts:64 (binary: …/remove)', method: 'POST', to: `${P}/products/{id}/remove`, body: () => ({}) },
   { m: 'POST', from: '/products/:id/duplicate', row: 'commerce products.ts:46', to: `${P}/products/{id}/duplicate`, body: (c) => ({ name: c.body?.name ?? null, sku: c.body?.sku ?? null, join_group_id: c.body?.joinGroupId ?? null, attribute_value: c.body?.attributeValue ?? null }) },
 
-  // Categories (public list: the staff list is not mounted — BACKEND GAP)
-  { m: 'GET', from: '/categories', row: 'commerce categories.ts:19 (staff list missing → GET /public/categories)', to: `${P}/public/categories`, reply: (d) => (Array.isArray(d) ? mapList(d, categoryRow) : d) },
+  // Categories: the staff list and read (any state, the editor's fields, product_count; MENU-1 taxonomy).
+  // The tree, slug and children reads stay public (the storefront's shape, active and public rows).
+  { m: 'GET', from: '/categories', row: 'commerce categories.ts:19 (staff branch) GET /categories', to: `${P}/categories`, query: categoryListQuery, reply: (d) => (Array.isArray(d) ? mapList(d, categoryRow) : d) },
   { m: 'GET', from: '/categories/tree', row: 'commerce categories.ts:41', to: `${P}/public/categories/tree`, reply: (d) => (Array.isArray(d) ? mapList(d, categoryRow) : d) },
   { m: 'GET', from: '/categories/slug/:slug', row: 'commerce categories.ts:48', to: `${P}/public/categories/slug/{slug}`, reply: (d) => categoryRow(d?.category ?? d) },
-  { m: 'GET', from: '/categories/:id', row: 'commerce categories.ts:63', to: `${P}/public/categories/{id}`, reply: (d) => categoryRow(d?.category ?? d) },
+  { m: 'GET', from: '/categories/:id', row: 'commerce categories.ts:63 (staff read) GET /categories/{id}', to: `${P}/categories/{id}`, reply: (d) => categoryRow(d) },
   { m: 'GET', from: '/categories/:id/children', row: 'commerce categories.ts:74', to: `${P}/public/categories/{id}/children` },
   { m: 'POST', from: '/categories', row: 'commerce categories.ts:81', to: `${P}/categories`, body: (c) => snakeBody(c.body) },
   { m: 'PUT', from: '/categories/:id', row: 'commerce categories.ts:88', method: 'PATCH', to: `${P}/categories/{id}`, body: (c) => snakeBody(c.body) },
   { m: 'DELETE', from: '/categories/:id', row: 'commerce categories.ts:96', method: 'POST', to: `${P}/categories/{id}/remove`, body: () => ({}) },
 
-  // Brands (public list: the staff list is not mounted — BACKEND GAP)
-  { m: 'GET', from: '/brands', row: 'commerce brands.ts:49 (staff list missing → GET /public/brands)', to: `${P}/public/brands`, reply: (d) => (Array.isArray(d) ? mapList(d, brandRow) : d) },
+  // Brands: the staff list and read (any state, preference rank, owner, maker, importer, origin,
+  // product_count; MENU-1 taxonomy). The list leaves the brand story out; the read of one brand has it.
+  { m: 'GET', from: '/brands', row: 'commerce brands.ts:49 (staff branch) GET /brands', to: `${P}/brands`, query: brandListQuery, reply: (d) => (Array.isArray(d) ? mapList(d, brandRow) : d) },
   { m: 'GET', from: '/brands/slug/:slug', row: 'commerce brands.ts:58', to: `${P}/public/brands/slug/{slug}`, reply: (d) => brandRow(brandPage(d)) },
-  { m: 'GET', from: '/brands/:id', row: 'commerce brands.ts:66', to: `${P}/public/brands/{id}`, reply: (d) => brandRow(brandPage(d)) },
+  { m: 'GET', from: '/brands/:id', row: 'commerce brands.ts:66 (staff read) GET /brands/{id}', to: `${P}/brands/{id}`, reply: (d) => brandRow(d) },
   { m: 'POST', from: '/brands', row: 'commerce brands.ts:74', to: `${P}/brands`, body: (c) => snakeBody(c.body) },
   { m: 'PUT', from: '/brands/:id', row: 'commerce brands.ts:86', method: 'PATCH', to: `${P}/brands/{id}`, body: (c) => snakeBody(c.body) },
   { m: 'DELETE', from: '/brands/:id', row: 'commerce brands.ts:97', method: 'POST', to: `${P}/brands/{id}/remove`, body: () => ({}) },

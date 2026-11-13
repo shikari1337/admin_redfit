@@ -11,7 +11,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useStoreSiteUrl, categoryPageUrl } from '../lib/storefront';
 import {
   Plus, Save, RotateCcw, Trash2, Search, ChevronRight, ChevronDown,
-  Star, EyeOff, FolderTree, ExternalLink, Filter as FilterIcon, Boxes, Circle, Download,
+  Star, EyeOff, FolderTree, ExternalLink, Filter as FilterIcon, Boxes, Circle, Download, Package,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { categoriesAPI, attributesAPI } from '../services/api';
@@ -49,6 +49,8 @@ interface Category {
   featuredProductIds?: string[];
   featuredBrandIds?: string[];
   featuredLimit?: number;
+  /** Products linked to it (the staff list; null when the server does not count them). */
+  productCount?: number | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -86,6 +88,10 @@ function normalizeCategory(raw: any): Category {
     featuredProductIds: g('featuredProductIds', 'featured_product_ids', []) ?? [],
     featuredBrandIds: g('featuredBrandIds', 'featured_brand_ids', []) ?? [],
     featuredLimit: Number(g('featuredLimit', 'featured_limit', 10)) || 10,
+    productCount: (() => {
+      const n = g('productCount', 'product_count', null);
+      return n === null || n === undefined || n === '' || !Number.isFinite(Number(n)) ? null : Number(n);
+    })(),
     // Carried through for the editor (SEO + attribute filter tabs).
     ...{
       metaTitle: g('metaTitle', 'meta_title', ''),
@@ -151,6 +157,8 @@ const Categories: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState('');
   const [filterShelf, setFilterShelf] = useState('');
   const [filterLevel, setFilterLevel] = useState('');
+  const [filterShop, setFilterShop] = useState('');
+  const [filterProducts, setFilterProducts] = useState('');
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   /**
    * Snapshot of the form as it was loaded, so an unsaved edit can be detected.
@@ -174,7 +182,8 @@ const Categories: React.FC = () => {
   const fetchCategories = async () => {
     setLoading(true);
     try {
-      const response = await categoriesAPI.list();
+      // Every state: the tree shows inactive and hidden categories so they can be switched back on.
+      const response = await categoriesAPI.list({ active: 'all' });
       let rows: any[] = [];
       if (Array.isArray(response)) rows = response;
       else if (Array.isArray(response?.data)) rows = response.data;
@@ -397,15 +406,34 @@ const Categories: React.FC = () => {
    * would make the child unreachable, and keeping the parent visible would make
    * the chip look broken. Flattening says exactly what matched.
    */
+  /** Holds no product and no sub-category (a parent may hold only its sub-categories' products). */
+  const isEmptyLeaf = (c: Category): boolean => c.productCount === 0 && !(childrenOf.get(c._id)?.length);
+
   const chipMatch = (c: Category): boolean => {
     if (filterStatus && (filterStatus === 'active') !== (c.isActive !== false)) return false;
     if (filterShelf === 'yes' && (c.featuredMode || 'off') === 'off') return false;
     if (filterShelf === 'no' && (c.featuredMode || 'off') !== 'off') return false;
     if (filterLevel === 'top' && c.parent) return false;
     if (filterLevel === 'child' && !c.parent) return false;
+    if (filterShop === 'shown' && c.isPublic === false) return false;
+    if (filterShop === 'hidden' && c.isPublic !== false) return false;
+    if (filterProducts === 'empty' && !isEmptyLeaf(c)) return false;
+    if (filterProducts === 'filled' && !(typeof c.productCount === 'number' && c.productCount > 0)) return false;
     return true;
   };
-  const anyChip = !!(filterStatus || filterShelf || filterLevel);
+  const anyChip = !!(filterStatus || filterShelf || filterLevel || filterShop || filterProducts);
+  const clearChips = () => {
+    setFilterStatus(''); setFilterShelf(''); setFilterLevel(''); setFilterShop(''); setFilterProducts('');
+  };
+
+  /** What needs a look first: switched off, hidden from the shop, or live with nothing in it. */
+  const attention = useMemo(() => ({
+    inactive: categories.filter((c) => c.isActive === false).length,
+    hidden: categories.filter((c) => c.isActive !== false && c.isPublic === false).length,
+    empty: categories.filter((c) => c.isActive !== false && isEmptyLeaf(c)).length,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [categories, childrenOf]);
+  const counted = categories.some((c) => typeof c.productCount === 'number');
 
   // Searching flattens the tree — matches are what matter, not their depth.
   const matches = useMemo(() => {
@@ -415,7 +443,7 @@ const Categories: React.FC = () => {
       (c) => (!q || c.name.toLowerCase().includes(q) || (c.slug || '').toLowerCase().includes(q)) && chipMatch(c),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, categories, filterStatus, filterShelf, filterLevel]);
+  }, [search, categories, filterStatus, filterShelf, filterLevel, filterShop, filterProducts]);
 
   const isFeatured = (c: Category) => (c.featuredMode || 'off') !== 'off';
 
@@ -456,7 +484,18 @@ const Categories: React.FC = () => {
             {c.isActive === false && <Badge variant="secondary" className="text-[10px] shrink-0">Inactive</Badge>}
             {c.isPublic === false && <EyeOff className="h-3.5 w-3.5 shrink-0 text-orange-500" aria-label="Hidden from storefront" />}
             {kids.length > 0 && (
-              <span className="text-[11px] text-muted-foreground shrink-0">{kids.length}</span>
+              <span className="text-[11px] text-muted-foreground shrink-0" title={`${kids.length} sub-categories`}>{kids.length}</span>
+            )}
+            {typeof c.productCount === 'number' && (
+              <span
+                className={`ml-auto inline-flex items-center gap-0.5 text-[11px] tabular-nums shrink-0 ${
+                  isEmptyLeaf(c) && c.isActive !== false ? 'text-amber-600' : 'text-muted-foreground'
+                }`}
+                title={`${c.productCount} products`}
+              >
+                <Package className="h-3 w-3" aria-hidden="true" />
+                {c.productCount}
+              </span>
             )}
           </button>
 
@@ -485,6 +524,8 @@ const Categories: React.FC = () => {
         { key: 'slug', label: 'Slug' },
         { key: 'parent', label: 'Parent', format: (c: Category) => parentName(c) },
         { key: 'active', label: 'Active', format: (c: Category) => (c.isActive !== false ? 'Yes' : 'No') },
+        { key: 'shown', label: 'Shown in shop', format: (c: Category) => (c.isPublic !== false ? 'Yes' : 'No') },
+        { key: 'productCount', label: 'Products', format: (c: Category) => (typeof c.productCount === 'number' ? c.productCount : '') },
         { key: 'displayOrder', label: 'Display order' },
         { key: 'featuredMode', label: 'Featured shelf' },
       ],
@@ -508,7 +549,26 @@ const Categories: React.FC = () => {
         ? [{ value: 'yes', label: 'Has a shelf' }, { value: 'no', label: 'No shelf' }]
         : [],
     },
+    {
+      key: 'shop', label: 'In shop', value: filterShop, onChange: setFilterShop,
+      help: 'A hidden category keeps its products but has no page or menu entry in the shop.',
+      options: categories.some((c) => c.isPublic === false)
+        ? [{ value: 'shown', label: 'Shown' }, { value: 'hidden', label: 'Hidden' }]
+        : [],
+    },
+    {
+      key: 'products', label: 'Products', value: filterProducts, onChange: setFilterProducts,
+      help: 'Empty: no product and no sub-category under it.',
+      options: counted ? [{ value: 'filled', label: 'Has products' }, { value: 'empty', label: 'Empty' }] : [],
+    },
   ];
+
+  /** One act-on entry: how many, what, and the filter that lists them. */
+  const attentionItems = [
+    { n: attention.inactive, label: 'switched off', apply: () => { clearChips(); setFilterStatus('inactive'); } },
+    { n: attention.hidden, label: 'hidden from the shop', apply: () => { clearChips(); setFilterStatus('active'); setFilterShop('hidden'); } },
+    { n: attention.empty, label: 'live with no products', apply: () => { clearChips(); setFilterStatus('active'); setFilterProducts('empty'); } },
+  ].filter((a) => a.n > 0);
 
   return (
     <Page width="full">
@@ -545,6 +605,20 @@ const Categories: React.FC = () => {
               </CardTitle>
               <span className="text-xs text-muted-foreground">{categories.length} total</span>
             </div>
+            {!loading && attentionItems.length > 0 && (
+              <div className="flex flex-wrap gap-1.5" aria-label="Categories to look at">
+                {attentionItems.map((a) => (
+                  <button
+                    key={a.label}
+                    type="button"
+                    onClick={a.apply}
+                    className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs text-amber-800 hover:bg-amber-100"
+                  >
+                    {a.n} {a.label}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
@@ -558,7 +632,7 @@ const Categories: React.FC = () => {
             </div>
             <FilterChips
               groups={chipGroups}
-              onClearAll={() => { setFilterStatus(''); setFilterShelf(''); setFilterLevel(''); }}
+              onClearAll={clearChips}
             />
           </CardHeader>
           <CardContent className="p-0">
@@ -580,7 +654,7 @@ const Categories: React.FC = () => {
                     action={
                       <Button
                         variant="outline" size="sm"
-                        onClick={() => { setSearch(''); setFilterStatus(''); setFilterShelf(''); setFilterLevel(''); }}
+                        onClick={() => { setSearch(''); clearChips(); }}
                       >
                         Clear search and filters
                       </Button>

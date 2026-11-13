@@ -140,8 +140,11 @@ export default function Companies() {
         flash('Company updated');
       } else {
         const res = await companiesAPI.create(payload);
+        // v2 answers `{company, created, message}` (CompanySavedView); the old API `{data, created}`.
+        const saved: any = (res as any)?.company ?? res?.data;
+        const name = saved?.display_name ?? saved?.displayName;
         flash(res.created === false
-          ? `Matched the existing “${res.data?.display_name}” and updated it`
+          ? (name ? `Matched the existing "${name}" and updated it` : (res.message || 'Matched an existing company and updated it'))
           : 'Company created');
       }
       setOpen(false);

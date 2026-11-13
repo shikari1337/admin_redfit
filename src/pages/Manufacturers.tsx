@@ -87,23 +87,37 @@ const Manufacturers: React.FC = () => {
     setShowModal(true);
   };
 
+  const formOf = (mfr: Manufacturer) => ({
+    name: mfr.name ?? '',
+    slug: mfr.slug ?? '',
+    address: mfr.address ?? '',
+    country: mfr.country ?? '',
+    phone: mfr.phone ?? '',
+    email: mfr.email ?? '',
+    website: mfr.website ?? '',
+    license_no: mfr.license_no ?? '',
+    logo_url: mfr.logo_url ?? '',
+    is_active: mfr.is_active !== false,
+  });
+
   const openEdit = (mfr: Manufacturer) => {
     setEditId(mfr.id);
-    setForm({
-      name: mfr.name,
-      slug: mfr.slug,
-      address: mfr.address ?? '',
-      country: mfr.country ?? '',
-      phone: mfr.phone ?? '',
-      email: mfr.email ?? '',
-      website: mfr.website ?? '',
-      license_no: mfr.license_no ?? '',
-      logo_url: mfr.logo_url ?? '',
-      is_active: mfr.is_active,
-    });
+    const opened = formOf(mfr);
+    setForm(opened);
     setSlugManuallyEdited(true);
     setFormError(null);
     setShowModal(true);
+    // The list leaves the address out; the record has it. Filled in only where nothing was typed yet.
+    api.get(`/manufacturers/${mfr.id}`).then((res: any) => {
+      const full = res?.data?.data ?? res?.data;
+      if (!full || typeof full !== 'object' || full.id !== mfr.id) return;
+      const loaded = formOf({ ...mfr, ...full });
+      setForm((f) => {
+        const next: any = { ...f };
+        for (const [k, v] of Object.entries(loaded)) if ((f as any)[k] === (opened as any)[k]) next[k] = v;
+        return next;
+      });
+    }).catch(() => { /* the list row stays */ });
   };
 
   const handleNameChange = (name: string) => {
@@ -121,16 +135,18 @@ const Manufacturers: React.FC = () => {
     setSaving(true);
     setFormError(null);
 
+    // An emptied field is sent as null on an edit so it really clears; a new record just leaves it out.
+    const blank = editId ? null : undefined;
     const payload: Record<string, any> = {
       name: form.name.trim(),
       slug: form.slug.trim() || toKebab(form.name),
-      address: form.address.trim() || undefined,
-      country: form.country.trim() || undefined,
-      phone: form.phone.trim() || undefined,
-      email: form.email.trim() || undefined,
-      website: form.website.trim() || undefined,
-      license_no: form.license_no.trim() || undefined,
-      logo_url: form.logo_url.trim() || undefined,
+      address: form.address.trim() || blank,
+      country: form.country.trim() || blank,
+      phone: form.phone.trim() || blank,
+      email: form.email.trim() || blank,
+      website: form.website.trim() || blank,
+      license_no: form.license_no.trim() || blank,
+      logo_url: form.logo_url.trim() || blank,
       is_active: form.is_active,
     };
 

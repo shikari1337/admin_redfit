@@ -61,6 +61,9 @@ interface Brand {
   owner_legal_name?: string | null;
   owner_cin?: string | null;
   manufacturer_name?: string | null;
+  /** The brand's products (the staff list, MENU-1 taxonomy); absent on an older server. */
+  productCount?: number | null;
+  product_count?: number | null;
 }
 
 const emptyForm = {
@@ -91,6 +94,11 @@ const emptyForm = {
 const rankOf = (b: Brand): number | null => {
   const r = b.preferenceRank ?? (b as any).preference_rank;
   return r === undefined || r === null || r === '' ? null : Number(r);
+};
+/** The brand's product count, or null when the server does not send one. */
+const productsOf = (b: Brand): number | null => {
+  const n = b.productCount ?? b.product_count;
+  return n === undefined || n === null || !Number.isFinite(Number(n)) ? null : Number(n);
 };
 const thumbOf = (b: Brand): string =>
   b.thumbnailUrl || (b as any).thumbnail_url || b.logoUrl || (b as any).logo_url || b.imageUrl || (b as any).image_url || '';
@@ -187,6 +195,7 @@ const Brands: React.FC = () => {
   const [status, setStatus] = useState('');
   const [featuredOnly, setFeaturedOnly] = useState('');
   const [rankFilter, setRankFilter] = useState('');
+  const [productsFilter, setProductsFilter] = useState('');
 
   // preference order tab
   const [rankedIds, setRankedIds] = useState<string[]>([]);
@@ -247,9 +256,11 @@ const Brands: React.FC = () => {
       if (featuredOnly === 'no' && b.isFeatured === true) return false;
       if (rankFilter === 'ranked' && rankOf(b) === null) return false;
       if (rankFilter === 'unranked' && rankOf(b) !== null) return false;
+      if (productsFilter === 'empty' && productsOf(b) !== 0) return false;
+      if (productsFilter === 'filled' && !((productsOf(b) ?? 0) > 0)) return false;
       return true;
     });
-  }, [brands, query, status, featuredOnly, rankFilter]);
+  }, [brands, query, status, featuredOnly, rankFilter, productsFilter]);
 
   const rankedBrands = useMemo(
     () => rankedIds.map(id => byId.get(id)).filter(Boolean) as Brand[],
@@ -505,8 +516,28 @@ const Brands: React.FC = () => {
       help: 'A ranked brand\u2019s products lead the category pages.',
       options: [{ value: 'ranked', label: 'Ranked' }, { value: 'unranked', label: 'Unranked' }],
     },
+    {
+      key: 'products', label: 'Products', value: productsFilter, onChange: setProductsFilter,
+      options: brands.some((b) => productsOf(b) !== null)
+        ? [{ value: 'filled', label: 'Has products' }, { value: 'empty', label: 'Empty' }]
+        : [],
+    },
   ];
-  const clearChips = () => { setStatus(''); setFeaturedOnly(''); setRankFilter(''); };
+  const clearChips = () => { setStatus(''); setFeaturedOnly(''); setRankFilter(''); setProductsFilter(''); };
+
+  /** What needs a look first: switched off, or live with nothing to sell. */
+  const attentionItems = [
+    {
+      n: brands.filter((b) => b.isActive === false).length,
+      label: 'switched off',
+      apply: () => { clearChips(); setStatus('inactive'); },
+    },
+    {
+      n: brands.filter((b) => b.isActive !== false && productsOf(b) === 0).length,
+      label: 'live with no products',
+      apply: () => { clearChips(); setStatus('active'); setProductsFilter('empty'); },
+    },
+  ].filter((a) => a.n > 0);
 
   const exportBrands = () => downloadCsv(
     `brands-${new Date().toISOString().slice(0, 10)}.csv`,
@@ -517,6 +548,7 @@ const Brands: React.FC = () => {
       { key: 'isActive', label: 'Active', format: (b: Brand) => (b.isActive !== false ? 'Yes' : 'No') },
       { key: 'isFeatured', label: 'Featured', format: (b: Brand) => (b.isFeatured ? 'Yes' : 'No') },
       { key: 'rank', label: 'Preference rank', format: (b: Brand) => rankOf(b) ?? '' },
+      { key: 'products', label: 'Products', format: (b: Brand) => productsOf(b) ?? '' },
       { key: 'metaTitle', label: 'Meta title' },
     ],
     filteredBrands,
@@ -564,6 +596,20 @@ const Brands: React.FC = () => {
                 </CardDescription>
                 <FilterChips groups={chipGroups} onClearAll={clearChips} />
               </div>
+              {!loading && attentionItems.length > 0 && (
+                <div className="flex flex-wrap gap-1.5" aria-label="Brands to look at">
+                  {attentionItems.map((a) => (
+                    <button
+                      key={a.label}
+                      type="button"
+                      onClick={a.apply}
+                      className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs text-amber-800 hover:bg-amber-100"
+                    >
+                      {a.n} {a.label}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="relative">
                 <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                 <Input
@@ -597,6 +643,7 @@ const Brands: React.FC = () => {
                       <TableRow>
                         <TableHead>Brand</TableHead>
                         <TableHead className="w-28">Preference</TableHead>
+                        <TableHead className="w-24 text-right hidden sm:table-cell">Products</TableHead>
                         <TableHead className="w-24 text-center">Active</TableHead>
                         <TableHead className="w-24 text-center">Featured</TableHead>
                         <TableHead className="w-28 text-right">Actions</TableHead>
@@ -631,6 +678,15 @@ const Brands: React.FC = () => {
                                 <Badge variant="default" className="text-xs bg-emerald-600 hover:bg-emerald-700">#{rank}</Badge>
                               ) : (
                                 <span className="text-xs text-muted-foreground">—</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="py-2 text-right tabular-nums hidden sm:table-cell">
+                              {productsOf(brand) === null ? (
+                                <span className="text-xs text-muted-foreground">-</span>
+                              ) : (
+                                <span className={productsOf(brand) === 0 && brand.isActive !== false ? 'text-amber-600' : ''}>
+                                  {productsOf(brand)}
+                                </span>
                               )}
                             </TableCell>
                             <TableCell className="py-2 text-center">
