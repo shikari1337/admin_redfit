@@ -733,7 +733,7 @@ export const authAPI = {
 
 // Leads API (CRM module - requires leads_manager permission)
 export const leadsAPI = {
-  getAll: async (params?: { page?: number; limit?: number; offset?: number; status?: string; source?: string }) => {
+  getAll: async (params?: { page?: number; limit?: number; offset?: number; status?: string; source?: string; sort?: string; assigned_to?: string }) => {
     const response = await api.get('/leads', { params });
     const data = response.data;
     if (Array.isArray(data)) return data;
@@ -743,6 +743,20 @@ export const leadsAPI = {
   getStats: async () => {
     const response = await api.get('/leads/stats');
     return response.data?.data ?? response.data ?? null;
+  },
+  /** Who can handle a lead: the store's active staff (v2 `GET /crm/staff`, the CRM owner picker). */
+  staff: async (): Promise<Array<{ id: string; name: string | null; role: string | null }>> => {
+    const response = await api.get('/crm/staff');
+    const data = response.data;
+    if (Array.isArray(data)) return data;
+    return Array.isArray(data?.data) ? data.data : [];
+  },
+  /** Open leads whose follow-up date has come, oldest first (v2 `GET /crm/leads/follow-ups`). */
+  getFollowUps: async () => {
+    const response = await api.get('/leads/follow-up');
+    const data = response.data;
+    if (Array.isArray(data)) return data;
+    return Array.isArray(data?.data) ? data.data : [];
   },
   getById: async (id: string) => {
     const response = await api.get(`/leads/${id}`);
@@ -756,8 +770,9 @@ export const leadsAPI = {
     const response = await api.put(`/leads/${id}`, updates);
     return response.data?.data ?? response.data;
   },
-  convert: async (id: string, customer_id: string) => {
-    const response = await api.post(`/leads/${id}/convert`, { customer_id });
+  /** `customer_id` is optional on v2: a lead can be marked won before it has a customer record. */
+  convert: async (id: string, customer_id?: string) => {
+    const response = await api.post(`/leads/${id}/convert`, customer_id ? { customer_id } : {});
     return response.data?.data ?? response.data;
   },
   delete: async (id: string) => {
@@ -5488,6 +5503,11 @@ export const contactsAPI = {
   },
   updateStatus: async (id: string, status: 'new' | 'read' | 'replied' | 'closed') => {
     const response = await api.put(`/contact/${id}/status`, { status });
+    return response.data;
+  },
+  /** v2 reads never write: opening a message marks it read with its own PATCH `{is_read: true}`. */
+  markRead: async (id: string) => {
+    const response = await api.put(`/contact/${id}/status`, { is_read: true });
     return response.data;
   },
   delete: async (id: string) => {

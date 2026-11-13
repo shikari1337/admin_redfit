@@ -127,7 +127,12 @@ export const MARKETING_ROUTES: V2Route[] = [
   { m: 'GET', from: '/crm/contacts/:p1/interactions', row: 'no ROUTE_MAP row', gap: 'the old CRM contacts have no v2 route (crm ROUTE_MAP: no row; v2 keeps people as parties — CONTRACT QUESTION for crm)' },
   { m: 'POST', from: '/crm/contacts/:p1/interactions', row: 'no ROUTE_MAP row', gap: 'the old CRM contacts have no v2 route (crm ROUTE_MAP: no row; v2 keeps people as parties — CONTRACT QUESTION for crm)' },
   { m: 'GET', from: '/leads', row: 'crm Route map', to: '/api/v2/crm/leads', qs: ['limit','offset','page','sort','q','source','status','assigned_to'] },
-  { m: 'POST', from: '/leads', row: 'crm Route map', to: '/api/v2/crm/public/leads', bs: {'budget_range':'s','email':'s','full_name':'s','message':'s','metadata':'j','mobile_number':'s','name':'s','notes':'s','page':'s','phone':'s','product_interest':'s','source':'s','subject':'s','tracking':{'fbclid':'s','gbraid':'s','gclid':'s','landing_page':'s','msclkid':'s','referrer':'s','session_id':'s','timezone':'s','ttclid':'s','utm_campaign':'s','utm_content':'s','utm_id':'s','utm_medium':'s','utm_source':'s','utm_term':'s','visitor_id':'s','wbraid':'s'}} },
+  // MENU-1 crm: a lead staff key in is the `leads` resource create (ROUTE_MAP "POST /crm/leads": marketing.manage,
+  // on the audit chain with the staff actor), never the public form route (IP form limiter, no actor, status dropped).
+  { m: 'POST', from: '/leads', row: 'crm Route map (Resource leads create)', to: '/api/v2/crm/leads', bs: {'assigned_to':'s','budget_range':'s','email':'s','follow_up_date':'s','metadata':'j','name':'s','notes':'s','phone':'s','product_interest':'s','score':'i','source':'s','status':'s'} },
+  { m: 'GET', from: '/leads/follow-up', row: 'crm Route map (GET /leads/follow-up)', to: '/api/v2/crm/leads/follow-ups' },
+  // MENU-1 crm: the CRM owner picker (crm desk.rs `GET /staff`: marketing.read, module crm), [{id, name, role}].
+  { m: 'GET', from: '/crm/staff', row: 'crm desk (GET /crm/staff)', to: '/api/v2/crm/staff' },
   { m: 'GET', from: '/leads/:id', row: 'crm Route map', to: '/api/v2/crm/leads/{id}' },
   { m: 'PUT', from: '/leads/:id', row: 'crm Route map', method: 'PATCH', to: '/api/v2/crm/leads/{id}', bs: {'assigned_to':'j','budget_range':'j','email':'j','follow_up_date':'j','metadata':'j','name':'s','notes':'j','phone':'j','product_interest':'j','score':'j','source':'j','status':'s'} },
   { m: 'DELETE', from: '/leads/:id', row: 'crm (dropped duplicate → DELETE /crm/leads/{id})', to: '/api/v2/crm/leads/{id}' },
