@@ -6,12 +6,12 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { FaPlus, FaEdit, FaTrash, FaToggleOn, FaToggleOff } from 'react-icons/fa';
+import { FaPlus, FaEdit, FaTrash, FaToggleOn, FaToggleOff, FaExternalLinkAlt } from 'react-icons/fa';
 import StatusBadge from '../components/order/StatusBadge';
 import { Pagination } from '@/components/erp';
 import { formatDate } from '../utils/date';
 import { toast } from '@/hooks/use-toast';
+import { blogPostUrl, useStoreSiteUrl } from '../lib/storefront';
 
 /** A message that used to be a blocking alert() — now a toast (the shell mounts the Toaster). */
 const notify = (message: string) =>
@@ -33,6 +33,26 @@ interface BlogPost {
 
 const PAGE_SIZE = 20;
 
+/**
+ * The status filter. On v2 `published` lists the posts shoppers can read now and `scheduled` the
+ * ones waiting for their publish date (commerce db/catalog_mgmt/blog/queries.rs `live_sql`).
+ */
+const FILTERS: { key: string; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'published', label: 'Live' },
+  { key: 'scheduled', label: 'Scheduled' },
+  { key: 'draft', label: 'Drafts' },
+  { key: 'archived', label: 'Archived' },
+];
+
+/** A post that is published or scheduled but whose date is still ahead: it waits. */
+const waiting = (p: BlogPost) =>
+  (p.status === 'published' || p.status === 'scheduled') && !!p.published_at && new Date(p.published_at).getTime() > Date.now();
+
+/** Live on the shop now (the same rule the server applies). */
+const isLive = (p: BlogPost) =>
+  (p.status === 'published' && !waiting(p)) || (p.status === 'scheduled' && !!p.published_at && !waiting(p));
+
 const Blogs: React.FC = () => {
   const navigate = useNavigate();
   const { hasPerm } = useAuth();
@@ -48,11 +68,31 @@ const Blogs: React.FC = () => {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [counts, setCounts] = useState<Record<string, number> | null>(null);
+  const site = useStoreSiteUrl();
 
   useEffect(() => {
     fetchPosts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter, page]);
+
+  useEffect(() => { fetchCounts(); }, []);
+
+  /** One number per filter (each list's total, one row asked for). */
+  const fetchCounts = async () => {
+    try {
+      const pairs = await Promise.all(FILTERS.map(async (f) => {
+        const params: Record<string, any> = { limit: 1 };
+        if (f.key !== 'all') params.status = f.key;
+        const res = await api.get('/blog-posts', { params });
+        const d = res.data;
+        return [f.key, Number(d?.total ?? (Array.isArray(d?.data) ? d.data.length : 0)) || 0] as const;
+      }));
+      setCounts(Object.fromEntries(pairs));
+    } catch {
+      setCounts(null);
+    }
+  };
 
   const fetchPosts = async () => {
     setLoading(true);
@@ -97,6 +137,7 @@ const Blogs: React.FC = () => {
     try {
       await api.delete(`/blog-posts/${post.id}`);
       fetchPosts();
+      fetchCounts();
     } catch (err: any) {
       notify(err?.response?.data?.message || 'Failed to delete post');
     }
@@ -107,6 +148,7 @@ const Blogs: React.FC = () => {
     try {
       await api.put(`/blog-posts/${post.id}`, { status: newStatus });
       fetchPosts();
+      fetchCounts();
     } catch (err: any) {
       notify(err?.response?.data?.message || 'Failed to update status');
     }
@@ -127,30 +169,27 @@ const Blogs: React.FC = () => {
         )}
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-3">
-        <form onSubmit={handleSearch} className="flex gap-2 flex-1">
-          <Input
-            placeholder="Search by title..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="max-w-xs"
-          />
-          <Button type="submit" variant="outline">Search</Button>
-        </form>
-        <Select value={statusFilter} onValueChange={v => { setStatusFilter(v); setPage(1); }}>
-          <SelectTrigger className="w-[160px]">
-            <SelectValue placeholder="All Statuses" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Statuses</SelectItem>
-            <SelectItem value="draft">Draft</SelectItem>
-            <SelectItem value="published">Published</SelectItem>
-            <SelectItem value="scheduled">Scheduled</SelectItem>
-            <SelectItem value="archived">Archived</SelectItem>
-          </SelectContent>
-        </Select>
+      {/* What needs attention first: drafts and scheduled posts, then the rest. */}
+      <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+        {FILTERS.map((f) => (
+          <button key={f.key} type="button" onClick={() => { setStatusFilter(f.key); setPage(1); }}
+            className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors ${
+              statusFilter === f.key ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card text-foreground hover:bg-muted'
+            }`}>
+            {f.label}
+            {counts && <span className={statusFilter === f.key ? 'opacity-80' : 'text-muted-foreground'}>{counts[f.key] ?? 0}</span>}
+          </button>
+        ))}
       </div>
+      <form onSubmit={handleSearch} className="flex gap-2">
+        <Input
+          placeholder="Search title and excerpt"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="sm:max-w-xs"
+        />
+        <Button type="submit" variant="outline">Search</Button>
+      </form>
 
       {error && (
         <div className="p-4 border border-destructive/50 bg-destructive/10 text-sm text-destructive rounded-md">
@@ -165,9 +204,9 @@ const Blogs: React.FC = () => {
               <TableRow>
                 <TableHead className="font-semibold px-4 py-3">Title</TableHead>
                 <TableHead className="font-semibold px-4 py-3">Status</TableHead>
-                <TableHead className="font-semibold px-4 py-3">Author</TableHead>
-                <TableHead className="font-semibold px-4 py-3">Published</TableHead>
-                <TableHead className="font-semibold px-4 py-3 text-right">Views</TableHead>
+                <TableHead className="hidden font-semibold px-4 py-3 md:table-cell">Author</TableHead>
+                <TableHead className="hidden font-semibold px-4 py-3 sm:table-cell">Published</TableHead>
+                <TableHead className="hidden font-semibold px-4 py-3 text-right md:table-cell">Views</TableHead>
                 <TableHead className="font-semibold px-4 py-3 text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -183,7 +222,11 @@ const Blogs: React.FC = () => {
               ) : posts.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="h-48 text-center text-muted-foreground">
-                    {error ? 'Could not load posts.' : 'No blog posts found. Create your first post.'}
+                    {error
+                      ? 'Could not load posts.'
+                      : statusFilter !== 'all' || search.trim()
+                        ? 'No posts match this filter.'
+                        : 'No blog posts yet. Write the first one.'}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -191,27 +234,39 @@ const Blogs: React.FC = () => {
                   <TableRow key={post.id} className="hover:bg-muted/50 transition-colors">
                     <TableCell className="px-4 py-3">
                       <div className="font-medium text-foreground">{post.title}</div>
-                      <div className="text-xs text-muted-foreground font-mono mt-0.5">{post.slug}</div>
+                      <div className="text-xs text-muted-foreground font-mono mt-0.5 break-all">{post.slug}</div>
+                      {post.published_at && (
+                        <div className="text-xs text-muted-foreground mt-0.5 sm:hidden">{formatDate(post.published_at, 'MMM dd, yyyy')}</div>
+                      )}
                     </TableCell>
                     <TableCell className="px-4 py-3">
-                      <StatusBadge status={post.status} type="blog" />
+                      <StatusBadge status={waiting(post) ? 'scheduled' : post.status} type="blog" />
+                      {waiting(post) && post.published_at && (
+                        <div className="text-[11px] text-muted-foreground mt-1 whitespace-nowrap">Goes live {formatDate(post.published_at, 'MMM dd, HH:mm')}</div>
+                      )}
                     </TableCell>
-                    <TableCell className="px-4 py-3 text-sm text-muted-foreground">
-                      {post.author_name || '—'}
+                    <TableCell className="hidden px-4 py-3 text-sm text-muted-foreground md:table-cell">
+                      {post.author_name || '-'}
                     </TableCell>
-                    <TableCell className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
-                      {post.published_at ? formatDate(post.published_at, 'MMM dd, yyyy') : '—'}
+                    <TableCell className="hidden px-4 py-3 text-sm text-muted-foreground whitespace-nowrap sm:table-cell">
+                      {post.published_at ? formatDate(post.published_at, 'MMM dd, yyyy') : '-'}
                     </TableCell>
-                    <TableCell className="px-4 py-3 text-right text-sm text-muted-foreground">
+                    <TableCell className="hidden px-4 py-3 text-right text-sm text-muted-foreground md:table-cell">
                       {post.view_count?.toLocaleString() ?? '0'}
                     </TableCell>
                     <TableCell className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-2">
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        {isLive(post) && blogPostUrl(site, post.slug) && (
+                          <a href={blogPostUrl(site, post.slug)!} target="_blank" rel="noopener noreferrer" title="View on shop"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground">
+                            <FaExternalLinkAlt className="h-3.5 w-3.5" />
+                          </a>
+                        )}
                         {canManageBlogs && (
                           <Button
                             variant="ghost"
                             size="sm"
-                            title={post.status === 'published' ? 'Unpublish' : 'Publish'}
+                            title={post.status === 'published' ? 'Unpublish (back to draft)' : 'Publish'}
                             className="h-8 w-8 p-0"
                             onClick={() => handleToggleStatus(post)}
                           >
@@ -236,6 +291,7 @@ const Blogs: React.FC = () => {
                             variant="destructive"
                             size="sm"
                             className="h-8 w-8 p-0"
+                            title="Delete"
                             onClick={() => handleDelete(post)}
                           >
                             <FaTrash className="h-3.5 w-3.5" />

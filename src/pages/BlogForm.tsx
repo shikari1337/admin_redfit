@@ -9,7 +9,10 @@ import { AiTextButton } from '../components/common/AiTextButton';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { FaArrowLeft, FaSave } from 'react-icons/fa';
+import { FaArrowLeft, FaSave, FaExternalLinkAlt } from 'react-icons/fa';
+import RichTextEditor from '../components/common/RichTextEditor';
+import { formatDateTime, fromStoreDateTimeInput, storeDateTimeInput } from '../utils/date';
+import { blogPostUrl, useStoreSiteUrl } from '../lib/storefront';
 
 interface BlogFormState {
   title: string;
@@ -41,6 +44,14 @@ const EMPTY_FORM: BlogFormState = {
   seo_description: '',
 };
 
+/** What each status means on the shop (the v2 live rule: commerce db/catalog_mgmt/blog/queries.rs `live_sql`). */
+const STATUS_HINT: Record<BlogFormState['status'], string> = {
+  draft: 'Only staff can see it.',
+  published: 'On the shop now, or from the publish date when that is later.',
+  scheduled: 'Goes on the shop at the publish date.',
+  archived: 'Taken off the shop; kept here.',
+};
+
 const toKebab = (str: string) =>
   str
     .toLowerCase()
@@ -59,6 +70,10 @@ const BlogForm: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
+  const [htmlMode, setHtmlMode] = useState(false);
+  // The slug and state the shop knows (the saved post, not the form): the "view on the shop" link.
+  const [savedLive, setSavedLive] = useState<{ slug: string; live: boolean } | null>(null);
+  const site = useStoreSiteUrl();
 
   useEffect(() => {
     if (isEdit && id) {
@@ -80,13 +95,16 @@ const BlogForm: React.FC = () => {
         cover_image: d.cover_image ?? '',
         author_name: d.author_name ?? '',
         status: d.status ?? 'draft',
-        published_at: d.published_at ? d.published_at.slice(0, 16) : '',
+        // The store's wall clock, not the browser's and not UTC.
+        published_at: storeDateTimeInput(d.published_at),
         tags: Array.isArray(d.tags) ? d.tags.join(', ') : (d.tags ?? ''),
         read_time_min: d.read_time_min != null ? String(d.read_time_min) : '',
         seo_title: d.seo?.title ?? '',
         seo_description: d.seo?.description ?? '',
       });
       setSlugManuallyEdited(true); // don't auto-generate when editing
+      const due = d.published_at ? new Date(d.published_at).getTime() <= Date.now() : d.status === 'published';
+      setSavedLive({ slug: d.slug ?? '', live: (d.status === 'published' || d.status === 'scheduled') && due });
     } catch (err: any) {
       setError(err?.response?.data?.message || 'Failed to load post');
     } finally {
@@ -111,10 +129,27 @@ const BlogForm: React.FC = () => {
     setForm(prev => ({ ...prev, [key]: value }));
   };
 
+  /** The publish date as the API takes it (RFC 3339 with the store's offset), '' when none, null when unreadable. */
+  const publishAt = (): string | null => (form.published_at ? fromStoreDateTimeInput(form.published_at) : '');
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.title.trim()) {
       setError('Title is required');
+      return;
+    }
+    const plain = form.content.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
+    if (!plain && !/<(img|iframe|video)\b/i.test(form.content)) {
+      setError('Write the post before saving it.');
+      return;
+    }
+    const when = publishAt();
+    if (when === null) {
+      setError('The publish date is not a valid date and time.');
+      return;
+    }
+    if (form.status === 'scheduled' && !when) {
+      setError('A scheduled post needs the date and time it goes on the shop.');
       return;
     }
     setSaving(true);
@@ -125,19 +160,22 @@ const BlogForm: React.FC = () => {
       .map(t => t.trim())
       .filter(Boolean);
 
+    // A field emptied while editing is sent empty, so the saved value is cleared (the update keeps
+    // whatever is left out). A new post leaves empty fields out.
+    const text = (v: string) => (v.trim() ? v.trim() : isEdit ? '' : undefined);
     const payload: Record<string, any> = {
       title: form.title.trim(),
       slug: form.slug.trim() || toKebab(form.title),
-      excerpt: form.excerpt.trim() || undefined,
-      content: form.content.trim() || undefined,
-      cover_image: form.cover_image.trim() || undefined,
-      author_name: form.author_name.trim() || undefined,
+      excerpt: text(form.excerpt),
+      content: form.content.trim(),
+      cover_image: text(form.cover_image),
+      author_name: text(form.author_name),
       status: form.status,
-      published_at: form.published_at || undefined,
-      tags: tagsArray.length > 0 ? tagsArray : undefined,
+      published_at: when || undefined,
+      tags: tagsArray.length > 0 ? tagsArray : isEdit ? [] : undefined,
       read_time_min: form.read_time_min ? Number(form.read_time_min) : undefined,
-      seo: (form.seo_title || form.seo_description)
-        ? { title: form.seo_title || undefined, description: form.seo_description || undefined }
+      seo: (form.seo_title || form.seo_description || isEdit)
+        ? { title: form.seo_title.trim(), description: form.seo_description.trim() }
         : undefined,
     };
 
@@ -155,6 +193,10 @@ const BlogForm: React.FC = () => {
     }
   };
 
+  const whenIso = form.published_at ? fromStoreDateTimeInput(form.published_at) : null;
+  const futureDate = whenIso ? new Date(whenIso).getTime() > Date.now() : false;
+  const liveUrl = savedLive?.live ? blogPostUrl(site, savedLive.slug) : null;
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -165,7 +207,7 @@ const BlogForm: React.FC = () => {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <Button variant="ghost" size="sm" onClick={() => navigate('/blogs')} className="h-9">
           <FaArrowLeft className="mr-2 h-4 w-4" />
           Back to Blog Posts
@@ -173,6 +215,12 @@ const BlogForm: React.FC = () => {
         <h1 className="text-2xl font-bold tracking-tight">
           {isEdit ? 'Edit Blog Post' : 'New Blog Post'}
         </h1>
+        {liveUrl && (
+          <a href={liveUrl} target="_blank" rel="noopener noreferrer"
+            className="ml-auto inline-flex items-center gap-1.5 text-sm text-primary hover:underline">
+            View on shop <FaExternalLinkAlt className="h-3 w-3" />
+          </a>
+        )}
       </div>
 
       {error && (
@@ -223,15 +271,36 @@ const BlogForm: React.FC = () => {
             </div>
 
             <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2"><Label htmlFor="content">Content (HTML)</Label><AiTextButton entity="blog" draft={() => ({ title: form.title, excerpt: form.excerpt, content: form.content })} field="blog.body" label="Post body" format="html" value={form.content} onResult={(v) => handleChange('content', String(v))} /></div>
-              <Textarea
-                id="content"
-                rows={16}
-                value={form.content}
-                onChange={e => handleChange('content', e.target.value)}
-                placeholder="Write your blog post content here. Rich-text editor will be added in a future update."
-                className="resize-y font-mono text-sm"
-              />
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Label htmlFor="content">Post <span className="text-destructive">*</span></Label>
+                <div className="flex items-center gap-2">
+                  <div className="inline-flex rounded-md border border-input p-0.5 text-xs">
+                    <button type="button" onClick={() => setHtmlMode(false)}
+                      className={`rounded px-2 py-1 ${!htmlMode ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground'}`}>Visual</button>
+                    <button type="button" onClick={() => setHtmlMode(true)}
+                      className={`rounded px-2 py-1 ${htmlMode ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground'}`}>HTML</button>
+                  </div>
+                  <AiTextButton entity="blog" draft={() => ({ title: form.title, excerpt: form.excerpt, content: form.content })} field="blog.body" label="Post body" format="html" value={form.content} onResult={(v) => handleChange('content', String(v))} />
+                </div>
+              </div>
+              {htmlMode ? (
+                <Textarea
+                  id="content"
+                  rows={16}
+                  value={form.content}
+                  onChange={e => handleChange('content', e.target.value)}
+                  placeholder="<p>Write the post here.</p>"
+                  className="resize-y font-mono text-sm"
+                />
+              ) : (
+                <RichTextEditor
+                  value={form.content}
+                  onChange={(html) => handleChange('content', html)}
+                  placeholder="Write the post here."
+                  minHeight={320}
+                />
+              )}
+              <p className="text-xs text-muted-foreground">Scripts, forms and inline event code are removed when the post is saved.</p>
             </div>
           </CardContent>
         </Card>
@@ -266,6 +335,7 @@ const BlogForm: React.FC = () => {
                     <SelectItem value="archived">Archived</SelectItem>
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground">{STATUS_HINT[form.status]}</p>
               </div>
 
               <div className="space-y-2">
@@ -276,6 +346,13 @@ const BlogForm: React.FC = () => {
                   value={form.published_at}
                   onChange={e => handleChange('published_at', e.target.value)}
                 />
+                <p className="text-xs text-muted-foreground">
+                  {(form.status === 'published' || form.status === 'scheduled') && futureDate && whenIso
+                    ? `Waits until ${formatDateTime(whenIso)} (store time).`
+                    : form.published_at
+                      ? 'Store time.'
+                      : form.status === 'published' ? 'Left empty, the post is dated when it is first published.' : 'Store time.'}
+                </p>
               </div>
 
               <div className="space-y-2">

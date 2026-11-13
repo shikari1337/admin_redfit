@@ -4015,7 +4015,8 @@ export const logsAPI = {
 
 // FAQs API
 export const faqsAPI = {
-  getAll: async (params?: { category?: string; categories?: string; active?: boolean }) => {
+  // v2: the staff list (every question, off ones too); `groupId` narrows to one FAQ group.
+  getAll: async (params?: { category?: string; categories?: string; active?: boolean; groupId?: string; search?: string; limit?: number; offset?: number }) => {
     const response = await api.get('/faqs', { params });
     return response.data;
   },
@@ -4023,10 +4024,13 @@ export const faqsAPI = {
     const response = await api.get(`/faqs/${id}`);
     return response.data;
   },
+  // A question belongs to an FAQ group (`faqGroupId`, null = no group); `category` is the old
+  // Node field, never stored (the v2 route leaves it out).
   create: async (data: {
     question: string;
     answer: string;
-    category: string;
+    category?: string;
+    faqGroupId?: string | null;
     displayOrder?: number;
     isActive?: boolean;
   }) => {
@@ -4037,6 +4041,7 @@ export const faqsAPI = {
     question?: string;
     answer?: string;
     category?: string;
+    faqGroupId?: string | null;
     displayOrder?: number;
     isActive?: boolean;
   }) => {
@@ -4063,6 +4068,7 @@ export const faqGroupsAPI = {
     description?: string;
     items?: { question: string; answer: string; order?: number }[];
     isActive?: boolean;
+    displayOrder?: number;
   }) => {
     const response = await api.post('/faq-groups', data);
     return response.data;
@@ -4072,6 +4078,7 @@ export const faqGroupsAPI = {
     description?: string;
     items?: { question: string; answer: string; order?: number }[];
     isActive?: boolean;
+    displayOrder?: number;
   }) => {
     const response = await api.put(`/faq-groups/${id}`, data);
     return response.data;

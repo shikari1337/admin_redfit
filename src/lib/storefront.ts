@@ -39,3 +39,7 @@ export const categoryPageUrl = (site: string | null, slug?: string | null): stri
 
 export const cmsPageUrl = (site: string | null, slug?: string | null): string | null =>
   site && slug ? `${site}/pages/${encodeURIComponent(slug)}` : null;
+
+/** A blog post's page: `/blog/{slug}`, the path the server's redirects and app feed use (commerce url_match.rs "blog"). */
+export const blogPostUrl = (site: string | null, slug?: string | null): string | null =>
+  site && slug ? `${site}/blog/${encodeURIComponent(slug)}` : null;

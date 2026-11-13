@@ -254,12 +254,24 @@ export const CATALOG_ROUTES: V2Route[] = [
   { m: 'GET', from: '/custom-fields/values/:entityType/:entityId', row: 'commerce customFields.ts:187', to: '/api/v2/commerce/custom-field-values/{entityType}/{entityId}' },
   { m: 'PUT', from: '/custom-fields/values/:entityType/:entityId', row: 'commerce customFields.ts:200', method: 'PATCH', to: '/api/v2/commerce/custom-field-values/{entityType}/{entityId}', body: (c) => ({ values: c.body?.values ?? c.body ?? {} }) },
   { m: 'POST', from: '/faq-groups', row: 'commerce faqGroups.ts:23', to: '/api/v2/commerce/faq-groups', bs: {'description':'j','display_order':'i','is_active':'b','name':'s'} },
-  { m: 'GET', from: '/faq-groups/:id', row: 'commerce faqGroups.ts:15', to: '/api/v2/commerce/public/faq-groups/{id}' },
+  { m: 'GET', from: '/faq-groups/:id', row: 'commerce faqGroups.ts:15 (staff: R:FaqGroup.read, a switched-off group too)', to: '/api/v2/commerce/faq-groups/{id}' },
   { m: 'PUT', from: '/faq-groups/:id', row: 'commerce faqGroups.ts:34', method: 'PATCH', to: '/api/v2/commerce/faq-groups/{id}', bs: {'description':'j','display_order':'i','is_active':'b','name':'s'} },
   { m: 'DELETE', from: '/faq-groups/:id', row: 'commerce faqGroups.ts:42', to: '/api/v2/commerce/faq-groups/{id}' },
-  { m: 'GET', from: '/faqs', row: 'commerce faqs.ts:7', to: '/api/v2/commerce/public/faqs', qs: ['group_id'] },
+  // The staff list (R:Faq.list): every question, switched-off ones too, so staff can switch them back on.
+  // The public list (/public/faqs) is the shop's: active questions of active groups only.
+  { m: 'GET', from: '/faqs', row: 'commerce faqs.ts:7 (staff: R:Faq.list)', to: '/api/v2/commerce/faqs', query: (c) => {
+    const active = c.query.active ?? c.query.isActive ?? c.query.is_active;
+    const group = c.query.groupId ?? c.query.group_id ?? c.query.faqGroupId ?? c.query.faq_group_id;
+    return {
+      is_active: active === undefined || active === '' ? undefined : String(active) === 'true',
+      faq_group_id: group || undefined,
+      q: c.query.search || undefined,
+      limit: c.query.limit ?? 200,
+      offset: c.query.offset,
+    };
+  } },
   { m: 'POST', from: '/faqs', row: 'commerce faqs.ts:26', to: '/api/v2/commerce/faqs', bs: {'answer':'s','display_order':'i','faq_group_id':'j','is_active':'b','question':'s'} },
-  { m: 'GET', from: '/faqs/:id', row: 'commerce faqs.ts:18', to: '/api/v2/commerce/public/faqs/{id}' },
+  { m: 'GET', from: '/faqs/:id', row: 'commerce faqs.ts:18 (staff: R:Faq.read, a switched-off question too)', to: '/api/v2/commerce/faqs/{id}' },
   { m: 'PUT', from: '/faqs/:id', row: 'commerce faqs.ts:39', method: 'PATCH', to: '/api/v2/commerce/faqs/{id}', bs: {'answer':'s','display_order':'i','faq_group_id':'j','is_active':'b','question':'s'} },
   { m: 'DELETE', from: '/faqs/:id', row: 'commerce faqs.ts:47', to: '/api/v2/commerce/faqs/{id}' },
   { m: 'POST', from: '/inventory/sheets/:sheet/import', row: 'commerce inventory.ts:1757', to: '/api/v2/commerce/inventory/sheets/{sheet}/import', bs: {'#mp':'j','country':'s','currency':'s','file':'f','market':'s'} },
