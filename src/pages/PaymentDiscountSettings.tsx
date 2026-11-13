@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, CreditCard, Plus, Trash2, Percent, Loader2, Ban, Pencil, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Save, CreditCard, Plus, Trash2, Percent, Loader2, Ban, Pencil, RotateCcw, X } from 'lucide-react';
 import { api, paymentRulesAPI } from '../services/api';
+import { fmtRupees } from '@/lib/money';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,16 +28,23 @@ interface PaymentRule {
   sort_order: number;
 }
 
-const PAYMENT_METHODS = ['cod', 'prepaid', 'upi', 'card', 'netbanking', 'wallet'];
+// The methods a rule can switch off: exactly what the server takes (growcord-rs checkout resources.rs
+// `payment_rules.method` OneOf cod, prepaid) and what checkout tells apart (commerce totals evaluates
+// rules for `cod` and `prepaid` only). Card, UPI or net banking are picked inside the gateway's own
+// window, so no rule can switch one of them off on its own.
+const PAYMENT_METHODS: Array<{ value: string; label: string }> = [
+  { value: 'cod', label: 'Cash on delivery' },
+  { value: 'prepaid', label: 'Online payment (every gateway, UPI and bank transfer)' },
+];
+const METHOD_WORD: Record<string, string> = { cod: 'COD', prepaid: 'Online' };
+const enforced = (method: string) => PAYMENT_METHODS.some((m) => m.value === method);
 const emptyRuleForm = { id: '', name: '', method: 'cod', minOrderValue: '', maxOrderValue: '', excludePincodes: '', customerSegment: 'all', is_active: true };
 
+// Not set = what checkout applies (commerce domain/orders/discounts.rs: no prepaid discount, no
+// quantity tiers), so saving this page never switches a discount on that the owner did not set.
 const DEFAULT_FORM_DATA = {
-  razorpayDiscountPercent: 2,
-  quantityDiscounts: [
-    { minQuantity: 5, discountPercent: 5 },
-    { minQuantity: 10, discountPercent: 10 },
-    { minQuantity: 20, discountPercent: 15 },
-  ] as QuantityDiscount[],
+  razorpayDiscountPercent: 0,
+  quantityDiscounts: [] as QuantityDiscount[],
   excludeBundledProductsFromQuantityDiscount: false,
   // B2B customers: inherit the general % / use a custom % / no gateway discount.
   // Applies only while the b2b module is enabled; otherwise everyone gets the
@@ -230,7 +238,7 @@ const CodAfterRtoCard: React.FC = () => {
         {error && (
           <div className="flex items-start justify-between gap-4 rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             <span>{error}</span>
-            <button type="button" onClick={() => setError(null)} className="opacity-60 hover:opacity-100">✕</button>
+            <button type="button" onClick={() => setError(null)} className="opacity-60 hover:opacity-100" aria-label="Dismiss"><X className="h-4 w-4" /></button>
           </div>
         )}
       </CardContent>
@@ -479,7 +487,7 @@ const CodAdvanceCard: React.FC = () => {
         {error && (
           <div className="flex items-start justify-between gap-4 rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             <span>{error}</span>
-            <button type="button" onClick={() => setError(null)} className="opacity-60 hover:opacity-100">✕</button>
+            <button type="button" onClick={() => setError(null)} className="opacity-60 hover:opacity-100" aria-label="Dismiss"><X className="h-4 w-4" /></button>
           </div>
         )}
       </CardContent>
@@ -497,13 +505,20 @@ const PaymentDiscountSettings: React.FC = () => {
   const [showRuleForm, setShowRuleForm] = useState(false);
   const [savingRule, setSavingRule] = useState(false);
   const [ruleError, setRuleError] = useState<string | null>(null);
+  const [discountNote, setDiscountNote] = useState<{ ok: boolean; text: string } | null>(null);
+  /** The saved discounts, as checkout applies them (a tier below 1 piece or at 0% is skipped there). */
+  const [savedDiscount, setSavedDiscount] = useState<{ percent: number; tiers: number }>({ percent: 0, tiers: 0 });
+  const inForce = (percent: unknown, tiers: unknown) => ({
+    percent: Math.min(100, Math.max(0, Number(percent) || 0)),
+    tiers: (Array.isArray(tiers) ? tiers : []).filter((t: any) => Number(t?.minQuantity) >= 1 && Number(t?.discountPercent) > 0 && Number(t?.discountPercent) <= 100).length,
+  });
 
   const loadRules = async () => {
     setRulesLoading(true);
     try {
       const list = await paymentRulesAPI.getAll();
       setRules(Array.isArray(list) ? list : []);
-    } catch { setRuleError('Failed to load payment rules'); }
+    } catch (e) { setRuleError(errorOf(e, 'The payment rules could not be read.')); }
     finally { setRulesLoading(false); }
   };
 
@@ -522,6 +537,11 @@ const PaymentDiscountSettings: React.FC = () => {
 
   const saveRule = async () => {
     if (!ruleForm.name.trim()) { setRuleError('Rule name is required.'); return; }
+    if (!enforced(ruleForm.method)) { setRuleError('Pick cash on delivery or online payment: checkout can switch off only one of these.'); return; }
+    const min = ruleForm.minOrderValue ? Number(ruleForm.minOrderValue) : null;
+    const max = ruleForm.maxOrderValue ? Number(ruleForm.maxOrderValue) : null;
+    if ((min !== null && !(min >= 0)) || (max !== null && !(max >= 0))) { setRuleError('Order values are amounts of at least 0.'); return; }
+    if (min !== null && max !== null && max < min) { setRuleError('The upper order value is below the lower one, so the rule would never apply.'); return; }
     setSavingRule(true);
     setRuleError(null);
     try {
@@ -542,18 +562,20 @@ const PaymentDiscountSettings: React.FC = () => {
       setShowRuleForm(false);
       setRuleForm(emptyRuleForm);
     } catch (err: any) {
-      setRuleError(err?.response?.data?.message || 'Failed to save rule');
+      setRuleError(errorOf(err, 'The rule was not saved.'));
     } finally {
       setSavingRule(false);
     }
   };
 
-  const deleteRule = async (id: string) => {
-    if (!confirm('Delete this payment rule?')) return;
+  // A rule is never deleted on v2: it is switched off and its history stays (checkout resources.rs).
+  const setRuleActive = async (r: PaymentRule, active: boolean) => {
+    if (!active && !confirm(`Switch off "${r.name}"? The method is offered again where this rule blocked it.`)) return;
+    setRuleError(null);
     try {
-      await paymentRulesAPI.delete(id);
-      setRules(prev => prev.filter(r => r.id !== id));
-    } catch { setRuleError('Failed to delete rule'); }
+      const updated = await paymentRulesAPI.update(r.id, { is_active: active });
+      setRules(prev => prev.map(x => (x.id === r.id ? { ...x, ...(updated && typeof updated === 'object' ? updated : {}), is_active: active } : x)));
+    } catch (e) { setRuleError(errorOf(e, 'The rule was not changed.')); }
   };
 
   useEffect(() => {
@@ -563,14 +585,27 @@ const PaymentDiscountSettings: React.FC = () => {
   const { formData, setFormData, loading, saving, handleSubmit } = useSettingsSection<FormData>({
     defaults: DEFAULT_FORM_DATA,
     parse: (settings) => ({
-      razorpayDiscountPercent: settings.razorpayDiscountPercent ?? 2,
-      quantityDiscounts: settings.quantityDiscounts || DEFAULT_FORM_DATA.quantityDiscounts,
-      excludeBundledProductsFromQuantityDiscount: settings.excludeBundledProductsFromQuantityDiscount || false,
+      razorpayDiscountPercent: Number(settings.razorpayDiscountPercent) || 0,
+      quantityDiscounts: Array.isArray(settings.quantityDiscounts)
+        ? settings.quantityDiscounts.map((t: any) => ({ minQuantity: Number(t?.minQuantity) || 1, discountPercent: Number(t?.discountPercent) || 0 }))
+        : [],
+      excludeBundledProductsFromQuantityDiscount: settings.excludeBundledProductsFromQuantityDiscount === true,
       b2bGatewayDiscountMode: settings.b2bGatewayDiscountMode || 'inherit',
-      b2bRazorpayDiscountPercent: settings.b2bRazorpayDiscountPercent || 0,
+      b2bRazorpayDiscountPercent: Number(settings.b2bRazorpayDiscountPercent) || 0,
     }),
-    successMessage: 'Payment gateway discount settings saved successfully!',
+    onLoadError: (e) => setDiscountNote({ ok: false, text: errorOf(e, 'The discount settings could not be read. What is shown below is not what checkout applies.') }),
+    onLoaded: (settings) => setSavedDiscount(inForce(settings?.razorpayDiscountPercent, settings?.quantityDiscounts)),
+    onSuccess: (f) => {
+      setSavedDiscount(inForce(f.razorpayDiscountPercent, f.quantityDiscounts));
+      setDiscountNote({ ok: true, text: 'Saved. Checkout applies these from the next quote.' });
+    },
+    onError: (e) => setDiscountNote({ ok: false, text: errorOf(e, 'The discounts were not saved.') }),
   });
+
+  const setTier = (index: number, patch: Partial<QuantityDiscount>) =>
+    setFormData((prev) => ({ ...prev, quantityDiscounts: prev.quantityDiscounts.map((t, i) => (i === index ? { ...t, ...patch } : t)) }));
+  // Checkout skips a tier below 1 piece or at 0% (domain/orders/discounts.rs parse_tiers).
+  const ignoredTiers = formData.quantityDiscounts.filter((t) => !(t.minQuantity >= 1 && t.discountPercent > 0 && t.discountPercent <= 100)).length;
 
   const handleChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: parseFloat(value) || 0 }));
@@ -598,10 +633,23 @@ const PaymentDiscountSettings: React.FC = () => {
         </Button>
         <h1 className="text-3xl font-bold tracking-tight text-foreground">Payment Methods &amp; Discounts</h1>
         <p className="text-sm text-muted-foreground mt-2">
-          Prepaid (gateway) discount, quantity discounts, and <strong>Payment Method Rules</strong>: restrict COD or online
-          payment by order value, pincode or customer type (e.g. no COD above ₹2,000). COD on/off and the COD convenience
-          fee live under Settings, Shipping; taking that fee online at checkout is set below.
+          Prepaid discount, quantity discounts, and <strong>Payment Method Rules</strong>: switch off cash on delivery or
+          online payment by order value, PIN code or customer type (for example no COD from ₹2,000). COD on or off and the COD
+          convenience fee live under Settings, Shipping; taking that fee online at checkout is set below.
         </p>
+      </div>
+
+      {/* In force now: what checkout applies, read from the saved settings. */}
+      <div className="flex flex-wrap gap-2 text-sm" aria-live="polite">
+        <Badge variant="outline" className="bg-background">
+          Prepaid discount: {savedDiscount.percent > 0 ? `${savedDiscount.percent}%` : 'none'}
+        </Badge>
+        <Badge variant="outline" className="bg-background">
+          Quantity tiers: {savedDiscount.tiers > 0 ? savedDiscount.tiers : 'none'}
+        </Badge>
+        <Badge variant="outline" className="bg-background">
+          Active rules: {rulesLoading ? '...' : rules.filter((r) => r.is_active).length}
+        </Badge>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6 pb-12">
@@ -611,14 +659,14 @@ const PaymentDiscountSettings: React.FC = () => {
               <CreditCard className="w-6 h-6 text-red-600" />
             </div>
             <div>
-              <CardTitle>Razorpay Discount</CardTitle>
-              <CardDescription>Percentage discount applied to prepaid orders</CardDescription>
+              <CardTitle>Prepaid discount</CardTitle>
+              <CardDescription>A percentage off every order paid online: any gateway, UPI or bank transfer. Never on cash on delivery.</CardDescription>
             </div>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">
-                Discount Percentage <span className="text-destructive">*</span>
+                Discount percentage <span className="text-muted-foreground font-normal">(0 = none)</span>
               </label>
               <div className="flex items-center gap-3">
                 <Input
@@ -629,22 +677,20 @@ const PaymentDiscountSettings: React.FC = () => {
                   step="0.1"
                   value={formData.razorpayDiscountPercent}
                   onChange={(e) => handleChange('razorpayDiscountPercent', e.target.value)}
-                  placeholder="2"
+                  placeholder="0"
                   className="w-32"
                 />
                 <span className="text-foreground font-medium">%</span>
               </div>
-              <p className="text-[10px] text-muted-foreground">
-                This discount will be applied to prepaid orders (Razorpay payments). 
-                The discount is calculated on the subtotal after quantity discounts.
+              <p className="text-xs text-muted-foreground">
+                Taken off the items subtotal after any quantity discount, rounded to the rupee.
               </p>
             </div>
 
             <div className="bg-green-50 border border-green-200 rounded-lg p-4">
               <p className="text-sm text-green-800">
-                <strong>Server-enforced:</strong> checkout shows this discount AND the backend
-                applies the same percentage when charging the order: shown always equals charged.
-                COD orders never get the gateway discount.
+                <strong>Applied by the server:</strong> checkout shows this discount and charges exactly
+                that amount. Cash on delivery orders never get it.
               </p>
             </div>
 
@@ -690,60 +736,48 @@ const PaymentDiscountSettings: React.FC = () => {
 
         {/* Quantity Discounts Section */}
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-4 border-t pt-6 mt-6">
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               <div className="flex-shrink-0 w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
                 <Percent className="w-6 h-6 text-green-600" />
               </div>
               <div>
-                <CardTitle>Quantity Discounts</CardTitle>
-                <CardDescription>Configure automatic discounts based on total quantity</CardDescription>
+                <CardTitle>Quantity discounts</CardTitle>
+                <CardDescription>A percentage off when the cart holds at least this many pieces.</CardDescription>
               </div>
             </div>
             <Button
               type="button"
               variant="outline"
-              onClick={() => {
-                setFormData({
-                  ...formData,
-                  quantityDiscounts: [
-                    ...formData.quantityDiscounts,
-                    { minQuantity: 1, discountPercent: 0 },
-                  ],
-                });
-              }}
+              onClick={() => setFormData((prev) => ({ ...prev, quantityDiscounts: [...prev.quantityDiscounts, { minQuantity: 1, discountPercent: 0 }] }))}
               className="text-green-600 border-green-200 hover:bg-green-50"
             >
               <Plus className="w-4 h-4 mr-2" />
-              Add Tier
+              Add tier
             </Button>
           </CardHeader>
           <CardContent className="space-y-6">
             {formData.quantityDiscounts.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">No quantity discounts configured. Click "Add Tier" to add one.</p>
+              <p className="text-sm text-muted-foreground text-center py-4">No quantity discounts: every cart pays the item prices. Add a tier to start one.</p>
             ) : (
               <div className="space-y-4">
                 {formData.quantityDiscounts.map((discount, index) => (
-                  <div key={index} className="flex items-center gap-4 p-4 bg-muted/50 rounded-lg border">
-                    <div className="flex-1 grid grid-cols-2 gap-4">
+                  <div key={index} className="flex items-center gap-3 p-3 sm:p-4 bg-muted/50 rounded-lg border">
+                    <div className="flex-1 grid grid-cols-2 gap-3 sm:gap-4">
                       <div className="space-y-2">
                         <label className="text-sm font-medium text-foreground">
-                          Minimum Quantity
+                          From pieces
                         </label>
                         <Input
                           type="number"
                           min="1"
                           value={discount.minQuantity}
-                          onChange={(e) => {
-                            const newDiscounts = [...formData.quantityDiscounts];
-                            newDiscounts[index].minQuantity = parseInt(e.target.value) || 1;
-                            setFormData({ ...formData, quantityDiscounts: newDiscounts });
-                          }}
+                          onChange={(e) => setTier(index, { minQuantity: parseInt(e.target.value, 10) || 1 })}
                         />
                       </div>
                       <div className="space-y-2">
                         <label className="text-sm font-medium text-foreground">
-                          Discount Percentage
+                          Discount
                         </label>
                         <div className="flex items-center gap-2">
                           <Input
@@ -752,11 +786,7 @@ const PaymentDiscountSettings: React.FC = () => {
                             max="100"
                             step="0.1"
                             value={discount.discountPercent}
-                            onChange={(e) => {
-                              const newDiscounts = [...formData.quantityDiscounts];
-                              newDiscounts[index].discountPercent = parseFloat(e.target.value) || 0;
-                              setFormData({ ...formData, quantityDiscounts: newDiscounts });
-                            }}
+                            onChange={(e) => setTier(index, { discountPercent: parseFloat(e.target.value) || 0 })}
                           />
                           <span className="text-foreground font-medium">%</span>
                         </div>
@@ -766,17 +796,21 @@ const PaymentDiscountSettings: React.FC = () => {
                       type="button"
                       variant="ghost"
                       size="icon"
-                      onClick={() => {
-                        const newDiscounts = formData.quantityDiscounts.filter((_, i) => i !== index);
-                        setFormData({ ...formData, quantityDiscounts: newDiscounts });
-                      }}
+                      onClick={() => setFormData((prev) => ({ ...prev, quantityDiscounts: prev.quantityDiscounts.filter((_, i) => i !== index) }))}
                       className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                      aria-label="Remove this tier"
                     >
                       <Trash2 className="w-4 h-4" />
                     </Button>
                   </div>
                 ))}
               </div>
+            )}
+
+            {ignoredTiers > 0 && (
+              <p className="text-xs text-amber-700">
+                {ignoredTiers === 1 ? 'One tier is' : `${ignoredTiers} tiers are`} skipped at checkout: a tier needs at least 1 piece and a discount above 0%.
+              </p>
             )}
 
             <div className="pt-4 border-t space-y-3">
@@ -795,9 +829,8 @@ const PaymentDiscountSettings: React.FC = () => {
 
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
               <p className="text-sm text-yellow-800">
-                <strong>Note:</strong> Discounts are applied based on total quantity in cart. 
-                Higher quantity thresholds should have higher discount percentages. 
-                The system will apply the highest applicable discount.
+                <strong>Note:</strong> the tier is chosen by the total pieces in the cart, and the highest tier the cart
+                reaches applies. Give larger tiers larger discounts.
                 {formData.excludeBundledProductsFromQuantityDiscount && (
                   <span className="block mt-1">
                     <strong>Bundled products excluded:</strong> Only non-bundled items will count toward quantity discount thresholds.
@@ -808,7 +841,12 @@ const PaymentDiscountSettings: React.FC = () => {
           </CardContent>
         </Card>
 
-        <div className="flex justify-end gap-3 pt-4">
+        <div className="flex flex-wrap items-center justify-end gap-3 pt-4">
+          {discountNote && (
+            <span className={`mr-auto text-sm ${discountNote.ok ? 'text-emerald-700' : 'text-destructive'}`} role={discountNote.ok ? 'status' : 'alert'}>
+              {discountNote.text}
+            </span>
+          )}
           <Button
             type="button"
             variant="outline"
@@ -822,7 +860,7 @@ const PaymentDiscountSettings: React.FC = () => {
             className="bg-blue-600 hover:bg-blue-700"
           >
             {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-            {saving ? 'Saving...' : 'Save Changes'}
+            {saving ? 'Saving...' : 'Save discounts'}
           </Button>
         </div>
       </form>
@@ -833,27 +871,27 @@ const PaymentDiscountSettings: React.FC = () => {
 
       {/* Payment Method Rules */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0">
-          <div className="flex items-center gap-4">
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 space-y-0">
+          <div className="flex items-center gap-4 min-w-0">
             <div className="flex-shrink-0 w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
               <Ban className="w-6 h-6 text-orange-600" />
             </div>
-            <div>
+            <div className="min-w-0">
               <CardTitle>Payment Method Rules</CardTitle>
               <CardDescription>
-                Restrict a payment method under specific conditions, e.g. <em>method COD, min order value 2000</em> blocks COD for
-                every order of ₹2,000 or more. "Order value" is the items subtotal before discounts. A blocked method is hidden
-                at checkout and refused at placement.
+                Switch off cash on delivery or online payment under conditions: <em>cash on delivery, from order value 2000</em> hides
+                COD for every order of ₹2,000 or more. Order value is the items subtotal before discounts. A switched-off method is
+                hidden at checkout and refused at placement; the first matching rule decides.
               </CardDescription>
             </div>
           </div>
-          <Button size="sm" onClick={openCreateRule}><Plus className="mr-1.5 h-4 w-4" /> Add Rule</Button>
+          <Button size="sm" onClick={openCreateRule}><Plus className="mr-1.5 h-4 w-4" /> Add rule</Button>
         </CardHeader>
         <CardContent className="space-y-4">
           {ruleError && (
             <div className="flex items-start justify-between gap-4 rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
               <span>{ruleError}</span>
-              <button onClick={() => setRuleError(null)} className="opacity-60 hover:opacity-100">✕</button>
+              <button onClick={() => setRuleError(null)} className="opacity-60 hover:opacity-100" aria-label="Dismiss"><X className="h-4 w-4" /></button>
             </div>
           )}
 
@@ -865,12 +903,13 @@ const PaymentDiscountSettings: React.FC = () => {
                   <Input value={ruleForm.name} onChange={e => setRuleForm(f => ({ ...f, name: e.target.value }))} placeholder="No COD above ₹5,000" className="h-9" />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Method to restrict</Label>
+                  <Label className="text-xs">Method to switch off</Label>
                   <select
                     value={ruleForm.method} onChange={e => setRuleForm(f => ({ ...f, method: e.target.value }))}
                     className="w-full h-9 px-3 border border-input rounded-md bg-background text-sm"
                   >
-                    {PAYMENT_METHODS.map(m => <option key={m} value={m}>{m.toUpperCase()}</option>)}
+                    {!enforced(ruleForm.method) && <option value={ruleForm.method} disabled>{ruleForm.method.toUpperCase()} (not checked at checkout)</option>}
+                    {PAYMENT_METHODS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
                   </select>
                 </div>
                 <div className="space-y-1.5">
@@ -894,8 +933,9 @@ const PaymentDiscountSettings: React.FC = () => {
                   <Input type="number" min="0" value={ruleForm.maxOrderValue} onChange={e => setRuleForm(f => ({ ...f, maxOrderValue: e.target.value }))} className="h-9" />
                 </div>
                 <div className="space-y-1.5 md:col-span-2">
-                  <Label className="text-xs">Exclude pincodes (comma-separated, optional)</Label>
-                  <Input value={ruleForm.excludePincodes} onChange={e => setRuleForm(f => ({ ...f, excludePincodes: e.target.value }))} placeholder="110001, 400001" className="h-9" />
+                  <Label className="text-xs">Only at these PIN codes (comma-separated, optional)</Label>
+                  <Input value={ruleForm.excludePincodes} onChange={e => setRuleForm(f => ({ ...f, excludePincodes: e.target.value }))} placeholder="110001, 400001" className="h-9" inputMode="numeric" />
+                  <p className="text-[10px] text-muted-foreground">Left empty, the rule applies at every PIN code. Filled in, it applies only when the delivery PIN code is one of these.</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -915,7 +955,7 @@ const PaymentDiscountSettings: React.FC = () => {
           {rulesLoading ? (
             <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
           ) : rules.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-6">No payment rules configured: all methods are available unconditionally.</p>
+            <p className="text-sm text-muted-foreground text-center py-6">No payment rules: every method the store offers is open to every order.</p>
           ) : (
             <Table>
               <TableHeader>
@@ -925,25 +965,30 @@ const PaymentDiscountSettings: React.FC = () => {
                 {rules.map(r => (
                   <TableRow key={r.id}>
                     <TableCell className="font-medium">{r.name}</TableCell>
-                    <TableCell><Badge variant="outline">{r.method.toUpperCase()}</Badge></TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{METHOD_WORD[r.method] ?? r.method.toUpperCase()}</Badge>
+                      {!enforced(r.method) && (
+                        <span className="mt-1 block text-[10px] text-amber-700" title="Checkout tells only cash on delivery from online payment apart, so this rule never applies. Edit it to one of those, or switch it off.">Not checked at checkout</span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       {r.conditions?.customerSegment && r.conditions.customerSegment !== 'all' && (
                         <Badge variant="outline" className={`mr-1.5 text-[10px] ${r.conditions.customerSegment === 'b2b' ? 'bg-violet-50 text-violet-700 border-violet-200' : 'bg-sky-50 text-sky-700 border-sky-200'}`}>
                           {r.conditions.customerSegment.toUpperCase()}
                         </Badge>
                       )}
-                      {r.conditions?.minOrderValue != null && <span>Min ₹{r.conditions.minOrderValue} </span>}
-                      {r.conditions?.maxOrderValue != null && <span>Max ₹{r.conditions.maxOrderValue} </span>}
-                      {r.conditions?.orderValueAbove != null && <span>Above ₹{r.conditions.orderValueAbove} </span>}
+                      {r.conditions?.minOrderValue != null && <span>From {fmtRupees(r.conditions.minOrderValue)} </span>}
+                      {r.conditions?.maxOrderValue != null && <span>Up to {fmtRupees(r.conditions.maxOrderValue)} </span>}
+                      {r.conditions?.orderValueAbove != null && <span>Above {fmtRupees(r.conditions.orderValueAbove)} </span>}
                       {r.conditions?.system && (
-                        <Badge variant="outline" className="ml-1 bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">managed by Settings ▸ Cash on delivery</Badge>
+                        <Badge variant="outline" className="ml-1 bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">Set under Settings, Cash on delivery</Badge>
                       )}
-                      {r.conditions?.excludePincodes?.length ? <span>Excl. {r.conditions.excludePincodes.length} pincode(s)</span> : null}
+                      {r.conditions?.excludePincodes?.length ? <span>At {r.conditions.excludePincodes.length} PIN code{r.conditions.excludePincodes.length === 1 ? '' : 's'}</span> : null}
                       {!r.conditions?.minOrderValue && !r.conditions?.maxOrderValue && r.conditions?.orderValueAbove == null && !r.conditions?.excludePincodes?.length && (!r.conditions?.customerSegment || r.conditions.customerSegment === 'all') && 'Any order'}
                     </TableCell>
                     <TableCell>
                       <Badge variant={r.is_active ? 'default' : 'secondary'} className={r.is_active ? 'bg-green-500/15 text-green-700 border-green-200 hover:bg-green-500/25' : ''}>
-                        {r.is_active ? 'Active' : 'Inactive'}
+                        {r.is_active ? 'Active' : 'Off'}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
@@ -953,7 +998,11 @@ const PaymentDiscountSettings: React.FC = () => {
                       <Button variant="outline" size="sm" className="h-7 w-7 p-0 mr-1" onClick={() => openEditRule(r)}><Pencil className="h-3.5 w-3.5" /></Button>
                       )}
                       {!r.conditions?.system && (
-                        <Button variant="outline" size="sm" className="h-7 w-7 p-0 text-destructive" onClick={() => deleteRule(r.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                        r.is_active ? (
+                          <Button variant="outline" size="sm" className="h-7 px-2 text-xs text-destructive" onClick={() => setRuleActive(r, false)} title="Switch off (the rule and its history are kept)">Switch off</Button>
+                        ) : (
+                          <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => setRuleActive(r, true)} disabled={!enforced(r.method)} title={enforced(r.method) ? 'Switch on' : 'Edit it to cash on delivery or online payment first'}>Switch on</Button>
+                        )
                       )}
                     </TableCell>
                   </TableRow>
@@ -964,9 +1013,9 @@ const PaymentDiscountSettings: React.FC = () => {
 
           <div className="bg-green-50 border border-green-200 rounded-lg p-3">
             <p className="text-xs text-green-800">
-              <strong>Enforced at checkout:</strong> active rules block the restricted method at
-              order placement (COD/prepaid), matching on order value, pincode and customer
-              segment. B2B-only rules apply only while the B2B module is enabled.
+              <strong>Enforced at checkout:</strong> an active rule hides its method at checkout and refuses it at
+              placement, matching on order value, PIN code and customer type. Wholesale-only rules apply only while
+              the B2B module is on. A rule is never deleted: switched off, it keeps its history.
             </p>
           </div>
         </CardContent>

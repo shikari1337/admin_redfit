@@ -11,14 +11,16 @@ import { Badge } from '@/components/ui/badge';
 import { localeDateTime } from '../utils/date';
 import InfoTip from '@/components/common/InfoTip';
 import { downloadCsv, type CsvColumn } from '@/lib/csv';
+import { fmtCurrencyMinor, fmtRupees } from '@/lib/money';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 
 interface WalletBalance {
   balance: number;
-  currency: string;
-  low_balance_threshold: number;
+  currency?: string;
+  /** null until the wallet's first movement (platform views/store.rs WalletView). */
+  low_balance_threshold: number | null;
   is_low: boolean;
   allow_negative: boolean;
   is_active: boolean;
@@ -29,7 +31,7 @@ interface WalletTransaction {
   direction: 'credit' | 'debit';
   amount: number;
   balance_after: number;
-  category: string;
+  category: string | null;
   reference?: string | null;
   note?: string | null;
   created_at: string;
@@ -50,7 +52,7 @@ const PAGE_SIZE = 20;
 const WALLET_CSV_COLUMNS: CsvColumn<WalletTransaction>[] = [
   { key: 'created_at', label: 'Date' },
   { key: 'direction', label: 'In or out', format: (t) => (t.direction === 'credit' ? 'Top-up' : 'Charge') },
-  { key: 'category', label: 'Category', format: (t) => String(t.category ?? '').replace(/_/g, ' ') },
+  { key: 'category', label: 'Category', format: (t) => categoryText(t.category) },
   { key: 'note', label: 'Note', format: (t) => t.note ?? t.reference ?? '' },
   { key: 'amount', label: 'Amount', format: (t) => Number(t.amount ?? 0).toFixed(2) },
   { key: 'balance_after', label: 'Balance after', format: (t) => Number(t.balance_after ?? 0).toFixed(2) },
@@ -77,8 +79,15 @@ function loadRazorpayScript(): Promise<boolean> {
   });
 }
 
-const fmtMoney = (n: number | undefined, currency = 'INR') =>
-  `${currency === 'INR' ? '₹' : currency + ' '}${(n ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+/** Money in rupees (the v2 envelope turns each Money into its major figure) through the one formatter. */
+const fmtMoney = (n: number | null | undefined, currency?: string | null) =>
+  (!currency || currency === 'INR' ? fmtRupees(n ?? 0) : fmtCurrencyMinor(Math.round(Number(n ?? 0) * 100), currency, 'en-IN'));
+/** A per-unit rate (platform ServicePriceView: an exact decimal, never rounded to paise): up to 4 decimals. */
+const fmtRate = (n: number | undefined) =>
+  (typeof n === 'number' && Number.isFinite(n)
+    ? n.toLocaleString('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2, maximumFractionDigits: 4 })
+    : 'Not priced');
+const categoryText = (c: string | null | undefined) => String(c ?? '').replace(/_/g, ' ') || 'Other';
 
 const WalletPage: React.FC = () => {
   const navigate = useNavigate();
@@ -141,7 +150,7 @@ const WalletPage: React.FC = () => {
   const shownTx = React.useMemo(() => {
     const q = txFind.trim().toLowerCase();
     if (!q) return transactions;
-    return transactions.filter((t) => [t.category, t.note, t.reference]
+    return transactions.filter((t) => [categoryText(t.category), t.note, t.reference]
       .some((v) => String(v ?? '').toLowerCase().includes(q)));
   }, [transactions, txFind]);
 
@@ -213,7 +222,7 @@ const WalletPage: React.FC = () => {
         </Button>
         <h1 className="text-3xl font-bold tracking-tight text-foreground">Wallet</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Your prepaid balance for metered services — SMS, WhatsApp, email, shipping labels and AI generation.
+          Your prepaid balance for metered services: SMS, WhatsApp, email, shipping labels and AI generation.
         </p>
       </div>
 
@@ -225,6 +234,19 @@ const WalletPage: React.FC = () => {
       )}
       {success && (
         <div className="rounded-md border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-800">{success}</div>
+      )}
+      {wallet && (wallet.is_low || !wallet.is_active) && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="status">
+          <span className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            {!wallet.is_active
+              ? 'The wallet is switched off: paid messages and shipping labels are not charged to it. Ask Growcord support to switch it on.'
+              : `The balance is ${fmtMoney(wallet.balance, wallet.currency)}, below the alert level. Paid messages and shipping labels are charged to it.`}
+          </span>
+          {wallet.is_active && canManageBilling && (
+            <Button size="sm" variant="outline" className="h-8" onClick={() => document.getElementById('wallet-topup')?.focus()}>Add money</Button>
+          )}
+        </div>
       )}
 
       {/* Balance */}
@@ -245,8 +267,10 @@ const WalletPage: React.FC = () => {
               </div>
               {wallet && (
                 <p className="text-xs text-muted-foreground mt-2">
-                  Low-balance alert threshold: {fmtMoney(wallet.low_balance_threshold, wallet.currency)}
-                  {wallet.allow_negative ? ' · Negative balance allowed' : ''}
+                  {wallet.low_balance_threshold != null
+                    ? `Low-balance alert below ${fmtMoney(wallet.low_balance_threshold, wallet.currency)}.`
+                    : 'The low-balance alert level is set when the first money is added.'}
+                  {wallet.allow_negative ? ' The balance may go below zero.' : ''}
                 </p>
               )}
             </div>
@@ -255,6 +279,7 @@ const WalletPage: React.FC = () => {
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-muted-foreground">Amount (₹)</label>
                   <Input
+                    id="wallet-topup"
                     type="number" min="1" step="1" value={rechargeAmount}
                     onChange={e => setRechargeAmount(e.target.value)}
                     className="w-32 h-9"
@@ -278,7 +303,7 @@ const WalletPage: React.FC = () => {
             {Object.entries(SERVICE_LABELS).map(([key, label]) => (
               <div key={key} className="rounded-md border p-3 text-center">
                 <div className="text-xs text-muted-foreground mb-1">{label}</div>
-                <div className="font-semibold">{fmtMoney(pricing[key], wallet?.currency)}</div>
+                <div className={typeof pricing[key] === 'number' ? 'font-semibold' : 'text-sm text-muted-foreground'}>{fmtRate(pricing[key])}</div>
               </div>
             ))}
           </div>
@@ -326,7 +351,7 @@ const WalletPage: React.FC = () => {
             Transaction ledger
             <InfoTip
               text="Every top-up and every charge, newest first. A CREDIT adds to your balance; a DEBIT is a message, label or AI call you were charged for."
-              where="Charges come from the service that used it — SMS, WhatsApp, email, shipping labels, AI." />
+              where="Charges come from the service that used it: SMS, WhatsApp, email, shipping labels, AI." />
           </CardTitle>
           <div className="flex flex-wrap items-center gap-1">
             <Input
@@ -373,7 +398,7 @@ const WalletPage: React.FC = () => {
               ) : shownTx.map(tx => (
                 <TableRow key={tx.id}>
                   <TableCell className="text-sm">{localeDateTime(tx.created_at, undefined, 'en-IN')}</TableCell>
-                  <TableCell className="capitalize text-sm">{tx.category.replace(/_/g, ' ')}</TableCell>
+                  <TableCell className="capitalize text-sm">{categoryText(tx.category)}</TableCell>
                   <TableCell className="text-xs text-muted-foreground max-w-xs truncate">{tx.note || tx.reference || '—'}</TableCell>
                   <TableCell className={`text-right font-medium flex items-center justify-end gap-1 ${tx.direction === 'credit' ? 'text-green-600' : 'text-destructive'}`}>
                     {tx.direction === 'credit' ? <ArrowDownLeft className="h-3.5 w-3.5" /> : <ArrowUpRight className="h-3.5 w-3.5" />}
@@ -386,7 +411,7 @@ const WalletPage: React.FC = () => {
           </Table>
           {txTotal > PAGE_SIZE && (
             <div className="flex items-center justify-between px-4 py-3 border-t">
-              <p className="text-xs text-muted-foreground">Page {txPage} of {totalPages} · {txTotal} total</p>
+              <p className="text-xs text-muted-foreground">Page {txPage} of {totalPages}, {txTotal} in all</p>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" disabled={txPage <= 1} onClick={() => setTxPage(p => p - 1)}>Previous</Button>
                 <Button variant="outline" size="sm" disabled={txPage >= totalPages} onClick={() => setTxPage(p => p + 1)}>Next</Button>
