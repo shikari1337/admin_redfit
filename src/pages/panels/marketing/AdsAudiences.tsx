@@ -5,7 +5,7 @@ import { payload } from '../../../lib/unwrap';
 import { localeDateTime } from '../../../utils/date';
 
 /**
- * Custom audiences — the GDPR double gate made visible:
+ * Custom audiences: the GDPR double gate made visible.
  *  1) members must have granted 'ads' consent (consented count shown vs total);
  *  2) an ADMIN must approve the audience before any sync;
  * only then can it be uploaded (SHA-256 hashed) to Google / Meta / Snapchat.
@@ -62,8 +62,8 @@ const AdsAudiences: React.FC = () => {
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-gray-900">Custom Audiences</h1>
           <p className="text-sm text-gray-500">
-            Data is shared with ad platforms only when <b>both</b> the member consented ('ads' channel)
-            <b> and</b> an admin approved the audience — and only as SHA-256 hashes.
+            Data is shared with ad platforms only when <b>both</b> the member consented to ads
+            <b> and</b> a second person approved the audience, and only as SHA-256 hashes.
           </p>
         </div>
         {hasPerm('ads.manage') && (
@@ -94,7 +94,7 @@ const AdsAudiences: React.FC = () => {
               <label className="text-sm">List
                 <select value={form.list_id ?? ''} onChange={(e) => setForm({ ...form, list_id: e.target.value })}
                   className="mt-1 w-full rounded border px-2 py-1.5">
-                  <option value="">— select —</option>
+                  <option value="">Pick a list</option>
                   {lists.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.member_count})</option>)}
                 </select>
               </label>
@@ -122,17 +122,18 @@ const AdsAudiences: React.FC = () => {
               <span className={`rounded px-1.5 py-0.5 text-xs capitalize ${STATUS[a.status] ?? ''}`}>{a.status}</span>
               <span className="text-xs text-gray-500">
                 {a.consented_count}/{a.member_count} consented
-                {a.list_name ? ` · list: ${a.list_name}` : ' · filter'}
+                {a.list_id ? `, from list ${lists.find((l) => l.id === a.list_id)?.name ?? ''}`.trimEnd() : ', from a filter'}
               </span>
               {a.approved_by
-                ? <span className="rounded bg-green-50 px-1.5 py-0.5 text-xs text-green-700">admin approved</span>
-                : <span className="rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-700">awaiting admin approval</span>}
-              <div className="ml-auto flex gap-1.5">
+                ? <span className="rounded bg-green-50 px-1.5 py-0.5 text-xs text-green-700">approved</span>
+                : <span className="rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-700">waiting for a second person to approve</span>}
+              <div className="flex w-full flex-wrap gap-1.5 sm:ml-auto sm:w-auto">
                 <button onClick={() => act(() => api.post(`/marketing-hub/ads/audiences/${a.id}/refresh`))}
                   className="rounded border px-2 py-1 text-xs">Refresh counts</button>
                 {hasPerm('marketing.approve') && !a.approved_by && (
                   <button onClick={() => act(() => api.post(`/marketing-hub/ads/audiences/${a.id}/approve`))}
-                    className="rounded bg-green-600 px-2 py-1 text-xs font-medium text-white">Approve (admin)</button>
+                    title="The person who made the audience cannot approve it"
+                    className="rounded bg-green-600 px-2 py-1 text-xs font-medium text-white">Approve</button>
                 )}
                 {hasPerm('ads.manage') && a.approved_by && (
                   <button onClick={() => sync(a.id)}
@@ -145,16 +146,16 @@ const AdsAudiences: React.FC = () => {
                   setLog({ audience: a, rows: payload(r) ?? [] });
                 })} className="rounded border px-2 py-1 text-xs">Log</button>
                 {hasPerm('ads.manage') && (
-                  <button onClick={() => { if (window.confirm('Delete audience? (Does not remove already-synced platform lists)')) act(() => api.delete(`/marketing-hub/ads/audiences/${a.id}`)); }}
-                    className="rounded border px-2 py-1 text-xs text-red-600">✕</button>
+                  <button onClick={() => { if (window.confirm('Delete this audience? Lists already shared with a platform stay there until you remove them on that platform.')) act(() => api.delete(`/marketing-hub/ads/audiences/${a.id}`)); }}
+                    className="rounded border px-2 py-1 text-xs text-red-600">Delete</button>
                 )}
               </div>
             </div>
             {a.platform_refs && Object.keys(a.platform_refs).length > 0 && (
-              <div className="mt-1 flex gap-2 text-xs text-gray-500">
+              <div className="mt-1 flex flex-wrap gap-2 text-xs text-gray-500">
                 {Object.entries(a.platform_refs).map(([p, ref]: any) => (
                   <span key={p} className="rounded bg-gray-50 px-1.5 py-0.5">
-                    {p}: {ref.id}{ref.mock ? ' (mock)' : ''}
+                    {p}: {ref.id}{ref.mock ? ' (sample)' : ''}
                   </span>
                 ))}
               </div>
@@ -166,7 +167,7 @@ const AdsAudiences: React.FC = () => {
       {log && (
         <div className="rounded-lg border bg-white p-4 shadow-sm space-y-2">
           <div className="flex items-center justify-between">
-            <div className="font-semibold">Sync log — {log.audience.name}</div>
+            <div className="font-semibold">Sync log: {log.audience.name}</div>
             <button onClick={() => setLog(null)} className="text-sm text-gray-500">Close</button>
           </div>
           {log.rows.length === 0 ? <div className="text-sm text-gray-500">No syncs yet.</div> : (
@@ -177,7 +178,7 @@ const AdsAudiences: React.FC = () => {
                   <tr key={r.id}>
                     <td className="py-1 uppercase text-xs">{r.platform}</td>
                     <td>{r.members_sent}</td>
-                    <td className={`text-xs ${r.status === 'error' ? 'text-red-600' : ''}`}>{r.status}{r.error ? ` — ${r.error}` : ''}</td>
+                    <td className={`text-xs ${r.status === 'error' ? 'text-red-600' : ''}`}>{r.status}{r.error ? `: ${r.error}` : ''}</td>
                     <td className="text-xs text-gray-400">{localeDateTime(r.created_at)}</td>
                   </tr>
                 ))}

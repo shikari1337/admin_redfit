@@ -204,7 +204,7 @@ export const MARKETING_ROUTES: V2Route[] = [
   { m: 'POST', from: '/marketing-hub/ads/campaigns/:id/pause', row: 'marketing 5.6 Ads (22) — module ads_management + m', to: '/api/v2/marketing/ads/campaigns/{id}/pause', bs: 'j' },
   { m: 'POST', from: '/marketing-hub/ads/campaigns/:id/refresh-stats', row: 'marketing 5.6 Ads (22) — module ads_management + m', to: '/api/v2/marketing/ads/campaigns/{id}/refresh-stats', bs: 'j' },
   { m: 'POST', from: '/marketing-hub/ads/campaigns/:id/sync', row: 'marketing 5.6 Ads (22) — module ads_management + m', to: '/api/v2/marketing/ads/campaigns/{id}/sync', bs: 'j' },
-  { m: 'POST', from: '/marketing-hub/ads/google/reconcile', row: 'no ROUTE_MAP row', gap: 'reconciling Google Ads campaigns has no v2 route (marketing ROUTE_MAP: no row)' },
+  { m: 'POST', from: '/marketing-hub/ads/google/reconcile', row: 'marketing 5.6 Ads (MENU-1 ads)', to: '/api/v2/marketing/ads/google/reconcile', bs: 'j' }, // GoogleMeasurementView; the Ad accounts page calls it on a person's click (lib/v2/areas/ads.ts)
   { m: 'POST', from: '/marketing-hub/ads/oauth/:platform/exchange', row: 'marketing 5.6 Ads (22) — module ads_management + m', to: '/api/v2/marketing/ads/oauth/{platform}/exchange', bs: {'account_id':'s','code':'s','redirect_uri':'s'} },
   { m: 'GET', from: '/marketing-hub/ads/oauth/:platform/url', row: 'marketing 5.6 Ads (22) — module ads_management + m', to: '/api/v2/marketing/ads/oauth/{platform}/url', qs: ['account_id','redirect_uri'] },
   { m: 'GET', from: '/marketing-hub/ads/platforms', row: 'marketing 5.6 Ads (22) — module ads_management + m', to: '/api/v2/marketing/ads/platforms', reply: (d) => d?.platforms ?? d }, // AdPlatformsView {platforms} (marketing views/ads.rs:13); AdsManager calls platforms.find

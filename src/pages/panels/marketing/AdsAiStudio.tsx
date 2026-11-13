@@ -1,18 +1,22 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { connectionsHref } from './meta/routes';
+import { moneyMajor, writeError } from './meta/common';
 import { api } from '../../../services/api';
 import { useAuth } from '../../../contexts/AuthContext';
 import { payload } from '../../../lib/unwrap';
 import { localeDate } from '../../../utils/date';
 
 /**
- * AI Ads Studio — propose, review, apply.
+ * AI Ads Studio: the AI proposes, a person reviews and applies.
  *
  * The review step is real, not decorative: every field of a generated plan is
  * editable here and the edited object is what gets sent to
  * POST /connectors/ai/drafts/:id/apply. Nothing reaches Google until Apply is
  * pressed, and campaigns always arrive PAUSED, so a mistake costs nothing.
+ * The daily budget is the person's own figure: the plan's suggestion is shown
+ * beside it and used only when they press "Use the suggestion" (the server
+ * refuses an apply without it).
  */
 
 const KIND_LABEL: Record<string, string> = {
@@ -38,6 +42,20 @@ const SEVERITY_STYLE: Record<string, string> = {
 
 type Tab = 'campaign' | 'keywords' | 'copy' | 'pmax' | 'audit';
 
+/** One labelled input. Declared outside the page so a keystroke never remounts it (the cursor stays in the box). */
+const Field: React.FC<{ label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string }> =
+  ({ label, value, onChange, type = 'text', placeholder }) => (
+    <label className="block">
+      <span className="text-xs font-medium text-gray-700">{label}</span>
+      <input type={type} value={value} placeholder={placeholder} inputMode={type === 'number' ? 'decimal' : undefined}
+        onChange={(e) => onChange(e.target.value)}
+        className="mt-1 w-full rounded border px-3 py-2 text-sm" />
+    </label>
+  );
+
+/** The server's words for a refusal. */
+const errOf = (e: unknown) => writeError(e, 'Something went wrong.');
+
 const AdsAiStudio: React.FC = () => {
   const { hasPerm } = useAuth();
   const canManage = hasPerm?.('ads.manage') ?? true;
@@ -49,6 +67,9 @@ const AdsAiStudio: React.FC = () => {
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
+  const [loadingDrafts, setLoadingDrafts] = useState(true);
+  /** The daily budget the person approves for this apply (blank until they type it or take the suggestion). */
+  const [approvedBudget, setApprovedBudget] = useState('');
 
   const [form, setForm] = useState<Record<string, any>>({
     goal: '', brandName: '', landingUrl: '', monthlyBudget: '',
@@ -59,7 +80,8 @@ const AdsAiStudio: React.FC = () => {
 
   const loadDrafts = useCallback(async () => {
     try { setDrafts(payload<any[]>(await api.get('/connectors/ai/drafts')) ?? []); }
-    catch (e: any) { setError(e?.response?.data?.message ?? e.message); }
+    catch (e) { setError(errOf(e)); }
+    finally { setLoadingDrafts(false); }
   }, []);
 
   useEffect(() => { loadDrafts(); }, [loadDrafts]);
@@ -70,48 +92,58 @@ const AdsAiStudio: React.FC = () => {
       const d = payload<any>(await api.get(`/connectors/ai/drafts/${id}`));
       setSelected(d);
       setEdited(JSON.parse(JSON.stringify(d.output ?? {})));
-    } catch (e: any) { setError(e?.response?.data?.message ?? e.message); }
+      setApprovedBudget('');
+    } catch (e) { setError(errOf(e)); }
   };
 
   const generate = async (endpoint: string, body: any, label: string) => {
     setBusy(label); setError(''); setInfo('');
     try {
       const d = payload<any>(await api.post(`/connectors/ai/${endpoint}`, body));
-      setInfo(`${KIND_LABEL[d.kind] ?? 'Draft'} generated — review it below, then apply.`);
+      setInfo(`${KIND_LABEL[d.kind] ?? 'Draft'} ready. Review it below, then apply.`);
       await loadDrafts();
       await openDraft(d.id);
-    } catch (e: any) {
-      setError(e?.response?.data?.message ?? e.message);
+    } catch (e) {
+      setError(errOf(e));
     } finally { setBusy(''); }
   };
 
+  const suggestedBudget = Number(edited?.recommendedDailyBudget ?? edited?.recommended_daily_budget);
+  const approved = Number(approvedBudget);
+
   const applyDraft = async () => {
     if (!selected) return;
+    if (!(approved > 0)) { setError('Type the daily budget you approve before applying.'); return; }
     if (!window.confirm(
-      'Apply this plan to Google Ads?\n\nThe campaign will be created PAUSED — it will not spend '
-      + 'until you activate it in Google Ads.')) return;
+      `Apply this plan to Google Ads with a daily budget of ${moneyMajor(approved)}?\n\nThe campaign is created PAUSED. `
+      + 'It spends nothing until you resume it.')) return;
     setBusy('apply'); setError(''); setInfo('');
     try {
       const r = payload<any>(await api.post(`/connectors/ai/drafts/${selected.id}/apply`, {
         edited,
-        landingUrl: selected.input?.landingUrl ?? form.landingUrl,
-        brandName: selected.input?.brandName ?? form.brandName,
+        landingUrl: selected.input?.landing_url ?? selected.input?.landingUrl ?? form.landingUrl,
+        dailyBudget: approved,
       }));
+      const groups = r?.ad_groups ?? r?.adGroups ?? [];
+      const warnings: string[] = r?.warnings ?? [];
       setInfo(
-        `Created campaign ${r.campaignId} (PAUSED) with ${r.adGroups?.length ?? 0} ad groups, `
-        + `${r.negativeKeywords ?? 0} negative keywords.`
-        + (r.warnings?.length ? ` ${r.warnings.length} warning(s) — see below.` : ''));
+        `Created campaign ${r?.campaign_id ?? r?.campaignId ?? ''} (PAUSED) with ${Array.isArray(groups) ? groups.length : 0} ad groups and `
+        + `${r?.negative_keywords ?? r?.negativeKeywords ?? 0} negative keywords.`
+        + (warnings.length ? ` ${warnings.length} warning${warnings.length === 1 ? '' : 's'}, listed below.` : ''));
       await loadDrafts();
       await openDraft(selected.id);
-    } catch (e: any) {
-      setError(e?.response?.data?.message ?? e.message);
+    } catch (e) {
+      setError(errOf(e));
     } finally { setBusy(''); }
   };
 
   const discard = async (id: string) => {
-    await api.post(`/connectors/ai/drafts/${id}/discard`, {});
-    if (selected?.id === id) { setSelected(null); setEdited(null); }
-    await loadDrafts();
+    setError('');
+    try {
+      await api.post(`/connectors/ai/drafts/${id}/discard`, {});
+      if (selected?.id === id) { setSelected(null); setEdited(null); }
+      await loadDrafts();
+    } catch (e) { setError(errOf(e)); }
   };
 
   const generateCreatives = async () => {
@@ -127,19 +159,14 @@ const AdsAiStudio: React.FC = () => {
       setInfo(`Generated ${r.created?.length ?? 0} creatives.`
         + (r.failed?.length ? ` ${r.failed.length} failed.` : ''));
       await openDraft(selected.id);
-    } catch (e: any) { setError(e?.response?.data?.message ?? e.message); }
+    } catch (e) { setError(errOf(e)); }
     finally { setBusy(''); }
   };
 
-  const Field: React.FC<{ label: string; k: string; type?: string; placeholder?: string }> =
-    ({ label, k, type = 'text', placeholder }) => (
-      <label className="block">
-        <span className="text-xs font-medium text-gray-700">{label}</span>
-        <input type={type} value={form[k] ?? ''} placeholder={placeholder}
-          onChange={(e) => set(k, e.target.value)}
-          className="mt-1 w-full rounded border px-3 py-2 text-sm" />
-      </label>
-    );
+  /** A form field bound to `form[k]`. */
+  const f = (label: string, k: string, extra: { type?: string; placeholder?: string } = {}) => (
+    <Field label={label} value={form[k] ?? ''} onChange={(v) => set(k, v)} {...extra} />
+  );
 
   return (
     <div>
@@ -156,7 +183,7 @@ const AdsAiStudio: React.FC = () => {
             Connections
           </Link>
           <Link to="/panel/marketing/ads" className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50">
-            Ads Manager
+            Ad accounts
           </Link>
         </div>
       </div>
@@ -166,7 +193,7 @@ const AdsAiStudio: React.FC = () => {
 
       <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
         <div>
-          {/* ── Generator ─────────────────────────────────────────── */}
+          {/* Generator */}
           <div className="mb-6 rounded-lg border bg-white">
             <div className="flex flex-wrap gap-1 border-b p-2">
               {([
@@ -185,10 +212,10 @@ const AdsAiStudio: React.FC = () => {
               {tab === 'campaign' && (
                 <>
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <Field label="Business goal" k="goal" placeholder="Sell more mother tinctures this month" />
-                    <Field label="Brand name" k="brandName" placeholder="Homeomed" />
-                    <Field label="Landing page URL" k="landingUrl" placeholder="https://…" />
-                    <Field label="Monthly budget (₹)" k="monthlyBudget" type="number" placeholder="30000" />
+                    {f('Business goal', 'goal', { placeholder: 'Sell more of one range this month' })}
+                    {f('Brand name', 'brandName', { placeholder: 'Your brand' })}
+                    {f('Landing page URL', 'landingUrl', { placeholder: 'https://' })}
+                    {f('Monthly budget', 'monthlyBudget', { type: 'number', placeholder: '30000' })}
                     <label className="block">
                       <span className="text-xs font-medium text-gray-700">Campaign type</span>
                       <select value={form.campaignType} onChange={(e) => set('campaignType', e.target.value)}
@@ -198,7 +225,7 @@ const AdsAiStudio: React.FC = () => {
                         ))}
                       </select>
                     </label>
-                    <Field label="Target audience (optional)" k="targetAudience" placeholder="Homeopathy practitioners, 30-55" />
+                    {f('Target audience (optional)', 'targetAudience', { placeholder: 'Who buys this, and their age' })}
                   </div>
                   <button disabled={!canManage || busy === 'campaign' || !form.goal || !form.landingUrl || !form.brandName}
                     onClick={() => generate('plan-campaign', {
@@ -207,22 +234,22 @@ const AdsAiStudio: React.FC = () => {
                       monthlyBudget: form.monthlyBudget ? Number(form.monthlyBudget) : undefined,
                     }, 'campaign')}
                     className="mt-4 rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-40">
-                    {busy === 'campaign' ? 'Thinking…' : 'Generate campaign plan'}
+                    {busy === 'campaign' ? 'Thinking...' : 'Generate campaign plan'}
                   </button>
                 </>
               )}
 
               {tab === 'keywords' && (
                 <>
-                  <Field label="Seed topic" k="seedTopic" placeholder="arnica montana dilution" />
+                  {f('Seed topic', 'seedTopic', { placeholder: 'A product or range you sell' })}
                   <p className="mt-2 text-xs text-gray-500">
-                    Grounded on your catalog, your organic Search Console queries, and — if Google Ads is
-                    connected — your real paid search terms.
+                    Grounded on your catalog, your organic Search Console queries and, when Google Ads is
+                    connected, your real paid search terms.
                   </p>
                   <button disabled={!canManage || busy === 'keywords' || !form.seedTopic}
                     onClick={() => generate('plan-keywords', { seedTopic: form.seedTopic }, 'keywords')}
                     className="mt-4 rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-40">
-                    {busy === 'keywords' ? 'Thinking…' : 'Generate keywords'}
+                    {busy === 'keywords' ? 'Thinking...' : 'Generate keywords'}
                   </button>
                 </>
               )}
@@ -230,10 +257,10 @@ const AdsAiStudio: React.FC = () => {
               {tab === 'copy' && (
                 <>
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <Field label="Product or theme" k="productOrTheme" placeholder="Arnica Montana 30CH" />
-                    <Field label="Brand name" k="brandName" />
-                    <Field label="Landing page URL" k="landingUrl" placeholder="https://…" />
-                    <Field label="Key selling points" k="usp" placeholder="Free delivery over ₹499, genuine brands" />
+                    {f('Product or theme', 'productOrTheme', { placeholder: 'One product or range' })}
+                    {f('Brand name', 'brandName')}
+                    {f('Landing page URL', 'landingUrl', { placeholder: 'https://' })}
+                    {f('Key selling points', 'usp', { placeholder: 'Free delivery, genuine brands' })}
                   </div>
                   <button disabled={!canManage || busy === 'copy' || !form.productOrTheme || !form.landingUrl || !form.brandName}
                     onClick={() => generate('plan-ad-copy', {
@@ -241,7 +268,7 @@ const AdsAiStudio: React.FC = () => {
                       brandName: form.brandName, usp: form.usp,
                     }, 'copy')}
                     className="mt-4 rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-40">
-                    {busy === 'copy' ? 'Writing…' : 'Generate ad copy'}
+                    {busy === 'copy' ? 'Writing...' : 'Generate ad copy'}
                   </button>
                 </>
               )}
@@ -249,16 +276,16 @@ const AdsAiStudio: React.FC = () => {
               {tab === 'pmax' && (
                 <>
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <Field label="Theme" k="theme" placeholder="Winter immunity range" />
-                    <Field label="Brand name" k="brandName" />
-                    <Field label="Landing page URL" k="landingUrl" placeholder="https://…" />
+                    {f('Theme', 'theme', { placeholder: 'A season or range' })}
+                    {f('Brand name', 'brandName')}
+                    {f('Landing page URL', 'landingUrl', { placeholder: 'https://' })}
                   </div>
                   <button disabled={!canManage || busy === 'pmax' || !form.theme || !form.landingUrl || !form.brandName}
                     onClick={() => generate('plan-pmax', {
                       theme: form.theme, landingUrl: form.landingUrl, brandName: form.brandName,
                     }, 'pmax')}
                     className="mt-4 rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-40">
-                    {busy === 'pmax' ? 'Thinking…' : 'Generate PMax assets'}
+                    {busy === 'pmax' ? 'Thinking...' : 'Generate PMax assets'}
                   </button>
                 </>
               )}
@@ -267,26 +294,26 @@ const AdsAiStudio: React.FC = () => {
                 <>
                   <p className="text-sm text-gray-600">
                     Reads your live Google Ads campaigns, search terms and keyword performance from the last
-                    30 days and returns ranked findings. Advisory only — nothing is changed.
+                    30 days and returns ranked findings. Advice only: nothing is changed.
                   </p>
                   <button disabled={busy === 'audit'}
                     onClick={() => generate('audit', {}, 'audit')}
                     className="mt-4 rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-40">
-                    {busy === 'audit' ? 'Analysing…' : 'Run account audit'}
+                    {busy === 'audit' ? 'Analysing...' : 'Run account audit'}
                   </button>
                 </>
               )}
             </div>
           </div>
 
-          {/* ── Review ────────────────────────────────────────────── */}
+          {/* Review */}
           {selected && (
             <div className="rounded-lg border bg-white">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b p-4">
                 <div>
                   <h2 className="font-semibold">{selected.title}</h2>
-                  <p className="text-xs text-gray-500">
-                    {KIND_LABEL[selected.kind] ?? selected.kind} ·{' '}
+                  <p className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                    <span>{KIND_LABEL[selected.kind] ?? selected.kind}</span>
                     <span className={`rounded px-1.5 py-0.5 ${STATUS_STYLE[selected.status]}`}>{selected.status}</span>
                   </p>
                 </div>
@@ -294,13 +321,14 @@ const AdsAiStudio: React.FC = () => {
                   {selected.kind === 'pmax_assets' && (
                     <button onClick={generateCreatives} disabled={busy === 'creative' || !canManage}
                       className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50">
-                      {busy === 'creative' ? 'Generating…' : 'Generate images'}
+                      {busy === 'creative' ? 'Generating...' : 'Generate images'}
                     </button>
                   )}
                   {selected.kind === 'campaign_plan' && selected.status === 'draft' && (
-                    <button onClick={applyDraft} disabled={busy === 'apply' || !canManage}
+                    <button onClick={applyDraft} disabled={busy === 'apply' || !canManage || !(approved > 0)}
+                      title={approved > 0 ? undefined : 'Type the daily budget you approve first'}
                       className="rounded bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">
-                      {busy === 'apply' ? 'Applying…' : 'Apply to Google Ads'}
+                      {busy === 'apply' ? 'Applying...' : 'Apply to Google Ads'}
                     </button>
                   )}
                 </div>
@@ -333,7 +361,7 @@ const AdsAiStudio: React.FC = () => {
                   </div>
                 )}
 
-                {/* Campaign plan — editable */}
+                {/* Campaign plan, editable */}
                 {selected.kind === 'campaign_plan' && edited && (
                   <div className="space-y-4">
                     <div className="grid gap-3 sm:grid-cols-3">
@@ -349,12 +377,20 @@ const AdsAiStudio: React.FC = () => {
                           className="mt-1 w-full rounded border bg-gray-50 px-3 py-2 text-sm" />
                       </label>
                       <label className="block">
-                        <span className="text-xs font-medium text-gray-700">Daily budget (₹)</span>
-                        <input type="number" value={edited.recommendedDailyBudget ?? 0}
-                          onChange={(e) => setEdited({ ...edited, recommendedDailyBudget: Number(e.target.value) })}
+                        <span className="text-xs font-medium text-gray-700">Daily budget you approve</span>
+                        <input type="number" inputMode="decimal" min={0} value={approvedBudget}
+                          placeholder={suggestedBudget > 0 ? String(suggestedBudget) : undefined}
+                          onChange={(e) => setApprovedBudget(e.target.value)}
                           className="mt-1 w-full rounded border px-3 py-2 text-sm" />
                       </label>
                     </div>
+                    {suggestedBudget > 0 && selected.status === 'draft' && (
+                      <p className="flex flex-wrap items-center gap-2 text-xs text-gray-600">
+                        <span>The plan suggests {moneyMajor(suggestedBudget)} a day. It is advice only.</span>
+                        <button type="button" onClick={() => setApprovedBudget(String(suggestedBudget))}
+                          className="rounded border px-2 py-0.5 text-xs hover:bg-gray-50">Use the suggestion</button>
+                      </p>
+                    )}
                     {edited.budgetRationale && (
                       <p className="text-xs text-gray-600">{edited.budgetRationale}</p>
                     )}
@@ -383,7 +419,7 @@ const AdsAiStudio: React.FC = () => {
                         </div>
                         <details className="mt-2">
                           <summary className="cursor-pointer text-xs text-gray-600">
-                            {(ag.headlines ?? []).length} headlines · {(ag.descriptions ?? []).length} descriptions
+                            {(ag.headlines ?? []).length} headlines, {(ag.descriptions ?? []).length} descriptions
                           </summary>
                           <div className="mt-2 space-y-1">
                             {(ag.headlines ?? []).map((h: string, j: number) => (
@@ -427,7 +463,7 @@ const AdsAiStudio: React.FC = () => {
                         <div className="mt-2 flex flex-wrap gap-1">
                           {edited.negativeKeywords.map((k: any, j: number) => (
                             <span key={j} className="rounded bg-red-50 px-2 py-0.5 text-xs text-red-800">
-                              −{k.text}
+                              -{k.text}
                             </span>
                           ))}
                         </div>
@@ -436,7 +472,7 @@ const AdsAiStudio: React.FC = () => {
                   </div>
                 )}
 
-                {/* Keywords / RSA / PMax — raw but readable */}
+                {/* Keywords, RSA and PMax: raw but readable */}
                 {['keywords', 'rsa', 'pmax_assets'].includes(selected.kind) && edited && (
                   <div className="space-y-3">
                     {Object.entries(edited).filter(([, v]) => Array.isArray(v)).map(([key, arr]: any) => (
@@ -464,7 +500,7 @@ const AdsAiStudio: React.FC = () => {
                         <figure key={c.id} className="overflow-hidden rounded border">
                           <img src={c.asset_url} alt={c.meta?.slot ?? 'creative'} className="w-full object-cover" />
                           <figcaption className="px-2 py-1 text-[11px] text-gray-500">
-                            {c.meta?.slot} · {c.aspect_ratio}
+                            {[c.meta?.slot, c.aspect_ratio].filter(Boolean).join(', ')}
                           </figcaption>
                         </figure>
                       ))}
@@ -486,7 +522,7 @@ const AdsAiStudio: React.FC = () => {
           )}
         </div>
 
-        {/* ── Draft list ─────────────────────────────────────────── */}
+        {/* Draft list */}
         <aside>
           <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-600">Drafts</h3>
           <div className="space-y-2">
@@ -511,7 +547,8 @@ const AdsAiStudio: React.FC = () => {
                 )}
               </div>
             ))}
-            {!drafts.length && (
+            {loadingDrafts && !drafts.length && <p className="text-sm text-gray-500">Loading drafts...</p>}
+            {!loadingDrafts && !drafts.length && (
               <p className="rounded border border-dashed p-4 text-center text-sm text-gray-500">
                 No drafts yet. Generate one above.
               </p>
