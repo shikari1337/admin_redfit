@@ -48,6 +48,16 @@ const outcomesQuery = (ctx: V2Ctx) => pick(ctx, OUTCOME_KEYS);
 /** The overview (`OverviewQuery`): the same filters and knobs, no group-by. */
 const outcomesOverviewQuery = (ctx: V2Ctx) => pick(ctx, OUTCOME_FILTERS);
 
+/** A saved report as `POST /reports` declares it (`SaveIn`, deny_unknown_fields): blanks left out. */
+function savedReportBody(b: any): Record<string, unknown> {
+  const c = b?.config ?? {};
+  const config: Record<string, unknown> = { dimension: String(c.dimension ?? '') };
+  for (const k of ['preset', 'from', 'to'] as const) if (c[k] !== undefined && c[k] !== null && c[k] !== '') config[k] = String(c[k]);
+  const out: Record<string, unknown> = { name: String(b?.name ?? ''), config };
+  if (b?.kind) out.kind = String(b.kind);
+  return out;
+}
+
 export const lift = (d: any) => (d && typeof d === 'object' && d.figures && typeof d.figures === 'object'
   ? { ...d.figures, panel: d.panel, range: d.range, bucket: d.bucket }
   : d);
@@ -90,6 +100,23 @@ export const DASHBOARD_ROUTES: V2Route[] = [
   {
     m: 'GET', from: '/analytics/panels/sales-team/agents/:id', row: 'insights sales-team',
     to: '/api/v2/insights/panels/sales-team/agents/{id}', query: (c) => panelQuery(c, 'sales-team'), reply: lift,
+  },
+  // MENU-1 analytics: the shop right now as totals (the visitor list stops at 100 rows), and the team's saved reports.
+  {
+    m: 'GET', from: '/analytics/realtime/summary', row: 'insights analytics.rs: GET /api/v2/insights/realtime/summary',
+    to: '/api/v2/insights/realtime/summary', raw: true,
+  },
+  {
+    m: 'GET', from: '/analytics/reports', row: 'insights reports.rs: GET /api/v2/insights/reports',
+    to: '/api/v2/insights/reports', query: (c) => pick(c, ['kind']), raw: true,
+  },
+  {
+    m: 'POST', from: '/analytics/reports', row: 'insights reports.rs: POST /api/v2/insights/reports',
+    to: '/api/v2/insights/reports', body: (c) => savedReportBody(c.body), raw: true,
+  },
+  {
+    m: 'DELETE', from: '/analytics/reports/:id', row: 'insights reports.rs: DELETE /api/v2/insights/reports/{id}',
+    to: '/api/v2/insights/reports/{id}', query: (c) => pick(c, ['kind']), raw: true,
   },
 
   // The attention board's sources.

@@ -4,7 +4,7 @@ import { payload } from '../../lib/unwrap';
 import DateRangeBar, { useDateRange, previousRange, PanelRange } from '../../components/panelAnalytics/DateRangeBar';
 import { usePanelStats, fetchRanged } from '../../components/panelAnalytics/usePanelStats';
 import { ChartCard, CategoryBars, KpiTile, DeltaLine, InsightCard, Insight } from '../../components/panelAnalytics/Kit';
-import { SERIES } from '../../components/panelAnalytics/vizTheme';
+import { SERIES, fmtMoneyShort } from '../../components/panelAnalytics/vizTheme';
 import { fmtRupees } from '../../lib/money';
 import { Download, Search } from 'lucide-react';
 
@@ -95,7 +95,9 @@ function movers(rows: Row[], dir: 'up' | 'down', n: number): Row[] {
 }
 
 const pct = (v: number) => `${v.toFixed(v >= 10 ? 0 : 1)}%`;
-const signedRupees = (v: number) => `${v >= 0 ? '+' : '−'}${fmtRupees(Math.abs(v))}`;
+const signedRupees = (v: number) => `${v >= 0 ? '+' : '-'}${fmtRupees(Math.abs(v))}`;
+/** A tile's money: compact, the exact figure on hover. */
+const tileMoney = (v: number | undefined | null) => <span title={fmtRupees(v ?? 0)}>{fmtMoneyShort(v ?? 0)}</span>;
 
 const SalesInsights: React.FC = () => {
   const { range, preset, setPreset, custom, setCustom } = useDateRange('30d');
@@ -164,14 +166,14 @@ const SalesInsights: React.FC = () => {
     if (up.length) {
       out.push({
         tone: 'good', title: 'Rising items',
-        body: up.map((r) => `${r.name} (${signedRupees(r.change!)})`).join(' · '),
+        body: up.map((r) => `${r.name} (${signedRupees(r.change!)})`).join(', '),
       });
     }
     const down = movers(itemRows, 'down', 3);
     if (down.length) {
       out.push({
         tone: 'bad', title: 'Falling items',
-        body: down.map((r) => `${r.name} (${signedRupees(r.change!)})`).join(' · '),
+        body: down.map((r) => `${r.name} (${signedRupees(r.change!)})`).join(', '),
       });
     }
     const stopped = itemRows.filter((r) => r.sales === 0 && (r.prevSales ?? 0) > 0);
@@ -187,7 +189,7 @@ const SalesInsights: React.FC = () => {
     if (brandDown.length) {
       out.push({
         tone: 'bad', title: 'Brands losing ground',
-        body: brandDown.map((r) => `${r.name} (${signedRupees(r.change!)}${r.changePct !== null ? `, ${r.changePct.toFixed(0)}%` : ''})`).join(' · '),
+        body: brandDown.map((r) => `${r.name} (${signedRupees(r.change!)}${r.changePct !== null ? `, ${r.changePct.toFixed(0)}%` : ''})`).join(', '),
       });
     }
     if (campaignRows.length) {
@@ -219,7 +221,7 @@ const SalesInsights: React.FC = () => {
   const loadingTop = commerce.loading && !commerce.data;
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Sales Insights</h1>
@@ -229,27 +231,27 @@ const SalesInsights: React.FC = () => {
       </div>
 
       {commerce.error && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{commerce.error}</div>}
-      {loadingTop && <div className="p-8 text-sm text-gray-500">Loading sales…</div>}
+      {loadingTop && <div className="p-8 text-sm text-gray-500">Loading sales...</div>}
 
       {s && (
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-          <KpiTile label="Gross sales" value={fmtRupees(s.gross_sales)}
+          <KpiTile label="Gross sales" value={tileMoney(s.gross_sales)}
             delta={prevRange ? { current: s.gross_sales, previous: ps?.gross_sales, label: vsLabel } : null} />
           <KpiTile label="Orders" value={Number(s.orders).toLocaleString('en-IN')} sub={`${s.cancelled_orders ?? 0} cancelled`}
             delta={prevRange ? { current: s.orders, previous: ps?.orders, label: vsLabel } : null} />
-          <KpiTile label="Average order value" value={fmtRupees(s.aov)}
+          <KpiTile label="Average order value" value={tileMoney(s.aov)}
             delta={prevRange ? { current: s.aov, previous: ps?.aov, label: vsLabel } : null} />
-          <KpiTile label="Units per order" value={s.orders > 0 ? (s.units_sold / s.orders).toFixed(2) : '—'}
+          <KpiTile label="Units per order" value={s.orders > 0 ? (s.units_sold / s.orders).toFixed(2) : 'None'}
             delta={prevRange && ps ? { current: s.orders > 0 ? s.units_sold / s.orders : 0, previous: ps.orders > 0 ? ps.units_sold / ps.orders : null, label: vsLabel } : null} />
-          <KpiTile label="Collected revenue" value={fmtRupees(s.collected_revenue)} sub="Paid, less refunds"
+          <KpiTile label="Collected revenue" value={tileMoney(s.collected_revenue)} sub="Paid, less refunds"
             delta={prevRange ? { current: s.collected_revenue, previous: ps?.collected_revenue, label: vsLabel } : null} />
           <KpiTile label="New buyers" value={Number(s.new_customers ?? 0).toLocaleString('en-IN')} sub="First order in period"
             delta={prevRange ? { current: s.new_customers, previous: ps?.new_customers, label: vsLabel } : null} />
-          <KpiTile label="Returning customers" value={m ? pct(Number(m.returning_order_share ?? 0)) : '—'} sub="Share of identified orders"
+          <KpiTile label="Returning customers" value={m ? pct(Number(m.returning_order_share ?? 0)) : 'None'} sub="Share of identified orders"
             delta={prevRange && m ? { current: m.returning_order_share, previous: pm?.returning_order_share, label: vsLabel } : null} />
           <KpiTile label="Discount rate"
-            value={m && Number(m.gross_sales) > 0 ? pct((Number(m.discount_total ?? 0) / Number(m.gross_sales)) * 100) : '—'}
-            sub="Discounts ÷ gross sales"
+            value={m && Number(m.gross_sales) > 0 ? pct((Number(m.discount_total ?? 0) / Number(m.gross_sales)) * 100) : 'None'}
+            sub="Discounts over gross sales"
             delta={prevRange && m && pm && Number(pm.gross_sales) > 0
               ? { current: (Number(m.discount_total ?? 0) / Math.max(Number(m.gross_sales), 1)) * 100, previous: (Number(pm.discount_total ?? 0) / Number(pm.gross_sales)) * 100, label: vsLabel, goodWhen: 'down' }
               : null} />
@@ -364,7 +366,7 @@ const BreakdownTable: React.FC<{
               </tr>
             </thead>
             <tbody className={`divide-y ${state.loading ? 'opacity-60' : ''}`}>
-              {state.loading && !state.cur && <tr><td colSpan={7} className="p-6 text-center text-gray-500">Loading…</td></tr>}
+              {state.loading && !state.cur && <tr><td colSpan={7} className="p-6 text-center text-gray-500">Loading...</td></tr>}
               {!state.loading && rows.length === 0 && <tr><td colSpan={7} className="p-6 text-center text-gray-500">No sales in this range.</td></tr>}
               {visible.map((r) => (
                 <tr key={r.name} className={r.sales === 0 ? 'text-gray-400' : undefined}>
@@ -382,12 +384,12 @@ const BreakdownTable: React.FC<{
                   </td>
                   <td className="px-4 py-1.5 text-right font-mono">
                     {itemLevel
-                      ? (r.units ? fmtRupees(r.sales / r.units) : '—')
-                      : (r.orders ? fmtRupees(r.sales / r.orders) : '—')}
+                      ? (r.units ? fmtRupees(r.sales / r.units) : '')
+                      : (r.orders ? fmtRupees(r.sales / r.orders) : '')}
                   </td>
                   {hasPrev && (
                     <td className="px-4 py-1.5 text-right">
-                      {r.change === null ? '—' : (
+                      {r.change === null ? '' : (
                         <div className="flex flex-col items-end">
                           <span className="font-mono text-xs">{signedRupees(r.change)}</span>
                           <DeltaLine delta={{ current: r.sales, previous: r.prevSales, label: '' }} />

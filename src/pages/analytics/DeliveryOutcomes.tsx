@@ -4,7 +4,7 @@ import { usePanelStats } from '../../components/panelAnalytics/usePanelStats';
 import {
   ChartCard, KpiTile, InsightCard, Insight, Segmented, SplitBar, TimeSeries, ordinalRamp, Unavailable,
 } from '../../components/panelAnalytics/Kit';
-import { SERIES, fmtBucket, fmtMoneyCompact } from '../../components/panelAnalytics/vizTheme';
+import { SERIES, fmtBucket, fmtMoneyShort as short } from '../../components/panelAnalytics/vizTheme';
 import { fmtRupees } from '../../lib/money';
 import { AlertTriangle, ArrowDown, ArrowUp, ChevronRight, Download, RotateCcw, Search, X } from 'lucide-react';
 
@@ -77,12 +77,6 @@ const PAYMENT_RULES = '/settings/payment-discount';
 
 const count = (v: number | undefined) => Number(v ?? 0).toLocaleString('en-IN');
 const pct = (v: number | undefined) => `${Number(v ?? 0).toFixed(1)}%`;
-/** Indian compact money for tiles and sentences: full rupees below a lakh, then "4.68 L", "1.2 Cr". */
-const short = (v: number | undefined) => {
-  const n = Number(v ?? 0);
-  if (Math.abs(n) < 100_000) return `₹${Math.round(n).toLocaleString('en-IN')}`;
-  return fmtMoneyCompact(n, 2).replace(/(\d)([A-Za-z]+)$/, '$1 $2');
-};
 /** A rate over a pair of counts (one decimal, 0 when nothing resolved). */
 const rateOf = (a: number, b: number) => (b > 0 ? Math.round((a / b) * 1000) / 10 : 0);
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);

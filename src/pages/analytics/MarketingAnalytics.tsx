@@ -2,26 +2,24 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { analyticsAPI } from '../../services/analyticsService';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, TrendingUp, Megaphone, Smartphone, Repeat, HelpCircle } from 'lucide-react';
+import { Loader2, TrendingUp, Megaphone, Smartphone, Repeat } from 'lucide-react';
+import DateRangeBar, { useDateRange } from '../../components/panelAnalytics/DateRangeBar';
+import { InsightCard, Insight } from '../../components/panelAnalytics/Kit';
+import { fmtMoneyShort } from '../../components/panelAnalytics/vizTheme';
+import { fmtRupees } from '../../lib/money';
 
 /**
- * Marketing analytics.
+ * Analytics > Marketing. What earned the revenue: what to act on first (orders with no source, how
+ * much rides on ads, the channel that brings most), then paid against organic, by channel, campaign
+ * and device: the numbers to set against ad spend. First touch credits the channel that introduced
+ * the customer; last touch the one that closed the sale. Figures: `GET /api/v2/marketing/attribution/
+ * analytics` (Money flattened to rupees by the v2 client).
  *
- * What earned the revenue: paid vs organic, then broken down by channel,
- * campaign and device — the numbers you reconcile against ad spend. First-touch
- * credits the channel that INTRODUCED the customer; last-touch the one that
- * CLOSED the sale. Compare both before trusting any single ad platform's own
- * reporting.
+ * The channel names and colours below are the screen's fallback for the attribution channel keys;
+ * they should come from the marketing channel registry (MENU-1 analytics NEXT).
  */
 
 type Model = 'first' | 'last';
-
-const RANGES: { key: string; label: string; days: number | null }[] = [
-  { key: '7d', label: '7 days', days: 7 },
-  { key: '30d', label: '30 days', days: 30 },
-  { key: '90d', label: '90 days', days: 90 },
-  { key: 'all', label: 'All time', days: null },
-];
 
 const CHANNEL_LABEL: Record<string, string> = {
   google_ads: 'Google Ads', meta_ads: 'Meta Ads', microsoft_ads: 'Microsoft Ads',
@@ -37,10 +35,12 @@ const CHANNEL_COLOR: Record<string, string> = {
   direct: 'var(--n-400)', other: 'var(--n-500)',
 };
 
-const inr = (n: number) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
+/** Rupees, compact (₹4.68 L), exact figure on hover. */
+const inr = (n: number) => <span title={fmtRupees(Number(n) || 0)}>{fmtMoneyShort(Number(n) || 0)}</span>;
+const pct = (v: number) => `${v.toFixed(Math.abs(v) >= 10 ? 0 : 1)}%`;
 const label = (c: string) => CHANNEL_LABEL[c] ?? c;
 
-const Kpi: React.FC<{ title: string; value: string; sub?: string; icon: React.ReactNode; accent?: string }> =
+const Kpi: React.FC<{ title: string; value: React.ReactNode; sub?: React.ReactNode; icon: React.ReactNode; accent?: string }> =
   ({ title, value, sub, icon, accent }) => (
     <Card>
       <CardContent className="p-4">
@@ -71,7 +71,7 @@ const ShareBar: React.FC<{ rows: any[]; total: number }> = ({ rows, total }) => 
               {r.is_paid && <Badge variant="outline" className="text-[9px] px-1 py-0">Paid</Badge>}
             </span>
             <span className="tabular-nums text-muted-foreground">
-              {inr(r.revenue)} · {r.orders} orders
+              {inr(r.revenue)}, {Number(r.orders ?? 0).toLocaleString('en-IN')} orders
             </span>
           </div>
           <div className="h-2 overflow-hidden rounded-full bg-muted">
@@ -85,23 +85,23 @@ const ShareBar: React.FC<{ rows: any[]; total: number }> = ({ rows, total }) => 
 );
 
 const MarketingAnalytics: React.FC = () => {
-  const [range, setRange] = useState('30d');
+  const { range, preset, setPreset, custom, setCustom } = useDateRange('30d');
   const [model, setModel] = useState<Model>('last');
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [range, model]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [range.from, range.to, model]);
 
   const load = async () => {
     try {
       setLoading(true); setError(null);
-      const days = RANGES.find((r) => r.key === range)?.days ?? null;
-      const from = days ? new Date(Date.now() - days * 86400000).toISOString().slice(0, 10) : undefined;
-      const res: any = await analyticsAPI.getMarketing({ from, model });
+      const res: any = await analyticsAPI.getMarketing({ from: range.from, to: range.to, model });
       setData(res?.data ?? res);
     } catch (e: any) {
-      setError(e?.response?.data?.message || 'Failed to load marketing analytics');
+      setError(e?.response?.status === 403
+        ? 'Marketing figures need permission to read reports. Ask the store owner to grant it.'
+        : e?.response?.data?.message || 'Could not load marketing figures.');
     } finally { setLoading(false); }
   };
 
@@ -109,15 +109,51 @@ const MarketingAnalytics: React.FC = () => {
   const totalRevenue = Number(s.revenue) || 0;
   const channels = useMemo(() => (data?.by_channel ?? []).slice().sort((a: any, b: any) => b.revenue - a.revenue), [data]);
 
+  const insights = useMemo<Insight[]>(() => {
+    if (!data) return [];
+    const out: Insight[] = [];
+    const orders = Number(s.orders ?? 0);
+    const untracked = Number(data?.untracked?.orders ?? 0);
+    const all = orders + untracked;
+    if (untracked > 0 && all > 0 && untracked / all >= 0.2) {
+      out.push({
+        tone: 'bad', title: `${pct((untracked / all) * 100)} of orders have no source`,
+        body: <>{untracked.toLocaleString('en-IN')} orders ({inr(data.untracked.revenue)}) came before tracking was on, or from a visit that sent no campaign tags. Tag every ad and message link with utm_source and utm_campaign.</>,
+      });
+    }
+    const paidShare = Number(s.paid_share ?? 0);
+    if (orders >= 10 && paidShare >= 70) {
+      out.push({
+        tone: 'info', title: `${pct(paidShare)} of revenue comes from ads`,
+        body: <>Sales stop when the ads stop. Organic brought {inr(s.organic_revenue)}: grow search, social and repeat buyers next to the ads.</>,
+      });
+    }
+    const top = channels[0];
+    if (top && totalRevenue > 0 && orders >= 5) {
+      out.push({
+        tone: 'info', title: `${label(top.channel)} brings most`,
+        body: <>{inr(top.revenue)}, {pct((Number(top.revenue) / totalRevenue) * 100)} of attributed revenue, from {Number(top.orders ?? 0).toLocaleString('en-IN')} orders ({model === 'last' ? 'last touch' : 'first touch'}).</>,
+      });
+    }
+    const repeat = Number(s.repeat_rate ?? 0);
+    if (orders >= 20 && repeat < 15) {
+      out.push({
+        tone: 'bad', title: `Only ${pct(repeat)} of orders are repeat buyers`,
+        body: <>Most buyers order once. A follow up message after delivery is the cheapest next sale.</>,
+      });
+    }
+    return out;
+  }, [data, s, channels, totalRevenue, model]);
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 p-4 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
             <Megaphone className="h-5 w-5" /> Marketing
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            What's driving orders — paid campaigns vs organic, by channel and campaign.
+            What brings the orders: paid campaigns against organic, by channel and campaign.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -130,14 +166,7 @@ const MarketingAnalytics: React.FC = () => {
               </button>
             ))}
           </div>
-          <div className="flex rounded-md border p-0.5">
-            {RANGES.map((r) => (
-              <button key={r.key} onClick={() => setRange(r.key)}
-                className={`rounded px-2.5 py-1 text-xs font-medium ${range === r.key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}>
-                {r.label}
-              </button>
-            ))}
-          </div>
+          <DateRangeBar preset={preset} onPreset={setPreset} custom={custom} onCustom={setCustom} />
         </div>
       </div>
 
@@ -147,21 +176,26 @@ const MarketingAnalytics: React.FC = () => {
         <div className="flex items-center justify-center p-16"><Loader2 className="h-7 w-7 animate-spin text-muted-foreground" /></div>
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Kpi title="Attributed revenue" value={inr(s.revenue)} sub={`${s.orders ?? 0} orders · AOV ${inr(s.aov)}`} icon={<TrendingUp className="h-4 w-4" />} />
-            <Kpi title="Paid share" value={`${s.paid_share ?? 0}%`} sub={`${inr(s.paid_revenue)} from ads`} icon={<Megaphone className="h-4 w-4" />} accent="#0866FF" />
-            <Kpi title="Organic revenue" value={inr(s.organic_revenue)} sub={`${s.organic_orders ?? 0} orders`} icon={<TrendingUp className="h-4 w-4" />} accent="#34A853" />
-            <Kpi title="Repeat rate" value={`${s.repeat_rate ?? 0}%`} sub={`avg ${Math.round(s.avg_days_to_convert ?? 0)}d to convert`} icon={<Repeat className="h-4 w-4" />} />
+          {insights.length > 0 && (
+            <section>
+              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">What to act on</h2>
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {insights.map((i) => <InsightCard key={i.title} insight={i} />)}
+              </div>
+            </section>
+          )}
+
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <Kpi title="Attributed revenue" value={inr(s.revenue)} sub={<>{Number(s.orders ?? 0).toLocaleString('en-IN')} orders, average {inr(s.aov)}</>} icon={<TrendingUp className="h-4 w-4" />} />
+            <Kpi title="Paid share" value={`${s.paid_share ?? 0}%`} sub={<>{inr(s.paid_revenue)} from ads</>} icon={<Megaphone className="h-4 w-4" />} accent="#0866FF" />
+            <Kpi title="Organic revenue" value={inr(s.organic_revenue)} sub={`${Number(s.organic_orders ?? 0).toLocaleString('en-IN')} orders`} icon={<TrendingUp className="h-4 w-4" />} accent="#34A853" />
+            <Kpi title="Repeat rate" value={`${s.repeat_rate ?? 0}%`} sub={`${Math.round(s.avg_days_to_convert ?? 0)} days to convert on average`} icon={<Repeat className="h-4 w-4" />} />
           </div>
 
           {data?.untracked?.orders > 0 && (
-            <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
-              <HelpCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>
-                <strong>{data.untracked.orders} orders</strong> ({inr(data.untracked.revenue)}) have no attribution yet —
-                these are visits made before tracking was live, or where the storefront didn't send campaign data.
-              </span>
-            </div>
+            <p className="text-xs text-muted-foreground">
+              {Number(data.untracked.orders).toLocaleString('en-IN')} orders ({inr(data.untracked.revenue)}) have no source and are not in the figures above.
+            </p>
           )}
 
           <div className="grid gap-5 lg:grid-cols-2">
@@ -185,14 +219,14 @@ const MarketingAnalytics: React.FC = () => {
                         <td className="py-2 text-right tabular-nums">{inr(d.revenue)}</td>
                       </tr>
                     ))}
-                    {!(data?.by_device ?? []).length && <tr><td colSpan={3} className="py-3 text-muted-foreground">No data</td></tr>}
+                    {!(data?.by_device ?? []).length && <tr><td colSpan={3} className="py-3 text-muted-foreground">No orders with a device in this period.</td></tr>}
                   </tbody>
                 </table>
                 <div className="mt-4 flex gap-4 border-t pt-3 text-sm">
                   {(data?.new_vs_repeat ?? []).map((n: any) => (
                     <div key={n.type}>
                       <span className="text-xs capitalize text-muted-foreground">{n.type} customers</span>
-                      <p className="font-semibold">{n.orders} · {inr(n.revenue)}</p>
+                      <p className="font-semibold">{Number(n.orders ?? 0).toLocaleString('en-IN')} orders, {inr(n.revenue)}</p>
                     </div>
                   ))}
                 </div>
@@ -226,7 +260,7 @@ const MarketingAnalytics: React.FC = () => {
                             {label(c.channel)}
                           </span>
                         </td>
-                        <td className="py-2 text-muted-foreground">{c.source ?? '—'}</td>
+                        <td className="py-2 text-muted-foreground">{c.source ?? ''}</td>
                         <td className="py-2 text-right tabular-nums">{c.orders}</td>
                         <td className="py-2 text-right tabular-nums text-muted-foreground">{c.new_orders} / {c.repeat_orders}</td>
                         <td className="py-2 text-right font-medium tabular-nums">{inr(c.revenue)}</td>
@@ -235,7 +269,7 @@ const MarketingAnalytics: React.FC = () => {
                     ))}
                     {!(data?.by_campaign ?? []).length && (
                       <tr><td colSpan={7} className="py-4 text-center text-muted-foreground">
-                        No paid campaigns tracked yet. Once you run ads with UTMs or click IDs, they'll appear here.
+                        No paid campaigns tracked yet. Ads tagged with campaign tags or click ids show up here.
                       </td></tr>
                     )}
                   </tbody>
@@ -245,17 +279,17 @@ const MarketingAnalytics: React.FC = () => {
           </Card>
 
           <Card>
-            <CardHeader><CardTitle className="text-base">Top sources & mediums</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-base">Top sources and mediums</CardTitle></CardHeader>
             <CardContent>
               <div className="grid gap-2 sm:grid-cols-2">
                 {(data?.by_source_medium ?? []).slice(0, 12).map((r: any, i: number) => (
                   <div key={i} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
                     <span className="truncate"><span className="font-medium">{r.source}</span>
                       <span className="text-muted-foreground"> / {r.medium}</span></span>
-                    <span className="tabular-nums text-muted-foreground">{inr(r.revenue)} · {r.orders}</span>
+                    <span className="tabular-nums text-muted-foreground">{inr(r.revenue)}, {Number(r.orders ?? 0).toLocaleString('en-IN')} orders</span>
                   </div>
                 ))}
-                {!(data?.by_source_medium ?? []).length && <p className="text-sm text-muted-foreground">No data.</p>}
+                {!(data?.by_source_medium ?? []).length && <p className="text-sm text-muted-foreground">No tagged visits in this period.</p>}
               </div>
             </CardContent>
           </Card>

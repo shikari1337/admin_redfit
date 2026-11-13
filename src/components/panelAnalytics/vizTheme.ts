@@ -58,6 +58,17 @@ export const fmtCompact = (n: number, digits = 1): string =>
 /** Compact rupee amount for axis ticks / tiles (₹4.68L, ₹1.2Cr with `digits` 2). */
 export const fmtMoneyCompact = (n: number, digits = 1): string => `₹${fmtCompact(n ?? 0, digits)}`;
 
+/**
+ * Indian compact money for tiles and sentences: whole rupees below a lakh, then "₹4.68 L", "₹1.2 Cr".
+ * Rupees in (the panels' unit). Pair it with `title={fmtRupees(v)}` where the exact figure matters.
+ */
+export const fmtMoneyShort = (v: number | string | null | undefined): string => {
+  const n = Number(v ?? 0);
+  if (!Number.isFinite(n)) return '₹0';
+  if (Math.abs(n) < 100_000) return `₹${Math.round(n).toLocaleString('en-IN')}`;
+  return fmtMoneyCompact(n, 2).replace(/(\d)([A-Za-z]+)$/, '$1 $2');
+};
+
 /** 'YYYY-MM-DD' bucket → short label; month buckets show "Jul 26". No Date parsing. */
 export function fmtBucket(bucket: string, granularity: 'day' | 'week' | 'month'): string {
   const [y, m, d] = String(bucket ?? '').split('-');
