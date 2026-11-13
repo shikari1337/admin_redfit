@@ -111,6 +111,9 @@ export function deriveOrderMoney(input: OrderMoneyInput) {
     productsTaxable, totalTaxable,
     inclusive, gstTotal, residual,
     received, balanceDue: received > 0 ? Math.max(0, total - received) : 0,
+    // More taken than the order now totals (lines cancelled or repriced after payment):
+    // what the customer is owed back, before any refund already sent.
+    overpaid: received > 0 ? Math.max(0, Math.round((received - total) * 100) / 100) : 0,
     shippingItc,
   };
 }

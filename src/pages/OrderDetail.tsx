@@ -1302,6 +1302,7 @@ const OrderDetail: React.FC = () => {
               total={Number(order.total) || 0}
               gst={order.gst}
               amountReceived={order.amountReceived}
+              refundedAmount={Number(order.refundedAmount ?? order.refunded_amount ?? 0) || 0}
               couponCode={order.couponCode ?? order.coupon_code}
               discountReason={order.discountReason ?? order.discount_reason}
               discountItems={order.discountItems ?? order.discount_items}

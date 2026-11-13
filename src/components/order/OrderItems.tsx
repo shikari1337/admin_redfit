@@ -74,6 +74,8 @@ interface OrderItemsProps {
   total?: number;
   gst?: GstInfo | null;
   amountReceived?: number;
+  /** Money already sent back to the customer (`refunded_amount`). */
+  refundedAmount?: number;
   couponCode?: string | null;
   discountReason?: string | null;
   /** Per-component discount amounts as recorded on the order (migration 153). */
@@ -250,7 +252,7 @@ function useElementWidth<T extends HTMLElement>(ref: React.RefObject<T | null>):
  */
 const OrderItems: React.FC<OrderItemsProps> = ({
   items, b2bTier, orderDiscount = 0, headerAction,
-  subtotal, shipping = 0, total, gst, amountReceived, couponCode, discountReason, discountItems,
+  subtotal, shipping = 0, total, gst, amountReceived, refundedAmount = 0, couponCode, discountReason, discountItems,
   orderNotes, paymentMethod, paymentGateway, placedAt, orderType, customerGstin,
   salesperson, importedFrom,
   onRemoveShipping, onRemoveCod, removingCharge, fulfilmentLines,
@@ -865,12 +867,19 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                             — before this it was deleted, so the desk could not
                             see what came off without reading the order notes. */}
                         {r.cancelledQty > 0 && (
-                          <div
-                            className="mt-0.5 text-xs font-semibold text-rose-600"
-                            title={r.cancelledReason ? `Reason: ${r.cancelledReason}` : 'Cancelled'}
-                          >
-                            {r.cancelledQty} cancelled
-                          </div>
+                          /* The big figure is what stays on the order (shipped and charged);
+                             say so, so it never reads as the cancelled units. */
+                          <>
+                            <div className="mt-0.5 text-[11px] font-normal text-slate-500">
+                              kept of {r.qty + r.cancelledQty} ordered
+                            </div>
+                            <div
+                              className="text-xs font-semibold text-rose-600"
+                              title={r.cancelledReason ? `Reason: ${r.cancelledReason}` : 'Cancelled'}
+                            >
+                              {r.cancelledQty} cancelled, not charged
+                            </div>
+                          </>
                         )}
                       </td>
 
@@ -1098,7 +1107,22 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                     {m.received > 0 && (
                       <>
                         <Step tone="credit" label="Amount received (before delivery)" value={m.received} />
-                        <Step tone="subtotal" label="Balance due on delivery" value={m.balanceDue} />
+                        {m.overpaid > 0 ? (
+                          /* Lines cancelled after payment: the customer paid more than the
+                             order now totals, and that difference is theirs to get back. */
+                          <>
+                            {refundedAmount > 0 && (
+                              <Step tone="credit" label="Already refunded to the customer" value={refundedAmount} />
+                            )}
+                            <Step
+                              tone="subtotal"
+                              label={m.overpaid - refundedAmount > 0.005 ? 'Refund owed to the customer' : 'Refund owed to the customer: none left'}
+                              value={Math.max(0, Math.round((m.overpaid - refundedAmount) * 100) / 100)}
+                            />
+                          </>
+                        ) : (
+                          <Step tone="subtotal" label="Balance due on delivery" value={m.balanceDue} />
+                        )}
                       </>
                     )}
                   </>
