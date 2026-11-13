@@ -1,5 +1,8 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
-import { inventoryAPI, exportsAPI, blobErrorMessage, type InventoryHealth, type ImportResponse } from '../services/api';
+import { Link } from 'react-router-dom';
+import { api, inventoryAPI, exportsAPI, blobErrorMessage, type InventoryHealth, type ImportResponse } from '../services/api';
+import { payload } from '../lib/unwrap';
+import { fmtRupees } from '../lib/money';
 import { saveBlob } from '../lib/saveBlob';
 import { Pagination, FilterChips, type ChipGroup } from '@/components/erp';
 import InfoTip from '../components/common/InfoTip';
@@ -94,7 +97,7 @@ export default function Inventory() {
   // expiry surface on this page is left out rather than shown empty, and the
   // Stock column of the Inventory sheet is editable again (the server applies
   // the same switch — services/stockMode.ts).
-  const { canAccess } = useAuth();
+  const { canAccess, hasPerm } = useAuth();
   // DEC-069 inventory lock: stock-changing controls are switched off while the ERP keeps stock.
   const stockLock = useInventoryLock();
   const lotsOn = canAccess('batches');
@@ -188,6 +191,22 @@ export default function Inventory() {
     catch { /* tiles degrade to the table's own counts */ }
   }, []);
   useEffect(() => { loadHealth(); }, [loadHealth]);
+
+  // Stock changes an approval rule is holding for this person's role (Inventory, Approvals).
+  // Only for people who may decide them; a failure just leaves the tile out.
+  const [waitingApproval, setWaitingApproval] = useState(0);
+  const canDecide = hasPerm('inventory.manage');
+  const loadWaiting = useCallback(async () => {
+    if (!canDecide) return;
+    try {
+      const rows = payload<any[]>(await api.get('/approvals/pending')) ?? [];
+      setWaitingApproval(Array.isArray(rows) ? rows.filter((r) => r?.doc_type === 'stock_adjustment').length : 0);
+    } catch { setWaitingApproval(0); }
+  }, [canDecide]);
+  useEffect(() => { loadWaiting(); }, [loadWaiting]);
+
+  /** A tile's count, or a placeholder while the tiles load. */
+  const tileNum = (v?: number | string | null) => (health ? Number(v ?? 0).toLocaleString('en-IN') : '...');
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -443,10 +462,56 @@ export default function Inventory() {
           `units_on_hand` is the LEDGER-preferred total (644,672 live), not
           Σ pv.stock (639,569) and not Σ batches (616,767). Those three have
           never agreed; showing one of them silently was the bug. */}
-      <div className="stat-row">
+      {/* MENU-1 inventory: what to act on comes first (nothing left, running low, expiring,
+          figures that disagree, changes waiting for a manager), then what the stock is worth. */}
+      <div className="stat-row" data-testid="inv-tiles">
+        <button className={`stat stat-btn ${filter === 'out' ? 'active' : ''} ${health && health.out_of_stock > 0 ? 'warn' : ''}`}
+          onClick={() => { setFilter('out'); setPage(1); }} data-testid="inv-tile-out">
+          <span className="stat-label">Out of stock</span>
+          <span className="stat-value">{tileNum(health?.out_of_stock)}</span>
+          <span className="stat-sub">None left to sell</span>
+        </button>
+        {/* The running-low line is the store's own (Settings, stockPolicy.lowStockAt). */}
+        <div className={`stat ${filter === 'low' ? 'stat-on' : ''}`} data-testid="inv-tile-low">
+          <button type="button" className="stat-hit" onClick={() => { setFilter('low'); setPage(1); }}>
+            <span className="stat-label">Running low</span>
+            <span className="stat-value">{tileNum(health?.low_stock)}</span>
+          </button>
+          <span className="stat-sub">
+            {health?.low_stock_at != null ? `${health.low_stock_at.toLocaleString('en-IN')} units or fewer. ` : ''}
+            {hasPerm('inventory.manage') && <Link to="/settings?key=stockPolicy" className="stat-link">Change</Link>}
+          </span>
+        </div>
+        {/* Expiry lives on a lot: no lots, no expiry tile. */}
+        {lotsOn && (
+          <button className={`stat stat-btn ${filter === 'expiring' ? 'active' : ''} ${health && health.expired_skus > 0 ? 'warn' : ''}`}
+            onClick={() => { setFilter('expiring'); setPage(1); }} data-testid="inv-tile-expiring">
+            <span className="stat-label">Expiring in 90 days</span>
+            <span className="stat-value">{tileNum(health?.expiring_90d_skus)}</span>
+            <span className="stat-sub">{health ? `${health.expired_skus.toLocaleString('en-IN')} SKUs already expired` : ''}</span>
+          </button>
+        )}
+        {/* The reconciliation queue. A tile rather than a buried filter because
+            6,494 live SKUs are in it and nothing surfaced that before. */}
+        <button className={`stat stat-btn ${filter === 'mismatch' ? 'active' : ''} ${health && health.needs_reconciling > 0 ? 'warn' : ''}`}
+          onClick={() => { setFilter('mismatch'); setPage(1); }}>
+          <span className="stat-label">Needs reconciling</span>
+          <span className="stat-value">{tileNum(health?.needs_reconciling)}</span>
+          <span className="stat-sub">
+            {lotsOn && health && health.over_batched > 0 ? `${health.over_batched.toLocaleString('en-IN')} over-batched` : 'figures disagree'}
+          </span>
+        </button>
+        {/* Stock changes an approval rule is holding (Inventory, Approvals): shown only when there are some. */}
+        {waitingApproval > 0 && (
+          <Link to="/panel/inventory/approvals" className="stat stat-btn warn stat-anchor" data-testid="inv-tile-approvals">
+            <span className="stat-label">Waiting approval</span>
+            <span className="stat-value">{waitingApproval.toLocaleString('en-IN')}</span>
+            <span className="stat-sub">Stock changes held for a manager</span>
+          </Link>
+        )}
         <div className="stat">
           <span className="stat-label">Inventory value</span>
-          <span className="stat-value">₹{Math.round(valuation?.grand_total ?? 0).toLocaleString('en-IN')}</span>
+          <span className="stat-value">{fmtRupees(Math.round(valuation?.grand_total ?? 0))}</span>
         </div>
         <div className="stat">
           <span className="stat-label">
@@ -482,22 +547,6 @@ export default function Inventory() {
               : `${Number(health.active_skus ?? 0).toLocaleString('en-IN')} active`}
           </span>
         </div>
-        <button className={`stat stat-btn ${filter === 'out' ? 'active' : ''}`}
-          onClick={() => { setFilter('out'); setPage(1); }}>
-          <span className="stat-label">Out of stock</span>
-          <span className="stat-value">{(health?.out_of_stock ?? 0).toLocaleString('en-IN')}</span>
-          <span className="stat-sub">{health ? `${health.low_stock.toLocaleString('en-IN')} running low` : '—'}</span>
-        </button>
-        {/* The reconciliation queue. A tile rather than a buried filter because
-            6,494 live SKUs are in it and nothing surfaced that before. */}
-        <button className={`stat stat-btn ${filter === 'mismatch' ? 'active' : ''} ${health && health.needs_reconciling > 0 ? 'warn' : ''}`}
-          onClick={() => { setFilter('mismatch'); setPage(1); }}>
-          <span className="stat-label">Needs reconciling</span>
-          <span className="stat-value">{(health?.needs_reconciling ?? 0).toLocaleString('en-IN')}</span>
-          <span className="stat-sub">
-            {lotsOn && health && health.over_batched > 0 ? `${health.over_batched.toLocaleString('en-IN')} over-batched` : 'figures disagree'}
-          </span>
-        </button>
       </div>
 
 
@@ -839,11 +888,18 @@ export default function Inventory() {
           loadInventory();
           loadHealth();
           loadValuation();
+          loadWaiting();
         }}
       />
 
       <style>{`
         .inv-page { padding: 20px 24px; max-width: 100%; margin: 0; }
+        /* A tile with its own link: the number filters, the link goes elsewhere. */
+        .stat-hit { all: unset; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+        .stat-hit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+        .stat.stat-on { border-color: var(--accent); background: var(--g-50); }
+        .stat-link { color: var(--i-600); text-decoration: underline; }
+        a.stat-anchor { text-decoration: none; }
         /* Lots under their SKU. Indented and tinted so they read as PART of the row above. */
         .expander { border: 1px solid var(--n-200); background: var(--surface); border-radius: 6px; width: 22px; height: 22px;
                     cursor: pointer; color: var(--n-600); font-size: 11px; line-height: 1; padding: 0; }
@@ -954,6 +1010,11 @@ export default function Inventory() {
         .form-row input { padding: 8px 12px; border: 1px solid var(--n-300); border-radius: 6px; font-size: 0.875rem; }
         .form-row input:focus { outline: none; border-color: var(--accent); }
         .modal-footer { display: flex; justify-content: flex-end; gap: 10px; padding: 16px 24px; border-top: 1px solid var(--n-100); }
+        /* Phone width: a 16px gutter and two tiles a row (last, so it wins over the rules above). */
+        @media (max-width: 640px) {
+          .inv-page { padding: 16px; }
+          .stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+        }
       `}</style>
     </div>
   );

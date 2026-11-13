@@ -4720,6 +4720,8 @@ export interface InventoryHealth {
   expired_units: string;
   expired_skus: number;
   expiring_90d_skus: number;
+  /** The store's running-low line `low_stock` counts at or under (`stockPolicy.lowStockAt`). */
+  low_stock_at?: number;
   /** 'simple' = one figure per SKU (the `batches` module off); 'batches' = lots. */
   stock_mode?: 'batches' | 'simple';
 }

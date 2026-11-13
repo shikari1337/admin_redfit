@@ -11,6 +11,7 @@ import { useInventoryLock } from '../../hooks/useInventoryLock';
 import { useAuth } from '../../contexts/AuthContext';
 import { todayIso } from '../../utils/date';
 import { movementLabel } from './ledgerLabels';
+import { fmtMinor } from '../../lib/money';
 
 /**
  * UPDATE STOCK — every way a SKU's quantity legitimately changes, in one place.
@@ -67,6 +68,18 @@ function errorText(e: any, fallback: string): string {
     return 'This store keeps one lot per batch number, and that number is already in use at a different MRP. Receive it at the existing lot\'s MRP, or give the new lot its own number.';
   }
   return raw || fallback;
+}
+
+/**
+ * MENU-1 inventory: an approval rule (Inventory, Approvals) held a loose stock change for a
+ * manager. The server answers `pending_approval` and moves nothing until someone approves it.
+ */
+function heldText(res: any, units: number): string | null {
+  const p = res?.pending_approval ?? res?.pendingApproval;
+  if (!p || p.status !== 'pending') return null;
+  const worth = p.valueMinor != null ? `, worth ${fmtMinor(p.valueMinor)},` : '';
+  const sign = units > 0 ? '+' : '';
+  return `Sent for approval: the change of ${sign}${units} unit(s)${worth} waits for a manager on Inventory, Approvals. Stock has not moved yet.`;
 }
 
 const REMOVE_REASONS: Array<{ key: string; label: string; lot: 'damage' | 'expiry_write_off' | 'adjustment'; loose: string }> = [
@@ -242,12 +255,12 @@ export default function UpdateStockDialog({
       });
       return `Received ${rcvQty} into lot ${rcv.batchNumber.trim()} — on hand ${fmt(onHand)} → ${fmt(onHand + rcvQty)}.`;
     }
-    await inventoryAPI.adjust({
+    const res = await inventoryAPI.adjust({
       variation_id: variationId!, product_id: sku.product_id, qty_delta: rcvQty,
       reason_type: 'received', notes: (rcv.note || rcv.purchaseRef || 'received').slice(0, 40),
       reference: rcv.purchaseRef.trim() || undefined,
     });
-    return `Received ${rcvQty} loose units — on hand ${fmt(onHand)} → ${fmt(onHand + rcvQty)}.`;
+    return heldText(res, rcvQty) ?? `Received ${rcvQty} loose units. On hand ${fmt(onHand)} is now ${fmt(onHand + rcvQty)}.`;
   });
 
   /* ── Remove / write off ──────────────────────────────────────────────── */
@@ -263,10 +276,12 @@ export default function UpdateStockDialog({
       await batchesAPI.setQuantity(remLot.id, Number(remLot.qty_on_hand) - remQty, note, remReason.lot);
       return `Removed ${remQty} from lot ${remLot.batch_number} (${remReason.label.toLowerCase()}) — on hand ${fmt(onHand)} → ${fmt(onHand - remQty)}.`;
     }
-    await inventoryAPI.adjust({
+    const res = await inventoryAPI.adjust({
       variation_id: variationId!, product_id: sku.product_id, qty_delta: -remQty,
       reason_type: remReason.loose, notes: note,
     });
+    const held = heldText(res, -remQty);
+    if (held) return held;
     return `Removed ${remQty} loose units (${remReason.label.toLowerCase()}) — on hand ${fmt(onHand)} → ${fmt(onHand - remQty)}.`;
   });
 
