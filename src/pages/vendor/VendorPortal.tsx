@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { localeDate } from '../../utils/date';
+import { V2_ENABLED } from '../../lib/v2/config';
+import { vendorPortalCall } from '../../lib/v2/areas/make';
 
 /**
- * Vendor Portal — the supplier-facing surface (spec §12 + §5).
+ * Vendor Portal: the supplier-facing surface (spec §12 + §5).
  *
  * No login: the URL token (/vendor/:token) IS the access. Mobile-first, plain
- * language, big tap targets — built for a small supplier opening a WhatsApp
+ * language, big tap targets, built for a small supplier opening a WhatsApp
  * link on their phone. Rendered OUTSIDE the admin Layout/ProtectedRoute, so it
  * uses its own self-contained styling and its own tiny fetch client (the shared
  * admin axios injects an admin JWT + camelCase transforms we don't want here).
@@ -26,7 +28,10 @@ function storeKey(): string {
   return (import.meta as any).env?.VITE_API_KEY || '';
 }
 
+// A v2 build goes through the v2 layer: /api/v2/make/portal/*, the code in X-Portal-Token. The old
+// /api/v1/vendor-portal paths are not served by the Rust API, so without this the link opened nothing.
 async function portalGet(token: string, path: string) {
+  if (V2_ENABLED) return vendorPortalCall(token, 'GET', path);
   const res = await fetch(`${API_BASE}/api/${API_VERSION}/vendor-portal${path}`, {
     headers: { 'x-api-key': storeKey(), 'x-portal-token': token },
   });
@@ -34,6 +39,7 @@ async function portalGet(token: string, path: string) {
   return { ok: res.ok, status: res.status, body };
 }
 async function portalPost(token: string, path: string, payload: any) {
+  if (V2_ENABLED) return vendorPortalCall(token, 'POST', path, payload);
   const res = await fetch(`${API_BASE}/api/${API_VERSION}/vendor-portal${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': storeKey(), 'x-portal-token': token },
@@ -63,7 +69,7 @@ const PO_STATE: Record<string, { label: string; cls: string }> = {
 
 function BillChip({ status, paid }: { status: string; paid: boolean }) {
   if (paid) return <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">Paid</span>;
-  const label = status === 'recorded' ? 'Received' : status === 'approved' ? 'Approved — payment due' : status === 'cancelled' ? 'Cancelled' : 'Unpaid';
+  const label = status === 'recorded' ? 'Received' : status === 'approved' ? 'Approved, payment due' : status === 'cancelled' ? 'Cancelled' : 'Unpaid';
   return <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">{label}</span>;
 }
 
@@ -164,7 +170,7 @@ const VendorPortal: React.FC = () => {
                     <div className="font-bold text-slate-900">Order {po.poNumber}</div>
                     <div className="mt-0.5 text-sm text-slate-500">
                       {prettyDate(po.orderDate)}
-                      {po.expectedDate ? ` · deliver by ${prettyDate(po.expectedDate)}` : ''}
+                      {po.expectedDate ? `, deliver by ${prettyDate(po.expectedDate)}` : ''}
                     </div>
                   </div>
                   <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${st.cls}`}>{st.label}</span>
@@ -172,23 +178,23 @@ const VendorPortal: React.FC = () => {
 
                 {/* Plain-language summary */}
                 <p className="mt-3 text-[15px] text-slate-700">
-                  <span className="font-semibold">{po.lineCount}</span> item{po.lineCount === 1 ? '' : 's'} ·{' '}
-                  <span className="font-semibold">{po.totalQty}</span> unit{po.totalQty === 1 ? '' : 's'} ·{' '}
+                  <span className="font-semibold">{po.lineCount}</span> item{po.lineCount === 1 ? '' : 's'},{' '}
+                  <span className="font-semibold">{po.totalQty}</span> unit{po.totalQty === 1 ? '' : 's'},{' '}
                   worth <span className="font-semibold">{rupees(po.subtotalMinor)}</span>
-                  {!acked && po.status !== 'cancelled' ? ' — waiting for you to confirm.' : ''}
+                  {!acked && po.status !== 'cancelled' ? '. Waiting for you to confirm.' : ''}
                 </p>
 
                 {/* Line items */}
                 <ul className="mt-3 space-y-1.5 border-t border-slate-100 pt-3">
                   {(po.lines || []).map((l: any, i: number) => (
                     <li key={i} className="flex items-center justify-between text-sm">
-                      <span className="text-slate-700">{l.name}{l.variation && l.variation !== l.name ? ` · ${l.variation}` : ''}</span>
+                      <span className="text-slate-700">{l.name}{l.variation && l.variation !== l.name ? `, ${l.variation}` : ''}</span>
                       <span className="shrink-0 font-medium text-slate-900">× {l.qtyOrdered}</span>
                     </li>
                   ))}
                 </ul>
 
-                {po.notes && <p className="mt-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-600">“{po.notes}”</p>}
+                {po.notes && <p className="mt-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-600">{po.notes}</p>}
 
                 {/* Acknowledge */}
                 <div className="mt-4">
@@ -225,8 +231,8 @@ const VendorPortal: React.FC = () => {
                   <div className="font-bold text-slate-900">Bill {b.billNumber}</div>
                   <div className="mt-0.5 text-sm text-slate-500">
                     {prettyDate(b.billDate)}
-                    {b.poNumber ? ` · for order ${b.poNumber}` : ''}
-                    {b.dueDate ? ` · due ${prettyDate(b.dueDate)}` : ''}
+                    {b.poNumber ? `, for order ${b.poNumber}` : ''}
+                    {b.dueDate ? `, due ${prettyDate(b.dueDate)}` : ''}
                   </div>
                 </div>
                 <BillChip status={b.status} paid={b.paid} />

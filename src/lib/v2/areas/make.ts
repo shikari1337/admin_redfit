@@ -7,9 +7,10 @@
  * answered without `success`); a `gap` row is a NAMED refusal (docs/PORT_NOTES/ADMIN-V2-2.md, "gaps").
  */
 import type { V2Route } from '../routes';
-import { mapList } from '../http';
+import { isPage, mapList, v2http } from '../http';
 import { majorToMinor, toMoney } from '../money';
 import { pageAs, shapeBody, snake } from '../shape';
+import { portalLegacy } from './trade';
 
 /**
  * A make view answers Money `x` (make views/wire.rs `wire_value`: a stored `x_minor` becomes Money `x`), already rupees
@@ -199,6 +200,8 @@ export const MAKE_ROUTES: V2Route[] = [
   vendorTermsBody({ m: 'PUT', from: '/vendors/:id', row: 'make ', method: 'PATCH', to: '/api/v2/make/vendors/{id}', bs: {'bank_details':'j','business_name':'s','cin':'s','commission_pct':'d','country':'s','customer_id':'s','gst_number':'s','is_active':'b','is_non_resident':'b','licences':[{'issued_by':'s','label':'s','number':'s','state':'s','type':'s','valid_from':'s','valid_till':'s'}],'logo_url':'s','lower_deduction_cert':'s','msme_classification':'s','pan_number':'s','registered_address':{'city':'s','country':'s','line1':'s','line2':'s','pincode':'s','state':'s'},'slug':'s','tds_rate_milli_pct':'i','tds_section':'s','terms':{'credit_limit':'m','currency':'s','delivery_lead_days':'i','delivery_notes':'s','freight_terms':'s','gst_treatment':'s','incoterm':'s','min_order_value':'m','payment_due_days':'i','payment_mode':'s','payment_notes':'s','transporter':'s'},'udyam_number':'s'}, rs: {'vendor':{'tds_rate_milli_pct':'r'}} }), // flat terms → terms{…}; tds_rate_milli_pct stays the integer milli-percent the form sends (VendorBody Patch<i64>, vendors.rs:223)
   { m: 'DELETE', from: '/vendors/:id', row: 'make ', to: '/api/v2/make/vendors/{id}' },
   { m: 'POST', from: '/vendors/:id/portal-token', row: 'make ', to: '/api/v2/make/vendors/{id}/portal-links', bs: {'expires_at':'s','label':'s'} },
+  { m: 'GET', from: '/vendors/:id/portal-links', row: 'make ', to: '/api/v2/make/vendors/{id}/portal-links' }, // PortalLinkRowView (MENU-1): never the code, at most its first characters (token_prefix)
+  { m: 'POST', from: '/vendors/:id/portal-links/:link_id/revoke', row: 'make ', to: '/api/v2/make/vendors/{id}/portal-links/{link_id}/revoke' }, // MENU-1: the link opens nothing from then on
   { m: 'PUT', from: '/vendors/:id/status', row: 'make ', method: 'POST', to: '/api/v2/make/vendors/{id}/status', bs: {'status':'s'} },
   { m: 'GET', from: '/vendors/terms/meta', row: 'make ', to: '/api/v2/make/vendors/meta' },
   { m: 'GET', from: '/work-orders', row: 'make ', to: '/api/v2/make/work-orders', qs: ['assigned_to','bom_id','limit','offset','open_only','overdue','status'] },
@@ -214,3 +217,37 @@ export const MAKE_ROUTES: V2Route[] = [
   { m: 'GET', from: '/work-orders/holds/:variationId', row: 'make ', to: '/api/v2/make/work-orders/holds/{variationId}' },
   { m: 'POST', from: '/work-orders/preview', row: 'make ', to: '/api/v2/make/work-orders/preview', bs: {'autobuild_subassemblies':'b','bom_id':'s','qty':'i'} },
 ];
+
+/* ── the supplier portal (pages/vendor/VendorPortal.tsx, outside the admin session) ─────────────────────────────── */
+
+/** Old supplier-portal sub-path to v2 (`/api/v2/make/portal/*`, make api/vendor_portal.rs:112-147). */
+function vendorPortalPath(path: string): string {
+  const ack = /^\/pos\/([^/]+)\/ack$/.exec(path);
+  if (ack) return `/purchase-orders/${encodeURIComponent(ack[1])}/ack`;
+  return path === '/pos' ? '/purchase-orders' : path; // `/me` and `/bills` keep their names
+}
+
+/**
+ * One supplier-portal call on v2, answered as the old page's `{ok, status, body}`. THE LINK IS THE AUTH: the access
+ * code travels in `X-Portal-Token` (never the path or the query, make api/vendor_portal.rs:3-4); the store is the
+ * page's own store key (v2http). A 401 is a dead link, as before. The answer reads as the old one: a Page becomes its
+ * rows, every Money `x` also gives `x_minor` and every key a camelCase twin (`subtotalMinor`, `poNumber`), through the
+ * partner portal's one converter.
+ */
+export async function vendorPortalCall(
+  token: string, method: 'GET' | 'POST', path: string, payload?: unknown,
+): Promise<{ ok: boolean; status: number; body: any }> {
+  try {
+    const res = await v2http.request({
+      method, url: `/api/v2/make/portal${vendorPortalPath(path)}`,
+      data: method === 'POST' ? (payload ?? {}) : undefined,
+      headers: { 'x-portal-token': token },
+    });
+    const env = (res.data ?? {}) as { data?: unknown };
+    const raw = env.data !== undefined ? env.data : env;
+    return { ok: true, status: res.status, body: { success: true, data: portalLegacy(isPage(raw) ? raw.items : raw) } };
+  } catch (e: any) {
+    const r = e?.response;
+    return { ok: false, status: r?.status ?? 0, body: r?.data ?? {} };
+  }
+}

@@ -1792,6 +1792,33 @@ export const vendorsAPI = {
     const response = await api.post(`/vendors/${id}/portal-token`, opts || {});
     return response.data?.data || response.data;
   },
+  /**
+   * EVERY supplier, not the first page: the server answers at most 200 a call (50 unless asked), so a store
+   * with more suppliers than that saw only the newest and its counts and search were wrong. Errors throw.
+   */
+  listAll: async (params?: Record<string, any>) => {
+    const out: any[] = [];
+    for (let guard = 0; guard < 50; guard++) {
+      const response = await api.get('/vendors', { params: { ...(params || {}), limit: 200, offset: out.length } });
+      const page: any = response.data;
+      const rows: any[] = Array.isArray(page) ? page : (page?.data || []);
+      out.push(...rows);
+      const total = Number(page?.total ?? out.length);
+      if (!rows.length || out.length >= total) break;
+    }
+    return out;
+  },
+  /** The portal links a supplier was handed, newest first: label, first characters, expiry, live/expired/revoked. */
+  portalLinks: async (id: string) => {
+    const response = await api.get(`/vendors/${id}/portal-links`);
+    const data = response.data;
+    return Array.isArray(data) ? data : (data?.data || []);
+  },
+  /** Revoke one portal link: it opens nothing from then on. */
+  revokePortalLink: async (id: string, linkId: string) => {
+    const response = await api.post(`/vendors/${id}/portal-links/${linkId}/revoke`, {});
+    return response.data?.data || response.data;
+  },
 };
 
 // Orders API

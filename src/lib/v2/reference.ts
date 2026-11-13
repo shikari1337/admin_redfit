@@ -181,3 +181,35 @@ export async function lookupIfsc(input: string): Promise<{ ok: true; branch: Ifs
     return { ok: false, reason: e?.response?.data?.message || 'The IFSC lookup could not be reached. Check the code by hand.' };
   }
 }
+
+/** The IFSC shape (4 letters, a zero, 6 letters or digits): a typed code is looked up only once it has it. */
+export const IFSC_SHAPE = /^[A-Z]{4}0[A-Z0-9]{6}$/;
+
+/**
+ * `lookupIfsc` as a hook for a form field (MENU-1 vendors): a complete code is looked up (debounced) and an older
+ * answer never lands on a newer code. `error` is the lookup's own reason in words (no branch carries it, or the
+ * lookup could not be reached).
+ */
+export function useIfscLookup(code: string): { branch: IfscBranch | null; loading: boolean; error: string } {
+  const [branch, setBranch] = useState<IfscBranch | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    const c = String(code ?? '').replace(/\s+/g, '').toUpperCase();
+    setBranch(null);
+    setError('');
+    if (!IFSC_SHAPE.test(c) || !V2_ENABLED) { setLoading(false); return; }
+    let live = true;
+    const t = setTimeout(() => {
+      setLoading(true);
+      lookupIfsc(c)
+        .then((r) => {
+          if (!live) return;
+          if (r.ok) { setBranch(r.branch); setError(''); } else { setBranch(null); setError(r.reason); }
+        })
+        .finally(() => { if (live) setLoading(false); });
+    }, 350);
+    return () => { live = false; clearTimeout(t); };
+  }, [code]);
+  return { branch, loading, error };
+}

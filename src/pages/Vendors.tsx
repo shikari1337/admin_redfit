@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { vendorsAPI } from '../services/api';
 import { FaPlus, FaTrash } from 'react-icons/fa';
-import { Pencil, Loader2, Link2, Copy, Check } from 'lucide-react';
+import { Pencil, Loader2, Link2, Archive, RotateCcw, AlertTriangle, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -17,11 +17,16 @@ import { useAuth } from '../contexts/AuthContext';
 import { ExportMenu, Pagination, type CsvColumn } from '@/components/erp';
 import { getStatusColorClass } from '../components/order/StatusBadge';
 import { FilterChip, SearchBox, ListHeader } from '../components/sales/ListChrome';
+import VendorPortalLinks from '../components/vendor/VendorPortalLinks';
 
-// Was a local palette — same colors now centralized in
+// Was a local palette; the same colors now live in
 // components/order/StatusBadge.tsx's 'vendor' domain (2026-09-04).
 
-// Vendor master CSV — the row the page already holds (client-side export).
+/** The licences of a row the server flagged (expired first, then running out), each with its `status`. */
+const flagged = (v: any): any[] => (Array.isArray(v?.licences_expiring) ? v.licences_expiring : []);
+const hasLicence = (v: any, status: 'expired' | 'expiring') => flagged(v).some((l: any) => l.status === status);
+
+// Vendor master CSV: the rows the page already holds (client-side export).
 const VENDOR_CSV_COLUMNS: CsvColumn<any>[] = [
   { key: 'business_name', label: 'Vendor' },
   { key: 'slug', label: 'Slug' },
@@ -30,7 +35,8 @@ const VENDOR_CSV_COLUMNS: CsvColumn<any>[] = [
   { key: 'commission_pct', label: 'Commission %' },
   { key: 'status', label: 'Status' },
   { key: 'is_active', label: 'Active', format: (v) => (v.is_active ? 'Active' : 'Inactive') },
-  { key: 'payment_terms_days', label: 'Terms (days)' },
+  // The list answers the terms nested (`terms.payment_due_days`); the old flat column is read as a fallback.
+  { key: 'payment_terms_days', label: 'Terms (days)', format: (v: any) => String(v.terms?.payment_due_days ?? v.payment_terms_days ?? '') },
   { key: 'msme_classification', label: 'MSME class' },
   { key: 'udyam_number', label: 'Udyam' },
   { key: 'cin', label: 'CIN' },
@@ -44,94 +50,117 @@ const VENDOR_CSV_COLUMNS: CsvColumn<any>[] = [
 ];
 
 const PAGE_SIZE = 20;
+const STATUSES = ['approved', 'pending', 'suspended', 'rejected'] as const;
+type Status = typeof STATUSES[number];
 
 const Vendors: React.FC = () => {
-  // DEFECT FIX: vendor writes were gated on `user.role === 'admin'`, so a
-  // purchasing_officer (who holds `purchasing.manage`, which the backend
-  // authorises) saw a read-only page. Gate on the actual permission instead.
+  // Gate on the permission the backend checks (`purchasing.manage`), never on a role name: a purchasing
+  // officer holds it and must see the write actions.
   const { hasPerm } = useAuth();
   const canManage = hasPerm('purchasing.manage');
 
   const [vendors, setVendors] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  /** Licence health — the buyer's real question before raising an order. */
+  const [statusFilter, setStatusFilter] = useState<'' | Status>('');
+  /** Licence health: the buyer's real question before raising an order. */
   const [licenceFilter, setLicenceFilter] = useState<'' | 'expiring' | 'expired'>('');
   const [activeFilter, setActiveFilter] = useState<'' | 'active' | 'inactive'>('');
   const [page, setPage] = useState(1);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
-
-  // Vendor-portal share link
-  const [portalLink, setPortalLink] = useState<{ vendorName: string; url: string } | null>(null);
-  const [portalLoadingId, setPortalLoadingId] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-
-  const handlePortalLink = async (vendor: any) => {
-    const id = String(vendor.id || vendor._id || '');
-    setPortalLoadingId(id);
-    try {
-      const res = await vendorsAPI.mintPortalToken(id);
-      const path = res?.path || (res?.token ? `/vendor/${res.token}` : '');
-      if (!path) { alert('Could not create a portal link.'); return; }
-      setCopied(false);
-      setPortalLink({ vendorName: vendor.business_name, url: `${window.location.origin}${path}` });
-    } catch {
-      alert('Could not create a portal link. You need the "Manage purchasing" permission.');
-    } finally {
-      setPortalLoadingId(null);
-    }
-  };
-
-  const copyPortalLink = async () => {
-    if (!portalLink) return;
-    try { await navigator.clipboard.writeText(portalLink.url); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
-  };
-
-  useEffect(() => {
-    loadVendors();
-    // Licence expiry is not a column — it lives across three places and is
-    // resolved by the server's one reader — so that filter is a re-fetch, not
-    // a client-side test that would have to know all three.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [licenceFilter]);
+  /** The store's licence warning window (Settings, Goods coming in); said on the chip so "running out" means something. */
+  const [licenceDays, setLicenceDays] = useState<number | null>(null);
+  /** The supplier whose portal links are open. */
+  const [linksFor, setLinksFor] = useState<{ id: string; name: string } | null>(null);
 
   const loadVendors = async () => {
     setLoading(true);
     setError('');
     try {
-      const res = await vendorsAPI.list(licenceFilter ? { licence: licenceFilter } : undefined);
-      setVendors(Array.isArray(res) ? res : []);
+      // Every supplier (the server answers 200 at most a call): the counts below and the search must see all of
+      // them. The licence standing is composed by the server's one reader into `licences_expiring` on each row,
+      // so filtering on it here is not a second reading of the three places a licence can live.
+      setVendors(await vendorsAPI.listAll());
     } catch (e: any) {
       setVendors([]);
-      setError(e?.response?.data?.message ?? e?.message ?? 'Failed to load vendors.');
+      setError(e?.response?.data?.message ?? e?.message ?? 'Could not load the suppliers.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleStatusChange = async (id: string, status: 'pending' | 'approved' | 'suspended' | 'rejected') => {
+  useEffect(() => {
+    void loadVendors();
+    vendorsAPI.termsMeta()
+      .then((m: any) => { const d = Number(m?.licenceWarningDays ?? m?.licence_warning_days); if (Number.isFinite(d)) setLicenceDays(d); })
+      .catch(() => { /* the chip then reads without a number */ });
+  }, []);
+
+  const idOf = (v: any) => String(v?.id || v?._id || '');
+
+  const handleStatusChange = async (id: string, status: Status) => {
     setUpdatingId(id);
+    setNotice('');
     try {
       await vendorsAPI.updateStatus(id, status);
-      setVendors((prev) => prev.map((v) => v.id === id || v._id === id ? { ...v, status } : v));
-    } catch {
-      alert('Failed to update vendor status');
+      setVendors((prev) => prev.map((v) => (idOf(v) === id ? { ...v, status } : v)));
+    } catch (e: any) {
+      setError(e?.message || 'Could not change the supplier status.');
     } finally {
       setUpdatingId(null);
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Delete this vendor? This cannot be undone.')) return;
+  const setActive = async (vendor: any, active: boolean) => {
+    const id = idOf(vendor);
+    setUpdatingId(id);
+    setNotice('');
     try {
-      await vendorsAPI.delete(id);
-      setVendors((prev) => prev.filter((v) => (v.id || v._id) !== id));
-    } catch {
-      alert('Failed to delete vendor');
+      await vendorsAPI.update(id, { is_active: active });
+      setVendors((prev) => prev.map((v) => (idOf(v) === id ? { ...v, is_active: active } : v)));
+      setNotice(active ? `${vendor.business_name} is active again.` : `${vendor.business_name} is now inactive. Its history stays on record.`);
+    } catch (e: any) {
+      setError(e?.message || 'Could not change the supplier.');
+    } finally {
+      setUpdatingId(null);
     }
   };
+
+  /**
+   * Delete only a supplier with no history. The server refuses one that any order, bill, receipt, deduction or
+   * register still names (409, COMPLIANCE.md rule 3: a party of the books is archived, never deleted) and says
+   * where; the page then offers to mark it inactive, which keeps every record and hides it from new orders.
+   */
+  const handleDelete = async (vendor: any) => {
+    const id = idOf(vendor);
+    if (!confirm(`Delete ${vendor.business_name}? This works only for a supplier with no orders, bills or deductions, and cannot be undone.`)) return;
+    setNotice('');
+    try {
+      await vendorsAPI.delete(id);
+      setVendors((prev) => prev.filter((v) => idOf(v) !== id));
+      setNotice(`${vendor.business_name} was deleted.`);
+    } catch (e: any) {
+      if (e?.status === 409) {
+        if (vendor.is_active !== false && confirm(`${e.message}\n\nMark ${vendor.business_name} inactive now?`)) {
+          await setActive(vendor, false);
+          return;
+        }
+        setNotice(e.message);
+        return;
+      }
+      setError(e?.message || 'Could not delete the supplier.');
+    }
+  };
+
+  const counts = useMemo(() => ({
+    expired: vendors.filter((v) => hasLicence(v, 'expired')).length,
+    expiring: vendors.filter((v) => hasLicence(v, 'expiring')).length,
+    byStatus: Object.fromEntries(STATUSES.map((s) => [s, vendors.filter((v) => (v.status || 'pending') === s).length])) as Record<Status, number>,
+    active: vendors.filter((v) => v.is_active !== false).length,
+    inactive: vendors.filter((v) => v.is_active === false).length,
+  }), [vendors]);
 
   const term = search.trim().toLowerCase();
   const filtered = vendors.filter((v) => {
@@ -143,17 +172,26 @@ const Vendors: React.FC = () => {
       ...(Array.isArray(v.licences) ? v.licences.map((l: any) => l.number) : []),
     ].filter(Boolean).join(' ').toLowerCase();
     const matchSearch = !term || hay.includes(term);
-    const matchStatus = !statusFilter || v.status === statusFilter;
+    const matchStatus = !statusFilter || (v.status || 'pending') === statusFilter;
     const matchActive = !activeFilter || (activeFilter === 'active' ? v.is_active !== false : v.is_active === false);
-    return matchSearch && matchStatus && matchActive;
+    const matchLicence = !licenceFilter || hasLicence(v, licenceFilter);
+    return matchSearch && matchStatus && matchActive && matchLicence;
   });
   const pageStart = (page - 1) * PAGE_SIZE;
   const paged = filtered.slice(pageStart, pageStart + PAGE_SIZE);
+  const pick = (fn: () => void) => { fn(); setPage(1); };
+  const withinDays = licenceDays != null ? ` within ${licenceDays} days` : '';
+
+  /** What needs a person, most urgent first: the page opens with these, then the numbers. */
+  const actions: { key: string; tone: 'bad' | 'warn' | 'plain'; text: string; on: boolean; apply: () => void }[] = [];
+  if (counts.expired) actions.push({ key: 'expired', tone: 'bad', on: licenceFilter === 'expired', text: `${counts.expired} supplier${counts.expired === 1 ? ' has' : 's have'} an expired licence: do not order from them until it is renewed.`, apply: () => pick(() => { setLicenceFilter('expired'); setStatusFilter(''); }) });
+  if (counts.expiring) actions.push({ key: 'expiring', tone: 'warn', on: licenceFilter === 'expiring', text: `${counts.expiring} supplier${counts.expiring === 1 ? ' has' : 's have'} a licence ending${withinDays}: ask for the renewal.`, apply: () => pick(() => { setLicenceFilter('expiring'); setStatusFilter(''); }) });
+  if (counts.byStatus.pending) actions.push({ key: 'pending', tone: 'plain', on: statusFilter === 'pending', text: `${counts.byStatus.pending} supplier${counts.byStatus.pending === 1 ? ' is' : 's are'} waiting for approval.`, apply: () => pick(() => { setStatusFilter('pending'); setLicenceFilter(''); }) });
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <LoadingSpinner size="lg" color="primary" text="Loading vendors…" />
+        <LoadingSpinner size="lg" color="primary" text="Loading suppliers…" />
       </div>
     );
   }
@@ -172,12 +210,43 @@ const Vendors: React.FC = () => {
       />
 
       {error && (
-        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {error}
+        <div className="flex items-start justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          <span>{error}</span>
+          <div className="flex shrink-0 items-center gap-2">
+            {!vendors.length && <Button size="sm" variant="outline" onClick={() => void loadVendors()}>Try again</Button>}
+            <button type="button" aria-label="Dismiss" onClick={() => setError('')}><X className="h-4 w-4" /></button>
+          </div>
+        </div>
+      )}
+      {notice && (
+        <div className="flex items-start justify-between gap-3 rounded-md border border-line bg-surface px-4 py-3 text-sm text-ink">
+          <span>{notice}</span>
+          <button type="button" aria-label="Dismiss" onClick={() => setNotice('')}><X className="h-4 w-4" /></button>
         </div>
       )}
 
-      {/* Toolbar — search, then the filters as chips, then what is on screen */}
+      {/* What to act on first. Each line applies its own filter below. */}
+      {vendors.length > 0 && (
+        actions.length ? (
+          <div className="space-y-1.5">
+            {actions.map((a) => (
+              <button key={a.key} type="button" onClick={a.apply} aria-pressed={a.on}
+                className={`flex w-full items-start gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors ${
+                  a.tone === 'bad' ? 'border-bad bg-bad-bg text-bad-ink'
+                    : a.tone === 'warn' ? 'border-warn bg-warn-bg text-warn-ink'
+                      : 'border-line bg-surface text-ink hover:border-line-strong'
+                }`}>
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{a.text}</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-ink-soft">Nothing needs you: every recorded licence is in date and every supplier is decided.</p>
+        )
+      )}
+
+      {/* Toolbar: search, then the filters as chips with their counts, then what is on screen */}
       <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-3">
           <SearchBox
@@ -192,25 +261,25 @@ const Vendors: React.FC = () => {
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <FilterChip on={!statusFilter && !activeFilter && !licenceFilter}
-            onClick={() => { setStatusFilter(''); setActiveFilter(''); setLicenceFilter(''); setPage(1); }}>All</FilterChip>
-          {(['approved', 'pending', 'suspended', 'rejected'] as const).map((st) => (
-            <FilterChip key={st} on={statusFilter === st}
-              onClick={() => { setStatusFilter(statusFilter === st ? '' : st); setPage(1); }}>
+            onClick={() => pick(() => { setStatusFilter(''); setActiveFilter(''); setLicenceFilter(''); })}>All</FilterChip>
+          {STATUSES.map((st) => (
+            <FilterChip key={st} on={statusFilter === st} count={counts.byStatus[st]}
+              onClick={() => pick(() => setStatusFilter(statusFilter === st ? '' : st))}>
               <span className="capitalize">{st}</span>
             </FilterChip>
           ))}
           <span className="mx-1 h-4 w-px bg-line" />
-          <FilterChip on={activeFilter === 'active'}
-            onClick={() => { setActiveFilter(activeFilter === 'active' ? '' : 'active'); setPage(1); }}>Active</FilterChip>
-          <FilterChip on={activeFilter === 'inactive'}
-            onClick={() => { setActiveFilter(activeFilter === 'inactive' ? '' : 'inactive'); setPage(1); }}>Inactive</FilterChip>
+          <FilterChip on={activeFilter === 'active'} count={counts.active}
+            onClick={() => pick(() => setActiveFilter(activeFilter === 'active' ? '' : 'active'))}>Active</FilterChip>
+          <FilterChip on={activeFilter === 'inactive'} count={counts.inactive}
+            onClick={() => pick(() => setActiveFilter(activeFilter === 'inactive' ? '' : 'inactive'))}>Inactive</FilterChip>
           <span className="mx-1 h-4 w-px bg-line" />
-          <FilterChip on={licenceFilter === 'expiring'} tone="warn"
-            onClick={() => { setLicenceFilter(licenceFilter === 'expiring' ? '' : 'expiring'); setPage(1); }}>
+          <FilterChip on={licenceFilter === 'expiring'} tone="warn" count={counts.expiring}
+            onClick={() => pick(() => setLicenceFilter(licenceFilter === 'expiring' ? '' : 'expiring'))}>
             Licence running out
           </FilterChip>
-          <FilterChip on={licenceFilter === 'expired'} tone="bad"
-            onClick={() => { setLicenceFilter(licenceFilter === 'expired' ? '' : 'expired'); setPage(1); }}>
+          <FilterChip on={licenceFilter === 'expired'} tone="bad" count={counts.expired}
+            onClick={() => pick(() => setLicenceFilter(licenceFilter === 'expired' ? '' : 'expired'))}>
             Licence expired
           </FilterChip>
         </div>
@@ -221,7 +290,7 @@ const Vendors: React.FC = () => {
           <TableHeader>
             <TableRow>
               <TableHead>Supplier</TableHead>
-              <TableHead>GSTIN · PAN · CIN</TableHead>
+              <TableHead>GSTIN, PAN, CIN</TableHead>
               <TableHead>Licences</TableHead>
               <TableHead className="text-right">Commission</TableHead>
               <TableHead>Terms</TableHead>
@@ -240,15 +309,15 @@ const Vendors: React.FC = () => {
                   <p className="mt-1 text-xs text-ink-soft">
                     {vendors.length
                       ? 'Clear a chip above, or search by name, GSTIN or a licence number.'
-                      : 'Add the first supplier and every purchase order can be raised against them.'}
+                      : 'Add the first supplier and every purchase order and bill can be raised against them.'}
                   </p>
                 </TableCell>
               </TableRow>
             ) : (
               paged.map((vendor) => {
-                const id = String(vendor.id || vendor._id || '');
+                const id = idOf(vendor);
                 return (
-                  <TableRow key={id}>
+                  <TableRow key={id} className={vendor.is_active === false ? 'opacity-70' : undefined}>
                     <TableCell>
                       <div className="flex items-center gap-3">
                         {vendor.logo_url ? (
@@ -265,11 +334,11 @@ const Vendors: React.FC = () => {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <div className="font-mono text-xs text-ink">{vendor.gst_number || '—'}</div>
+                      <div className="font-mono text-xs text-ink">{vendor.gst_number || <span className="font-sans text-ink-mute">No GSTIN</span>}</div>
                       {vendor.pan_number && <div className="font-mono text-xs text-ink-soft">{vendor.pan_number}</div>}
                       {vendor.cin && <div className="font-mono text-xs text-ink-soft">{vendor.cin}</div>}
                     </TableCell>
-                    {/* How many, and whether any of them is a problem — the
+                    {/* How many, and whether any of them is a problem: the
                         question asked before a purchase order is raised. */}
                     <TableCell>
                       {Array.isArray(vendor.licences) && vendor.licences.length ? (
@@ -278,7 +347,7 @@ const Vendors: React.FC = () => {
                             {vendor.licences.length} on file
                           </span>
                           <div className="text-[11px] text-ink-soft">
-                            {[...new Set(vendor.licences.map((l: any) => l.title ?? l.type))].slice(0, 3).join(' · ')}
+                            {[...new Set(vendor.licences.map((l: any) => l.title ?? l.type))].slice(0, 3).join(', ')}
                           </div>
                         </>
                       ) : (
@@ -294,19 +363,22 @@ const Vendors: React.FC = () => {
                     <TableCell>
                       {Array.isArray(vendor.terms_summary) && vendor.terms_summary.length ? (
                         <div className="text-xs text-muted-foreground max-w-[22rem]">
-                          {vendor.terms_summary.join(' · ')}
+                          {vendor.terms_summary.join('; ')}
                         </div>
                       ) : (
                         <span className="text-xs text-muted-foreground">Not recorded</span>
                       )}
-                      {Array.isArray(vendor.licences_expiring) && vendor.licences_expiring.length > 0 && (
+                      {flagged(vendor).length > 0 && (
                         <div className="mt-1 text-xs font-medium">
-                          {vendor.licences_expiring.map((l: any) => (
-                            <div key={`${l.title ?? l.label}-${l.number}`}
-                                 className={(l.daysLeft ?? 0) < 0 ? 'text-bad-ink' : 'text-warn-ink'}>
-                              {l.title ?? l.label} {(l.daysLeft ?? 0) < 0 ? 'has expired' : `expires in ${l.daysLeft}d`}
-                            </div>
-                          ))}
+                          {flagged(vendor).map((l: any) => {
+                            const days = Number(l.daysLeft ?? l.days_left ?? 0);
+                            const gone = l.status === 'expired' || days < 0;
+                            return (
+                              <div key={`${l.title ?? l.label}-${l.number}`} className={gone ? 'text-bad-ink' : 'text-warn-ink'}>
+                                {l.title ?? l.label} {gone ? 'has expired' : `expires in ${days}d`}
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </TableCell>
@@ -358,13 +430,20 @@ const Vendors: React.FC = () => {
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
-                                <DropdownMenuItem className="cursor-pointer" onClick={() => handlePortalLink(vendor)} disabled={portalLoadingId === id}>
-                                  {portalLoadingId === id
-                                    ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    : <Link2 className="mr-2 h-4 w-4" />} Portal link
+                                <DropdownMenuItem className="cursor-pointer" onClick={() => setLinksFor({ id, name: vendor.business_name })}>
+                                  <Link2 className="mr-2 h-4 w-4" /> Portal links
                                 </DropdownMenuItem>
+                                {vendor.is_active === false ? (
+                                  <DropdownMenuItem className="cursor-pointer" onClick={() => setActive(vendor, true)}>
+                                    <RotateCcw className="mr-2 h-4 w-4" /> Mark active
+                                  </DropdownMenuItem>
+                                ) : (
+                                  <DropdownMenuItem className="cursor-pointer" onClick={() => setActive(vendor, false)}>
+                                    <Archive className="mr-2 h-4 w-4" /> Mark inactive
+                                  </DropdownMenuItem>
+                                )}
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem className="text-destructive focus:text-destructive cursor-pointer" onClick={() => handleDelete(id)}>
+                                <DropdownMenuItem className="text-destructive focus:text-destructive cursor-pointer" onClick={() => handleDelete(vendor)}>
                                   <FaTrash className="mr-2 h-4 w-4" /> Delete
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
@@ -383,35 +462,20 @@ const Vendors: React.FC = () => {
 
       <Pagination page={page} pageSize={PAGE_SIZE} total={filtered.length} onPage={setPage} />
 
-      {/* Vendor-portal share link modal */}
-      {portalLink && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setPortalLink(null)}>
-          <div className="w-full max-w-lg rounded-lg bg-card p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center gap-2">
-              <Link2 className="h-5 w-5 text-primary" />
-              <h2 className="text-lg font-semibold">Portal link for {portalLink.vendorName}</h2>
+      {/* A supplier's portal links: hand one out, see them all, revoke one */}
+      {linksFor && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4" onClick={() => setLinksFor(null)}>
+          <div role="dialog" aria-modal="true" aria-label={`Portal links for ${linksFor.name}`}
+            className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-t-lg bg-card p-5 shadow-xl sm:rounded-lg sm:p-6"
+            onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Link2 className="h-5 w-5 text-primary" />
+                <h2 className="text-lg font-semibold">Portal links for {linksFor.name}</h2>
+              </div>
+              <button type="button" aria-label="Close" onClick={() => setLinksFor(null)}><X className="h-5 w-5" /></button>
             </div>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Send this link to the supplier (WhatsApp, email — anything). No password needed:
-              they open it, see their purchase orders, confirm them, and track which bills are paid.
-            </p>
-            <div className="mt-4 flex items-center gap-2">
-              <input
-                readOnly
-                value={portalLink.url}
-                onFocus={(e) => e.currentTarget.select()}
-                className="flex-1 rounded-md border border-input bg-muted px-3 py-2 text-sm font-mono"
-              />
-              <Button onClick={copyPortalLink} className="shrink-0">
-                {copied ? <><Check className="mr-1.5 h-4 w-4" /> Copied</> : <><Copy className="mr-1.5 h-4 w-4" /> Copy</>}
-              </Button>
-            </div>
-            <p className="mt-3 text-xs text-muted-foreground">
-              Anyone with this link can view this vendor's orders and bills. You can revoke it later from the database if needed.
-            </p>
-            <div className="mt-5 flex justify-end">
-              <Button variant="outline" onClick={() => setPortalLink(null)}>Close</Button>
-            </div>
+            <VendorPortalLinks vendorId={linksFor.id} vendorName={linksFor.name} canManage={canManage} />
           </div>
         </div>
       )}

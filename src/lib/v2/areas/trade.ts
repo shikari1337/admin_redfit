@@ -82,7 +82,7 @@ const camel = (k: string): string => k.replace(/_([a-z0-9])/g, (_m, ch: string) 
  * the page divides by 100 itself), milli-percent → percent, and a camelCase twin of every key (the shelf lines were
  * camelCase: `itemId`, `qtyAtShop`, `unitPriceMinor`). Nothing is renamed away.
  */
-function portalLegacy(v: unknown): unknown {
+export function portalLegacy(v: unknown): unknown {
   if (Array.isArray(v)) return v.map(portalLegacy);
   if (!v || typeof v !== 'object') return v;
   const out: Record<string, unknown> = {};

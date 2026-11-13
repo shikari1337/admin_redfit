@@ -7,6 +7,9 @@ import { CustomFieldsCard } from '@/components/erp';
 import InfoTip from '../components/common/InfoTip';
 import VendorLicenceEditor, { type LicenceRow, type LicenceType } from '../components/vendor/VendorLicenceEditor';
 import { usePincodeLookup } from '../hooks/usePincodeLookup';
+import { useIfscLookup } from '../lib/v2/reference';
+import VendorPortalLinks from '../components/vendor/VendorPortalLinks';
+import { useAuth } from '../contexts/AuthContext';
 
 const toSlug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
@@ -14,6 +17,8 @@ const VendorForm: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const isEdit = !!id;
+  const { hasPerm } = useAuth();
+  const canManage = hasPerm('purchasing.manage');
 
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);
@@ -84,6 +89,11 @@ const VendorForm: React.FC = () => {
     multiLicence?: boolean;
   } | null>(null);
   const [expiring, setExpiring] = useState<{ label: string; number: string; expiry: string; daysLeft: number }[]>([]);
+  /**
+   * The status the supplier had when the page opened. A field update never carries the approval (the server takes
+   * it only through its own status route, which records who approved and when), so a changed status is sent there.
+   */
+  const [loadedStatus, setLoadedStatus] = useState<string>('pending');
 
   useEffect(() => {
     vendorsAPI.termsMeta()
@@ -147,6 +157,7 @@ const VendorForm: React.FC = () => {
         valid_from: (l.valid_from ?? '').slice(0, 10), valid_till: (l.valid_till ?? '').slice(0, 10),
         daysLeft: l.daysLeft ?? null, status: l.status,
       })));
+      setLoadedStatus(data.status || 'pending');
       if (typeof data.multi_licence === 'boolean') setMultiLicence(data.multi_licence);
       const fromSet = [...(set.expired ?? []), ...(set.expiring ?? [])]
         .map((l: any) => ({ label: l.title ?? l.type, number: l.number, expiry: l.valid_till, daysLeft: l.daysLeft ?? 0 }));
@@ -175,6 +186,23 @@ const VendorForm: React.FC = () => {
     });
   }, [regPin]);
 
+  /**
+   * The bank's name from the IFSC: RBI's list through the backend's one lookup (never an outside site from this
+   * screen). A wrong IFSC is the usual reason a supplier payment bounces, so the branch is shown under the code.
+   * A bank name typed by hand is never overwritten; one this lookup filled follows a corrected code.
+   */
+  const ifsc = useIfscLookup(form.bank_ifsc_code);
+  const lastBankFill = React.useRef<string | null>(null);
+  useEffect(() => {
+    const bank = ifsc.branch?.bank;
+    if (!bank) return;
+    setForm((f) => {
+      if (f.bank_name && f.bank_name !== lastBankFill.current) return f;
+      lastBankFill.current = bank;
+      return f.bank_name === bank ? f : { ...f, bank_name: bank };
+    });
+  }, [ifsc.branch]);
+
   const handleNameChange = (name: string) => {
     setForm((f) => ({ ...f, business_name: name, slug: f.slug || toSlug(name) }));
   };
@@ -196,7 +224,6 @@ const VendorForm: React.FC = () => {
       logo_url: form.logo_url.trim() || undefined,
       is_active: form.is_active,
     };
-    if (isEdit) payload.status = form.status;
     // Tax, compliance and terms. These used to be sent on EDIT only, because
     // createVendor hand-listed 10 columns and silently dropped everything added
     // after them (#199/#226). It introspects now, so a vendor created here keeps
@@ -249,6 +276,9 @@ const VendorForm: React.FC = () => {
     try {
       if (isEdit) {
         await vendorsAPI.update(id!, payload);
+        // The status goes through its own route (who approved and when is recorded there); a field update never
+        // carries it, so before this the status picked here was silently dropped.
+        if (form.status !== loadedStatus) await vendorsAPI.updateStatus(id!, form.status);
       } else {
         await vendorsAPI.create(payload);
       }
@@ -270,7 +300,7 @@ const VendorForm: React.FC = () => {
 
   return (
     <div className="max-w-2xl space-y-6">
-      <h1 className="text-3xl font-bold tracking-tight">{isEdit ? 'Edit Vendor' : 'Add Vendor'}</h1>
+      <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{isEdit ? 'Edit supplier' : 'Add a supplier'}</h1>
 
       {error && (
         <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -307,7 +337,7 @@ const VendorForm: React.FC = () => {
               <p className="text-xs text-muted-foreground mt-1">URL-friendly identifier. Auto-generated from business name.</p>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className="block text-sm font-medium mb-1">GST Number</label>
                 <input
@@ -335,7 +365,7 @@ const VendorForm: React.FC = () => {
             <div>
               <label className="mb-1 flex items-center gap-1 text-sm font-medium">
                 Company number (CIN)
-                <InfoTip text="The 21-character Corporate Identity Number the Registrar of Companies issues, e.g. U24239MH2005PTC123456. Leave it blank for a proprietorship or a partnership — most suppliers have none." />
+                <InfoTip text="The 21-character Corporate Identity Number the Registrar of Companies issues, e.g. U24239MH2005PTC123456. Leave it blank for a proprietorship or a partnership: most suppliers have none." />
               </label>
               <input
                 type="text"
@@ -348,7 +378,7 @@ const VendorForm: React.FC = () => {
               />
               {form.cin.trim() !== '' && form.cin.trim().length !== 21 && (
                 <p className="mt-1 flex items-center gap-1 text-xs text-bad-ink">
-                  <AlertTriangle className="h-3 w-3" /> A CIN is exactly 21 characters — this one has {form.cin.trim().length}.
+                  <AlertTriangle className="h-3 w-3" /> A CIN is exactly 21 characters; this one has {form.cin.trim().length}.
                 </p>
               )}
               {!multiLicence && (
@@ -385,7 +415,7 @@ const VendorForm: React.FC = () => {
               </p>
             </fieldset>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className="block text-sm font-medium mb-1">Commission %</label>
                 <input
@@ -443,7 +473,7 @@ const VendorForm: React.FC = () => {
         {/* Bank Details */}
         <div className="rounded-md border bg-card p-5 space-y-4">
           <h2 className="font-semibold text-base">Bank Details</h2>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className="block text-sm font-medium mb-1">Account Number</label>
               <input type="text" value={form.bank_account_number} onChange={(e) => setForm((f) => ({ ...f, bank_account_number: e.target.value }))}
@@ -451,9 +481,20 @@ const VendorForm: React.FC = () => {
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">IFSC Code</label>
-              <input type="text" value={form.bank_ifsc_code} onChange={(e) => setForm((f) => ({ ...f, bank_ifsc_code: e.target.value.toUpperCase() }))}
-                placeholder="SBIN0001234"
+              <input type="text" value={form.bank_ifsc_code} onChange={(e) => setForm((f) => ({ ...f, bank_ifsc_code: e.target.value.toUpperCase().replace(/\s+/g, '') }))}
+                placeholder="SBIN0001234" maxLength={11}
                 className="w-full px-3 py-2 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono" />
+              {ifsc.loading && <p className="mt-1 text-xs text-ink-soft">Checking the IFSC…</p>}
+              {ifsc.branch && (
+                <p className="mt-1 text-xs text-ink-soft">
+                  {ifsc.branch.bank}, {ifsc.branch.branch}{ifsc.branch.city ? `, ${ifsc.branch.city}` : ''}
+                </p>
+              )}
+              {ifsc.error && (
+                <p className="mt-1 flex items-center gap-1 text-xs text-bad-ink">
+                  <AlertTriangle className="h-3 w-3" /> {ifsc.error}
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Bank Name</label>
@@ -481,7 +522,7 @@ const VendorForm: React.FC = () => {
                 Payment terms &amp; MSME status feed the Payables 45-day (Section 43B(h)) warning; TDS details feed the 26Q register.
               </p>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className="block text-sm font-medium mb-1">Payment terms (days)</label>
                 <input
@@ -591,7 +632,7 @@ const VendorForm: React.FC = () => {
           )}
 
           <fieldset disabled={!termsMeta?.available} className="space-y-4 disabled:opacity-60">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className="block text-sm font-medium mb-1">When we pay</label>
                 <select
@@ -606,7 +647,7 @@ const VendorForm: React.FC = () => {
                 </select>
                 {form.payment_terms_mode === 'net_days' && (
                   <p className="text-xs text-muted-foreground mt-1">
-                    Set the number of days in <strong>Payment terms (days)</strong> above — it is the same figure the
+                    Set the number of days in <strong>Payment terms (days)</strong> above. It is the same figure the
                     MSME 45-day warning reads, so it is only recorded once.
                   </p>
                 )}
@@ -658,7 +699,7 @@ const VendorForm: React.FC = () => {
                   ))}
                 </select>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <label className="block text-sm font-medium mb-1">Currency</label>
                   <input type="text" maxLength={3} placeholder="INR" value={form.default_currency}
@@ -675,7 +716,7 @@ const VendorForm: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className="block text-sm font-medium mb-1">Note on payment</label>
                 <input type="text" value={form.payment_notes}
@@ -687,7 +728,7 @@ const VendorForm: React.FC = () => {
                 <label className="block text-sm font-medium mb-1">Note on delivery</label>
                 <input type="text" value={form.delivery_notes}
                   onChange={(e) => setForm((f) => ({ ...f, delivery_notes: e.target.value }))}
-                  placeholder="e.g. deliveries accepted 9am–1pm only"
+                  placeholder="e.g. deliveries accepted 9am to 1pm only"
                   className="w-full px-3 py-2 text-sm border rounded-md bg-background" />
               </div>
             </div>
@@ -706,7 +747,7 @@ const VendorForm: React.FC = () => {
         <div className="flex items-center gap-3">
           <Button type="submit" disabled={saving} className="bg-primary hover:bg-primary/90 text-primary-foreground">
             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {saving ? 'Saving…' : isEdit ? 'Update Vendor' : 'Create Vendor'}
+            {saving ? 'Saving…' : isEdit ? 'Save supplier' : 'Add supplier'}
           </Button>
           <Button type="button" variant="outline" onClick={() => navigate('/vendors')}>
             Cancel
@@ -721,6 +762,14 @@ const VendorForm: React.FC = () => {
         untouched and a store with no custom fields sees nothing at all.
       */}
       {isEdit && <CustomFieldsCard entityType="vendor" entityId={id} />}
+
+      {/* The supplier's portal links: hand one out, see who holds one, revoke one. Loads and saves itself. */}
+      {isEdit && (
+        <div className="rounded-md border bg-card p-5">
+          <h2 className="mb-3 font-semibold text-base">Supplier portal</h2>
+          <VendorPortalLinks vendorId={id!} vendorName={form.business_name || 'this supplier'} canManage={canManage} />
+        </div>
+      )}
     </div>
   );
 };
