@@ -784,7 +784,8 @@ export const leadsAPI = {
 // Staff API (Admin only - manage staff permissions)
 export const staffAPI = {
   list: async () => {
-    const response = await api.get('/staff');
+    // The whole team on one page (the server's default page is 50; 200 is its most).
+    const response = await api.get('/staff', { params: { limit: 200 } });
     return response.data?.data ?? response.data ?? [];
   },
   /**
@@ -800,12 +801,19 @@ export const staffAPI = {
     const response = await api.put(`/staff/${id}`, data);
     return response.data?.data ?? response.data;
   },
-  create: async (data: { email: string; password: string; name: string; role?: string; permissions?: string[] }) => {
+  /** `password` is the person's FIRST Growcord ID password, used only when the e-mail has none yet. */
+  create: async (data: { email: string; password?: string; name: string; role?: string; permissions?: string[] }) => {
     const response = await api.post('/staff', data);
     return response.data?.data ?? response.data;
   },
+  /** v2: deactivates the account (never a delete; the sales and activity records key on it). */
   delete: async (id: string) => {
     await api.delete(`/staff/${id}`);
+  },
+  /** Growcord ID sign-in for an existing account that has none (never a password; DEC-061). */
+  link: async (id: string) => {
+    const response = await api.post(`/staff/${id}/link`, {});
+    return response.data?.data ?? response.data;
   },
   /**
    * WHICH FACILITY, and which part of it (migration 217 — the second and third

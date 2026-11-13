@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { staffAPI } from '../services/api';
 import { ASSIGNABLE_ROLES, ROLE_LABELS } from '../lib/rbac';
-import PermissionPicker from '../components/PermissionPicker';
+import PermissionPicker, { usePermissionCatalog, type Catalog } from '../components/PermissionPicker';
 import WarehouseAreaPicker, { type WarehouseAreaValue } from '../components/staff/WarehouseAreaPicker';
 import { useAuth } from '../contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -10,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
+import { StatCard, StatGrid } from '../components/erp';
 import { localeDate } from '../utils/date';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -21,90 +23,25 @@ import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from '@/components/ui/tooltip';
 import {
-  UserPlus, Pencil, Trash2, Loader2, ShieldCheck, ShieldOff,
-  Eye, EyeOff, AlertCircle, Info,
+  UserPlus, Pencil, UserX, Loader2, ShieldCheck, ShieldOff,
+  Eye, EyeOff, AlertCircle, Info, KeyRound, History, RefreshCw,
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 
-/** A message that used to be a blocking alert() — now a toast (the shell mounts the Toaster). */
+/**
+ * Staff and access (`staff.read` to see the team; `staff.manage` to add, edit and switch off; `staff.delete`
+ * to deactivate). On v2 a staff account is the store's record AND the Growcord ID membership its person
+ * signs in with (identity `store_staff`, DEC-061): the role and the extra grants come from the server's
+ * catalogue (`GET /staff/permissions`), an account is never deleted (the sales and activity records key on
+ * it) but deactivated, and every change lands on the store's activity log.
+ */
+
+/** A message that used to be a blocking alert(): now a toast (the shell mounts the Toaster). */
 const notify = (message: string) =>
-  toast({ title: message, variant: /fail|could not|error/i.test(message) ? 'destructive' : 'default' });
+  toast({ title: message, variant: /fail|could not|error|not /i.test(message) ? 'destructive' : 'default' });
 
-
-// ─── Legacy module definitions (RETIRED — kept only for reading OLD grants) ───
-//
-// These bare module names were what the old picker granted. The API checks
-// `<area>.<action>`, so all of them except `page_editor` were INERT: ticking
-// "Store Settings" here granted nothing at all. The picker is now
-// `components/PermissionPicker.tsx`, driven by GET /staff/permissions.
-// This table survives ONLY so `permissionSummary` can still label the legacy
-// strings sitting on existing user rows.
-
-interface ModuleGroup {
-  group: string;
-  color: string;
-  modules: { id: string; label: string; desc: string }[];
-}
-
-const MODULE_GROUPS: ModuleGroup[] = [
-  {
-    group: 'Catalog',
-    color: 'bg-blue-50 text-blue-700 border-blue-200',
-    modules: [
-      { id: 'products',   label: 'Products & Catalog', desc: 'View/edit products, categories, brands, attributes, bundles' },
-      { id: 'inventory',  label: 'Inventory',           desc: 'Stock levels, warehouse management, package boxes' },
-      { id: 'gallery',    label: 'Media Gallery',        desc: 'Upload and manage product images and media' },
-    ],
-  },
-  {
-    group: 'Commerce',
-    color: 'bg-green-50 text-green-700 border-green-200',
-    modules: [
-      { id: 'orders',     label: 'Orders',               desc: 'View and update customer orders, status changes' },
-      { id: 'shipments',  label: 'Shipments',             desc: 'Manage shipments, couriers, tracking updates' },
-      { id: 'warehouses', label: 'Warehouses',            desc: 'Add and configure warehouse locations' },
-    ],
-  },
-  {
-    group: 'Marketing',
-    color: 'bg-purple-50 text-purple-700 border-purple-200',
-    modules: [
-      { id: 'marketing',     label: 'Marketing Campaigns', desc: 'Email campaigns, push notifications, promotions' },
-      { id: 'coupons',       label: 'Coupons',              desc: 'Create and manage discount codes and offers' },
-      { id: 'abandoned_cart',label: 'Abandoned Carts',      desc: 'View and recover abandoned checkout sessions' },
-    ],
-  },
-  {
-    group: 'Customers',
-    color: 'bg-orange-50 text-orange-700 border-orange-200',
-    modules: [
-      { id: 'users',          label: 'Store Customers',  desc: 'View customer profiles, order history, addresses' },
-      { id: 'leads_manager',  label: 'Leads / CRM',      desc: 'Manage sales leads, follow-ups, pipeline' },
-      { id: 'b2b',            label: 'B2B Portal',        desc: 'Wholesale customer management, bulk orders' },
-    ],
-  },
-  {
-    group: 'Content',
-    color: 'bg-pink-50 text-pink-700 border-pink-200',
-    modules: [
-      { id: 'appearance', label: 'Appearance & Pages', desc: 'Edit pages, banners, navigation menus, style' },
-      { id: 'page_editor',label: 'CMS Page Editor',     desc: 'Advanced block-level content editing' },
-      { id: 'faqs',       label: 'FAQs',                desc: 'Manage help articles and FAQ sections' },
-      { id: 'reviews',    label: 'Reviews',              desc: 'Moderate and respond to product reviews' },
-    ],
-  },
-  {
-    group: 'Analytics & System',
-    color: 'bg-gray-100 text-gray-700 border-gray-300',
-    modules: [
-      { id: 'analytics', label: 'Analytics',       desc: 'View store analytics, traffic, conversion reports' },
-      { id: 'logs',       label: 'System Logs',    desc: 'View server and application logs' },
-      { id: 'settings',   label: 'Store Settings', desc: 'Modify store config, payments, shipping, API keys' },
-    ],
-  },
-];
-
-const ALL_MODULE_IDS = MODULE_GROUPS.flatMap(g => g.modules.map(m => m.id));
+const errText = (e: any, fallback: string): string =>
+  e?.response?.data?.message || e?.response?.data?.error?.message || e?.message || fallback;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -113,31 +50,67 @@ function initials(name: string): string {
 }
 
 function formatDate(d?: string): string {
-  if (!d) return '—';
+  if (!d) return 'Never';
   return localeDate(d, { day: 'numeric', month: 'short', year: 'numeric' }, 'en-IN');
 }
+
+/** A role in words: the admin's labels, else the server's own word. */
+function roleLabel(role?: string): string {
+  const r = role || 'staff';
+  return (ROLE_LABELS as Record<string, string>)[r] ?? r.replace(/_/g, ' ');
+}
+
+/** A grant in words, from the server's catalogue (`Orders: Manage`); an unknown key as it is. */
+function grantLabel(catalog: Catalog | null, key: string): string {
+  if (key === '*') return 'Everything';
+  for (const area of catalog?.catalog ?? []) {
+    const action = area.actions.find((a) => a.key === key);
+    if (action) return `${area.label}: ${action.label}`;
+  }
+  const legacy = catalog?.legacy.find((l) => l.key === key);
+  return legacy?.label ?? key;
+}
+
+/** What a sign-in access answer means, in words (`StaffAccessView`). */
+function accessMessage(access: any): string | null {
+  if (!access) return null;
+  if (access.membership === 'none') {
+    const why = access.reason ? `: ${String(access.reason).replace(/_/g, ' ')}` : '';
+    return `No Growcord ID sign-in for this account${why}`;
+  }
+  if (access.membership === 'suspended') return 'Their Growcord ID sign-in for this store is paused while the account is off';
+  if (access.person === 'created' && access.password_set) return 'Growcord ID created: they can sign in with the password you set';
+  if (access.person === 'created') return 'Growcord ID created: they set their own password from the sign-in page';
+  if (access.person === 'linked') return 'Linked to their existing Growcord ID: they sign in with it';
+  return null;
+}
+
+const isActive = (m: any) => m?.isActive !== false && m?.is_active !== false;
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const Staff: React.FC = () => {
   const { user: currentUser, hasPerm } = useAuth();
-  // Backend requires staff.manage for create/update (incl. active toggle +
-  // permission edits) and staff.delete for removal — see routes/staff.ts.
-  // Was gated on `role === 'admin'` (CLAUDE.md rule 7b: never gate on
-  // role === 'admin', use requirePermission's mirror instead), which also
-  // meant a staff member individually granted 'staff.manage' as an extra
-  // permission (the PermissionPicker below explicitly supports this) still
-  // couldn't see any of these buttons despite the backend allowing the call.
+  // The server checks staff.manage for add and edit (role, grants, active, warehouse area) and
+  // staff.delete for a deactivation; the buttons follow the same permissions (never `role === 'admin'`).
   const canManageStaff = hasPerm('staff.manage');
   const canDeleteStaff = hasPerm('staff.delete');
+  const canReadLog = hasPerm('audit.read');
+  const { catalog } = usePermissionCatalog();
+  const roleChoices: string[] = useMemo(
+    () => (catalog?.roles?.length ? catalog.roles.map((r) => r.role) : [...ASSIGNABLE_ROLES]),
+    [catalog],
+  );
+
   const [staff, setStaff] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [savingId, setSavingId] = useState<string | null>(null);
 
   // Modals
   const [showCreate, setShowCreate]       = useState(false);
   const [editingStaff, setEditingStaff]   = useState<any | null>(null);
-  const [deleteTarget, setDeleteTarget]   = useState<any | null>(null);
+  const [deactivateTarget, setDeactivateTarget] = useState<any | null>(null);
 
   // Create form
   const [createForm, setCreateForm] = useState({ name: '', email: '', password: '', role: 'staff', permissions: [] as string[] });
@@ -149,28 +122,49 @@ const Staff: React.FC = () => {
 
   const fetchStaff = async () => {
     setLoading(true);
+    setLoadError('');
     try {
       const data = await staffAPI.list();
       setStaff(Array.isArray(data) ? data : []);
-    } catch { setStaff([]); }
-    finally { setLoading(false); }
+    } catch (e: any) {
+      setStaff([]);
+      setLoadError(errText(e, 'Could not load the team.'));
+    } finally { setLoading(false); }
   };
 
+  const idOf = (m: any): string => m?._id || m?.id;
+
+  // What to act on first: accounts that are on but have never signed in.
+  const counts = useMemo(() => {
+    const active = staff.filter(isActive);
+    return {
+      active: active.length,
+      off: staff.length - active.length,
+      neverSignedIn: active.filter((m) => !(m.lastLogin || m.last_login)).length,
+    };
+  }, [staff]);
+
   // ── Toggle active status ──────────────────────────────────────────────────
-  const toggleActive = async (staffId: string, isActive: boolean) => {
+  const toggleActive = async (staffId: string, on: boolean) => {
     setSavingId(staffId);
     try {
-      await staffAPI.update(staffId, { isActive });
-      setStaff(prev => prev.map(s => (s._id === staffId || s.id === staffId) ? { ...s, isActive } : s));
-    } catch { notify('Failed to update status'); }
+      const saved = await staffAPI.update(staffId, { isActive: on });
+      setStaff(prev => prev.map(s => idOf(s) === staffId ? { ...s, isActive: on, is_active: on } : s));
+      const msg = accessMessage(saved?.access);
+      if (msg && on) notify(msg);
+    } catch (e: any) { notify(errText(e, 'Failed to update status')); }
     finally { setSavingId(null); }
   };
 
   // ── Create staff ──────────────────────────────────────────────────────────
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!createForm.name.trim() || !createForm.email.trim() || !createForm.password.trim()) {
-      setCreateError('Name, email and password are required.');
+    if (!createForm.name.trim() || !createForm.email.trim()) {
+      setCreateError('Name and e-mail are required.');
+      return;
+    }
+    if (createForm.password && createForm.password.length < 8) {
+      setCreateError('A password needs at least 8 characters, or leave it blank.');
       return;
     }
     setCreating(true);
@@ -179,36 +173,46 @@ const Staff: React.FC = () => {
       const created = await staffAPI.create({
         name: createForm.name.trim(),
         email: createForm.email.trim(),
-        password: createForm.password,
+        ...(createForm.password ? { password: createForm.password } : {}),
         role: createForm.role,
         permissions: createForm.permissions,
       });
       setShowCreate(false);
       setCreateForm({ name: '', email: '', password: '', role: 'staff', permissions: [] });
-      const access = created?.access;
-      if (access) {
-        if (access.membership === 'none') notify(`Staff member added — no Growcord ID access${access.reason ? `: ${String(access.reason).replace(/_/g, ' ')}` : ''}`);
-        else if (access.person === 'created' && access.password_set) notify('Growcord ID created — they can sign in with this password');
-        else if (access.person === 'linked') notify('Linked to their existing Growcord ID — the password was not used');
-      }
+      const msg = accessMessage(created?.access);
+      notify(msg ? `Staff member added. ${msg}` : 'Staff member added');
       await fetchStaff();
     } catch (err: any) {
-      setCreateError(err?.response?.data?.message || 'Failed to create staff member.');
+      setCreateError(errText(err, 'Failed to create staff member.'));
     } finally { setCreating(false); }
   };
 
-  // ── Delete staff ──────────────────────────────────────────────────────────
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    const id = deleteTarget._id || deleteTarget.id;
+  // ── Deactivate (never a delete: the sales and activity records key on the account) ──
+  const handleDeactivate = async () => {
+    if (!deactivateTarget) return;
+    const id = idOf(deactivateTarget);
+    setSavingId(id);
     try {
       await staffAPI.delete(id);
-      setStaff(prev => prev.filter(s => (s._id || s.id) !== id));
-    } catch { notify('Failed to delete staff member.'); }
-    finally { setDeleteTarget(null); }
+      setStaff(prev => prev.map(s => idOf(s) === id ? { ...s, isActive: false, is_active: false } : s));
+      notify('Account switched off. They can no longer sign in to this store.');
+    } catch (e: any) { notify(errText(e, 'Failed to deactivate the account.')); }
+    finally { setSavingId(null); setDeactivateTarget(null); }
   };
 
-  // ── Edit permissions (modal) ──────────────────────────────────────────────
+  // ── Sign-in access (Growcord ID) for an account that has none ─────────────
+  const giveAccess = async (member: any) => {
+    const id = idOf(member);
+    setSavingId(id);
+    try {
+      const saved = await staffAPI.link(id);
+      notify(accessMessage(saved?.access) ?? 'Sign-in access checked');
+    } catch (e: any) { notify(errText(e, 'Could not give sign-in access.')); }
+    finally { setSavingId(null); }
+  };
+
+  // ── Edit role, permissions and warehouse area (modal) ─────────────────────
+  const [editRole, setEditRole] = useState<string>('staff');
   const [editPerms, setEditPerms] = useState<string[]>([]);
   // The second and third axes beside permissions (migration 217): which
   // facility, and which part of it. EMPTY in both = everywhere.
@@ -216,10 +220,11 @@ const Staff: React.FC = () => {
   const [areaNote, setAreaNote] = useState<string>('');
   const openEdit = (member: any) => {
     setEditingStaff(member);
+    setEditRole(member.role || 'staff');
     setEditPerms([...(member.permissions || [])]);
     setEditArea({
-      facilities: [...(member.warehouse_access || [])],
-      nodes: [...(member.warehouse_node_access || [])],
+      facilities: [...(member.warehouse_access || member.warehouseAccess || [])],
+      nodes: [...(member.warehouse_node_access || member.warehouseNodeAccess || [])],
     });
     setAreaNote('');
   };
@@ -229,13 +234,14 @@ const Staff: React.FC = () => {
 
   const saveEdit = async () => {
     if (!editingStaff) return;
-    const id = editingStaff._id || editingStaff.id;
+    const id = idOf(editingStaff);
+    const roleChanged = editRole !== (editingStaff.role || 'staff');
     setSavingId(id);
     try {
-      await staffAPI.update(id, { permissions: editPerms });
-      // The warehouse scope is its own route (it validates ids and reports a
+      await staffAPI.update(id, { permissions: editPerms, ...(roleChanged ? { role: editRole } : {}) });
+      // The warehouse scope is its own call (it validates ids and reports a
       // store that has not received migration 217 yet), so a failure there must
-      // not be reported as a permission save that did not happen — or the other
+      // not be reported as a permission save that did not happen, or the other
       // way round.
       let areaOk = true;
       try {
@@ -245,91 +251,120 @@ const Staff: React.FC = () => {
         });
       } catch (e: any) {
         areaOk = false;
-        setAreaNote(e?.response?.data?.message || 'The warehouse area could not be saved. Permissions were saved.');
+        setAreaNote(errText(e, 'The warehouse area could not be saved. The role and permissions were saved.'));
       }
-      setStaff(prev => prev.map(s => (s._id || s.id) === id
-        ? { ...s, permissions: editPerms,
+      setStaff(prev => prev.map(s => idOf(s) === id
+        ? { ...s, permissions: editPerms, role: editRole,
             ...(areaOk ? { warehouse_access: editArea.facilities, warehouse_node_access: editArea.nodes } : {}) }
         : s));
       if (areaOk) setEditingStaff(null);
-    } catch { notify('Failed to save permissions.'); }
+    } catch (e: any) { notify(errText(e, 'Failed to save access.')); }
     finally { setSavingId(null); }
   };
 
-
+  /** The extra grants in words (the role's baseline is not repeated here). */
   const permissionSummary = (perms: string[]) => {
-    if (!perms?.length) return 'No access';
-    if (perms.length === ALL_MODULE_IDS.length) return 'Full access';
-    if (perms.length > 5) return `${perms.length} modules`;
-    return perms
-      .slice(0, 3)
-      .map(p => MODULE_GROUPS.flatMap(g => g.modules).find(m => m.id === p)?.label ?? p)
-      .join(', ') + (perms.length > 3 ? ` +${perms.length - 3}` : '');
+    if (!perms?.length) return 'Role only';
+    if (perms.includes('*')) return 'Everything';
+    const shown = perms.slice(0, 2).map((p) => grantLabel(catalog, p)).join(', ');
+    return perms.length > 2 ? `${shown} +${perms.length - 2}` : shown;
   };
 
   return (
     <TooltipProvider>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Staff & Permissions</h1>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold tracking-tight">Staff &amp; Access</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Manage staff accounts and control which modules each person can access.
+              Who can sign in to this store, their role, and anything granted on top of it.
             </p>
           </div>
-          {canManageStaff && (
-            <Button onClick={() => { setShowCreate(true); setCreateError(''); }} className="gap-2 shrink-0">
-              <UserPlus className="h-4 w-4" /> Invite Staff
-            </Button>
-          )}
+          <div className="flex flex-wrap gap-2">
+            {canReadLog && (
+              <Button asChild variant="outline" className="gap-2">
+                <Link to="/logs?entity_type=staff_member"><History className="h-4 w-4" /> Access history</Link>
+              </Button>
+            )}
+            {canManageStaff && (
+              <Button onClick={() => { setShowCreate(true); setCreateError(''); }} className="gap-2 shrink-0">
+                <UserPlus className="h-4 w-4" /> Add staff
+              </Button>
+            )}
+          </div>
         </div>
 
-        {/* Security notice */}
-        <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-md px-4 py-3 text-sm">
-          <Info className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-          <div className="text-amber-800">
-            <strong>Store-isolated security:</strong> Staff accounts are scoped to this store only.
-            Credentials cannot be used to access data from other stores on the platform.
-            Each staff member can only see and interact with the modules you explicitly grant below.
+        {/* What to act on first, then the numbers. */}
+        {!loading && !loadError && counts.neverSignedIn > 0 && (
+          <div className="flex items-start gap-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+            <span>
+              {counts.neverSignedIn === 1 ? '1 active account has' : `${counts.neverSignedIn} active accounts have`} never signed in.
+              {canManageStaff && ' Use the key button on the row to check their Growcord ID sign-in.'}
+            </span>
           </div>
+        )}
+        {!loading && !loadError && staff.length > 0 && (
+          <StatGrid cols={3}>
+            <StatCard label="Active" value={counts.active} />
+            <StatCard label="Switched off" value={counts.off} />
+            <StatCard label="Never signed in" value={counts.neverSignedIn} tone={counts.neverSignedIn > 0 ? 'warn' : 'default'} />
+          </StatGrid>
+        )}
+
+        <div className="flex items-start gap-3 rounded-md border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+          <Info className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            Each person signs in with their own Growcord ID and reaches this store only. The role sets what they
+            may do; extra permissions add to it. Every change here is kept on the store&apos;s activity log.
+          </span>
         </div>
 
         {/* Staff table */}
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Staff Members ({staff.length})</CardTitle>
-            <CardDescription>Click the edit button to manage detailed module permissions for each staff member.</CardDescription>
+            <CardTitle className="text-base">Team ({staff.length})</CardTitle>
+            <CardDescription>Edit a row to change the role, extra permissions or warehouse area.</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
             {loading ? (
               <div className="flex items-center justify-center py-16">
                 <Loader2 className="h-7 w-7 animate-spin text-primary" />
               </div>
+            ) : loadError ? (
+              <div className="flex flex-col items-center gap-3 px-6 py-12 text-center">
+                <AlertCircle className="h-8 w-8 text-red-400" />
+                <p className="text-sm text-red-700">{loadError}</p>
+                <Button variant="outline" size="sm" onClick={fetchStaff} className="gap-2">
+                  <RefreshCw className="h-3.5 w-3.5" /> Try again
+                </Button>
+              </div>
             ) : staff.length === 0 ? (
               <div className="text-center py-16 text-muted-foreground">
                 <ShieldOff className="h-10 w-10 mx-auto mb-3 opacity-40" />
                 <p className="text-sm font-medium">No staff members yet</p>
-                <p className="text-xs mt-1">Invite your first staff member above.</p>
+                {canManageStaff && <p className="text-xs mt-1">Add the first one with Add staff.</p>}
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Staff Member</TableHead>
+                      <TableHead>Staff member</TableHead>
                       <TableHead>Role</TableHead>
-                      <TableHead>Permissions</TableHead>
+                      <TableHead>Extra permissions</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead>Last Login</TableHead>
-                      <TableHead className="w-[120px]">Actions</TableHead>
+                      <TableHead>Last sign-in</TableHead>
+                      <TableHead className="w-[150px]">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {staff.map(member => {
-                      const id = member._id || member.id;
+                      const id = idOf(member);
                       const isSaving = savingId === id;
                       const isCurrentUser = id === currentUser?._id;
+                      const on = isActive(member);
                       return (
                         <TableRow key={id} className="group">
                           <TableCell>
@@ -337,9 +372,9 @@ const Staff: React.FC = () => {
                               <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-semibold text-primary shrink-0">
                                 {initials(member.name || member.email || '?')}
                               </div>
-                              <div>
-                                <p className="font-medium text-sm">{member.name || '—'}</p>
-                                <p className="text-xs text-muted-foreground">{member.email}</p>
+                              <div className="min-w-0">
+                                <p className="font-medium text-sm">{member.name || member.email}</p>
+                                <p className="text-xs text-muted-foreground break-all">{member.email}</p>
                               </div>
                               {isCurrentUser && (
                                 <Badge variant="outline" className="text-[10px]">You</Badge>
@@ -347,8 +382,8 @@ const Staff: React.FC = () => {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <Badge variant={member.role === 'admin' ? 'default' : 'secondary'} className="capitalize text-xs">
-                              {member.role || 'staff'}
+                            <Badge variant={member.role === 'admin' ? 'default' : 'secondary'} className="text-xs whitespace-nowrap">
+                              {roleLabel(member.role)}
                             </Badge>
                           </TableCell>
                           <TableCell>
@@ -360,8 +395,8 @@ const Staff: React.FC = () => {
                               </TooltipTrigger>
                               <TooltipContent side="bottom" className="max-w-xs">
                                 {member.permissions?.length
-                                  ? member.permissions.join(', ')
-                                  : 'No module access granted'}
+                                  ? member.permissions.map((p: string) => grantLabel(catalog, p)).join(', ')
+                                  : 'Only what the role gives'}
                               </TooltipContent>
                             </Tooltip>
                           </TableCell>
@@ -369,22 +404,23 @@ const Staff: React.FC = () => {
                             {canManageStaff && !isCurrentUser ? (
                               <div className="flex items-center gap-2">
                                 <Switch
-                                  checked={member.isActive !== false}
+                                  checked={on}
                                   onCheckedChange={v => toggleActive(id, v)}
                                   disabled={isSaving}
+                                  aria-label={on ? 'Switch this account off' : 'Switch this account on'}
                                 />
                                 <span className="text-xs text-muted-foreground">
-                                  {member.isActive !== false ? 'Active' : 'Disabled'}
+                                  {on ? 'Active' : 'Off'}
                                 </span>
                               </div>
                             ) : (
-                              <Badge variant={member.isActive !== false ? 'outline' : 'secondary'} className="text-xs">
-                                {member.isActive !== false ? 'Active' : 'Disabled'}
+                              <Badge variant={on ? 'outline' : 'secondary'} className="text-xs">
+                                {on ? 'Active' : 'Off'}
                               </Badge>
                             )}
                           </TableCell>
-                          <TableCell className="text-xs text-muted-foreground">
-                            {formatDate(member.lastLogin)}
+                          <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                            {formatDate(member.lastLogin || member.last_login)}
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-1">
@@ -392,34 +428,52 @@ const Staff: React.FC = () => {
                                 ? <Loader2 className="h-4 w-4 animate-spin text-primary" />
                                 : (
                                   <>
-                                    {canManageStaff && (
+                                    {canManageStaff && !isCurrentUser && (
                                       <Tooltip>
                                         <TooltipTrigger asChild>
-                                          <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-7 w-7"
-                                            onClick={() => openEdit(member)}
-                                          >
+                                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(member)} aria-label="Edit access">
                                             <Pencil className="h-3.5 w-3.5" />
                                           </Button>
                                         </TooltipTrigger>
-                                        <TooltipContent>Edit permissions</TooltipContent>
+                                        <TooltipContent>Edit role and access</TooltipContent>
                                       </Tooltip>
                                     )}
-                                    {canDeleteStaff && !isCurrentUser && (
+                                    {canManageStaff && on && (
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => giveAccess(member)} aria-label="Check sign-in">
+                                            <KeyRound className="h-3.5 w-3.5" />
+                                          </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent>Check their Growcord ID sign-in, and give it if missing</TooltipContent>
+                                      </Tooltip>
+                                    )}
+                                    {canReadLog && (
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <Button asChild variant="ghost" size="icon" className="h-7 w-7">
+                                            <Link to={`/logs?actor_id=${encodeURIComponent(id)}`} aria-label="Their changes">
+                                              <History className="h-3.5 w-3.5" />
+                                            </Link>
+                                          </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent>What they changed</TooltipContent>
+                                      </Tooltip>
+                                    )}
+                                    {canDeleteStaff && !isCurrentUser && on && (
                                       <Tooltip>
                                         <TooltipTrigger asChild>
                                           <Button
                                             variant="ghost"
                                             size="icon"
                                             className="h-7 w-7 text-red-500 hover:text-red-600 hover:bg-red-50"
-                                            onClick={() => setDeleteTarget(member)}
+                                            onClick={() => setDeactivateTarget(member)}
+                                            aria-label="Deactivate"
                                           >
-                                            <Trash2 className="h-3.5 w-3.5" />
+                                            <UserX className="h-3.5 w-3.5" />
                                           </Button>
                                         </TooltipTrigger>
-                                        <TooltipContent>Remove staff</TooltipContent>
+                                        <TooltipContent>Deactivate</TooltipContent>
                                       </Tooltip>
                                     )}
                                   </>
@@ -442,25 +496,27 @@ const Staff: React.FC = () => {
           <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
-                <UserPlus className="h-5 w-5" /> Invite Staff Member
+                <UserPlus className="h-5 w-5" /> Add staff member
               </DialogTitle>
               <DialogDescription>
-                Create a new staff account and set their module permissions. They will log in with these credentials.
+                They sign in with their Growcord ID: an existing one is linked by e-mail, otherwise one is made for them.
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleCreate} className="space-y-5 pt-2">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <Label>Full Name *</Label>
+                  <Label htmlFor="staff-name">Full name *</Label>
                   <Input
+                    id="staff-name"
                     placeholder="Jane Doe"
                     value={createForm.name}
                     onChange={e => setCreateForm(p => ({ ...p, name: e.target.value }))}
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Email *</Label>
+                  <Label htmlFor="staff-email">E-mail *</Label>
                   <Input
+                    id="staff-email"
                     type="email"
                     placeholder="jane@store.com"
                     value={createForm.email}
@@ -469,54 +525,56 @@ const Staff: React.FC = () => {
                 </div>
               </div>
               <div className="space-y-1.5">
-                <Label>Role *</Label>
+                <Label htmlFor="staff-role">Role *</Label>
                 <select
+                  id="staff-role"
                   value={createForm.role}
                   onChange={e => setCreateForm(p => ({ ...p, role: e.target.value }))}
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 >
-                  {ASSIGNABLE_ROLES.map(r => (
-                    <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                  {roleChoices.map(r => (
+                    <option key={r} value={r}>{roleLabel(r)}</option>
                   ))}
                 </select>
                 <p className="text-xs text-muted-foreground">
-                  The role decides which panel they land in (Accounting, Inventory, Orders…) and what they can do there.
-                  Module access below is additive on top.
+                  The role decides which panels they work in and what they may do there. Extra permissions below add to it.
                 </p>
               </div>
               <div className="space-y-1.5">
-                <Label>Password *</Label>
+                <Label htmlFor="staff-password">First password (optional)</Label>
                 <div className="relative">
                   <Input
+                    id="staff-password"
                     type={showPassword ? 'text' : 'password'}
-                    placeholder="Minimum 8 characters"
+                    placeholder="At least 8 characters"
                     value={createForm.password}
                     onChange={e => setCreateForm(p => ({ ...p, password: e.target.value }))}
+                    autoComplete="new-password"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(p => !p)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
                   >
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  Used only when this e-mail has no Growcord ID yet. Someone who already has one keeps their own password.
+                </p>
               </div>
 
               {/* Permissions */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <Label className="text-sm font-semibold">Module Access</Label>
-                  <div className="flex gap-2">
-                    <Button type="button" variant="outline" size="sm" className="h-7 text-xs"
-                      onClick={() => setCreateForm(p => ({ ...p, permissions: [...ALL_MODULE_IDS] }))}>
-                      Select All
-                    </Button>
-                    <Button type="button" variant="outline" size="sm" className="h-7 text-xs"
-                      onClick={() => setCreateForm(p => ({ ...p, permissions: [] }))}>
-                      Clear
-                    </Button>
-                  </div>
+                  <Label className="text-sm font-semibold">Extra permissions</Label>
+                  {/* No "select all": every permission is what the Administrator role is
+                      for, and a staff account holding all of them defeats least privilege. */}
+                  <Button type="button" variant="outline" size="sm" className="h-7 text-xs"
+                    onClick={() => setCreateForm(p => ({ ...p, permissions: [] }))}>
+                    Clear
+                  </Button>
                 </div>
                 <PermissionPicker
                   value={createForm.permissions}
@@ -535,14 +593,14 @@ const Staff: React.FC = () => {
                 <Button type="button" variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
                 <Button type="submit" disabled={creating} className="gap-2">
                   {creating && <Loader2 className="h-4 w-4 animate-spin" />}
-                  {creating ? 'Creating…' : 'Create Account'}
+                  {creating ? 'Adding...' : 'Add staff member'}
                 </Button>
               </div>
             </form>
           </DialogContent>
         </Dialog>
 
-        {/* ── Edit Permissions Modal ─────────────────────────────────────────── */}
+        {/* ── Edit Access Modal ──────────────────────────────────────────────── */}
         <Dialog open={!!editingStaff} onOpenChange={(open: boolean) => { if (!open) setEditingStaff(null); }}>
           <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
@@ -550,17 +608,32 @@ const Staff: React.FC = () => {
                 <ShieldCheck className="h-5 w-5" /> Edit access
               </DialogTitle>
               <DialogDescription>
-                {editingStaff?.name} ({editingStaff?.email}) — role <strong>{ROLE_LABELS[(editingStaff?.role || 'staff') as keyof typeof ROLE_LABELS] ?? editingStaff?.role}</strong>.
-                Grant extra permissions on top of it, and say where in the warehouse they may work.
+                {editingStaff?.name || editingStaff?.email} ({editingStaff?.email}). Change the role, grant extra
+                permissions on top of it, and say where in the warehouse they may work.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 pt-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-role">Role</Label>
+                <select
+                  id="edit-role"
+                  value={editRole}
+                  onChange={e => setEditRole(e.target.value)}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  {!roleChoices.includes(editRole) && <option value={editRole}>{roleLabel(editRole)}</option>}
+                  {roleChoices.map(r => (
+                    <option key={r} value={r}>{roleLabel(r)}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">To take access away, pick a narrower role.</p>
+              </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">
                   {editPerms.length} extra permission{editPerms.length === 1 ? '' : 's'} granted
                 </span>
                 {/* No "select all": granting every permission is what the admin
-                    ROLE is for — a staff account with all of them is an admin
+                    ROLE is for; a staff account with all of them is an admin
                     with extra steps, and it defeats least privilege. */}
                 <Button variant="outline" size="sm" className="h-7 text-xs" onClick={clearAll}>
                   Clear extras
@@ -568,11 +641,11 @@ const Staff: React.FC = () => {
               </div>
               <PermissionPicker
                 value={editPerms}
-                role={editingStaff?.role || 'staff'}
+                role={editRole}
                 onChange={setEditPerms}
               />
 
-              {/* Where they may work — migration 217, plan §4.2, ask A10. */}
+              {/* Where they may work: migration 217, plan 4.2, ask A10. */}
               <div className="pt-4 border-t">
                 <h4 className="text-sm font-medium mb-2">Warehouse area</h4>
                 <WarehouseAreaPicker value={editArea} onChange={setEditArea} />
@@ -585,8 +658,8 @@ const Staff: React.FC = () => {
 
               <div className="flex gap-2 justify-end pt-2">
                 <Button variant="outline" onClick={() => setEditingStaff(null)}>Cancel</Button>
-                <Button onClick={saveEdit} disabled={savingId === (editingStaff?._id || editingStaff?.id)} className="gap-2">
-                  {savingId === (editingStaff?._id || editingStaff?.id) && <Loader2 className="h-4 w-4 animate-spin" />}
+                <Button onClick={saveEdit} disabled={savingId === idOf(editingStaff)} className="gap-2">
+                  {savingId === idOf(editingStaff) && <Loader2 className="h-4 w-4 animate-spin" />}
                   Save access
                 </Button>
               </div>
@@ -594,22 +667,22 @@ const Staff: React.FC = () => {
           </DialogContent>
         </Dialog>
 
-        {/* ── Delete Confirm ─────────────────────────────────────────────────── */}
-        <Dialog open={!!deleteTarget} onOpenChange={(open: boolean) => { if (!open) setDeleteTarget(null); }}>
+        {/* ── Deactivate Confirm ─────────────────────────────────────────────── */}
+        <Dialog open={!!deactivateTarget} onOpenChange={(open: boolean) => { if (!open) setDeactivateTarget(null); }}>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2 text-red-600">
-                <Trash2 className="h-5 w-5" /> Remove Staff Member?
+                <UserX className="h-5 w-5" /> Deactivate this account?
               </DialogTitle>
               <DialogDescription>
-                This will permanently delete <strong>{deleteTarget?.name || deleteTarget?.email}</strong>'s
-                account and revoke their access to this store. This action cannot be undone.
+                <strong>{deactivateTarget?.name || deactivateTarget?.email}</strong> can no longer sign in to this
+                store. Their orders, sales and changes stay on record, and you can switch the account back on at any time.
               </DialogDescription>
             </DialogHeader>
             <div className="flex gap-2 justify-end pt-2">
-              <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
-              <Button onClick={handleDelete} className="bg-red-600 hover:bg-red-700 text-white">
-                Delete Account
+              <Button variant="outline" onClick={() => setDeactivateTarget(null)}>Cancel</Button>
+              <Button onClick={handleDeactivate} className="bg-red-600 hover:bg-red-700 text-white">
+                Deactivate
               </Button>
             </div>
           </DialogContent>

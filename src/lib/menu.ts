@@ -434,7 +434,7 @@ export const MENU: MenuGroup[] = [
         { label: 'Manufacturers', to: '/settings/manufacturers', perm: 'products.manage', modules: ['manufacturers'], tip: 'The makers named on a product and its invoice.' },
       ],
     },
-    { label: 'Staff & Access', to: '/settings/staff', icon: ShieldCheck, perm: 'staff.manage', tip: 'Who can sign in, and what each of them may do.' },
+    { label: 'Staff & Access', to: '/settings/staff', icon: ShieldCheck, perm: 'staff.read', tip: 'Who can sign in, and what each of them may do.' },
     { label: 'Setup Guide', to: '/setup-guide', icon: HelpCircle, perm: 'settings.read', tip: 'The steps left before this store is ready to sell.' },
     { label: 'Logs', to: '/logs', icon: FileText, perm: 'audit.read', tip: 'What happened in this admin, and who did it.' },
   ]),
