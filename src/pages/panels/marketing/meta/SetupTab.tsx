@@ -8,9 +8,10 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, CheckCircle2, Circle, Clock, ExternalLink, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { formatDay } from '@/utils/date';
-import { metaAdsApi, metaApi, type MetaConnection, type PickableResource, type SetupItem } from '@/lib/v2/areas/meta';
+import { metaAdsApi, metaApi, type MetaConnection, type PickableResource, type SetupItem, type WaLinkResult } from '@/lib/v2/areas/meta';
 import { useMetaCtx, type MetaCtx } from './useMetaCtx';
 import { connectionsHref } from './routes';
 import MetaHeader from './MetaHeader';
@@ -61,6 +62,13 @@ const ASSET_KIND: Record<string, string> = {
   page: 'Facebook Page', ad_account: 'Ad account', catalog: 'Catalog', business: 'Business', whatsapp_business_account: 'WhatsApp account', instagram: 'Instagram account', pixel: 'Pixel',
 };
 
+/** What Growcord's WhatsApp system did with one number (META-WA-LINK). */
+const WA_OUTCOME: Record<string, { label: string; tone: 'good' | 'warn' | 'neutral' }> = {
+  updated: { label: 'Updated', tone: 'good' },
+  linked: { label: 'Added', tone: 'good' },
+  skipped: { label: 'Skipped', tone: 'warn' },
+};
+
 const titleOf = (key: string) => LABEL[key]?.title ?? key.replace(/_/g, ' ');
 const nounOf = (key: string) => LABEL[key]?.noun ?? key.replace(/_/g, ' ');
 
@@ -91,6 +99,8 @@ const SetupTab: React.FC<{ ctx: MetaCtx }> = ({ ctx }) => {
   const [busy, setBusy] = useState<string | null>(null);
   const [picking, setPicking] = useState<string | null>(null);
   const [resources, setResources] = useState<Record<string, PickableResource[] | null>>({});
+  const [waConfirm, setWaConfirm] = useState(false);
+  const [waLink, setWaLink] = useState<WaLinkResult | null>(null);
   const setup = ctx.setup;
   const conn = setup?.connection ?? null;
   const warnDays = useTokenWarnDays();
@@ -107,16 +117,43 @@ const SetupTab: React.FC<{ ctx: MetaCtx }> = ({ ctx }) => {
     } finally { setBusy(null); }
   };
 
-  /** One row's own consent: Facebook is asked for this row's permissions only (META-SETS). */
-  const connectSet = async (item: SetupItem) => {
-    const set = item.login_set;
-    if (!set) return;
-    setBusy(`set:${set.key}`);
+  /** The shared consent flow for some services of the connection, back to this tab. */
+  const connectServices = async (services: string[], busyKey: string) => {
+    if (!services.length) return;
+    setBusy(busyKey);
     try {
-      const problem = await metaApi.connect(set.services, conn?.id ?? null, `${window.location.pathname}?tab=setup`);
+      const problem = await metaApi.connect(services, conn?.id ?? null, `${window.location.pathname}?tab=setup`);
       if (problem) toast({ title: 'Could not open Meta', description: problem });
     } catch (e) {
       toast({ title: 'Could not open Meta', description: writeError(e, 'The connection could not start.'), variant: 'destructive' });
+    } finally { setBusy(null); }
+  };
+
+  /** One row's own consent: Facebook is asked for this row's permissions only (META-SETS). */
+  const connectSet = (item: SetupItem) => (item.login_set ? connectServices(item.login_set.services, `set:${item.login_set.key}`) : Promise.resolve());
+
+  /**
+   * The row action `connect` ("Turn on X", a service that is off on a working connection): the same consent as the
+   * row's set button, for the row's set, else the row's one service.
+   */
+  const connectRow = (item: SetupItem) => {
+    const one = item.action?.service || SERVICE_FALLBACK[String(item.key)];
+    const services = item.login_set?.services?.length ? item.login_set.services : one ? [one] : [];
+    return connectServices(services, `row:${String(item.key)}`);
+  };
+
+  /** "Use this Meta login for WhatsApp" after the confirm: per number outcome under the WhatsApp row. */
+  const linkWhatsApp = async () => {
+    setBusy('wa-link');
+    try {
+      const r = await metaApi.linkWhatsApp();
+      setWaLink(r);
+      setWaConfirm(false);
+      const changed = r.numbers.filter((n) => n.outcome === 'updated' || n.outcome === 'linked').length;
+      toast({ title: changed ? `WhatsApp: ${plural(changed, 'number')} updated` : 'WhatsApp: nothing changed', description: changed ? undefined : (r.notes[0] ?? r.numbers.find((n) => n.reason)?.reason ?? undefined) });
+      await ctx.reloadSetup();
+    } catch (e) {
+      toast({ title: 'WhatsApp not updated', description: writeError(e, 'Growcord\'s WhatsApp system did not take this login.'), variant: 'destructive' });
     } finally { setBusy(null); }
   };
 
@@ -230,6 +267,31 @@ const SetupTab: React.FC<{ ctx: MetaCtx }> = ({ ctx }) => {
                         <span>{t}</span>
                       </p>
                     ))}
+                    {key === 'whatsapp' && conn && ctx.can.setup && (
+                      <div className="mt-2">
+                        <Button size="sm" variant="outline" onClick={() => setWaConfirm(true)} disabled={busy === 'wa-link'}>
+                          {busy === 'wa-link' && <Loader2 className="animate-spin" />} Use this Meta login for WhatsApp
+                        </Button>
+                      </div>
+                    )}
+                    {key === 'whatsapp' && waLink && (
+                      <div className="mt-2 rounded-md border bg-gray-50 p-3 text-sm">
+                        <p className="font-medium text-gray-900">What Growcord&apos;s WhatsApp system did</p>
+                        {waLink.numbers.length > 0 && (
+                          <ul className="mt-1 space-y-1">
+                            {waLink.numbers.map((n) => (
+                              <li key={`${n.waba_id}:${n.phone_number_id}`} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                                <StateChip tone={WA_OUTCOME[n.outcome]?.tone ?? 'neutral'} className="font-normal">{WA_OUTCOME[n.outcome]?.label ?? n.outcome}</StateChip>
+                                <span className="font-medium text-gray-900">{n.display_phone_number || n.phone_number_id}</span>
+                                {n.reason && <span className="text-gray-700">{n.reason}</span>}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        {waLink.notes.map((t, i) => <p key={i} className="mt-1 text-gray-700">{t}</p>)}
+                        {!waLink.numbers.length && !waLink.notes.length && <p className="mt-1 text-gray-700">This Meta login reaches no WhatsApp number.</p>}
+                      </div>
+                    )}
                   </div>
                   {ctx.can.setup && item.login_set?.label && (
                     <div className="w-full shrink-0 pl-8 sm:w-auto sm:pl-0">
@@ -247,6 +309,11 @@ const SetupTab: React.FC<{ ctx: MetaCtx }> = ({ ctx }) => {
                       )}
                       {kind === 'reconnect' && ctx.can.setup && (
                         <Button size="sm" onClick={connect} disabled={busy === 'connect'}>{item.action.label || 'Reconnect'}</Button>
+                      )}
+                      {kind === 'connect' && ctx.can.setup && !item.login_set?.label && (
+                        <Button size="sm" onClick={() => connectRow(item)} disabled={busy === `row:${key}`}>
+                          {busy === `row:${key}` && <Loader2 className="animate-spin" />} {item.action.label || 'Turn on'}
+                        </Button>
                       )}
                       {kind === 'open' && item.action.url && (
                         <Button size="sm" variant="outline" asChild>
@@ -286,6 +353,25 @@ const SetupTab: React.FC<{ ctx: MetaCtx }> = ({ ctx }) => {
       </Section>
 
       {conn && <ConnectionCard conn={conn} warnDays={warnDays} canReconnect={ctx.can.setup} busy={busy === 'connect'} onReconnect={connect} />}
+
+      {waConfirm && (
+        <Dialog open onOpenChange={(o) => { if (!o && busy !== 'wa-link') setWaConfirm(false); }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Use this Meta login for WhatsApp?</DialogTitle>
+              <DialogDescription>
+                This updates the store&apos;s WhatsApp numbers on Growcord&apos;s WhatsApp system with this Meta login: numbers it already
+                has get the new access, and numbers this login reaches that it does not have yet are added. It never changes where
+                messages go, and it sends nothing.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setWaConfirm(false)} disabled={busy === 'wa-link'}>Cancel</Button>
+              <Button onClick={linkWhatsApp} disabled={busy === 'wa-link'}>{busy === 'wa-link' && <Loader2 className="animate-spin" />} Use it for WhatsApp</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 };

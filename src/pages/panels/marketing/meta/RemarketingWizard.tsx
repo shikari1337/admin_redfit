@@ -17,11 +17,11 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { useCountries } from '@/lib/v2/reference';
 import { majorToMinor } from '@/lib/v2/money';
 import {
-  metaApi, type ApplyResult, type DraftInput, type ProductSet, type RemarketingDraft, type RemarketingEvent, type RemarketingOptions,
+  applyOutcomeOf, metaApi, type ApplyResult, type DraftInput, type ProductSet, type RemarketingDraft, type RemarketingEvent, type RemarketingOptions,
 } from '@/lib/v2/areas/meta';
 import type { MetaCtx } from './useMetaCtx';
 import { EMPTY_SET, SetFields, filterOf, filterText, type SetDraft } from './ProductSetForm';
-import { LoadFailure, money, plural, useLoad, writeError } from './common';
+import { ApplyNotDone, LoadFailure, money, plural, useLoad, writeError } from './common';
 import { AiFeatureList, PreviewGrid, aiValues } from './ads/pieces';
 
 const STEPS = ['Products', 'Audience', 'Budget', 'Creative', 'Preview'] as const;
@@ -139,7 +139,7 @@ const RemarketingWizard: React.FC<{ ctx: MetaCtx; currency: string; onClose: () 
     if (draft) await metaApi.discardDraft(draft.id).catch(() => undefined);
     const created = await metaApi.createDraft(body);
     const full = created.previews ? created : await metaApi.draft(created.id);
-    setDraft(full); setDraftKey(key);
+    setDraft(full); setDraftKey(key); setResult(null);
   };
 
   const next = async () => {
@@ -173,7 +173,12 @@ const RemarketingWizard: React.FC<{ ctx: MetaCtx; currency: string; onClose: () 
   const create = async () => {
     if (!draft) return;
     setBusy(true); setError('');
-    try { setResult(await metaApi.applyDraft(draft.id)); onCreated(); }
+    try {
+      const r = await metaApi.applyDraft(draft.id);
+      setResult(r);
+      const o = applyOutcomeOf(r);
+      if (o.kind === 'created' || o.made.length > 0) onCreated();
+    }
     catch (e) { setError(writeError(e, 'Meta did not create the campaign.')); }
     finally { setBusy(false); }
   };
@@ -198,13 +203,17 @@ const RemarketingWizard: React.FC<{ ctx: MetaCtx; currency: string; onClose: () 
     return [...codes];
   }, [countries, COUNTRIES]);
 
+  // Success only when the backend says `applied`; a refused step or a mock run stays on the preview.
+  const outcome = applyOutcomeOf(result);
+  const done = !!result && outcome.kind === 'created';
+
   return (
     <Dialog open onOpenChange={(o) => { if (!o) close(); }}>
       <DialogContent className="flex max-h-[92vh] max-w-3xl flex-col gap-0 overflow-hidden p-0">
         <DialogHeader className="border-b px-4 py-3 sm:px-6">
           <DialogTitle>Dynamic remarketing campaign</DialogTitle>
           <DialogDescription>Shows people the products they looked at. Created paused: nothing spends until you resume it.</DialogDescription>
-          {!result && (
+          {!done && (
             <ol className="flex flex-wrap gap-x-3 gap-y-1 pt-2 text-xs">
               {STEPS.map((s, i) => (
                 <li key={s} className={i === step ? 'font-semibold text-gray-900' : i < step ? 'text-emerald-700' : 'text-gray-400'}>{i + 1}. {s}</li>
@@ -216,7 +225,7 @@ const RemarketingWizard: React.FC<{ ctx: MetaCtx; currency: string; onClose: () 
         <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
           {optsQ.error && !opts ? <LoadFailure failure={optsQ.error} what="Remarketing options (GET /api/v2/marketing/meta/remarketing/options) are not served yet." onRetry={optsQ.reload} />
             : !opts ? <p className="text-sm text-gray-500">Loading...</p>
-              : result ? (
+              : done ? (
                 <div className="space-y-3 py-4 text-center">
                   <CheckCircle2 className="mx-auto h-10 w-10 text-emerald-600" />
                   <p className="text-lg font-semibold">Created, and paused</p>
@@ -331,6 +340,7 @@ const RemarketingWizard: React.FC<{ ctx: MetaCtx; currency: string; onClose: () 
                 </div>
               ) : (
                 <div className="space-y-3">
+                  {result && <ApplyNotDone outcome={outcome} again="Press Create paused campaign again to carry on from that step. If you change the ad first, it starts again from the campaign." />}
                   <p className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900">
                     What Meta's AI makes can only be accepted or switched off, feature by feature (Back to Creative); it cannot be edited here. Everything is created paused.
                   </p>
@@ -354,7 +364,7 @@ const RemarketingWizard: React.FC<{ ctx: MetaCtx; currency: string; onClose: () 
         <div className="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-3 sm:px-6">
           <p className="min-w-0 flex-1 text-sm text-red-700">{error}</p>
           <div className="flex flex-wrap gap-2">
-            {result ? <Button onClick={onClose}>Done</Button> : (
+            {done ? <Button onClick={onClose}>Done</Button> : (
               <>
                 <Button variant="outline" onClick={() => (step === 0 ? close() : (setError(''), setStep(step - 1)))} disabled={busy}>{step === 0 ? 'Cancel' : 'Back'}</Button>
                 {step < STEPS.length - 1

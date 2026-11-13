@@ -13,6 +13,7 @@ import { majorToMinor } from '@/lib/v2/money';
 import { daysUntil, plural } from '@/lib/v2/erp';
 import { GapNotice, ErrorNotice } from '@/pages/payments/common';
 import { errText, isGap } from '@/pages/payments/data';
+import type { ApplyOutcome } from '@/lib/v2/areas/meta';
 
 export interface Failure { gap: boolean; forbidden: boolean; message: string }
 const failureOf = (e: any): Failure => ({ gap: isGap(e), forbidden: e?.response?.status === 403, message: errText(e, 'Something went wrong.') });
@@ -154,3 +155,26 @@ export const ago = (iso: string | null | undefined): string => {
 };
 
 export const linkCls = 'font-medium text-primary underline-offset-2 hover:underline';
+
+/**
+ * An ad apply that did not end with everything made (`applyOutcomeOf`): the step Meta refused in Meta's words and what
+ * exists now, paused; or a mock run's note. Nothing for `created`.
+ */
+export const ApplyNotDone: React.FC<{ outcome: ApplyOutcome; again?: string }> = ({ outcome, again }) => {
+  if (outcome.kind === 'created') return null;
+  if (outcome.kind === 'mock') {
+    return <Lead tone="info" title="Nothing was created">{outcome.words ?? 'This was a trial run: nothing was sent to Meta.'}</Lead>;
+  }
+  if (outcome.kind === 'unknown') {
+    return <Lead tone="warn" title="Meta's answer is not clear">The server did not say the campaign was created. Check the Ads Manager before you try again.</Lead>;
+  }
+  return (
+    <Lead tone="bad" title={outcome.step ? `Meta refused the ${outcome.step.toLowerCase()}` : 'Meta refused it'}>
+      <p>{outcome.words ? `Meta says: ${outcome.words}` : 'Meta gave no reason.'}</p>
+      {outcome.made.length > 0 && (
+        <p className="mt-1">Already on Meta, paused: {outcome.made.map((m) => `${m.label} ${m.id}`).join(', ')}. They spend nothing.</p>
+      )}
+      {again && <p className="mt-1">{again}</p>}
+    </Lead>
+  );
+};

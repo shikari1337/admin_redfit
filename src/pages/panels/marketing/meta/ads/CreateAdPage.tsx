@@ -26,13 +26,13 @@ import { cn } from '@/lib/utils';
 import { majorToMinor } from '@/lib/v2/money';
 import { localeDate } from '@/utils/date';
 import {
-  metaAdsApi, metaApi, metaLeadsApi, metaSocialApi, type AdsDraft, type AdsDraftInput, type AdsObjective, type AdsOptions, type ApplyResult,
+  applyOutcomeOf, metaAdsApi, metaApi, metaLeadsApi, metaSocialApi, type AdsDraft, type AdsDraftInput, type AdsObjective, type AdsOptions, type ApplyResult,
   type LeadForm, type MetaAudience, type SocialPost, type TargetingHit, type TargetingType,
 } from '@/lib/v2/areas/meta';
 import { Segmented } from '@/components/panelAnalytics/Kit';
 import MetaHeader from '../MetaHeader';
 import RemarketingWizard from '../RemarketingWizard';
-import { Lead, LoadFailure, Section, linkCls, money, num, useLoad, writeError } from '../common';
+import { ApplyNotDone, Lead, LoadFailure, Section, linkCls, money, num, useLoad, writeError } from '../common';
 import { useMetaCtx } from '../useMetaCtx';
 import { ADS_ROUTES, META_ROUTES, connectionsHref, metaHref } from '../routes';
 import { AiFeatureList, LibThumb, PreviewGrid, aiValues } from './pieces';
@@ -317,7 +317,7 @@ const Flow: React.FC<{ opts: AdsOptions; ctx: ReturnType<typeof useMetaCtx>; onQ
     if (draft) await metaAdsApi.discardDraft(draft.id).catch(() => undefined);
     const created = await metaAdsApi.createDraft(body);
     const full = created.previews ? created : await metaAdsApi.draft(created.id);
-    setDraft(full); setDraftKey(key);
+    setDraft(full); setDraftKey(key); setResult(null);
   };
 
   // Leaving the page before creating drops the draft.
@@ -360,14 +360,16 @@ const Flow: React.FC<{ opts: AdsOptions; ctx: ReturnType<typeof useMetaCtx>; onQ
     ? (budgetKind === 'daily' ? `Up to ${money(budgetMinor, cur)} a day, about ${money(budgetMinor * 30, cur)} over 30 days, once someone resumes it.` : `At most ${money(budgetMinor, cur)} in total, until the end date, once someone resumes it.`)
     : 'The most it may spend.';
 
-  if (result) {
+  // Success only when the backend says `applied`; a refused step or a mock run keeps the person on the preview.
+  const outcome = applyOutcomeOf(result);
+  if (result && outcome.kind === 'created') {
     return (
       <div ref={top} className="rounded-lg border bg-white px-4 py-10 text-center sm:px-6">
         <CheckCircle2 className="mx-auto h-10 w-10 text-emerald-600" />
         <p className="mt-2 text-lg font-semibold">Created, and paused</p>
         <p className="mx-auto mt-1 max-w-lg text-sm text-gray-700">{result.name ?? name} is on Meta with its ad set and ad, all paused. It spends nothing until someone resumes it in the Ads Manager.</p>
         <div className="mt-4 flex flex-wrap justify-center gap-2">
-          <Button asChild><Link to={metaHref(ADS_ROUTES.manager, result.campaign_id ? { focus: result.campaign_id } : {})}>Open in Ads Manager</Link></Button>
+          <Button asChild><Link to={metaHref(ADS_ROUTES.manager, outcome.campaignId ? { focus: outcome.campaignId } : {})}>Open in Ads Manager</Link></Button>
           <Button variant="outline" onClick={() => window.location.reload()}>Create another</Button>
         </div>
       </div>
@@ -778,6 +780,7 @@ const Flow: React.FC<{ opts: AdsOptions; ctx: ReturnType<typeof useMetaCtx>; onQ
         const i = input();
         return (
           <div className="space-y-4">
+            {result && <ApplyNotDone outcome={outcome} again="Press Create paused campaign again to carry on from that step. If you change the ad first, it starts again from the campaign." />}
             <p className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900">What Meta's AI makes can be accepted or switched off feature by feature (back to Creative); it cannot be edited here. Everything is created paused.</p>
             {(draft?.warnings ?? []).map((w, k) => <Lead key={k} tone="warn" title="Meta may refuse this">{w.text}</Lead>)}
             <div className="flex flex-wrap items-center justify-between gap-2">

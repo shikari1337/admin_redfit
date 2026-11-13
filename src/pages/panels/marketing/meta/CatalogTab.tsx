@@ -60,7 +60,7 @@ async function loadIssues(channelId: string): Promise<{ groups: IssueGroup[]; ca
     let pages = 1;
     do {
       const r = await metaApi.catalogItems(channelId, { status, page });
-      all.push(...r.items);
+      all.push(...r.rows);
       pages = r.pages;
       page += 1;
     } while (page <= pages && page <= 8);
@@ -222,7 +222,7 @@ const CatalogBody: React.FC<{ ctx: MetaCtx; channelId: string; summaryFailure: F
         </div>
         {itemsQ.error && !itemsQ.data ? <LoadFailure failure={itemsQ.error} what="The catalog item list (GET /api/v2/commerce/channels/{id}/catalog-items) is not served yet." onRetry={itemsQ.reload} />
           : !itemsQ.data ? <p className="text-sm text-gray-500">Loading...</p>
-            : itemsQ.data.items.length === 0 ? <p className="py-6 text-center text-sm text-gray-500">No products match.</p>
+            : itemsQ.data.rows.length === 0 ? <p className="py-6 text-center text-sm text-gray-500">No products match.</p>
               : (
                 <>
                   <div className="hidden overflow-x-auto md:block">
@@ -231,7 +231,7 @@ const CatalogBody: React.FC<{ ctx: MetaCtx; channelId: string; summaryFailure: F
                         <tr><th className="py-2 pr-3 font-medium">Product</th><th className="pr-3 font-medium">SKU on Meta</th><th className="pr-3 text-right font-medium">Price</th><th className="pr-3 font-medium">Status</th><th className="pr-3 font-medium">What Meta says</th><th className="font-medium">Sent</th></tr>
                       </thead>
                       <tbody>
-                        {itemsQ.data.items.map((it) => (
+                        {itemsQ.data.rows.map((it) => (
                           <tr key={it.retailer_id} className="border-b align-top last:border-0">
                             <td className="py-2 pr-3">
                               <div className="flex items-center gap-2">
@@ -250,7 +250,7 @@ const CatalogBody: React.FC<{ ctx: MetaCtx; channelId: string; summaryFailure: F
                     </table>
                   </div>
                   <ul className="divide-y md:hidden">
-                    {itemsQ.data.items.map((it) => (
+                    {itemsQ.data.rows.map((it) => (
                       <li key={it.retailer_id} className="flex gap-3 py-2.5">
                         <ItemThumb src={it.image} />
                         <div className="min-w-0 flex-1">
@@ -448,7 +448,8 @@ const ProductSetsSection: React.FC<{ ctx: MetaCtx; channelId: string }> = ({ ctx
 
 const WhatsAppSection: React.FC<{ ctx: MetaCtx; summary: CatalogSummary | null }> = ({ ctx, summary }) => {
   const { toast } = useToast();
-  const number = ctx.setup?.items.find((i) => i.key === 'whatsapp')?.picked ?? null;
+  const waRow = ctx.setup?.items.find((i) => i.key === 'whatsapp') ?? null;
+  const number = waRow?.picked ?? null;
   const catalogId = summary?.catalog?.id ?? ctx.setup?.items.find((i) => i.key === 'catalog')?.picked?.id ?? null;
   const stQ = useLoad(() => (number ? metaApi.waCatalogStatus(number.id) : Promise.resolve(null)), [number?.id]);
   const [form, setForm] = useState<{ visible: boolean; cart: boolean } | null>(null);
@@ -476,7 +477,10 @@ const WhatsAppSection: React.FC<{ ctx: MetaCtx; summary: CatalogSummary | null }
         ? <Button size="sm" onClick={save} disabled={!dirty || saving}>{saving ? 'Saving...' : 'Save'}</Button>
         : <Button size="sm" onClick={save} disabled={saving || !catalogId}>{saving ? 'Connecting...' : 'Connect catalog'}</Button>)}>
       {!number ? (
-        <p className="text-sm text-gray-600">Pick your WhatsApp number in <button type="button" className={linkCls} onClick={() => ctx.goTab('setup')}>Setup</button> first.</p>
+        <p className="text-sm text-gray-600">
+          {waRow?.note ?? 'No WhatsApp number is set up for this store yet.'}{' '}
+          See the WhatsApp row in <button type="button" className={linkCls} onClick={() => ctx.goTab('setup')}>Setup</button>.
+        </p>
       ) : stQ.error && !st ? <LoadFailure failure={stQ.error} what="The WhatsApp catalog status (GET /api/v2/whatsapp/products/catalog/status) is not served yet." onRetry={stQ.reload} />
         : !st || !form ? <p className="text-sm text-gray-500">Loading...</p> : (
           <div className="space-y-3">

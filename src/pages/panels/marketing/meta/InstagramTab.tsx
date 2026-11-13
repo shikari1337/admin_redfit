@@ -19,7 +19,11 @@ import { formatDayShort } from '@/utils/date';
 import { metaApi, type IgFeedSettings, type IgPost, type IgShopping, type IgTag, type ProductHit } from '@/lib/v2/areas/meta';
 import { useMetaCtx, type MetaCtx } from './useMetaCtx';
 import MetaHeader from './MetaHeader';
-import { Lead, LoadFailure, Section, linkCls, num, plural, useLoad, writeError, type Failure } from './common';
+import { Lead, LoadFailure, Section, StateChip, linkCls, num, plural, useLoad, writeError, type Failure } from './common';
+
+/** A post's tags on Instagram itself, read per tag (`tagged_on_instagram`, `push_error`): the post has no flag of its own. */
+const onInstagram = (p: IgPost) => p.tags.filter((t) => t.tagged_on_instagram).length;
+const notOnInstagram = (p: IgPost) => p.tags.filter((t) => !t.tagged_on_instagram && !!t.push_error).length;
 
 const InstagramTab: React.FC<{ ctx: MetaCtx }> = ({ ctx }) => {
   const { toast } = useToast();
@@ -98,7 +102,11 @@ const InstagramTab: React.FC<{ ctx: MetaCtx }> = ({ ctx }) => {
                             <Tag className="h-3 w-3" />{p.tags.length ? plural(p.tags.length, 'product') : 'No products'}
                           </span>
                         </div>
-                        <p className="mt-1 text-xs text-gray-500">{formatDayShort(p.timestamp, '')}{p.tagged_on_instagram ? ', tagged on Instagram' : ''}</p>
+                        <p className="mt-1 text-xs text-gray-500">
+                          {formatDayShort(p.timestamp, '')}
+                          {onInstagram(p) > 0 && (onInstagram(p) === p.tags.length ? ', tagged on Instagram' : `, ${num(onInstagram(p))} tagged on Instagram`)}
+                          {notOnInstagram(p) > 0 && <span className="text-amber-700">, {num(notOnInstagram(p))} not on Instagram</span>}
+                        </p>
                         <p className="line-clamp-2 text-xs text-gray-800">{p.caption}</p>
                       </button>
                     </li>
@@ -185,7 +193,7 @@ const TagEditor: React.FC<{ post: IgPost; shopping: IgShopping | null; canEdit: 
   const [q, setQ] = useState('');
   const [hits, setHits] = useState<ProductHit[]>([]);
   const [searching, setSearching] = useState(false);
-  const [push, setPush] = useState(!!post.tagged_on_instagram && !!shopping?.can_tag_on_instagram);
+  const [push, setPush] = useState(post.tags.some((t) => t.push_to_instagram || t.tagged_on_instagram) && !!shopping?.can_tag_on_instagram);
   const [saving, setSaving] = useState(false);
   const [drag, setDrag] = useState<number | null>(null);
   const box = useRef<HTMLDivElement>(null);
@@ -292,7 +300,11 @@ const TagEditor: React.FC<{ post: IgPost; shopping: IgShopping | null; canEdit: 
                     <li key={i} className="flex items-center gap-2 rounded-md border px-2 py-1.5">
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-gray-900 text-[11px] font-bold text-white">{i + 1}</span>
                       {t.image && <img src={t.image} alt="" className="h-7 w-7 shrink-0 rounded object-cover" />}
-                      <span className="line-clamp-2 min-w-0 flex-1 text-sm">{t.name ?? t.variation_id ?? t.product_id}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="line-clamp-2 text-sm">{t.name ?? t.variation_id ?? t.product_id}</span>
+                        {t.tagged_on_instagram && <StateChip tone="good" className="mt-0.5 font-normal">Tagged on Instagram</StateChip>}
+                        {!t.tagged_on_instagram && t.push_error && <span className="mt-0.5 block text-xs text-amber-800">Not on Instagram: {t.push_error}</span>}
+                      </span>
                       {canEdit && <button type="button" aria-label="Remove tag" onClick={() => setTags(tags.filter((_, j) => j !== i))} className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"><X className="h-4 w-4" /></button>}
                     </li>
                   ))}

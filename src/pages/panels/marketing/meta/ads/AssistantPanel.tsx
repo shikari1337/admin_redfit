@@ -18,10 +18,10 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import {
-  metaAdsApi, metaAssistantApi,
-  type AdsDraft, type AdsDraftInput, type AssistantAnswer, type AssistantProposal, type AssistantStatus, type AssistantTools, type AssistantTurn,
+  applyOutcomeOf, metaAdsApi, metaAssistantApi,
+  type AdsDraft, type ApplyOutcome, type AdsDraftInput, type AssistantAnswer, type AssistantProposal, type AssistantStatus, type AssistantTools, type AssistantTurn,
 } from '@/lib/v2/areas/meta';
-import { Lead, LoadFailure, StateChip, ago, linkCls, money, plural, useLoad, writeError, type Tone } from '../common';
+import { ApplyNotDone, Lead, LoadFailure, StateChip, ago, linkCls, money, plural, useLoad, writeError, type Tone } from '../common';
 import { ADS_ROUTES, connectionsHref, metaHref } from '../routes';
 import { PreviewGrid } from './pieces';
 
@@ -253,6 +253,7 @@ const ProposalCard: React.FC<{ proposal: AssistantProposal; cur: string; canAct:
   const [busy, setBusy] = useState<'' | 'preview' | 'refresh' | 'apply' | 'dismiss'>('');
   const [confirm, setConfirm] = useState(false);
   const [applied, setApplied] = useState<{ campaign_id?: string | null } | null>(null);
+  const [notDone, setNotDone] = useState<ApplyOutcome | null>(null);
   const closed = p.status === 'dismissed';
   const isApplied = !!applied || p.draft_status === 'applied';
 
@@ -285,11 +286,18 @@ const ProposalCard: React.FC<{ proposal: AssistantProposal; cur: string; canAct:
     if (!draft) return;
     setBusy('apply');
     try {
-      const r = await metaAdsApi.applyDraft(draft.id);
-      setApplied({ campaign_id: r?.campaign_id ?? null });
+      const o = applyOutcomeOf(await metaAdsApi.applyDraft(draft.id));
       setConfirm(false);
-      toast({ title: 'Created, paused', description: 'Nothing spends until a person resumes it in Ads Manager.' });
-      onApplied();
+      if (o.kind === 'created') {
+        setApplied({ campaign_id: o.campaignId });
+        setNotDone(null);
+        toast({ title: 'Created, paused', description: 'Nothing spends until a person resumes it in Ads Manager.' });
+        onApplied();
+      } else {
+        // A refused step or a mock run answers 200 too: say so, never "created".
+        setNotDone(o);
+        toast({ title: o.kind === 'mock' ? 'Nothing was created' : 'Meta did not create the campaign', description: o.words ?? 'Meta gave no reason.', variant: o.kind === 'mock' ? 'default' : 'destructive' });
+      }
     } catch (e) {
       toast({ title: 'Meta did not create the campaign', description: writeError(e, 'Meta refused it.'), variant: 'destructive' });
     } finally { setBusy(''); }
@@ -324,6 +332,7 @@ const ProposalCard: React.FC<{ proposal: AssistantProposal; cur: string; canAct:
 
       {draft && !isApplied && (
         <div className="mt-3 space-y-2 border-t pt-3">
+          {notDone && <ApplyNotDone outcome={notDone} again="Press Apply again to carry on from that step." />}
           {(draft.warnings ?? []).map((w, k) => <Lead key={k} tone="warn" title="Meta may refuse this">{w.text}</Lead>)}
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs font-medium text-gray-600">Meta&apos;s previews</span>

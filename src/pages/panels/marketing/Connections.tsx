@@ -53,6 +53,17 @@ interface Connection {
   credentials: Record<string, { set: boolean; preview: string }>;
 }
 
+/**
+ * One service's outcome of "Set up automatically" (`POST /connections/{id}/services/auto-configure`, META-FIX-1 E1):
+ * `picked` when the service had exactly one choice, `skipped` or `failed` with the reason in plain words.
+ */
+interface AutoResult {
+  service: string; status: 'picked' | 'skipped' | 'failed' | string;
+  resource_id: string | null; resource_name: string | null; reason: string | null;
+}
+const AUTO_TONE: Record<string, Tone> = { picked: 'good', skipped: 'neutral', failed: 'bad' };
+const AUTO_WORD: Record<string, string> = { picked: 'Set up', skipped: 'Left as is', failed: 'Not set up' };
+
 type PlatformStatus = 'connected' | 'attention' | 'not_connected';
 
 const PLATFORM_STATUS: Record<PlatformStatus, { label: string; tone: Tone; dot: string }> = {
@@ -134,6 +145,8 @@ const Connections: React.FC = () => {
   const [selecting, setSelecting] = useState<Record<string, string[]>>({});
   const [credsFor, setCredsFor] = useState<string | null>(null);
   const [credDraft, setCredDraft] = useState<Record<string, string>>({});
+  /** The last "Set up automatically" outcome, per service, for the connection it ran on. */
+  const [auto, setAuto] = useState<{ connId: string; results: AutoResult[] } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -235,20 +248,17 @@ const Connections: React.FC = () => {
     finally { setBusy(null); }
   };
 
-  /** Pick a resource only where the provider offers exactly one choice. */
+  /**
+   * For each service that is on and has nothing chosen yet, the server picks the one choice when there is exactly one
+   * and says per service what it did (META-FIX-1 E1). The outcome is listed under the account.
+   */
   const autoConfigure = async (conn: Connection) => {
-    setBusy(`${conn.id}:auto-configure`); setError(''); setInfo('');
+    setBusy(`${conn.id}:auto-configure`); setError(''); setInfo(''); setAuto(null);
     try {
-      const out = payload<any>(await api.post(`/connectors/${conn.id}/services/auto-configure`, {}));
-      const results = out?.results ?? [];
-      const configured = results.filter((r: any) => r.status === 'configured');
-      const choose = results.filter((r: any) => r.status === 'choose_one');
-      const attention = results.filter((r: any) => r.status === 'needs_access' || r.status === 'none_available');
-      setInfo([
-        configured.length ? `Set up: ${configured.map((r: any) => r.service.replace(/_/g, ' ')).join(', ')}.` : '',
-        choose.length ? `Choose by hand: ${choose.map((r: any) => `${r.service.replace(/_/g, ' ')} (${r.count} choices)`).join(', ')}.` : '',
-        attention.length ? `Needs attention: ${attention.map((r: any) => r.service.replace(/_/g, ' ')).join(', ')}.` : '',
-      ].filter(Boolean).join(' ') || 'Nothing here can be set up automatically.');
+      const out = payload<any>(await api.post(`/connectors/${conn.id}/services/auto-configure`));
+      const results: AutoResult[] = Array.isArray(out?.results) ? out.results : [];
+      if (results.length) setAuto({ connId: conn.id, results });
+      else setInfo('Nothing to set up: every service that is on already has its choice.');
       await refresh();
     } catch (e: any) { setError(e?.response?.data?.message ?? e.message); }
     finally { setBusy(null); }
@@ -458,6 +468,29 @@ const Connections: React.FC = () => {
                       <p><Link to={metaHref(accountLink.to)} className={linkCls}>{accountLink.label}</Link></p>
                     )}
                   </div>
+
+                  {/* What "Set up automatically" did, per service */}
+                  {conn && auto?.connId === conn.id && (
+                    <div className="mt-4 rounded-md border bg-gray-50 p-3">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <span className="text-sm font-semibold text-gray-900">Set up automatically</span>
+                        <button type="button" onClick={() => setAuto(null)} className="text-xs text-gray-500 hover:text-gray-800">Close</button>
+                      </div>
+                      <ul className="space-y-1.5">
+                        {auto.results.map((r) => (
+                          <li key={r.service} className="flex flex-wrap items-start gap-x-2 gap-y-1 text-sm">
+                            <StateChip tone={AUTO_TONE[r.status] ?? 'neutral'}>{AUTO_WORD[r.status] ?? r.status}</StateChip>
+                            <span className="font-medium">{provider.services.find((d) => d.key === r.service)?.label ?? r.service.replace(/_/g, ' ')}</span>
+                            <span className="min-w-0 break-words text-gray-700">
+                              {r.status === 'picked'
+                                ? `now uses ${r.resource_name || r.resource_id || 'the one choice'}.`
+                                : r.reason || (r.status === 'failed' ? 'It could not be set up.' : 'Nothing was changed.')}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
 
                   {/* Extra credentials (developer token, own OAuth app) */}
                   {conn && credsFor === conn.id && (

@@ -11,8 +11,9 @@ import type {
   AiFeature, ApplyResult, CatalogItem, CatalogPage, CatalogSummary, ChannelPlatform, DraftInput, IgFeedSettings,
   IgPost, IgShopping, IgTag, MetaCampaign, MetaCampaigns, MetaProviderDef, MetaSetup, PickableResource, ProductHit,
   ProductSet, ProductSetFilter, RemarketingDraft, RemarketingOptions, StoreCategory, StoreChannel, SyncResult,
-  WaCatalogStatus,
+  WaCatalogStatus, WaLinkResult,
 } from './meta';
+import { APPLY_STEPS } from './meta';
 import { socialMock } from './meta.mock.social';
 import { assistantMock } from './meta.mock.assistant'; // META-17
 import { canvasMock } from './meta.mock.canvas'; // META-19
@@ -26,6 +27,18 @@ const fresh = (): boolean => {
   try { return new URLSearchParams(window.location.search).get('mockvariant') === 'fresh'; } catch { return false; }
 };
 const wait = <T,>(v: T, ms = 140): Promise<T> => new Promise((r) => setTimeout(() => r(structuredClone(v)), ms));
+
+/** The draft view an apply answers once every object exists (status `applied`, the ids under `created`). */
+const appliedReply = (id: string, name: string | null, campaignId: string): ApplyResult => {
+  const created: Record<string, string> = {
+    campaign_id: campaignId, adset_id: `${campaignId}1`, creative_id: `${campaignId}2`, ad_id: `${campaignId}3`,
+  };
+  const at = new Date().toISOString();
+  return {
+    id, name, status: 'applied', campaign_id: campaignId, created, failed_step: null, error: null, mock_run: null,
+    steps: APPLY_STEPS.map((s) => ({ step: s.step, ok: true, id: created[s.slot], at })),
+  };
+};
 const daysAgo = (d: number, h = 10): string => new Date(Date.now() - d * 86_400_000 - h * 3_600_000).toISOString();
 const minutesAgo = (m: number): string => new Date(Date.now() - m * 60_000).toISOString();
 
@@ -265,13 +278,12 @@ let POSTS: IgPost[] = CAPTIONS.map((caption, n) => {
     caption,
     timestamp: daysAgo(n * 3 + 1, n % 9),
     tags: [] as IgTag[],
-    tagged_on_instagram: false,
   };
 });
 POSTS[0].tags = [{ product_id: 'p_arnicamontana_sbl', variation_id: 'v_1', x: 0.48, y: 0.52, name: 'SBL Arnica Montana Dilution 30C, 30 ml', image: art('Arnica', 152) }];
 POSTS[1].tags = [
-  { product_id: 'p_arsenicumalb_rec', variation_id: 'v_1301', x: 0.32, y: 0.55, name: 'Dr. Reckeweg Arsenicum Alb Dilution 30C, 30 ml', image: art('Arsenicum', 28) },
-  { product_id: 'p_belladonna_sbl', variation_id: 'v_61', x: 0.66, y: 0.48, name: 'SBL Belladonna Dilution 30C, 30 ml', image: art('Belladonna', 205) },
+  { product_id: 'p_arsenicumalb_rec', variation_id: 'v_1301', x: 0.32, y: 0.55, name: 'Dr. Reckeweg Arsenicum Alb Dilution 30C, 30 ml', image: art('Arsenicum', 28), push_to_instagram: true, tagged_on_instagram: true, push_error: null },
+  { product_id: 'p_belladonna_sbl', variation_id: 'v_61', x: 0.66, y: 0.48, name: 'SBL Belladonna Dilution 30C, 30 ml', image: art('Belladonna', 205), push_to_instagram: true, tagged_on_instagram: false, push_error: 'This product is not approved in your Meta catalog yet.' },
 ];
 POSTS[2].tags = [{ product_id: 'p_calendulaoff_sch', variation_id: 'v_621', x: 0.5, y: 0.6, name: 'Schwabe Calendula Off Ointment, 25 g', image: art('Calendula', 45, 'tube') }];
 POSTS[5].tags = [{ product_id: 'p_arnicamontana_rec', variation_id: 'v_8', x: 0.42, y: 0.5, name: 'Dr. Reckeweg Arnica Montana Drops, 30 ml', image: art('Arnica', 12) }];
@@ -611,7 +623,8 @@ const ADS_OPTIONS = {
     { ...opt('engagement', 'Engagement', 'More likes, comments, messages and video views.'), destinations: ['on_ad', 'whatsapp', 'messenger', 'instagram_direct', 'website'],
       optimization_goals: [opt('POST_ENGAGEMENT', 'Post engagement'), opt('PAGE_LIKES', 'Page likes'), opt('THRUPLAY', 'Video views (ThruPlay)'), opt('CONVERSATIONS', 'Conversations')],
       formats: [F.image, F.video, F.carousel, F.existing_post] },
-    { ...opt('leads', 'Leads', 'Collect enquiries through a form, a chat or a call.'), destinations: ['instant_form', 'website', 'whatsapp', 'messenger', 'calls'],
+    // No Messenger destination for leads: Meta no longer lets the API make Messenger lead ads (META-FIX-1 D2).
+    { ...opt('leads', 'Leads', 'Collect enquiries through a form, a chat or a call.'), destinations: ['instant_form', 'website', 'whatsapp', 'calls'],
       optimization_goals: [opt('LEAD_GENERATION', 'Leads'), opt('QUALITY_LEAD', 'Conversion leads'), opt('CONVERSATIONS', 'Conversations'), opt('QUALITY_CALL', 'Calls')],
       formats: [F.lead_form, F.image, F.video, F.carousel] },
     { ...opt('sales', 'Sales', 'Find people likely to buy, with or without your catalog.'), destinations: ['website', 'whatsapp', 'messenger', 'calls'],
@@ -953,7 +966,7 @@ const adsMock = {
         lifetime_budget_minor: d.campaign.budget?.kind === 'lifetime' ? d.campaign.budget.amount_minor : null, created_by_growcord: true, perDay: 0, roasBase: null, ctrBase: 0,
       });
     }
-    return wait<ApplyResult>({ campaign_id: newId, status: 'PAUSED', name: d?.name ?? null }, 900);
+    return wait<ApplyResult>(appliedReply(id, d?.name ?? null, newId), 900);
   },
   discardAdsDraft: (id: string) => { ADS_DRAFTS = ADS_DRAFTS.filter((d) => d.id !== id); return wait({ ok: true }); },
   targetingSearch: (type: TargetingType, q: string) => {
@@ -1068,14 +1081,14 @@ export const metaMock = {
         daily_budget_minor: d.daily_budget_minor ?? null, lifetime_budget_minor: null, created_by_growcord: true, perDay: 0, roasBase: null, ctrBase: 0,
       });
     }
-    return wait<ApplyResult>({ campaign_id: newId, status: 'PAUSED', name: d?.name ?? null }, 900);
+    return wait<ApplyResult>(appliedReply(id, d?.name ?? null, newId), 900);
   },
   discardDraft: (id: string) => { DRAFTS = DRAFTS.filter((d) => d.id !== id); return wait({ ok: true }); },
 
   igPosts: (limit: number) => wait<IgPost[]>(fresh() ? [] : POSTS.slice(0, limit), 250),
   igRefresh: () => wait({ ok: true }, 700),
   igSaveTags: (mediaId: string, tags: IgTag[], push: boolean) => {
-    POSTS = POSTS.map((p) => (p.id === mediaId ? { ...p, tags, tagged_on_instagram: push } : p));
+    POSTS = POSTS.map((p) => (p.id === mediaId ? { ...p, tags: tags.map((t) => ({ ...t, push_to_instagram: push, tagged_on_instagram: push, push_error: null })) } : p));
     return wait({ ok: true });
   },
   igShopping: () => wait<IgShopping>({
@@ -1143,7 +1156,7 @@ export const metaMock = {
     const rows = catalog().filter((c) => (!q.status || c.status === q.status) && (!term || c.title.toLowerCase().includes(term) || c.retailer_id.toLowerCase().includes(term)));
     const size = 25;
     const page = Math.max(1, q.page ?? 1);
-    return wait<CatalogPage>({ items: rows.slice((page - 1) * size, page * size), total: rows.length, pages: Math.max(1, Math.ceil(rows.length / size)) }, 180);
+    return wait<CatalogPage>({ rows: rows.slice((page - 1) * size, page * size), total: rows.length, page, pages: Math.ceil(rows.length / size) }, 180);
   },
   productSets: () => wait<ProductSet[]>(SETS),
   createProductSet: (name: string, filter: ProductSetFilter) => {
@@ -1155,6 +1168,13 @@ export const metaMock = {
 
   waCatalogStatus: () => wait<WaCatalogStatus>({ catalog_id: '889900112233', linked: true, catalog_visible: true, cart_enabled: false }),
   waCatalogConnect: (b: { catalog_id: string; catalog_visible: boolean; cart_enabled: boolean }) => wait<WaCatalogStatus>({ catalog_id: b.catalog_id, linked: true, catalog_visible: b.catalog_visible, cart_enabled: b.cart_enabled }, 500),
+  linkWhatsApp: () => wait<WaLinkResult>({
+    numbers: [
+      { waba_id: '104455667788990', phone_number_id: '209988776655443', display_phone_number: '+91 98765 43210', outcome: 'updated', reason: null },
+      { waba_id: '104455667788990', phone_number_id: '209988776655444', display_phone_number: '+91 98765 43211', outcome: 'skipped', reason: 'This number belongs to another store on Growcord.' },
+    ],
+    notes: [],
+  }, 600),
 };
 
 export type MetaMock = typeof metaMock;

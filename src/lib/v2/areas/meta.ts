@@ -28,6 +28,8 @@ export const META_PATHS = {
   setup: `${MK}/meta/setup`,
   resources: (connectionId: string, service: string) => `${MK}/connections/${seg(connectionId)}/services/${seg(service)}/resources`,
   service: (connectionId: string, service: string) => `${MK}/connections/${seg(connectionId)}/services/${seg(service)}`,
+  /** META-WA-LINK: "Use this Meta login for WhatsApp". */
+  whatsappLink: `${MK}/connections/meta/whatsapp`,
   campaigns: `${MK}/meta/campaigns`,
   campaignsSync: `${MK}/meta/campaigns/sync`,
   campaignStatus: (externalId: string) => `${MK}/meta/campaigns/${seg(externalId)}/status`,
@@ -111,7 +113,8 @@ export type SetupNeed = 'connect' | 'permission' | 'pick' | 'review' | 'shopping
  * lane report); a bare string is read as its `kind`.
  */
 export interface SetupAction {
-  kind: 'pick' | 'reconnect' | 'open' | 'wait' | string;
+  /** `connect`: the service is off on a working connection ("Turn on X"); the row starts the consent for its set. */
+  kind: 'pick' | 'reconnect' | 'connect' | 'open' | 'wait' | string;
   /** The connection service whose resources the picker lists (`pages`, `instagram`, `ads`, `pixel`, ...). */
   service?: string | null;
   /** Where to finish it on Meta's side (Commerce Manager, Business settings). */
@@ -245,7 +248,59 @@ export interface RemarketingDraft extends Partial<DraftInput> {
   previews?: DraftPreview[];
   created_at?: string | null;
 }
-export interface ApplyResult { campaign_id?: string | null; status?: string; name?: string | null }
+/** One step of an apply, as the draft view's `steps` carries it: made (`id`), kept from an earlier try, or refused (`error`). */
+export interface ApplyStep { step: string; ok: boolean; id?: string | null; kept?: boolean; error?: string | null; at?: string | null }
+/**
+ * `POST .../drafts/{id}/apply` answers the draft (`MetaAdDraftView`, marketing `views/meta_ads_create.rs`), always 200:
+ * `status` is `applied` when every object exists, paused; `failed` when Meta refused a step (`failed_step`, `error` in
+ * Meta's words, `created` with the ids it did make; the next apply carries on from there); `draft` after a mock run
+ * (`mock_run.note`, nothing sent to Meta). `campaign_id` is `created.campaign_id`.
+ */
+export interface ApplyResult {
+  id?: string;
+  name?: string | null;
+  status?: string;
+  campaign_id?: string | null;
+  created?: Record<string, string> | null;
+  steps?: ApplyStep[] | null;
+  failed_step?: string | null;
+  error?: string | null;
+  mock_run?: { note?: string | null; steps?: ApplyStep[] | null; failed?: { step?: string; error?: string } | null } | null;
+}
+/** The four objects an apply makes, in the backend's order (`STEPS` in `meta_ads/create.rs`), and the `created` key of each. */
+export const APPLY_STEPS: ReadonlyArray<{ step: string; slot: string; label: string }> = [
+  { step: 'campaign', slot: 'campaign_id', label: 'Campaign' },
+  { step: 'adset', slot: 'adset_id', label: 'Ad set' },
+  { step: 'creative', slot: 'creative_id', label: 'Creative' },
+  { step: 'ad', slot: 'ad_id', label: 'Ad' },
+];
+/** What an apply reply means: `created` only when the backend says `applied`; a refusal names the step in Meta's words. */
+export interface ApplyOutcome {
+  kind: 'created' | 'refused' | 'mock' | 'unknown';
+  /** The step Meta refused, in words ("Ad set"). */
+  step: string | null;
+  /** Meta's words, or the mock run's note. */
+  words: string | null;
+  /** What exists at Meta now, paused. */
+  made: Array<{ label: string; id: string }>;
+  campaignId: string | null;
+}
+export function applyOutcomeOf(r: ApplyResult | null | undefined): ApplyOutcome {
+  const created = r?.created ?? {};
+  const made = APPLY_STEPS.filter((s) => typeof created[s.slot] === 'string' && created[s.slot]).map((s) => ({ label: s.label, id: created[s.slot] }));
+  const campaignId = r?.campaign_id ?? created.campaign_id ?? null;
+  const labelOf = (step: string | null | undefined) => (step ? APPLY_STEPS.find((s) => s.step === step)?.label ?? step : null);
+  const status = r?.status ?? '';
+  if (status === 'applied') return { kind: 'created', step: null, words: null, made, campaignId };
+  if (status === 'failed') {
+    const refused = (r?.steps ?? []).find((s) => !s.ok);
+    return { kind: 'refused', step: labelOf(r?.failed_step ?? refused?.step), words: r?.error ?? refused?.error ?? null, made, campaignId };
+  }
+  if (r?.mock_run) {
+    return { kind: 'mock', step: labelOf(r.mock_run.failed?.step), words: r.mock_run.note ?? r.mock_run.failed?.error ?? null, made: [], campaignId: null };
+  }
+  return { kind: 'unknown', step: null, words: null, made, campaignId };
+}
 
 export interface IgTag {
   product_id?: string | null;
@@ -255,6 +310,14 @@ export interface IgTag {
   /** Display fields the admin list carries with each tag (CONTRACT QUESTION: the contract lists ids only). */
   name?: string | null;
   image?: string | null;
+  /**
+   * Per tag on Instagram itself (`IgTagView`, marketing `views/meta.rs`): the person asked for it, it is on the post at
+   * Instagram, and Meta's words (or why it was not sent) when it is not.
+   */
+  push_to_instagram?: boolean;
+  tagged_on_instagram?: boolean;
+  push_error?: string | null;
+  pushed_at?: string | null;
 }
 export interface IgPost {
   id: string;
@@ -264,8 +327,8 @@ export interface IgPost {
   permalink: string | null;
   caption: string | null;
   timestamp: string | null;
+  /** Each tag carries its own Instagram outcome (`tagged_on_instagram`, `push_error`); the post has none of its own. */
   tags: IgTag[];
-  tagged_on_instagram?: boolean;
 }
 export interface IgShopping { can_tag_on_instagram: boolean; catalog_linked: boolean; reason: string | null }
 
@@ -348,7 +411,8 @@ export interface CatalogFacts {
   importerAddress: { street1: string; street2: string; city: string; region: string; postalCode: string; country: string };
   manufacturerInfo: string;
 }
-export interface CatalogPage { items: CatalogItem[]; total: number; pages: number }
+/** `GET /channels/{id}/catalog-items` as the backend answers it: `{rows, total, page, pages}` (`pages` is 0 when empty). */
+export interface CatalogPage { rows: CatalogItem[]; total: number; page: number; pages: number }
 
 export interface ProductSetFilter {
   category_ids?: string[];
@@ -372,6 +436,19 @@ export interface ChannelPlatform { code: string; name: string }
 export interface SyncResult { ok?: number; total?: number; error?: number }
 
 export interface WaCatalogStatus { catalog_id: string | null; linked: boolean; catalog_visible: boolean; cart_enabled: boolean }
+
+/** One number Growcord's WhatsApp system looked at (`NumberOutcome`, connections organ `meta/whatsapp.rs`). */
+export interface WaLinkNumber {
+  waba_id: string;
+  phone_number_id: string;
+  display_phone_number: string;
+  /** `updated` (the new access is on it), `linked` (added to the store's WhatsApp numbers) or `skipped`. */
+  outcome: 'updated' | 'linked' | 'skipped' | string;
+  /** Why it was skipped, in plain words. */
+  reason: string | null;
+}
+/** `POST /connections/meta/whatsapp`: per number, and why nothing was done when that is the case. */
+export interface WaLinkResult { numbers: WaLinkNumber[]; notes: string[] }
 
 export interface ProductHit { product_id: string; variation_id: string | null; name: string; sku?: string | null; image?: string | null }
 export interface StoreCategory { id: string; name: string; parent_id?: string | null }
@@ -484,6 +561,17 @@ export const metaApi = {
     () => call('PUT', META_PATHS.service(connectionId, service), { data: { is_enabled: true, external_resource_id: r.id, external_resource_name: r.name } }),
     (m) => m.pick(service, r),
   ),
+  /**
+   * "Use this Meta login for WhatsApp" (META-WA-LINK): the store's WhatsApp numbers on Growcord's WhatsApp system get
+   * this Meta login; where messages go is never changed.
+   */
+  linkWhatsApp: () => via<WaLinkResult>(
+    async () => {
+      const d = await call<any>('POST', META_PATHS.whatsappLink, { data: {} });
+      return { numbers: asArray<WaLinkNumber>(d?.numbers), notes: asArray<string>(d?.notes) };
+    },
+    (m) => m.linkWhatsApp(),
+  ),
 
   /* Campaigns */
   campaigns: (q: { from?: string; to?: string; status?: string }) => via<MetaCampaigns>(
@@ -585,10 +673,9 @@ export const metaApi = {
   catalogItems: (channelId: string, q: { status?: string; q?: string; page?: number }) => via<CatalogPage>(
     async () => {
       const list = await call<any>('GET', META_PATHS.catalogItems(channelId), { params: q });
-      const items = asArray<CatalogItem>(list, 'items');
-      const total = totalOf(list, items.length);
-      const pages = Number((list as any)?.pages) || Math.max(1, Math.ceil(total / Math.max(1, Number((list as any)?.limit) || items.length || 1)));
-      return { items, total, pages };
+      const rows = asArray<CatalogItem>(list, 'rows');
+      const total = totalOf(list, rows.length);
+      return { rows, total, page: Number((list as any)?.page) || q.page || 1, pages: Number((list as any)?.pages) || 0 };
     },
     (m) => m.catalogItems(q),
   ),

@@ -63,10 +63,23 @@ const MetaWebhooksCard: React.FC<{ canManage: boolean; refreshKey?: unknown }> =
     setBusy(true); setMessage(null);
     try {
       const data = payload<any>(await api.post('/connectors/meta/webhooks/resync'));
-      const failed = (data?.results ?? []).filter((r: any) => r.subscription && !r.subscription.ok);
+      // Each result is {service, resource, webhooks: {registered, subscription: {ok, fields, error} | null}}
+      // (marketing api/connectors.rs meta_resync); `subscription` is the Page install, null when none was tried.
+      const results: any[] = Array.isArray(data?.results) ? data.results : [];
+      const install = (r: any) => r?.webhooks?.subscription ?? null;
+      const who = (r: any) => r?.resource || r?.service || 'A Page';
+      const failed = results.filter((r) => install(r) && install(r).ok === false);
+      const partial = results.filter((r) => install(r)?.ok && install(r).error);
+      const notes = partial.map((r) => `${who(r)}: ${install(r).error}`);
       setMessage(failed.length
-        ? { ok: false, text: failed.map((r: any) => `${r.resource}: ${r.subscription.error}`).join(' · ') }
-        : { ok: true, text: 'Every picked Page has the Growcord app installed and is routed to this store.' });
+        ? { ok: false, text: [...failed.map((r) => `${who(r)}: ${install(r).error || 'Meta refused the app install.'}`), ...notes].join('; ') }
+        : {
+          ok: true,
+          text: [
+            results.some((r) => install(r)) ? 'Every picked Page has the Growcord app installed and is routed to this store.' : 'Every picked asset is routed to this store.',
+            ...notes,
+          ].join(' '),
+        });
       setRoutes(data?.routes ?? []);
     } catch (e: any) {
       setMessage({ ok: false, text: e?.response?.data?.message ?? e.message });
