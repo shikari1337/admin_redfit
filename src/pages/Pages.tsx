@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { FaPlus, FaEdit, FaTrash, FaEye, FaEyeSlash, FaMagic } from 'react-icons/fa';
+import { FaPlus, FaEdit, FaTrash, FaEye, FaMagic } from 'react-icons/fa';
 import api, { pagesAPI } from '../services/api';
+import { useStoreSiteUrl, cmsPageUrl } from '../lib/storefront';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { useAuth } from '../contexts/AuthContext';
 import { Card, CardContent } from '@/components/ui/card';
@@ -53,6 +54,7 @@ const Pages: React.FC = () => {
   // client-side gating before.
   const canManagePages = hasPerm('content.manage');
   const canDeletePages = hasPerm('content.delete');
+  const siteUrl = useStoreSiteUrl();
   const [pages, setPages] = useState<Page[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -131,14 +133,15 @@ const Pages: React.FC = () => {
     }
   };
 
+  // Only the status is sent: re-sending the whole page made the save re-check the slug and,
+  // on v2, the loaded `is_active` won over the toggle. A page has one status column; the old
+  // separate "visible" eye toggled nothing.
   const toggleActive = async (page: Page) => {
     const id = getPageId(page);
     if (!id) return;
     try {
-      await api.put(`/pages/${id}`, {
-        ...page,
-        isActive: !page.isActive,
-      });
+      await api.put(`/pages/${id}`, { isActive: !page.isActive });
+      notify(page.isActive ? `"${page.title}" is now a draft, off the shop` : `"${page.title}" is live on the shop`);
       fetchPages();
     } catch (error: any) {
       console.error('Failed to update page:', error);
@@ -146,20 +149,7 @@ const Pages: React.FC = () => {
     }
   };
 
-  const toggleVisible = async (page: Page) => {
-    const id = getPageId(page);
-    if (!id) return;
-    try {
-      await api.put(`/pages/${id}`, {
-        ...page,
-        isVisible: !page.isVisible,
-      });
-      fetchPages();
-    } catch (error: any) {
-      console.error('Failed to update page:', error);
-      notify(error.response?.data?.message || 'Failed to update page');
-    }
-  };
+  const drafts = pages.filter((p) => !p.isActive);
 
   if (loading) {
     return (
@@ -194,6 +184,14 @@ const Pages: React.FC = () => {
           </div>
         )}
       </div>
+
+      {drafts.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <span className="font-semibold">{drafts.length} {drafts.length === 1 ? 'page is a draft' : 'pages are drafts'}</span>
+          {' '}and not on the shop: {drafts.slice(0, 4).map((p) => p.title).join(', ')}{drafts.length > 4 ? ` and ${drafts.length - 4} more` : ''}.
+          {' '}Open one, finish it, then set it Live.
+        </div>
+      )}
 
       {pages.length === 0 ? (
         <Card>
@@ -258,33 +256,30 @@ const Pages: React.FC = () => {
                       <TableCell>
                         <div className="flex items-center gap-2">
                           {canManagePages ? (
-                            <>
-                              <Button
-                                variant={page.isActive ? "default" : "secondary"}
-                                size="sm"
-                                onClick={() => toggleActive(page)}
-                                className={page.isActive ? "h-6 text-[10px] px-2 bg-green-600 hover:bg-green-700" : "h-6 text-[10px] px-2"}
-                                title={page.isActive ? 'Active' : 'Inactive'}
-                              >
-                                {page.isActive ? 'Active' : 'Inactive'}
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6 text-muted-foreground hover:text-primary"
-                                onClick={() => toggleVisible(page)}
-                                title={page.isVisible ? 'Visible' : 'Hidden'}
-                              >
-                                {page.isVisible ? <FaEye className="h-3 w-3" /> : <FaEyeSlash className="h-3 w-3" />}
-                              </Button>
-                            </>
+                            <Button
+                              variant={page.isActive ? "default" : "secondary"}
+                              size="sm"
+                              onClick={() => toggleActive(page)}
+                              className={page.isActive ? "h-6 text-[10px] px-2 bg-green-600 hover:bg-green-700" : "h-6 text-[10px] px-2"}
+                              title={page.isActive ? 'Live on the shop. Click to make it a draft.' : 'A draft, not on the shop. Click to make it live.'}
+                            >
+                              {page.isActive ? 'Live' : 'Draft'}
+                            </Button>
                           ) : (
-                            <>
-                              <Badge variant={page.isActive ? "default" : "secondary"} className={page.isActive ? "h-6 text-[10px] px-2 bg-green-600" : "h-6 text-[10px] px-2"}>
-                                {page.isActive ? 'Active' : 'Inactive'}
-                              </Badge>
-                              {page.isVisible ? <FaEye className="h-3 w-3 text-muted-foreground" /> : <FaEyeSlash className="h-3 w-3 text-muted-foreground" />}
-                            </>
+                            <Badge variant={page.isActive ? "default" : "secondary"} className={page.isActive ? "h-6 text-[10px] px-2 bg-green-600" : "h-6 text-[10px] px-2"}>
+                              {page.isActive ? 'Live' : 'Draft'}
+                            </Badge>
+                          )}
+                          {page.isActive && siteUrl && page.slug && (
+                            <a
+                              href={page.slug === 'home' || page.pageType === 'homepage' ? siteUrl : (cmsPageUrl(siteUrl, page.slug) || siteUrl)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="h-6 w-6 inline-flex items-center justify-center text-muted-foreground hover:text-primary"
+                              title="Open on the shop"
+                            >
+                              <FaEye className="h-3 w-3" />
+                            </a>
                           )}
                         </div>
                       </TableCell>

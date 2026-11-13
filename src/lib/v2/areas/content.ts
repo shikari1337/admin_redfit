@@ -6,28 +6,102 @@
  * all three). `reply: wrapData` puts the answer back in the `{data, total}` wrapper the caller reads (the old route
  * answered without `success`); a `gap` row is a NAMED refusal (docs/PORT_NOTES/ADMIN-V2-2.md, "gaps").
  */
-import type { V2Route } from '../routes';
+import type { V2Ctx, V2Route } from '../routes';
 import { v2call, mapList } from '../http';
-import { wrapData } from '../shape';
+import { shapeObject, wrapData } from '../shape';
+import type { Spec } from '../shape';
+
+const isObj = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v);
+
+const PAGE_BS: { [k: string]: Spec } = {'custom_css':'s','custom_html':'s','is_active':'b','published_at':'s','sections':['j'],'seo':'j','slug':'s','template_id':'s','title':'s','type':'s'};
+/** The screen's own field (the edit) and the v2 field it is. */
+const PAGE_EDITS: Array<[string, string]> = [['contentBlocks', 'sections'], ['pageType', 'type'], ['isActive', 'is_active'], ['customHtml', 'custom_html'], ['customCss', 'custom_css'], ['publishedAt', 'published_at']];
+
+/**
+ * PageForm, PageBuilder and the Pages list edit `contentBlocks`, `pageType` and `isActive` on top of the record they
+ * loaded, which also carries `sections`, `type` and `is_active`. The generic shaper lets the snake key win, so every
+ * block edit, the builder's canvas and the status toggle were dropped. Here the screen's field is the edit and
+ * replaces the loaded one; the rest goes through the generic shaper (PageBody, commerce api/catalog_mgmt/pages_admin.rs).
+ */
+function pageBody(c: V2Ctx): Record<string, unknown> {
+  const src: Record<string, unknown> = { ...(isObj(c.body) ? c.body : {}) };
+  for (const [screen, field] of PAGE_EDITS) {
+    if (src[screen] !== undefined) { src[field] = src[screen]; delete src[screen]; }
+  }
+  return shapeObject(src, PAGE_BS);
+}
+
+const BANNER_BS: { [k: string]: Spec } = {'display_order':'i','image_url':'j','is_active':'b','link_url':'j','metadata':'j','mobile_image_url':'j','position':'j','subtitle':'j','title':'j','valid_from':'j','valid_until':'j'};
+
+/**
+ * Appearance > Banners edits a banner GROUP {name, slug, type, displayLocation, isActive, displayOrder, validFrom,
+ * validUntil, items}. The v2 banner is one row (commerce resources/catalog_mgmt.rs BANNERS): the slot is `position`
+ * and the group rides in `metadata`, whose `items` the storefront hero shows as slides (storefront
+ * lib/v2/routes/catalogue.ts groupBanners). The first slide also fills the row's own image, link and texts so a
+ * reader of the flat row still has a banner. A partial edit (the Activate toggle) writes only what it names.
+ */
+function bannerBody(c: V2Ctx): Record<string, unknown> {
+  const b: Record<string, any> = isObj(c.body) ? c.body : {};
+  const out: Record<string, unknown> = {};
+  if (b.displayLocation !== undefined || b.position !== undefined) out.position = b.displayLocation ?? b.position;
+  if (b.isActive !== undefined || b.is_active !== undefined) out.is_active = b.isActive ?? b.is_active;
+  if (b.displayOrder !== undefined || b.display_order !== undefined) out.display_order = b.displayOrder ?? b.display_order;
+  if (b.validFrom !== undefined) out.valid_from = b.validFrom || null;
+  if (b.validUntil !== undefined) out.valid_until = b.validUntil || null;
+  if (Array.isArray(b.items) || b.name !== undefined) {
+    const items = (Array.isArray(b.items) ? b.items : []).map((it: any, i: number) => ({
+      title: it?.title ?? '', subtitle: it?.subtitle ?? '', imageUrl: it?.imageUrl ?? '',
+      mobileImageUrl: it?.mobileImageUrl ?? '', targetUrl: it?.targetUrl ?? '', displayOrder: i,
+    }));
+    const first = items[0];
+    out.title = first?.title || null;
+    out.subtitle = first?.subtitle || null;
+    out.image_url = first?.imageUrl || null;
+    out.mobile_image_url = first?.mobileImageUrl || null;
+    out.link_url = first?.targetUrl || null;
+    out.metadata = { ...(isObj(b.metadata) ? b.metadata : {}), name: b.name ?? '', slug: b.slug ?? '', type: b.type ?? 'carousel', items };
+  }
+  return shapeObject(out, BANNER_BS);
+}
+
+/** A v2 banner row as the group the Banners screen edits (the reverse of bannerBody; a row saved flat is one slide). */
+function bannerGroup(b: any): any {
+  const meta = isObj(b?.metadata) ? b.metadata : {};
+  const items = Array.isArray(meta.items) ? meta.items
+    : b?.image_url ? [{ title: b.title ?? '', subtitle: b.subtitle ?? '', imageUrl: b.image_url, mobileImageUrl: b.mobile_image_url ?? '', targetUrl: b.link_url ?? '' }]
+    : [];
+  return {
+    ...b,
+    name: meta.name || b?.title || '',
+    slug: meta.slug ?? '',
+    type: meta.type ?? 'carousel',
+    displayLocation: b?.position || 'home_top',
+    displayOrder: b?.display_order ?? 0,
+    isActive: b?.is_active !== false,
+    validFrom: b?.valid_from ?? null,
+    validUntil: b?.valid_until ?? null,
+    items,
+  };
+}
 
 export const CONTENT_ROUTES: V2Route[] = [
-  { m: 'GET', from: '/banners', row: 'commerce banners.ts:27', to: '/api/v2/commerce/banners', qs: ['limit','offset','page','sort','q','position','is_active'], reply: (d) => (Array.isArray(d) ? mapList(d, (b: any) => ({ ...b, displayLocation: b.displayLocation ?? b.display_location ?? b.position })) : d) }, // banners resource keeps the slot in `position` (commerce resources/catalog_mgmt.rs:671; Node banners.ts:53 stored display_location there); AppearanceBanners groups by displayLocation
-  { m: 'POST', from: '/banners', row: 'commerce banners.ts:50', to: '/api/v2/commerce/banners', bs: {'display_order':'i','image_url':'j','is_active':'b','link_url':'j','metadata':'j','mobile_image_url':'j','position':'j','subtitle':'j','title':'j','valid_from':'j','valid_until':'j'} },
-  { m: 'GET', from: '/banners/:id', row: 'commerce banners.ts:42', to: '/api/v2/commerce/public/banners/{id}' },
-  { m: 'PUT', from: '/banners/:id', row: 'commerce banners.ts:66', method: 'PATCH', to: '/api/v2/commerce/banners/{id}', bs: {'display_order':'i','image_url':'j','is_active':'b','link_url':'j','metadata':'j','mobile_image_url':'j','position':'j','subtitle':'j','title':'j','valid_from':'j','valid_until':'j'} },
+  { m: 'GET', from: '/banners', row: 'commerce banners.ts:27', to: '/api/v2/commerce/banners', query: () => ({ limit: 200 }), reply: (d) => (Array.isArray(d) ? mapList(d, bannerGroup) : d) }, // the staff list (inactive and scheduled banners too); `metadata` is listed (catalog_mgmt.rs BANNERS) so each row carries its slides
+  { m: 'POST', from: '/banners', row: 'commerce banners.ts:50', to: '/api/v2/commerce/banners', body: bannerBody, reply: (d) => (isObj(d) ? bannerGroup(d) : d) },
+  { m: 'GET', from: '/banners/:id', row: 'commerce banners.ts:42', to: '/api/v2/commerce/public/banners/{id}', reply: (d) => (isObj(d) ? bannerGroup(d) : d) },
+  { m: 'PUT', from: '/banners/:id', row: 'commerce banners.ts:66', method: 'PATCH', to: '/api/v2/commerce/banners/{id}', body: bannerBody, reply: (d) => (isObj(d) ? bannerGroup(d) : d) },
   { m: 'DELETE', from: '/banners/:id', row: 'commerce banners.ts:74', to: '/api/v2/commerce/banners/{id}' },
   { m: 'POST', from: '/blog-posts', row: 'commerce blogPosts.ts:93', to: '/api/v2/commerce/blog-posts', bs: {'author_name':'s','content':'s','cover_image':'s','excerpt':'s','published_at':'s','read_time_min':'i','seo':'j','slug':'s','status':'s','tags':['s'],'title':'s'} },
   { m: 'GET', from: '/blog-posts', row: 'commerce blogPosts.ts:16 (staff list)', to: '/api/v2/commerce/blog-posts', qs: ['limit','offset','search','status'], reply: wrapData }, // the staff list (drafts, status, view_count: commerce api/catalog_mgmt/blog_posts.rs:67), not /public (published only, no status); Blogs reads {data, total} for its pager
   { m: 'GET', from: '/blog-posts/:id', row: 'commerce blogPosts.ts:81', to: '/api/v2/commerce/blog-posts/{id}' },
   { m: 'PUT', from: '/blog-posts/:id', row: 'commerce blogPosts.ts:113', method: 'PATCH', to: '/api/v2/commerce/blog-posts/{id}', bs: {'author_name':'s','content':'s','cover_image':'s','excerpt':'s','published_at':'s','read_time_min':'i','seo':'j','slug':'s','status':'s','tags':['s'],'title':'s'} },
   { m: 'DELETE', from: '/blog-posts/:id', row: 'commerce blogPosts.ts:152', method: 'POST', to: '/api/v2/commerce/blog-posts/{id}/remove', bs: 'j' },
-  { m: 'GET', from: '/menus', row: 'commerce menus.ts:145', to: '/api/v2/commerce/public/menus' },
+  { m: 'GET', from: '/menus', row: 'commerce menus.ts:145 (staff list)', to: '/api/v2/commerce/menus', query: () => ({ limit: 200 }) }, // the staff Menu resource as stored: inactive menus too, no live brands written into the "Brands" item and no generated default (the public list does all three, and the editor saved them back); `items` is listed (catalog_mgmt.rs MENUS)
   { m: 'POST', from: '/menus', row: 'commerce menus.ts:183', to: '/api/v2/commerce/menus', bs: {'is_active':'b','items':'j','location':'j','name':'s','slug':'s'} },
   { m: 'PUT', from: '/menus/:id', row: 'commerce menus.ts:198', method: 'PATCH', to: '/api/v2/commerce/menus/{id}', bs: {'is_active':'b','items':'j','location':'j','name':'s','slug':'s'} },
   { m: 'DELETE', from: '/menus/:id', row: 'commerce menus.ts:206', to: '/api/v2/commerce/menus/{id}' },
   { m: 'GET', from: '/menus/location/:location', row: 'commerce menus.ts:166', to: '/api/v2/commerce/public/menus/location/{location}' },
-  { m: 'POST', from: '/pages', row: 'commerce pages.ts:252', to: '/api/v2/commerce/pages', bs: {'custom_css':'s','custom_html':'s','is_active':'b','published_at':'s','sections':['j'],'seo':'j','slug':'s','template_id':'s','title':'s','type':'s'} },
-  { m: 'PUT', from: '/pages/:id', row: 'commerce pages.ts:259', method: 'PATCH', to: '/api/v2/commerce/pages/{id}', bs: {'custom_css':'s','custom_html':'s','is_active':'b','published_at':'s','sections':['j'],'seo':'j','slug':'s','template_id':'s','title':'s','type':'s'} },
+  { m: 'POST', from: '/pages', row: 'commerce pages.ts:252', to: '/api/v2/commerce/pages', body: pageBody },
+  { m: 'PUT', from: '/pages/:id', row: 'commerce pages.ts:259', method: 'PATCH', to: '/api/v2/commerce/pages/{id}', body: pageBody },
   { m: 'DELETE', from: '/pages/:id', row: 'commerce pages.ts:275', method: 'POST', to: '/api/v2/commerce/pages/{id}/remove', bs: 'j' },
   { m: 'GET', from: '/pages/admin/:id', row: 'commerce pages.ts:76', to: '/api/v2/commerce/pages/{id}' },
   { m: 'GET', from: '/pages/admin/all', row: 'commerce pages.ts:60', to: '/api/v2/commerce/pages', reply: (d) => (Array.isArray(d) ? mapList(d, (p: any) => ({ ...p, contentBlocks: p.contentBlocks ?? (Array.isArray(p.sections) ? p.sections : []), pageType: p.pageType ?? p.type, isVisible: p.isVisible ?? p.is_active })) : d) }, // PageStaffView {type, sections, is_active, template_id} (commerce views/catalog_admin.rs:474, api/catalog_mgmt/pages_admin.rs:363); Pages.tsx reads Node toAdminPage's pageType/contentBlocks/isVisible

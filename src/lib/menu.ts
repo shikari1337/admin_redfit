@@ -375,7 +375,7 @@ export const MENU: MenuGroup[] = [
         { label: 'Menus', to: '/appearance/menus', perm: 'content.manage', tip: 'The shop’s navigation, drag and drop.' },
         { label: 'Style', to: '/appearance/style', perm: 'content.manage', tip: 'Logo, colours, fonts and the notice popup.' },
         { label: 'Products', to: '/appearance/products', perm: 'content.manage', tip: 'What a product page shows, and in what order.' },
-        { label: 'Trust Badges', to: '/appearance/trust-badges', perm: 'content.manage', tip: 'The reassurance strip under the buy button.' },
+        { label: 'Trust Badges', to: '/appearance/trust-badges', perm: 'content.manage', tip: 'The reassurance badges shown at checkout.' },
       ],
     },
     { label: 'FAQs', to: '/faqs', icon: HelpCircle, perm: 'content.read', tip: 'Answers reused across the shop.' },

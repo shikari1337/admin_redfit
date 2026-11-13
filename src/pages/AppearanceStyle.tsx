@@ -13,7 +13,7 @@ const notify = (message: string) =>
 
 interface FormData {
   general: { websiteUrl: string; siteName: string; siteDescription: string };
-  logo: { logoUrl: string; faviconUrl: string; adminLogoUrl: string };
+  logo: { logoUrl: string; faviconUrl: string };
   colors: {
     primaryColor: string;
     secondaryColor: string;
@@ -22,8 +22,8 @@ interface FormData {
     textColor: string;
     linkColor: string;
   };
+  /** The registry's `fonts` fields (headingFontFamily, bodyFontFamily); there is no single "primary" font field. */
   fonts: {
-    fontFamily: string;
     headingFontFamily: string;
     bodyFontFamily: string;
   };
@@ -35,7 +35,7 @@ interface FormData {
 
 const DEFAULT_FORM_DATA: FormData = {
   general: { websiteUrl: '', siteName: '', siteDescription: '' },
-  logo: { logoUrl: '', faviconUrl: '', adminLogoUrl: '' },
+  logo: { logoUrl: '', faviconUrl: '' },
   colors: {
     primaryColor: '#0D9488',
     secondaryColor: '#F59E0B',
@@ -44,7 +44,7 @@ const DEFAULT_FORM_DATA: FormData = {
     textColor: '#111827',
     linkColor: '#0D9488',
   },
-  fonts: { fontFamily: 'Inter', headingFontFamily: '', bodyFontFamily: '' },
+  fonts: { headingFontFamily: '', bodyFontFamily: '' },
   instagram: { username: '', isEnabled: false },
   announcementBar: { text: 'Free Shipping on orders above ₹500', bgColor: '#f9fafb', textColor: '#111827', link: '', isEnabled: true },
   storePopup: DEFAULT_NOTICE_POPUP,
@@ -69,7 +69,6 @@ const AppearanceStyle: React.FC = () => {
       logo: {
         logoUrl: settings.logo?.logoUrl || '',
         faviconUrl: settings.logo?.faviconUrl || '',
-        adminLogoUrl: settings.logo?.adminLogoUrl || '',
       },
       colors: {
         primaryColor: settings.colors?.primaryColor || '#0D9488',
@@ -79,10 +78,10 @@ const AppearanceStyle: React.FC = () => {
         textColor: settings.colors?.textColor || '#111827',
         linkColor: settings.colors?.linkColor || '#0D9488',
       },
+      // An older save kept one `fontFamily`; it becomes the body font so the next save keeps it.
       fonts: {
-        fontFamily: settings.fonts?.fontFamily || 'Inter',
         headingFontFamily: settings.fonts?.headingFontFamily || '',
-        bodyFontFamily: settings.fonts?.bodyFontFamily || '',
+        bodyFontFamily: settings.fonts?.bodyFontFamily || settings.fonts?.fontFamily || '',
       },
       instagram: {
         username: settings.instagram?.username || '',
@@ -148,7 +147,7 @@ const AppearanceStyle: React.FC = () => {
           Back to Appearance
         </button>
         <h1 className="text-3xl font-bold text-gray-900">Style Settings</h1>
-        <p className="text-sm text-gray-600 mt-2">Colors, fonts, logos – everything that defines your storefront look</p>
+        <p className="text-sm text-gray-600 mt-2">Colours, fonts and logos: everything that sets how your shop looks</p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -202,13 +201,12 @@ const AppearanceStyle: React.FC = () => {
             </div>
             <div>
               <h2 className="text-lg font-semibold text-gray-900">Logo & Icons</h2>
-              <p className="text-sm text-gray-600">Logo, favicon, admin logo</p>
+              <p className="text-sm text-gray-600">Logo and favicon</p>
             </div>
           </div>
           <div className="space-y-4">
             <ImageInputWithActions value={formData.logo.logoUrl} onChange={(url) => handleChange('logo', 'logoUrl', url)} label="Main Logo" placeholder="https://..." spec="store.logo" folder="branding" entity="store" />
             <ImageInputWithActions value={formData.logo.faviconUrl} onChange={(url) => handleChange('logo', 'faviconUrl', url)} label="Favicon" placeholder="https://..." spec="store.favicon" folder="branding" entity="store" referenceImages={formData.logo.logoUrl ? [formData.logo.logoUrl] : undefined} />
-            <ImageInputWithActions value={formData.logo.adminLogoUrl} onChange={(url) => handleChange('logo', 'adminLogoUrl', url)} label="Admin Logo" placeholder="https://..." spec="store.admin_logo" folder="branding" entity="store" referenceImages={formData.logo.logoUrl ? [formData.logo.logoUrl] : undefined} />
           </div>
         </div>
 
@@ -242,21 +240,20 @@ const AppearanceStyle: React.FC = () => {
             </div>
             <div>
               <h2 className="text-lg font-semibold text-gray-900">Fonts</h2>
-              <p className="text-sm text-gray-600">Primary, heading, body fonts</p>
+              <p className="text-sm text-gray-600">Heading and body fonts</p>
             </div>
           </div>
           <div className="space-y-4">
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+              Saved with your store settings. The storefront does not apply these fonts yet; it keeps its own.
+            </p>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Primary Font</label>
-              <input type="text" value={formData.fonts.fontFamily} onChange={(e) => handleChange('fonts', 'fontFamily', e.target.value)} placeholder="Inter, sans-serif" className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500" />
+              <label className="block text-sm font-medium text-gray-700 mb-2">Heading font</label>
+              <input type="text" value={formData.fonts.headingFontFamily} onChange={(e) => handleChange('fonts', 'headingFontFamily', e.target.value)} placeholder="e.g. Poppins" className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Heading Font (optional)</label>
-              <input type="text" value={formData.fonts.headingFontFamily} onChange={(e) => handleChange('fonts', 'headingFontFamily', e.target.value)} placeholder="Same as primary if empty" className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Body Font (optional)</label>
-              <input type="text" value={formData.fonts.bodyFontFamily} onChange={(e) => handleChange('fonts', 'bodyFontFamily', e.target.value)} placeholder="Same as primary if empty" className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500" />
+              <label className="block text-sm font-medium text-gray-700 mb-2">Body font</label>
+              <input type="text" value={formData.fonts.bodyFontFamily} onChange={(e) => handleChange('fonts', 'bodyFontFamily', e.target.value)} placeholder="e.g. Inter" className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500" />
             </div>
           </div>
         </div>

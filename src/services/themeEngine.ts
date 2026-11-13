@@ -1,30 +1,22 @@
-import axios from 'axios';
-import { getTenantApiKey } from './api';
+import { v2call, v2http } from '../lib/v2/http';
 
 /**
- * Client for the Growcord Theme Engine (theme-engine/ service) — theme library,
- * live-preview drafts and publishing for template-mode storefronts.
- * Auth: the store's x-api-key (same tenant key the admin already uses).
+ * Themes on v2: `/api/v2/themes/themes...` (growcord-rs apps/themes; generated client ui/packages/api/src/themes.ts).
+ * The theme library, the customiser's draft, publish, schedule and preview, and the code editor's files, called with
+ * the signed-in staff member's own access (themes.read / manage / publish / code). The old separate theme-engine
+ * service (VITE_THEME_ENGINE_URL, the store key as `x-api-key`) is gone: v2 serves the same library itself.
+ *
+ * The screens keep reading the shapes below; the v2 replies are mapped here, in one place.
  */
-// A deployed admin never falls back to the developer's localhost (a merchant's browser would be
-// sent to its own machine); without VITE_THEME_ENGINE_URL the Themes screen says themes are off.
-const IS_LOCAL_DEV = typeof window !== 'undefined' && /^(localhost|127\.0\.0\.1)$/.test(window.location.hostname);
-export const THEME_ENGINE_CONFIGURED = !!import.meta.env.VITE_THEME_ENGINE_URL || IS_LOCAL_DEV;
-const THEME_ENGINE_URL = (import.meta.env.VITE_THEME_ENGINE_URL || (IS_LOCAL_DEV ? 'http://localhost:3050' : '')).replace(/\/+$/, '');
-
-const client = axios.create({ baseURL: `${THEME_ENGINE_URL}/api/themes`, timeout: 60000 });
-
-client.interceptors.request.use((config) => {
-  const key = getTenantApiKey();
-  if (key) config.headers['x-api-key'] = key;
-  return config;
-});
+const T = '/api/v2/themes/themes';
 
 export interface ThemeMeta {
   id: string;
   name: string;
   version?: string;
-  source: 'upload' | 'starter';
+  source: 'upload' | 'starter' | string;
+  isLive: boolean;
+  fileCount?: number;
   createdAt: string;
   updatedAt?: string;
 }
@@ -36,6 +28,11 @@ export interface EditorPayload {
   groups: Record<string, any>;
   sectionSchemas: SectionSchema[];
   hasDraft: boolean;
+  /** The newest published version's number. */
+  versionNumber: number;
+  isLive: boolean;
+  /** When the draft is scheduled to publish (an instant), else null. */
+  publishAt: string | null;
 }
 
 export interface SectionSchema {
@@ -47,69 +44,163 @@ export interface SectionSchema {
   presets?: any[];
 }
 
+export interface ThemeVersion {
+  id: string;
+  number: number;
+  kind: string;
+  note: string | null;
+  publishedAt: string;
+}
+
+const themeOf = (t: any): ThemeMeta => ({
+  id: String(t?.id ?? ''),
+  name: t?.name ?? '',
+  version: t?.declared_version ?? undefined,
+  source: t?.source ?? 'upload',
+  isLive: t?.is_live === true,
+  fileCount: typeof t?.file_count === 'number' ? t.file_count : undefined,
+  createdAt: t?.created_at ?? '',
+  updatedAt: t?.updated_at ?? undefined,
+});
+
+const obj = (v: unknown): Record<string, any> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, any>) : {});
+
+/**
+ * The draft revision each open theme was read at. v2 refuses a draft save made over someone else's newer one
+ * (`themes.draft_conflict`) instead of overwriting it; the customiser keeps the revision it last saw here.
+ */
+const revisions = new Map<string, number | null>();
+
 export const themeEngineAPI = {
-  baseUrl: THEME_ENGINE_URL,
-
-  /**
-   * A short-lived, theme-bound ticket for the preview iframe. An iframe cannot send the
-   * `x-api-key` header, and the store key must never ride in a URL (S0-2, 2026-10-03), so the
-   * editor asks for this with the header and puts only the ticket in the iframe address.
-   * Expires in 15 minutes; the editor refreshes it.
-   */
-  previewTicket: async (themeId: string): Promise<{ ticket: string; expiresAt: number; ttlSeconds: number }> => {
-    const res = await client.post(`/${themeId}/preview-ticket`);
-    return res.data.data;
-  },
-
-  /** iframe URL for the live editor preview — carries the preview ticket, never the key. */
-  previewUrl(themeId: string, template: string, ticket: string, handle?: string): string {
-    const params = new URLSearchParams({ template, ticket });
-    if (handle) params.set('handle', handle);
-    return `${THEME_ENGINE_URL}/api/themes/${themeId}/preview?${params.toString()}`;
-  },
-
+  /** The store's themes, the live one marked. */
   list: async (): Promise<{ activeThemeId: string | null; themes: ThemeMeta[] }> => {
-    const res = await client.get('/');
-    return res.data.data;
+    const rows = await v2call<any[]>('GET', T, { params: { limit: 100 } });
+    const themes = (Array.isArray(rows) ? rows : []).map(themeOf);
+    return { activeThemeId: themes.find((t) => t.isLive)?.id ?? null, themes };
   },
 
-  upload: async (file: File, name?: string): Promise<ThemeMeta> => {
+  /** Upload a theme package (.zip). The server checks it; a refusal carries the report's message. */
+  upload: async (file: File): Promise<ThemeMeta> => {
     const fd = new FormData();
     fd.append('theme', file);
-    if (name) fd.append('name', name);
-    const res = await client.post('/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-    return res.data.data;
+    const res = await v2call<any>('POST', `${T}/upload`, { data: fd });
+    return themeOf(res?.theme ?? res);
   },
 
-  activate: async (id: string): Promise<void> => { await client.post(`/${id}/activate`); },
-  remove: async (id: string): Promise<void> => { await client.delete(`/${id}`); },
+  /** Give a store with no theme the bundled starter theme. */
+  starter: async (): Promise<ThemeMeta> => {
+    const res = await v2call<any>('POST', `${T}/starter`, { data: {} });
+    return themeOf(res?.theme ?? res);
+  },
+
+  activate: async (id: string): Promise<void> => { await v2call('POST', `${T}/${id}/activate`, { data: {} }); },
+  duplicate: async (id: string, name?: string): Promise<ThemeMeta> => themeOf(await v2call('POST', `${T}/${id}/duplicate`, { data: name ? { name } : {} })),
+  remove: async (id: string): Promise<void> => { await v2call('DELETE', `${T}/${id}`); },
 
   getEditor: async (id: string): Promise<EditorPayload> => {
-    const res = await client.get(`/${id}/editor`);
-    return res.data.data;
+    const e = await v2call<any>('GET', `${T}/${id}/editor`);
+    revisions.set(id, typeof e?.draft?.revision === 'number' ? e.draft.revision : null);
+    return {
+      settingsSchema: Array.isArray(e?.settings_schema) ? e.settings_schema : [],
+      settingsData: obj(e?.settings_data),
+      templates: obj(e?.templates),
+      groups: obj(e?.groups),
+      sectionSchemas: Array.isArray(e?.section_schemas) ? e.section_schemas : [],
+      hasDraft: !!e?.draft,
+      versionNumber: Number(e?.version_number) || 0,
+      isLive: e?.is_live === true,
+      publishAt: e?.draft?.publish_at ?? null,
+    };
   },
 
+  /**
+   * Save the whole edited state as the draft. A v2 save REPLACES the draft (settings, templates and groups over
+   * the newest version), so the full state goes every time, with the revision this editor last saw.
+   */
   saveDraft: async (id: string, draft: { settingsData?: any; templates?: any; groups?: any }): Promise<void> => {
-    await client.put(`/${id}/draft`, draft);
+    const res = await v2call<any>('PUT', `${T}/${id}/draft`, {
+      data: {
+        revision: revisions.get(id) ?? null,
+        settings_data: draft.settingsData ?? null,
+        templates: obj(draft.templates),
+        groups: obj(draft.groups),
+      },
+    });
+    if (typeof res?.revision === 'number') revisions.set(id, res.revision);
   },
 
-  discardDraft: async (id: string): Promise<void> => { await client.delete(`/${id}/draft`); },
+  discardDraft: async (id: string): Promise<void> => {
+    await v2call('DELETE', `${T}/${id}/draft`);
+    revisions.set(id, null);
+  },
 
-  publish: async (id: string, draft?: { settingsData?: any; templates?: any; groups?: any }): Promise<void> => {
-    await client.post(`/${id}/publish`, draft ?? {});
+  /** Publish the saved draft as a new version (save it first). */
+  publish: async (id: string, note?: string): Promise<void> => {
+    await v2call('POST', `${T}/${id}/publish`, { data: note ? { note } : {} });
+    revisions.set(id, null);
+  },
+
+  /** Publish the saved draft later, at `publishAt` (an RFC 3339 instant). */
+  schedule: async (id: string, publishAt: string, note?: string): Promise<void> => {
+    const res = await v2call<any>('POST', `${T}/${id}/schedule`, { data: { publish_at: publishAt, ...(note ? { note } : {}) } });
+    if (typeof res?.revision === 'number') revisions.set(id, res.revision);
+  },
+
+  cancelSchedule: async (id: string): Promise<void> => {
+    const res = await v2call<any>('DELETE', `${T}/${id}/schedule`);
+    if (typeof res?.revision === 'number') revisions.set(id, res.revision);
+  },
+
+  /** The theme's published versions, newest first. */
+  versions: async (id: string): Promise<ThemeVersion[]> => {
+    const rows = await v2call<any[]>('GET', '/api/v2/themes/versions', { params: { theme_id: id, sort: '-number', limit: 50 } });
+    return (Array.isArray(rows) ? rows : []).map((v) => ({
+      id: String(v?.id ?? ''), number: Number(v?.number) || 0, kind: v?.kind ?? '', note: v?.note ?? null, publishedAt: v?.published_at ?? '',
+    }));
+  },
+
+  /** Restore an older version as a new version. */
+  rollback: async (id: string, versionId: string, note?: string): Promise<void> => {
+    await v2call('POST', `${T}/${id}/rollback`, { data: { version_id: versionId, ...(note ? { note } : {}) } });
+    revisions.set(id, null);
+  },
+
+  /**
+   * The draft rendered for the customiser's frame: a whole HTML document (its assets addressed through a
+   * short-lived ticket in their path), shown with `srcdoc` in a sandboxed frame. Asked with the staff
+   * member's own access, so no store key or ticket ever rides in a frame address.
+   */
+  previewHtml: async (id: string, template: string, handle?: string): Promise<string> => {
+    try {
+      const res = await v2http.request({
+        method: 'POST',
+        url: `${T}/${id}/preview`,
+        data: { template, ...(handle ? { handle } : {}) },
+        responseType: 'text',
+        headers: { accept: 'text/html' },
+      });
+      return typeof res.data === 'string' ? res.data : '';
+    } catch (e: any) {
+      // Asked as text, a refusal arrives as its JSON text: read it so callers find `response.data.message`.
+      const raw = e?.response?.data;
+      if (typeof raw === 'string') {
+        try { e.response.data = JSON.parse(raw); } catch { e.response.data = { message: raw.slice(0, 200) }; }
+      }
+      throw e;
+    }
   },
 
   listFiles: async (id: string): Promise<string[]> => {
-    const res = await client.get(`/${id}/files`);
-    return res.data.data;
+    const rows = await v2call<any[]>('GET', `${T}/${id}/files`);
+    return (Array.isArray(rows) ? rows : []).map((f) => String(f?.path ?? '')).filter(Boolean);
   },
 
   readFile: async (id: string, path: string): Promise<string> => {
-    const res = await client.get(`/${id}/file`, { params: { path } });
-    return res.data.data.content;
+    const res = await v2call<any>('GET', `${T}/${id}/files/content`, { params: { path } });
+    return res?.content ?? '';
   },
 
   writeFile: async (id: string, path: string, content: string): Promise<void> => {
-    await client.put(`/${id}/file`, { path, content });
+    await v2call('PUT', `${T}/${id}/files/content`, { data: { path, content } });
   },
 };

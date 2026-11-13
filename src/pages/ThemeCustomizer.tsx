@@ -5,6 +5,7 @@ import {
   Loader2, Monitor, Plus, Settings2, Smartphone, Tablet, Trash2, X, LayoutTemplate,
 } from 'lucide-react';
 import { themeEngineAPI, EditorPayload, SectionSchema } from '../services/themeEngine';
+import { formatDateTime, fromStoreDateTimeInput } from '../utils/date';
 
 /**
  * Theme Customizer — Shopify-style live editor.
@@ -60,6 +61,10 @@ export default function ThemeCustomizer() {
   const [iframeRev, setIframeRev] = useState(0);
   const [saving, setSaving] = useState(false);
   const [addPicker, setAddPicker] = useState<string | null>(null); // scope to add into
+  // Why the last draft save was refused (a check report, or someone else's newer draft); shown in the top bar.
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleAt, setScheduleAt] = useState('');
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const sectionSchemaByType = useMemo(() => {
@@ -91,29 +96,20 @@ export default function ThemeCustomizer() {
       .catch((e) => setLoadError(e?.response?.data?.message || e?.message || 'Failed to load editor'));
   }, [themeId, adoptState]);
 
-  // ── Preview ticket ──────────────────────────────────────────────────────
-  // The iframe cannot send the x-api-key header and the key must never ride in
-  // its URL, so the engine mints a 15-minute ticket bound to this theme; it is
-  // refreshed well before it expires so a long editing session never goes blank.
-  const [previewTicket, setPreviewTicket] = useState<string | null>(null);
+  // ── Preview ─────────────────────────────────────────────────────────────
+  // v2 renders the saved draft for the frame (POST /themes/{id}/preview) with the staff member's own access,
+  // so no key or ticket rides in a frame address; the document goes in through srcdoc and runs sandboxed
+  // (scripts only: the editor bridge posts section clicks back here).
+  const [previewDoc, setPreviewDoc] = useState('');
+  const [previewError, setPreviewError] = useState<string | null>(null);
   useEffect(() => {
     if (!themeId) return;
     let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const refresh = async () => {
-      try {
-        const t = await themeEngineAPI.previewTicket(themeId);
-        if (cancelled) return;
-        setPreviewTicket(t.ticket);
-        const inMs = Math.max(30_000, (t.ttlSeconds * 1000) * 2 / 3);
-        timer = setTimeout(refresh, inMs);
-      } catch {
-        if (!cancelled) timer = setTimeout(refresh, 15_000);
-      }
-    };
-    refresh();
-    return () => { cancelled = true; clearTimeout(timer); };
-  }, [themeId]);
+    themeEngineAPI.previewHtml(themeId, currentTemplate)
+      .then((html) => { if (!cancelled) { setPreviewDoc(html); setPreviewError(null); } })
+      .catch((e) => { if (!cancelled) setPreviewError(e?.response?.data?.message || 'The preview could not be shown.'); });
+    return () => { cancelled = true; };
+  }, [themeId, currentTemplate, iframeRev]);
 
   // ── Draft sync (debounced) → reload preview ─────────────────────────────
   const syncTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -123,8 +119,11 @@ export default function ThemeCustomizer() {
     syncTimer.current = setTimeout(async () => {
       try {
         await themeEngineAPI.saveDraft(themeId, { settingsData: s, templates: t, groups: g });
+        setDraftError(null);
         setIframeRev((r) => r + 1);
-      } catch { /* preview just stays stale */ }
+      } catch (e: any) {
+        setDraftError(e?.response?.data?.message || 'The draft could not be saved.');
+      }
     }, 400);
   }, [themeId]);
 
@@ -288,16 +287,47 @@ export default function ThemeCustomizer() {
       await themeEngineAPI.saveDraft(themeId, { settingsData, templates, groups });
       await themeEngineAPI.publish(themeId);
       setDirty(false);
+      setDraftError(null);
+      setPayload((p) => (p ? { ...p, hasDraft: false, publishAt: null } : p));
       setIframeRev((r) => r + 1);
     } catch (e: any) {
-      alert(e?.response?.data?.message || 'Failed to save');
+      setDraftError(e?.response?.data?.message || 'The changes could not be published.');
     } finally { setSaving(false); }
+  };
+
+  // Publish later: the draft is saved, then scheduled; v2 publishes it at that time.
+  const onSchedule = async () => {
+    if (!themeId) return;
+    const at = fromStoreDateTimeInput(scheduleAt);
+    if (!at || Date.parse(at) <= Date.now()) { setDraftError('Pick a time in the future to publish.'); return; }
+    setSaving(true);
+    try {
+      clearTimeout(syncTimer.current);
+      await themeEngineAPI.saveDraft(themeId, { settingsData, templates, groups });
+      await themeEngineAPI.schedule(themeId, at);
+      setPayload((p) => (p ? { ...p, hasDraft: true, publishAt: at } : p));
+      setDraftError(null);
+      setScheduleOpen(false);
+    } catch (e: any) {
+      setDraftError(e?.response?.data?.message || 'The publish could not be scheduled.');
+    } finally { setSaving(false); }
+  };
+
+  const onCancelSchedule = async () => {
+    if (!themeId) return;
+    try {
+      await themeEngineAPI.cancelSchedule(themeId);
+      setPayload((p) => (p ? { ...p, publishAt: null } : p));
+    } catch (e: any) {
+      setDraftError(e?.response?.data?.message || 'The schedule could not be cancelled.');
+    }
   };
 
   const onDiscard = async () => {
     if (!themeId || !payload) return;
     if (dirty && !window.confirm('Discard all unsaved changes?')) return;
     await themeEngineAPI.discardDraft(themeId).catch(() => {});
+    setDraftError(null);
     const data = await themeEngineAPI.getEditor(themeId);
     setPayload(data);
     adoptState(data.settingsData, data.templates, data.groups);
@@ -326,9 +356,6 @@ export default function ThemeCustomizer() {
   const groupNames = Object.keys(groups);
   const headerGroups = groupNames.filter((g) => /header/i.test(g));
   const footerGroups = groupNames.filter((g) => /footer/i.test(g));
-  const previewUrl = previewTicket
-    ? `${themeEngineAPI.previewUrl(themeId, currentTemplate, previewTicket)}&rev=${iframeRev}`
-    : 'about:blank';
 
   return (
     <div className="h-screen flex flex-col bg-gray-100 overflow-hidden">
@@ -357,11 +384,36 @@ export default function ThemeCustomizer() {
           })}
         </div>
         <div className="flex items-center gap-2 pl-2 border-l border-gray-200">
-          {dirty && <span className="text-[11px] font-semibold text-amber-600 hidden sm:inline">Unsaved changes</span>}
+          {draftError && <span className="text-[11px] font-semibold text-red-600 max-w-[280px] truncate" title={draftError}>{draftError}</span>}
+          {!draftError && dirty && <span className="text-[11px] font-semibold text-amber-600 hidden sm:inline">Not published yet</span>}
+          {payload.publishAt && (
+            <span className="text-[11px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-full px-2 py-0.5 hidden md:inline-flex items-center gap-1.5">
+              Publishes {formatDateTime(payload.publishAt)}
+              <button onClick={onCancelSchedule} className="underline">Cancel</button>
+            </span>
+          )}
           <button onClick={onDiscard} className="px-3 py-2 text-[13px] font-semibold text-gray-600 hover:bg-gray-100 rounded-lg">Discard</button>
+          <div className="relative">
+            <button onClick={() => setScheduleOpen((o) => !o)} disabled={saving}
+              className="px-3 py-2 text-[13px] font-semibold text-gray-700 border border-gray-300 hover:bg-gray-50 rounded-lg disabled:opacity-60">
+              Schedule
+            </button>
+            {scheduleOpen && (
+              <div className="absolute right-0 top-full mt-2 z-40 w-64 bg-white border border-gray-200 rounded-xl shadow-lg p-3">
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Publish these changes at (store time)</label>
+                <input type="datetime-local" value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm" />
+                <div className="flex justify-end gap-2 mt-3">
+                  <button onClick={() => setScheduleOpen(false)} className="px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-lg">Close</button>
+                  <button onClick={onSchedule} disabled={saving || !scheduleAt}
+                    className="px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg disabled:opacity-60">Schedule</button>
+                </div>
+              </div>
+            )}
+          </div>
           <button onClick={onPublish} disabled={saving}
             className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white rounded-lg text-[13px] font-bold hover:bg-indigo-700 disabled:opacity-60">
-            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Save
+            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Publish
           </button>
         </div>
       </div>
@@ -400,8 +452,8 @@ export default function ThemeCustomizer() {
               ))}
               <SectionTreeGroup label="Template" scope={templateScope} container={templateContainer}
                 schemaByType={sectionSchemaByType}
-                emptyNote={templates[currentTemplate]?.__liquid
-                  ? 'This template is a .liquid file — edit it in the code editor.'
+                emptyNote={!templates[currentTemplate]
+                  ? 'This page is laid out by a .liquid file, not sections. Change it in the theme code.'
                   : 'No sections yet.'}
                 onSelect={(sid) => { setSel({ kind: 'section', scope: templateScope, sectionId: sid }); scrollPreviewTo(sid); }}
                 onMove={moveSection} onToggle={toggleSection} onRemove={removeSection}
@@ -428,14 +480,22 @@ export default function ThemeCustomizer() {
 
         {/* ── Preview ── */}
         <div className="flex-1 min-w-0 grid place-items-center p-4 overflow-auto">
-          <iframe
-            ref={iframeRef}
-            key={`${currentTemplate}`}
-            src={previewUrl}
-            title="Theme preview"
-            className="bg-white rounded-xl shadow-lg border border-gray-200 h-full"
-            style={{ width: DEVICE_WIDTHS[device], maxWidth: '100%', transition: 'width .2s' }}
-          />
+          {previewError ? (
+            <div className="bg-white rounded-xl border border-red-200 text-red-700 text-sm px-5 py-4 max-w-md text-center">
+              <p className="font-semibold m-0">{previewError}</p>
+              <button onClick={() => setIframeRev((r) => r + 1)} className="mt-2 text-xs font-semibold underline">Try again</button>
+            </div>
+          ) : (
+            <iframe
+              ref={iframeRef}
+              key={`${currentTemplate}`}
+              srcDoc={previewDoc}
+              sandbox="allow-scripts"
+              title="Theme preview"
+              className="bg-white rounded-xl shadow-lg border border-gray-200 h-full"
+              style={{ width: DEVICE_WIDTHS[device], maxWidth: '100%', transition: 'width .2s' }}
+            />
+          )}
         </div>
       </div>
 

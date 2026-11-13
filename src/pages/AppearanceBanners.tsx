@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { FaPlus, FaTrash, FaEdit, FaChevronUp, FaChevronDown, FaImage, FaTimes, FaArrowUp, FaArrowDown } from 'react-icons/fa';
 import { bannersAPI } from '../services/api';
 import ImageInputWithActions from '../components/common/ImageInputWithActions';
+import { formatDateTime, fromStoreDateTimeInput, storeDateTimeInput } from '../utils/date';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -26,17 +27,42 @@ interface Banner {
   displayLocation: DisplayLocation;
   isActive: boolean;
   displayOrder: number;
+  /** The schedule (instants); the shop shows the banner only inside it. Empty = no limit. */
+  validFrom?: string | null;
+  validUntil?: string | null;
   items: BannerItem[];
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const LOCATION_LABELS: Record<DisplayLocation, string> = {
-  home_top: 'Home — Top',
-  home_middle: 'Home — Middle',
-  home_bottom: 'Home — Bottom',
-  category_top: 'Category — Top',
-  search_top: 'Search — Top',
+  home_top: 'Home, top',
+  home_middle: 'Home, middle',
+  home_bottom: 'Home, bottom',
+  category_top: 'Category, top',
+  search_top: 'Search, top',
+};
+
+/** A slot's label; a slot a page block names that is not one of the defaults shows as stored. */
+const locationLabel = (loc: string) => (LOCATION_LABELS as Record<string, string>)[loc] || loc;
+
+/** Where a banner stands against its schedule now (the instants are absolute, so the browser clock compares them). */
+function scheduleState(b: Pick<Banner, 'isActive' | 'validFrom' | 'validUntil'>): { label: string; tone: 'live' | 'off' | 'wait' | 'ended' } {
+  if (!b.isActive) return { label: 'Inactive', tone: 'off' };
+  const now = Date.now();
+  const from = b.validFrom ? Date.parse(b.validFrom) : NaN;
+  const until = b.validUntil ? Date.parse(b.validUntil) : NaN;
+  if (Number.isFinite(until) && until <= now) return { label: `Ended ${formatDateTime(b.validUntil)}`, tone: 'ended' };
+  if (Number.isFinite(from) && from > now) return { label: `Starts ${formatDateTime(b.validFrom)}`, tone: 'wait' };
+  if (Number.isFinite(until)) return { label: `Live until ${formatDateTime(b.validUntil)}`, tone: 'live' };
+  return { label: 'Live', tone: 'live' };
+}
+
+const TONE_CLASS: Record<string, string> = {
+  live: 'bg-green-100 text-green-700',
+  off: 'bg-gray-200 text-gray-500',
+  wait: 'bg-blue-100 text-blue-700',
+  ended: 'bg-amber-100 text-amber-800',
 };
 
 const TYPE_LABELS: Record<BannerType, string> = {
@@ -57,6 +83,8 @@ const EMPTY_BANNER: Omit<Banner, '_id'> = {
   displayLocation: 'home_top',
   isActive: true,
   displayOrder: 0,
+  validFrom: null,
+  validUntil: null,
   items: [],
 };
 
@@ -144,7 +172,7 @@ function ItemEditor({
       {/* Item body */}
       {expanded && (
         <div className="px-4 pb-4 border-t border-gray-100 pt-4 grid grid-cols-1 gap-4">
-          {/* Desktop + mobile images — the shared field: Upload · Library · AI · URL, sized for the hero slot. */}
+          {/* Desktop and mobile images: the shared field (upload, library, AI, URL), sized for the hero slot. */}
           <ImageInputWithActions
             label="Desktop image" spec="home.hero" folder="banners" entity="store"
             local={{ heading: item.title, subtitle: item.subtitle }}
@@ -252,6 +280,10 @@ function BannerModal({
 
   async function handleSave() {
     if (!form.name.trim()) { setError('Banner name is required'); return; }
+    if (form.validFrom && form.validUntil && Date.parse(form.validUntil) <= Date.parse(form.validFrom)) {
+      setError('The end of the schedule must be after its start');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -310,8 +342,8 @@ function BannerModal({
                 onChange={(e) => setField('displayLocation', e.target.value)}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
               >
-                {ALL_LOCATIONS.map((l) => (
-                  <option key={l} value={l}>{LOCATION_LABELS[l]}</option>
+                {(ALL_LOCATIONS as string[]).concat(ALL_LOCATIONS.includes(form.displayLocation) ? [] : [form.displayLocation]).map((l) => (
+                  <option key={l} value={l}>{locationLabel(l)}</option>
                 ))}
               </select>
             </div>
@@ -342,6 +374,29 @@ function BannerModal({
             </div>
           </div>
 
+          {/* Schedule (store time) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Show from</label>
+              <input
+                type="datetime-local"
+                value={storeDateTimeInput(form.validFrom)}
+                onChange={(e) => setField('validFrom', fromStoreDateTimeInput(e.target.value))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Show until</label>
+              <input
+                type="datetime-local"
+                value={storeDateTimeInput(form.validUntil)}
+                onChange={(e) => setField('validUntil', fromStoreDateTimeInput(e.target.value))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+              />
+            </div>
+            <p className="sm:col-span-2 text-[11px] text-gray-500 -mt-2">Leave both empty to show the banner whenever it is active. Times are the store's time.</p>
+          </div>
+
           {/* Slides */}
           <div>
             <div className="flex items-center justify-between mb-3">
@@ -355,7 +410,7 @@ function BannerModal({
             </div>
             {form.items.length === 0 ? (
               <div className="text-center py-8 text-gray-400 text-sm border border-dashed border-gray-200 rounded-lg">
-                No slides yet — click "Add slide" to begin
+                No slides yet. Click "Add slide" to begin.
               </div>
             ) : (
               <div className="space-y-2">
@@ -415,6 +470,7 @@ function BannerCard({
   onToggle: () => void;
 }) {
   const previewImage = banner.items?.[0]?.imageUrl;
+  const state = scheduleState(banner);
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl overflow-hidden flex flex-col">
@@ -429,8 +485,8 @@ function BannerCard({
           </div>
         )}
         <div className="absolute top-2 right-2">
-          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${banner.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-500'}`}>
-            {banner.isActive ? 'Active' : 'Inactive'}
+          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${TONE_CLASS[state.tone]}`}>
+            {state.label}
           </span>
         </div>
         {banner.items.length > 1 && (
@@ -444,7 +500,7 @@ function BannerCard({
       <div className="px-4 py-3 flex-1">
         <p className="font-medium text-sm text-gray-900 truncate">{banner.name}</p>
         <p className="text-xs text-gray-500 mt-0.5">
-          {TYPE_LABELS[banner.type]} · {LOCATION_LABELS[banner.displayLocation]}
+          {TYPE_LABELS[banner.type] || banner.type}, {locationLabel(banner.displayLocation)}
         </p>
       </div>
 
@@ -486,14 +542,17 @@ export default function AppearanceBanners() {
   const [modalBanner, setModalBanner] = useState<Partial<Banner> | null | false>(false);
   const [deleteTarget, setDeleteTarget] = useState<Banner | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [pageError, setPageError] = useState('');
 
   async function load() {
     setLoading(true);
     try {
       const data = await bannersAPI.getAll();
       setBanners(Array.isArray(data) ? data : []);
-    } catch (e) {
+      setPageError('');
+    } catch (e: any) {
       console.error('Failed to load banners', e);
+      setPageError(e?.response?.data?.message || 'The banners could not be loaded. Try again in a moment.');
     } finally {
       setLoading(false);
     }
@@ -517,8 +576,10 @@ export default function AppearanceBanners() {
       await bannersAPI.delete(deleteTarget._id);
       setDeleteTarget(null);
       await load();
-    } catch (e) {
+    } catch (e: any) {
       console.error('Delete failed', e);
+      setPageError(e?.response?.data?.message || 'The banner could not be deleted.');
+      setDeleteTarget(null);
     } finally {
       setDeleting(false);
     }
@@ -528,8 +589,9 @@ export default function AppearanceBanners() {
     try {
       await bannersAPI.update(banner._id, { isActive: !banner.isActive });
       await load();
-    } catch (e) {
+    } catch (e: any) {
       console.error('Toggle failed', e);
+      setPageError(e?.response?.data?.message || 'The banner could not be switched.');
     }
   }
 
@@ -538,6 +600,11 @@ export default function AppearanceBanners() {
     : banners.filter((b) => b.displayLocation === filterLocation);
 
   const showGrouped = filterLocation === 'all';
+  // The default slots, then any other slot a banner was saved in (a page block can name its own).
+  const slots: string[] = [...ALL_LOCATIONS, ...Array.from(new Set(banners.map((b) => b.displayLocation))).filter((l) => l && !(ALL_LOCATIONS as string[]).includes(l))];
+  const live = banners.filter((b) => scheduleState(b).tone === 'live').length;
+  const ended = banners.filter((b) => scheduleState(b).tone === 'ended').length;
+  const waiting = banners.filter((b) => scheduleState(b).tone === 'wait').length;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -545,7 +612,9 @@ export default function AppearanceBanners() {
       <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
         <div>
           <h1 className="text-lg font-semibold text-gray-900">Banners</h1>
-          <p className="text-xs text-gray-500 mt-0.5">Manage homepage and page banners</p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            {banners.length === 0 ? 'Sliders and strips on the shop' : `${live} live on the shop${waiting ? `, ${waiting} starting later` : ''}${ended ? `, ${ended} past their end date` : ''}`}
+          </p>
         </div>
         <button
           onClick={() => setModalBanner({})}
@@ -558,7 +627,7 @@ export default function AppearanceBanners() {
       {/* Filter tabs */}
       <div className="bg-white border-b border-gray-200 px-6">
         <div className="flex gap-1 overflow-x-auto">
-          {[{ value: 'all', label: 'All' }, ...ALL_LOCATIONS.map((l) => ({ value: l, label: LOCATION_LABELS[l] }))].map(({ value, label }) => (
+          {[{ value: 'all', label: 'All' }, ...slots.map((l) => ({ value: l, label: locationLabel(l) }))].map(({ value, label }) => (
             <button
               key={value}
               onClick={() => setFilterLocation(value)}
@@ -580,7 +649,18 @@ export default function AppearanceBanners() {
       </div>
 
       {/* Content */}
-      <div className="px-6 py-6">
+      <div className="px-4 sm:px-6 py-6">
+        {pageError && (
+          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 flex items-center justify-between gap-3">
+            <span>{pageError}</span>
+            <button onClick={() => load()} className="text-xs font-semibold underline">Retry</button>
+          </div>
+        )}
+        {ended > 0 && !pageError && (
+          <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            {ended === 1 ? 'One banner is' : `${ended} banners are`} past the end of {ended === 1 ? 'its' : 'their'} schedule and no longer on the shop. Change the dates or switch {ended === 1 ? 'it' : 'them'} off.
+          </div>
+        )}
         {loading ? (
           <div className="flex items-center justify-center py-24 text-gray-400 text-sm">Loading banners…</div>
         ) : banners.length === 0 ? (
@@ -597,13 +677,13 @@ export default function AppearanceBanners() {
           </div>
         ) : showGrouped ? (
           <div className="space-y-8">
-            {ALL_LOCATIONS.map((loc) => {
+            {slots.map((loc) => {
               const items = banners.filter((b) => b.displayLocation === loc);
               if (items.length === 0) return null;
               return (
                 <div key={loc}>
                   <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                    {LOCATION_LABELS[loc]}
+                    {locationLabel(loc)}
                   </h2>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                     {items.map((banner) => (
@@ -616,7 +696,7 @@ export default function AppearanceBanners() {
                       />
                     ))}
                     <button
-                      onClick={() => setModalBanner({ displayLocation: loc })}
+                      onClick={() => setModalBanner({ displayLocation: loc as DisplayLocation })}
                       className="border-2 border-dashed border-gray-200 rounded-xl h-[11rem] flex flex-col items-center justify-center gap-2 text-gray-400 hover:border-blue-300 hover:text-blue-400 transition-colors"
                     >
                       <FaPlus size={16} />
@@ -627,7 +707,7 @@ export default function AppearanceBanners() {
               );
             })}
             {/* Empty state when all locations have 0 banners */}
-            {ALL_LOCATIONS.every((loc) => banners.filter((b) => b.displayLocation === loc).length === 0) && (
+            {slots.every((loc) => banners.filter((b) => b.displayLocation === loc).length === 0) && (
               <div className="text-center py-16 text-gray-400 text-sm">No banners match the current filter.</div>
             )}
           </div>

@@ -26,7 +26,7 @@ import {
   Eye, EyeOff, Plus, Columns3, List as ListIcon, Monitor, Smartphone,
   MonitorSmartphone,
 } from 'lucide-react';
-import api, { categoriesAPI, pagesAPI, menusAPI, brandsAPI, attributesAPI } from '../services/api';
+import { categoriesAPI, pagesAPI, menusAPI, brandsAPI, attributesAPI } from '../services/api';
 import IconPicker from '../components/IconPicker';
 import ImageInputWithActions from '../components/common/ImageInputWithActions';
 import MegaMenuEditor, {
@@ -60,9 +60,9 @@ interface MenuRecord { id: string | null; name: string; location: string; items:
 const HEADER_LOCATIONS = ['header_main', 'header', 'main', 'primary'];
 
 const FOOTER_TABS = [
-  { id: 'footer_1', location: 'footer_column_1', label: 'Footer — Col 1', hint: 'e.g. Shop by Category' },
-  { id: 'footer_2', location: 'footer_column_2', label: 'Footer — Col 2', hint: 'e.g. Useful Links' },
-  { id: 'footer_3', location: 'footer_column_3', label: 'Footer — Col 3', hint: 'e.g. Policies' },
+  { id: 'footer_1', location: 'footer_column_1', label: 'Footer column 1', hint: 'e.g. Shop by Category' },
+  { id: 'footer_2', location: 'footer_column_2', label: 'Footer column 2', hint: 'e.g. Useful Links' },
+  { id: 'footer_3', location: 'footer_column_3', label: 'Footer column 3', hint: 'e.g. Policies' },
 ] as const;
 type TabId = 'header' | typeof FOOTER_TABS[number]['id'];
 
@@ -161,7 +161,7 @@ function MenuItemRow({
           type="button"
           onClick={() => onPatch({ isVisible: !item.isVisible })}
           className={`p-1.5 rounded-lg shrink-0 ${item.isVisible ? 'text-gray-400 hover:text-gray-600' : 'text-orange-500 bg-orange-50'}`}
-          title={item.isVisible ? 'Visible — click to hide' : 'Hidden — click to show'}
+          title={item.isVisible ? 'Visible. Click to hide.' : 'Hidden. Click to show.'}
         >
           {item.isVisible ? <Eye size={14} /> : <EyeOff size={14} />}
         </button>
@@ -317,6 +317,9 @@ const AppearanceMenus: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
+  // A failed load must never let Save run: every tab would look empty with no record id, and
+  // Save would CREATE a second header menu beside the store's own (Homeomed's is hand-curated).
+  const [loadError, setLoadError] = useState('');
   const [addPanelKey, setAddPanelKey] = useState(0);
 
   const [categories, setCategories] = useState<LookupItem[]>([]);
@@ -326,9 +329,9 @@ const AppearanceMenus: React.FC = () => {
 
   const [records, setRecords] = useState<Record<TabId, MenuRecord>>({
     header: { id: null, name: 'Main Menu', location: 'header', items: [] },
-    footer_1: { id: null, name: 'Footer — Col 1', location: 'footer_column_1', items: [] },
-    footer_2: { id: null, name: 'Footer — Col 2', location: 'footer_column_2', items: [] },
-    footer_3: { id: null, name: 'Footer — Col 3', location: 'footer_column_3', items: [] },
+    footer_1: { id: null, name: 'Footer column 1', location: 'footer_column_1', items: [] },
+    footer_2: { id: null, name: 'Footer column 2', location: 'footer_column_2', items: [] },
+    footer_3: { id: null, name: 'Footer column 3', location: 'footer_column_3', items: [] },
   });
   // Serialized snapshot per tab at load/save time — powers the unsaved-changes indicators.
   const [snapshots, setSnapshots] = useState<Partial<Record<TabId, string>>>({});
@@ -373,6 +376,7 @@ const AppearanceMenus: React.FC = () => {
 
   async function fetchAll() {
     setLoading(true);
+    setLoadError('');
     try {
       const all = await menusAPI.list();
       const menus: any[] = (Array.isArray(all) ? all : []).map((m: any) => ({
@@ -394,9 +398,9 @@ const AppearanceMenus: React.FC = () => {
         header: header
           ? { id: header.id, name: header.name || 'Main Menu', location: header.location, items: hydrateItems(header.items) }
           : { id: null, name: 'Main Menu', location: 'header', items: [] },
-        footer_1: { id: null, name: 'Footer — Col 1', location: 'footer_column_1', items: [] },
-        footer_2: { id: null, name: 'Footer — Col 2', location: 'footer_column_2', items: [] },
-        footer_3: { id: null, name: 'Footer — Col 3', location: 'footer_column_3', items: [] },
+        footer_1: { id: null, name: 'Footer column 1', location: 'footer_column_1', items: [] },
+        footer_2: { id: null, name: 'Footer column 2', location: 'footer_column_2', items: [] },
+        footer_3: { id: null, name: 'Footer column 3', location: 'footer_column_3', items: [] },
       };
       for (const tab of FOOTER_TABS) {
         const rec = menus.find((m) => m.location === tab.location);
@@ -409,8 +413,8 @@ const AppearanceMenus: React.FC = () => {
         footer_2: JSON.stringify(serializeItems(next.footer_2.items)),
         footer_3: JSON.stringify(serializeItems(next.footer_3.items)),
       });
-    } catch {
-      /* keep empty defaults */
+    } catch (error: any) {
+      setLoadError(error?.response?.data?.message || 'The menus could not be loaded.');
     } finally {
       setLoading(false);
     }
@@ -459,6 +463,7 @@ const AppearanceMenus: React.FC = () => {
   );
 
   async function handleSave() {
+    if (loadError) return;
     setSaving(true);
     setSaveMsg('');
     try {
@@ -477,8 +482,8 @@ const AppearanceMenus: React.FC = () => {
         const newId = created?._id || created?.id || null;
         setRecords((prev) => ({ ...prev, [activeTab]: { ...prev[activeTab], id: newId } }));
       }
-      // Legacy mirror some older storefront builds read.
-      if (isHeader) await api.put('/settings', { menu: { items: payloadItems } }).catch(() => {});
+      // No settings mirror: the `menu` setting is read-only on v2 (the menus row is the one copy the
+      // storefront reads), so the old `PUT /settings {menu}` was refused every time and swallowed.
       setSnapshots((prev) => ({ ...prev, [activeTab]: JSON.stringify(payloadItems) }));
       setSaveMsg('Saved!');
       setTimeout(() => setSaveMsg(''), 2500);
@@ -507,7 +512,7 @@ const AppearanceMenus: React.FC = () => {
             <h1 className="text-lg font-semibold text-gray-900">Menus</h1>
             <p className="text-xs text-gray-500">
               {isHeader
-                ? <>Editing <span className="font-semibold text-gray-700">{record.name}</span> (location <code className="text-[11px] bg-gray-100 px-1 rounded">{record.location}</code>) — the menu the storefront renders</>
+                ? <>Editing <span className="font-semibold text-gray-700">{record.name}</span> (location <code className="text-[11px] bg-gray-100 px-1 rounded">{record.location}</code>), the menu the storefront renders</>
                 : 'Configure navigation menus for your storefront'}
             </p>
           </div>
@@ -524,7 +529,7 @@ const AppearanceMenus: React.FC = () => {
           <button
             type="button"
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || !!loadError}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-60 transition-colors"
           >
             {saving ? <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" /> : <Save size={13} />}
@@ -532,6 +537,13 @@ const AppearanceMenus: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {loadError && (
+        <div className="mx-4 sm:mx-6 mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 flex items-center justify-between gap-3">
+          <span>{loadError} Saving is off until they load, so nothing replaces the menus the shop shows.</span>
+          <button type="button" onClick={() => fetchAll()} className="text-xs font-semibold underline shrink-0">Retry</button>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="bg-white border-b border-gray-200 px-6">
@@ -580,7 +592,7 @@ const AppearanceMenus: React.FC = () => {
           </button>
           {isHeader && (
             <p className="mt-3 text-[11px] leading-relaxed text-gray-400">
-              Tip: expand an item to build its dropdown — simple link lists or full
+              Tip: expand an item to build its dropdown: simple link lists or full
               mega-menu columns with headlines, images and a featured promo card.
             </p>
           )}

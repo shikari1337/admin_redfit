@@ -70,10 +70,11 @@ const AppearanceProducts: React.FC = () => {
   const { formData: form, setFormData: setForm, loading, saving, handleSubmit } = useSettingsSection<ProductSettings>({
     defaults: DEFAULTS,
     parse: (settings) => ({ ...DEFAULTS, ...(settings.productSettings || {}) }),
-    // Public so the storefront can read it (is_public = true) — a dedicated key,
-    // not the generic bulk /settings endpoint.
+    // `productSettings` is a public registry setting whose fields are these switches (and the filter order,
+    // sent back as loaded). On v2 the only write is the registry's own (`PATCH /settings/registry/productSettings`),
+    // which `PUT /settings` reaches section by section; the old `PUT /settings/productSettings` is not served.
     submitter: async (data) => {
-      await api.put('/settings/productSettings', { value: data, is_public: true, group_name: 'appearance' });
+      await api.put('/settings', { productSettings: data });
     },
     successMessage: 'Product page settings saved! Your storefront will reflect these changes.',
     onError: (e: any) => alert(e?.response?.data?.message || 'Failed to save settings'),
