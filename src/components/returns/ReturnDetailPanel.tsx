@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   X, Loader2, PackageCheck, CheckCircle2, XCircle, ExternalLink, Clock,
-  ShieldAlert, Receipt, PackagePlus, Wallet, RotateCcw, Trash2, Recycle, Truck,
+  ShieldAlert, Receipt, RotateCcw, Trash2, Recycle, Truck, Undo2,
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { payload } from '@/lib/unwrap';
@@ -11,6 +11,7 @@ import { formatDate, formatDateTime } from '../../utils/date';
 import ReturnPhotos from './ReturnPhotos';
 import ReceiveGoodsModal from './ReceiveGoodsModal';
 import SettleReturnModal from './SettleReturnModal';
+import { RESOLUTION_META, STATUS_LABEL, STATUS_TONE } from './returnWords';
 
 /**
  * One return, end to end: what the customer said and sent, what physically
@@ -20,18 +21,6 @@ import SettleReturnModal from './SettleReturnModal';
  * only offers its button when it is genuinely available — a returns desk should
  * never have to guess why a button did nothing (COMMON_MISTAKES #171).
  */
-
-const RESOLUTION_META: Record<string, { label: string; icon: React.ElementType; tone: any }> = {
-  refund:       { label: 'Refund',       icon: RotateCcw,   tone: 'blue' },
-  replacement:  { label: 'Replacement',  icon: PackagePlus, tone: 'green' },
-  store_credit: { label: 'Store credit', icon: Wallet,      tone: 'amber' },
-  undecided:    { label: 'Undecided',    icon: Clock,       tone: 'neutral' },
-};
-
-const STATUS_TONE: Record<string, any> = {
-  pending: 'amber', approved: 'blue', received: 'green',
-  completed: 'green', rejected: 'red', cancelled: 'neutral',
-};
 
 /**
  * What the goods turned out to be. `expired` is deliberately separate from
@@ -90,7 +79,9 @@ const ReturnDetailPanel: React.FC<Props> = ({
     onChanged(payload<any>(r));
   };
 
-  const decide = async (status: 'approved' | 'rejected') => {
+  /** Approve, reject, or reopen (a rejected or withdrawn request goes back to "needs a decision";
+   *  the server allows nothing else from there). */
+  const decide = async (status: 'approved' | 'rejected' | 'pending') => {
     setBusy(status); setError('');
     try {
       await api.put(`/returns/${doc.id}`, { status, decisionNote: note.trim() || undefined });
@@ -98,9 +89,26 @@ const ReturnDetailPanel: React.FC<Props> = ({
       await refresh();
       setFlash(status === 'approved'
         ? 'Approved. When the parcel arrives, book the goods in.'
-        : 'Rejected. No goods will be booked in against this return.');
+        : status === 'rejected'
+          ? 'Rejected. No goods will be booked in against this return.'
+          : 'Reopened. It is back with the requests that need a decision.');
     } catch (e: any) {
       setError(e?.response?.data?.message || 'Could not update this return.');
+    } finally { setBusy(''); }
+  };
+
+  /** The desk withdraws the request (the customer asked to, or it was raised by mistake). The
+   *  note is kept on the return as the store's withdrawal reason. */
+  const withdraw = async () => {
+    setBusy('cancelled'); setError('');
+    try {
+      const res = await api.post(`/returns/${doc.id}/cancel`, { reason: note.trim() || undefined });
+      setNote('');
+      const d = payload<any>(res);
+      if (d && typeof d === 'object' && d.id) onChanged(d); else await refresh();
+      setFlash('Withdrawn. Nothing will be booked in or paid against this return.');
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'Could not withdraw this return.');
     } finally { setBusy(''); }
   };
 
@@ -157,7 +165,7 @@ const ReturnDetailPanel: React.FC<Props> = ({
                 <h2 className="text-xl font-semibold font-mono">
                   {doc?.return_number ?? doc?.id?.slice(0, 8)}
                 </h2>
-                <Chip tone={STATUS_TONE[doc?.status] ?? 'neutral'}>{doc?.status}</Chip>
+                <Chip tone={STATUS_TONE[doc?.status] ?? 'neutral'}>{STATUS_LABEL[doc?.status] ?? doc?.status}</Chip>
                 <Chip tone={res.tone}>
                   <ResIcon className="h-3 w-3 mr-1 inline" />{res.label}
                 </Chip>
@@ -485,27 +493,29 @@ const ReturnDetailPanel: React.FC<Props> = ({
           </section>
 
           {/* ── Decide ──────────────────────────────────────────────────── */}
-          {canManage && (doc?.status === 'pending' || doc?.status === 'approved' || doc?.status === 'rejected') && (
+          {canManage && ['pending', 'approved', 'rejected', 'cancelled'].includes(doc?.status) && (
             <section className="rounded-lg border border-border p-4">
               <h3 className="text-sm font-semibold mb-3">Decision</h3>
               <textarea
                 rows={2}
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                placeholder="Note for the record (optional)…"
+                placeholder={doc.status === 'rejected' || doc.status === 'cancelled'
+                  ? 'Why it is being reopened (optional)'
+                  : 'Note for the record, or why it is withdrawn (optional)'}
                 className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm resize-none mb-3
                            focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
               <div className="flex gap-2 flex-wrap">
-                {doc.status !== 'approved' && (
+                {doc.status === 'pending' && (
                   <button onClick={() => decide('approved')} disabled={!!busy}
                           className="px-4 py-2 text-sm rounded-md bg-green-600 text-white font-medium
                                      hover:bg-green-700 disabled:opacity-50 inline-flex items-center gap-2">
                     {busy === 'approved' ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                    {doc.status === 'rejected' ? 'Approve anyway' : 'Approve'}
+                    Approve
                   </button>
                 )}
-                {doc.status !== 'rejected' && (
+                {(doc.status === 'pending' || (doc.status === 'approved' && totalReceived === 0)) && (
                   <button onClick={() => decide('rejected')} disabled={!!busy}
                           className="px-4 py-2 text-sm rounded-md border border-destructive/40 text-destructive font-medium
                                      hover:bg-destructive/10 disabled:opacity-50 inline-flex items-center gap-2">
@@ -513,7 +523,28 @@ const ReturnDetailPanel: React.FC<Props> = ({
                     Reject
                   </button>
                 )}
+                {(doc.status === 'pending' || doc.status === 'approved') && totalReceived === 0 && (
+                  <button onClick={withdraw} disabled={!!busy}
+                          className="px-4 py-2 text-sm rounded-md border border-border font-medium
+                                     hover:bg-muted disabled:opacity-50 inline-flex items-center gap-2">
+                    {busy === 'cancelled' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />}
+                    Withdraw
+                  </button>
+                )}
+                {(doc.status === 'rejected' || doc.status === 'cancelled') && (
+                  <button onClick={() => decide('pending')} disabled={!!busy}
+                          className="px-4 py-2 text-sm rounded-md border border-border font-medium
+                                     hover:bg-muted disabled:opacity-50 inline-flex items-center gap-2">
+                    {busy === 'pending' ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                    Reopen
+                  </button>
+                )}
               </div>
+              {(doc.status === 'pending' || doc.status === 'approved') && totalReceived === 0 && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  Withdraw when the customer no longer wants to return it. Reject when the store refuses it.
+                </p>
+              )}
               {doc?.decision_note && (
                 <p className="text-xs text-muted-foreground mt-3">
                   Last decision note: {doc.decision_note}

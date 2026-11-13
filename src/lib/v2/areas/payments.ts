@@ -50,6 +50,13 @@ const returnRow = (r: any) => {
   };
 };
 const returnReply = (d: any) => (Array.isArray(d) ? mapList(d, returnRow) : returnRow(d));
+/** ReturnEligibilityView (commerce views/returns.rs:361): a line's `unit_price` / `eligible_amount` are Money (rupees here);
+ *  RaiseReturnModal reads the paise twins, as the desk's other return screens do. */
+const eligibilityReply = (d: any) => {
+  if (!d || typeof d !== 'object' || Array.isArray(d)) return d;
+  const lines = Array.isArray(d.lines) ? d.lines.map((l: any) => (l && typeof l === 'object' ? { ...l, unit_price_minor: minorOf(l, 'unit_price'), eligible_amount_minor: minorOf(l, 'eligible_amount') } : l)) : [];
+  return { ...d, lines, existing_returns: Array.isArray(d.existing_returns) ? d.existing_returns : [] };
+};
 
 /** Paise from a screen (`*Minor` / `*_minor`) → wire Money, which the 'm' shaper passes through as is (shape.ts shapeValue). */
 export const paiseMoney = (v: unknown): { minor: number; currency: string } | null | undefined => {
@@ -142,6 +149,19 @@ export const PAYMENT_ROUTES: V2Route[] = [
     if (Array.isArray(b.lines)) b.lines = b.lines.map((l: any) => { if (!l || typeof l !== 'object') return l; const { qtyReceived, qty_received, ...rest } = l; return { ...rest, qty: l.qty ?? qtyReceived ?? qty_received }; });
   }) },
   { m: 'POST', from: '/returns/:id/settle', row: 'commerce returns.ts:519', to: '/api/v2/commerce/returns/{id}/settle', bs: {'line_ids':['s'],'note':'s','resolution':'s','settlement':'j'} },
+  // RET-NET-1 (commerce api/returns/mod.rs:1102 SettlePreviewBody): the credit note's own figure, written nowhere. Without this
+  // row SettleReturnModal's preview was refused locally and the screen fell back to the stored line amounts (MENU-1 returns).
+  { m: 'POST', from: '/returns/:id/settle/preview', row: 'commerce new RET-NET-1', to: '/api/v2/commerce/returns/{id}/settle/preview', bs: {'line_ids':['s'],'resolution':'s'} },
+  // The desk withdraws a request (CancelBody, mod.rs:653); ReturnStaffView back.
+  { m: 'POST', from: '/returns/:id/cancel', row: 'commerce returns.ts:374', to: '/api/v2/commerce/returns/{id}/cancel', bs: {'reason':'s'}, reply: returnReply },
+  // The desk raises a return on a customer's behalf (CreateBody, mod.rs:541; a window override only with its reason).
+  { m: 'POST', from: '/returns', row: 'commerce returns.ts:321', to: '/api/v2/commerce/returns', reply: returnReply,
+    bs: {'order':'s','reason':'s','reason_code':'s','resolution':'s','return_mode':'s','notes':'s','override_window':'b','override_reason':'s',
+      'photos':[{'url':'s','mime':'s','type':'s','bytes':'i'}],
+      'items':[{'order_item_id':'s','quantity':'i','reason_code':'s','resolution':'s','customer_note':'s','photos':[{'url':'s','mime':'s','type':'s','bytes':'i'}]}]} },
+  { m: 'GET', from: '/returns/eligibility/:orderRef', row: 'commerce returns.ts:190', to: '/api/v2/commerce/orders/{orderRef}/return-eligibility', reply: eligibilityReply },
+  // One evidence photo, multipart field `file` (8 MB, raster images); answers {type, url, mime, bytes}.
+  { m: 'POST', from: '/returns/photos', row: 'commerce returns.ts:140', to: '/api/v2/commerce/returns/photos' },
   { m: 'GET', from: '/returns/meta', row: 'commerce returns.ts:87', to: '/api/v2/commerce/returns/meta' },
 
   // Checkout's settings layers (no old route; growcord-rs apps/checkout/core/src/api/saas/merchant.rs settings /

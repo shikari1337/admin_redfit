@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  RotateCcw, PackagePlus, Wallet, Clock, RefreshCw, Camera,
+  RotateCcw, RefreshCw, Camera, Plus,
   AlertTriangle, ExternalLink, Loader2,
 } from 'lucide-react';
 import { api } from '../services/api';
@@ -10,6 +10,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { inrMinor, Chip } from '../components/erp';
 import { formatDate } from '../utils/date';
 import ReturnDetailPanel from '../components/returns/ReturnDetailPanel';
+import RaiseReturnModal from '../components/returns/RaiseReturnModal';
+import { RESOLUTION_META, STATUS_LABEL, STATUS_TONE } from '../components/returns/returnWords';
 import { FilterChip, SearchBox } from '../components/sales/ListChrome';
 import { ExportMenu, type CsvColumn } from '@/components/erp';
 
@@ -36,22 +38,6 @@ const TABS = [
   { key: 'rejected',  label: 'Rejected' },
   { key: 'cancelled', label: 'Withdrawn' },
 ] as const;
-
-const STATUS_TONE: Record<string, any> = {
-  pending: 'amber', approved: 'blue', received: 'green',
-  completed: 'green', rejected: 'red', cancelled: 'neutral',
-};
-const STATUS_LABEL: Record<string, string> = {
-  pending: 'Needs a decision', approved: 'Awaiting parcel', received: 'Goods in',
-  completed: 'Completed', rejected: 'Rejected', cancelled: 'Withdrawn',
-};
-
-const RESOLUTION_META: Record<string, { label: string; icon: React.ElementType; tone: any }> = {
-  refund:       { label: 'Refund',       icon: RotateCcw,   tone: 'blue' },
-  replacement:  { label: 'Replacement',  icon: PackagePlus, tone: 'green' },
-  store_credit: { label: 'Store credit', icon: Wallet,      tone: 'amber' },
-  undecided:    { label: 'Undecided',    icon: Clock,       tone: 'neutral' },
-};
 
 /** The returns board as a file — the columns this page already shows. */
 const RETURN_CSV_COLUMNS: CsvColumn<any>[] = [
@@ -86,6 +72,7 @@ const Returns: React.FC = () => {
   const [error, setError] = useState('');
   const [meta, setMeta] = useState<any>(null);
   const [selected, setSelected] = useState<any>(null);
+  const [raising, setRaising] = useState(false);
 
   useEffect(() => {
     api.get('/returns/meta').then((r) => setMeta(payload<any>(r))).catch(() => setMeta(null));
@@ -121,21 +108,52 @@ const Returns: React.FC = () => {
 
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
+  // What needs a person, from the live counts: a decision, then goods in waiting to be finished.
+  const toDecide = Number(counts.pending ?? 0);
+  const goodsIn = Number(counts.received ?? 0);
+
   return (
     <div className="space-y-5">
       <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold tracking-tight">Returns</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            What is coming back, what condition it arrived in, and what the customer gets —
+            What is coming back, what condition it arrived in, and what the customer gets:
             a refund, a replacement, or store credit.
           </p>
         </div>
-        <button onClick={load} disabled={loading}
-                className="px-3 py-2 text-sm rounded-md border border-border hover:bg-muted inline-flex items-center gap-2 disabled:opacity-50">
-          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={load} disabled={loading}
+                  className="px-3 py-2 text-sm rounded-md border border-border hover:bg-muted inline-flex items-center gap-2 disabled:opacity-50">
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">Refresh</span>
+          </button>
+          {canManage && (
+            <button onClick={() => setRaising(true)}
+                    className="px-3 py-2 text-sm rounded-md bg-primary text-primary-foreground font-medium hover:bg-primary/90 inline-flex items-center gap-2">
+              <Plus className="h-4 w-4" /> Raise a return
+            </button>
+          )}
+        </div>
       </div>
+
+      {(toDecide > 0 || goodsIn > 0) && (
+        <div className="flex flex-wrap items-center gap-2 text-sm rounded-lg border border-border bg-muted/40 px-3 py-2">
+          <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+          <span className="text-muted-foreground">To act on:</span>
+          {toDecide > 0 && (
+            <button onClick={() => setTab('pending')} className="font-medium text-primary hover:underline">
+              {toDecide} need{toDecide === 1 ? 's' : ''} a decision
+            </button>
+          )}
+          {toDecide > 0 && goodsIn > 0 && <span className="text-muted-foreground">and</span>}
+          {goodsIn > 0 && (
+            <button onClick={() => setTab('received')} className="font-medium text-primary hover:underline">
+              {goodsIn} with goods in to check and settle
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Tabs with live counts */}
       <div className="flex gap-1 border-b border-border overflow-x-auto">
@@ -315,6 +333,18 @@ const Returns: React.FC = () => {
           hasShipPerm={canShip}
           onClose={() => { setSelected(null); load(); }}
           onChanged={(d) => { setSelected(d); load(); }}
+        />
+      )}
+
+      {raising && (
+        <RaiseReturnModal
+          meta={meta}
+          onClose={() => setRaising(false)}
+          onRaised={(d) => {
+            setRaising(false);
+            load();
+            if (d && typeof d === 'object' && d.id) openRow(d);
+          }}
         />
       )}
     </div>
