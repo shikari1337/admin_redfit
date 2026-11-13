@@ -119,7 +119,7 @@ export const PAYMENT_ROUTES: V2Route[] = [
   { m: 'GET', from: '/pos/outlets', row: 'retail ', to: '/api/v2/retail/outlets' },
   { m: 'POST', from: '/pos/quote', row: 'retail ', to: '/api/v2/retail/counter/quote', bs: {'coupon_code':'s','customer_id':'s','customer_name':'s','customer_phone':'s','gstin':'s','lines':[{'product_id':'s','quantity':'i','variation_id':'s'}],'outlet_id':'s'}, rs: {'discount_percent':'r'} },
   { m: 'POST', from: '/pos/receipts', row: 'retail ', to: '/api/v2/retail/receipts', body: respelt({'amount':'m','lines':[{'product_id':'s','qty':'i','variation_id':'s'}],'order_id':'s','outlet_id':'s','payment_method':'s'}, (b) => paiseInto(b, 'amount')) }, // ReceiptIn.amount: Money (retail inputs.rs:187); PosSurface sends amountMinor
-  { m: 'GET', from: '/pos/receipts?sessionId=', row: 'retail ', to: '/api/v2/retail/sessions/{id}/receipts' },
+  { m: 'GET', from: '/pos/session/:id/receipts', row: 'retail ', to: '/api/v2/retail/sessions/{id}/receipts' }, // the shift's bills (PosSurface Bills); the old `?sessionId=` pattern never matched a path
   { m: 'GET', from: '/pos/receipts/:receiptNumber', row: 'retail ', to: '/api/v2/retail/receipts/{receiptNumber}' },
   { m: 'POST', from: '/pos/refunds', row: 'retail ', to: '/api/v2/retail/refunds', bs: {'items':[{'qty':'i','variation_id':'s'}],'method':'s','outlet_id':'s','reason':'s','receipt_number':'s'} },
   { m: 'GET', from: '/pos/search', row: 'retail ', to: '/api/v2/retail/counter/search', qs: ['limit','outlet_id','q'] },
