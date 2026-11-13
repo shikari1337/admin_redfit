@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { X, Loader2, AlertTriangle, RefreshCw, Wallet, PackagePlus } from 'lucide-react';
 import { api } from '../../services/api';
 import { payload } from '@/lib/unwrap';
@@ -82,6 +82,35 @@ const SettleReturnModal: React.FC<Props> = ({ returnDoc, onClose, onSettled }) =
 
   const opt = OPTIONS.find((o) => o.code === resolution)!;
   const alreadySettled = !!returnDoc?.credit_note_id;
+
+  // The credit note's own figure (RET-NET-1), priced by the backend and written nowhere: each
+  // item's share of the order discount and coupon is already off. The lines' stored amounts are
+  // only the fallback (a return raised before 13 Nov 2026 stored the undiscounted price).
+  const [preview, setPreview] = useState<{ credit: number; list: number; share: number } | null>(null);
+  const chosenKey = chosenIds.join(',');
+  useEffect(() => {
+    if (!returnDoc?.id || alreadySettled || chosenIds.length === 0) { setPreview(null); return; }
+    let cancelled = false;
+    api.post(`/returns/${returnDoc.id}/settle/preview`, {
+      resolution,
+      lineIds: chosenIds.length === receivedLines.length ? null : chosenIds,
+    })
+      .then((res) => {
+        if (cancelled) return;
+        const d: any = payload<any>(res);
+        const r: any = d?.result ?? d;
+        const credit = Number(r?.creditMinor ?? r?.credit_minor);
+        setPreview(Number.isFinite(credit) ? {
+          credit,
+          list: Number(r?.listMinor ?? r?.list_minor ?? 0),
+          share: Number(r?.discountShareMinor ?? r?.discount_share_minor ?? 0),
+        } : null);
+      })
+      .catch(() => { if (!cancelled) setPreview(null); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [returnDoc?.id, resolution, chosenKey, alreadySettled]);
+  const figure = preview ? preview.credit : chosenValue;
 
   const submit = async () => {
     setBusy(true); setError('');
@@ -201,11 +230,17 @@ const SettleReturnModal: React.FC<Props> = ({ returnDoc, onClose, onSettled }) =
               <div className="p-3 rounded-lg bg-muted/60 border border-border">
                 <div className="flex items-baseline justify-between gap-4 mb-1.5">
                   <span className="text-sm font-medium">What will happen</span>
-                  <span className="text-base font-semibold tabular-nums">{inrMinor(chosenValue)}</span>
+                  <span className="text-base font-semibold tabular-nums">{inrMinor(figure)}</span>
                 </div>
+                {preview && preview.share > 0 && (
+                  <p className="text-xs text-muted-foreground mb-1.5">
+                    {inrMinor(preview.list)} at the order's price, less {inrMinor(preview.share)}, the
+                    items' share of the order discount and coupon the customer did not pay.
+                  </p>
+                )}
                 <p className="text-xs text-muted-foreground leading-relaxed">{opt.consequence}</p>
                 {returnDoc?.claimed_amount_minor != null
-                  && Number(returnDoc.claimed_amount_minor) !== chosenValue && (
+                  && Number(returnDoc.claimed_amount_minor) !== figure && (
                   <p className="text-xs text-muted-foreground mt-2 pt-2 border-t border-border">
                     The customer asked for{' '}
                     <span className="font-medium">{inrMinor(Number(returnDoc.claimed_amount_minor))}</span>.
