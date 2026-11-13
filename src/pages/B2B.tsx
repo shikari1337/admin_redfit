@@ -14,7 +14,7 @@ type Tab = 'applications' | 'customers' | 'tiers' | 'price-lists' | 'settings';
 /**
  * B2B management.
  *
- * A store's B2B "accounts" are simply its APPROVED CUSTOMERS — the grant lives on
+ * A store's B2B "accounts" are simply its APPROVED CUSTOMERS: the grant lives on
  * public.customer_store_profiles (is_b2b + b2b_tier), which is what the pricing
  * waterfall reads. The old standalone Accounts/Quotes tabs modelled a parallel,
  * unused set of tables and drove no pricing, so they were removed.
@@ -33,7 +33,7 @@ export default function B2B() {
       />
 
       <Tabs value={activeTab} onValueChange={(val) => setActiveTab(val as Tab)} className="w-full">
-        <TabsList className="mb-4">
+        <TabsList className="mb-4 max-w-full justify-start overflow-x-auto">
           <TabsTrigger value="applications" className="gap-2">
             <Inbox className="h-4 w-4" />
             Applications
@@ -57,7 +57,7 @@ export default function B2B() {
         </TabsList>
 
         <Card>
-          <CardContent className="p-6">
+          <CardContent className="p-3 sm:p-6">
             <TabsContent value="applications" className="m-0 border-0 p-0">
               <B2BApplications />
             </TabsContent>

@@ -13,7 +13,8 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '
 import { Loader2, Inbox, Check, X, Eye, Phone, ExternalLink } from 'lucide-react';
 import { localeDate, localeDateTime } from '../../utils/date';
 import { FilterChip, SearchBox } from '../sales/ListChrome';
-import { ExportMenu, type CsvColumn } from '@/components/erp';
+import { ExportMenu, inr, type CsvColumn } from '@/components/erp';
+import { CreditPosition, pushCreditTerms } from './CreditPosition';
 
 /** The applications on screen as a file. */
 const APPLICATION_CSV: CsvColumn<any>[] = [
@@ -52,16 +53,15 @@ interface Applicant { name?: string; email?: string; phone?: string; dial_code?:
 
 const STATUS_VARIANT: Record<string, string> = { pending: 'default', approved: 'success', rejected: 'destructive' };
 
-const money = (v: any) => `₹${Number(v ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
-/** `retailer`, `dental_clinic` → "Retailer", "Dental clinic": the storefront form's value, readable. */
-const humanize = (v?: string | null) => (v ? v.replace(/[_-]+/g, ' ').replace(/^\w/, (c) => c.toUpperCase()) : '—');
+/** `retailer`, `dental_clinic` read "Retailer", "Dental clinic": the storefront form's value, readable. */
+const humanize = (v?: string | null) => (v ? v.replace(/[_-]+/g, ' ').replace(/^\w/, (c) => c.toUpperCase()) : '-');
 
 /** One label/value line of the detail panel. */
 function Field({ label, children, mono }: { label: string; children: ReactNode; mono?: boolean }) {
   return (
     <div className="grid grid-cols-[8.5rem_1fr] gap-3 py-1.5 text-sm">
       <dt className="text-muted-foreground">{label}</dt>
-      <dd className={`min-w-0 break-words text-ink ${mono ? 'font-mono text-xs leading-5' : ''}`}>{children ?? '—'}</dd>
+      <dd className={`min-w-0 break-words text-ink ${mono ? 'font-mono text-xs leading-5' : ''}`}>{children ?? '-'}</dd>
     </div>
   );
 }
@@ -101,7 +101,7 @@ export default function B2BApplications() {
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [filter]);
 
-  // Tier names come from the store B2B settings — the same list the pricing
+  // Tier names come from the store B2B settings, the same list the pricing
   // waterfall (P4) reads, so an approved tier always resolves to a discount.
   useEffect(() => {
     b2bAPI.getSettings()
@@ -143,11 +143,16 @@ export default function B2BApplications() {
         credit_days: Number(form.credit_days) || 0,
         note: form.note || undefined,
       });
-      setSuccess(`${approving.company_name} approved — B2B pricing is now live for them.`);
+      // The terms take effect at the order desk only in Credit Control (Books).
+      const creditWarning = await pushCreditTerms(
+        approving.customer_id, Number(form.credit_limit) || 0, Number(form.credit_days) || 0,
+      );
+      setSuccess(`${approving.company_name} approved. B2B pricing is now live for them.`);
       setTimeout(() => setSuccess(null), 4000);
       setApproving(null);
       setViewing(null);
       load();
+      if (creditWarning) setError(creditWarning); // after load(), which clears the error line
     } catch (err: any) {
       setError(err?.response?.data?.message || 'Failed to approve');
     } finally { setSaving(false); }
@@ -248,10 +253,10 @@ export default function B2BApplications() {
                     {a.message && <div className="text-xs text-muted-foreground max-w-xs truncate">{a.message}</div>}
                   </TableCell>
                   <TableCell>{humanize(a.business_type)}</TableCell>
-                  <TableCell className="font-mono text-xs">{a.gstin || '—'}</TableCell>
-                  <TableCell>{a.contact_phone || '—'}</TableCell>
+                  <TableCell className="font-mono text-xs">{a.gstin || '-'}</TableCell>
+                  <TableCell>{a.contact_phone || '-'}</TableCell>
                   <TableCell className="text-muted-foreground text-sm">
-                    {a.created_at ? localeDate(a.created_at) : '—'}
+                    {a.created_at ? localeDate(a.created_at) : '-'}
                   </TableCell>
                   <TableCell>
                     <Badge variant={(STATUS_VARIANT[a.status] ?? 'outline') as any} className="capitalize">{a.status}</Badge>
@@ -264,7 +269,7 @@ export default function B2BApplications() {
                       <Button size="sm" variant="ghost" onClick={() => setViewing(a)} aria-label={`View ${a.company_name}`}>
                         <Eye className="h-3.5 w-3.5 mr-1" />View
                       </Button>
-                      {actions(a) ?? <span className="text-xs text-muted-foreground">{a.is_b2b ? 'B2B active' : '—'}</span>}
+                      {actions(a) ?? <span className="text-xs text-muted-foreground">{a.is_b2b ? 'B2B active' : ''}</span>}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -286,11 +291,11 @@ export default function B2BApplications() {
               <Label>Pricing tier</Label>
               <select value={form.tier} onChange={(e) => setForm((f) => ({ ...f, tier: e.target.value }))}
                 className="w-full h-9 px-2 border rounded-md text-sm bg-background">
-                <option value="">— No tier (store default discount) —</option>
+                <option value="">No tier (store default discount)</option>
                 {tiers.map((t) => <option key={t} value={t}>{t}</option>)}
               </select>
               {tiers.length === 0 && (
-                <p className="text-xs text-amber-600">No tiers defined yet — add them in the “Tiers &amp; Plans” tab.</p>
+                <p className="text-xs text-amber-600">No tiers defined yet. Add them in the Plans &amp; Tiers tab.</p>
               )}
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -304,6 +309,9 @@ export default function B2BApplications() {
                 <Input type="number" min="0" value={form.credit_days}
                   onChange={(e) => setForm((f) => ({ ...f, credit_days: e.target.value }))} />
               </div>
+              <p className="col-span-2 text-xs text-muted-foreground">
+                Saved to Credit Control, which the order desk enforces. Leave 0 to give no credit terms now.
+              </p>
             </div>
             <div className="space-y-2">
               <Label>Internal note (optional)</Label>
@@ -349,7 +357,7 @@ export default function B2BApplications() {
                   <Badge variant={(STATUS_VARIANT[viewing.status] ?? 'outline') as any} className="capitalize">{viewing.status}</Badge>
                 </SheetTitle>
                 <SheetDescription>
-                  B2B application{viewing.created_at ? ` · applied ${localeDateTime(viewing.created_at)}` : ''}
+                  B2B application{viewing.created_at ? `, applied ${localeDateTime(viewing.created_at)}` : ''}
                 </SheetDescription>
               </SheetHeader>
 
@@ -363,18 +371,18 @@ export default function B2BApplications() {
                   <dl className="divide-y divide-line">
                     <Field label="Company / practice">{viewing.company_name}</Field>
                     <Field label="Business type">{humanize(viewing.business_type)}</Field>
-                    <Field label="GSTIN" mono>{viewing.gstin || '—'}</Field>
+                    <Field label="GSTIN" mono>{viewing.gstin || '-'}</Field>
                     <Field label="Contact phone">
                       {viewing.contact_phone ? (
                         <a href={`tel:${viewing.contact_phone}`} className="inline-flex items-center gap-1 text-primary hover:underline">
                           <Phone className="h-3.5 w-3.5" />{viewing.contact_phone}
                         </a>
-                      ) : '—'}
+                      ) : '-'}
                     </Field>
                     <Field label="Message">
-                      {viewing.message ? <span className="whitespace-pre-wrap">{viewing.message}</span> : '—'}
+                      {viewing.message ? <span className="whitespace-pre-wrap">{viewing.message}</span> : '-'}
                     </Field>
-                    <Field label="Applied">{viewing.created_at ? localeDateTime(viewing.created_at) : '—'}</Field>
+                    <Field label="Applied">{viewing.created_at ? localeDateTime(viewing.created_at) : '-'}</Field>
                     {viewing.updated_at && viewing.updated_at !== viewing.created_at && (
                       <Field label="Last updated">{localeDateTime(viewing.updated_at)}</Field>
                     )}
@@ -396,10 +404,10 @@ export default function B2BApplications() {
                     <p className="py-2 text-sm text-muted-foreground">{applicant.error}</p>
                   ) : (
                     <dl className="divide-y divide-line">
-                      <Field label="Name">{applicant.data?.name || '—'}</Field>
-                      <Field label="Email">{applicant.data?.email || '—'}</Field>
+                      <Field label="Name">{applicant.data?.name || '-'}</Field>
+                      <Field label="Email">{applicant.data?.email || '-'}</Field>
                       <Field label="Login phone">
-                        {applicant.data?.phone ? `${applicant.data.dial_code ? `${applicant.data.dial_code} ` : ''}${applicant.data.phone}` : '—'}
+                        {applicant.data?.phone ? `${applicant.data.dial_code ? `${applicant.data.dial_code} ` : ''}${applicant.data.phone}` : '-'}
                       </Field>
                     </dl>
                   )}
@@ -417,12 +425,12 @@ export default function B2BApplications() {
                       {viewing.status === 'approved' && (
                         <>
                           <Field label="Tier">{viewing.tier_assigned || 'Store default discount'}</Field>
-                          <Field label="Credit limit">{money(viewing.credit_limit)}</Field>
+                          <Field label="Credit limit">{inr(viewing.credit_limit ?? 0)}</Field>
                           <Field label="Credit days">{viewing.credit_days ?? 0}</Field>
                         </>
                       )}
-                      <Field label="Note">{viewing.review_note ? <span className="whitespace-pre-wrap">{viewing.review_note}</span> : '—'}</Field>
-                      <Field label="Decided">{viewing.reviewed_at ? localeDateTime(viewing.reviewed_at) : '—'}</Field>
+                      <Field label="Note">{viewing.review_note ? <span className="whitespace-pre-wrap">{viewing.review_note}</span> : '-'}</Field>
+                      <Field label="Decided">{viewing.reviewed_at ? localeDateTime(viewing.reviewed_at) : '-'}</Field>
                     </dl>
                   )}
                 </section>
@@ -433,10 +441,12 @@ export default function B2BApplications() {
                   <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">B2B standing now</h3>
                   <dl className="divide-y divide-line">
                     <Field label="B2B pricing">{viewing.is_b2b ? 'Active' : 'Not active'}</Field>
-                    <Field label="Current tier">{viewing.current_tier || '—'}</Field>
-                    <Field label="Current credit">{viewing.current_credit_limit != null ? money(viewing.current_credit_limit) : '—'}</Field>
+                    <Field label="Current tier">{viewing.current_tier || '-'}</Field>
                   </dl>
                 </section>
+
+                {/* What they owe and the terms the order desk enforces, before credit is granted. */}
+                <CreditPosition customerId={viewing.customer_id} name={viewing.company_name} />
 
               </div>
             </>

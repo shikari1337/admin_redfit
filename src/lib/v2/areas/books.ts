@@ -323,7 +323,7 @@ export const BOOKS_ROUTES: V2Route[] = [
   { m: 'PUT', from: '/credit-control/hold/:customerId', row: 'books ar.ts', method: 'POST', to: '/api/v2/books/credit-control/customers/{customerId}/hold', bs: {'on_hold':'b','reason':'s'} },
   { m: 'PUT', from: '/credit-control/settings/:customerId', row: 'books ar.ts', method: 'PATCH', to: '/api/v2/books/credit-control/customers/{customerId}', bs: {'credit_limit':'m','note':'s','payment_terms_days':'i'} },
   { m: 'GET', from: '/credit-control/status/:customerId', row: 'books ar.ts', to: '/api/v2/books/credit-control/customers/{customerId}' },
-  { m: 'GET', from: '/credit-control/watchlist', row: 'books ar.ts', to: '/api/v2/books/credit-control/watchlist' },
+  { m: 'GET', from: '/credit-control/watchlist', row: 'books ar.ts', to: '/api/v2/books/credit-control/watchlist', qs: ['all'] }, // WatchlistIn api/credit_control.rs: all=true adds everyone on credit
   { m: 'GET', from: '/direct-taxes/challans', row: 'books directTaxes.ts', to: '/api/v2/books/tax-challans', qs: ['challan_type','fy'], reply: paise('total_base', 'total_tax', 'interest', 'fee') }, // Vec<TaxChallanView> views/direct_tax.rs:190; Tds.tsx:523 reads total_base_minor/total_tax_minor
   { m: 'GET', from: '/direct-taxes/challans/:id', row: 'books directTaxes.ts', to: '/api/v2/books/tax-challans/{id}' },
   { m: 'PUT', from: '/direct-taxes/challans/:id/deposit', row: 'books directTaxes.ts', method: 'POST', to: '/api/v2/books/tax-challans/{id}/deposit', bs: {'bsr_code':'s','challan_serial':'s','deposited_on':'s','fee':'m','interest':'m','note':'s','status':'s'} },

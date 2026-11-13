@@ -10,7 +10,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Users, ArrowLeft, ExternalLink, Loader2, Save, Ban, CheckCircle2, Plus, Search, User } from 'lucide-react';
 import { localeDate } from '../../utils/date';
 import { FilterChip, MenuChip, SearchBox } from '../sales/ListChrome';
-import { ExportMenu, type CsvColumn } from '@/components/erp';
+import { ExportMenu, inr, type CsvColumn } from '@/components/erp';
+import { CreditPosition, pushCreditTerms, type CreditStatus } from './CreditPosition';
 import InfoTip from '../common/InfoTip';
 
 // The admin axios interceptor unwraps { success, data } → the array/object AND
@@ -34,7 +35,7 @@ interface B2BCustomerRow {
 
 interface PriceListOption { id: string; name: string; }
 
-/** The roster as a file — the columns the table already shows. */
+/** The roster as a file: the columns the table already shows. */
 const ROSTER_CSV: CsvColumn<any>[] = [
   { key: 'company_name', label: 'Company' },
   { key: 'b2b_tier', label: 'Tier' },
@@ -55,17 +56,19 @@ interface Contract {
   is_active?: boolean;
 }
 
-const money = (v: any) => `₹${Number(v ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
-
 /**
- * The roster of a store's approved B2B customers — the piece the flat
+ * The roster of a store's approved B2B customers, the piece the flat
  * "B2B active" row in B2BApplications.tsx never had: reassign a tier after
  * initial approval, pin a price list, edit credit terms, suspend/reactivate,
- * and see negotiated (P1) contracts. Full customer PII + order history lives
- * on the separate /customers/:id page (UserDetail) — this links out to it
- * rather than duplicating it, per the store→customer privacy boundary
+ * and see negotiated (P1) contracts. Full customer PII and order history live
+ * on the separate /customers/:id page (UserDetail); this links out to it
+ * rather than duplicating it, per the store and customer privacy boundary
  * (b2b.ts never reads public.customers directly; company_name/gstin/phone
  * here are only what the customer gave THIS store).
+ *
+ * Credit terms: Credit Control (Books) is the record the order desk enforces.
+ * The account shows its position there, prefills the terms from it, and a save
+ * hands new terms on through `pushCreditTerms`.
  */
 export default function B2BCustomers() {
   const [rosterSearch, setRosterSearch] = useState('');
@@ -86,10 +89,14 @@ export default function B2BCustomers() {
   const [form, setForm] = useState({ tier: '', creditLimit: '0', creditDays: '0', gstin: '', priceListId: '' });
   const [saving, setSaving] = useState(false);
 
+  // The account's credit as Credit Control holds it; `creditKey` reads it again after a save.
+  const [credit, setCredit] = useState<CreditStatus | null>(null);
+  const [creditKey, setCreditKey] = useState(0);
+
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [contractsLoading, setContractsLoading] = useState(false);
 
-  // ── Add B2B customer (staff-initiated — no storefront application needed) ──
+  // ── Add B2B customer (staff-initiated, no storefront application needed) ──
   const [showAdd, setShowAdd] = useState(false);
   const [addCustomerSearch, setAddCustomerSearch] = useState('');
   const [addCustomerResults, setAddCustomerResults] = useState<any[]>([]);
@@ -103,7 +110,7 @@ export default function B2BCustomers() {
 
   useEffect(() => { load(); loadRefs(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
-  // Debounced existing-customer search — same idiom as ManualOrderCreate.tsx's
+  // Debounced existing-customer search, same idiom as ManualOrderCreate.tsx's
   // customer picker (350ms, min 3 chars, results dropdown).
   useEffect(() => {
     if (!showAdd || addPickedCustomer || addCustomerSearch.trim().length < 3) { setAddCustomerResults([]); return; }
@@ -129,7 +136,7 @@ export default function B2BCustomers() {
   };
 
   // Tiers + price lists to populate the reassign dropdowns; products to
-  // resolve contract product_id → name. All optional — pickers degrade
+  // resolve contract product_id to a name. All optional: pickers degrade
   // gracefully if any of these calls fail.
   const loadRefs = async () => {
     try {
@@ -177,7 +184,19 @@ export default function B2BCustomers() {
       priceListId: c.price_list_id ?? '',
     });
     setError(null);
+    setCredit(null);
     loadContracts(c.customer_id);
+  };
+
+  /** Credit Control holds the terms the order desk enforces: show those in the form when set. */
+  const onCreditLoaded = (s: CreditStatus | null) => {
+    setCredit(s);
+    if (!s) return;
+    setForm((f) => ({
+      ...f,
+      creditLimit: s.limit != null ? String(s.limit) : f.creditLimit,
+      creditDays: s.terms_days != null ? String(s.terms_days) : f.creditDays,
+    }));
   };
 
   const openAddModal = () => {
@@ -190,7 +209,7 @@ export default function B2BCustomers() {
   };
 
   /** Picking a result prefills name/phone/email as a read-only display and stops
-   *  the "new customer" fields from being sent — the existing customer's own
+   *  the "new customer" fields from being sent: the existing customer's own
    *  registered identity is what gets promoted, not whatever was half-typed. */
   const pickAddCustomer = (c: any) => {
     setAddPickedCustomer(c);
@@ -226,9 +245,13 @@ export default function B2BCustomers() {
         price_list_id: addForm.priceListId || undefined,
       });
       // b2bAPI helpers return response.data, which the axios interceptor may
-      // already have unwrapped to the inner `data` object — handle both shapes
+      // already have unwrapped to the inner `data` object; handle both shapes
       // (same defensive pattern as ManualOrderCreate.tsx's `r?.data ?? r`).
       const created = (res as any)?.data ?? res;
+      const newId = String(created?.customerId ?? created?.customer_id ?? globalId ?? '');
+      const creditWarning = newId
+        ? await pushCreditTerms(newId, Number(addForm.creditLimit) || 0, Number(addForm.creditDays) || 0)
+        : null;
       setShowAdd(false);
       flash('B2B customer created.');
       load();
@@ -244,6 +267,7 @@ export default function B2BCustomers() {
           price_list_id: created.profile?.price_list_id ?? addForm.priceListId ?? null,
         });
       }
+      if (creditWarning) setError(creditWarning);
     } catch (err: any) {
       setAddError(err?.response?.data?.message || 'Failed to create B2B customer');
     } finally { setAddSaving(false); }
@@ -266,8 +290,13 @@ export default function B2BCustomers() {
     setSaving(true); setError(null);
     try {
       await persist(isB2bActive);
+      const creditWarning = await pushCreditTerms(
+        activeCustomer.customer_id, Number(form.creditLimit) || 0, Number(form.creditDays) || 0, credit,
+      );
       flash('B2B profile updated.');
+      setCreditKey((k) => k + 1);
       load();
+      if (creditWarning) setError(creditWarning); // after load(), which clears the error line
     } catch (err: any) {
       setError(err?.response?.data?.message || 'Failed to save');
     } finally { setSaving(false); }
@@ -275,7 +304,7 @@ export default function B2BCustomers() {
 
   // Suspend reverts the customer to retail pricing immediately (they also drop
   // out of the GET /b2b/customers roster, since that endpoint only lists
-  // is_b2b = TRUE rows) — confirm before turning it off, same idiom as
+  // is_b2b = TRUE rows). Confirm before turning it off, same idiom as
   // B2BApplications.tsx's doReject (window.confirm before a destructive action).
   const toggleB2bStatus = async () => {
     if (!activeCustomer) return;
@@ -289,7 +318,7 @@ export default function B2BCustomers() {
     try {
       await persist(!isB2bActive);
       setIsB2bActive((v) => !v);
-      flash(isB2bActive ? 'B2B status suspended — this customer now sees retail pricing.' : 'B2B status reactivated.');
+      flash(isB2bActive ? 'B2B status suspended. This customer now sees retail pricing.' : 'B2B status reactivated.');
       load();
     } catch (err: any) {
       setError(err?.response?.data?.message || 'Failed to update B2B status');
@@ -300,10 +329,10 @@ export default function B2BCustomers() {
   if (activeCustomer) {
     return (
       <div className="space-y-5">
-        <div className="flex items-center gap-3">
-          <Button variant="outline" size="icon" onClick={() => setActiveCustomer(null)}><ArrowLeft className="h-4 w-4" /></Button>
-          <div className="flex-1">
-            <h2 className="text-xl font-bold flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-3">
+          <Button variant="outline" size="icon" aria-label="Back to the list" onClick={() => setActiveCustomer(null)}><ArrowLeft className="h-4 w-4" /></Button>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-xl font-bold flex flex-wrap items-center gap-2">
               {activeCustomer.company_name}
               {form.tier && <Badge variant="outline" className="capitalize">tier: {form.tier}</Badge>}
               {!isB2bActive && <Badge variant="destructive">Suspended</Badge>}
@@ -314,7 +343,7 @@ export default function B2BCustomers() {
             to={`/customers/${activeCustomer.customer_id}`}
             className="text-sm text-primary hover:underline inline-flex items-center gap-1 shrink-0"
           >
-            View full customer profile &amp; orders <ExternalLink className="h-3.5 w-3.5" />
+            Customer profile and orders <ExternalLink className="h-3.5 w-3.5" />
           </Link>
         </div>
 
@@ -327,18 +356,18 @@ export default function B2BCustomers() {
               <Label>Pricing tier</Label>
               <select value={form.tier} onChange={(e) => setForm((f) => ({ ...f, tier: e.target.value }))}
                 className="w-full h-9 px-2 border rounded-md text-sm bg-background">
-                <option value="">— No tier (store default discount) —</option>
+                <option value="">No tier (store default discount)</option>
                 {tiers.map((t) => <option key={t} value={t}>{t}</option>)}
               </select>
               {tiers.length === 0 && (
-                <p className="text-xs text-amber-600">No tiers defined yet — add them in the “Plans &amp; Tiers” tab.</p>
+                <p className="text-xs text-amber-600">No tiers defined yet. Add them in the Plans &amp; Tiers tab.</p>
               )}
             </div>
             <div className="space-y-2">
               <Label>Pinned price list</Label>
               <select value={form.priceListId} onChange={(e) => setForm((f) => ({ ...f, priceListId: e.target.value }))}
                 className="w-full h-9 px-2 border rounded-md text-sm bg-background">
-                <option value="">— none / resolve by tier —</option>
+                <option value="">None (resolve by tier)</option>
                 {priceLists.map((l) => <option key={rid(l)} value={rid(l)}>{l.name}</option>)}
               </select>
             </div>
@@ -349,18 +378,21 @@ export default function B2BCustomers() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label>Credit limit (₹)</Label>
-                <Input type="number" min="0" value={form.creditLimit}
+                <Input type="number" min="0" inputMode="decimal" value={form.creditLimit}
                   onChange={(e) => setForm((f) => ({ ...f, creditLimit: e.target.value }))} />
               </div>
               <div className="space-y-2">
                 <Label>Credit days</Label>
-                <Input type="number" min="0" value={form.creditDays}
+                <Input type="number" min="0" inputMode="numeric" value={form.creditDays}
                   onChange={(e) => setForm((f) => ({ ...f, creditDays: e.target.value }))} />
               </div>
+              <p className="col-span-2 text-xs text-muted-foreground">
+                Saved to Credit Control, which the order desk enforces. 0 leaves a term as it is; remove a limit or hold the account in Credit Control.
+              </p>
             </div>
           </div>
 
-          <div className="flex items-center justify-between border-t pt-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-4">
             <Button onClick={saveCustomer} disabled={saving}>
               {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
               Save changes
@@ -378,9 +410,12 @@ export default function B2BCustomers() {
           </div>
         </div>
 
+        <CreditPosition customerId={activeCustomer.customer_id} name={activeCustomer.company_name}
+          refreshKey={creditKey} onLoaded={onCreditLoaded} />
+
         <div className="space-y-2">
           <div>
-            <h3 className="text-sm font-medium">Negotiated contracts — P1 (highest priority)</h3>
+            <h3 className="text-sm font-medium">Negotiated contracts (highest priority)</h3>
             <p className="text-xs text-muted-foreground">Per-product prices agreed for this customer only; they win over every tier, slab, or price list.</p>
           </div>
           {contractsLoading ? (
@@ -398,12 +433,12 @@ export default function B2BCustomers() {
                   {contracts.map((c) => (
                     <TableRow key={c.id}>
                       <TableCell className="font-medium">{productName(c.product_id)}</TableCell>
-                      <TableCell>{money(c.unit_price)}</TableCell>
+                      <TableCell className="tabular-nums">{inr(c.unit_price)}</TableCell>
                       <TableCell className="text-muted-foreground text-sm">
-                        {c.valid_from ? localeDate(c.valid_from) : '—'}
+                        {c.valid_from ? localeDate(c.valid_from) : 'Any time'}
                       </TableCell>
                       <TableCell className="text-muted-foreground text-sm">
-                        {c.valid_until ? localeDate(c.valid_until) : '—'}
+                        {c.valid_until ? localeDate(c.valid_until) : 'No end'}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -489,17 +524,17 @@ export default function B2BCustomers() {
                   <TableCell className="font-medium">{c.company_name}</TableCell>
                   <TableCell>
                     {c.b2b_tier ? <Badge variant="outline" className="capitalize">{c.b2b_tier}</Badge>
-                      : <span className="text-xs text-muted-foreground">—</span>}
+                      : <span className="text-xs text-muted-foreground">None</span>}
                   </TableCell>
-                  <TableCell className="font-mono text-xs">{c.gstin || '—'}</TableCell>
+                  <TableCell className="font-mono text-xs">{c.gstin || '-'}</TableCell>
                   <TableCell className="text-sm">
-                    {Number(c.credit_limit) > 0 ? `${money(c.credit_limit)} / ${c.credit_days ?? 0}d` : '—'}
+                    {Number(c.credit_limit) > 0 ? `${inr(c.credit_limit)}, ${c.credit_days ?? 0} days` : 'None'}
                   </TableCell>
                   <TableCell className="text-sm">
                     {priceListName(c.price_list_id) ?? <span className="text-xs text-muted-foreground">resolve by tier</span>}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{c.order_count ?? 0}</TableCell>
-                  <TableCell className="text-right tabular-nums">{money(c.total_spent)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{inr(c.total_spent ?? 0)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -513,7 +548,7 @@ export default function B2BCustomers() {
           <div className="space-y-4 py-2">
             <p className="text-sm text-muted-foreground">
               Search for an existing customer to convert them to a B2B account, or fill in the
-              details below for a brand-new one — e.g. a phone-order lead with no account yet.
+              details below for a brand-new one, such as a phone-order lead with no account yet.
             </p>
 
             {addPickedCustomer ? (
@@ -522,7 +557,7 @@ export default function B2BCustomers() {
                   <span className="font-semibold">{addPickedCustomer.name || 'Customer'}</span>
                   <span className="text-muted-foreground ml-2">
                     {addPickedCustomer.phone || addPickedCustomer.phoneNumber || addPickedCustomer.phone_number}
-                    {addPickedCustomer.email ? ` · ${addPickedCustomer.email}` : ''}
+                    {addPickedCustomer.email ? `, ${addPickedCustomer.email}` : ''}
                   </span>
                 </div>
                 <Button size="sm" variant="ghost" onClick={() => setAddPickedCustomer(null)}>Change</Button>
@@ -533,7 +568,7 @@ export default function B2BCustomers() {
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground h-3.5 w-3.5" />
                   <Input
                     className="pl-9"
-                    placeholder="Search existing customer by name / phone / email (or fill details below for a new one)"
+                    placeholder="Search existing customer by name, phone or email"
                     value={addCustomerSearch}
                     onChange={(e) => setAddCustomerSearch(e.target.value)}
                   />
@@ -545,7 +580,7 @@ export default function B2BCustomers() {
                         className="w-full text-left px-3 py-2 hover:bg-muted text-sm flex items-center gap-2">
                         <User className="h-3 w-3 text-muted-foreground" />
                         <span className="font-medium">{c.name || 'Unnamed'}</span>
-                        <span className="text-muted-foreground text-xs">{c.phone || c.phoneNumber || c.phone_number} {c.email ? `· ${c.email}` : ''}</span>
+                        <span className="text-muted-foreground text-xs">{c.phone || c.phoneNumber || c.phone_number}{c.email ? `, ${c.email}` : ''}</span>
                       </button>
                     ))}
                   </div>
@@ -581,7 +616,7 @@ export default function B2BCustomers() {
                 <Label>Pricing tier</Label>
                 <select value={addForm.tier} onChange={(e) => setAddForm((f) => ({ ...f, tier: e.target.value }))}
                   className="w-full h-9 px-2 border rounded-md text-sm bg-background">
-                  <option value="">— No tier (store default discount) —</option>
+                  <option value="">No tier (store default discount)</option>
                   {tiers.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
@@ -589,7 +624,7 @@ export default function B2BCustomers() {
                 <Label>Pinned price list</Label>
                 <select value={addForm.priceListId} onChange={(e) => setAddForm((f) => ({ ...f, priceListId: e.target.value }))}
                   className="w-full h-9 px-2 border rounded-md text-sm bg-background">
-                  <option value="">— none / resolve by tier —</option>
+                  <option value="">None (resolve by tier)</option>
                   {priceLists.map((l) => <option key={rid(l)} value={rid(l)}>{l.name}</option>)}
                 </select>
               </div>

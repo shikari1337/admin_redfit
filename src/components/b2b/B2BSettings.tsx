@@ -116,7 +116,7 @@ export default function B2BSettings() {
               placeholder="e.g. 10000"
             />
             <p className="text-xs text-muted-foreground">
-              B2B customers will not be able to checkout if their subtotal is below this amount. Set to 0 to disable.
+              A B2B order whose subtotal at wholesale prices is below this amount is charged retail prices; the shopper sees how much more unlocks wholesale. Set to 0 to always give wholesale prices.
             </p>
           </div>
         </CardContent>
@@ -165,9 +165,9 @@ export default function B2BSettings() {
             <div className="space-y-0.5">
               <Label>Cash on Delivery (COD)</Label>
               <p className="text-xs text-muted-foreground">
-                Allow paying by cash upon delivery (usually disabled for B2B). <strong>B2B accounts only</strong> — retail
+                Allow paying by cash upon delivery (usually disabled for B2B). <strong>B2B accounts only</strong>: retail
                 shoppers are not affected. For a store-wide limit such as "no COD above ₹2,000", add a rule under
-                Settings → Payment Methods &amp; Discounts → Payment Method Rules.
+                Settings, Payment Methods &amp; Discounts, Payment Method Rules.
               </p>
             </div>
             <Switch 

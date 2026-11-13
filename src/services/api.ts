@@ -4534,6 +4534,35 @@ export const b2bAPI = {
   },
 };
 
+// ─── CREDIT CONTROL API (Books: the limit, terms and hold the order desk enforces) ──
+/**
+ * The ONE place a customer's credit limit, payment terms and hold are read and written
+ * (Books `customer_credit_control`, v2 `/api/v2/books/credit-control/*`): the order desk's
+ * guard and the invoice due date read these. The Credit Control page and the B2B screens
+ * both go through here; the wholesale profile's own `credit_limit` / `credit_days` are only
+ * its onboarding mirror. Amounts are rupees; `null` clears a field, an absent key keeps it.
+ * Every helper answers the payload itself.
+ */
+export const creditControlAPI = {
+  /** Customers to act on (on hold or over the limit); `all` adds everyone on credit. */
+  watchlist: async (all?: boolean) => {
+    const response = await api.get('/credit-control/watchlist', { params: all ? { all: true } : {} });
+    return payload(response);
+  },
+  status: async (customerId: string) => {
+    const response = await api.get(`/credit-control/status/${customerId}`);
+    return payload(response);
+  },
+  saveSettings: async (customerId: string, data: { creditLimit?: number | null; paymentTermsDays?: number | null; note?: string | null }) => {
+    const response = await api.put(`/credit-control/settings/${customerId}`, data);
+    return payload(response);
+  },
+  setHold: async (customerId: string, onHold: boolean, reason?: string | null) => {
+    const response = await api.put(`/credit-control/hold/${customerId}`, { onHold, reason: onHold ? (reason ?? null) : null });
+    return payload(response);
+  },
+};
+
 // ─── MARKETING API ────────────────────────────────────────────────────────────
 export const marketingAPI = {
   getCampaigns: async (params?: { page?: number; limit?: number; status?: string; channel?: string }) => {
