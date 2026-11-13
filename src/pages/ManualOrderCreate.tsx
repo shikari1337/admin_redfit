@@ -27,6 +27,7 @@ import {
   type ManualOrderPreview,
 } from '../services/api';
 import { shortStockLines, type ShortStockLine } from '../lib/v2/areas/orders';
+import { fmtRupees as money } from '../lib/money';
 import { usePincodeLookup } from '../hooks/usePincodeLookup';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -40,9 +41,6 @@ import InfoTip from '../components/common/InfoTip';
 import CustomerPicker, { loadPickedCustomer, type AccountChoice, type PickedCustomer } from '../components/sales/CustomerPicker';
 import OrderLinesTable, { type BasketLine } from '../components/sales/OrderLinesTable';
 import BulkAddFromSheet from '../components/sales/BulkAddFromSheet';
-
-const money = (n: number | string | null | undefined) =>
-  `₹${(Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /** A labelled field — one shape for every input on this page. */
 const Field: React.FC<{
@@ -246,7 +244,7 @@ const ManualOrderCreate: React.FC = () => {
     discount: parseFloat(orderDiscount) || undefined,
     discountReason: discountReason || undefined,
     shippingCost: shippingCost !== '' ? parseFloat(shippingCost) : undefined,
-    notes: [poRef.trim() ? `PO Ref: ${poRef.trim()}` : '', notes.trim()].filter(Boolean).join(' · ') || undefined,
+    notes: [poRef.trim() ? `PO Ref: ${poRef.trim()}` : '', notes.trim()].filter(Boolean).join('; ') || undefined,
     hold,
   }), [customer, lines, address, gstin, paymentMethod, orderDiscount, discountReason, shippingCost, notes, poRef, hold]);
 
@@ -288,8 +286,15 @@ const ManualOrderCreate: React.FC = () => {
     if (stockRefusal) stockRefusalRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }, [stockRefusal]);
 
+  // The stock rule's verdict on this basket, from the same preview (read only). When the
+  // store does not sell beyond its stock, Create stays off while a line is short: the
+  // server's gate at Create refuses it anyway, so the desk learns it here first.
+  const stock = preview?.stock ?? null;
+  const stockBlocks = !!stock && !stock.orderable;
+  const backorderLines = stock?.backorder ? stock.short : [];
+
   const canSubmit = canCreate && !!lines.length && !!address.fullName.trim() && !!address.mobileNumber.trim()
-    && !!preview && !pricing && !priceError;
+    && !!preview && !pricing && !priceError && !stockBlocks;
 
   const handleCreate = async () => {
     if (!lines.length) { toast({ variant: 'destructive', title: 'Nothing to invoice', description: 'Add at least one pack.' }); return; }
@@ -300,9 +305,10 @@ const ManualOrderCreate: React.FC = () => {
     try {
       const payload: Record<string, any> = buildPayload();
       // The explicit choice. "No account" means the order is deliberately not
-      // attached to anybody, so the phone is not used to find-or-create one.
+      // attached to anybody, so the server neither finds nor creates a customer by
+      // the phone (`no_account`, commerce api/orders/manual.rs).
       if (!customer && accountChoice === 'guest') {
-        payload.shippingAddress = { ...address, mobileNumber: address.mobileNumber, noAccount: true };
+        payload.noAccount = true;
         payload.customerId = undefined;
       }
       // One idempotency key per press of "Create order" (FIX-ADMIN-1): a replay answers the first order.
@@ -329,9 +335,9 @@ const ManualOrderCreate: React.FC = () => {
           </CardHeader>
           <CardContent className="space-y-4 pt-5">
             <p className="text-sm text-ink-soft">
-              Total <span className="font-bold tabular-nums text-ink">{money(created.total)}</span> ·{' '}
+              Total <span className="font-bold tabular-nums text-ink">{money(created.total)}</span>,{' '}
               {created.paymentMethod === 'cod' ? 'Cash on delivery' : 'Prepaid'}
-              {created.orderStatus === 'on_hold' && ' · On hold'}
+              {created.orderStatus === 'on_hold' && ', on hold'}
             </p>
             {payLink && (
               <div className="rounded-md border border-line bg-surface-2 p-3">
@@ -378,19 +384,19 @@ const ManualOrderCreate: React.FC = () => {
             <Receipt className="h-5 w-5 text-ink-soft" /> New order
           </h1>
           <p className="mt-0.5 text-sm text-ink-soft">
-            Key in a phone, counter or WhatsApp order. Every price is the server's — wholesale tiers,
+            Key in a phone, counter or WhatsApp order. Every price is the server's: wholesale tiers,
             batch prices and GST apply exactly as they do on the website.
           </p>
         </div>
         <Button size="lg" onClick={handleCreate} disabled={!canSubmit || creating}>
           {creating ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Plus className="mr-1.5 h-4 w-4" />}
-          {creating ? 'Creating…' : `Create order${preview ? ` · ${money(preview.total)}` : ''}`}
+          {creating ? 'Creating…' : `Create order${preview ? ` (${money(preview.total)})` : ''}`}
         </Button>
       </div>
 
       {!canCreate && (
         <p className="flex items-center gap-1.5 rounded-md border border-warn bg-warn-bg px-3 py-2 text-sm text-warn-ink">
-          <AlertTriangle className="h-4 w-4" /> You can look, but creating an order needs the “Manage orders” permission.
+          <AlertTriangle className="h-4 w-4" /> You can look, but creating an order needs the "Manage orders" permission.
         </p>
       )}
 
@@ -460,7 +466,7 @@ const ManualOrderCreate: React.FC = () => {
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-mute" />
                 <Input className="pl-9" value={productSearch}
                   aria-label="Find a pack"
-                  placeholder="Find a pack — SKU or name, e.g. 641536 or “aspidosperma q 30 ml sbl”"
+                  placeholder="Find a pack by SKU or name, e.g. 641536 or aspidosperma q 30 ml sbl"
                   onChange={(e) => setProductSearch(e.target.value)} />
                 {searching && <Loader2 className="absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-ink-mute" />}
                 {productSearch.trim().length >= 3 && (searching || productResults.length > 0) && (
@@ -479,7 +485,7 @@ const ManualOrderCreate: React.FC = () => {
                             <span className="whitespace-nowrap text-xs tabular-nums text-ink">{money(price)}</span>
                           </div>
                           <div className="text-xs text-ink-soft">
-                            <span className="font-mono">SKU {r.sku ?? '—'}</span>
+                            <span className="font-mono">SKU {r.sku ?? 'not set'}</span>
                             {stock != null && (
                               <span className={stock > 0 ? 'ml-2 text-good-ink' : 'ml-2 text-bad-ink'}>
                                 {stock > 0 ? `${stock} in stock` : 'Out of stock'}
@@ -509,7 +515,7 @@ const ManualOrderCreate: React.FC = () => {
               )}
               {lines.length > 0 && (
                 <p className="text-[11px] leading-snug text-ink-soft">
-                  <span className="font-medium">Rate</span> is what the price book resolved for this customer — a running
+                  <span className="font-medium">Rate</span> is what the price book resolved for this customer: a running
                   offer, a batch price or their wholesale tier is already in it.
                   <span className="ml-1 font-medium">Disc %</span> takes more off that rate;
                   <span className="ml-1 font-medium">Set rate</span> names the figure outright. Either one is recorded on the
@@ -532,7 +538,7 @@ const ManualOrderCreate: React.FC = () => {
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="cod">Cash on delivery</SelectItem>
-                    <SelectItem value="prepaid">Prepaid — send a pay link</SelectItem>
+                    <SelectItem value="prepaid">Prepaid, send a pay link</SelectItem>
                   </SelectContent>
                 </Select>
               </Field>
@@ -556,7 +562,7 @@ const ManualOrderCreate: React.FC = () => {
               <Field label="Customer's PO / reference" hint="Their own order number. Kept on the order so it can be quoted back.">
                 <Input value={poRef} onChange={(e) => setPoRef(e.target.value)} />
               </Field>
-              <Field label="Internal note" hint="Staff only — never shown to the customer.">
+              <Field label="Internal note" hint="Staff only, never shown to the customer.">
                 <Input value={notes} placeholder="e.g. Phone order taken by Priya"
                   onChange={(e) => setNotes(e.target.value)} />
               </Field>
@@ -578,6 +584,51 @@ const ManualOrderCreate: React.FC = () => {
                 <p className="mb-2 flex items-start gap-1.5 rounded-md border border-bad bg-bad-bg px-2.5 py-2 text-xs text-bad-ink">
                   <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {priceError}
                 </p>
+              )}
+              {!stockRefusal && stockBlocks && stock && (
+                <div role="alert" className="mb-2 rounded-md border border-bad bg-bad-bg px-2.5 py-2 text-xs text-bad-ink">
+                  <p className="flex items-start gap-1.5 text-sm font-semibold">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    {stock.short.length ? 'Not enough stock for this order' : 'Choose a pack for every line'}
+                  </p>
+                  {stock.short.length > 0 && (
+                    <ul className="mt-1.5 space-y-1">
+                      {stock.short.map((l) => (
+                        <li key={`${l.product_id ?? ''}-${l.variation_id ?? l.sku ?? l.name}`}>
+                          <span className="font-semibold">{l.name}</span>
+                          {l.sku && <span className="font-mono"> (SKU {l.sku})</span>}
+                          <span className="block tabular-nums">{l.asked} asked, {l.available} available</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {stock.unresolved.length > 0 && (
+                    <ul className="mt-1.5 space-y-1">
+                      {stock.unresolved.map((l) => (
+                        <li key={`${l.product_id ?? ''}-${l.sku ?? l.name}`}>
+                          <span className="font-semibold">{l.name}</span>: pick the exact pack, this product comes in several.
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <p className="mt-1.5">Lower the quantity or remove the line. Create stays off until every line can ship.</p>
+                </div>
+              )}
+              {!stockBlocks && backorderLines.length > 0 && (
+                <div className="mb-2 rounded-md border border-warn bg-warn-bg px-2.5 py-2 text-xs text-warn-ink">
+                  <p className="flex items-start gap-1.5 font-semibold">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    {backorderLines.length === 1 ? '1 line is' : `${backorderLines.length} lines are`} beyond stock and will ship later
+                  </p>
+                  <ul className="mt-1 space-y-0.5">
+                    {backorderLines.map((l) => (
+                      <li key={`${l.product_id ?? ''}-${l.variation_id ?? l.sku ?? l.name}`} className="tabular-nums">
+                        {l.name}: {l.asked} asked, {l.available} in stock
+                      </li>
+                    ))}
+                  </ul>
+                  {stock?.backorder_note && <p className="mt-1">{stock.backorder_note}</p>}
+                </div>
               )}
               {stockRefusal && (
                 <div ref={stockRefusalRef} role="alert"
@@ -642,7 +693,7 @@ const ManualOrderCreate: React.FC = () => {
                   {preview.b2b?.is_b2b && preview.b2b.meets_min_order === false && (
                     <p className="mt-1.5 flex items-start gap-1.5 rounded-md border border-warn bg-warn-bg px-2.5 py-2 text-[11px] text-warn-ink">
                       <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
-                      This wholesale account's minimum is {money(preview.b2b.min_order_value)} — until the order reaches it,
+                      This wholesale account's minimum is {money(preview.b2b.min_order_value)}. Until the order reaches it,
                       retail prices apply. {money(preview.b2b.amount_to_min_order)} to go.
                     </p>
                   )}

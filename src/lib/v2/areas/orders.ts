@@ -40,7 +40,7 @@ const LINE_IN: Spec = { product_id: 's', variation_id: 's', sku: 's', quantity: 
 /** `OrderAddressIn` (commerce api/orders/create.rs:67). */
 const ADDRESS_IN: Spec = { full_name: 's', mobile: 's', dial_code: 's', email: 's', line1: 's', line2: 's', landmark: 's', city: 's', district: 's', state: 's', pincode: 's', country: 's', company: 's', gstin: 's', latitude: 'j', longitude: 'j' };
 /** `ManualBody` (commerce api/orders/manual.rs:64) — preview and create take the same body. */
-const MANUAL_ORDER: Spec = { items: [LINE_IN], shipping_address: ADDRESS_IN, billing_address: ADDRESS_IN, customer_id: 's', payment_method: 's', shipping_cost: 'm', discount: 'm', discount_reason: 's', notes: 's', hold: 'b', gstin: 's', sales_agent_id: 's', sales_channel: 's', channel_id: 's', commission_tier: 's', credit_override: 'b', credit_override_reason: 's' };
+const MANUAL_ORDER: Spec = { items: [LINE_IN], shipping_address: ADDRESS_IN, billing_address: ADDRESS_IN, customer_id: 's', no_account: 'b', payment_method: 's', shipping_cost: 'm', discount: 'm', discount_reason: 's', notes: 's', hold: 'b', gstin: 's', sales_agent_id: 's', sales_channel: 's', channel_id: 's', commission_tier: 's', credit_override: 'b', credit_override_reason: 's' };
 /** `EditItemsBody` (commerce api/orders/items.rs:83) — the edit preview and the save. */
 const EDIT_ITEMS: Spec = { items: [LINE_IN], discount: 'm', discount_reason: 's', shipping_cost: 'm' };
 /** `CancelItemsBody` (commerce api/orders/cancel_items.rs:193) + `RefundChoice` (status.rs:554). */
@@ -48,7 +48,7 @@ const CANCEL_ITEMS: Spec = { lines: [{ sku: 's', variation_id: 's', qty: 'i', re
 /** `ExportBody` (commerce api/order_desk/export.rs:322). */
 const ERP_EXPORT: Spec = { mode: 's', from: 's', to: 's', exclude_cancelled: 'b', config: { website_channel_code: 's', admin_channel_code: 's', order_number_style: 's' } };
 
-/** The desk's address (checkout snapshot keys: `fullName`, `mobileNumber`, `address` …) → `OrderAddressIn`. `noAccount` has no v2 field (Node ignored it too). */
+/** The desk's address (checkout snapshot keys: `fullName`, `mobileNumber`, `address` and the rest) as `OrderAddressIn`. "No account" is the body's own `no_account`, never an address field. */
 function addressIn(a: any): any {
   if (!a || typeof a !== 'object') return a ?? undefined;
   return {
@@ -71,12 +71,18 @@ function addressIn(a: any): any {
   };
 }
 
-/** The manual-order / POS body (camelCase, rupees) → `ManualBody`. The POS sends `note`; v2 names it `notes`. */
+/**
+ * The manual-order / POS body (camelCase, rupees) as `ManualBody`. The POS sends `note`; v2 names it `notes`.
+ * The desk's "No account (one-off)" travels as `no_account` (commerce api/orders/manual.rs `ManualBody`): an older
+ * screen put it on the address as `noAccount`, which is lifted here so it is never lost.
+ */
 function manualOrderBody(c: V2Ctx): unknown {
   const { shippingAddress, shipping_address, billingAddress, billing_address, note, ...rest } = c.body ?? {};
+  const ship = shipping_address ?? shippingAddress;
+  const noAccount = rest.noAccount ?? rest.no_account ?? (ship && typeof ship === 'object' ? ship.noAccount : undefined);
   return shapeBody(MANUAL_ORDER)({
     ...c,
-    body: { ...rest, shipping_address: addressIn(shipping_address ?? shippingAddress), billing_address: addressIn(billing_address ?? billingAddress), notes: rest.notes ?? note },
+    body: { ...rest, no_account: noAccount === true ? true : undefined, shipping_address: addressIn(ship), billing_address: addressIn(billing_address ?? billingAddress), notes: rest.notes ?? note },
   });
 }
 
@@ -222,6 +228,7 @@ const listQuery = (c: V2Ctx) => ({
   from: c.query.from ?? c.query.startDate,
   to: c.query.to ?? c.query.endDate,
   cod_over: c.query.cod_over,
+  flagged: c.query.flagged,
   limit: c.query.limit,
   offset: c.query.offset ?? (c.query.page ? (Number(c.query.page) - 1) * (Number(c.query.limit) || 20) : undefined),
 });
@@ -248,7 +255,9 @@ export const ORDER_ROUTES: V2Route[] = [
   { m: 'GET', from: '/orders/assignable-staff', row: 'commerce orders.ts:376', to: `${O}/assignable-staff` },
   { m: 'GET', from: '/orders/sales-claims/queue', row: 'commerce orders.ts:390', to: `${O}/sales-claims`, query: (c) => ({ state: c.query.state, limit: c.query.limit, offset: c.query.offset }), reply: (d) => (Array.isArray(d) ? pageAs('items')(mapList(d, (r: any) => ({ ...r, order_id: r.order_id ?? r.order_number }))) : d) }, // ClaimQueueRowView {order_number …} (commerce views/order_desk.rs:760); ordersAPI.salesClaimQueue reads {items, total}, SalesTeam reads o.order_id
   { m: 'GET', from: '/orders/assignment-queue', row: 'commerce orders.ts:407', to: `${O}/order-queue`, query: (c) => ({ assigned_to: c.query.assignedTo, limit: c.query.limit, offset: c.query.offset }) },
-  { m: 'GET', from: '/orders/export/csv', row: 'commerce orders.ts:1885', to: `${O}/orders/export`, query: (c) => ({ ids: Array.isArray(c.query.ids) ? c.query.ids.join(',') : c.query.ids, status: c.query.status, from: c.query.from, to: c.query.to, cod_over: c.query.cod_over }) },
+  // CsvQuery (commerce api/order_desk/export.rs) takes the list's own filters, read through the list's one filter and
+  // channel scope (read.rs `caller_filter`): the file holds what the list shows.
+  { m: 'GET', from: '/orders/export/csv', row: 'commerce orders.ts:1885', to: `${O}/orders/export`, query: (c) => ({ ids: Array.isArray(c.query.ids) ? c.query.ids.join(',') : c.query.ids, status: c.query.status, from: c.query.from, to: c.query.to, cod_over: c.query.cod_over, payment_status: c.query.payment_status, order_type: c.query.order_type, channel: c.query.channel, search: c.query.search, flagged: c.query.flagged }) },
   { m: 'GET', from: '/orders/export', row: 'commerce orders.ts:1885 (merged)', to: `${O}/orders/export`, query: (c) => ({ status: c.query.status, from: c.query.startDate ?? c.query.from, to: c.query.endDate ?? c.query.to }) },
   { m: 'GET', from: '/orders/export/erp/status', row: 'commerce orders.ts:1966', to: `${O}/erp-exports/status` },
   // PreviewQuery (commerce api/order_desk/export.rs:260) is closed: `excludeCancelled` → `exclude_cancelled`.

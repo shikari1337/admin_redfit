@@ -26,6 +26,7 @@ const DEFAULTS: Record<ScopeKey, OrderNumberingScope> = {
   b2b:    { prefix: 'B2B-', suffix: '', padding: 5, start: 1, reset: 'never', format: '{PREFIX}{SEQ}{SUFFIX}', enabled: true },
 };
 
+/** Words for the server's reset policies (`reset_policies`); a policy without words shows its own name. */
 const RESET_LABELS: Record<string, string> = {
   never: 'Never (one continuous series)',
   yearly: 'Every year',
@@ -41,7 +42,7 @@ const SCOPE_META: Record<ScopeKey, { title: string; blurb: string; icon: React.R
   },
   b2b: {
     title: 'B2B orders',
-    blurb: 'Orders from customers marked as B2B for this store — numbered separately.',
+    blurb: 'Orders from customers marked as B2B for this store, numbered separately.',
     icon: <Building2 className="h-4 w-4" />,
   },
 };
@@ -52,6 +53,9 @@ const OrderNumbering: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** The store's rules could not be read: the form is not shown, so defaults can never be saved over them. */
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [resetPolicies, setResetPolicies] = useState<string[]>([]);
 
   const [config, setConfig] = useState<Record<ScopeKey, OrderNumberingScope>>(DEFAULTS);
   const [original, setOriginal] = useState<Record<ScopeKey, OrderNumberingScope> | null>(null);
@@ -67,6 +71,7 @@ const OrderNumbering: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
+      setLoadFailed(false);
       const res = await orderNumberingAPI.get();
       const d = res?.data ?? res;
       const next = {
@@ -81,7 +86,9 @@ const OrderNumbering: React.FC = () => {
       setPreview({ retail: d?.preview?.retail ?? '', b2b: d?.preview?.b2b ?? '' });
       setSequences(Array.isArray(d?.sequences) ? d.sequences : []);
       setTokens(Array.isArray(d?.tokens) ? d.tokens : []);
+      setResetPolicies(Array.isArray(d?.reset_policies) ? d.reset_policies : []);
     } catch (err: any) {
+      setLoadFailed(true);
       setError(err?.response?.data?.message || 'Failed to load order numbering settings');
     } finally {
       setLoading(false);
@@ -132,13 +139,15 @@ const OrderNumbering: React.FC = () => {
   };
 
   const counterFor = (scope: ScopeKey) =>
-    sequences.filter((s) => s.scope === scope).map((s) => `${s.period === 'ALL' ? 'total' : s.period}: ${s.current_value}`).join(' · ');
+    sequences.filter((s) => s.scope === scope).map((s) => `${s.period === 'ALL' ? 'total' : s.period}: ${s.current_value}`).join(', ');
 
-  const ScopeCard: React.FC<{ scope: ScopeKey }> = ({ scope }) => {
+  // A render function, not a component declared in render: a component type made anew on every
+  // keystroke remounts its inputs, and the field being typed in lost focus after one character.
+  const renderScopeCard = (scope: ScopeKey) => {
     const c = config[scope];
     const meta = SCOPE_META[scope];
     return (
-      <Card>
+      <Card key={scope}>
         <CardHeader className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
           <div>
             <CardTitle className="flex items-center gap-2 text-base">{meta.icon}{meta.title}</CardTitle>
@@ -155,10 +164,10 @@ const OrderNumbering: React.FC = () => {
           <div className="rounded-lg border bg-muted/40 px-4 py-3">
             <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold">Next order number</p>
             <p className="mt-1 font-mono text-lg font-semibold break-all">
-              {c.enabled ? (preview[scope] || '—') : 'Auto-generated (not serialized)'}
+              {c.enabled ? (preview[scope] || 'Not available yet') : 'Auto-generated (not serialized)'}
             </p>
             {counterFor(scope) && (
-              <p className="mt-1 text-[11px] text-muted-foreground">Counter → {counterFor(scope)}</p>
+              <p className="mt-1 text-[11px] text-muted-foreground">Counter: {counterFor(scope)}</p>
             )}
           </div>
 
@@ -187,7 +196,7 @@ const OrderNumbering: React.FC = () => {
                     type="number" min={0} max={12} value={c.padding}
                     onChange={(e) => patch(scope, 'padding', Math.min(12, Math.max(0, Number(e.target.value) || 0)))}
                   />
-                  <p className="text-[11px] text-muted-foreground">5 → 00042</p>
+                  <p className="text-[11px] text-muted-foreground">5 digits: 00042</p>
                 </div>
                 <div className="space-y-1.5">
                   <Label>Start at</Label>
@@ -202,8 +211,8 @@ const OrderNumbering: React.FC = () => {
                   <Select value={c.reset} onValueChange={(v) => patch(scope, 'reset', v as any)}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {Object.entries(RESET_LABELS).map(([k, label]) => (
-                        <SelectItem key={k} value={k}>{label}</SelectItem>
+                      {(resetPolicies.length ? resetPolicies : Object.keys(RESET_LABELS)).map((k) => (
+                        <SelectItem key={k} value={k}>{RESET_LABELS[k] ?? k}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -232,7 +241,7 @@ const OrderNumbering: React.FC = () => {
                   ))}
                 </div>
                 <p className="text-[11px] text-muted-foreground">
-                  e.g. <span className="font-mono">{'{PREFIX}{YYYY}/{SEQ}'}</span> → HM/2026/0001
+                  e.g. <span className="font-mono">{'{PREFIX}{YYYY}/{SEQ}'}</span> gives HM/2026/0001
                 </p>
               </div>
             </>
@@ -246,6 +255,28 @@ const OrderNumbering: React.FC = () => {
     return (
       <div className="flex items-center justify-center p-16">
         <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (loadFailed) {
+    return (
+      <div className="space-y-4 pb-14">
+        <Button variant="ghost" size="sm" onClick={() => navigate('/settings')} className="text-muted-foreground">
+          <ArrowLeft className="mr-2 h-4 w-4" /> Back to Settings
+        </Button>
+        <Card>
+          <CardContent className="space-y-3 py-6">
+            <p className="font-medium">The order number rules could not be loaded.</p>
+            <p className="text-sm text-muted-foreground">{error}</p>
+            <p className="text-sm text-muted-foreground">
+              Nothing is shown to edit until they load, so the store's own rules are never replaced by defaults.
+            </p>
+            <Button variant="outline" onClick={load}>
+              <RotateCcw className="mr-2 h-4 w-4" /> Try again
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -273,7 +304,7 @@ const OrderNumbering: React.FC = () => {
       )}
 
       <div className="rounded-lg border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-        Changing the format only affects <span className="font-medium text-foreground">future</span> orders — existing
+        Changing the format only affects <span className="font-medium text-foreground">future</span> orders. Existing
         order numbers never change. Counters only move forward, so numbers stay unique.
       </div>
 
@@ -285,22 +316,22 @@ const OrderNumbering: React.FC = () => {
             <p className="mt-0.5 text-sm text-muted-foreground">
               {separateB2b
                 ? 'B2B orders use their own counter, so wholesale and retail can be invoiced as separate books.'
-                : 'All orders — retail and B2B — share one continuous series.'}
+                : 'All orders, retail and B2B, share one continuous series.'}
             </p>
           </div>
           <Switch checked={separateB2b} onCheckedChange={setSeparateB2b} />
         </CardContent>
       </Card>
 
-      <ScopeCard scope="retail" />
+      {renderScopeCard('retail')}
       {separateB2b ? (
-        <ScopeCard scope="b2b" />
+        renderScopeCard('b2b')
       ) : (
         <Card>
           <CardContent className="py-5 text-sm text-muted-foreground">
-            B2B orders are numbered from the retail series above — next B2B order will be{' '}
-            <span className="font-mono font-medium text-foreground">{preview.retail || '—'}</span>. Turn on
-            “Separate series for B2B orders” to give them their own numbering.
+            B2B orders are numbered from the retail series above. The next B2B order will be{' '}
+            <span className="font-mono font-medium text-foreground">{preview.retail || 'not available yet'}</span>. Turn on
+            "Separate series for B2B orders" to give them their own numbering.
           </CardContent>
         </Card>
       )}

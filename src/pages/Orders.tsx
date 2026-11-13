@@ -236,9 +236,10 @@ const Orders: React.FC = () => {
    * PAYMENT and the two flags. All three are things the desk asks for every
    * day — "what is unpaid", "what did somebody flag", "which of these are
    * against a customer PO" — and none of them had a control, so the answer was
-   * to read 100 rows. They are applied to the page the server returned, and the
-   * strip says so, because a client-side narrowing of one page is not the same
-   * thing as a query and must not be shown as one.
+   * to read 100 rows. Payment and Flagged are SERVER filters (the count and the
+   * export follow them). "Has a customer PO" is applied to the page the server
+   * returned, and the strip says so, because a client-side narrowing of one page
+   * is not the same thing as a query and must not be shown as one.
    */
   /** Payment is a SERVER filter (`payment_status`) — the route has always taken it. */
   const [paymentFilter, setPaymentFilter] = useState<'all' | 'completed' | 'pending' | 'failed' | 'refunded'>('all');
@@ -251,6 +252,7 @@ const Orders: React.FC = () => {
   const dates = useListControls();
   const [datePreset, setDatePreset] = useState<string>('all');
   const [flagFilter, setFlagFilter] = useState<'all' | 'flagged' | 'po'>('all');
+  const flaggedOnly = flagFilter === 'flagged';
   // One screen of the desk. The API pages by this exact limit; a larger page
   // was reading full order rows (history, timeline) and taking seconds.
   const [page, setPage] = useState(1);
@@ -294,12 +296,12 @@ const Orders: React.FC = () => {
   // result set can leave the page number pointing past the last real page.
   useEffect(() => {
     setPage(1);
-  }, [statusFilter, typeFilter, channelFilter, paymentFilter, codOver, debouncedSearch, dates.from, dates.to]);
+  }, [statusFilter, typeFilter, channelFilter, paymentFilter, codOver, flaggedOnly, debouncedSearch, dates.from, dates.to]);
 
   /** Filters that are applied to the page already fetched, not to the query. */
   const onPageFiltered = React.useMemo(() => orders.filter((o: any) => {
     const notes = String(o.notes ?? '');
-    if (flagFilter === 'flagged' && !(o.isFlagged ?? o.is_flagged)) return false;
+    // "Flagged" is a server filter (`flagged`), so it is not re-applied here.
     if (flagFilter === 'po' && !/PO Ref:/i.test(notes)) return false;
     const fs = String(o.fulfilment ?? o.fulfillment_state ?? 'none');
     if (fulfilFilter === 'shipped' && fs !== 'shipped') return false;
@@ -340,20 +342,30 @@ const Orders: React.FC = () => {
 
   useEffect(() => {
     fetchOrders();
-  }, [statusFilter, typeFilter, channelFilter, paymentFilter, codOver, debouncedSearch, page, dates.from, dates.to]);
+  }, [statusFilter, typeFilter, channelFilter, paymentFilter, codOver, flaggedOnly, debouncedSearch, page, dates.from, dates.to]);
+
+  /**
+   * The list's SERVER filters as one object: the page asks with them, and the
+   * CSV export sends the same ones, so the file holds what the list shows.
+   */
+  function serverFilters(): Record<string, any> {
+    const params: Record<string, any> = {};
+    if (statusFilter !== 'all') params.status = statusFilter;
+    if (typeFilter !== 'all') params.order_type = typeFilter;
+    if (channelFilter !== 'all') params.channel = channelFilter;
+    if (paymentFilter !== 'all') params.payment_status = paymentFilter;
+    if (codOver) params.cod_over = true;
+    if (flaggedOnly) params.flagged = true;
+    if (dates.from) params.from = dates.from;
+    if (dates.to) params.to = dates.to;
+    if (debouncedSearch) params.search = debouncedSearch;
+    return params;
+  }
 
   const fetchOrders = async () => {
     try {
       setLoading(true);
-      const params: any = {};
-      if (statusFilter !== 'all') params.status = statusFilter;
-      if (typeFilter !== 'all') params.order_type = typeFilter;
-      if (channelFilter !== 'all') params.channel = channelFilter;
-      if (paymentFilter !== 'all') params.payment_status = paymentFilter;
-      if (codOver) params.cod_over = true;
-      if (dates.from) params.from = dates.from;
-      if (dates.to) params.to = dates.to;
-      if (debouncedSearch) params.search = debouncedSearch;
+      const params: any = serverFilters();
       const response = await ordersAPI.getAll({ ...params, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE });
 
       let fetchedOrders: any[] = [];
@@ -471,11 +483,9 @@ const Orders: React.FC = () => {
   const handleExport = async (onlySelected: boolean) => {
     setExporting(true);
     try {
-      await ordersAPI.exportCsv({
-        ids: onlySelected ? selectedIds : undefined,
-        status: statusFilter !== 'all' ? statusFilter : undefined,
-        cod_over: codOver || undefined,
-      });
+      // A selection is exactly the ticked rows; otherwise every server filter the
+      // list is under, so "These orders" is the list, not the whole store.
+      await ordersAPI.exportCsv(onlySelected ? { ids: selectedIds } : serverFilters());
     } catch (error: any) {
       toast({ variant: "destructive", title: "Export failed", description: error?.response?.data?.message || 'Could not export orders' });
     } finally {
@@ -491,6 +501,8 @@ const Orders: React.FC = () => {
 
   const anyFilter = statusFilter !== 'all' || paymentFilter !== 'all' || flagFilter !== 'all'
     || typeFilter !== 'all' || channelFilter !== 'all' || fulfilFilter !== 'all' || datePreset !== 'all' || !!search || codOver;
+  /** A filter the server applies, so the export follows it (the page-only ones do not travel). */
+  const serverFiltered = Object.keys(serverFilters()).length > 0;
 
   /**
    * THE TABS — where the sale came from, and which price book priced it.
@@ -625,7 +637,7 @@ const Orders: React.FC = () => {
               <DropdownMenuContent align="end" className="w-60">
                 <DropdownMenuLabel className="text-xs text-ink-mute">Export</DropdownMenuLabel>
                 <DropdownMenuItem onClick={() => handleExport(false)} disabled={exporting}>
-                  <FaDownload className="mr-2 h-3 w-3" /> {exporting ? 'Exporting…' : codOver ? 'COD sent above due (CSV)' : 'All orders (CSV)'}
+                  <FaDownload className="mr-2 h-3 w-3" /> {exporting ? 'Exporting…' : codOver ? 'COD sent above due (CSV)' : serverFiltered ? 'These orders (CSV)' : 'All orders (CSV)'}
                 </DropdownMenuItem>
                 {/* Exporting the SELECTION lives on the bulk bar, where the
                     selection is — one place per action, not two. */}

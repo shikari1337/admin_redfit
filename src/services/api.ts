@@ -2058,8 +2058,11 @@ export const ordersAPI = {
     // other reader in this file uses the both-ways form below.
     return (response.data?.data ?? response.data) as { orderId: string; links: OrderLinkGroup[] };
   },
-  /** CSV export — all filtered orders, or just `ids` when a selection was made. */
-  exportCsv: async (params?: { ids?: string[]; status?: string; from?: string; to?: string; cod_over?: boolean }) => {
+  /** CSV export: the orders the list's filters show (the server applies the same filter and channel scope), or just `ids` when a selection was made. */
+  exportCsv: async (params?: {
+    ids?: string[]; status?: string; from?: string; to?: string; cod_over?: boolean;
+    payment_status?: string; order_type?: string; channel?: string; search?: string; flagged?: boolean;
+  }) => {
     const response = await api.get('/orders/export/csv', {
       params: { ...params, ids: params?.ids?.length ? params.ids.join(',') : undefined },
       responseType: 'blob',
@@ -2080,6 +2083,8 @@ export const ordersAPI = {
     shippingAddress: Record<string, any>;
     billingAddress?: Record<string, any>;
     customerId?: string;
+    /** "No account (one-off)": with no customerId, the phone neither finds nor creates a customer. */
+    noAccount?: boolean;
     paymentMethod: 'cod' | 'prepaid';
     shippingCost?: number;
     discount?: number;
@@ -5798,7 +5803,35 @@ export interface ManualOrderPreview {
   b2b: any;
   sales_channel: string;
   commission: { tier: string | null; reason: string; evidence?: any };
+  /**
+   * The stock rule's verdict on these lines, read only (commerce service/orders/stock_gate.rs `desk_preview`).
+   * `orderable` false is exactly what Create would refuse now; Create's own gate still decides.
+   * Absent on an older server and on the Books channel.
+   */
+  stock?: ManualOrderStock | null;
   saved: false;
+}
+
+/** One line the stock rule measured short (`asked` more than `available`). */
+export interface ManualOrderShortLine {
+  product_id?: string | null;
+  variation_id?: string | null;
+  sku?: string | null;
+  name: string;
+  asked: number;
+  available: number;
+}
+
+export interface ManualOrderStock {
+  orderable: boolean;
+  /** The store sells beyond its stock (backorder on): short lines ship later. */
+  backorder: boolean;
+  backorder_note?: string | null;
+  /** The words Create would refuse with, when it would. */
+  message?: string | null;
+  short: ManualOrderShortLine[];
+  /** Lines of a product with several packs that name none of them. */
+  unresolved: Array<{ product_id?: string | null; sku?: string | null; name: string; asked: number }>;
 }
 
 /** A line resolved out of an uploaded order sheet, ready for the basket. */
