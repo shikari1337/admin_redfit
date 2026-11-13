@@ -8,13 +8,31 @@
  */
 import type { V2Route } from '../routes';
 import { v2call, v2try, mapList } from '../http';
-import { shapeBody, snake } from '../shape';
+import { shapeBody, shapeQuery, snake } from '../shape';
 import type { Spec } from '../shape';
 
 
 const CONNECT: Spec = { connection_id: 's', provider: 's', redirect_uri: 's', services: ['s'] };
 
 const isObj = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v);
+
+/** The Business Profile location the Google Reviews page shows and syncs: the one on the daily sync, else the first. */
+export const pickGoogleLocation = (list: any[]): any | null =>
+  list.find((l) => l?.sync_enabled) ?? list[0] ?? null;
+
+/**
+ * Google Business Profile locations on v2 (reviews api/saas/mod.rs, content.read to read, content.manage to change;
+ * lane MENU-1 social). The old API refreshed the location inside every sync; v2 mirrors locations only when asked.
+ */
+export const googleBusinessV2 = {
+  /** GoogleLocationView[]: each location, its daily-sync switch, Google's own rating and count, the last sync. */
+  locations: () => v2call<any[]>('GET', '/api/v2/reviews/google/locations'),
+  /** Ask the Google connection which locations it reaches and mirror them; answers the list. */
+  refreshLocations: async () => {
+    const r = await v2call<any[]>('POST', '/api/v2/reviews/google/locations/refresh', { data: {} });
+    return Array.isArray(r) ? r : [];
+  },
+};
 
 /**
  * MarketingAnalyticsView {model, currency, analytics} (marketing views/beacons.rs:113; the block is db/attribution.rs:544
@@ -65,25 +83,52 @@ export const MARKETING_ROUTES: V2Route[] = [
       const mData = isObj(m) && isObj(m.data) ? { ...m, data: { ...m.data, byStatus: m.data.byStatus ?? m.data.by_status, lastCheckedAt: m.data.lastCheckedAt ?? m.data.last_checked_at, topIssues: m.data.topIssues ?? m.data.top_issues } } : m;
       return { ...d, search_console: scData, merchant: mData };
     } },
-  { m: 'GET', from: '/connectors/google/business-profile/reviews', row: 'marketing 8.3 → reviews google/business-reviews', to: '/api/v2/reviews/google/business-reviews', qs: ['limit', 'offset', 'page', 'sort', 'q', 'location_name', 'is_published', 'is_featured'] },
+  {
+    // The old filters on the v2 resource (reviews resources.rs GOOGLE_REVIEWS, lane MENU-1 social): `search` is `q`,
+    // `published=true|false` is `is_published`, `replied=false` (awaiting a reply) is `reply_comment=null`. The engine
+    // filters by equality only, so `replied=true` and a star rating have no v2 filter yet and are not sent.
+    m: 'GET', from: '/connectors/google/business-profile/reviews', row: 'marketing 8.3 → reviews google/business-reviews', to: '/api/v2/reviews/google/business-reviews',
+    query: (c) => {
+      const q = c.query || {};
+      const out: Record<string, unknown> = shapeQuery(['limit', 'offset', 'page', 'sort', 'q', 'location_name', 'is_published', 'is_featured'])(c);
+      if (q.published === 'true' || q.published === true) out.is_published = true;
+      if (q.published === 'false' || q.published === false) out.is_published = false;
+      if (q.replied === 'false' || q.replied === false) out.reply_comment = 'null';
+      return out;
+    },
+  },
   { m: 'PATCH', from: '/connectors/google/business-profile/reviews/:id', row: 'marketing 8.3 → reviews', to: '/api/v2/reviews/google/business-reviews/{id}', bs: { display_order: 'i', is_featured: 'b', is_published: 'b' } },
   { m: 'POST', from: '/connectors/google/business-profile/reviews/:id/reply', row: 'marketing 8.3 → reviews', to: '/api/v2/reviews/google/business-reviews/{id}/reply', body: (c) => ({ comment: c.body?.comment ?? c.body?.reply ?? c.body?.text ?? '' }) },
-  { m: 'DELETE', from: '/connectors/google/business-profile/reviews/:id/reply', row: 'marketing 8.3 → reviews — no row', gap: 'deleting a Google review reply has no v2 route (reviews serves reply, not its removal)' },
+  // Removing a reply: v2 removes it (at Google first) when the reply route gets a blank comment
+  // (reviews api/saas/operations.rs google_reply), so the old DELETE is that POST with no comment.
+  { m: 'DELETE', from: '/connectors/google/business-profile/reviews/:id/reply', row: 'marketing 8.3 → reviews google/business-reviews/{id}/reply (blank comment)', method: 'POST', to: '/api/v2/reviews/google/business-reviews/{id}/reply', body: () => ({}) },
   {
     // The old summary was {connected, location{…}, rating, reviewCount, local} (connected = a stored location). v2 splits it:
     // the stored locations (GoogleLocationView, reviews views_saas.rs:535) and the public GoogleSummaryView (views_saas.rs:249,
-    // `rating` a STRING — the screen calls rating.toFixed). The `local` aggregate has no v2 route (API gap).
-    m: 'GET', from: '/connectors/google/business-profile/summary', row: 'marketing 8.3 → reviews google/summary + google/locations',
+    // `rating` a STRING — the screen calls rating.toFixed). The `local` aggregate is GET /google/curation (GoogleCurationView,
+    // lane MENU-1 social): the store's own counts of the chosen location, the star spread as {"1".."5"} like the old one.
+    m: 'GET', from: '/connectors/google/business-profile/summary', row: 'marketing 8.3 → reviews google/summary + google/locations + google/curation',
     run: async () => {
       const [sum, locs] = await Promise.all([
         v2try<any>('GET', '/api/v2/reviews/google/summary', {}),
         v2try<any[]>('GET', '/api/v2/reviews/google/locations', []),
       ]);
       const list = Array.isArray(locs) ? locs : [];
-      const loc = list.find((l: any) => l?.sync_enabled) ?? list[0];
+      const loc = pickGoogleLocation(list);
       if (!loc) return { ...(isObj(sum) ? sum : {}), connected: false, locations: list };
       const milli = loc.rating_milli ?? sum?.rating_milli;
+      const cur = await v2try<any>('GET', '/api/v2/reviews/google/curation', null, { params: { location: loc.name } });
+      const local = isObj(cur) ? {
+        shownCount: Number(cur.stored) || 0,
+        shownAverage: cur.average_milli != null ? Number(cur.average_milli) / 1000 : 0,
+        withCommentCount: Number(cur.with_comment) || 0,
+        publishedCount: Number(cur.published) || 0,
+        featuredCount: Number(cur.featured) || 0,
+        unrepliedCount: Number(cur.unreplied) || 0,
+        distribution: isObj(cur.distribution) ? cur.distribution : {},
+      } : undefined;
       return {
+        local,
         ...(isObj(sum) ? sum : {}),
         connected: true,
         location: {
@@ -98,14 +143,18 @@ export const MARKETING_ROUTES: V2Route[] = [
     },
   },
   {
-    // v2 syncs ONE named location: the store's chosen one (else the first) is read first
+    // v2 syncs ONE named location: the store's chosen one (else the first) is read first. A store that has never asked
+    // Google for its locations has none mirrored, so they are fetched first (POST /google/locations/refresh), as the
+    // old sync refreshed the location before pulling reviews.
     m: 'POST', from: '/connectors/google/business-profile/sync', row: 'marketing 8.3 → reviews google/locations/sync',
     run: async (c) => {
       let location = String(c.body?.location ?? '');
       if (!location) {
-        const locs = await v2call<any[]>('GET', '/api/v2/reviews/google/locations');
-        const pick = (Array.isArray(locs) ? locs : []).find((l) => l.enabled || l.is_enabled || l.selected) ?? (Array.isArray(locs) ? locs[0] : null);
-        location = pick?.name ?? pick?.location ?? pick?.id ?? '';
+        let locs = await v2call<any[]>('GET', '/api/v2/reviews/google/locations');
+        if (!Array.isArray(locs) || !locs.length) locs = await googleBusinessV2.refreshLocations();
+        const pick = pickGoogleLocation(Array.isArray(locs) ? locs : []);
+        location = pick?.name ?? '';
+        if (!location) throw new Error('Google lists no Business Profile location for this connection. Check that the Google account you connected manages the business, then try again.');
       }
       const r = await v2call<any>('POST', '/api/v2/reviews/google/locations/sync', { data: { location } });
       // GoogleSyncView {location, pulled, pages, …} (reviews views_saas.rs:552); the notice reads `fetched`
