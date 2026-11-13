@@ -8,18 +8,19 @@
  */
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Settings2 } from 'lucide-react';
+import { RefreshCw, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import WhatsAppInbox, { INBOX_POLL_MS } from '@/components/messaging/WhatsAppInbox';
 import { useCommerceCatalogue } from '@/components/messaging/common';
-import { INBOX_CHANNELS, INBOX_CHANNEL_LABEL, isGap, messagingAPI, type InboxChannel, type InboxItem } from '@/lib/v2/messaging';
+import { INBOX_CHANNELS, INBOX_CHANNEL_LABEL, errText, isGap, messagingAPI, type InboxChannel, type InboxItem } from '@/lib/v2/messaging';
 import { metaApi } from '@/lib/v2/areas/meta';
 import MetaHeader from '../MetaHeader';
 import { Lead, ago, linkCls, plural, useLoad } from '../common';
 import { ADS_ROUTES, SOCIAL_ROUTES, connectionsHref, metaHref } from '../routes';
 
-interface ChannelSummary { items: InboxItem[]; unread: number; gap: boolean; error: boolean }
+/** `message`: the server's words when the channel's chats could not be read (null otherwise). */
+interface ChannelSummary { items: InboxItem[]; unread: number; gap: boolean; error: boolean; message: string | null }
 
 /** Each channel's open chats, read once for the summary and the filter's unread counts, again every poll. */
 export function useInboxSummary(channels: InboxChannel[]) {
@@ -28,9 +29,10 @@ export function useInboxSummary(channels: InboxChannel[]) {
     const pairs = await Promise.all(channels.map(async (c) => {
       try {
         const r = await messagingAPI.inbox({ channel: c, status: 'open' });
-        return [c, { items: r.items, unread: r.items.filter((i) => i.unread > 0).length, gap: false, error: false }] as const;
+        return [c, { items: r.items, unread: r.items.filter((i) => i.unread > 0).length, gap: false, error: false, message: null }] as const;
       } catch (e) {
-        return [c, { items: [], unread: 0, gap: isGap(e), error: !isGap(e) }] as const;
+        const gap = isGap(e);
+        return [c, { items: [], unread: 0, gap, error: !gap, message: gap ? null : errText(e, 'The chats could not be read.') }] as const;
       }
     }));
     setByChannel(Object.fromEntries(pairs));
@@ -63,6 +65,9 @@ const InboxPage: React.FC = () => {
   const notReaching = messagingRow && messagingRow.state !== 'done';
   const name = (i: InboxItem) => i.contact.name || (i.contact.handle ? `@${i.contact.handle}` : '') || i.contact.phone_masked || 'A customer';
   const loaded = INBOX_CHANNELS.every((c) => byChannel[c]);
+  // A channel whose chats could not be read is never counted as "answered" (MENU-1 mkt-messaging F1).
+  const unreadable = INBOX_CHANNELS.filter((c) => byChannel[c]?.error);
+  const unreadableNames = unreadable.map((c) => INBOX_CHANNEL_LABEL[c]).join(' and ');
 
   return (
     <div className="space-y-5">
@@ -88,6 +93,13 @@ const InboxPage: React.FC = () => {
           {failedPush.map((p) => <p key={p.platform}>{p.error}</p>)}
         </Lead>
       )}
+      {loaded && unreadable.length > 0 && (
+        <Lead tone="bad" title={`${unreadableNames} chats could not be read`}
+          actions={<Button size="sm" variant="outline" className="bg-white" onClick={() => { void reload(); }}><RefreshCw /> Try again</Button>}>
+          {unreadable.map((c) => <p key={c}><b>{INBOX_CHANNEL_LABEL[c]}:</b> {byChannel[c]?.message ?? 'No reason was given.'}</p>)}
+          <p className="mt-1">New {unreadableNames} messages do not show here until this is fixed. Nothing was lost on the channel itself.</p>
+        </Lead>
+      )}
       {loaded && (waiting.length ? (
         <Lead tone="warn" title={`${plural(waiting.length, 'chat')} waiting for your reply`}>
           <p>The longest waiting close first: each chat takes free replies only within 24 hours of the customer's last message.</p>
@@ -102,7 +114,7 @@ const InboxPage: React.FC = () => {
         <Lead tone="info" title={`${plural(unreadTotal, 'unread chat')}`}>
           {INBOX_CHANNELS.filter((c) => counts[c]).map((c) => `${INBOX_CHANNEL_LABEL[c]} ${counts[c]}`).join(', ')}
         </Lead>
-      ) : (
+      ) : unreadable.length ? null : (
         <Lead tone="good" title="Every chat is answered">New messages show up here within 20 seconds.</Lead>
       ))}
 

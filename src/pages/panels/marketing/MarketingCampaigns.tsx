@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Megaphone, Send, Trash2, RefreshCw, ArrowLeft, Clock, Users, Wallet } from 'lucide-react';
 import { api } from '../../../services/api';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -14,6 +14,9 @@ import {
 } from './campaigns/channelMeta';
 import { ChannelCard, ChannelReadinessBanner, type ChannelStatus } from './campaigns/ChannelReadiness';
 import { ChannelPreview } from './campaigns/ChannelPreview';
+import { SendCheck, estimateOf, sendBlockers, type CampaignEstimate } from './campaigns/SendCheck';
+import { moneyMajor, num } from './meta/common';
+import { errText } from '@/lib/v2/messaging';
 import { localeDate, localeDateTime, localeTime } from '../../../utils/date';
 
 /**
@@ -53,10 +56,15 @@ const MarketingCampaigns: React.FC = () => {
   const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState<any>({ audienceKind: 'system', system: 'all_customers', audience: {}, utm: {}, when: 'now' });
   const [detail, setDetail] = useState<any>(null);
-  const [estimate, setEstimate] = useState<any>(null);
+  const [estimate, setEstimate] = useState<CampaignEstimate | null>(null);
+  const [estimateBusy, setEstimateBusy] = useState(false);
+  const [estimateError, setEstimateError] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(true);
+  // `?new=1` (Quick send's "more options" link) opens the composer on arrival.
+  const [searchParams] = useSearchParams();
+  useEffect(() => { if (searchParams.get('new') === '1') setShowNew(true); }, [searchParams]);
 
   // The composer always builds for the panel you are standing in; on the hub
   // it keeps the old free choice so nothing is lost when no channel is picked.
@@ -102,7 +110,7 @@ const MarketingCampaigns: React.FC = () => {
       ? (lists.find((l) => l.id === form.list_id)?.name ?? 'List')
       : (selectedAudience?.label ?? 'Audience');
     const date = localeDate(new Date(), { day: 'numeric', month: 'short' }, 'en-IN');
-    return `${formChannel.toUpperCase()} · ${aud} · ${date}`;
+    return `${formChannel.toUpperCase()}, ${aud}, ${date}`;
   }, [formChannel, form.system, form.audienceKind, form.list_id, systemAudiences, lists]);
 
   useEffect(() => { setForm((f: any) => (f.nameTouched ? f : { ...f, name: autoName })); }, [autoName]);
@@ -140,26 +148,31 @@ const MarketingCampaigns: React.FC = () => {
     setShowNew(false);
     setForm({ audienceKind: 'system', system: 'all_customers', audience: {}, utm: {}, when: 'now' });
     setInfo(form.when === 'schedule'
-      ? `Scheduled — will send automatically at ${localeDateTime(payload(r).scheduled_at)}.`
-      : 'Draft created — opening it below (estimate runs automatically).');
+      ? `Scheduled. It sends by itself at ${localeDateTime(payload(r).scheduled_at)}.`
+      : 'Draft saved. It is open below with its cost check.');
     if (form.when !== 'schedule') await openDetail(payload(r).id);
   });
 
   const openDetail = async (id: string) => {
-    setEstimate(null);
+    setEstimate(null); setEstimateError(null);
     const r = await api.get(`/marketing-hub/campaigns/${id}`);
     setDetail(payload(r));
     if (['draft', 'scheduled', 'failed', 'partial'].includes(payload(r)?.status)) {
+      setEstimateBusy(true);
       api.post(`/marketing-hub/campaigns/${id}/estimate`)
-        .then((er) => setEstimate(payload(er))).catch(() => {});
+        .then((er) => setEstimate(estimateOf(payload(er))))
+        .catch((e) => setEstimateError(errText(e, 'The estimate was refused.')))
+        .finally(() => setEstimateBusy(false));
     }
   };
 
   const send = (id: string) => act(async () => {
-    if (!window.confirm('Send this campaign now? Marketing sends are billed to the store wallet.')) return;
+    const cost = estimate ? ` It costs about ${moneyMajor(estimate.estimated_cost, estimate.unit_price?.currency || 'INR')} from the wallet.` : '';
+    if (!window.confirm(`Send this campaign now?${cost}`)) return;
     await api.post(`/marketing-hub/campaigns/${id}/send`);
     await openDetail(id);
   });
+  const sendBlocked = !!estimate && sendBlockers(estimate).length > 0;
 
   const numInput = (key: string, label: string) => (
     <label className="text-xs text-gray-600">{label}
@@ -187,13 +200,13 @@ const MarketingCampaigns: React.FC = () => {
       <div className="space-y-4">
         {composerBlocked && (
           <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            You can still prepare this campaign — it just can’t be sent until the blockers above are cleared.
+            You can prepare this campaign now. It cannot be sent until what is listed above is fixed.
           </div>
         )}
 
         <div className="grid gap-3 md:grid-cols-3">
           {!channel && (
-            <label className="text-sm font-medium">1 · Channel
+            <label className="text-sm font-medium">1. Channel
               <select value={formChannel}
                 onChange={(e) => setForm({ ...form, channel: e.target.value, template_ref: undefined })}
                 className="mt-1 w-full rounded-md border border-gray-200 px-2 py-2 capitalize focus:ring-2 focus:ring-gray-300">
@@ -201,15 +214,15 @@ const MarketingCampaigns: React.FC = () => {
               </select>
             </label>
           )}
-          <label className="text-sm font-medium">{channel ? '1' : '2'} · Approved template
+          <label className="text-sm font-medium">{channel ? '1' : '2'}. Approved template
             <select value={form.template_ref ?? ''} onChange={(e) => setForm({ ...form, template_ref: e.target.value })}
               className="mt-1 w-full rounded-md border border-gray-200 px-2 py-2 focus:ring-2 focus:ring-gray-300">
-              {channelTemplates.length === 0 && <option value="">— none approved yet —</option>}
+              {channelTemplates.length === 0 && <option value="">None approved yet</option>}
               {channelTemplates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
             {!channelTemplates.length && (
               <span className="text-xs text-amber-600">
-                No approved {formChannel} templates — <Link className="underline" to="/panel/marketing/templates">open Templates</Link>.
+                No approved {formChannel} templates yet. <Link className="underline" to="/panel/marketing/templates">Open Templates</Link>.
               </span>
             )}
           </label>
@@ -220,7 +233,7 @@ const MarketingCampaigns: React.FC = () => {
           </label>
         </div>
 
-        {/* What the recipient sees — rendered the way this channel renders. */}
+        {/* What the recipient sees, rendered the way this channel renders. */}
         <div className="grid gap-3 md:grid-cols-2">
           <div className="rounded-md border border-gray-200 p-3">
             <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Preview</div>
@@ -236,12 +249,12 @@ const MarketingCampaigns: React.FC = () => {
             <p className="leading-relaxed">{CHANNEL_META[formChannel].gotcha}</p>
             <p className="mt-2 leading-relaxed">
               {CHANNEL_META[formChannel].preApproved
-                ? 'The provider pre-approves every body — you pick from approved templates, you don’t write here.'
-                : 'No provider approval needed — this panel’s own draft → approved workflow is the only gate.'}
+                ? 'The provider approves every message first, so you pick an approved template here instead of writing one.'
+                : 'No provider approval is needed. The only check is approval on the Templates page.'}
             </p>
             <p className="mt-2 leading-relaxed">
               {CHANNEL_META[formChannel].addressedBy === 'device'
-                ? 'Addressed by browser subscription — there is no contact detail to be missing.'
+                ? 'Sent to browsers that allowed notifications, so no contact detail is needed.'
                 : <>Addressed by <b>{CHANNEL_META[formChannel].addressedBy}</b>; contacts without one are skipped automatically.</>}
             </p>
           </div>
@@ -253,13 +266,13 @@ const MarketingCampaigns: React.FC = () => {
             <label className="text-sm font-medium">
               <input type="checkbox" checked={!!form.abEnabled}
                 onChange={(e) => setForm({ ...form, abEnabled: e.target.checked, template_ref_b: e.target.checked ? form.template_ref_b : undefined })} />
-              {' '}A/B test <span className="font-normal text-gray-400">— split the audience between two approved templates (deterministic split, per-variant results)</span>
+              {' '}A/B test <span className="font-normal text-gray-400">(split the audience between two approved templates and see each one's results)</span>
             </label>
             {form.abEnabled && (
               <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
                 <select value={form.template_ref_b ?? ''} onChange={(e) => setForm({ ...form, template_ref_b: e.target.value })}
                   className="rounded-md border border-gray-200 px-2 py-1.5">
-                  <option value="">— variant B template —</option>
+                  <option value="">Pick the variant B template</option>
                   {channelTemplates.filter((t) => t.id !== form.template_ref)
                     .map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
@@ -275,12 +288,12 @@ const MarketingCampaigns: React.FC = () => {
 
         {formChannel === 'push' ? (
           <div className="rounded-md border border-gray-200 bg-gray-50/60 p-3 text-sm text-gray-600">
-            <b>Audience:</b> every active push subscriber. Push has no contact list — a browser either
-            granted permission or it didn’t.
+            <b>Audience:</b> every browser that allowed your notifications. Push has no contact list: a browser
+            either allowed notifications or it did not.
           </div>
         ) : (
           <div className="space-y-2 rounded-md border border-gray-200 bg-gray-50/60 p-3">
-            <div className="text-sm font-medium">{channel ? '2' : '3'} · Audience</div>
+            <div className="text-sm font-medium">{channel ? '2' : '3'}. Audience</div>
             <div className="flex flex-wrap gap-3 text-sm">
               <label><input type="radio" checked={form.audienceKind === 'system'}
                 onChange={() => setForm({ ...form, audienceKind: 'system' })} /> Dynamic audience (always fresh)</label>
@@ -299,7 +312,7 @@ const MarketingCampaigns: React.FC = () => {
                 </select>
                 {selectedAudience && (
                   <span className="text-xs text-gray-500">
-                    {selectedAudience.description} · <b>{selectedAudience.count}</b> people (before consent filter)
+                    {selectedAudience.description}. <b>{selectedAudience.count}</b> people before consent is checked.
                   </span>
                 )}
               </div>
@@ -307,12 +320,12 @@ const MarketingCampaigns: React.FC = () => {
               <div className="flex flex-wrap items-center gap-2">
                 <select value={form.list_id ?? ''} onChange={(e) => setForm({ ...form, list_id: e.target.value })}
                   className="w-full max-w-md rounded-md border border-gray-200 px-2 py-2 text-sm focus:ring-2 focus:ring-gray-300">
-                  <option value="">— select a marketing list —</option>
+                  <option value="">Pick a contact list</option>
                   {lists.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.member_count})</option>)}
                 </select>
                 <span className="text-xs text-gray-500">
-                  Lists are marketing-only and auto-populated —{' '}
-                  <Link className="underline" to="/panel/marketing/audiences">create one from a dynamic audience</Link>.
+                  Lists are for marketing only and fill themselves.{' '}
+                  <Link className="underline" to="/panel/marketing/audiences">Make one from a saved audience</Link>.
                 </span>
               </div>
             ) : (
@@ -342,7 +355,7 @@ const MarketingCampaigns: React.FC = () => {
 
         <div className="grid gap-3 md:grid-cols-2">
           <div className="rounded-md border border-gray-200 bg-gray-50/60 p-3">
-            <div className="mb-2 text-sm font-medium">Tracking (UTM) <span className="font-normal text-gray-400">— feeds Attribution</span></div>
+            <div className="mb-2 text-sm font-medium">Tracking (UTM) <span className="font-normal text-gray-400">(feeds Attribution)</span></div>
             <div className="grid gap-2 md:grid-cols-3">
               {['utm_source', 'utm_medium', 'utm_campaign'].map((k) => (
                 <label key={k} className="text-xs text-gray-600">{k}
@@ -371,7 +384,7 @@ const MarketingCampaigns: React.FC = () => {
               )}
             </div>
             {form.when === 'schedule' && (
-              <p className="mt-1 text-xs text-gray-500">Fires automatically (checked every ~2 minutes) — all the same gates apply.</p>
+              <p className="mt-1 text-xs text-gray-500">It sends by itself within about 2 minutes of the time, with the same checks as a manual send.</p>
             )}
           </div>
         </div>
@@ -399,14 +412,14 @@ const MarketingCampaigns: React.FC = () => {
           <Th>Audience</Th>
           <Th>Status</Th>
           <Th num>Sent</Th>
-          <Th num>Cost ₹</Th>
+          <Th num>Cost</Th>
           <Th num>Created</Th>
         </THead>
         <TBody>
           {rows.length === 0 && (
             <EmptyRow colSpan={channel ? 6 : 7}>
-              {loading ? 'Loading…' : (
-                <>No {meta ? meta.label : ''} campaigns yet — hit <b>New campaign</b>.</>
+              {loading ? 'Loading...' : (
+                <>No {meta ? meta.label : ''} campaigns yet. Use <b>New campaign</b> to start one.</>
               )}
             </EmptyRow>
           )}
@@ -437,8 +450,8 @@ const MarketingCampaigns: React.FC = () => {
                     <div className="mt-0.5 text-xs text-gray-400">{localeDateTime(c.scheduled_at)}</div>
                   )}
                 </Td>
-                <Td num>{c.stats?.sent ?? '—'}</Td>
-                <Td num>{c.actual_cost != null ? Number(c.actual_cost).toFixed(2) : '—'}</Td>
+                <Td num>{c.stats?.sent != null ? num(Number(c.stats.sent)) : ''}</Td>
+                <Td num>{c.actual_cost != null ? moneyMajor(Number(c.actual_cost)) : ''}</Td>
                 <Td num muted className="text-xs">{localeDate(c.created_at)}</Td>
               </Tr>
             );
@@ -479,19 +492,14 @@ const MarketingCampaigns: React.FC = () => {
             </div>
           ))}
         </div>
-        {estimate && (
-          <div className="rounded-md border border-blue-200 bg-blue-50/60 p-3 text-sm">
-            Audience <b>{estimate.audience_size}</b>
-            {estimate.blocked_by_consent > 0 && <> · <span className="text-amber-700">{estimate.blocked_by_consent} excluded (no consent — <Link className="underline" to="/panel/marketing/compliance">manage consent</Link>)</span></>}
-            {' '}· est. cost <b>₹{estimate.estimated_cost}</b> · wallet ₹{estimate.wallet_balance}
-            {!estimate.affordable && <span className="ml-2 text-red-600">Insufficient — <Link className="underline" to="/settings/wallet">top up wallet</Link></span>}
-          </div>
-        )}
-        <div className="flex gap-2">
+        <SendCheck estimate={estimate} loading={estimateBusy} error={estimateError} />
+        <div className="flex flex-wrap gap-2">
           {['draft', 'scheduled', 'failed', 'partial'].includes(detail.status) && hasPerm('marketing.send') && (
-            <Btn onClick={() => send(detail.id)}><Send className="h-4 w-4" /> Send now</Btn>
+            <Btn onClick={() => send(detail.id)} disabled={estimateBusy || sendBlocked}
+              title={sendBlocked ? 'Clear what the check above says first' : undefined}><Send className="h-4 w-4" /> Send now</Btn>
           )}
-          {hasPerm('marketing.manage') && ['draft', 'scheduled', 'failed'].includes(detail.status) && (
+          {/* DELETE /campaigns/{id} needs marketing.delete (api/campaigns.rs), not marketing.manage. */}
+          {hasPerm('marketing.delete') && ['draft', 'scheduled', 'failed'].includes(detail.status) && (
             <Btn variant="dangerOutline"
               onClick={() => act(async () => { await api.delete(`/marketing-hub/campaigns/${detail.id}`); setDetail(null); })}>
               <Trash2 className="h-4 w-4" /> Delete
@@ -507,9 +515,9 @@ const MarketingCampaigns: React.FC = () => {
               const otherRate = other?.size ? (other.sent ?? 0) / other.size : 0;
               return (
                 <div key={v} className={`rounded-md border p-3 text-sm ${rate >= otherRate ? 'border-emerald-300 bg-emerald-50/50' : 'border-gray-200'}`}>
-                  <div className="font-semibold">Variant {v} {rate >= otherRate && <span className="text-xs text-emerald-700">← leading</span>}</div>
+                  <div className="font-semibold">Variant {v} {rate >= otherRate && <span className="text-xs text-emerald-700">(leading)</span>}</div>
                   <div className="text-xs text-gray-500">{s?.template}</div>
-                  <div className="mt-1">size {s?.size} · sent {s?.sent ?? 0} · failed {s?.failed ?? 0}</div>
+                  <div className="mt-1">Size {s?.size}, sent {s?.sent ?? 0}, failed {s?.failed ?? 0}</div>
                 </div>
               );
             })}
@@ -559,16 +567,16 @@ const MarketingCampaigns: React.FC = () => {
         {status && (
           <StatGrid cols={5}>
             <StatCard label="Campaigns" value={status.campaigns_total} accent={meta.dot}
-              sub={`${status.campaigns_draft} draft · ${status.campaigns_scheduled} scheduled`} />
+              sub={`${status.campaigns_draft} draft, ${status.campaigns_scheduled} scheduled`} />
             <StatCard label="Messages (30d)" value={status.messages_30d} icon={Users}
               sub={status.failed_30d ? `${status.failed_30d} failed` : 'no failures'}
               tone={status.failed_30d ? 'warn' : 'default'} />
-            <StatCard label="Spend (30d)" value={`₹${Number(status.spend_30d).toFixed(2)}`} icon={Wallet} />
+            <StatCard label="Spend (30d)" value={moneyMajor(Number(status.spend_30d ?? 0))} icon={Wallet} />
             <StatCard label="Approved templates" value={status.templates_approved} icon={Megaphone}
               sub={status.templates_pending ? `${status.templates_pending} pending` : undefined}
               tone={status.templates_approved ? 'default' : 'warn'} />
             <StatCard label="Last sent" icon={Clock}
-              value={status.last_sent_at ? localeDate(status.last_sent_at) : '—'}
+              value={status.last_sent_at ? localeDate(status.last_sent_at) : 'Never'}
               sub={status.last_sent_at ? localeTime(status.last_sent_at) : 'never'} />
           </StatGrid>
         )}
@@ -586,7 +594,7 @@ const MarketingCampaigns: React.FC = () => {
       <PageHeader
         title="Campaigns"
         icon={Megaphone}
-        description="Each channel has its own panel — its own readiness, limits and history. Approved templates only · consent-filtered audiences · wallet-billed."
+        description="Each channel has its own panel with its readiness, limits and history. Only approved templates send, only to people who agreed, billed to the wallet."
         actions={
           <>
             <Btn variant="outline" size="sm" onClick={() => { loadChannels(); load(); }}><RefreshCw className="h-4 w-4" /> Refresh</Btn>
@@ -608,7 +616,7 @@ const MarketingCampaigns: React.FC = () => {
           .map((s) => <ChannelCard key={s.channel} status={s} />)}
       </div>
 
-      <SectionCard title="All campaigns" description="Every channel, newest first — open a channel panel above to compose." flush>
+      <SectionCard title="All campaigns" description="Every channel, newest first. Open a channel above to write a new one." flush>
         {table}
       </SectionCard>
       {detailCard}

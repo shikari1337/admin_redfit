@@ -79,13 +79,13 @@ const MarketingAudiences: React.FC = () => {
     <div className="space-y-6">
       <div>
         <div className="text-xs text-gray-400">
-          <a href="/panel/marketing" className="hover:underline">Marketing</a> / Audiences & Lists
+          <a href="/panel/marketing" className="hover:underline">Marketing</a> / Contact lists
         </div>
-        <h1 className="text-xl font-semibold tracking-tight text-gray-900">Audiences & Lists</h1>
+        <h1 className="text-xl font-semibold tracking-tight text-gray-900">Contact lists</h1>
         <p className="text-sm text-gray-500">
-          Lists are <b>marketing-only</b> (campaigns & automation) and are always born populated — from a dynamic
-          audience, a CRM snapshot or a CSV import. Customer PII stays server-side (lists hold ids + hashes; contacts
-          are re-resolved live at send time).
+          Lists are for marketing only (campaigns and automation). Fill one from a saved audience, from CRM leads
+          or contacts, or from a CSV file. Contact details stay on the server: a list keeps ids, and the details are
+          looked up again at send time.
         </p>
       </div>
       {error && <div className="rounded bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
@@ -93,9 +93,9 @@ const MarketingAudiences: React.FC = () => {
 
       <div className="rounded-lg border bg-white p-4 shadow-sm">
         <div className="mb-2 font-semibold">
-          Dynamic audiences
+          Saved audiences
           <span className="ml-2 text-xs font-normal text-gray-400">
-            — built-in, always fresh. Use directly in a campaign, or turn one into an auto-populated marketing list.
+            Built in and always up to date. Use one in a campaign as it is, or make a list from it.
           </span>
         </div>
         <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
@@ -107,11 +107,11 @@ const MarketingAudiences: React.FC = () => {
                 <button onClick={() => act(async () => {
                   const r = await api.post('/marketing-hub/audiences/lists/from-system', { system: a.key });
                   setInfo(`List "${payload(r).list.name}" created with ${payload(r).inserted} members (auto-populated).`);
-                })} className="mt-1 text-xs text-primary hover:underline">→ make list</button>
+                })} className="mt-1 text-xs text-primary hover:underline">Make a list</button>
               )}
             </div>
           ))}
-          {systemAudiences.length === 0 && <div className="col-span-5 text-sm text-gray-400">Loading…</div>}
+          {systemAudiences.length === 0 && <div className="col-span-full text-sm text-gray-400">{error ? 'Could not load the audiences.' : 'Loading...'}</div>}
         </div>
       </div>
 
@@ -129,8 +129,8 @@ const MarketingAudiences: React.FC = () => {
 
       {hasPerm('marketing.manage') && (
         <div className="flex gap-2">
-          <input value={newList} onChange={(e) => setNewList(e.target.value)} placeholder="New list name…"
-            className="w-64 rounded border px-2 py-1.5 text-sm" />
+          <input value={newList} onChange={(e) => setNewList(e.target.value)} placeholder="New list name"
+            className="w-full max-w-xs rounded border px-2 py-1.5 text-sm" />
           <button onClick={createList} disabled={!newList.trim()}
             className="rounded bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">
             Create list
@@ -151,7 +151,7 @@ const MarketingAudiences: React.FC = () => {
           <div key={l.id} className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-sm">
             <button onClick={() => openMembers(l)} className="min-w-[200px] flex-1 text-left">
               <span className="font-medium">{l.name}</span>
-              <span className="ml-2 text-xs text-gray-500">{l.member_count} members · {l.source}</span>
+              <span className="ml-2 text-xs text-gray-500">{l.member_count} members, from {l.source}</span>
             </button>
             {hasPerm('marketing.manage') && (
               <div className="flex gap-1.5">
@@ -159,14 +159,14 @@ const MarketingAudiences: React.FC = () => {
                   <button onClick={() => act(async () => {
                     const r = await api.post(`/marketing-hub/audiences/lists/${l.id}/refresh`);
                     setInfo(`Refreshed: +${payload(r).inserted} new members (now ${payload(r).total}).`);
-                  })} className="rounded border px-2 py-1 text-xs" title="Re-populate from its dynamic audience">⟳ Refresh</button>
+                  })} className="rounded border px-2 py-1 text-xs" title="Fill it again from its saved audience">Refresh</button>
                 )}
                 <button onClick={() => { setImportTarget(l); fileRef.current?.click(); }}
                   className="rounded border px-2 py-1 text-xs">Import CSV</button>
                 <button onClick={() => snapshotSource(l.id, 'leads')} className="rounded border px-2 py-1 text-xs">+ Leads</button>
                 <button onClick={() => snapshotSource(l.id, 'contacts')} className="rounded border px-2 py-1 text-xs">+ Contacts</button>
                 <button onClick={() => { if (window.confirm('Delete list?')) act(() => api.delete(`/marketing-hub/audiences/lists/${l.id}`)); }}
-                  className="rounded border px-2 py-1 text-xs text-red-600">✕</button>
+                  className="rounded border px-2 py-1 text-xs text-red-600" aria-label={`Delete ${l.name}`}>Delete</button>
               </div>
             )}
           </div>
@@ -176,19 +176,19 @@ const MarketingAudiences: React.FC = () => {
       {members && (
         <div className="rounded-lg border bg-white p-4 shadow-sm space-y-2">
           <div className="flex items-center justify-between">
-            <div className="font-semibold">{members.list.name} — {members.total} members (masked view)</div>
+            <div className="font-semibold">{members.list.name}: {members.total} members (details partly hidden)</div>
             <button onClick={() => setMembers(null)} className="text-sm text-gray-500">Close</button>
           </div>
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto"><table className="w-full min-w-[32rem] text-sm">
             <thead className="text-left text-gray-500">
               <tr><th className="py-1">Name</th><th>Email</th><th>Phone</th><th>Type</th><th /></tr>
             </thead>
             <tbody className="divide-y">
               {members.rows.map((m: any) => (
                 <tr key={m.id}>
-                  <td className="py-1.5">{m.name ?? '—'}</td>
-                  <td className="font-mono text-xs">{m.email ?? '—'}</td>
-                  <td className="font-mono text-xs">{m.phone ?? '—'}</td>
+                  <td className="py-1.5">{m.name ?? ''}</td>
+                  <td className="font-mono text-xs">{m.email ?? ''}</td>
+                  <td className="font-mono text-xs">{m.phone ?? ''}</td>
                   <td className="text-xs capitalize">{m.subject_type}</td>
                   <td className="text-right">
                     {hasPerm('marketing.manage') && (
@@ -201,10 +201,10 @@ const MarketingAudiences: React.FC = () => {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
           <p className="text-xs text-gray-400">
-            CSV columns: <code>name,email,phone,consent</code> — rows with consent=yes also record an opt-in
-            (source: import) in the consent ledger.
+            CSV columns: <code>name,email,phone,consent</code>. A row with consent=yes also records an opt-in
+            (source: import) in the consent record.
           </p>
         </div>
       )}

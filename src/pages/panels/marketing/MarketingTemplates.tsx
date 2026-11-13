@@ -26,12 +26,19 @@ const MarketingTemplates: React.FC = () => {
   const [info, setInfo] = useState('');
   const [rejectReason, setRejectReason] = useState('');
   const [syncing, setSyncing] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const load = async () => {
     const r = await api.get('/marketing-hub/templates', { params: filterStatus ? { status: filterStatus } : {} });
     setRows(payload(r) ?? []);
   };
-  useEffect(() => { load().catch(() => {}); }, [filterStatus]);
+  useEffect(() => {
+    setLoading(true);
+    load()
+      .catch((e: any) => setError(`The templates could not be loaded: ${e?.response?.data?.message ?? e?.message ?? 'no reason given'}`))
+      .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterStatus]);
 
   const act = async (fn: () => Promise<any>) => {
     setError('');
@@ -58,15 +65,15 @@ const MarketingTemplates: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
           <h1 className="text-xl font-semibold tracking-tight text-gray-900">Templates</h1>
           <p className="text-sm text-gray-500">
             Every template must be <b>approved</b> before a campaign or automation can send it.
             Editing an approved template sends it back to draft.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}
             className="rounded border px-2 py-1.5 text-sm">
             <option value="">All statuses</option>
@@ -85,8 +92,8 @@ const MarketingTemplates: React.FC = () => {
                 setError(e?.response?.data?.data?.message ?? e?.response?.data?.message ?? e.message);
               } finally { setSyncing(false); }
             }} className="rounded border px-3 py-1.5 text-sm disabled:opacity-50"
-              title="Auto-fetch DLT/approved SMS templates from the SMS panel (Settings → SMS/WhatsApp Templates)">
-              {syncing ? 'Syncing…' : '⟳ Sync SMS panel'}
+              title="Bring in the DLT-approved SMS templates saved on Messaging, SMS">
+              {syncing ? 'Syncing...' : 'Sync SMS'}
             </button>
           )}
           {hasPerm('marketing.manage') && (
@@ -99,14 +106,14 @@ const MarketingTemplates: React.FC = () => {
                 setError(e?.response?.data?.data?.message ?? e?.response?.data?.message ?? e.message);
               } finally { setSyncing(false); }
             }} className="rounded border px-3 py-1.5 text-sm disabled:opacity-50"
-              title="Auto-fetch your APPROVED WhatsApp templates from the WhatsApp platform">
-              {syncing ? 'Syncing…' : '⟳ Sync WhatsApp'}
+              title="Bring in the WhatsApp templates Meta has approved">
+              {syncing ? 'Syncing...' : 'Sync WhatsApp'}
             </button>
           )}
           {hasPerm('marketing.manage') && (
             <button onClick={() => setEditing({ channel: 'sms', name: '', body: '' })}
               className="rounded bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground">
-              + Template
+              New template
             </button>
           )}
         </div>
@@ -140,15 +147,15 @@ const MarketingTemplates: React.FC = () => {
                 className="mt-1 w-full rounded border px-2 py-1.5" />
             </label>
           )}
-          <label className="block text-sm">Body — variables: {'{{name}}'}, {'{{products}}'}, {'{{orderNumber}}'}, {'{{cartValue}}'}…
+          <label className="block text-sm">Text. Placeholders such as {'{{name}}'}, {'{{products}}'}, {'{{orderNumber}}'}, {'{{cartValue}}'}
             <textarea rows={5} value={editing.body ?? ''} onChange={(e) => setEditing({ ...editing, body: e.target.value })}
               className="mt-1 w-full rounded border px-2 py-1.5 font-mono text-sm" />
           </label>
           <div className="flex flex-wrap items-center gap-1.5 text-xs">
-            <span className="text-gray-500">Detected variables (auto):</span>
+            <span className="text-gray-500">Placeholders found:</span>
             {detectedVars.length
               ? detectedVars.map((v) => <span key={v} className="rounded bg-blue-50 px-1.5 py-0.5 font-mono text-blue-700">{'{{' + v + '}}'}</span>)
-              : <span className="text-gray-400">none yet — type {'{{name}}'} style placeholders in the body</span>}
+              : <span className="text-gray-400">None yet. Type placeholders such as {'{{name}}'} in the text.</span>}
           </div>
           <div className="flex gap-2">
             <button onClick={save} disabled={!editing.name || !editing.body}
@@ -161,16 +168,16 @@ const MarketingTemplates: React.FC = () => {
       )}
 
       <div className="rounded-lg border bg-white shadow-sm divide-y">
-        {rows.length === 0 && <div className="p-6 text-center text-sm text-gray-500">No templates yet.</div>}
+        {rows.length === 0 && <div className="p-6 text-center text-sm text-gray-500">{loading ? 'Loading...' : 'No templates yet.'}</div>}
         {rows.map((t) => (
           <div key={t.id} className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-sm">
             <div className="min-w-[220px] flex-1">
               <span className="font-medium">{t.name}</span>
               <span className="ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-xs uppercase">{t.channel}</span>
               <span className={`ml-2 rounded px-1.5 py-0.5 text-xs capitalize ${STATUS_BADGE[t.status] ?? ''}`}>
-                {t.status.replace('_', ' ')}
+                {String(t.status ?? '').replace('_', ' ')}
               </span>
-              {t.rejected_reason && <span className="ml-2 text-xs text-red-500" title={t.rejected_reason}>reason ⓘ</span>}
+              {t.rejected_reason && <span className="ml-2 text-xs text-red-500" title={t.rejected_reason}>Refused: {t.rejected_reason}</span>}
               <div className="mt-0.5 truncate text-xs text-gray-400" title={t.body}>{t.body}</div>
             </div>
             <div className="flex gap-1.5">
@@ -200,7 +207,7 @@ const MarketingTemplates: React.FC = () => {
               )}
               {hasPerm('marketing.manage') && (
                 <button onClick={() => { if (window.confirm('Delete template?')) act(() => api.delete(`/marketing-hub/templates/${t.id}`)); }}
-                  className="rounded border px-2 py-1 text-xs text-red-600">✕</button>
+                  className="rounded border px-2 py-1 text-xs text-red-600" aria-label={`Delete ${t.name}`}>Delete</button>
               )}
             </div>
           </div>

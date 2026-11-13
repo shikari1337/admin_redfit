@@ -126,11 +126,11 @@ export const ChannelReadinessBanner: React.FC<{ status: ChannelStatus }> = ({ st
     <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-4 py-3">
       <div className="flex items-center gap-2 text-sm font-semibold text-amber-900">
         <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" strokeWidth={2.25} />
-        {meta.label} can’t send yet
+        {meta.label} cannot send yet
       </div>
-      <ul className="mt-1.5 space-y-1 text-sm text-amber-800">
+      <ul className="mt-1.5 list-disc space-y-1 pl-5 text-sm text-amber-800">
         {status.blockers.map((b) => (
-          <li key={b}>· {b}</li>
+          <li key={b}>{b}</li>
         ))}
       </ul>
       <div className="mt-2 flex flex-wrap gap-3 text-xs">
@@ -141,7 +141,7 @@ export const ChannelReadinessBanner: React.FC<{ status: ChannelStatus }> = ({ st
         ) : null}
         {!status.templates_approved && (
           <Link to="/panel/marketing/templates" className="font-medium text-amber-900 underline">
-            Marketing → Templates
+            Open Templates
           </Link>
         )}
         {!status.module_enabled && <span className="text-amber-700">A super admin enables store modules.</span>}
