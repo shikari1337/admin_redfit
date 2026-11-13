@@ -1,18 +1,32 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { ArrowDown, ArrowUp, ExternalLink, Loader2, Save, Send } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ExternalLink, Loader2, Save, Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Chip, BlockSkeleton, toneForStatus } from '@/components/erp';
 import { useToast } from '@/hooks/use-toast';
-import WhatsAppStatusPanel, { type WaLiveState } from '@/components/templates/WhatsAppStatusPanel';
+import WhatsAppStatusPanel, { waNamesOf, type WaLiveState } from '@/components/templates/WhatsAppStatusPanel';
 import type { MsgCatalogueEntry } from '@/services/api';
 import { messagingAPI, errText, MSG_CHANNEL_LABEL, type MsgCh, type WhatsAppConfig } from '@/lib/v2/messaging';
 import { productUrl } from '@/lib/menu';
+import { cn } from '@/lib/utils';
 import { AccountBanner, ErrorNotice, GapNotice, failureOf, type LoadFailure } from './common';
 
 /** Growcord's WhatsApp Platform, where a store connects its own number (MSG-0 §6) — derived like every sibling product link. */
 const platformUrl = productUrl('wa', '/phone-numbers');
+
+/**
+ * The channel orders the server takes, exactly (growcord-rs comms `domain/notifications.rs` `priority_word`:
+ * WhatsApp then SMS, SMS then WhatsApp, WhatsApp only). A free reorder could not reach "WhatsApp only", nor
+ * leave it once stored. An order the server answered that is not among them is shown too, so nothing is hidden.
+ */
+const ORDERS: string[][] = [['whatsapp', 'sms'], ['sms', 'whatsapp'], ['whatsapp']];
+const sameOrder = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+const orderChoices = (current: string[]) =>
+  (current.length && !ORDERS.some((o) => sameOrder(o, current)) ? [...ORDERS, current] : ORDERS);
+const chName = (c: string) => MSG_CHANNEL_LABEL[c as MsgCh] ?? c;
+const orderLabel = (o: string[]) =>
+  (o.length === 1 ? `${chName(o[0])} only` : `${chName(o[0])} first, then ${o.slice(1).map(chName).join(', then ')}`);
 
 /**
  * WhatsApp ▸ Connection: which number the store's WhatsApp goes out from
@@ -36,6 +50,7 @@ const WhatsAppConnection: React.FC<{ canWrite: boolean; canWriteTemplates: boole
   const [saving, setSaving] = useState(false);
   const [switching, setSwitching] = useState(false);
   const [to, setTo] = useState('');
+  const [testKey, setTestKey] = useState('');
   const [testing, setTesting] = useState(false);
 
   const load = useCallback(async () => {
@@ -47,12 +62,15 @@ const WhatsAppConnection: React.FC<{ canWrite: boolean; canWriteTemplates: boole
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  const dirty = !!cfg && JSON.stringify(priority) !== JSON.stringify(cfg.channel_priority);
+  const dirty = !!cfg && !sameOrder(priority, cfg.channel_priority);
   const own = (cfg?.number_source ?? cfg?.mode) === 'own';
-  const move = (i: number, d: -1 | 1) => setPriority((p) => {
-    const j = i + d; if (j < 0 || j >= p.length) return p;
-    const n = p.slice(); [n[i], n[j]] = [n[j], n[i]]; return n;
-  });
+  // The test send's message: approved on the number first (the gateway's live answer), then the rest.
+  const testChoices = useMemo(() => {
+    const wa = entries.filter((e) => e.def.channels.includes('whatsapp'));
+    const ok = (e: MsgCatalogueEntry) => !!live.status && waNamesOf(e).some((nm) => live.approved.has(nm));
+    return [...wa].sort((a, b) => Number(ok(b)) - Number(ok(a)) || a.def.title.localeCompare(b.def.title))
+      .map((e) => ({ key: e.def.key, title: e.def.title, approved: ok(e) }));
+  }, [entries, live.status, live.approved]);
 
   const save = async () => {
     setSaving(true);
@@ -80,7 +98,7 @@ const WhatsAppConnection: React.FC<{ canWrite: boolean; canWriteTemplates: boole
   const test = async () => {
     setTesting(true);
     try {
-      const r = await messagingAPI.testWhatsApp(to.trim());
+      const r = await messagingAPI.testWhatsApp(to.trim(), testKey || undefined);
       toast({ variant: r.ok ? undefined : 'destructive', title: r.ok ? 'Test WhatsApp sent' : 'Test WhatsApp not sent', description: r.message });
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Test WhatsApp not sent', description: failureOf(e, 'The test was refused.').gap ? 'The test route is not on this server yet.' : errText(e, 'The test was refused.') });
@@ -113,7 +131,7 @@ const WhatsAppConnection: React.FC<{ canWrite: boolean; canWriteTemplates: boole
               <label className="mb-3 flex items-center gap-2 text-sm">
                 <Switch checked={cfg.enabled} onCheckedChange={setEnabled} disabled={!canWrite || switching} aria-label="Send on WhatsApp" />
                 <span className="text-ink">Send on WhatsApp</span>
-                {!cfg.enabled && <span className="text-xs text-ink-soft">— off: messages go by the next channel in the order below.</span>}
+                {!cfg.enabled && <span className="text-xs text-ink-soft">Off: messages go by the next channel in the order below.</span>}
               </label>
               {cfg.note && <p className="mb-2 text-xs text-ink-soft">{cfg.note}</p>}
               <dl className="grid grid-cols-[minmax(0,8rem)_1fr] gap-x-3 gap-y-1.5 text-sm">
@@ -130,20 +148,18 @@ const WhatsAppConnection: React.FC<{ canWrite: boolean; canWriteTemplates: boole
 
             <fieldset className="space-y-3 rounded-lg border border-line bg-surface p-4" disabled={!canWrite}>
               <legend className="px-1 text-sm font-semibold text-ink">Channel order</legend>
-              <div>
+              <div role="radiogroup" aria-label="Channel order" className="space-y-1.5">
                 <p className="mb-2 text-xs text-ink-soft">A message is tried on the first channel; if that cannot send, the next one.</p>
-                {priority.length === 0 ? <p className="text-xs text-ink-mute">The server sent no channel order.</p> : (
-                  <ol className="space-y-1">
-                    {priority.map((ch, i) => (
-                      <li key={ch} className="flex items-center gap-2 rounded-md border border-line px-2 py-1.5 text-sm">
-                        <span className="w-5 text-xs tabular-nums text-ink-mute">{i + 1}.</span>
-                        <span className="flex-1 text-ink">{MSG_CHANNEL_LABEL[ch as MsgCh] ?? ch}</span>
-                        <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => move(i, -1)} disabled={i === 0} aria-label={`Move ${ch} up`}><ArrowUp className="h-3.5 w-3.5" /></Button>
-                        <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => move(i, 1)} disabled={i === priority.length - 1} aria-label={`Move ${ch} down`}><ArrowDown className="h-3.5 w-3.5" /></Button>
-                      </li>
-                    ))}
-                  </ol>
-                )}
+                {orderChoices(cfg.channel_priority).map((o) => {
+                  const on = sameOrder(o, priority);
+                  return (
+                    <label key={o.join(',')} className={cn('flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm',
+                      on ? 'border-brand bg-brand/5 text-ink' : 'border-line text-ink-soft hover:text-ink')}>
+                      <input type="radio" name="wa-channel-order" className="h-4 w-4" checked={on} onChange={() => setPriority(o)} />
+                      <span>{orderLabel(o)}</span>
+                    </label>
+                  );
+                })}
               </div>
               <div className="flex items-center justify-end gap-2 border-t border-line pt-3">
                 {!canWrite && <span className="mr-auto text-xs text-ink-soft">Read-only: needs the settings.manage permission.</span>}
@@ -156,8 +172,15 @@ const WhatsAppConnection: React.FC<{ canWrite: boolean; canWriteTemplates: boole
 
             <div className="rounded-lg border border-line bg-surface p-4">
               <p className="text-sm font-semibold text-ink">Test send</p>
-              <p className="mb-2 text-xs text-ink-soft">Sends one approved test message to the number you type.</p>
+              <p className="mb-2 text-xs text-ink-soft">Sends one real message, on its sample values, to the number you type. Meta refuses a message it has not approved.</p>
               <div className="flex flex-wrap gap-2">
+                <select aria-label="Message to test" value={testKey} onChange={(e) => setTestKey(e.target.value)}
+                  className="h-9 w-full rounded-md border border-input bg-surface px-2 text-sm sm:w-72">
+                  <option value="">Default: order confirmation</option>
+                  {testChoices.map((c) => (
+                    <option key={c.key} value={c.key}>{c.title}{live.status && !c.approved ? ' (not approved yet)' : ''}</option>
+                  ))}
+                </select>
                 <Input type="tel" inputMode="tel" value={to} onChange={(e) => setTo(e.target.value)} placeholder="+91 98765 43210"
                   aria-label="Phone number for the test" className="h-9 w-full sm:w-60" />
                 <Button size="sm" className="h-9" onClick={test} disabled={testing || !phoneOk || !canWrite}

@@ -477,8 +477,9 @@ export const messagingAPI = {
     await call<any>('PUT', '/whatsapp/config', { data: body });
     return messagingAPI.whatsappConfig();
   },
-  testWhatsApp: async (to: string): Promise<TestResult> => {
-    const d = await call<any>('POST', '/whatsapp/test', { data: { to } });
+  /** `key`: the catalogue message to send (`TestBody.key`); the server's default is the order confirmation. */
+  testWhatsApp: async (to: string, key?: string): Promise<TestResult> => {
+    const d = await call<any>('POST', '/whatsapp/test', { data: key ? { to, key } : { to } });
     return { ok: d?.ok !== false, message: String(d?.message || (d?.ok === false ? 'Not sent.' : 'Sent.')) };
   },
 

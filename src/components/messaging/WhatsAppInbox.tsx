@@ -10,7 +10,7 @@ import { formatDateTime, formatDay, formatTime } from '@/utils/date';
 import type { MsgCatalogueEntry } from '@/services/api';
 import {
   messagingAPI, errCode, inboxReplyErrText, dispatchStatusLabel, INBOX_CHANNEL_LABEL,
-  type InboxChannel, type InboxCustomer, type InboxItem, type InboxThread,
+  type Approval, type InboxChannel, type InboxCustomer, type InboxItem, type InboxThread,
 } from '@/lib/v2/messaging';
 import { cn } from '@/lib/utils';
 import { ErrorNotice, GapNotice, failureOf, type LoadFailure } from './common';
@@ -42,9 +42,15 @@ export interface WhatsAppInboxProps {
   adHref?: (adId: string) => string;
   /** Called after a read or a reply changes what is unread. */
   onChanged?: () => void;
+  /**
+   * Meta's approval of a WhatsApp message, as the server stored it (the Notifications rows; `null` when it
+   * said nothing). When given, the template picker lists approved messages first and does not offer the
+   * ones Meta has not approved, which it would refuse.
+   */
+  approvalOf?: (e: MsgCatalogueEntry) => Approval;
 }
 
-const WhatsAppInbox: React.FC<WhatsAppInboxProps> = ({ canWrite, entries, channels = ['whatsapp'], counts, adHref, onChanged }) => {
+const WhatsAppInbox: React.FC<WhatsAppInboxProps> = ({ canWrite, entries, channels = ['whatsapp'], counts, adHref, onChanged, approvalOf }) => {
   const [channel, setChannel] = useState<InboxChannel>(channels[0] ?? 'whatsapp');
   const [status, setStatus] = useState<'open' | 'all'>('open');
   const [items, setItems] = useState<InboxItem[] | null>(null);
@@ -139,7 +145,7 @@ const WhatsAppInbox: React.FC<WhatsAppInboxProps> = ({ canWrite, entries, channe
         </div>
         <div className={cn('min-h-0', !openId && 'hidden md:block')}>
           {openId ? (
-            <Thread id={openId} channel={channel} canWrite={canWrite} entries={entries} adHref={adHref} onBack={() => setOpenId(null)} onChanged={changed} />
+            <Thread id={openId} channel={channel} canWrite={canWrite} entries={entries} adHref={adHref} approvalOf={approvalOf} onBack={() => setOpenId(null)} onChanged={changed} />
           ) : (
             <div className="flex h-full items-center justify-center p-6 text-sm text-ink-soft">Pick a conversation.</div>
           )}
@@ -163,8 +169,9 @@ function windowText(t: InboxThread): string {
 }
 
 const Thread: React.FC<{
-  id: string; channel: InboxChannel; canWrite: boolean; entries: MsgCatalogueEntry[]; adHref?: (adId: string) => string; onBack: () => void; onChanged: () => void;
-}> = ({ id, channel, canWrite, entries, adHref, onBack, onChanged }) => {
+  id: string; channel: InboxChannel; canWrite: boolean; entries: MsgCatalogueEntry[]; adHref?: (adId: string) => string;
+  approvalOf?: (e: MsgCatalogueEntry) => Approval; onBack: () => void; onChanged: () => void;
+}> = ({ id, channel, canWrite, entries, adHref, approvalOf, onBack, onChanged }) => {
   const { toast } = useToast();
   const [t, setT] = useState<InboxThread | null>(null);
   const [failure, setFailure] = useState<LoadFailure | null>(null);
@@ -195,8 +202,18 @@ const Thread: React.FC<{
   const ch = (t?.channel ?? channel) as InboxChannel;
   const isWa = ch === 'whatsapp';
   // Outside the window only an approved WhatsApp template may go out; Messenger and Instagram have none yet.
-  const templates = useMemo(() => entries.filter((e) => e.def.channels.includes('whatsapp')), [entries]);
-  const tpl = isWa ? templates.find((e) => e.def.key === tplKey) ?? null : null;
+  // With the server's approval known, approved messages come first and the rest are shown but not offered.
+  const templates = useMemo(() => {
+    const wa = entries.filter((e) => e.def.channels.includes('whatsapp'))
+      .map((e) => {
+        // `null` = the server said nothing for this message: offered, never guessed refused.
+        const a = approvalOf ? approvalOf(e) : null;
+        return { e, blocked: !!a && a !== 'approved' };
+      });
+    return approvalOf ? wa.sort((a, b) => Number(a.blocked) - Number(b.blocked)) : wa;
+  }, [entries, approvalOf]);
+  const tpl = isWa ? templates.find((x) => x.e.def.key === tplKey && !x.blocked)?.e ?? null : null;
+  const approvedCount = templates.filter((x) => !x.blocked).length;
 
   const send = async () => {
     if (!t) return;
@@ -224,7 +241,9 @@ const Thread: React.FC<{
     : t && !t.window_open && !isWa ? 'Outside the 24 hour window: wait for the customer to write'
       : t && !t.window_open && !tpl ? 'Outside the 24 hour window: pick an approved template'
         : t && !t.window_open && missingVar ? 'Fill every value of the template' : t?.window_open && !text.trim() ? 'Type a reply' : undefined;
-  const showCard = !isWa && !!t;
+  // Messenger and Instagram always show the card (it asks for a phone or e-mail when none matched yet); a
+  // WhatsApp thread shows it when the server matched the thread's own number to the store's orders.
+  const showCard = !!t && (!isWa || !!t.customer);
 
   return (
     <div className="flex h-full max-h-[80vh] flex-col">
@@ -285,8 +304,13 @@ const Thread: React.FC<{
                     <select aria-label="Template" value={tplKey} onChange={(e) => { setTplKey(e.target.value); setVars({}); }} disabled={!canWrite}
                       className="h-9 w-full rounded-md border border-input bg-surface px-2 text-sm">
                       <option value="">Pick a template</option>
-                      {templates.map((e) => <option key={e.def.key} value={e.def.key}>{e.def.title}</option>)}
+                      {templates.map(({ e, blocked }) => (
+                        <option key={e.def.key} value={e.def.key} disabled={blocked}>{e.def.title}{blocked ? ' (not approved by Meta)' : ''}</option>
+                      ))}
                     </select>
+                    {approvalOf && approvedCount === 0 && (
+                      <p className="text-xs text-amber-800">No WhatsApp message is approved by Meta yet, so nothing can be sent here until the customer writes again. Submit messages for approval in the Templates tab.</p>
+                    )}
                     {tpl && tpl.def.variables.length > 0 && (
                       <div className="grid gap-2 sm:grid-cols-2">
                         {tpl.def.variables.map((v) => (

@@ -4,6 +4,7 @@ import { smsTemplatesAPI, type MsgCatalogueEntry } from '@/services/api';
 import { Button } from '@/components/ui/button';
 import { Chip } from '@/components/erp/StatusChip';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 
 /**
  * WHAT THE WHATSAPP GATEWAY ACTUALLY HAS APPROVED — asked of the gateway, not
@@ -41,7 +42,10 @@ export function useWhatsAppLiveStatus(enabled: boolean): WaLiveState {
   const approved = useMemo(() => {
     const s = new Set<string>();
     for (const e of (status?.events ?? [])) {
-      if (String(e?.status ?? '').toUpperCase() === 'APPROVED') s.add(String(e.event ?? e.name));
+      if (String(e?.status ?? '').toUpperCase() !== 'APPROVED') continue;
+      // The Platform names a row by its event AND its Meta template name (`template_name`,
+      // apps/whatsapp domain/notifications/send.rs `readiness`); a catalogue template matches by the latter.
+      for (const nm of [e?.event, e?.name, e?.template_name, e?.templateName]) if (nm) s.add(String(nm));
     }
     return s;
   }, [status]);
@@ -59,6 +63,10 @@ const WhatsAppStatusPanel: React.FC<{
   canWrite: boolean;
 }> = ({ live, entries, canWrite }) => {
   const { toast } = useToast();
+  const { hasPerm } = useAuth();
+  // The submission route is `settings.manage` (growcord-rs comms `sms_templates.rs`, POST
+  // /sms-templates/whatsapp/submissions); a caller without it would only meet a 403.
+  const canSubmit = canWrite && hasPerm('settings.manage');
   const waEntries = entries.filter((e) => e.def.channels.includes('whatsapp'));
   const missing = live.status
     ? waEntries.filter((e) => !waNamesOf(e).some((n) => live.approved.has(n))).map((e) => e.def.event)
@@ -91,7 +99,7 @@ const WhatsAppStatusPanel: React.FC<{
         <Button type="button" variant="outline" size="sm" className="ml-auto" onClick={() => live.reload(true)} disabled={live.busy}>
           {live.busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />} Re-check
         </Button>
-        {missing.length > 0 && canWrite && (
+        {missing.length > 0 && canSubmit && (
           <Button type="button" size="sm" onClick={submit} disabled={live.busy}>
             <Send className="mr-1.5 h-3.5 w-3.5" /> Submit {missing.length} to Meta
           </Button>
@@ -107,6 +115,9 @@ const WhatsAppStatusPanel: React.FC<{
           <p className="mt-1.5 text-[11px] text-warn-ink">
             Submitting sends them to Meta. Approval is Meta's decision and takes time; SMS and email keep working meanwhile.
           </p>
+          {!canSubmit && (
+            <p className="mt-1 text-[11px] text-warn-ink">Submitting needs the settings.manage permission: ask the store owner.</p>
+          )}
         </div>
       )}
     </div>
