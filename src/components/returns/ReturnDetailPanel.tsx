@@ -370,6 +370,9 @@ const ReturnDetailPanel: React.FC<Props> = ({
                         {l.unit_price_minor != null && (
                           <p className="text-xs text-muted-foreground tabular-nums">
                             {inrMinor(Number(l.unit_price_minor))} each
+                            {l.eligible_amount_minor != null
+                              && Number(l.eligible_amount_minor) < Number(l.unit_price_minor) * Number(l.qty_expected ?? 0)
+                              && ', less its share of the order discount'}
                           </p>
                         )}
                       </div>
