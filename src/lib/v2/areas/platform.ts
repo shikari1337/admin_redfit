@@ -84,8 +84,9 @@ export const PLATFORM_ROUTES: V2Route[] = [
   { m: 'GET', from: '/billing/invoices/:id', row: 'platform billing.ts:137 ({report} → the statement)', to: '/api/v2/platform/billing/invoices/{id}', reply: (d) => d?.report ?? d },
   { m: 'GET', from: '/billing/invoices/:id/orders.pdf', row: 'platform billing.ts:162', to: '/api/v2/platform/billing/invoices/{id}/orders.pdf' }, // download
   { m: 'GET', from: '/billing/invoices/:p1/payment', row: 'not in this binary', gap: 'paying a platform invoice online has no v2 route (platform ROUTE_MAP: no row)' },
-  { m: 'POST', from: '/billing/invoices/:p1/payment/razorpay', row: 'not in this binary', gap: 'paying a platform invoice online has no v2 route (platform ROUTE_MAP: no row)' },
-  { m: 'POST', from: '/billing/invoices/:p1/payment/razorpay/verify', row: 'not in this binary', gap: 'paying a platform invoice online has no v2 route (platform ROUTE_MAP: no row)' },
+  // Pay now: Growcord's own Razorpay account, one order per invoice; verify settles through the webhook's own settle.
+  { m: 'POST', from: '/billing/invoices/:id/payment/razorpay', row: 'platform billing.ts:150', to: '/api/v2/platform/billing/invoices/{id}/payment/razorpay', body: () => undefined },
+  { m: 'POST', from: '/billing/invoices/:id/payment/razorpay/verify', row: 'platform billing.ts:163', to: '/api/v2/platform/billing/invoices/{id}/payment/razorpay/verify', bs: { razorpay_order_id: 's', razorpay_payment_id: 's', razorpay_signature: 's' } },
   { m: 'GET', from: '/billing/invoices/:id/tax-invoice.pdf', row: 'platform billing.ts:147', to: '/api/v2/platform/billing/invoices/{id}/tax-invoice.pdf' }, // download
   { m: 'GET', from: '/billing/usage', row: 'platform billing.ts:38', to: '/api/v2/platform/billing/usage' },
   { m: 'POST', from: '/checkout/calculate', row: 'checkout checkout.ts:163', to: '/api/v2/checkout/quote', bs: {'billing_address':{'city':'s','country':'s','pincode':'s','state':'s'},'cart_ref':'s','coupon_code':'s','items':[{'product_id':'s','quantity':'i','variation_id':'s'}],'payment_method':'s','selected_offer_ids':['s'],'shipping_address':{'city':'s','country':'s','pincode':'s','state':'s'},'warehouse_id':'s'} },

@@ -1,20 +1,37 @@
-import { useState, useEffect } from 'react';
+/**
+ * Settings > Modules: which features this store uses.
+ *
+ * Every module comes from GET /modules, which answers what the server's own module guard
+ * decides (platform api/modules.rs): the plan first, then Growcord's switch for this store,
+ * then the store's own switch, then the default. `source` says which one decided it, and
+ * `locked` means the store's own switch would change nothing, so that switch is shown but
+ * disabled, with the reason. The superadmin console reads the same answer.
+ */
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { ChevronDown, Loader2, Lock, RotateCcw, Search } from 'lucide-react';
 import { modulesAPI } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
+
+type Source = 'plan' | 'super_admin' | 'store' | 'default';
 
 interface Module {
   key: string;
   name: string;
   description?: string;
   enabled: boolean;
-  default?: boolean;
+  default_on?: boolean;
   category?: string;
-}
-
-interface RegistryModule {
-  name: string;
-  description?: string;
-  default: boolean;
-  category?: string;
+  /** Who decided the switch (server, `StoreModuleView.source`). */
+  source?: Source;
+  /** The plan or Growcord set it: the store's own switch changes nothing. */
+  locked?: boolean;
+  read_only?: boolean;
+  limit?: number | null;
 }
 
 interface StoreType {
@@ -27,299 +44,314 @@ interface StoreType {
   modules: Record<string, boolean>;
 }
 
+type Show = 'all' | 'on' | 'off' | 'locked';
+
+/** Section names for the registry's categories; an unknown category is shown in plain words. */
 const CATEGORY_LABELS: Record<string, string> = {
-  core:        'Core',
-  commerce:    'Commerce',
-  engagement:  'Engagement',
-  marketing:   'Marketing',
-  insights:    'Insights & Analytics',
-  ai:          'AI & Automation',
-  advanced:    'Advanced',
-  operations:  'Operations',
-  catalog:     'Catalog',
+  core: 'Core',
+  commerce: 'Commerce',
+  catalog: 'Catalog',
+  product_content: 'Product content',
+  engagement: 'Engagement',
+  marketing: 'Marketing',
+  insights: 'Insights and analytics',
+  ai: 'AI and automation',
+  operations: 'Operations',
+  erp: 'ERP',
+  advanced: 'Advanced',
 };
+const categoryLabel = (c: string) => CATEGORY_LABELS[c] ?? (c.charAt(0).toUpperCase() + c.slice(1)).replace(/_/g, ' ');
+
+const errorText = (err: any, fallback: string) =>
+  err?.response?.data?.message || err?.response?.data?.error?.message || err?.message || fallback;
+
+/** Why a switch is locked, in the words the card and its tooltip show. */
+function lockReason(m: Module): string | null {
+  if (m.source === 'plan') return 'Not in your plan';
+  if (m.source === 'super_admin') return 'Set by Growcord';
+  return null;
+}
 
 export default function Modules() {
+  const { refreshModules } = useAuth();
   const [modules, setModules] = useState<Module[]>([]);
-  const [registry, setRegistry] = useState<Record<string, RegistryModule>>({});
   const [storeTypes, setStoreTypes] = useState<StoreType[]>([]);
-  const [applyingType, setApplyingType] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState<string | null>(null);
-  const [initLoading, setInitLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [saving, setSaving] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
+  const [applyingType, setApplyingType] = useState<string | null>(null);
+  const [find, setFind] = useState('');
+  const [show, setShow] = useState<Show>('all');
 
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const [modulesRes, registryRes, typesRes] = await Promise.all([
-        modulesAPI.list(),
-        modulesAPI.getRegistry(),
-        modulesAPI.storeTypes().catch(() => null),
-      ]);
-      const modulesList = Array.isArray(modulesRes) ? modulesRes : modulesRes?.modules ?? [];
-      const registryData = registryRes?.registry ?? registryRes ?? {};
-      const typesList = Array.isArray(typesRes) ? typesRes : typesRes?.data ?? [];
-      setModules(modulesList);
-      setRegistry(registryData);
-      setStoreTypes(typesList);
-    } catch (err: any) {
-      setError(err?.response?.data?.error?.message || err?.message || 'Failed to load modules');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleApplyStoreType = async (t: StoreType) => {
-    const enabledCount = Object.values(t.modules).filter(Boolean).length;
-    if (!window.confirm(
-      `Apply the "${t.label}" store type?\n\nThis replaces your current module setup with this type's recommended features (${enabledCount} modules on) and sets the product compliance vertical. You can fine-tune individual modules afterwards.`
-    )) return;
-    try {
-      setApplyingType(t.key);
-      setError(null);
-      await modulesAPI.applyStoreType(t.key);
-      setSuccess(`Applied "${t.label}" store type. Reload any open product form to see the fields update.`);
-      setTimeout(() => setSuccess(null), 5000);
-      await loadData();
-    } catch (err: any) {
-      setError(err?.response?.data?.message || err?.response?.data?.error?.message || err?.message || 'Failed to apply store type');
-    } finally {
-      setApplyingType(null);
-    }
-  };
-
-  useEffect(() => {
-    loadData();
+  const load = useCallback(async () => {
+    const [list, types] = await Promise.all([
+      modulesAPI.list(),
+      modulesAPI.storeTypes().catch(() => null),
+    ]);
+    const rows: Module[] = Array.isArray(list) ? list : list?.modules ?? list?.data ?? [];
+    setModules(rows);
+    const typeRows = Array.isArray(types) ? types : types?.data ?? [];
+    setStoreTypes(typeRows);
   }, []);
 
-  const handleToggle = async (key: string, currentEnabled: boolean) => {
+  useEffect(() => {
+    let live = true;
+    load()
+      .catch((e) => { if (live) setLoadError(errorText(e, 'The modules could not be loaded.')); })
+      .finally(() => { if (live) setLoading(false); });
+    return () => { live = false; };
+  }, [load]);
+
+  /** After any write: the server's answer again (a store switch may be overridden), and the sidebar. */
+  const settle = useCallback(async (message: string) => {
+    await load();
+    refreshModules().catch(() => undefined);
+    setNotice(message);
+    window.setTimeout(() => setNotice(null), 4000);
+  }, [load, refreshModules]);
+
+  const toggle = async (m: Module, next: boolean) => {
+    setSaving(m.key);
+    setError(null);
     try {
-      setSaving(key);
-      setError(null);
-      await modulesAPI.toggle(key, !currentEnabled);
-      setModules(prev =>
-        prev.map(m => (m.key === key ? { ...m, enabled: !currentEnabled } : m))
-      );
-      setSuccess(`Module ${!currentEnabled ? 'enabled' : 'disabled'} successfully.`);
-      setTimeout(() => setSuccess(null), 3000);
-    } catch (err: any) {
-      setError(err?.response?.data?.error?.message || err?.message || 'Failed to update module');
+      await modulesAPI.toggle(m.key, next);
+      await settle(`${m.name} is ${next ? 'on' : 'off'}.`);
+    } catch (e) {
+      setError(errorText(e, `${m.name} could not be changed.`));
     } finally {
       setSaving(null);
     }
   };
 
-  const handleInitialize = async () => {
+  const reset = async () => {
+    if (!window.confirm('Put every module back to its default? Your own on and off choices are cleared. Settings inside each module are kept.')) return;
+    setResetting(true);
+    setError(null);
     try {
-      setInitLoading(true);
-      setError(null);
       await modulesAPI.initialize();
-      setSuccess('Modules initialized with defaults.');
-      setTimeout(() => setSuccess(null), 3000);
-      loadData();
-    } catch (err: any) {
-      setError(err?.response?.data?.error?.message || err?.message || 'Failed to initialize modules');
+      await settle('Every module is back to its default.');
+    } catch (e) {
+      setError(errorText(e, 'The modules could not be reset.'));
     } finally {
-      setInitLoading(false);
+      setResetting(false);
     }
   };
 
-  // Group modules by category
-  const grouped = modules.reduce<Record<string, Module[]>>((acc, mod) => {
-    const cat = mod.category ?? registry[mod.key]?.category ?? 'other';
-    if (!acc[cat]) acc[cat] = [];
-    acc[cat].push(mod);
-    return acc;
-  }, {});
+  const applyType = async (t: StoreType) => {
+    const on = Object.values(t.modules).filter(Boolean).length;
+    if (!window.confirm(`Use the "${t.label}" setup? It switches on ${on} modules suited to this kind of store, switches the others off and sets the product fields. Settings inside each module are kept, and you can change any switch afterwards.`)) return;
+    setApplyingType(t.key);
+    setError(null);
+    try {
+      await modulesAPI.applyStoreType(t.key);
+      await settle(`The "${t.label}" setup is applied. Reload an open product form to see its fields change.`);
+    } catch (e) {
+      setError(errorText(e, 'The store type could not be applied.'));
+    } finally {
+      setApplyingType(null);
+    }
+  };
 
-  const enabledCount = modules.filter(m => m.enabled).length;
+  const onCount = modules.filter((m) => m.enabled).length;
+  const notInPlan = modules.filter((m) => m.source === 'plan');
+  const byGrowcord = modules.filter((m) => m.source === 'super_admin');
+
+  const shown = useMemo(() => {
+    const q = find.trim().toLowerCase();
+    return modules.filter((m) => {
+      if (show === 'on' && !m.enabled) return false;
+      if (show === 'off' && m.enabled) return false;
+      if (show === 'locked' && !m.locked) return false;
+      if (!q) return true;
+      return [m.name, m.description, m.key].some((v) => String(v ?? '').toLowerCase().includes(q));
+    });
+  }, [modules, find, show]);
+
+  const grouped = useMemo(() => {
+    const out = new Map<string, Module[]>();
+    for (const m of shown) {
+      const c = m.category || 'other';
+      if (!out.has(c)) out.set(c, []);
+      out.get(c)!.push(m);
+    }
+    return Array.from(out.entries());
+  }, [shown]);
 
   return (
-    <div className="modules-page">
-      <div className="page-header">
-        <div>
-          <h1>Store Modules</h1>
-          <p className="page-subtitle">
-            Enable or disable features for your store. Changes take effect immediately.
+    <div className="mx-auto max-w-6xl space-y-5" data-modules-page>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold text-gray-900">Modules</h1>
+          <p className="mt-1 text-sm text-gray-500">
+            The features this store uses. A change applies at once, in this admin and on your shop.
           </p>
         </div>
-        <div className="header-actions">
-          <span className="module-count">{enabledCount}/{modules.length} active</span>
-          <button
-            className="btn btn-secondary"
-            onClick={handleInitialize}
-            disabled={initLoading}
-          >
-            {initLoading ? 'Initializing…' : 'Reset to Defaults'}
-          </button>
-        </div>
+        {!loading && !loadError && modules.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full bg-muted px-3 py-1 text-xs text-ink-soft tabular-nums" data-module-count>
+              {onCount} of {modules.length} on
+            </span>
+            <Button size="sm" variant="outline" onClick={reset} disabled={resetting}>
+              {resetting ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCcw className="size-3.5" />} Reset to defaults
+            </Button>
+          </div>
+        )}
       </div>
 
       {error && (
-        <div className="alert alert-error">
+        <div className="flex items-start justify-between gap-3 rounded-lg border border-bad/20 bg-bad-bg px-4 py-3 text-sm text-bad-ink" role="alert">
           <span>{error}</span>
-          <button onClick={() => setError(null)}>×</button>
+          <button className="text-base leading-none" onClick={() => setError(null)} aria-label="Dismiss">×</button>
         </div>
       )}
-      {success && (
-        <div className="alert alert-success">
-          <span>{success}</span>
-        </div>
-      )}
-
-      {/* ── Store-type templates ── */}
-      {!loading && storeTypes.length > 0 && (
-        <div style={{ marginBottom: 28 }}>
-          <div style={{ marginBottom: 10 }}>
-            <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Start from a store type</h2>
-            <p className="page-subtitle" style={{ margin: '2px 0 0' }}>
-              Pick the kind of store you run to enable a sensible bundle of features and product
-              fields (e.g. Fashion turns on size charts &amp; wash-care; SaaS turns off shipping).
-              Every module stays toggleable below.
-            </p>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
-            {storeTypes.map(t => {
-              const onCount = Object.values(t.modules).filter(Boolean).length;
-              return (
-                <div key={t.key} style={{
-                  border: '1px solid var(--n-200)', borderRadius: 10, padding: 14, background: 'var(--surface)',
-                  display: 'flex', flexDirection: 'column', gap: 8,
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 22, lineHeight: 1 }}>{t.icon}</span>
-                    <span style={{ fontWeight: 700, fontSize: 14 }}>{t.label}</span>
-                  </div>
-                  <p style={{ fontSize: 12, color: 'var(--n-500)', margin: 0, minHeight: 32 }}>{t.description}</p>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                    {t.highlights.slice(0, 4).map(h => (
-                      <span key={h} style={{
-                        fontSize: 10.5, color: 'var(--n-700)', background: 'var(--n-100)',
-                        borderRadius: 999, padding: '2px 8px',
-                      }}>{h}</span>
-                    ))}
-                  </div>
-                  <button
-                    className="btn btn-secondary"
-                    style={{ marginTop: 'auto', fontSize: 12.5 }}
-                    onClick={() => handleApplyStoreType(t)}
-                    disabled={applyingType !== null}
-                  >
-                    {applyingType === t.key ? 'Applying…' : `Apply (${onCount} features)`}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+      {notice && (
+        <div className="rounded-lg border border-good/20 bg-good-bg px-4 py-3 text-sm text-good-ink" role="status">{notice}</div>
       )}
 
       {loading ? (
-        <div className="loading-state">
-          <div className="spinner" />
-          <p>Loading modules…</p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-busy="true">
+          {[0, 1, 2, 3, 4, 5].map((i) => <div key={i} className="h-24 animate-pulse rounded-lg bg-gray-100" />)}
+        </div>
+      ) : loadError ? (
+        <div className="rounded-lg border bg-white px-4 py-10 text-center text-sm text-gray-500" role="alert">
+          <p className="text-bad-ink">{loadError}</p>
+          <Button className="mt-3" size="sm" variant="outline" onClick={() => {
+            setLoading(true); setLoadError(null);
+            load().catch((e) => setLoadError(errorText(e, 'The modules could not be loaded.'))).finally(() => setLoading(false));
+          }}>Try again</Button>
         </div>
       ) : modules.length === 0 ? (
-        <div className="empty-state">
-          <p>No modules found.</p>
-          <button className="btn btn-primary" onClick={handleInitialize} disabled={initLoading}>
-            {initLoading ? 'Initializing…' : 'Initialize Modules'}
-          </button>
+        <div className="rounded-lg border bg-white px-4 py-10 text-center text-sm text-gray-500">
+          <p>No module is set up for this store yet.</p>
+          <Button className="mt-3" size="sm" onClick={reset} disabled={resetting}>Set up the defaults</Button>
         </div>
       ) : (
-        <div className="modules-grid">
-          {Object.entries(grouped).map(([category, mods]) => (
-            <div key={category} className="module-category">
-              <h2 className="category-title">
-                {CATEGORY_LABELS[category] ?? category.charAt(0).toUpperCase() + category.slice(1)}
-              </h2>
-              <div className="module-cards">
-                {mods.map(mod => {
-                  const reg = registry[mod.key];
+        <>
+          {/* What to act on: switches the store cannot change from here, and why */}
+          {(notInPlan.length > 0 || byGrowcord.length > 0) && (
+            <div className="grid gap-3 md:grid-cols-2" data-module-locks>
+              {notInPlan.length > 0 && (
+                <div className="rounded-lg border border-l-4 border-l-warn bg-white p-4 text-sm">
+                  <p className="font-semibold text-gray-900">
+                    {notInPlan.length} feature{notInPlan.length === 1 ? ' is' : 's are'} not in your plan
+                  </p>
+                  <p className="mt-1 text-gray-500">
+                    {notInPlan.slice(0, 6).map((m) => m.name).join(', ')}{notInPlan.length > 6 ? ` and ${notInPlan.length - 6} more` : ''}.
+                  </p>
+                  <Link to="/settings/billing" className="mt-2 inline-block text-sm font-medium text-brand hover:underline">See your plan</Link>
+                </div>
+              )}
+              {byGrowcord.length > 0 && (
+                <div className="rounded-lg border bg-white p-4 text-sm">
+                  <p className="font-semibold text-gray-900">
+                    {byGrowcord.length} switch{byGrowcord.length === 1 ? ' is' : 'es are'} set by Growcord
+                  </p>
+                  <p className="mt-1 text-gray-500">
+                    {byGrowcord.slice(0, 6).map((m) => `${m.name} (${m.enabled ? 'on' : 'off'})`).join(', ')}{byGrowcord.length > 6 ? ` and ${byGrowcord.length - 6} more` : ''}. Ask Growcord support to change them.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {storeTypes.length > 0 && (
+            <details className="group rounded-lg border bg-white" data-store-types>
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
+                <span>
+                  <span className="block text-sm font-semibold text-gray-900">Start from a store type</span>
+                  <span className="block text-xs text-gray-500">A ready set of modules and product fields for the kind of store you run.</span>
+                </span>
+                <ChevronDown className="size-4 shrink-0 text-gray-400 transition-transform group-open:rotate-180" />
+              </summary>
+              <div className="grid grid-cols-1 gap-3 border-t p-4 sm:grid-cols-2 lg:grid-cols-3">
+                {storeTypes.map((t) => {
+                  const on = Object.values(t.modules).filter(Boolean).length;
                   return (
-                    <div key={mod.key} className={`module-card ${mod.enabled ? 'enabled' : 'disabled'}`}>
-                      <div className="module-info">
-                        <div className="module-name-row">
-                          <span className="module-name">{reg?.name ?? mod.name ?? mod.key}</span>
-                          {reg?.default && (
-                            <span className="badge badge-default">Default</span>
-                          )}
-                        </div>
-                        {(reg?.description ?? mod.description) && (
-                          <p className="module-description">{reg?.description ?? mod.description}</p>
-                        )}
-                        <code className="module-key">{mod.key}</code>
+                    <div key={t.key} className="flex flex-col gap-2 rounded-lg border p-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl leading-none" aria-hidden>{t.icon}</span>
+                        <span className="text-sm font-semibold text-gray-900">{t.label}</span>
                       </div>
-                      <div className="module-toggle">
-                        <label className="toggle-switch">
-                          <input
-                            type="checkbox"
-                            checked={mod.enabled}
-                            disabled={saving === mod.key}
-                            onChange={() => handleToggle(mod.key, mod.enabled)}
-                          />
-                          <span className="toggle-slider" />
-                        </label>
-                        <span className="toggle-label">
-                          {saving === mod.key ? 'Saving…' : mod.enabled ? 'On' : 'Off'}
-                        </span>
+                      <p className="text-xs text-gray-500">{t.description}</p>
+                      <div className="flex flex-wrap gap-1">
+                        {t.highlights.slice(0, 4).map((h) => <Badge key={h} variant="neutral" className="font-normal">{h}</Badge>)}
                       </div>
+                      <Button className="mt-auto" size="sm" variant="outline" onClick={() => applyType(t)} disabled={applyingType !== null}>
+                        {applyingType === t.key ? <Loader2 className="size-3.5 animate-spin" /> : null} Use this setup ({on} on)
+                      </Button>
                     </div>
                   );
                 })}
               </div>
-            </div>
-          ))}
-        </div>
-      )}
+            </details>
+          )}
 
-      <style>{`
-        .modules-page { padding: 24px; max-width: 1100px; margin: 0 auto; }
-        .page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; gap: 16px; flex-wrap: wrap; }
-        .page-header h1 { margin: 0 0 4px; font-size: 1.6rem; }
-        .page-subtitle { margin: 0; color: var(--n-500); font-size: 0.9rem; }
-        .header-actions { display: flex; align-items: center; gap: 12px; }
-        .module-count { font-size: 0.85rem; color: var(--n-400); background: var(--n-100); padding: 4px 12px; border-radius: 999px; }
-        .btn { padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; font-size: 0.875rem; transition: background 0.15s; }
-        .btn-primary { background: var(--accent); color: var(--surface); }
-        .btn-primary:hover { background: var(--b-700); }
-        .btn-secondary { background: var(--n-100); color: var(--n-700); border: 1px solid var(--n-300); }
-        .btn-secondary:hover { background: var(--n-200); }
-        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .alert { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 0.875rem; }
-        .alert-error { background: var(--d-50); border: 1px solid var(--d-300); color: var(--d-600); }
-        .alert-success { background: var(--g-50); border: 1px solid var(--g-300); color: var(--g-600); }
-        .alert button { background: none; border: none; cursor: pointer; font-size: 1rem; color: inherit; padding: 0 4px; }
-        .loading-state, .empty-state { text-align: center; padding: 60px 20px; color: var(--n-500); }
-        .spinner { width: 32px; height: 32px; border: 3px solid var(--n-200); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; margin: 0 auto 12px; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .modules-grid { display: flex; flex-direction: column; gap: 32px; }
-        .module-category {}
-        .category-title { font-size: 1rem; font-weight: 600; color: var(--n-700); margin: 0 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--n-200); }
-        .module-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
-        .module-card { background: var(--surface); border: 1px solid var(--n-200); border-radius: 10px; padding: 16px 20px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; transition: border-color 0.15s, box-shadow 0.15s; }
-        .module-card.enabled { border-color: var(--b-300); box-shadow: var(--shadow-1); }
-        .module-card.disabled { opacity: 0.7; }
-        .module-info { flex: 1; min-width: 0; }
-        .module-name-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-        .module-name { font-weight: 600; font-size: 0.9rem; color: var(--n-900); }
-        .badge { font-size: 0.7rem; padding: 2px 8px; border-radius: 999px; }
-        .badge-default { background: var(--i-100); color: var(--i-700); }
-        .module-description { font-size: 0.8rem; color: var(--n-500); margin: 4px 0 8px; line-height: 1.4; }
-        .module-key { font-size: 0.7rem; background: var(--n-100); padding: 2px 6px; border-radius: 4px; color: var(--n-500); }
-        .module-toggle { display: flex; flex-direction: column; align-items: center; gap: 4px; flex-shrink: 0; }
-        .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; }
-        .toggle-switch input { opacity: 0; width: 0; height: 0; }
-        .toggle-slider { position: absolute; cursor: pointer; inset: 0; background: var(--n-300); border-radius: 24px; transition: 0.2s; }
-        .toggle-slider::before { content: ''; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px; background: var(--surface); border-radius: 50%; transition: 0.2s; }
-        .toggle-switch input:checked + .toggle-slider { background: var(--accent); }
-        .toggle-switch input:checked + .toggle-slider::before { transform: translateX(20px); }
-        .toggle-switch input:disabled + .toggle-slider { opacity: 0.5; cursor: not-allowed; }
-        .toggle-label { font-size: 0.7rem; color: var(--n-500); }
-      `}</style>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-0 flex-1 sm:max-w-xs">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-gray-400" />
+              <Input value={find} onChange={(e) => setFind(e.target.value)} placeholder="Find a module" className="h-8 pl-8 text-sm" aria-label="Find a module" />
+            </div>
+            <select
+              className="h-8 rounded-md border border-input bg-surface px-2 text-sm"
+              value={show} onChange={(e) => setShow(e.target.value as Show)} aria-label="Show">
+              <option value="all">All modules</option>
+              <option value="on">On</option>
+              <option value="off">Off</option>
+              <option value="locked">Set by plan or Growcord</option>
+            </select>
+          </div>
+
+          {grouped.length === 0 ? (
+            <p className="rounded-lg border bg-white px-4 py-10 text-center text-sm text-gray-500">No module matches.</p>
+          ) : (
+            <div className="space-y-6">
+              {grouped.map(([category, mods]) => (
+                <section key={category} aria-labelledby={`modules-${category}`}>
+                  <h2 id={`modules-${category}`} className="mb-2 border-b pb-1.5 text-sm font-semibold text-gray-700">{categoryLabel(category)}</h2>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {mods.map((m) => {
+                      const why = lockReason(m);
+                      return (
+                        <div
+                          key={m.key} data-module={m.key}
+                          className={`flex items-start justify-between gap-3 rounded-lg border bg-white p-4 ${m.enabled ? 'border-brand/30' : ''}`}>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="text-sm font-semibold text-gray-900">{m.name}</span>
+                              {m.default_on && <Badge variant="neutral" className="font-normal">Default</Badge>}
+                              {why && (
+                                <Badge variant={m.source === 'plan' ? 'warn' : 'info'} className="font-normal">
+                                  <Lock className="size-3" aria-hidden /> {why}
+                                </Badge>
+                              )}
+                              {m.read_only && <Badge variant="neutral" className="font-normal">View only on your plan</Badge>}
+                              {m.limit != null && <Badge variant="neutral" className="font-normal">Up to {m.limit} on your plan</Badge>}
+                            </div>
+                            {m.description && <p className="mt-1 text-xs leading-snug text-gray-500">{m.description}</p>}
+                          </div>
+                          <div className="flex shrink-0 flex-col items-center gap-1 pt-0.5">
+                            <Switch
+                              checked={m.enabled}
+                              disabled={!!m.locked || saving === m.key}
+                              onCheckedChange={(next) => toggle(m, next)}
+                              aria-label={`${m.name}: ${m.enabled ? 'on' : 'off'}`}
+                              title={why ? `${why}. This switch cannot be changed here.` : undefined}
+                            />
+                            <span className="text-[11px] text-gray-500">{saving === m.key ? 'Saving' : m.enabled ? 'On' : 'Off'}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

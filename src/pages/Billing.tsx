@@ -74,14 +74,74 @@ interface Statement {
   withheld: string[];
 }
 interface Money { orders: number; taxable_base: number; commission: number; gst: number; total: number }
+/** The commission rate in force today for one order tier, as the server's engine resolves it. */
+interface TierRate { tier: string; label: string; rate: number | null; varies?: boolean }
 interface Usage {
   totalDue: number; overdue: number; openInvoices: number;
+  /** The plan's or the store's own monthly fee (0 when the store pays commission only). */
+  fixed_fee?: number;
   commission?: { ready: Money; in_progress: Money };
   messaging?: {
     units: number; amount: number;
     not_charged?: { own_account: number; account_not_recorded: number; switched_off: number };
   } | null;
-  rates?: { gst: number } | null;
+  rates?: {
+    gst?: number | null;
+    pricing_model?: string | null;
+    pricing_model_label?: string | null;
+    today?: TierRate[];
+  } | null;
+  /** The store's plan; null when none is set. */
+  plan?: { id: string; name: string | null; slug: string | null } | null;
+}
+
+/** What this store pays Growcord, in its plan's terms: the plan, the pricing model, rates and the fixed fee. */
+function PlanCard({ usage }: { usage: Usage | null }) {
+  const rates = usage?.rates;
+  const model = rates?.pricing_model ?? null;
+  const tiers = (rates?.today ?? []).filter((t) => t.rate != null && model !== 'fixed_only');
+  const fixed = Number(usage?.fixed_fee ?? 0);
+  const varies = tiers.some((t) => t.varies);
+  return (
+    <section className="rounded-lg border bg-white p-4 shadow-sm" data-billing-plan aria-labelledby="billing-plan-h">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 id="billing-plan-h" className="text-base font-semibold text-gray-900">Your plan</h2>
+        {rates?.pricing_model_label && <span className="text-sm text-gray-500">{rates.pricing_model_label}</span>}
+      </div>
+      <p className="mt-0.5 text-sm text-gray-700">
+        {usage?.plan?.name ?? 'No plan is set for this store yet. Your terms below come from your store settings at Growcord.'}
+      </p>
+      {(tiers.length > 0 || fixed > 0 || rates?.gst != null) ? (
+        <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
+          {tiers.map((t) => (
+            <div key={t.tier} className="min-w-0">
+              <dt className="text-xs text-gray-500">{t.label} commission</dt>
+              <dd className="text-lg font-semibold tabular-nums text-gray-900">{pct(Number(t.rate))}</dd>
+            </div>
+          ))}
+          {fixed > 0 && (
+            <div className="min-w-0">
+              <dt className="text-xs text-gray-500">Fixed fee a month</dt>
+              <dd className="text-lg font-semibold tabular-nums text-gray-900">{fmtRupees(fixed)}</dd>
+            </div>
+          )}
+          {rates?.gst != null && (
+            <div className="min-w-0">
+              <dt className="text-xs text-gray-500">GST on the fees</dt>
+              <dd className="text-lg font-semibold tabular-nums text-gray-900">{pct(Number(rates.gst))}</dd>
+            </div>
+          )}
+        </dl>
+      ) : (
+        <p className="mt-2 text-xs text-gray-500">Your rates show here once Growcord has set your terms.</p>
+      )}
+      {varies && (
+        <p className="mt-3 text-xs text-gray-500">
+          A rate here changes by channel, country or date for some orders. Each invoice&apos;s order list shows the rate applied to every order.
+        </p>
+      )}
+    </section>
+  );
 }
 
 const PAGE = 50;
@@ -534,6 +594,8 @@ export default function Billing() {
                 : notCharged > 0 ? `${notCharged.toLocaleString('en-IN')} sent on your own accounts — not charged` : 'Nothing to charge.'}
             />
           </div>
+
+          <PlanCard usage={usage} />
 
           <div className="rounded-lg border bg-white shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">

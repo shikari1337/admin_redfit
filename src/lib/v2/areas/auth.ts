@@ -100,7 +100,9 @@ export const AUTH_ROUTES: V2Route[] = [
   { m: 'GET', from: '/modules', row: 'platform S1', to: '/api/v2/platform/modules' },
   { m: 'GET', from: '/modules/registry', row: 'platform S2', to: '/api/v2/platform/modules/registry', reply: (d) => (Array.isArray(d) ? Object.fromEntries(d.filter((r: any) => r?.key).map((r: any) => [r.key, { ...r, default: r.default ?? r.default_on }])) : d) }, // [ModuleDefinitionView {key, default_on, …}] (platform views/catalog.rs:342); Modules reads the old {key: {name, default, …}} map
   { m: 'GET', from: '/modules/public', row: 'platform P14', to: '/api/v2/platform/public/modules' },
-  { m: 'PUT', from: '/modules/:key', row: 'platform S3', method: 'PATCH', to: '/api/v2/platform/modules/{key}', body: (c) => ({ enabled: c.body?.enabled ?? null, config: c.body?.config ?? null }) },
+  // `config` only when the caller sent it: an explicit null CLEARS the stored config (platform api/modules.rs SwitchBody),
+  // so a plain on/off toggle sending `config: null` wiped settings kept there (the b2b module's B2B settings).
+  { m: 'PUT', from: '/modules/:key', row: 'platform S3', method: 'PATCH', to: '/api/v2/platform/modules/{key}', body: (c) => ({ enabled: c.body?.enabled ?? null, ...(c.body && typeof c.body === 'object' && 'config' in c.body ? { config: c.body.config ?? null } : {}) }) },
   { m: 'POST', from: '/modules/bulk', row: 'platform S4', to: '/api/v2/platform/modules/bulk', body: (c) => ({ modules: (c.body?.modules ?? []).map((x: any) => ({ key: x.key, enabled: x.enabled ?? null })) }) },
   { m: 'POST', from: '/modules/initialize', row: 'platform S5', to: '/api/v2/platform/modules/initialize', body: () => ({}) },
   { m: 'GET', from: '/modules/store-types', row: 'platform S7', to: '/api/v2/platform/store-types' },
