@@ -5,11 +5,11 @@ import {
   Page, PageHeader, SectionCard, Btn, StatusChip,
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow,
   FilterBar, Field, TextInput, SelectInput, SearchInput, TabBar, inr,
-  ExportMenu, type CsvColumn,
+  ExportMenu, Pagination, DrillLink, TableSkeleton, type CsvColumn,
 } from '../../components/erp';
 import InfoTip from '../../components/common/InfoTip';
 import type { Tone } from '../../components/erp';
-import { FileText, Download, RotateCcw, Truck, Package, Search } from 'lucide-react';
+import { FileText, Download, RotateCcw, Truck, Package, Search, AlertTriangle, Loader2 } from 'lucide-react';
 
 /**
  * Credit / Debit Notes & Challans (Part I §8 sales spine; §11 documents).
@@ -27,6 +27,24 @@ import { FileText, Download, RotateCcw, Truck, Package, Search } from 'lucide-re
 type Kind = 'credit' | 'debit';
 const STATUS_TONE: Record<string, Tone> = { draft: 'amber', issued: 'green', cancelled: 'red', open: 'blue', dispatched: 'green' };
 const Pill: React.FC<{ status: string }> = ({ status }) => <StatusChip status={status} tone={STATUS_TONE[status] ?? 'neutral'} />;
+
+/** Rows per page of a register (books answers 50 by default). */
+const PAGE_SIZE = 50;
+/** A note's states (books `sales_credit_notes.status` / `sales_debit_notes.status`). */
+type NoteStatus = 'draft' | 'issued' | 'cancelled';
+const NOTE_STATUSES: NoteStatus[] = ['draft', 'issued', 'cancelled'];
+const NOTE_STATUS_LABEL: Record<NoteStatus, string> = { draft: 'Draft', issued: 'Issued', cancelled: 'Cancelled' };
+/** The challan types books accepts (db/sales_docs.rs `delivery`, `jobwork`), in plain words. */
+const CHALLAN_TYPE_LABEL: Record<string, string> = { delivery: 'Delivery', jobwork: 'Job work' };
+/** Settlements that send money back (a refund is raised for them, Refunds page). */
+const MONEY_BACK = ['cash', 'bank'];
+const settlementOf = (r: any): string =>
+  typeof r?.settlement === 'string' ? r.settlement : String(r?.settlement?.mode ?? r?.settlement?.method ?? '');
+/** The register's full count: the v2 page keeps `total` on the list; an older answer counts its rows. */
+const listCount = (d: any, list: any[]): number => {
+  const t = Number(d?.total ?? (list as any)?.total);
+  return Number.isFinite(t) && t >= list.length ? t : list.length;
+};
 
 interface OrderLine { variation_id: string | null; product_id: string; product_name: string; sku: string; quantity: number; price: number; credit: number }
 
@@ -121,17 +139,56 @@ const NotePanel: React.FC<{ kind: Kind }> = ({ kind }) => {
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
 
-  const [rows, setRows] = useState<any[]>([]);
+  // The register: one page at a time (the server answers 50 by default), with its drafts counted
+  // apart so a note left unissued is never lost behind older pages. `null` = still loading.
+  const [rows, setRows] = useState<any[] | null>(null);
+  const [listTotal, setListTotal] = useState(0);
+  const [listErr, setListErr] = useState('');
+  const [page, setPage] = useState(1);
+  const [show, setShow] = useState<'' | NoteStatus>('');
+  const [drafts, setDrafts] = useState(0);
+  const [rowBusy, setRowBusy] = useState('');
   const [find, setFind] = useState('');
   const loadList = async () => {
-    try { const d = payload<any>(await api.get(base)); setRows(Array.isArray(d) ? d : (d?.rows ?? [])); } catch { /* keep */ }
+    setListErr('');
+    try {
+      const d = payload<any>(await api.get(base, {
+        params: { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE, ...(show ? { status: show } : {}) },
+      }));
+      const list: any[] = Array.isArray(d) ? d : (d?.rows ?? []);
+      setRows(list);
+      setListTotal(listCount(d, list));
+    } catch (e: any) {
+      setRows((r) => r ?? []);
+      setListErr(e?.response?.data?.message ?? e.message ?? 'The register could not be loaded.');
+    }
+    // Drafts waiting to be issued, counted on their own (one row is enough to read the total).
+    try { const d = payload<any>(await api.get(base, { params: { status: 'draft', limit: 1 } })); setDrafts(listCount(d, Array.isArray(d) ? d : [])); }
+    catch { /* the count is advice; the register above already said what failed */ }
   };
-  useEffect(() => { loadList(); /* eslint-disable-next-line */ }, [kind]);
+  useEffect(() => { setRows(null); loadList(); /* eslint-disable-next-line */ }, [kind, page, show]);
+  const showOnly = (s: '' | NoteStatus) => { setShow(s); setPage(1); };
+
+  /** Issue or cancel a draft from the register (a note created and left before "Issue"). */
+  const act = async (r: any, step: 'issue' | 'cancel') => {
+    if (step === 'cancel' && !window.confirm(`Cancel draft ${r[numberField] ?? ''}? It was never issued, so nothing in your books or stock changes. The number stays used.`)) return;
+    setRowBusy(r.id); setErr(''); setMsg('');
+    try {
+      const doc = payload<any>(await api.post(`${base}/${r.id}/${step}`, {}));
+      setMsg(step === 'issue'
+        ? `${doc?.[numberField] ?? r[numberField]} issued.${isCredit && doc?.restock ? ' Returned stock is back on the shelf.' : ''}`
+        : `Draft ${doc?.[numberField] ?? r[numberField]} cancelled.`);
+      if (created?.id === r.id) setCreated(doc);
+      await loadList();
+    } catch (e: any) { setErr(e?.response?.data?.message ?? e.message); }
+    finally { setRowBusy(''); }
+  };
 
   const shown = React.useMemo(() => {
+    const all = rows ?? [];
     const q = find.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r: any) => [r[numberField], r.order_number, r.reason]
+    if (!q) return all;
+    return all.filter((r: any) => [r[numberField], r.order_number, r.reason, r.customer_name]
       .some((v: any) => String(v ?? '').toLowerCase().includes(q)));
   }, [rows, find, numberField]);
 
@@ -250,11 +307,26 @@ const NotePanel: React.FC<{ kind: Kind }> = ({ kind }) => {
         )}
       </SectionCard>
 
+      {/* What to act on first: drafts that were created and never issued. */}
+      {drafts > 0 && show !== 'draft' && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 text-sm text-amber-900">
+          <span className="flex items-center gap-1.5">
+            <AlertTriangle className="h-4 w-4" />
+            {drafts} draft {isCredit ? 'credit' : 'debit'} note{drafts === 1 ? '' : 's'} not issued yet: {isCredit ? 'the GST and stock are not corrected' : 'the extra charge is not billed'} until you issue {drafts === 1 ? 'it' : 'them'}.
+          </span>
+          <Btn variant="outline" size="sm" onClick={() => showOnly('draft')}>Show drafts</Btn>
+        </div>
+      )}
+
       <SectionCard
-        title={isCredit ? 'Recent credit notes' : 'Recent debit notes'}
+        title={isCredit ? 'Credit notes' : 'Debit notes'}
         action={
           <FilterBar>
-            <SearchInput className="w-56" placeholder="Number, order or reason…" value={find} onChange={(e) => setFind(e.target.value)} />
+            <SelectInput aria-label="Show" value={show} onChange={(e) => showOnly(e.target.value as '' | NoteStatus)}>
+              <option value="">Every note</option>
+              {NOTE_STATUSES.map((s) => <option key={s} value={s}>{NOTE_STATUS_LABEL[s]}</option>)}
+            </SelectInput>
+            <SearchInput className="w-56" placeholder="Number, order, customer or reason" value={find} onChange={(e) => setFind(e.target.value)} />
             <ExportMenu
               filename={isCredit ? 'credit-notes' : 'debit-notes'}
               columns={noteCsvCols(numberField)}
@@ -264,28 +336,60 @@ const NotePanel: React.FC<{ kind: Kind }> = ({ kind }) => {
           </FilterBar>
         }
       >
+        {listErr && <div className="mb-3 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">Could not load the notes: {listErr}</div>}
         <TableShell>
           <table className="w-full text-sm">
             <THead><Th>Number</Th><Th>Against order</Th><Th>Reason</Th><Th>Status</Th><Th num>Total</Th><Th></Th></THead>
+            {rows === null && <TableSkeleton cols={6} rows={4} />}
             <TBody>
-              {shown.length === 0 && (
+              {rows !== null && shown.length === 0 && (
                 <EmptyRow colSpan={6}>
-                  {find ? 'Nothing matches what you typed.' : `No ${isCredit ? 'credit' : 'debit'} notes yet — raise one above.`}
+                  {find ? 'Nothing matches what you typed.'
+                    : show ? `No ${NOTE_STATUS_LABEL[show].toLowerCase()} ${isCredit ? 'credit' : 'debit'} notes.`
+                      : `No ${isCredit ? 'credit' : 'debit'} notes yet. Raise one above.`}
                 </EmptyRow>
               )}
               {shown.map((r: any) => (
                 <Tr key={r.id}>
                   <Td className="font-mono text-xs">{r[numberField]}</Td>
-                  <Td className="font-mono text-xs text-gray-500">{r.order_number || '—'}</Td>
-                  <Td className="max-w-[16rem] truncate">{r.reason || '—'}</Td>
-                  <Td><Pill status={r.status} /></Td>
+                  <Td className="text-xs">
+                    {r.order_id
+                      ? <DrillLink to={`/orders/${r.order_id}`} className="font-mono">{r.order_number || 'Order'}</DrillLink>
+                      : <span className="font-mono text-gray-500">{r.order_number || '-'}</span>}
+                    {r.customer_name && <span className="block text-gray-400">{r.customer_name}</span>}
+                  </Td>
+                  <Td className="max-w-[16rem] truncate">{r.reason || '-'}</Td>
+                  <Td>
+                    <Pill status={r.status} />
+                    {isCredit && r.status === 'issued' && MONEY_BACK.includes(settlementOf(r)) && (
+                      <DrillLink to="/panel/orders/refunds" className="mt-0.5 block text-xs">Money back: Refunds</DrillLink>
+                    )}
+                  </Td>
                   <Td num>{inr(r.total)}</Td>
-                  <Td><Btn variant="ghost" size="sm" onClick={() => openBlob(`${base}/${r.id}/pdf`, () => {})}><Download className="h-4 w-4" /></Btn></Td>
+                  <Td>
+                    <div className="flex flex-wrap items-center justify-end gap-1">
+                      {r.status === 'draft' && (
+                        <>
+                          <Btn variant="primary" size="sm" disabled={rowBusy === r.id} onClick={() => act(r, 'issue')}>
+                            {rowBusy === r.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}Issue
+                          </Btn>
+                          <Btn variant="ghost" size="sm" disabled={rowBusy === r.id} onClick={() => act(r, 'cancel')}>Cancel</Btn>
+                        </>
+                      )}
+                      {r.status === 'issued' && (
+                        <InfoTip text={isCredit
+                          ? 'An issued credit note stays in your books. To correct it, raise a debit note against the same order.'
+                          : 'An issued debit note stays in your books. To correct it, raise a credit note against the same order.'} />
+                      )}
+                      <Btn variant="ghost" size="sm" title="Download PDF" onClick={() => openBlob(`${base}/${r.id}/pdf`, setErr)}><Download className="h-4 w-4" /></Btn>
+                    </div>
+                  </Td>
                 </Tr>
               ))}
             </TBody>
           </table>
         </TableShell>
+        <Pagination page={page} pageSize={PAGE_SIZE} total={listTotal} onPage={setPage} />
       </SectionCard>
     </div>
   );
@@ -298,16 +402,32 @@ const ChallanPanel: React.FC = () => {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
-  const [rows, setRows] = useState<any[]>([]);
+  // `null` = still loading; one page at a time (books answers 50 by default).
+  const [rows, setRows] = useState<any[] | null>(null);
+  const [listTotal, setListTotal] = useState(0);
+  const [listErr, setListErr] = useState('');
+  const [page, setPage] = useState(1);
   const [find, setFind] = useState('');
 
-  const loadList = async () => { try { const d = payload<any>(await api.get('/sales-docs/challans')); setRows(Array.isArray(d) ? d : (d?.rows ?? [])); } catch { /* keep */ } };
-  useEffect(() => { loadList(); }, []);
+  const loadList = async () => {
+    setListErr('');
+    try {
+      const d = payload<any>(await api.get('/sales-docs/challans', { params: { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE } }));
+      const list: any[] = Array.isArray(d) ? d : (d?.rows ?? []);
+      setRows(list);
+      setListTotal(listCount(d, list));
+    } catch (e: any) {
+      setRows((r) => r ?? []);
+      setListErr(e?.response?.data?.message ?? e.message ?? 'The challans could not be loaded.');
+    }
+  };
+  useEffect(() => { loadList(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [page]);
 
   const shown = React.useMemo(() => {
+    const all = rows ?? [];
     const q = find.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r: any) => [r.challan_number, r.order_number, r.type]
+    if (!q) return all;
+    return all.filter((r: any) => [r.challan_number, r.order_number, r.type]
       .some((v: any) => String(v ?? '').toLowerCase().includes(q)));
   }, [rows, find]);
 
@@ -317,7 +437,7 @@ const ChallanPanel: React.FC = () => {
     setBusy(true); setErr(''); setMsg('');
     try {
       const c = payload<any>(await api.post('/sales-docs/challans', { order: id, type }));
-      setMsg(`Challan ${c.challan_number} created — opening the printable copy.`);
+      setMsg(`Challan ${c.challan_number} created. Opening the printable copy.`);
       await openBlob(`/sales-docs/challans/${c.id}/pdf`, setErr);
       loadList();
     } catch (e: any) { setErr(e?.response?.data?.message ?? e.message); }
@@ -333,7 +453,7 @@ const ChallanPanel: React.FC = () => {
   return (
     <div className="space-y-4">
       <SectionCard title="Print a delivery challan or packing slip"
-        description="These are the papers the delivery person carries with the goods. They list the items and quantities — never prices or tax. A delivery challan is NOT a tax invoice.">
+        description="These are the papers the delivery person carries with the goods. They list the items and quantities, never prices or tax. A delivery challan is NOT a tax invoice.">
         {err && <div className="mb-3 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{err}</div>}
         {msg && <div className="mb-3 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{msg}</div>}
         <FilterBar>
@@ -342,8 +462,7 @@ const ChallanPanel: React.FC = () => {
           </Field>
           <Field label="Challan type">
             <SelectInput value={type} onChange={(e) => setType(e.target.value as any)}>
-              <option value="delivery">Delivery</option>
-              <option value="jobwork">Job work</option>
+              {Object.entries(CHALLAN_TYPE_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </SelectInput>
           </Field>
           <Btn variant="primary" onClick={makeChallan} disabled={busy}><Truck className="h-4 w-4" /> {busy ? 'Working…' : 'Create & print delivery challan'}</Btn>
@@ -370,23 +489,30 @@ const ChallanPanel: React.FC = () => {
           </FilterBar>
         }
       >
+        {listErr && <div className="mb-3 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">Could not load the challans: {listErr}</div>}
         <TableShell>
           <table className="w-full text-sm">
             <THead><Th>Challan #</Th><Th>Order</Th><Th>Type</Th><Th>Status</Th><Th></Th></THead>
+            {rows === null && <TableSkeleton cols={5} rows={4} />}
             <TBody>
-              {shown.length === 0 && <EmptyRow colSpan={5}>{find ? 'Nothing matches what you typed.' : 'No challans yet — create one above when goods leave.'}</EmptyRow>}
+              {rows !== null && shown.length === 0 && <EmptyRow colSpan={5}>{find ? 'Nothing matches what you typed.' : 'No challans yet. Create one above when goods leave.'}</EmptyRow>}
               {shown.map((r: any) => (
                 <Tr key={r.id}>
                   <Td className="font-mono text-xs">{r.challan_number}</Td>
-                  <Td className="font-mono text-xs text-gray-500">{r.order_number || '—'}</Td>
-                  <Td className="capitalize">{r.type}</Td>
+                  <Td className="text-xs">
+                    {r.order_id
+                      ? <DrillLink to={`/orders/${r.order_id}`} className="font-mono">{r.order_number || 'Order'}</DrillLink>
+                      : <span className="font-mono text-gray-500">{r.order_number || '-'}</span>}
+                  </Td>
+                  <Td>{CHALLAN_TYPE_LABEL[r.type] ?? r.type}</Td>
                   <Td><Pill status={r.status} /></Td>
-                  <Td><Btn variant="ghost" size="sm" onClick={() => openBlob(`/sales-docs/challans/${r.id}/pdf`, () => {})}><Download className="h-4 w-4" /></Btn></Td>
+                  <Td><Btn variant="ghost" size="sm" title="Download PDF" onClick={() => openBlob(`/sales-docs/challans/${r.id}/pdf`, setErr)}><Download className="h-4 w-4" /></Btn></Td>
                 </Tr>
               ))}
             </TBody>
           </table>
         </TableShell>
+        <Pagination page={page} pageSize={PAGE_SIZE} total={listTotal} onPage={setPage} />
       </SectionCard>
     </div>
   );

@@ -1,14 +1,15 @@
 import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Undo2, Loader2, CheckCircle2, XCircle, Send, RotateCw, X, Plus, ShieldCheck, AlertTriangle,
-  ShieldAlert, KeyRound, Link2,
+  ShieldAlert, KeyRound, Link2, HandCoins,
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { payload } from '@/lib/unwrap';
 import {
   Page, PageHeader, Btn, FilterBar, Field, TextInput, SelectInput, SearchInput,
   StatCard, StatGrid, TableShell, THead, Th, TBody, Tr, Td, EmptyRow, EmptyState, Chip,
-  ExportMenu, TableSkeleton, type CsvColumn,
+  ExportMenu, TableSkeleton, Pagination, DrillLink, inrMinor, inr as inrRupees, type CsvColumn,
 } from '../../components/erp';
 import InfoTip from '../../components/common/InfoTip';
 import RefundDossier from '../../components/refunds/RefundDossier';
@@ -32,10 +33,11 @@ import { exportsAPI } from '../../services/api';
  *  • The queue puts failures first: an unfinished refund is a customer waiting.
  */
 
-const inr = (minor: any) => {
-  const n = Number(minor);
-  return Number.isFinite(n) ? `₹${(n / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—';
-};
+/** Paise to money text: the kit's one formatter (refund amounts travel as paise on this screen). */
+const inr = inrMinor;
+
+/** Rows per page of the queue (the API answers at most 200). */
+const PAGE_SIZE = 50;
 
 /** The queue as a spreadsheet — the same columns, in the same order. */
 const REFUND_CSV_COLUMNS: CsvColumn<any>[] = [
@@ -131,6 +133,7 @@ const SOURCE_LABEL: Record<string, string> = {
   rto: 'Parcel came back',
   cancellation: 'Order cancelled',
   credit_note: 'Credit note',
+  return: 'Return settled',
   manual: 'Entered by hand',
 };
 const METHOD_LABEL: Record<string, string> = {
@@ -139,13 +142,48 @@ const METHOD_LABEL: Record<string, string> = {
   store_credit: 'Kept as store credit',
   adjustment: 'Adjusted against another order',
 };
+/** The queue's short "How" words (an `adjustment` once showed as store credit). */
+const METHOD_SHORT: Record<string, string> = {
+  gateway: 'Original payment',
+  bank_transfer: 'Bank transfer',
+  store_credit: 'Store credit',
+  adjustment: 'Adjusted',
+};
 
 const STATUS_FILTERS = ['', 'requested', 'approved', 'executing', 'failed', 'completed', 'rejected'];
 
+/** One way the money can go back for an order, and why not (`RefundableView.rails`). */
+interface Rail { method: string; available: boolean; reason?: string | null }
+
+/** A paid order owing money back with no refund raised (`GET /refunds/owed`, rupees). */
+interface OwedOrder {
+  order_id: string | null;
+  order_number: string | null;
+  customer_name?: string | null;
+  order_status?: string | null;
+  payment_method?: string | null;
+  paid: number;
+  refunded: number;
+  owed: number;
+  default_rail?: string | null;
+  turned_down_before?: boolean;
+  updated_at?: string | null;
+}
+interface Owed { orders: OwedOrder[]; total_owed: number; more: boolean }
+
 const Refunds: React.FC = () => {
+  // Deep links: `?status=failed` opens the queue filtered (the home board's links), `?refund=<id>`
+  // opens one refund. Read once, on arrival.
+  const [params] = useSearchParams();
+  const linkedStatus = params.get('status') ?? '';
+  const linkedRefund = params.get('refund') ?? '';
   const [list, setList] = useState<Refund[] | null>(null);
+  const [listTotal, setListTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [summary, setSummary] = useState<Summary | null>(null);
-  const [status, setStatus] = useState('');
+  const [owed, setOwed] = useState<Owed | null>(null);
+  const [owedErr, setOwedErr] = useState('');
+  const [status, setStatus] = useState(STATUS_FILTERS.includes(linkedStatus) ? linkedStatus : '');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [find, setFind] = useState('');
@@ -187,12 +225,40 @@ const Refunds: React.FC = () => {
 
   const load = () => {
     setList(null);
-    api.get('/refunds', { params: { ...(status ? { status } : {}), ...(from ? { from } : {}), ...(to ? { to } : {}) } })
-      .then((r) => setList(payload<Refund[]>(r) ?? []))
-      .catch((e) => { setList([]); err(e); });
+    api.get('/refunds', {
+      params: {
+        ...(status ? { status } : {}), ...(from ? { from } : {}), ...(to ? { to } : {}),
+        limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE,
+      },
+    })
+      .then((r) => {
+        const rows = payload<Refund[]>(r) ?? [];
+        setList(rows);
+        // The v2 page keeps its `total` on the list; an older answer without one counts the rows.
+        const t = Number((rows as unknown as { total?: number }).total);
+        setListTotal(Number.isFinite(t) && t >= rows.length ? t : rows.length);
+      })
+      .catch((e) => { setList([]); setListTotal(0); err(e); });
     api.get('/refunds/summary').then((r) => setSummary(payload<Summary>(r))).catch(() => {});
   };
-  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [status, from, to]);
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [status, from, to, page]);
+  /**
+   * Money owed with no refund raised: advice for the desk, never a blocker for the queue. Read on
+   * arrival and after a refund is raised or decided (each order is priced on the server), not on
+   * every filter or page change.
+   */
+  const loadOwed = () => {
+    api.get('/refunds/owed')
+      .then((r) => { setOwed(payload<Owed>(r) ?? null); setOwedErr(''); })
+      .catch((e) => { setOwed(null); setOwedErr(e?.response?.data?.message ?? e?.message ?? 'Could not check for money owed.'); });
+  };
+  useEffect(() => { loadOwed(); }, []);
+  /** Change what the queue shows; a new filter starts from its first page (one render, one fetch). */
+  const showStatus = (s: string) => { setStatus(s); setPage(1); };
+  const showFrom = (d: string) => { setFrom(d); setPage(1); };
+  const showTo = (d: string) => { setTo(d); setPage(1); };
+  // `?refund=<id>`: open that refund once.
+  useEffect(() => { if (linkedRefund) openDetail(linkedRefund); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [linkedRefund]);
 
   /**
    * `/refunds` filters on status and date, not on text, so this narrows the
@@ -241,7 +307,7 @@ const Refunds: React.FC = () => {
       // The execute route answers 200 even when the gateway refused — read `ok`.
       if (verb === 'execute' && (res as any)?.ok === false) setMsg(m || 'The refund did not go through.');
       else setOk(m || 'Done.');
-      await openDetail(detail.id); load();
+      await openDetail(detail.id); load(); loadOwed();
     } catch (e) { err(e); }
     finally { setBusy(false); }
   };
@@ -265,18 +331,46 @@ const Refunds: React.FC = () => {
     } catch (e) { err(e); } finally { setBusy(false); }
   };
 
-  const checkRefundable = async () => {
-    if (!orderNumber.trim()) return;
+  /**
+   * What the order can still send back, and on which rails. `forOrder` (the owed list's Raise refund)
+   * fills the form afresh; typing an order number keeps an amount already entered.
+   */
+  const checkRefundable = async (forOrder?: string) => {
+    const number = (forOrder ?? orderNumber).trim();
+    if (!number) return;
     setMsg(''); setRefundable(null);
     try {
-      const snap = payload<any>(await api.get(`/refunds/refundable/${encodeURIComponent(orderNumber.trim())}`));
+      const snap = payload<any>(await api.get(`/refunds/refundable/${encodeURIComponent(number)}`));
       setRefundable(snap);
       // Fill in what is owed (REF-OWED-1), never the whole payment on an order whose goods were kept.
       const owedMinor = Number(snap?.owedMinor ?? snap?.refundableMinor ?? 0);
-      if (!amount.trim() && owedMinor > 0) setAmount((owedMinor / 100).toFixed(2));
+      if ((forOrder || !amount.trim()) && owedMinor > 0) setAmount((owedMinor / 100).toFixed(2));
+      // Offer only a rail the order can use: a COD order has no card or UPI payment to reverse.
+      const rails: Rail[] = Array.isArray(snap?.rails) ? snap.rails : [];
+      const usable = (m: string) => rails.length === 0 || rails.some((r) => r.method === m && r.available);
+      const preferred = snap?.defaultRail ?? snap?.default_rail;
+      if (forOrder && preferred && usable(preferred)) setMethod(preferred);
+      else if (!usable(method)) {
+        const first = preferred && usable(preferred) ? preferred : rails.find((r) => r.available)?.method;
+        if (first) setMethod(first);
+      }
     }
     catch (e) { err(e); }
   };
+
+  /** The owed list's Raise refund: the form, filled with this order and what it owes. */
+  const raiseFor = (o: OwedOrder) => {
+    const number = o.order_number ?? o.order_id ?? '';
+    if (!number) return;
+    setDetail(null); setOk(''); setCreating(true);
+    setOrderNumber(number); setAmount(''); setNewReason('');
+    checkRefundable(number);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  /** The order's rails as the form reads them (none known yet = every method offered). */
+  const rails: Rail[] = Array.isArray(refundable?.rails) ? refundable.rails : [];
+  const railOf = (m: string) => rails.find((r) => r.method === m);
 
   const create = async () => {
     // A blank amount once meant "everything the customer paid"; now it must be said.
@@ -292,7 +386,7 @@ const Refunds: React.FC = () => {
       });
       setOk((res as any)?.message ?? 'Refund requested.');
       setCreating(false); setOrderNumber(''); setAmount(''); setNewReason(''); setRefundable(null);
-      load();
+      load(); loadOwed();
       const created = payload<Refund>(res);
       if (created?.id) openDetail(created.id);
     } catch (e) { err(e); }
@@ -305,9 +399,9 @@ const Refunds: React.FC = () => {
   return (
     <Page>
       <PageHeader
-        title="Refunds — money going back to customers"
+        title="Refunds: money going back to customers"
         icon={Undo2}
-        description="When a prepaid parcel comes back, an order is cancelled, or you issue a credit note settled in cash, the money owed shows up here. Every refund follows one path — asked for, approved, sent, confirmed — so nothing is ever forgotten or paid twice."
+        description="When a prepaid parcel comes back, an order is cancelled, or you issue a credit note settled in cash, the money owed shows up here. Every refund follows one path (asked for, approved, sent, confirmed), so nothing is ever forgotten or paid twice."
         actions={
           <Btn variant={creating ? 'outline' : 'primary'} onClick={() => { setCreating((v) => !v); setDetail(null); setMsg(''); setOk(''); }}>
             <Plus className="h-4 w-4" />{creating ? 'Cancel' : 'Refund by hand'}
@@ -318,20 +412,72 @@ const Refunds: React.FC = () => {
       {msg && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{msg}</div>}
       {ok && <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{ok}</div>}
 
-      {/* TILES */}
+      {/* TILES: each one opens the queue at that step (press again to show everything). */}
       {summary && (
         <StatGrid cols={5}>
-          <StatCard label="Waiting for approval" value={inr(summary.awaitingApproval.amountMinor)}
-            sub={`${summary.awaitingApproval.count} refund(s)`} tone={summary.awaitingApproval.count ? 'warn' : 'default'} icon={ShieldCheck} />
-          <StatCard label="Ready to send" value={inr(summary.readyToSend.amountMinor)}
-            sub={`${summary.readyToSend.count} approved, not yet paid`} tone={summary.readyToSend.count ? 'info' : 'default'} icon={Send} />
-          <StatCard label="Sending now" value={inr(summary.executing.amountMinor)}
-            sub={`${summary.executing.count} at the gateway`} icon={Loader2} />
-          <StatCard label="Didn't go through" value={inr(summary.failed.amountMinor)}
-            sub={`${summary.failed.count} need a retry`} tone={summary.failed.count ? 'bad' : 'default'} icon={AlertTriangle} />
-          <StatCard label="Sent back this month" value={inr(summary.completedThisMonth.amountMinor)}
-            sub={`${summary.completedThisMonth.count} refund(s) completed`} tone="good" icon={CheckCircle2} />
+          {([
+            { key: 'requested', node: <StatCard label="Waiting for approval" value={inr(summary.awaitingApproval.amountMinor)}
+              sub={`${summary.awaitingApproval.count} refund(s)`} tone={summary.awaitingApproval.count ? 'warn' : 'default'} icon={ShieldCheck} /> },
+            { key: 'approved', node: <StatCard label="Ready to send" value={inr(summary.readyToSend.amountMinor)}
+              sub={`${summary.readyToSend.count} approved, not yet paid`} tone={summary.readyToSend.count ? 'info' : 'default'} icon={Send} /> },
+            { key: 'executing', node: <StatCard label="Sending now" value={inr(summary.executing.amountMinor)}
+              sub={`${summary.executing.count} at the gateway`} icon={Loader2} /> },
+            { key: 'failed', node: <StatCard label="Didn't go through" value={inr(summary.failed.amountMinor)}
+              sub={`${summary.failed.count} need a retry`} tone={summary.failed.count ? 'bad' : 'default'} icon={AlertTriangle} /> },
+            { key: 'completed', node: <StatCard label="Sent back this month" value={inr(summary.completedThisMonth.amountMinor)}
+              sub={`${summary.completedThisMonth.count} refund(s) completed`} tone="good" icon={CheckCircle2} /> },
+          ]).map((t) => (
+            <button key={t.key} type="button" aria-pressed={status === t.key}
+              title={status === t.key ? 'Show every refund' : `Show only: ${STATUS_LABEL[t.key]}`}
+              onClick={() => showStatus(status === t.key ? '' : t.key)}
+              className={`rounded-xl text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 ${status === t.key ? 'ring-2 ring-gray-400' : 'hover:opacity-90'}`}>
+              {t.node}
+            </button>
+          ))}
         </StatGrid>
+      )}
+
+      {/* OWED, NO REFUND RAISED: money the store owes that nobody has put on the desk yet. */}
+      {owedErr && <p className="text-xs text-gray-500">Could not check for money owed with no refund raised: {owedErr}</p>}
+      {owed && owed.orders.length > 0 && (
+        <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50/50 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h3 className="flex items-center gap-1.5 text-sm font-semibold text-amber-900">
+                <HandCoins className="h-4 w-4" />Owed, no refund raised
+              </h3>
+              <p className="mt-0.5 text-xs text-amber-900">
+                {owed.orders.length} paid order{owed.orders.length === 1 ? '' : 's'} cancelled, returned or charged less than was paid,
+                with no refund on the desk: <strong>{inrRupees(owed.total_owed)}</strong> owed in all.
+                {owed.more ? ' The most recent ones are shown; raise these and older ones appear.' : ''}
+              </p>
+            </div>
+          </div>
+          <TableShell>
+            <table className="w-full text-sm">
+              <THead><Th>Order / customer</Th><Th>Now</Th><Th num>Paid</Th><Th num>Owed</Th><Th></Th></THead>
+              <TBody>
+                {owed.orders.map((o) => (
+                  <Tr key={o.order_id ?? o.order_number ?? ''}>
+                    <Td>
+                      {o.order_id
+                        ? <DrillLink to={`/orders/${o.order_id}`}>{o.order_number || 'Order'}</DrillLink>
+                        : (o.order_number || '-')}
+                      <span className="block text-xs text-gray-400">{o.customer_name || ''}</span>
+                    </Td>
+                    <Td muted className="text-xs capitalize">
+                      {String(o.order_status ?? '').replace(/_/g, ' ') || '-'}
+                      {o.turned_down_before && <span className="ml-1 text-amber-700">(a refund was turned down before)</span>}
+                    </Td>
+                    <Td num>{inrRupees(o.paid)}</Td>
+                    <Td num className="font-semibold">{inrRupees(o.owed)}</Td>
+                    <Td><Btn variant="outline" size="sm" onClick={() => raiseFor(o)}>Raise refund</Btn></Td>
+                  </Tr>
+                ))}
+              </TBody>
+            </table>
+          </TableShell>
+        </div>
       )}
 
       {summary && !editingPolicy && (
@@ -339,7 +485,7 @@ const Refunds: React.FC = () => {
           Your rule right now:{' '}
           {summary.config.autoApproveUnderMinor > 0
             ? <>refunds under <strong>{inr(summary.config.autoApproveUnderMinor)}</strong> go out without a manager; anything bigger waits for approval.</>
-            : <><strong>every</strong> refund waits for a manager's approval — including refunds opened by a cancellation, so none of them go back on their own.</>}
+            : <><strong>every</strong> refund waits for a manager's approval, including refunds opened by a cancellation, so none of them go back on their own.</>}
           {' '}Cancelled paid orders {summary.config.autoRequestOnCancellation ? 'open a refund automatically' : 'do NOT open a refund automatically'};
           {' '}returned parcels {summary.config.autoRequestOnRto ? 'do too' : 'do not'};
           {' '}cash/bank credit notes {summary.config.autoRequestOnCreditNote ? 'do too' : 'do not'}.
@@ -367,13 +513,13 @@ const Refunds: React.FC = () => {
           <h3 className="text-sm font-semibold text-gray-800">Refund rules</h3>
           <p className="text-xs text-gray-500">
             The limit decides how much money may go back <strong>without a second person</strong>.
-            A refund at or above it is held for a manager — and the person who raised it cannot be
+            A refund at or above it is held for a manager, and the person who raised it cannot be
             the one who approves it. Leave the limit empty to keep every refund under approval.
           </p>
           <FilterBar>
             <Field label="Refund without approval, up to (₹)">
               <TextInput type="number" min={0} step="1" value={policyLimit}
-                onChange={(e) => setPolicyLimit(e.target.value)} placeholder="e.g. 5000 — blank = never" />
+                onChange={(e) => setPolicyLimit(e.target.value)} placeholder="e.g. 5000, blank for never" />
             </Field>
           </FilterBar>
           <div className="space-y-2 text-sm text-gray-700">
@@ -403,7 +549,7 @@ const Refunds: React.FC = () => {
                 <span className="mt-0.5 block text-xs text-gray-500">
                   On by default. Whoever raises a refund cannot be the one who approves it.
                   If you are the only person here who can approve refunds, nothing can ever be
-                  approved while this is on — switch it off, or approve each one yourself with a
+                  approved while this is on. Switch it off, or approve each one yourself with a
                   reason (which is recorded as an exception).
                 </span>
               </span>
@@ -425,14 +571,18 @@ const Refunds: React.FC = () => {
           </p>
           <FilterBar>
             <Field label="Order number">
-              <TextInput value={orderNumber} onChange={(e) => setOrderNumber(e.target.value)} onBlur={checkRefundable} placeholder="e.g. ORD-00003" />
+              <TextInput value={orderNumber} onChange={(e) => setOrderNumber(e.target.value)} onBlur={() => checkRefundable()} placeholder="e.g. ORD-00003" />
             </Field>
             <Field label="Amount (₹), filled with what is owed">
               <TextInput type="number" min={0} step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" />
             </Field>
             <Field label="How should it go back?">
               <SelectInput value={method} onChange={(e) => setMethod(e.target.value)}>
-                {Object.entries(METHOD_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                {Object.entries(METHOD_LABEL).map(([v, l]) => {
+                  const rail = railOf(v);
+                  const off = rails.length > 0 && !(rail?.available);
+                  return <option key={v} value={v} disabled={off}>{off ? `${l} (not for this order)` : l}</option>;
+                })}
               </SelectInput>
             </Field>
             <Field label="Why?">
@@ -450,10 +600,17 @@ const Refunds: React.FC = () => {
                 </>
               )}
               {' '}Most allowed: <strong>{inr(refundable.refundableMinor)}</strong>.
+              {rails.some((r) => !r.available && r.reason) && (
+                <ul className="mt-1 list-disc pl-4">
+                  {rails.filter((r) => !r.available && r.reason).map((r) => (
+                    <li key={r.method}>{METHOD_SHORT[r.method] ?? r.method}: {r.reason}</li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
           <div className="flex flex-wrap gap-2">
-            <Btn variant="outline" onClick={checkRefundable}>Check what's refundable</Btn>
+            <Btn variant="outline" onClick={() => checkRefundable()}>Check what's refundable</Btn>
             <Btn variant="success" disabled={busy || !orderNumber.trim()} onClick={create}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}Request refund
             </Btn>
@@ -471,11 +628,15 @@ const Refunds: React.FC = () => {
                 <Chip tone={STATUS_TONE[detail.status] ?? 'default'}>{STATUS_LABEL[detail.status] ?? detail.status}</Chip>
               </div>
               <div className="mt-0.5 text-xs text-gray-500">
-                {detail.order_number ? `Order ${detail.order_number} · ` : ''}
-                {SOURCE_LABEL[detail.source] ?? detail.source} · {METHOD_LABEL[detail.method] ?? detail.method}
-                {detail.attempt_count > 0 && ` · ${detail.attempt_count} attempt(s)`}
+                {detail.order_number && (
+                  <>Order {detail.order_id
+                    ? <DrillLink to={`/orders/${detail.order_id}`}>{detail.order_number}</DrillLink>
+                    : detail.order_number}, </>
+                )}
+                {SOURCE_LABEL[detail.source] ?? detail.source}, {METHOD_LABEL[detail.method] ?? detail.method}
+                {detail.attempt_count > 0 && `, ${detail.attempt_count} attempt(s)`}
               </div>
-              {detail.reason && <div className="mt-1 text-xs text-gray-600">“{detail.reason}”</div>}
+              {detail.reason && <div className="mt-1 text-xs text-gray-600">"{detail.reason}"</div>}
               {/* The refund's OWN id. A refund with no gateway reference (store
                   credit, an adjustment, one recorded by hand) previously had no
                   quotable identifier anywhere on this screen. */}
@@ -495,7 +656,7 @@ const Refunds: React.FC = () => {
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
               <strong>The payment gateway refused this refund:</strong>
               <div className="mt-1 font-mono break-all">{detail.gateway_error}</div>
-              <div className="mt-1">Fix the problem (a top-up, or the right payment) and press “Try again”.</div>
+              <div className="mt-1">Fix the problem (a top-up, or the right payment) and press "Try again".</div>
             </div>
           )}
           {detail.status === 'completed' && (
@@ -521,20 +682,20 @@ const Refunds: React.FC = () => {
                   <ShieldAlert className="h-3.5 w-3.5" />Nobody else here can approve this refund
                 </div>
                 <p className="mt-1">
-                  You raised it, and no one else on this store holds a role that can sign it off — so the
+                  You raised it, and no one else on this store holds a role that can sign it off, so the
                   two-person rule cannot be satisfied as things stand. Nothing has been paid. You can:
                 </p>
                 <ul className="mt-1 list-disc space-y-0.5 pl-4">
                   <li>give someone else the manager role, and let them approve it; or</li>
-                  <li>switch off <strong>“a refund must be approved by a second person”</strong> in the refund rules above; or</li>
-                  <li>approve it yourself with a reason — recorded permanently as an exception.</li>
+                  <li>switch off <strong>"a refund must be approved by a second person"</strong> in the refund rules above; or</li>
+                  <li>approve it yourself with a reason, recorded permanently as an exception.</li>
                 </ul>
               </div>
             ) : (
               <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                 Nothing has been paid yet.{' '}
                 {approvers && approvers.others > 0
-                  ? <>Someone other than you must approve it first — {approvers.otherEmails.slice(0, 3).join(', ')}
+                  ? <>Someone other than you must approve it first: {approvers.otherEmails.slice(0, 3).join(', ')}
                       {approvers.others > 3 ? ` and ${approvers.others - 3} more` : ''} can.</>
                   : <>It must be approved before the money can leave.</>}
               </div>
@@ -568,7 +729,7 @@ const Refunds: React.FC = () => {
                   <p className="text-xs text-amber-900">
                     This steps around the two-person rule, so it is written permanently onto the refund
                     with your name, the time, your reason, and the fact that no one else could sign it.
-                    It approves the refund — it does <strong>not</strong> send any money.
+                    It approves the refund; it does <strong>not</strong> send any money.
                   </p>
                   <Field label="Why are you approving your own refund? (a sentence, not a word)">
                     <TextInput value={glassReason} onChange={(e) => setGlassReason(e.target.value)}
@@ -580,7 +741,7 @@ const Refunds: React.FC = () => {
                     Approve as an exception
                   </Btn>
                   {glassReason.trim().length > 0 && glassReason.trim().length < 10 && (
-                    <p className="text-xs text-amber-700">A few more words — this is the record of why the rule was stepped around.</p>
+                    <p className="text-xs text-amber-700">A few more words: this is the record of why the rule was stepped around.</p>
                   )}
                 </div>
               )}
@@ -604,7 +765,7 @@ const Refunds: React.FC = () => {
                     ? `This reverses the original online payment${detail.gateway_payment_id ? ` (${detail.gateway_payment_id})` : ''}.`
                     : detail.method === 'bank_transfer'
                       ? 'Marks it done once you have transferred the money yourself.'
-                      : 'Records it as store credit — no cash leaves the business.'}
+                      : 'Records it as store credit. No cash leaves the business.'}
                 </span>
               </div>
             </div>
@@ -619,7 +780,7 @@ const Refunds: React.FC = () => {
               className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-600 underline hover:text-gray-900"
               onClick={() => setShowDossier((v) => !v)}>
               <Link2 className="h-3.5 w-3.5" />
-              {showDossier ? 'Hide the full record' : 'Show the full record — order, credit note, return and stock'}
+              {showDossier ? 'Hide the full record' : 'Show the full record: order, credit note, return and stock'}
             </button>
             {showDossier && <div className="mt-3"><RefundDossier refundId={detail.id} /></div>}
           </div>
@@ -635,18 +796,18 @@ const Refunds: React.FC = () => {
           <SearchInput placeholder="Order, customer, reason, reference…" value={find} onChange={(e) => setFind(e.target.value)} />
         </Field>
         <Field label="Show">
-          <SelectInput value={status} onChange={(e) => setStatus(e.target.value)}>
+          <SelectInput value={status} onChange={(e) => showStatus(e.target.value)}>
             {STATUS_FILTERS.map((s) => (
               <option key={s || 'all'} value={s}>{s ? (STATUS_LABEL[s] ?? s) : 'Everything'}</option>
             ))}
           </SelectInput>
         </Field>
-        <Field label={<span className="inline-flex items-center gap-1">Opened from <InfoTip text="When the refund was RAISED — not when the money went out. A request with no paid-out date is money you still owe." /></span>}>
-          <TextInput type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+        <Field label={<span className="inline-flex items-center gap-1">Opened from <InfoTip text="When the refund was RAISED, not when the money went out. A request with no paid-out date is money you still owe." /></span>}>
+          <TextInput type="date" value={from} onChange={(e) => showFrom(e.target.value)} />
         </Field>
-        <Field label="to"><TextInput type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
+        <Field label="to"><TextInput type="date" value={to} onChange={(e) => showTo(e.target.value)} /></Field>
         {(find || status || from || to) && (
-          <Btn variant="ghost" onClick={() => { setFind(''); setStatus(''); setFrom(''); setTo(''); }}>Clear</Btn>
+          <Btn variant="ghost" onClick={() => { setFind(''); setStatus(''); setFrom(''); setTo(''); setPage(1); }}>Clear</Btn>
         )}
         <div className="ml-auto flex items-end gap-2">
           <ExportMenu filename="refunds" columns={REFUND_CSV_COLUMNS} rows={shown} canExport={shown.length > 0} />
@@ -657,7 +818,7 @@ const Refunds: React.FC = () => {
               setMsg(''); setOk('');
               try {
                 await exportsAPI.request('refunds', { status: status || undefined, from: from || undefined, to: to || undefined });
-                setOk('Building your workbook — it will appear in Downloads when it is ready.');
+                setOk('Building your workbook. It will appear in Downloads when it is ready.');
               } catch (e: any) { err(e); }
             }}
           >
@@ -685,12 +846,12 @@ const Refunds: React.FC = () => {
             ) : shown.map((r) => (
               <Tr key={r.id} className="cursor-pointer" onClick={() => openDetail(r.id)}>
                 <Td>
-                  {r.order_number || '—'}
+                  {r.order_number || '-'}
                   <span className="block text-xs text-gray-400">{r.customer_name || ''}</span>
                 </Td>
                 <Td muted>{SOURCE_LABEL[r.source] ?? r.source}</Td>
                 <Td num>{inr(r.amount_minor)}</Td>
-                <Td muted className="text-xs">{r.method === 'gateway' ? 'Original payment' : r.method === 'bank_transfer' ? 'Bank transfer' : 'Store credit'}</Td>
+                <Td muted className="text-xs">{METHOD_SHORT[r.method] ?? r.method}</Td>
                 <Td>
                   <Chip tone={STATUS_TONE[r.status] ?? 'default'}>{STATUS_LABEL[r.status] ?? r.status}</Chip>
                   {r.status === 'failed' && r.attempt_count > 1 && <span className="ml-1 text-xs text-red-600">{r.attempt_count} tries</span>}
@@ -711,6 +872,7 @@ const Refunds: React.FC = () => {
               <tr>
                 <td className="px-4 py-2.5" colSpan={2}>
                   {shown.length} refund{shown.length === 1 ? '' : 's'}{find && list ? ` of ${list.length}` : ''}
+                  {listTotal > PAGE_SIZE ? ' on this page' : ''}
                 </td>
                 <td className="px-4 py-2.5 text-right tabular-nums">{inr(shownTotal)}</td>
                 <td colSpan={3} />
@@ -719,6 +881,7 @@ const Refunds: React.FC = () => {
           )}
         </table>
       </TableShell>
+      <Pagination page={page} pageSize={PAGE_SIZE} total={listTotal} onPage={setPage} />
     </Page>
   );
 };

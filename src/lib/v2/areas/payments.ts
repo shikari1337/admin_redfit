@@ -134,6 +134,9 @@ export const PAYMENT_ROUTES: V2Route[] = [
     reply: (d) => (d && typeof d === 'object' && d.refund ? { success: true, ...d, data: refundRow(d.refund) } : d) },
   { m: 'GET', from: '/refunds', row: 'commerce refunds.ts:53', to: '/api/v2/commerce/refunds', qs: ['from','limit','offset','order_id','source','status','to'], reply: refundReply }, // Page of RefundView (views/refunds.rs:33): + amount_minor
   { m: 'GET', from: '/refunds/:id', row: 'commerce refunds.ts:166', to: '/api/v2/commerce/refunds/{id}', reply: refundReply }, // RefundView (views/refunds.rs:33): + amount_minor
+  // MENU-1 order-docs: OwedOrdersView {orders: [OwedOrderView {paid, refunded, owed: Money, and more}], total_owed: Money, more}
+  // (commerce views/refunds.rs); the envelope normaliser turns the Money into rupees, the Refunds panel reads rupees.
+  { m: 'GET', from: '/refunds/owed', row: 'commerce api/refunds GET /refunds/owed (MENU-1)', to: '/api/v2/commerce/refunds/owed' },
   { m: 'POST', from: '/refunds/:id/approve', row: 'commerce refunds.ts:225', to: '/api/v2/commerce/refunds/{id}/approve', bs: {'reason':'s','self_approve':'b'} },
   { m: 'GET', from: '/refunds/:id/approvers', row: 'commerce refunds.ts:136', to: '/api/v2/commerce/refunds/{id}/approvers' },
   { m: 'GET', from: '/refunds/:id/dossier', row: 'commerce refunds.ts:122', to: '/api/v2/commerce/refunds/{id}/dossier', reply: (d) => d?.dossier ?? d }, // RefundDossierView {dossier} (commerce views/refunds.rs:247); RefundDossier reads d.approval / d.refund

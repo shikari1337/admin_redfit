@@ -5,11 +5,12 @@ import {
   Page, PageHeader, SectionCard, Btn, StatusChip,
   TableShell, THead, Th, TBody, Tr, Td, EmptyRow,
   FilterBar, Field, TextInput, SelectInput, SearchInput, inr,
-  ExportMenu, type CsvColumn,
+  ExportMenu, Pagination, StatCard, StatGrid, TableSkeleton, type CsvColumn,
 } from '../../components/erp';
 import InfoTip from '../../components/common/InfoTip';
 import type { Tone } from '../../components/erp';
-import { FileText, Plus, ArrowLeft, Download, Trash2, ShoppingCart } from 'lucide-react';
+import { todayIso, isoDaysFromToday } from '../../utils/date';
+import { FileText, Plus, ArrowLeft, Download, Trash2, ShoppingCart, Send, Clock, CheckCircle2, PenLine } from 'lucide-react';
 
 /**
  * Quotations / Estimates (Part I §8). A B2B sales-clerk flow, in plain language:
@@ -36,6 +37,20 @@ const QUOTE_CSV_COLUMNS: CsvColumn<any>[] = [
 const StatusPill: React.FC<{ status: string }> = ({ status }) =>
   <StatusChip status={status} tone={STATUS_TONE[status] ?? 'neutral'} />;
 
+/** Rows per page of the register (books answers 50 by default, at most 200). */
+const PAGE_SIZE = 50;
+/** How many accepted / sent quotes the board reads to find what to act on (books' most per page). */
+const BOARD_READ = 200;
+/** A sent quote is "expiring soon" when its validity ends within this many days. */
+const SOON_DAYS = 7;
+/** The board: accepted and sent quotes (a page each, with their totals) and the drafts' count. */
+interface Board {
+  accepted: { list: any[]; total: number };
+  sent: { list: any[]; total: number };
+  drafts: number;
+}
+const sumTotal = (list: any[]) => list.reduce((s: number, r: any) => s + Number(r.total ?? 0), 0);
+
 const Quotations: React.FC = () => {
   const [view, setView] = useState<View>('list');
   const [msg, setMsg] = useState('');
@@ -47,24 +62,65 @@ const Quotations: React.FC = () => {
   /** `/quotations` filters on status only, so this narrows the rows on screen. */
   const [find, setFind] = useState('');
   const [loading, setLoading] = useState(false);
+  // One page at a time (books answers 50 by default): a quote older than the first page was
+  // once out of reach.
+  const [page, setPage] = useState(1);
+  const [listTotal, setListTotal] = useState(0);
+  // What to act on first, read apart from the page: accepted quotes to convert, sent quotes
+  // waiting for an answer (and those of them about to lapse), drafts never sent.
+  const [board, setBoard] = useState<Board | null>(null);
+  /** The board's "expiring soon" tile is open: the table lists those quotes. */
+  const [soon, setSoon] = useState(false);
 
   const loadList = async () => {
     setLoading(true);
     try {
-      const res = await api.get('/quotations', { params: statusFilter ? { status: statusFilter } : {} });
+      const res = await api.get('/quotations', {
+        params: { ...(statusFilter ? { status: statusFilter } : {}), limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE },
+      });
       const data = payload<any>(res);
-      setRows(Array.isArray(data) ? data : (data?.rows ?? []));
+      const list: any[] = Array.isArray(data) ? data : (data?.rows ?? []);
+      setRows(list);
+      const t = Number((data as any)?.total);
+      setListTotal(Number.isFinite(t) && t >= list.length ? t : list.length);
     } catch (e: any) { setErr(e?.response?.data?.message ?? e.message); }
     finally { setLoading(false); }
   };
-  useEffect(() => { if (view === 'list') loadList(); /* eslint-disable-next-line */ }, [view, statusFilter]);
+  useEffect(() => { if (view === 'list') loadList(); /* eslint-disable-next-line */ }, [view, statusFilter, page]);
+
+  const loadBoard = async () => {
+    const read = async (status: string, limit: number) => {
+      const data = payload<any>(await api.get('/quotations', { params: { status, limit } }));
+      const list: any[] = Array.isArray(data) ? data : (data?.rows ?? []);
+      const t = Number((data as any)?.total);
+      return { list, total: Number.isFinite(t) && t >= list.length ? t : list.length };
+    };
+    try {
+      const [accepted, sent, drafts] = await Promise.all([read('accepted', BOARD_READ), read('sent', BOARD_READ), read('draft', 1)]);
+      setBoard({ accepted, sent, drafts: drafts.total });
+    } catch { setBoard(null); /* advice only: the register below says what failed */ }
+  };
+  useEffect(() => { if (view === 'list') loadBoard(); /* eslint-disable-next-line */ }, [view]);
+
+  /** Show one status (or every quote); a new filter starts on its first page. */
+  const showStatus = (s: string) => { setSoon(false); setStatusFilter(s); setPage(1); };
+
+  // Sent quotes whose validity ends within SOON_DAYS (the store's today, as books reckons expiry).
+  const today = todayIso();
+  const soonLast = isoDaysFromToday(SOON_DAYS);
+  const expiringSoon: any[] = React.useMemo(
+    () => (board?.sent.list ?? []).filter((r: any) => typeof r.valid_until === 'string' && r.valid_until >= today && r.valid_until <= soonLast),
+    [board, today, soonLast],
+  );
+  const convertible = (board?.accepted.list ?? []).filter((r: any) => !r.is_expired);
 
   const shownQuotes: any[] = React.useMemo(() => {
+    const base = soon ? expiringSoon : rows;
     const q = find.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r: any) => [r.quote_number, r.customer_name, r.customer_phone]
+    if (!q) return base;
+    return base.filter((r: any) => [r.quote_number, r.customer_name, r.customer_phone]
       .some((v: any) => String(v ?? '').toLowerCase().includes(q)));
-  }, [rows, find]);
+  }, [rows, find, soon, expiringSoon]);
 
   // ── Detail ──
   const [detail, setDetail] = useState<any>(null);
@@ -383,8 +439,45 @@ const Quotations: React.FC = () => {
         description="Price quotes for customers. Build one, send the PDF, and turn an accepted quote into an order in one click."
         actions={<Btn variant="primary" onClick={() => { resetForm(); setErr(''); setMsg(''); setView('create'); }}><Plus className="h-4 w-4" /> New quotation</Btn>} />
       {err && <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{err}</div>}
+      {msg && <div className="rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{msg}</div>}
 
-      <SectionCard title="All quotations" flush>
+      {/* WHAT TO ACT ON: each tile opens the register at those quotes (press again for every quote). */}
+      {board && (
+        <StatGrid cols={4}>
+          {([
+            {
+              key: 'accepted', on: !soon && statusFilter === 'accepted', press: () => showStatus(statusFilter === 'accepted' && !soon ? '' : 'accepted'),
+              node: <StatCard label="Accepted: convert" value={convertible.length + (board.accepted.total > board.accepted.list.length ? '+' : '')}
+                sub={convertible.length ? `${inr(sumTotal(convertible))} ready to become orders` : 'Nothing waiting to convert'}
+                tone={convertible.length ? 'good' : 'default'} icon={CheckCircle2} />,
+            },
+            {
+              key: 'sent', on: !soon && statusFilter === 'sent', press: () => showStatus(statusFilter === 'sent' && !soon ? '' : 'sent'),
+              node: <StatCard label="Sent: no answer" value={board.sent.total}
+                sub={board.sent.total ? `${inr(sumTotal(board.sent.list))} quoted` : 'No quote waiting on a buyer'}
+                tone={board.sent.total ? 'info' : 'default'} icon={Send} />,
+            },
+            {
+              key: 'soon', on: soon, press: () => { setStatusFilter(''); setPage(1); setSoon((v) => !v); },
+              node: <StatCard label={`Expiring in ${SOON_DAYS} days`} value={expiringSoon.length}
+                sub={expiringSoon.length ? 'Follow up before they lapse' : 'None about to lapse'}
+                tone={expiringSoon.length ? 'warn' : 'default'} icon={Clock} />,
+            },
+            {
+              key: 'draft', on: !soon && statusFilter === 'draft', press: () => showStatus(statusFilter === 'draft' && !soon ? '' : 'draft'),
+              node: <StatCard label="Drafts not sent" value={board.drafts}
+                sub={board.drafts ? 'Send or cancel them' : 'No drafts'} icon={PenLine} />,
+            },
+          ]).map((t) => (
+            <button key={t.key} type="button" aria-pressed={t.on} onClick={t.press}
+              className={`rounded-xl text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 ${t.on ? 'ring-2 ring-gray-400' : 'hover:opacity-90'}`}>
+              {t.node}
+            </button>
+          ))}
+        </StatGrid>
+      )}
+
+      <SectionCard title={soon ? `Sent quotes expiring in ${SOON_DAYS} days` : 'All quotations'} flush>
         <div className="border-b border-gray-100 px-5 py-3">
           <FilterBar>
             <Field
@@ -394,12 +487,12 @@ const Quotations: React.FC = () => {
               <SearchInput placeholder="Quotation number or customer…" value={find} onChange={(e) => setFind(e.target.value)} />
             </Field>
             <Field label="Status">
-              <SelectInput value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+              <SelectInput value={statusFilter} onChange={(e) => showStatus(e.target.value)}>
                 <option value="">All</option>
                 {['draft', 'sent', 'accepted', 'converted', 'expired', 'cancelled'].map((s) => <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>)}
               </SelectInput>
             </Field>
-            {(find || statusFilter) && <Btn variant="ghost" onClick={() => { setFind(''); setStatusFilter(''); }}>Clear</Btn>}
+            {(find || statusFilter || soon) && <Btn variant="ghost" onClick={() => { setFind(''); showStatus(''); }}>Clear</Btn>}
             <div className="ml-auto flex items-end gap-2">
               <ExportMenu filename="quotations" columns={QUOTE_CSV_COLUMNS} rows={shownQuotes} canExport={shownQuotes.length > 0} />
               <Btn
@@ -409,7 +502,7 @@ const Quotations: React.FC = () => {
                   setErr(''); setMsg('');
                   try {
                     await exportsAPI.request('quotations', { status: statusFilter || undefined });
-                    setMsg('Building your workbook — it will appear in Downloads when it is ready.');
+                    setMsg('Building your workbook. It will appear in Downloads when it is ready.');
                   } catch (e: any) { setErr(e?.response?.data?.message ?? e.message); }
                 }}
               >
@@ -423,37 +516,47 @@ const Quotations: React.FC = () => {
             <THead>
               <Th>Quotation #</Th><Th>Customer</Th><Th>Status</Th><Th>Valid until</Th><Th num>Total</Th><Th></Th>
             </THead>
+            {loading && !soon && <TableSkeleton cols={6} rows={5} />}
             <TBody>
-              {loading && <EmptyRow colSpan={6}>Loading…</EmptyRow>}
-              {!loading && shownQuotes.length === 0 && (
+              {(!loading || soon) && shownQuotes.length === 0 && (
                 <EmptyRow colSpan={6}>
-                  {find || statusFilter
-                    ? 'Nothing matches those filters.'
-                    : 'No quotations yet. Use "New quotation" to build one.'}
+                  {soon ? `No sent quote lapses in the next ${SOON_DAYS} days.`
+                    : find || statusFilter
+                      ? 'Nothing matches those filters.'
+                      : 'No quotations yet. Use "New quotation" to build one.'}
                 </EmptyRow>
               )}
-              {!loading && shownQuotes.map((r: any) => (
-                <Tr key={r.id}>
+              {(!loading || soon) && shownQuotes.map((r: any) => (
+                <Tr key={r.id} className="cursor-pointer" onClick={() => openDetail(r.id)}>
                   <Td className="font-mono text-xs">{r.quote_number}</Td>
                   <Td>{r.customer_name || <span className="text-gray-400">Walk-in</span>}</Td>
                   <Td><StatusPill status={r.is_expired && r.status !== 'converted' && r.status !== 'cancelled' ? 'expired' : r.status} /></Td>
-                  <Td>{r.valid_until || '—'}</Td>
+                  <Td>
+                    {r.valid_until || '-'}
+                    {r.valid_until && !r.is_expired && ['draft', 'sent'].includes(r.status) && r.valid_until <= soonLast && (
+                      <span className="block text-xs text-amber-700">{r.valid_until === today ? 'Last day today' : 'Lapses soon'}</span>
+                    )}
+                  </Td>
                   <Td num>{inr(r.total)}</Td>
-                  <Td><Btn variant="ghost" size="sm" onClick={() => openDetail(r.id)}>View</Btn></Td>
+                  <Td><Btn variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); openDetail(r.id); }}>View</Btn></Td>
                 </Tr>
               ))}
             </TBody>
-            {!loading && shownQuotes.length > 0 && (
+            {(!loading || soon) && shownQuotes.length > 0 && (
               <tfoot className="border-t-2 border-gray-200 bg-gray-50 text-sm font-semibold text-gray-900">
                 <tr>
-                  <td className="px-4 py-2.5" colSpan={4}>{shownQuotes.length} quotation{shownQuotes.length === 1 ? '' : 's'}</td>
-                  <td className="px-4 py-2.5 text-right tabular-nums">{inr(shownQuotes.reduce((s: number, r: any) => s + Number(r.total ?? 0), 0))}</td>
+                  <td className="px-4 py-2.5" colSpan={4}>
+                    {shownQuotes.length} quotation{shownQuotes.length === 1 ? '' : 's'}
+                    {!soon && listTotal > PAGE_SIZE ? ` on this page of ${listTotal}` : ''}
+                  </td>
+                  <td className="px-4 py-2.5 text-right tabular-nums">{inr(sumTotal(shownQuotes))}</td>
                   <td />
                 </tr>
               </tfoot>
             )}
           </table>
         </TableShell>
+        {!soon && <div className="px-5 pb-3"><Pagination page={page} pageSize={PAGE_SIZE} total={listTotal} onPage={setPage} /></div>}
       </SectionCard>
     </Page>
   );
