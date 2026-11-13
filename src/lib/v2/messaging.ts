@@ -890,7 +890,51 @@ export interface RetentionSettings {
   /** The default days between an order and its reorder reminder; null = not on this server yet. */
   reorder_days: number | null;
   reorder_path: string[] | null;
+  /** The store's switch for back-in-stock and price-drop messages (`automation.alerts`); null = not given. */
+  alerts_on: boolean | null;
+  /** The store's switch for the daily drifting score (`automation.scoring`); null = not given. */
+  scoring_on: boolean | null;
 }
+/**
+ * Retain's home numbers (`GET /retain/overview`, MENU-1): repeat buyers, who is drifting away,
+ * the revenue of people the journeys reached against those kept back (last 30 days, rupees),
+ * and what keeps a switched-on journey from running.
+ */
+export interface RetentionOverview {
+  buyers: number;
+  repeat_buyers: number;
+  repeat_rate_bp: number;
+  drifting: number;
+  reached: number;
+  kept_back: number;
+  revenue_reached: number | null;
+  revenue_kept_back: number | null;
+  blocked: string[];
+}
+/** One arm of a journey (`ArmStaffView`): people, who reached the goal, rate in basis points, rupees. */
+export interface JourneyArm {
+  members: number;
+  converted: number;
+  rate_bp: number;
+  revenue: number | null;
+  revenue_per_member: number | null;
+}
+/** A journey's measured result against its hold-out (`GET /retain/journeys/{id}/report`). */
+export interface JourneyReport {
+  goal_kind: string;
+  goal_window_days: number;
+  holdout_bp: number;
+  treatment: JourneyArm;
+  holdout: JourneyArm;
+  /** Relative lift of reached over kept back, basis points; null when the hold-out converted nobody. */
+  lift_bp: number | null;
+  incremental_conversions: number;
+  incremental_revenue: number | null;
+  /** `high`, `medium`, `low` or `too_few` (hold-out too small to tell). */
+  confidence: string;
+}
+/** The NPS of the last 90 days (`GET /retain/feedback?kind=nps`); score null = no answer yet. */
+export interface NpsSummary { score: number | null; answers: number }
 export interface StockSignupRow {
   item_id: string;
   product_name: string;
@@ -913,7 +957,8 @@ const REORDER_PATHS: string[][] = [
   ['reorder', 'interval_days'], ['reorder', 'default_interval_days'], ['reorder', 'default_days'],
   ['journeys', 'reorder_interval_days'], ['reorder_interval_days'],
 ];
-export const REORDER_BOUNDS = [1, 365] as const;
+/** Retain's own bounds for `reorder.interval_days` (`domain/settings.rs` `check`). */
+export const REORDER_BOUNDS = [1, 730] as const;
 
 const firstNum = (...vs: unknown[]): number | null => {
   for (const v of vs) { const x = nOrNull(v); if (x !== null) return x; }
@@ -944,7 +989,18 @@ function journeyRow(r: any): RetentionJourney {
 function retentionSettings(d: any): RetentionSettings {
   const value = d?.value && typeof d.value === 'object' ? d.value : (d && typeof d === 'object' ? d : {});
   const hit = findPath(value, REORDER_PATHS);
-  return { value, reorder_days: hit ? nOrNull(hit.value) : null, reorder_path: hit ? hit.path : null };
+  const flag = (k: string): boolean | null => (typeof value?.automation?.[k] === 'boolean' ? value.automation[k] : null);
+  return {
+    value, reorder_days: hit ? nOrNull(hit.value) : null, reorder_path: hit ? hit.path : null,
+    alerts_on: flag('alerts'), scoring_on: flag('scoring'),
+  };
+}
+
+function journeyArm(a: any): JourneyArm {
+  return {
+    members: n(a?.members), converted: n(a?.converted), rate_bp: n(a?.rate_bp),
+    revenue: nOrNull(a?.revenue), revenue_per_member: nOrNull(a?.revenue_per_member),
+  };
 }
 
 function stockSignupRow(r: any): StockSignupRow {
@@ -986,15 +1042,48 @@ export const retentionAPI = {
   settings: async (): Promise<RetentionSettings> => retentionSettings(await callAt<any>('GET', `${RT}/settings`)),
   saveReorderDays: async (cur: RetentionSettings, days: number): Promise<RetentionSettings> => {
     if (!cur.reorder_path) backendGap('the reorder interval in GET /retain/settings');
-    const next = JSON.parse(JSON.stringify(cur.value ?? {}));
-    setPath(next, cur.reorder_path, days);
-    return retentionSettings(await callAt<any>('PUT', `${RT}/settings`, { data: next }));
+    return putRetentionSetting(cur, cur.reorder_path, days);
+  },
+  /** The store's stock alert switch (`automation.alerts`); the deployment's own job switch still rules. */
+  saveAlertsOn: async (cur: RetentionSettings, on: boolean): Promise<RetentionSettings> => {
+    if (cur.alerts_on === null) backendGap('the stock alert switch in GET /retain/settings');
+    return putRetentionSetting(cur, ['automation', 'alerts'], on);
   },
   stockSignups: async (): Promise<StockSignupRow[]> => {
     const d = await callAt<any>('GET', `${RT}/alerts/by-product`, { params: { limit: 200 } });
     return listOf(d).map(stockSignupRow).filter((r) => r.item_id);
   },
+  overview: async (): Promise<RetentionOverview> => {
+    const d = await callAt<any>('GET', `${RT}/overview`);
+    return {
+      buyers: n(d?.buyers), repeat_buyers: n(d?.repeat_buyers), repeat_rate_bp: n(d?.repeat_rate_bp),
+      drifting: n(d?.drifting), reached: n(d?.treatment_members), kept_back: n(d?.holdout_members),
+      revenue_reached: nOrNull(d?.influenced_treatment), revenue_kept_back: nOrNull(d?.influenced_holdout),
+      blocked: Array.isArray(d?.blocked) ? d.blocked.map(String) : [],
+    };
+  },
+  report: async (journeyId: string): Promise<JourneyReport> => {
+    const d = await callAt<any>('GET', `${RT}/journeys/${encodeURIComponent(journeyId)}/report`);
+    return {
+      goal_kind: String(d?.goal_kind ?? ''), goal_window_days: n(d?.goal_window_days), holdout_bp: n(d?.holdout_bp),
+      treatment: journeyArm(d?.treatment), holdout: journeyArm(d?.holdout),
+      lift_bp: nOrNull(d?.lift_bp), incremental_conversions: n(d?.incremental_conversions),
+      incremental_revenue: nOrNull(d?.incremental_revenue), confidence: String(d?.confidence ?? 'too_few'),
+    };
+  },
+  /** A Page-shaped reply: the score and count ride on the list as its metadata. */
+  nps: async (): Promise<NpsSummary> => {
+    const d = await callAt<any>('GET', `${RT}/feedback`, { params: { kind: 'nps', limit: 1 } });
+    return { score: nOrNull(d?.score), answers: n(d?.answers_last_90_days) };
+  },
 };
+
+/** The PUT replaces the whole `retain` key: the value read goes back with one field changed. */
+async function putRetentionSetting(cur: RetentionSettings, path: string[], v: unknown): Promise<RetentionSettings> {
+  const next = JSON.parse(JSON.stringify(cur.value ?? {}));
+  setPath(next, path, v);
+  return retentionSettings(await callAt<any>('PUT', `${RT}/settings`, { data: next }));
+}
 
 /** A journey trigger in plain words (Retain `contract::triggers::LIFECYCLE`); an unknown one shows its key. */
 export const JOURNEY_TRIGGER_LABEL: Record<string, string> = {
@@ -1011,6 +1100,12 @@ export const JOURNEY_TRIGGER_LABEL: Record<string, string> = {
   'customer.birthday': 'A buyer has a birthday',
 };
 export const journeyTriggerLabel = (t: string): string => JOURNEY_TRIGGER_LABEL[t] ?? (t ? t.replace(/[._]/g, ' ') : 'No trigger');
+
+/** What reaching a journey's goal means, in words (Retain journey `goal_kind`); an unknown one shows its key. */
+export const JOURNEY_GOAL_VERB: Record<string, string> = {
+  order: 'ordered', review: 'wrote a review', renewal: 'renewed',
+};
+export const journeyGoalVerb = (g: string): string => JOURNEY_GOAL_VERB[g] ?? (g ? `reached ${g.replace(/[._]/g, ' ')}` : 'reached the goal');
 
 /** An SMS route's country in words (`*` = the row serving every country no named row serves). */
 export const smsRouteCountry = (c: string): string => (c === '*' ? 'Every other country' : c);

@@ -1,18 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CalendarClock, ListPlus, Loader2, Save } from 'lucide-react';
+import { BarChart3, CalendarClock, ListPlus, Loader2, Save } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
-import { BlockSkeleton, Chip } from '@/components/erp';
+import { BlockSkeleton, Chip, inr } from '@/components/erp';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import {
-  errText, isGap, journeyTriggerLabel, retentionAPI, REORDER_BOUNDS,
-  type RetentionJourney, type RetentionSettings,
+  errText, isGap, journeyGoalVerb, journeyTriggerLabel, retentionAPI, REORDER_BOUNDS,
+  type JourneyArm, type JourneyReport, type RetentionJourney, type RetentionSettings,
 } from '@/lib/v2/messaging';
 import { ErrorNotice, GapNotice, failureOf, type LoadFailure } from './common';
+import RetentionOverview from './RetentionOverview';
 
 /**
  * MESSAGING, RETENTION, JOURNEYS (lane ADMIN-REV-1): Retain's journeys with
@@ -39,6 +40,7 @@ const RetentionJourneys: React.FC = () => {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
   const [installGap, setInstallGap] = useState(false);
+  const [openId, setOpenId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setFailure(null);
@@ -121,6 +123,8 @@ const RetentionJourneys: React.FC = () => {
             <GapNotice what="Installing the recommended set (POST /retain/journeys/install-recommended) is not on this server yet." />
           )}
 
+          <RetentionOverview />
+
           {shown.length > 0 && (
             <div className="overflow-hidden rounded-lg border border-line bg-surface" data-testid="retention-journeys">
               <div aria-hidden className={cn('hidden gap-3 border-b border-line bg-surface-2 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-ink-soft md:grid', COLS)}>
@@ -145,6 +149,13 @@ const RetentionJourneys: React.FC = () => {
                       <p className="mt-0.5 text-xs text-ink-soft md:hidden">
                         {j.sent !== null ? `${num(j.sent)} sent` : 'Sent not reported'}, {j.converted !== null ? `${num(j.converted)} converted` : 'converted not reported'}
                       </p>
+                      {j.status !== 'draft' && (
+                        <button type="button" onClick={() => setOpenId((o) => (o === j.id ? null : j.id))}
+                          aria-expanded={openId === j.id} aria-controls={`journey-results-${j.id}`}
+                          className="mt-1 inline-flex min-h-[28px] items-center gap-1 text-xs font-medium text-ink-soft underline-offset-2 hover:text-ink hover:underline">
+                          <BarChart3 className="h-3.5 w-3.5" aria-hidden /> {openId === j.id ? 'Hide results' : 'Results'}
+                        </button>
+                      )}
                     </div>
                     <div className="flex items-center justify-end gap-2 md:order-last">
                       {!isOn(j) && j.status === 'paused' && <Chip tone="neutral" className="hidden text-[10px] lg:inline-flex">Paused</Chip>}
@@ -156,6 +167,11 @@ const RetentionJourneys: React.FC = () => {
                     <span className="hidden text-sm text-ink-soft md:block">{j.steps ?? <Muted />}</span>
                     <span className="hidden text-right text-sm tabular-nums text-ink md:block">{num(j.sent) ?? <Muted />}</span>
                     <span className="hidden text-right text-sm tabular-nums text-ink md:block">{num(j.converted) ?? <Muted />}</span>
+                    {openId === j.id && (
+                      <div id={`journey-results-${j.id}`} className="col-span-full md:order-last">
+                        <JourneyResults journeyId={j.id} />
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -180,6 +196,81 @@ const RetentionJourneys: React.FC = () => {
 };
 
 const Muted: React.FC = () => <span className="text-xs text-ink-mute" title="This server does not report it yet">n/a</span>;
+
+const rate = (bp: number) => `${(bp / 100).toLocaleString('en-IN', { maximumFractionDigits: 1 })}%`;
+
+/** What the result means for the store, said first (Retain's own confidence: 99% high, 95% medium). */
+function verdict(r: JourneyReport): { text: string; tone: 'good' | 'warn' | 'neutral' } {
+  const t = r.treatment;
+  const verb = journeyGoalVerb(r.goal_kind);
+  if (r.goal_kind === 'none') return { text: `${t.members.toLocaleString('en-IN')} people got it. It has no goal to measure.`, tone: 'neutral' };
+  if (r.holdout_bp === 0) return { text: 'Nobody is kept back from this journey, so whether it works cannot be measured.', tone: 'neutral' };
+  if (r.confidence === 'too_few') return { text: 'Too few people have been kept back yet to tell whether it works.', tone: 'neutral' };
+  if (r.lift_bp === null) return { text: `Nobody kept back has ${verb} yet, so the lift cannot be worked out.`, tone: 'neutral' };
+  const sure = r.confidence === 'high' ? 'sure at 99%' : r.confidence === 'medium' ? 'sure at 95%' : null;
+  const diff = `${r.lift_bp > 0 ? 'more' : 'fewer'} people ${verb} (${rate(Math.abs(r.lift_bp))} ${r.lift_bp > 0 ? 'more' : 'fewer'})`;
+  if (!sure) return { text: `No clear difference yet: ${diff} among those who got it, but not enough to be sure.`, tone: 'neutral' };
+  return r.lift_bp > 0
+    ? { text: `It works: ${diff} among those who got it than among those kept back, ${sure}.`, tone: 'good' }
+    : { text: `It is not helping: ${diff} among those who got it than among those kept back, ${sure}. Think about pausing it.`, tone: 'warn' };
+}
+
+const ArmFacts: React.FC<{ label: string; arm: JourneyArm; verb: string }> = ({ label, arm, verb }) => (
+  <div className="min-w-0 rounded-md border border-line bg-surface px-3 py-2">
+    <p className="text-xs font-semibold uppercase tracking-wide text-ink-soft">{label}</p>
+    <p className="mt-0.5 text-sm text-ink">
+      <span className="font-semibold tabular-nums">{arm.members.toLocaleString('en-IN')}</span> people,{' '}
+      <span className="font-semibold tabular-nums">{arm.converted.toLocaleString('en-IN')}</span> {verb} ({rate(arm.rate_bp)})
+    </p>
+    <p className="text-xs text-ink-soft">
+      {arm.revenue !== null ? `${inr(arm.revenue)} in orders` : 'Sales not reported'}
+      {arm.revenue_per_member !== null && arm.members > 0 ? `, ${inr(arm.revenue_per_member)} a person` : ''}
+    </p>
+  </div>
+);
+
+/**
+ * One journey's result against its hold-out (`GET /retain/journeys/{id}/report`, lane MENU-1):
+ * what it means first, then the two groups and what the journey added.
+ */
+const JourneyResults: React.FC<{ journeyId: string }> = ({ journeyId }) => {
+  const [r, setR] = useState<JourneyReport | null>(null);
+  const [failure, setFailure] = useState<LoadFailure | null>(null);
+
+  const load = useCallback(async () => {
+    setFailure(null);
+    try { setR(await retentionAPI.report(journeyId)); }
+    catch (e: any) { setFailure(failureOf(e, 'Could not load the results.')); }
+  }, [journeyId]);
+  useEffect(() => { load(); }, [load]);
+
+  if (failure?.gap) return <GapNotice className="mt-2" what="Journey results (GET /retain/journeys/{id}/report) are not on this server yet." />;
+  if (failure) return <div className="mt-2"><ErrorNotice message={failure.message} onRetry={load} /></div>;
+  if (!r) return <div aria-busy="true" className="mt-2"><BlockSkeleton lines={2} /></div>;
+
+  if (r.treatment.members === 0 && r.holdout.members === 0) {
+    return <p className="mt-2 rounded-md bg-surface-2 px-3 py-2 text-xs text-ink-soft">Nobody has entered this journey yet. Its results show here once people do.</p>;
+  }
+  const v = verdict(r);
+  const verb = journeyGoalVerb(r.goal_kind);
+  const measured = r.goal_kind !== 'none' && r.holdout_bp > 0;
+  return (
+    <div className="mt-2 space-y-2 rounded-lg border border-line bg-surface-2 p-3" data-testid="journey-results">
+      <p className={cn('text-sm font-medium', v.tone === 'good' ? 'text-good-ink' : v.tone === 'warn' ? 'text-warn-ink' : 'text-ink')}>{v.text}</p>
+      <div className={cn('grid gap-2', measured && 'sm:grid-cols-2')}>
+        <ArmFacts label="Got the messages" arm={r.treatment} verb={verb} />
+        {measured && <ArmFacts label={`Kept back (${rate(r.holdout_bp)})`} arm={r.holdout} verb={verb} />}
+      </div>
+      {measured && r.confidence !== 'too_few' && (
+        <p className="text-xs text-ink-soft">
+          Added by the journey: {r.incremental_conversions.toLocaleString('en-IN')} {r.incremental_conversions === 1 ? 'person' : 'people'} who {verb}
+          {r.incremental_revenue !== null ? `, ${inr(r.incremental_revenue)} in orders` : ''}.
+          {r.goal_window_days > 0 ? ` Counted within ${r.goal_window_days} days of entering.` : ''}
+        </p>
+      )}
+    </div>
+  );
+};
 
 /**
  * The days the reorder reminder waits after an order, for products without an

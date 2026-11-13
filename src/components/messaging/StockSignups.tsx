@@ -1,10 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { BellRing, Package } from 'lucide-react';
+import { BellRing, Loader2, Package } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { Switch } from '@/components/ui/switch';
 import { BlockSkeleton, Chip } from '@/components/erp';
 import { SearchBox, EmptyRowState } from '@/components/sales/ListChrome';
+import { useToast } from '@/hooks/use-toast';
 import { formatDayShort } from '@/utils/date';
 import { cn } from '@/lib/utils';
-import { retentionAPI, type StockSignupRow } from '@/lib/v2/messaging';
+import { errText, retentionAPI, type RetentionSettings, type StockSignupRow } from '@/lib/v2/messaging';
 import { ErrorNotice, GapNotice, failureOf, type LoadFailure } from './common';
 
 /**
@@ -70,6 +73,8 @@ const StockSignups: React.FC = () => {
           : lines.map((l) => <p key={l} className="text-xs opacity-90">{l}</p>)}
       </div>
 
+      <AlertSwitch />
+
       {rows.length > 0 && (
         <>
           <SearchBox value={q} onChange={setQ} placeholder="Search products or SKU" className="w-full sm:w-72" />
@@ -118,6 +123,54 @@ const StockSignups: React.FC = () => {
           </p>
         </>
       )}
+    </div>
+  );
+};
+
+/**
+ * The store's own switch for these messages (Retain settings `automation.alerts`, on by default,
+ * DEC-070), lane MENU-1. Changing it needs marketing.manage, as every Retain setting does. A
+ * server without the switch shows nothing here; the list above still works.
+ */
+const AlertSwitch: React.FC = () => {
+  const { hasPerm } = useAuth();
+  const canWrite = hasPerm('marketing.manage');
+  const { toast } = useToast();
+  const [cfg, setCfg] = useState<RetentionSettings | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    retentionAPI.settings().then((v) => { if (live) setCfg(v); }).catch(() => { /* the list above still works */ });
+    return () => { live = false; };
+  }, []);
+  if (!cfg || cfg.alerts_on === null) return null;
+
+  const flip = async (on: boolean) => {
+    setSaving(true);
+    try {
+      setCfg(await retentionAPI.saveAlertsOn(cfg, on));
+      toast({ title: on ? 'Stock alerts are on' : 'Stock alerts are off', description: on ? 'People waiting are told when the product is back or cheaper.' : 'Sign-ups are kept; nobody is told until you turn this on again.' });
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Not changed', description: errText(e, 'The server refused the change.') });
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="flex items-start gap-3 rounded-lg border border-line bg-surface px-4 py-3" data-testid="stock-alert-switch">
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold text-ink">Tell people when it is back</p>
+        <p className="mt-0.5 text-xs text-ink-soft">
+          {cfg.alerts_on
+            ? 'On: each person who signed up gets one message when the product is back in stock or cheaper.'
+            : 'Off: sign-ups are kept, but nobody is told. Turn it on to send them.'}
+        </p>
+      </div>
+      <div className="flex items-center gap-2">
+        {saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-ink-mute" aria-label="Saving" />}
+        <Switch checked={cfg.alerts_on} onCheckedChange={flip} disabled={!canWrite || saving}
+          aria-label="Tell people when it is back" title={!canWrite ? 'Needs the marketing.manage permission' : undefined} />
+      </div>
     </div>
   );
 };
