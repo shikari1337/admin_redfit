@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { AlertTriangle, Bell, FileText, Loader2, Save, Users, Zap } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { AlertTriangle, Bell, CircleCheck, FileText, Loader2, Save, Users, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import SettingFieldControl, { type RegistryField } from '@/components/settings/SettingFieldControl';
 import { settingsRegistryAPI } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
@@ -52,6 +53,8 @@ const Notifications: React.FC = () => {
   const { hasPerm } = useAuth();
   // The same permissions the Message templates page uses: read = marketing.read, write = marketing.manage.
   const canWrite = hasPerm('marketing.manage');
+  // Taking the DLT registered words is the DLT mapping's own permission (comms sms_config.rs, notifications.rs).
+  const canMap = hasPerm('settings.manage');
   const [tab, setTab] = useTabParam(TABS.map((t) => t.key), 'messages');
 
   const [rows, setRows] = useState<NotificationRow[] | null>(null);
@@ -69,10 +72,10 @@ const Notifications: React.FC = () => {
   return (
     <div className="space-y-4 pb-12">
       <MessagingHeader icon={Bell} title="Notifications"
-        purpose="Every message your store sends — what sends it, on which channel, and whether it can go out. Growcord's wording until you write your own." />
+        purpose="Every message your store sends: what sends it, on which channel, and whether it can go out. Growcord's wording until you write your own." />
       <MessagingTabs label="Notifications" tabs={TABS} active={tab} onChange={setTab} />
       {tab === 'messages' ? (
-        <MessagesTab rows={rows} failure={failure} reload={load} setRows={setRows} canWrite={canWrite} catalogue={catalogue} />
+        <MessagesTab rows={rows} failure={failure} reload={load} setRows={setRows} canWrite={canWrite} canMap={canMap} catalogue={catalogue} />
       ) : (
         <BrandingPanel messages={messages} />
       )}
@@ -80,19 +83,31 @@ const Notifications: React.FC = () => {
   );
 };
 
+/** One switched-on channel of one message that cannot go out as it should, and why. */
+interface Issue { row: NotificationRow; channel: MsgCh; why: string }
+
 const MessagesTab: React.FC<{
   rows: NotificationRow[] | null; failure: LoadFailure | null; reload: () => void;
   setRows: React.Dispatch<React.SetStateAction<NotificationRow[] | null>>;
-  canWrite: boolean; catalogue: ReturnType<typeof useCommerceCatalogue>;
-}> = ({ rows, failure, reload, setRows, canWrite, catalogue }) => {
+  canWrite: boolean; canMap: boolean; catalogue: ReturnType<typeof useCommerceCatalogue>;
+}> = ({ rows, failure, reload, setRows, canWrite, canMap, catalogue }) => {
   const { toast } = useToast();
   const [search, setSearch] = useState('');
   const [group, setGroup] = useState('');
   const [channel, setChannel] = useState('');
   const [audience, setAudience] = useState('');
-  const [attention, setAttention] = useState(false);
+  // "Needs attention" lives in the URL (`?attention=1`) so other pages can link straight to it.
+  const [params, setParams] = useSearchParams();
+  const attention = params.get('attention') === '1';
+  const setAttention = useCallback((on: boolean) => {
+    const next = new URLSearchParams(params);
+    if (on) next.set('attention', '1'); else next.delete('attention');
+    setParams(next, { replace: true });
+  }, [params, setParams]);
   const [open, setOpen] = useState<{ key: string; channel: MsgCh } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [adopt, setAdopt] = useState<NotificationRow | null>(null);
+  const [adopting, setAdopting] = useState(false);
   // One registry read for the two setting cards (Staff alerts contacts, Orders invoice auto-send).
   const registry = useSettingsRegistry();
 
@@ -115,6 +130,10 @@ const MessagesTab: React.FC<{
   }, [filtered]);
 
   const attentionCount = useMemo(() => (rows ?? []).filter(rowNeedsAttention).length, [rows]);
+  const issues = useMemo<Issue[]>(() => (rows ?? []).flatMap((r) => MSG_CHANNELS.flatMap((ch) => {
+    const why = cellNeedsAttention(ch, r.channels[ch]);
+    return why ? [{ row: r, channel: ch, why }] : [];
+  })), [rows]);
   const present = useMemo(() => new Set((rows ?? []).map((r) => r.group)), [rows]);
   const columns = useMemo(() => MSG_CHANNELS.filter((c) => (rows ?? []).some((r) => r.channels[c])), [rows]);
 
@@ -131,6 +150,22 @@ const MessagesTab: React.FC<{
     },
   ];
   const clearAll = () => { setSearch(''); setGroup(''); setChannel(''); setAudience(''); setAttention(false); };
+
+  /** The SMS takes the words registered on DLT under its own id; the server answers the new cell. */
+  const adoptRegistered = async () => {
+    if (!adopt) return;
+    const row = adopt;
+    setAdopting(true);
+    try {
+      const c = await messagingAPI.adoptRegisteredSmsText(row.key);
+      setRows((rs) => (rs ?? []).map((r) => (r.key === row.key ? { ...r, channels: { ...r.channels, sms: c ?? r.channels.sms } } : r)));
+      toast({ title: `${row.label}: SMS now uses the registered text`, description: 'Nothing was sent. The next SMS for this message goes out with these words.' });
+      setAdopt(null);
+      catalogue.reload();
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Not changed', description: errText(e, 'The server refused the change.') });
+    } finally { setAdopting(false); }
+  };
 
   /** The ONE switch. Optimistic, rolled back on a refusal, replaced by the server's own cell on success. */
   const toggle = async (row: NotificationRow, ch: MsgCh, enabled: boolean) => {
@@ -153,7 +188,7 @@ const MessagesTab: React.FC<{
   if (failure?.gap) {
     return (
       <GapNotice what="The notifications list (GET /comms/notifications) is not served by this server yet.">
-        Meanwhile every template can be read and edited on <Link to="/settings/sms-templates" className="underline">Settings ▸ Message templates</Link>.
+        Meanwhile every template can be read and edited on <Link to="/settings/sms-templates" className="underline">Settings, Message templates</Link>.
       </GapNotice>
     );
   }
@@ -164,13 +199,15 @@ const MessagesTab: React.FC<{
 
   return (
     <div className="space-y-4">
+      <AttentionSummary issues={issues} filtered={attention} onShow={() => setAttention(true)} />
+
       <div className="flex flex-wrap items-center gap-2">
         <SearchBox value={search} onChange={setSearch} placeholder="Search messages" className="w-full sm:w-72" />
         <FilterChips groups={groups} onClearAll={clearAll}>
-          <button type="button" aria-pressed={attention} onClick={() => setAttention((a) => !a)}
+          <button type="button" aria-pressed={attention} onClick={() => setAttention(!attention)}
             className={cn('inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium',
               attention ? 'border-warn bg-warn-bg text-warn-ink' : 'border-line bg-surface text-ink-soft hover:text-ink')}
-            title="Switched on, but cannot go out: no template, not approved by Meta, or SMS not mapped to DLT.">
+            title="Switched on, but cannot go out: no template, not approved by Meta, SMS words not matching DLT, or most sends failing.">
             <AlertTriangle className="h-3.5 w-3.5" /> Needs attention{attentionCount ? ` (${attentionCount})` : ''}
           </button>
         </FilterChips>
@@ -211,9 +248,9 @@ const MessagesTab: React.FC<{
                     {r.trigger && <p className="mt-0.5 text-xs text-ink-soft">{r.trigger}</p>}
                   </div>
                   {columns.map((c) => (
-                    <ChannelCell key={c} row={r} channel={c} canWrite={canWrite} busy={busy === `${r.key}:${c}`}
+                    <ChannelCell key={c} row={r} channel={c} canWrite={canWrite} canMap={canMap} busy={busy === `${r.key}:${c}`}
                       onToggle={(on) => toggle(r, c, on)} onOpen={() => setOpen({ key: r.key, channel: c })}
-                      canOpen={!catalogue.failure} />
+                      onAdopt={() => setAdopt(r)} canOpen={!catalogue.failure} />
                   ))}
                 </li>
               ))}
@@ -223,15 +260,17 @@ const MessagesTab: React.FC<{
       ))}
 
       <p className="text-xs text-ink-soft">
-        {filtered.length} of {rows.length} messages · {attentionCount} need{attentionCount === 1 ? 's' : ''} attention.
+        {filtered.length} of {rows.length} messages; {attentionCount} need{attentionCount === 1 ? 's' : ''} attention.
       </p>
+
+      <AdoptRegisteredDialog row={adopt} busy={adopting} onCancel={() => setAdopt(null)} onConfirm={adoptRegistered} />
 
       <TemplateEditorDrawer entry={openEntry} smsOwnHeader={catalogue.cat?.smsOwnHeader} canWrite={canWrite}
         initialChannel={open?.channel as MsgChannel | undefined}
         onClose={() => setOpen(null)} onChanged={() => { catalogue.reload(); reload(); }} />
       {open && !openEntry && !catalogue.loading && (
         <div role="status" className="fixed inset-x-4 bottom-4 z-50 mx-auto max-w-md rounded-md border border-warn bg-warn-bg px-3 py-2 text-sm text-warn-ink shadow-lg sm:inset-x-auto sm:right-4">
-          “{open.key}” is not in this server's template catalogue yet, so it cannot be edited here.
+          "{open.key}" is not in this server's template catalogue yet, so it cannot be edited here.
           <button type="button" className="ml-2 underline" onClick={() => setOpen(null)}>Close</button>
         </div>
       )}
@@ -307,13 +346,13 @@ const StaffAlertContactsCard: React.FC<{ registry: Registry }> = ({ registry }) 
 
   return (
     <SettingCardShell icon={Users} title="Who gets staff alerts"
-      what="New orders, returns, questions, reviews, failed deliveries and low stock go to these people — by email, WhatsApp and push.">
+      what="New orders, returns, questions, reviews, failed deliveries and low stock go to these people by email, WhatsApp and push.">
       {registry.loading && !registry.defs ? <BlockSkeleton lines={2} />
         : registry.failure && !registry.failure.gap ? <ErrorNotice message={registry.failure.message} onRetry={registry.reload} />
           : !hit ? (
             <p className="text-xs text-ink-mute" data-testid="staff-contacts-gap">
               Not available on this server yet. Until it is, staff alerts go by email to the admin address in{' '}
-              <Link to="/settings?key=smtp" className="underline">Settings ▸ Email (SMTP)</Link>, else to the store owner.
+              <Link to="/settings?key=smtp" className="underline">Settings, Email (SMTP)</Link>, else to the store owner.
             </p>
           ) : (
             <fieldset className="space-y-3" disabled={!canWrite}>
@@ -379,7 +418,7 @@ const InvoiceAutoSendCard: React.FC<{ registry: Registry }> = ({ registry }) => 
             <label className="flex items-center gap-2 text-sm">
               <Switch checked={on} onCheckedChange={flip} disabled={!canWrite || busy} aria-label={hit.field.label || 'Email the invoice when issued'}
                 title={!canWrite ? `Needs the ${hit.def.permission?.write ?? 'settings.manage'} permission` : undefined} />
-              <span className="text-ink">{on ? 'On — every issued invoice is emailed' : 'Off'}</span>
+              <span className="text-ink">{on ? 'On: every issued invoice is emailed' : 'Off'}</span>
               {busy && <Loader2 className="h-3.5 w-3.5 animate-spin text-ink-mute" aria-label="Saving" />}
             </label>
           )}
@@ -395,10 +434,17 @@ function gridCols(n: number): string {
   return 'grid-cols-1 md:grid-cols-[minmax(200px,1.6fr)_minmax(0,1fr)]';
 }
 
+/** The SMS cell's DLT state in words: mapped, not mapped, or mapped with words the gateway refuses. */
+const DLT_CHIP: Record<'mapped' | 'unmapped' | 'differs', { label: string; tone: Tone }> = {
+  mapped: { label: 'DLT mapped', tone: 'green' },
+  unmapped: { label: 'DLT not mapped', tone: 'amber' },
+  differs: { label: 'DLT text differs', tone: 'red' },
+};
+
 const ChannelCell: React.FC<{
-  row: NotificationRow; channel: MsgCh; canWrite: boolean; busy: boolean; canOpen: boolean;
-  onToggle: (on: boolean) => void; onOpen: () => void;
-}> = ({ row, channel, canWrite, busy, canOpen, onToggle, onOpen }) => {
+  row: NotificationRow; channel: MsgCh; canWrite: boolean; canMap: boolean; busy: boolean; canOpen: boolean;
+  onToggle: (on: boolean) => void; onOpen: () => void; onAdopt: () => void;
+}> = ({ row, channel, canWrite, canMap, busy, canOpen, onToggle, onOpen, onAdopt }) => {
   const c = row.channels[channel];
   const name = MSG_CHANNEL_LABEL[channel];
   if (!c) {
@@ -413,6 +459,8 @@ const ChannelCell: React.FC<{
   // (no account resolves, MSG-2 CellView). The switch still works: it is the message's own flag.
   const why = !canWrite ? 'Needs the marketing.manage permission' : !c.available ? 'This channel is not set up to send for your store yet' : busy ? 'Saving…' : undefined;
   const approval = channel === 'whatsapp' && c.approval ? APPROVAL[c.approval] : null;
+  const dlt = channel === 'sms' && c.dlt ? DLT_CHIP[c.dlt] : null;
+  const lastSent = c.last_sent_at ? `, last ${formatDayShort(c.last_sent_at)}` : '';
   return (
     <div className={cn('min-w-0 rounded-md p-1.5', warn && 'bg-warn-bg/60')} data-channel={channel}>
       <div className="flex items-center gap-2">
@@ -421,20 +469,102 @@ const ChannelCell: React.FC<{
         <button type="button" onClick={onOpen} disabled={!canOpen}
           className="min-w-0 truncate text-left text-xs font-medium text-ink hover:underline disabled:no-underline disabled:opacity-60"
           title={canOpen ? `Preview and edit the ${name} text` : 'The template catalogue did not load'}>
-          <span className="md:hidden">{name} · </span>{c.enabled ? 'On' : 'Off'}
+          <span className="md:hidden">{name}: </span>{c.enabled ? 'On' : 'Off'}
         </button>
       </div>
       <div className="mt-1 flex flex-wrap gap-1">
         {!c.available && <span title="No account sends on this channel for your store yet"><Chip tone="neutral" className="text-[10px]">Not set up</Chip></span>}
         {c.customised && <Chip tone="blue" className="text-[10px]">Your text</Chip>}
         {approval && <Chip tone={approval.tone} className="text-[10px]">{approval.label}</Chip>}
-        {channel === 'sms' && c.dlt && <Chip tone={c.dlt === 'mapped' ? 'green' : 'amber'} className="text-[10px]">{c.dlt === 'mapped' ? 'DLT mapped' : 'DLT not mapped'}</Chip>}
+        {dlt && <Chip tone={dlt.tone} className="text-[10px]">{dlt.label}</Chip>}
       </div>
       <p className="mt-1 text-[11px] tabular-nums text-ink-soft" title={c.last_sent_at ? `Last sent ${formatDateTime(c.last_sent_at)}` : undefined}>
-        {fmtCount(c.sent_30d)} in 30 days{c.last_sent_at ? ` · last ${formatDayShort(c.last_sent_at)}` : ''}
+        {fmtCount(c.sent_30d)} in 30 days{lastSent}
+        {c.failed_30d > 0 && <span className="text-bad-ink">, {fmtCount(c.failed_30d)} failed</span>}
       </p>
       {warn && <p className="mt-0.5 text-[11px] text-warn-ink">{warn}</p>}
+      {channel === 'sms' && c.dlt === 'differs' && (
+        <button type="button" onClick={onAdopt} disabled={!canMap}
+          title={canMap ? 'See the registered text and use it for this SMS' : 'Needs the settings.manage permission'}
+          className="mt-1 text-[11px] font-medium text-brand underline underline-offset-2 hover:no-underline disabled:cursor-not-allowed disabled:text-ink-mute disabled:no-underline">
+          Use registered text
+        </button>
+      )}
     </div>
+  );
+};
+
+/**
+ * What to act on first: every switched-on channel that cannot go out as it should, in the
+ * server's own state (the matrix cells), before the full list. All clear says so in one line.
+ */
+const AttentionSummary: React.FC<{ issues: Issue[]; filtered: boolean; onShow: () => void }> = ({ issues, filtered, onShow }) => {
+  if (!issues.length) {
+    return (
+      <p role="status" className="flex items-center gap-1.5 text-sm text-good-ink">
+        <CircleCheck className="h-4 w-4" aria-hidden /> Every message that is switched on can go out.
+      </p>
+    );
+  }
+  const shown = issues.slice(0, 4);
+  return (
+    <div role="status" className="rounded-lg border border-warn bg-warn-bg px-4 py-3 text-sm text-warn-ink" data-testid="attention-summary">
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="mr-auto flex items-center gap-1.5 font-semibold">
+          <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />
+          {issues.length === 1 ? '1 message channel cannot go out as it should' : `${fmtCount(issues.length)} message channels cannot go out as they should`}
+        </p>
+        {!filtered && <Button size="sm" variant="outline" onClick={onShow}>Show only these</Button>}
+      </div>
+      <ul className="mt-2 space-y-1 text-xs">
+        {shown.map((i) => (
+          <li key={`${i.row.key}:${i.channel}`} className="min-w-0">
+            <span className="font-medium">{i.row.label}, {MSG_CHANNEL_LABEL[i.channel]}:</span> {i.why}
+          </li>
+        ))}
+        {issues.length > shown.length && <li>And {fmtCount(issues.length - shown.length)} more.</li>}
+      </ul>
+    </div>
+  );
+};
+
+/**
+ * The reviewed step before an SMS takes the words registered on DLT under its own id: the
+ * registered text as DLT holds it, what changes, and that nothing is sent now.
+ */
+const AdoptRegisteredDialog: React.FC<{
+  row: NotificationRow | null; busy: boolean; onCancel: () => void; onConfirm: () => void;
+}> = ({ row, busy, onCancel, onConfirm }) => {
+  const text = row?.channels.sms?.dlt_registered ?? null;
+  return (
+    <Dialog open={!!row} onOpenChange={(o) => { if (!o && !busy) onCancel(); }}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Use the registered text</DialogTitle>
+          <DialogDescription>
+            {row?.label}: Indian SMS gateways send only words that match the DLT registration exactly. These words replace the store's SMS
+            text for this message; each slot is filled with the details the store sends today. Nothing is sent now.
+          </DialogDescription>
+        </DialogHeader>
+        {text ? (
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-ink-soft">Registered on DLT</p>
+            <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md border border-line bg-surface-2 p-3 font-sans text-sm text-ink">{text}</pre>
+            <p className="text-[11px] text-ink-soft">
+              To compare with every registration of your sender, open <Link to="/messaging/sms?tab=dlt" className="underline">SMS, DLT mapping</Link>.
+            </p>
+          </div>
+        ) : (
+          <p className="text-sm text-ink-soft">The registered text did not come with the list. The server reads it again when you go ahead.</p>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onCancel} disabled={busy}>Cancel</Button>
+          <Button onClick={onConfirm} disabled={busy}>
+            {busy && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />} Use registered text
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 };
 

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { Loader2, Send, Settings2, CircleCheck } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { AlertTriangle, Loader2, Send, Settings2, CircleCheck } from 'lucide-react';
 import { messageTemplatesAPI, type MsgCatalogue, type MsgCatalogueEntry, type MsgChannel } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,8 @@ import {
   CHANNEL_LABEL, CHANNEL_ORDER, KIND_HELP, KIND_LABEL, KIND_TONE, LAYER_FILTER_LABEL, LAYER_TONE,
   PRODUCT_OFF_TIP, approvalOf, layerOf, productEnabled, productLabel, productTabs, rowHaystack, type LayerKey,
 } from '@/components/templates/model';
+import { ErrorNotice, useNotificationRows } from '@/components/messaging/common';
+import { fmtCount, rowNeedsAttention } from '@/lib/v2/messaging';
 
 /**
  * MESSAGE TEMPLATES — every message every product this store runs can send,
@@ -63,6 +65,11 @@ const SmsTemplates: React.FC = () => {
   }, []);
   useEffect(() => { load(); }, [load]);
 
+  // What to act on first: the Commerce messages switched on that cannot go out (the Notifications
+  // list's own cells). Silent when that list is not served or fails; the table below still works.
+  const notes = useNotificationRows();
+  const blocked = useMemo(() => (notes.rows ?? []).filter(rowNeedsAttention).length, [notes.rows]);
+
   const [showAll, setShowAll] = useState(false);
   const tabs = useMemo(() => productTabs(cat, showAll), [cat, showAll]);
   const offCount = useMemo(() => productTabs(cat, true).length - productTabs(cat, false).length, [cat]);
@@ -88,7 +95,7 @@ const SmsTemplates: React.FC = () => {
 
   const groups: ChipGroup[] = [
     {
-      key: 'kind', label: 'Kind', value: kind, onChange: setKind, help: 'What the message is for — it decides consent and price.',
+      key: 'kind', label: 'Kind', value: kind, onChange: setKind, help: 'What the message is for; it decides consent and price.',
       options: (['authentication', 'update', 'marketing'] as const)
         .filter((k) => productEntries.some((e) => e.def.kind === k))
         .map((k) => ({ value: k, label: KIND_LABEL[k], hint: String(productEntries.filter((e) => e.def.kind === k).length) })),
@@ -115,7 +122,7 @@ const SmsTemplates: React.FC = () => {
   const waTotal = productEntries.filter((e) => e.def.channels.includes('whatsapp')).length;
 
   const ChannelCell: React.FC<{ e: MsgCatalogueEntry; c: MsgChannel }> = ({ e, c }) => {
-    if (!e.def.channels.includes(c)) return <span className="text-xs text-ink-mute">—</span>;
+    if (!e.def.channels.includes(c)) return <span className="text-xs text-ink-mute">Not used</span>;
     const l = layerOf(e, c, cat?.smsOwnHeader);
     let a = approvalOf(e.resolved[c]);
     if (c === 'whatsapp' && (!a || a.label === 'Not checked') && live.status) {
@@ -133,7 +140,7 @@ const SmsTemplates: React.FC = () => {
     <div className="space-y-4 pb-12">
       <ListHeader
         title="Message templates"
-        purpose="Every message your store sends, per channel — Growcord's default until you write your own."
+        purpose="Every message your store sends, per channel: Growcord's default until you write your own."
         aside={
           <Button variant="outline" size="sm" onClick={() => setGatewayOpen(true)}>
             <Settings2 className="mr-1.5 h-3.5 w-3.5" /> SMS gateway
@@ -146,10 +153,21 @@ const SmsTemplates: React.FC = () => {
         }
       />
 
+      {blocked > 0 && (
+        <div role="status" data-testid="templates-attention"
+          className="flex flex-wrap items-center gap-2 rounded-md border border-warn bg-warn-bg px-3 py-2 text-sm text-warn-ink">
+          <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />
+          <span className="min-w-0 flex-1">
+            {blocked === 1 ? '1 Commerce message is' : `${fmtCount(blocked)} Commerce messages are`} switched on but cannot go out as they should
+            (no template, not approved by Meta, SMS words not matching DLT, or most sends failing).
+          </span>
+          <Link to="/messaging/notifications?attention=1" className="font-medium underline underline-offset-2 hover:no-underline">Review them</Link>
+        </div>
+      )}
       {cat?.degraded && (
         <div className="rounded-md border border-warn bg-warn-bg px-3 py-2 text-sm text-warn-ink">{cat.degraded}</div>
       )}
-      {error && <div className="rounded-md border border-bad bg-bad-bg px-3 py-2 text-sm text-bad-ink">{error}</div>}
+      {error && <ErrorNotice message={error} onRetry={() => { setLoading(true); load(); }} />}
 
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div className="min-w-0 flex-1">
@@ -177,7 +195,7 @@ const SmsTemplates: React.FC = () => {
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        <SearchBox value={search} onChange={setSearch} placeholder="Search messages" className="w-72" />
+        <SearchBox value={search} onChange={setSearch} placeholder="Search messages" className="w-full sm:w-72" />
         <FilterChips groups={groups} onClearAll={clearAll} />
       </div>
 
@@ -229,7 +247,7 @@ const SmsTemplates: React.FC = () => {
 
       {!loading && (
         <p className="text-xs text-ink-soft" data-testid="templates-footer">
-          {rows.length} of {productEntries.length} messages · {overrides} channel{overrides === 1 ? '' : 's'} on your own text · everything else sends Growcord's default.
+          {rows.length} of {productEntries.length} messages; {overrides} channel{overrides === 1 ? '' : 's'} on your own text; everything else sends Growcord's default.
         </p>
       )}
 

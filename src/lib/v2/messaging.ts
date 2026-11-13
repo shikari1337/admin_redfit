@@ -32,10 +32,17 @@ export interface NotificationCell {
   customised: boolean;
   /** WhatsApp only. */
   approval: Approval;
-  /** SMS only. */
-  dlt: 'mapped' | 'unmapped' | null;
+  /**
+   * SMS only. `differs`: the DLT template id is one of the store's own sender's registrations, but
+   * the words are not the text registered under it, so the gateway refuses every send (MENU-1).
+   */
+  dlt: 'mapped' | 'unmapped' | 'differs' | null;
+  /** SMS `differs` only: the text registered on DLT under the cell's id, verbatim (`{#var#}` slots). */
+  dlt_registered: string | null;
   last_sent_at: string | null;
   sent_30d: number;
+  /** Sends that failed in the last 30 days (refused or bounced by the provider). */
+  failed_30d: number;
 }
 
 export interface NotificationRow {
@@ -257,9 +264,11 @@ function cell(raw: any): NotificationCell | null {
     enabled: !!raw.enabled,
     customised: !!raw.customised,
     approval: (raw.approval ?? null) as Approval,
-    dlt: raw.dlt === 'mapped' || raw.dlt === 'unmapped' ? raw.dlt : null,
+    dlt: raw.dlt === 'mapped' || raw.dlt === 'unmapped' || raw.dlt === 'differs' ? raw.dlt : null,
+    dlt_registered: s(raw.dlt_registered),
     last_sent_at: s(raw.last_sent_at),
     sent_30d: n(raw.sent_30d),
+    failed_30d: n(raw.failed_30d),
   };
 }
 
@@ -381,6 +390,15 @@ export const messagingAPI = {
   /** §4.2 the ONE switch per channel (the same flag the send path checks). */
   setChannel: async (key: string, channel: MsgCh, enabled: boolean): Promise<NotificationCell | null> => {
     const d = await call<any>('PUT', `/notifications/${encodeURIComponent(key)}/channels/${channel}`, { data: { enabled } });
+    return cell(d);
+  },
+
+  /**
+   * MENU-1: the SMS takes the words registered on DLT under its OWN template id (settings.manage).
+   * Sends nothing; answers the SMS cell as it now is.
+   */
+  adoptRegisteredSmsText: async (key: string): Promise<NotificationCell | null> => {
+    const d = await call<any>('POST', `/notifications/${encodeURIComponent(key)}/sms/registered-text`, { data: {} });
     return cell(d);
   },
 
@@ -984,6 +1002,9 @@ export function cellNeedsAttention(channel: MsgCh, c: NotificationCell | null): 
   if (!c.available) return 'Switched on, but this channel is not set up to send for your store yet.';
   if (channel === 'whatsapp' && c.approval && c.approval !== 'approved') return 'Switched on, but Meta has not approved the template.';
   if (channel === 'sms' && c.dlt === 'unmapped') return 'Switched on, but the text is not mapped to a DLT registration.';
+  if (channel === 'sms' && c.dlt === 'differs') return 'The words are not the text registered on DLT, so the SMS gateway refuses every send.';
+  // A few bounces among many sends are normal; more failed than sent means the channel is not getting through.
+  if (c.failed_30d > 0 && c.failed_30d >= c.sent_30d) return `More sends failed than went out in 30 days (${fmtCount(c.failed_30d)} failed, ${fmtCount(c.sent_30d)} sent).`;
   return null;
 }
 
