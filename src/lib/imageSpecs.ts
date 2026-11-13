@@ -76,17 +76,33 @@ export function getImageSpecSync(key?: string | null): ImageSpec {
   return cached?.byKey[key] ?? SPEC_FALLBACK;
 }
 
-export function useImageSpecs(): { resolution: ImageSpecResolution | null; loading: boolean; reload: () => void } {
+/** The last load's refusal, kept so a page that lists the sizes can say why it has none (fields just fall back). */
+let lastError: string | null = null;
+
+export function useImageSpecs(): { resolution: ImageSpecResolution | null; loading: boolean; error: string | null; reload: () => void } {
   const [resolution, setResolution] = useState<ImageSpecResolution | null>(cached);
   const [loading, setLoading] = useState(!cached);
+  const [error, setError] = useState<string | null>(cached ? null : lastError);
   useEffect(() => {
     let alive = true;
-    const sync = () => { if (alive) setResolution(cached); };
+    const sync = () => { if (alive) { setResolution(cached); setError(null); } };
     listeners.add(sync);
-    if (!cached) loadImageSpecs().catch(() => { /* hint simply falls back */ }).finally(() => alive && setLoading(false));
+    if (!cached) {
+      loadImageSpecs()
+        .then(() => { lastError = null; })
+        .catch((e: any) => { lastError = e?.response?.data?.message || e?.message || 'Could not load the image sizes'; if (alive) setError(lastError); })
+        .finally(() => alive && setLoading(false));
+    }
     return () => { alive = false; listeners.delete(sync); };
   }, []);
-  return { resolution, loading, reload: () => { loadImageSpecs(true).catch(() => {}); } };
+  const reload = () => {
+    setLoading(true); setError(null);
+    loadImageSpecs(true)
+      .then(() => { lastError = null; })
+      .catch((e: any) => { lastError = e?.response?.data?.message || e?.message || 'Could not load the image sizes'; setError(lastError); })
+      .finally(() => setLoading(false));
+  };
+  return { resolution, loading, error, reload };
 }
 
 /** The spec for ONE slot; falls back to the generic spec until loaded or when the key is unknown. */
@@ -96,11 +112,16 @@ export function useImageSpec(key?: string | null): ImageSpec {
   return resolution?.byKey[key] ?? SPEC_FALLBACK;
 }
 
-/** "1600 × 600 px (8:3) · WebP/JPG/PNG · under 350 KB" */
-export function specHint(s: ImageSpec, opts: { short?: boolean } = {}): string {
+/** "WebP/JPG/PNG, under 350 KB": the file part of a slot's hint. */
+export function specFileHint(s: ImageSpec): string {
   const fmt = s.formats.map((f) => f.toUpperCase()).join('/');
+  return `${fmt}, under ${s.maxKb} KB${s.transparent ? ', transparent' : ''}`;
+}
+
+/** "1600 × 600 px (8:3), WebP/JPG/PNG, under 350 KB" */
+export function specHint(s: ImageSpec, opts: { short?: boolean } = {}): string {
   if (opts.short) return `${s.width} × ${s.height} (${s.aspect})`;
-  return `${s.width} × ${s.height} px (${s.aspect}) · ${fmt} · under ${s.maxKb} KB${s.transparent ? ' · transparent' : ''}`;
+  return `${s.width} × ${s.height} px (${s.aspect}), ${specFileHint(s)}`;
 }
 
 export interface SpecCheck { level: 'ok' | 'warn' | 'bad'; message: string }
@@ -110,7 +131,7 @@ export function checkAgainstSpec(dims: { width: number; height: number } | null,
   const notes: string[] = [];
   let level: SpecCheck['level'] = 'ok';
   if (dims) {
-    if (dims.width < s.minWidth) { level = 'bad'; notes.push(`only ${dims.width} px wide — needs at least ${s.minWidth}`); }
+    if (dims.width < s.minWidth) { level = 'bad'; notes.push(`only ${dims.width} px wide, needs at least ${s.minWidth}`); }
     const want = s.width / s.height, got = dims.width / dims.height;
     const drift = Math.abs(got - want) / want;
     if (drift > 0.25) {
@@ -120,7 +141,7 @@ export function checkAgainstSpec(dims: { width: number; height: number } | null,
   }
   if (bytes != null && bytes > s.maxKb * 1024 * 1.5) {
     if (level !== 'bad') level = 'warn';
-    notes.push(`${Math.round(bytes / 1024)} KB — heavier than the ${s.maxKb} KB target`);
+    notes.push(`${Math.round(bytes / 1024)} KB, heavier than the ${s.maxKb} KB target`);
   }
   return { level, message: notes.length ? notes.join('; ') : `Fits the ${s.label.toLowerCase()} slot` };
 }

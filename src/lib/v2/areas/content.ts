@@ -125,15 +125,21 @@ export const CONTENT_ROUTES: V2Route[] = [
   { m: 'GET', from: '/upload/browse', row: 'commerce upload.ts:210', to: '/api/v2/commerce/media/browse', qs: ['cursor','limit','prefix','search'] },
   { m: 'GET', from: '/upload/files', row: 'commerce upload.ts:182 (binary /media/files)', to: '/api/v2/commerce/media/files' },
   {
-    // no remove-many in the binary: each key is removed through the one remove route, reported together
-    m: 'DELETE', from: '/upload/files', row: 'commerce upload.ts:261 (each key → /media/remove)',
+    // No remove-many in the binary: each key goes through the one remove route, reported together. The screens send ONE
+    // `key` (uploadAPI.deleteFile, as Node's DELETE /files took it); `keys`/`files` stay accepted for a list. `force`
+    // passes through: the route refuses a file the catalogue still shows unless staff confirmed it (MENU-1 gallery).
+    m: 'DELETE', from: '/upload/files', row: 'commerce upload.ts:261 (each key to /media/remove)',
     run: async (c) => {
-      const keys: string[] = Array.isArray(c.body?.keys) ? c.body.keys : Array.isArray(c.body?.files) ? c.body.files : [];
+      const one = typeof c.body?.key === 'string' && c.body.key.trim() ? [c.body.key.trim()] : [];
+      const keys: string[] = Array.isArray(c.body?.keys) ? c.body.keys : Array.isArray(c.body?.files) ? c.body.files : one;
+      const force = c.body?.force === true ? { force: true } : {};
       const results = [];
-      for (const key of keys) results.push(await v2call('POST', '/api/v2/commerce/media/remove', { data: { key } }));
+      for (const key of keys) results.push(await v2call('POST', '/api/v2/commerce/media/remove', { data: { key, ...force } }));
       return { removed: results.length, results };
     },
   },
+  // Where one file is shown (brands, categories, banners, products, variations), asked before a delete (MENU-1 gallery).
+  { m: 'GET', from: '/upload/usage', row: 'commerce new: GET /media/usage (MENU-1 gallery)', to: '/api/v2/commerce/media/usage', qs: ['key'] },
   { m: 'POST', from: '/upload/multiple', row: 'commerce upload.ts:135', to: '/api/v2/commerce/media/batch', bs: {'#mp':'j','folder':'s','images':['f']}, reply: (d: any) => { const files = Array.isArray(d?.files) ? d.files : []; const urls = files.map((f: any) => f?.url).filter(Boolean); return { ...d, files, urls, data: { files, urls } }; } }, // MediaBatchView {files: [{url, key}]} (commerce views/catalog_admin.rs:1153); VariationEditPage:223 and ProductAttributeVariations:602 read res.data.files / res.data.urls, the rest res.files
   { m: 'POST', from: '/upload/optimize-all', row: 'commerce upload.ts:292 (binary /media/optimize-all)', to: '/api/v2/commerce/media/optimize-all', body: () => ({}) },
 ];

@@ -55,9 +55,10 @@ const MediaGallery = ({ onSelect, onClose }: MediaGalleryProps) => {
     try {
       await uploadAPI.deleteFile(key);
       setFiles((prev) => prev.filter((f) => f.key !== key));
-    } catch (error) {
+    } catch (error: any) {
       console.error('Delete failed:', error);
-      alert('Failed to delete file.');
+      // A file the catalogue still shows is refused with the places named (MENU-1 gallery); the Media library can delete it anyway.
+      alert(error?.response?.data?.message || 'Failed to delete file.');
     } finally {
       setDeleting(null);
     }

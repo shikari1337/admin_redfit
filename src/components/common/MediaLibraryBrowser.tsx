@@ -1,20 +1,22 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
-  Folder, FolderOpen, ChevronRight, ChevronDown, Search, Upload, Trash2, Loader2, Check, Copy, RefreshCw, ImageIcon, Film, FileIcon, Info,
+  Folder, FolderOpen, ChevronRight, ChevronDown, Search, Upload, Trash2, Loader2, Check, Copy, RefreshCw, ImageIcon, Film, FileIcon, Info, X,
 } from 'lucide-react';
-import api, { uploadAPI } from '../../services/api';
+import api, { uploadAPI, type MediaUsage } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { type ImageSpec, checkAgainstSpec, readImageDimensions, specHint } from '../../lib/imageSpecs';
+import { plural } from '../../lib/v2/erp';
 
 /**
  * The store's media, as it really is in the bucket: FOLDERS (every prefix
- * under the store root — products, sku, brands, categories, banners, ai/…,
- * including the ~48,000 product photos the old localStorage "Gallery" never
- * showed) and one page of files at a time via `GET /upload/browse`.
+ * under the store root: products, sku, brands, categories, banners, ai and
+ * the rest, including the 48,000 product photos the old localStorage
+ * "Gallery" never showed) and one page of files at a time via `GET /upload/browse`.
  *
- * Used by the Media library page (manager mode: delete, copy URL) and by
- * every image picker (picker mode: select). Scoped to THIS store by the
- * server — the browser only ever sends a relative folder.
+ * Used by the Media library page (manager mode: where a file is used, delete,
+ * copy URL) and by every image picker (picker mode: select). Scoped to THIS
+ * store by the server: the browser only ever sends a relative folder.
  */
 export interface MediaFile {
   key: string; url: string; name: string; size?: number; lastModified?: string | Date; kind: 'image' | 'video' | 'file'; ext: string;
@@ -41,6 +43,28 @@ interface BrowsePage { prefix: string; folders: Array<{ name: string; prefix: st
 
 const PAGE = 120;
 const fmtSize = (b?: number) => (b == null ? '' : b < 1024 ? `${b} B` : b < 1024 * 1024 ? `${(b / 1024).toFixed(0)} KB` : `${(b / 1024 / 1024).toFixed(1)} MB`);
+
+/** Where each kind of place a file is used opens in the admin (a variation opens its product). */
+const USE_LINK: Record<string, (id: string) => string> = {
+  product: (id) => `/products/${id}/edit`,
+  variation: (id) => `/products/${id}/edit`,
+  category: () => '/products/categories',
+  brand: () => '/products/brands',
+  banner: () => '/appearance/banners',
+};
+const USE_LABEL: Record<string, string> = { product: 'Product', variation: 'Variation', category: 'Category', brand: 'Brand', banner: 'Banner' };
+
+/** "2 products, 1 brand": where a file is shown, in words. */
+function placesText(u: MediaUsage): string {
+  const parts: Array<[number, string, string]> = [
+    [u.brands, 'brand', 'brands'], [u.categories, 'category', 'categories'], [u.banners, 'banner', 'banners'],
+    [u.products, 'product', 'products'], [u.variations, 'variation', 'variations'],
+  ];
+  const text = parts.filter(([n]) => n > 0).map(([n, one, many]) => plural(n, one, many)).join(', ');
+  return u.capped ? `at least ${text}` : text;
+}
+
+type UsageState = MediaUsage | 'loading' | 'error';
 
 async function browse(prefix: string, cursor?: string | null, search?: string, limit = PAGE): Promise<BrowsePage> {
   const r = await api.get('/upload/browse', { params: { prefix, cursor: cursor || undefined, limit, search: search || undefined } });
@@ -104,6 +128,8 @@ const MediaLibraryBrowser: React.FC<MediaLibraryBrowserProps> = ({
   const [copied, setCopied] = useState<string | null>(null);
   const [dims, setDims] = useState<Record<string, { width: number; height: number } | null>>({});
   const [detail, setDetail] = useState<MediaFile | null>(null);
+  const [usage, setUsage] = useState<Record<string, UsageState>>({});
+  const usageRef = useRef<Record<string, UsageState>>({});
   const treeCache = useRef(new Map<string, Array<{ name: string; prefix: string }>>());
   const fileInput = useRef<HTMLInputElement>(null);
   const reqId = useRef(0);
@@ -191,11 +217,37 @@ const MediaLibraryBrowser: React.FC<MediaLibraryBrowserProps> = ({
     } finally { setUploading(false); }
   };
 
+  /** Where a file is shown (cached per key; `fresh` asks again). Null when the check failed. */
+  const usageOf = useCallback(async (key: string, fresh = false): Promise<MediaUsage | null> => {
+    const hit = usageRef.current[key];
+    if (!fresh && hit && hit !== 'loading' && hit !== 'error') return hit;
+    const put = (v: UsageState) => { usageRef.current = { ...usageRef.current, [key]: v }; setUsage(usageRef.current); };
+    put('loading');
+    try { const u = await uploadAPI.usage(key); put(u); return u; }
+    catch { put('error'); return null; }
+  }, []);
+
+  const openDetail = (f: MediaFile) => {
+    setDetail(f);
+    measure(f);
+    if (mode === 'manager') usageOf(f.key);
+  };
+
   const handleDelete = async (f: MediaFile) => {
-    if (!window.confirm(`Delete "${f.name}"? Anything on the website using it will show a broken image.`)) return;
-    setDeleting(f.key);
-    try { await uploadAPI.deleteFile(f.key); setFiles((prev) => prev.filter((x) => x.key !== f.key)); if (detail?.key === f.key) setDetail(null); }
-    catch (e: any) { setError(e?.response?.data?.message || 'Delete failed'); }
+    setDeleting(f.key); setError(null);
+    const u = await usageOf(f.key);
+    const question = u === null
+      ? `Delete "${f.name}"? Where it is used could not be checked, so a page may show a broken image afterwards.`
+      : u.total > 0
+        ? `"${f.name}" is shown on ${placesText(u)}. Deleting it leaves a broken image there. Delete anyway?`
+        : `Delete "${f.name}"? No brand, category, banner or product shows it (pages, menus and blog posts are not checked).`;
+    if (!window.confirm(question)) { setDeleting(null); return; }
+    try {
+      // Forced only when staff saw the places (or that they could not be checked) and still said yes.
+      await uploadAPI.deleteFile(f.key, u === null || u.total > 0);
+      setFiles((prev) => prev.filter((x) => x.key !== f.key));
+      if (detail?.key === f.key) setDetail(null);
+    } catch (e: any) { setError(e?.response?.data?.message || 'Delete failed'); }
     finally { setDeleting(null); }
   };
 
@@ -212,11 +264,62 @@ const MediaLibraryBrowser: React.FC<MediaLibraryBrowserProps> = ({
   }, [prefix]);
 
   const check = detail && spec && detail.kind === 'image' ? checkAgainstSpec(dims[detail.key] ?? null, detail.size ?? null, spec) : null;
+  const detailUsage = detail ? usage[detail.key] : undefined;
+
+  const detailBody = detail ? (
+    <>
+      {detail.kind === 'image' && <img src={detail.url} alt="" className="w-full rounded border border-gray-200 bg-gray-50 object-contain max-h-40" />}
+      <p className="mt-2 font-medium text-gray-900 break-all">{detail.name}</p>
+      <p className="text-gray-500 mt-0.5">{fmtSize(detail.size)}{dims[detail.key] ? `, ${dims[detail.key]!.width} × ${dims[detail.key]!.height} px` : ''}</p>
+      <p className="text-gray-400 mt-0.5 break-all">{detail.key.replace(/^[^/]+\//, '')}</p>
+      {check && (
+        <p className={`mt-2 rounded px-2 py-1 ${check.level === 'ok' ? 'bg-brand-50 text-brand-800' : check.level === 'warn' ? 'bg-amber-50 text-amber-800' : 'bg-red-50 text-red-700'}`}>{check.message}</p>
+      )}
+      {mode === 'manager' && (
+        <div className="mt-3 border-t border-gray-100 pt-2">
+          <p className="text-[10px] uppercase tracking-wider text-gray-400 mb-1">Where it is used</p>
+          {detailUsage === undefined || detailUsage === 'loading' ? (
+            <p className="text-gray-400 inline-flex items-center gap-1"><Loader2 size={11} className="animate-spin" /> Checking</p>
+          ) : detailUsage === 'error' ? (
+            <p className="text-red-600">Could not check. <button type="button" className="underline" onClick={() => usageOf(detail.key, true)}>Try again</button></p>
+          ) : detailUsage.total === 0 ? (
+            <p className="text-gray-600">No brand, category, banner or product shows it.</p>
+          ) : (
+            <>
+              <p className="text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">Shown on {placesText(detailUsage)}. Replace it there before deleting it.</p>
+              <ul className="mt-1.5 space-y-1">
+                {detailUsage.uses.map((p, i) => {
+                  const to = USE_LINK[p.kind]?.(p.id);
+                  return (
+                    <li key={`${p.kind}-${p.id}-${i}`} className="flex items-baseline gap-1.5 min-w-0">
+                      <span className="text-gray-400 shrink-0">{USE_LABEL[p.kind] || p.kind}</span>
+                      {to ? <Link to={to} className="truncate text-brand-700 hover:underline">{p.name || 'Untitled'}</Link> : <span className="truncate text-gray-700">{p.name || 'Untitled'}</span>}
+                    </li>
+                  );
+                })}
+              </ul>
+              {detailUsage.total > detailUsage.uses.length && (
+                <p className="text-gray-400 mt-1">and {detailUsage.capped ? 'at least ' : ''}{plural(detailUsage.total - detailUsage.uses.length, 'more place', 'more places')}</p>
+              )}
+            </>
+          )}
+        </div>
+      )}
+      <div className="flex gap-1.5 mt-3">
+        <button type="button" onClick={() => copyUrl(detail)} className="flex-1 h-8 inline-flex items-center justify-center gap-1 border border-gray-300 rounded hover:bg-gray-50">{copied === detail.key ? <Check size={11} /> : <Copy size={11} />} Copy link</button>
+        {mode === 'manager' && canDelete && (
+          <button type="button" onClick={() => handleDelete(detail)} disabled={deleting === detail.key} className="h-8 px-2 inline-flex items-center justify-center gap-1 border border-red-200 text-red-600 rounded hover:bg-red-50 disabled:opacity-50">
+            {deleting === detail.key ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />} Delete
+          </button>
+        )}
+      </div>
+    </>
+  ) : null;
 
   return (
     <div className={`flex flex-col md:flex-row gap-0 border border-gray-200 rounded-lg overflow-hidden bg-white ${className}`} style={{ height }}>
       {/* Folder tree */}
-      <aside className="md:w-56 shrink-0 border-b md:border-b-0 md:border-r border-gray-200 bg-gray-50/60 overflow-auto p-2">
+      <aside className="md:w-56 shrink-0 max-h-36 md:max-h-none border-b md:border-b-0 md:border-r border-gray-200 bg-gray-50/60 overflow-auto p-2">
         <div className="text-[10px] uppercase tracking-wider text-gray-400 px-2 pt-1 pb-1.5">Folders</div>
         <TreeNode prefix="" name="All media" depth={0} current={prefix} onNavigate={setPrefix} childrenOf={childrenOf} />
       </aside>
@@ -233,13 +336,14 @@ const MediaLibraryBrowser: React.FC<MediaLibraryBrowserProps> = ({
               </React.Fragment>
             ))}
           </nav>
-          <div className="relative">
+          <div className="relative flex-1 min-w-[9rem] sm:flex-none">
             <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input value={search} onChange={(e) => { setSearch(e.target.value); setDeepSearch(false); }} placeholder="Search file names…"
+            <input value={search} onChange={(e) => { setSearch(e.target.value); setDeepSearch(false); }} placeholder="Search file names"
               onKeyDown={(e) => { if (e.key === 'Enter' && search.trim()) searchAllPages(); }}
-              className="h-8 pl-7 pr-2 w-44 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-400" />
+              aria-label="Search file names"
+              className="h-8 pl-7 pr-2 w-full sm:w-44 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-400" />
           </div>
-          <select value={sort} onChange={(e) => setSort(e.target.value as any)} className="h-8 text-xs border border-gray-300 rounded-md px-1.5">
+          <select value={sort} onChange={(e) => setSort(e.target.value as any)} aria-label="Sort files" className="h-8 text-xs border border-gray-300 rounded-md px-1.5">
             <option value="newest">Newest</option><option value="name">Name</option><option value="size">Largest</option>
           </select>
           <button type="button" onClick={() => { treeCache.current.clear(); load(prefix); }} className="h-8 w-8 inline-flex items-center justify-center border border-gray-300 rounded-md text-gray-500 hover:bg-gray-50" title="Refresh"><RefreshCw size={13} /></button>
@@ -257,7 +361,7 @@ const MediaLibraryBrowser: React.FC<MediaLibraryBrowserProps> = ({
 
         {spec && (
           <div className="px-3 py-1.5 text-[11px] text-brand-800 bg-brand-50 border-b border-brand-100 flex items-center gap-1.5">
-            <Info size={12} /> This field needs <b className="font-semibold">{specHint(spec, { short: true })}</b> · {spec.fit === 'cover' ? 'edges are cropped to fit' : 'shown whole'}{spec.uses ? ` · ${spec.uses}` : ''}
+            <Info size={12} className="shrink-0" /> <span>This field needs <b className="font-semibold">{specHint(spec, { short: true })}</b>, {spec.fit === 'cover' ? 'edges are cropped to fit' : 'shown whole'}{spec.uses ? `. ${spec.uses}` : ''}</span>
           </div>
         )}
 
@@ -267,7 +371,7 @@ const MediaLibraryBrowser: React.FC<MediaLibraryBrowserProps> = ({
             onDrop={(e) => { if (canUpload && e.dataTransfer.files?.length) { e.preventDefault(); handleUpload(e.dataTransfer.files); } }}>
             {error && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1.5 mb-2">{error}</p>}
             {search && !deepSearch && (
-              <p className="text-[11px] text-gray-500 mb-2">Filtering this page · <button type="button" className="text-brand-700 hover:underline" onClick={searchAllPages}>search every file in this folder</button></p>
+              <p className="text-[11px] text-gray-500 mb-2">Filtering this page. <button type="button" className="text-brand-700 hover:underline" onClick={searchAllPages}>Search every file in this folder</button></p>
             )}
             {folders.length > 0 && !search && (
               <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2 mb-3">
@@ -281,11 +385,11 @@ const MediaLibraryBrowser: React.FC<MediaLibraryBrowserProps> = ({
               </div>
             )}
             {loading && files.length === 0 ? (
-              <div className="py-16 text-center text-gray-400 text-sm"><Loader2 size={20} className="animate-spin inline-block mr-2" />Loading…</div>
+              <div className="py-16 text-center text-gray-400 text-sm"><Loader2 size={20} className="animate-spin inline-block mr-2" />Loading</div>
             ) : visible.length === 0 ? (
               <div className="py-12 text-center text-gray-400">
                 <ImageIcon size={30} className="mx-auto mb-2" />
-                <p className="text-sm">{files.length ? 'No files of this type here.' : folders.length ? 'No files at this level — open a folder.' : 'Nothing here yet.'}</p>
+                <p className="text-sm">{files.length ? 'No files of this type here.' : search ? 'No file names match.' : folders.length ? 'No files at this level. Open a folder.' : 'Nothing here yet.'}</p>
                 {canUpload && <p className="text-xs mt-1">Drop files here or click Upload.</p>}
               </div>
             ) : (
@@ -294,7 +398,7 @@ const MediaLibraryBrowser: React.FC<MediaLibraryBrowserProps> = ({
                   const isSel = selected === f.url;
                   return (
                     <div key={f.key} className={`group relative rounded-md overflow-hidden border-2 cursor-pointer bg-gray-50 ${isSel ? 'border-brand-500 ring-2 ring-brand-200' : 'border-gray-200 hover:border-gray-400'}`}
-                      onClick={() => { onSelect?.(f); setDetail(f); measure(f); }}
+                      onClick={() => { onSelect?.(f); openDetail(f); }}
                       onDoubleClick={() => onConfirm?.(f)}
                       onMouseEnter={() => measure(f)}
                       title={f.name}>
@@ -304,7 +408,7 @@ const MediaLibraryBrowser: React.FC<MediaLibraryBrowserProps> = ({
                       </div>
                       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-1.5 pt-4 pb-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <p className="text-[10px] text-white truncate">{f.name}</p>
-                        <p className="text-[9px] text-gray-300">{fmtSize(f.size)}{dims[f.key] ? ` · ${dims[f.key]!.width}×${dims[f.key]!.height}` : ''}</p>
+                        <p className="text-[9px] text-gray-300">{fmtSize(f.size)}{dims[f.key] ? `, ${dims[f.key]!.width} × ${dims[f.key]!.height}` : ''}</p>
                       </div>
                       {isSel && <span className="absolute top-1 right-1 bg-brand-600 text-white rounded-full p-0.5"><Check size={11} /></span>}
                       {mode === 'manager' && (
@@ -321,29 +425,27 @@ const MediaLibraryBrowser: React.FC<MediaLibraryBrowserProps> = ({
             {more && !deepSearch && (
               <div className="pt-3 text-center">
                 <button type="button" disabled={loading} onClick={() => load(prefix, { append: true, cursor, search })}
-                  className="px-3 h-8 text-xs border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50">{loading ? 'Loading…' : 'Load more'}</button>
+                  className="px-3 h-8 text-xs border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50">{loading ? 'Loading' : 'Load more'}</button>
               </div>
             )}
           </div>
 
-          {/* Detail rail */}
+          {/* Detail rail (wide screens) */}
           {detail && (
-            <aside className="hidden lg:block w-56 shrink-0 border-l border-gray-200 p-3 overflow-auto text-xs">
-              {detail.kind === 'image' && <img src={detail.url} alt="" className="w-full rounded border border-gray-200 bg-gray-50 object-contain max-h-40" />}
-              <p className="mt-2 font-medium text-gray-900 break-all">{detail.name}</p>
-              <p className="text-gray-500 mt-0.5">{fmtSize(detail.size)}{dims[detail.key] ? ` · ${dims[detail.key]!.width} × ${dims[detail.key]!.height} px` : ''}</p>
-              <p className="text-gray-400 mt-0.5 break-all">{detail.key.replace(/^[^/]+\//, '')}</p>
-              {check && (
-                <p className={`mt-2 rounded px-2 py-1 ${check.level === 'ok' ? 'bg-brand-50 text-brand-800' : check.level === 'warn' ? 'bg-amber-50 text-amber-800' : 'bg-red-50 text-red-700'}`}>{check.message}</p>
-              )}
-              <div className="flex gap-1.5 mt-3">
-                <button type="button" onClick={() => copyUrl(detail)} className="flex-1 h-7 inline-flex items-center justify-center gap-1 border border-gray-300 rounded hover:bg-gray-50">{copied === detail.key ? <Check size={11} /> : <Copy size={11} />} URL</button>
-                {mode === 'manager' && canDelete && <button type="button" onClick={() => handleDelete(detail)} className="h-7 px-2 inline-flex items-center justify-center border border-red-200 text-red-600 rounded hover:bg-red-50"><Trash2 size={11} /></button>}
-              </div>
-            </aside>
+            <aside className="hidden lg:block w-56 shrink-0 border-l border-gray-200 p-3 overflow-auto text-xs">{detailBody}</aside>
           )}
         </div>
       </div>
+
+      {/* The same details as a sheet on phones and tablets, where tiles have no hover actions. */}
+      {detail && mode === 'manager' && (
+        <div className="lg:hidden fixed inset-x-0 bottom-0 z-40 max-h-[70vh] overflow-auto rounded-t-xl border-t border-gray-200 bg-white px-4 pb-4 pt-2 text-xs shadow-2xl" role="dialog" aria-label="File details">
+          <div className="flex justify-end">
+            <button type="button" onClick={() => setDetail(null)} className="h-9 w-9 inline-flex items-center justify-center rounded-md text-gray-500 hover:bg-gray-100" aria-label="Close the details"><X size={16} /></button>
+          </div>
+          {detailBody}
+        </div>
+      )}
     </div>
   );
 };

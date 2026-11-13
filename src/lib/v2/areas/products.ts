@@ -18,7 +18,7 @@
  *    routes stay for the slug, tree and children reads.
  */
 import type { V2Ctx, V2Route } from '../routes';
-import { mapList, v2call, asList, backendGap } from '../http';
+import { mapList, v2call, asList } from '../http';
 import { toMoney } from '../money';
 import { wrapData, pageAs } from '../shape';
 import { sizeChartRow, specRow } from './catalog';
@@ -409,7 +409,9 @@ export const PRODUCT_ROUTES: V2Route[] = [
   { m: 'GET', from: '/b2b/customers', row: 'trade — GET /api/v2/trade/accounts', to: '/api/v2/trade/accounts', query: (c) => ({ q: c.query.search, limit: c.query.limit, offset: c.query.offset }), reply: wrapData }, // Page<AccountView> → array; ProductB2BPricing.tsx:97 reads `r.data` (B2BCustomers asArray reads both); rows are read snake_case
   { m: 'GET', from: '/b2b/price-lists', row: 'trade — GET /api/v2/trade/price-lists', to: '/api/v2/trade/price-lists' },
   { m: 'GET', from: '/b2b/price-lists/:id/rules', row: 'trade 22 — GET /api/v2/trade/price-lists/{id}/rules', to: '/api/v2/trade/price-lists/{id}/rules', rs: { items: [{ discount_slabs: [{ discount_pct: 'r' }], flat_discount_pct: 'r' }] } },
-  { m: 'GET', from: '/upload/image-specs', row: 'commerce upload.ts:244 GET /media/image-specs — NOT MOUNTED', run: async () => backendGap('GET /api/v2/commerce/media/image-specs (upload.ts:244)') },
+  // Served as a public route (commerce api/catalog_mgmt/upload.rs image_specs): the answer is {specs: Resolution}; the
+  // screens read the Resolution itself (lib/imageSpecs.ts). raw: byKey is keyed by slot keys such as "home.hero_mobile".
+  { m: 'GET', from: '/upload/image-specs', row: 'commerce upload.ts:244 (GET /public/media/image-specs)', to: '/api/v2/commerce/public/media/image-specs', reply: (d: any) => (d && typeof d === 'object' && d.specs && !Array.isArray(d.specs) ? d.specs : d), raw: true },
   { m: 'GET', from: '/b2b/contracts/product/:id', row: 'trade — merged into GET /api/v2/trade/contracts?product=', to: '/api/v2/trade/contracts', query: (c) => ({ product: c.params.id }), reply: wrapData }, // Page → array; ProductB2BPricing.tsx:105 reads `r.data` (id, company_name, variation_id, unit_price, valid_until: snake, as answered)
 
   // Inventory

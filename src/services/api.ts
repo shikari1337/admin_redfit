@@ -2555,13 +2555,43 @@ export const paymentsAPI = {
 };
 
 // Upload API (tenant-specific, images optimized server-side)
+/** Where a media file is shown (commerce MediaUsageView). `uses` lists the first places; a variation names its product. */
+export interface MediaUsage {
+  key: string;
+  total: number;
+  capped: boolean;
+  brands: number;
+  categories: number;
+  banners: number;
+  products: number;
+  variations: number;
+  uses: Array<{ kind: string; id: string; name: string }>;
+}
+
 export const uploadAPI = {
   listFiles: async () => {
     const response = await api.get('/upload/files');
     return Array.isArray(response.data) ? response.data : response.data?.data ?? [];
   },
-  deleteFile: async (key: string) => {
-    await api.delete('/upload/files', { data: { key } });
+  /** `force`: delete even though a brand, category, banner or product still shows the file (staff confirmed it). */
+  deleteFile: async (key: string, force = false) => {
+    await api.delete('/upload/files', { data: force ? { key, force: true } : { key } });
+  },
+  /** Where one file is shown, asked before it is deleted (GET /api/v2/commerce/media/usage). */
+  usage: async (key: string): Promise<MediaUsage> => {
+    const response = await api.get('/upload/usage', { params: { key } });
+    const d = response.data?.total !== undefined ? response.data : response.data?.data;
+    return {
+      key: d?.key ?? key,
+      total: Number(d?.total) || 0,
+      capped: !!d?.capped,
+      brands: Number(d?.brands) || 0,
+      categories: Number(d?.categories) || 0,
+      banners: Number(d?.banners) || 0,
+      products: Number(d?.products) || 0,
+      variations: Number(d?.variations) || 0,
+      uses: Array.isArray(d?.uses) ? d.uses.map((u: any) => ({ kind: String(u?.kind ?? ''), id: String(u?.id ?? ''), name: String(u?.name ?? '') })) : [],
+    };
   },
   optimizeAll: async () => {
     const response = await api.post('/upload/optimize-all');
