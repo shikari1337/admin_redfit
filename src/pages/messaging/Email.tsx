@@ -1,18 +1,21 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Mail } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import ChannelOverview from '@/components/messaging/ChannelOverview';
 import ChannelTemplates from '@/components/messaging/ChannelTemplates';
 import SentLog from '@/components/messaging/SentLog';
 import EmailSender from '@/components/messaging/EmailSender';
+import EmailHealth from '@/components/messaging/EmailHealth';
 import BrandingPanel from '@/components/messaging/BrandingPanel';
+import Suppressions from '@/components/messaging/Suppressions';
 import { MessagingHeader, MessagingTabs, SettingsPermNotice, useCommerceCatalogue, useNotificationRows, useTabParam } from '@/components/messaging/common';
 
 /**
- * MESSAGING ▸ EMAIL — the store's email in one place: how it is doing
- * (Overview), who it comes from and through which server (Sender & SMTP), the
- * header and footer it wears (Branding — the same form as Notifications ▸
- * Branding), the Commerce templates, and every email sent. Lane ADMIN-MSG-1.
+ * MESSAGING, EMAIL: the store's email in one place. What to act on, then how it is doing
+ * (Overview), who it comes from and through which server (Sender & SMTP), the header and footer
+ * it wears (Branding, the same form as the Notifications page's Branding), the Commerce templates, every
+ * email sent, and the addresses that unsubscribed or bounced (Unsubscribed). Lane ADMIN-MSG-1;
+ * health strip, test picker and Unsubscribed tab lane MENU-1 email.
  */
 const TABS = [
   { key: 'overview', label: 'Overview' },
@@ -20,30 +23,41 @@ const TABS = [
   { key: 'branding', label: 'Branding' },
   { key: 'templates', label: 'Templates' },
   { key: 'log', label: 'Sent log' },
+  { key: 'unsubscribed', label: 'Unsubscribed' },
 ] as const;
 
 const Email: React.FC = () => {
   const { hasPerm } = useAuth();
-  // Templates: the comms template pair (marketing.*). The sender is the `smtp` store setting: settings.* (MSG-2).
+  // Templates and the suppression list: the comms pair (marketing.*). The sender is the `smtp` store setting: settings.* (MSG-2).
   const canWrite = hasPerm('marketing.manage');
   const canReadSender = hasPerm('settings.read') || hasPerm('settings.manage');
   const canWriteSender = hasPerm('settings.manage');
   const [tab, setTab] = useTabParam(TABS.map((t) => t.key), 'overview');
   const catalogue = useCommerceCatalogue();
   const { messages } = useNotificationRows();
+  // The catalogue's emails, for the sender test (the server checks the key has email words).
+  const testMessages = useMemo(() => catalogue.entries
+    .filter((e) => e.def.channels.includes('email'))
+    .map((e) => ({ key: e.def.key, label: e.def.title })), [catalogue.entries]);
 
   return (
     <div className="space-y-4 pb-12">
       <MessagingHeader icon={Mail} title="Email"
-        purpose="Order emails, receipts and reminders — who they come from, how they look, and what was sent." />
+        purpose="Order emails, receipts and reminders: who they come from, how they look, what was sent and who unsubscribed." />
       <MessagingTabs label="Email" tabs={TABS} active={tab} onChange={setTab} />
-      {tab === 'overview' && <ChannelOverview channel="email" />}
+      {tab === 'overview' && (
+        <>
+          <EmailHealth canReadSender={canReadSender} onOpen={setTab} />
+          <ChannelOverview channel="email" />
+        </>
+      )}
       {tab === 'sender' && (canReadSender
-        ? <EmailSender canWrite={canWriteSender} />
+        ? <EmailSender canWrite={canWriteSender} messages={testMessages} />
         : <SettingsPermNotice what="the email sender and SMTP account" />)}
       {tab === 'branding' && <BrandingPanel messages={messages} previewChannel="email" />}
       {tab === 'templates' && <ChannelTemplates channel="email" catalogue={catalogue} canWrite={canWrite} />}
       {tab === 'log' && <SentLog channel="email" messages={messages} />}
+      {tab === 'unsubscribed' && <Suppressions channel="email" messages={messages} canWrite={canWrite} />}
     </div>
   );
 };

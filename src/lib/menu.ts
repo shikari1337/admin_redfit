@@ -361,7 +361,7 @@ export const MENU: MenuGroup[] = [
   one('messaging', 'Messaging', MessagesSquare, '/messaging/notifications', [
     { label: 'Notifications', to: '/messaging/notifications', icon: Bell, perm: 'marketing.read', tip: 'Every message the store sends, its channels and its on/off switch.' },
     { label: 'WhatsApp', to: '/messaging/whatsapp', icon: MessageCircle, perm: 'marketing.read', tip: 'Inbox, number, Meta approval and what was sent.' },
-    { label: 'Email', to: '/messaging/email', icon: Mail, perm: 'marketing.read', tip: 'Sender, SMTP, branding and what was sent.' },
+    { label: 'Email', to: '/messaging/email', icon: Mail, perm: 'marketing.read', tip: 'Sender, SMTP, branding, what was sent and who unsubscribed.' },
     { label: 'SMS', to: '/messaging/sms', icon: Smartphone, perm: 'marketing.read', tip: 'Provider, DLT mapping and what was sent.' },
     { label: 'Cart recovery', to: '/messaging/cart-recovery', icon: ShoppingBag, perm: 'marketing.read', tip: 'The reminders sent after a cart is left behind.' },
     { label: 'Retention', to: '/messaging/retention', icon: Repeat, perm: 'marketing.read', tip: 'Journeys that bring buyers back, reorder timing and back-in-stock sign-ups.' },

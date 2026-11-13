@@ -113,6 +113,28 @@ export type WhatsAppConfigInput = Partial<Pick<WhatsAppConfig, 'mode' | 'enabled
 
 export interface TestResult { ok: boolean; message: string }
 
+/**
+ * One suppressed address (`SuppressionView`): a fact about the ADDRESS (an unsubscribe or a hard
+ * bounce), with the message that caused it when there was one. The address is masked by the server,
+ * and is absent when no message caused it (a guest's unsubscribe link).
+ */
+export interface SuppressionRow {
+  id: string;
+  /** `email`, `sms`, `whatsapp`, … or `all` (every channel). */
+  channel: string | null;
+  /** `unsubscribed`, `hard_bounce`, and so on. */
+  reason: string | null;
+  detail: string | null;
+  created_at: string | null;
+  recipient: string | null;
+  event: string | null;
+  error: string | null;
+  customer_id: string | null;
+}
+export interface SuppressionPage { items: SuppressionRow[]; total: number; offset: number; limit: number; note: string | null }
+/** What a lift answers: whether a separate marketing opt-out still blocks, in the server's words. */
+export interface LiftResult { consent_still_blocks: boolean; note: string }
+
 export interface LayoutPreviewResult { subject: string | null; html: string | null; text: string }
 
 /** One row of the dispatch log (`views::dispatch` DispatchRowView). Never a body. */
@@ -304,6 +326,14 @@ function dispatchRow(r: any): DispatchRow {
   };
 }
 
+function suppressionRow(r: any): SuppressionRow {
+  return {
+    id: String(r?.id ?? ''), channel: s(r?.channel), reason: s(r?.reason), detail: s(r?.detail),
+    created_at: s(r?.created_at), recipient: s(r?.recipient), event: s(r?.event), error: s(r?.error),
+    customer_id: s(r?.customer_id),
+  };
+}
+
 function contactOf(c: any): InboxContact {
   return { name: s(c?.name), phone_masked: s(c?.phone_masked), handle: s(c?.handle) };
 }
@@ -469,9 +499,32 @@ export const messagingAPI = {
     await call<any>('PUT', '/email/config', { data: body });
     return messagingAPI.emailConfig();
   },
-  testEmail: async (to: string): Promise<TestResult> => {
-    const d = await call<any>('POST', '/email/test', { data: { to } });
+  /** One catalogue email through the send path; `key` picks the message (the server's default when absent). */
+  testEmail: async (to: string, key?: string): Promise<TestResult> => {
+    const d = await call<any>('POST', '/email/test', { data: key ? { to, key } : { to } });
     return { ok: d?.ok !== false, message: String(d?.message || (d?.ok === false ? 'Not sent.' : 'Sent.')) };
+  },
+
+  /**
+   * The hub's suppression list (`GET /suppressions`, `marketing.read`): the addresses that get no
+   * offers, reminders or other non-transactional sends on a channel, newest first. A channel also
+   * lists the rows on every channel; a whole address also matches by its hash (lane MENU-1 email).
+   */
+  suppressions: async (q: { channel?: MsgCh; reason?: string; search?: string; offset?: number; limit?: number } = {}): Promise<SuppressionPage> => {
+    const params: Record<string, unknown> = { limit: q.limit ?? 50, offset: q.offset ?? 0 };
+    if (q.channel) params.channel = q.channel;
+    if (q.reason) params.reason = q.reason;
+    if (q.search && q.search.trim().length >= 3) params.search = q.search.trim();
+    const d = await call<any>('GET', '/suppressions', { params });
+    const items = listOf(d).map(suppressionRow).filter((r) => r.id);
+    // A page is turned into an array carrying `total` / `offset` / `note` by the normaliser.
+    const meta = (d ?? {}) as { total?: unknown; offset?: unknown; limit?: unknown; note?: unknown };
+    return { items, total: meta.total === undefined ? items.length : n(meta.total), offset: n(meta.offset), limit: n(meta.limit) || items.length, note: s(meta.note) };
+  },
+  /** Lift one suppression (`POST /suppressions/{id}/lift`, `marketing.manage`): audited, and the reason is required. */
+  liftSuppression: async (id: string, note: string): Promise<LiftResult> => {
+    const d = await call<any>('POST', `/suppressions/${encodeURIComponent(id)}/lift`, { data: { note } });
+    return { consent_still_blocks: !!d?.consent_still_blocks, note: String(d?.note ?? '') };
   },
 
   /** §4.6 the WhatsApp connection. Credentials are never read back. */
