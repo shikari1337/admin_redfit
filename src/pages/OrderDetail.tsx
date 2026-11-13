@@ -1185,9 +1185,20 @@ const OrderDetail: React.FC = () => {
               </Button>
             )}
 
-            {hasPerm('orders.manage')
-              && ['cancelled', 'returned', 'partially_refunded'].includes(order.orderStatus)
-              && Number(order.refundedAmount ?? order.refunded_amount ?? 0) < Number(order.total ?? 0) && (
+            {/* Refund whenever money is owed back: a cancelled or returned order not yet refunded
+                in full, a part-refunded payment, or an order paid for more than it now charges
+                (lines cancelled after payment, SM-11717). The form reads what is owed. */}
+            {hasPerm('orders.manage') && (() => {
+              const refunded = Number(order.refundedAmount ?? order.refunded_amount ?? 0) || 0;
+              const received = Number(order.amountReceived ?? order.amount_received ?? 0) || 0;
+              const total = Number(order.total ?? 0) || 0;
+              const took = Math.max(total, received);
+              const status = order.orderStatus ?? order.order_status;
+              const payment = order.paymentStatus ?? order.payment_status;
+              return (['cancelled', 'returned'].includes(status) && refunded < took - 0.005)
+                || payment === 'partially_refunded'
+                || received - total - refunded > 0.005;
+            })() && (
               <Button variant="outline" size="sm" className="h-7 shrink-0 border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100"
                 onClick={() => setShowRaiseRefund(true)}>
                 <FaMoneyCheckAlt className="mr-1.5 h-3.5 w-3.5" /> Refund

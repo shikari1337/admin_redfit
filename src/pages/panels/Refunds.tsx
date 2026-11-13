@@ -268,17 +268,25 @@ const Refunds: React.FC = () => {
   const checkRefundable = async () => {
     if (!orderNumber.trim()) return;
     setMsg(''); setRefundable(null);
-    try { setRefundable(payload<any>(await api.get(`/refunds/refundable/${encodeURIComponent(orderNumber.trim())}`))); }
+    try {
+      const snap = payload<any>(await api.get(`/refunds/refundable/${encodeURIComponent(orderNumber.trim())}`));
+      setRefundable(snap);
+      // Fill in what is owed (REF-OWED-1), never the whole payment on an order whose goods were kept.
+      const owedMinor = Number(snap?.owedMinor ?? snap?.refundableMinor ?? 0);
+      if (!amount.trim() && owedMinor > 0) setAmount((owedMinor / 100).toFixed(2));
+    }
     catch (e) { err(e); }
   };
 
   const create = async () => {
+    // A blank amount once meant "everything the customer paid"; now it must be said.
+    if (!amount.trim()) { setMsg('Enter how much to refund (press "Check what\'s refundable" to fill in what is owed).'); return; }
     setBusy(true); setMsg(''); setOk('');
     try {
       const res = await api.post('/refunds', {
         orderNumber: orderNumber.trim(),
         source: 'manual',
-        amount: amount.trim() || undefined,     // rupees; blank = everything left
+        amount: amount.trim(),     // rupees
         method,
         reason: newReason.trim() || null,
       });
@@ -413,13 +421,13 @@ const Refunds: React.FC = () => {
         <div className="space-y-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
           <h3 className="text-sm font-semibold text-gray-800">Send money back on an order</h3>
           <p className="text-xs text-gray-500">
-            Type the order number and we will tell you exactly how much can still go back — you can never refund more than the customer paid.
+            Type the order number and we fill in what the customer is owed. You can never refund more than the customer paid.
           </p>
           <FilterBar>
             <Field label="Order number">
               <TextInput value={orderNumber} onChange={(e) => setOrderNumber(e.target.value)} onBlur={checkRefundable} placeholder="e.g. ORD-00003" />
             </Field>
-            <Field label="Amount (₹) — blank = everything left">
+            <Field label="Amount (₹), filled with what is owed">
               <TextInput type="number" min={0} step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" />
             </Field>
             <Field label="How should it go back?">
@@ -434,9 +442,14 @@ const Refunds: React.FC = () => {
           {refundable && (
             <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
               They paid <strong>{inr(refundable.paidMinor)}</strong>
-              {Number(refundable.refundedMinor) > 0 && <> · <strong>{inr(refundable.refundedMinor)}</strong> already back with them</>}
-              {Number(refundable.inFlightMinor) > 0 && <> · <strong>{inr(refundable.inFlightMinor)}</strong> already on its way</>}
-              {' '}→ you can still refund <strong>{inr(refundable.refundableMinor)}</strong>.
+              {Number(refundable.refundedMinor) > 0 && <>, <strong>{inr(refundable.refundedMinor)}</strong> already back with them</>}
+              {Number(refundable.inFlightMinor) > 0 && <>, <strong>{inr(refundable.inFlightMinor)}</strong> already on its way</>}.
+              {refundable.owedMinor != null && (
+                <> Owed now: <strong>{inr(refundable.owedMinor)}</strong>
+                  {Number(refundable.owedMinor) > 0 ? ' (paid above what the order now charges, or everything on a cancelled or returned order).' : ' (they paid only for what they kept).'}
+                </>
+              )}
+              {' '}Most allowed: <strong>{inr(refundable.refundableMinor)}</strong>.
             </div>
           )}
           <div className="flex flex-wrap gap-2">
