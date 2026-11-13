@@ -265,7 +265,7 @@ const SettingsCenter: React.FC = () => {
         <div className="relative min-w-[260px] flex-1 max-w-2xl">
           <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input ref={searchRef} value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={onListKey}
-            placeholder='Search by name or number — e.g. "cash on delivery", "otp", "2.1"   ( / to focus )'
+            placeholder='Search by name or number, for example "cash on delivery", "otp", "2.1" (press / to focus)'
             className="h-9 pl-8" autoFocus />
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -274,13 +274,13 @@ const SettingsCenter: React.FC = () => {
             {view.meta.environment.toUpperCase()}
           </Badge>
           <span>{view.meta.timezone}</span>
-          <span>· {view.definitions.length} settings · {view.pages.length} pages</span>
+          <span>{view.definitions.length} settings, {view.pages.length} pages</span>
           {menuDrift.length > 0 && (
             <span className="text-amber-700" title="admin/src/lib/menu.ts SETTINGS_AREA_LIST">
-              · sidebar list is out of date: {menuDrift.join(', ')}
+              Sidebar list is out of date: {menuDrift.join(', ')}
             </span>
           )}
-          <span className="hidden xl:inline">· Every item has a number — quote it when you ask for help.</span>
+          <span className="hidden xl:inline">Every item has a number: quote it when you ask for help.</span>
           <Button variant="ghost" size="sm" className="h-7 px-2" onClick={load} title="Reload"><RefreshCw className="h-3.5 w-3.5" /></Button>
         </div>
       </div>
@@ -310,7 +310,7 @@ const SettingsCenter: React.FC = () => {
             </button>
           )}
           <div className="px-3 pt-3 text-[11px] text-muted-foreground">
-            <Link to="/settings/directory" className="underline">Browser key &amp; website cache</Link>
+            <Link to="/settings/directory" className="underline">All settings pages, browser key, website cache</Link>
           </div>
         </nav>
 
@@ -326,7 +326,7 @@ const SettingsCenter: React.FC = () => {
 
           {searching && (
             <div className="px-4 py-2 text-[11px] uppercase tracking-wide text-muted-foreground">
-              {listDefs.length} setting{listDefs.length === 1 ? '' : 's'} · {listPages.length} page{listPages.length === 1 ? '' : 's'}
+              {listDefs.length} setting{listDefs.length === 1 ? '' : 's'}, {listPages.length} page{listPages.length === 1 ? '' : 's'}
             </div>
           )}
           {!searching && currentGroup && (
@@ -363,14 +363,14 @@ const SettingsCenter: React.FC = () => {
               <p className="mb-3 text-xs text-muted-foreground">Stored values that no numbered setting describes yet. They still work for whatever reads them. Ask the platform team to list them so they can be edited here.</p>
               {view.unregistered.map((u) => (
                 <div key={u.key} className="flex items-center justify-between border-b border-gray-100 py-1.5 font-mono text-xs">
-                  <span>{u.key}</span><span className="text-muted-foreground">{u.grp ?? '—'}{u.is_public ? ' · public' : ''}</span>
+                  <span>{u.key}</span><span className="text-muted-foreground">{u.grp ?? 'no group'}{u.is_public ? ', public' : ''}</span>
                 </div>
               ))}
             </div>
           )}
 
           {searching && !listDefs.length && !listPages.length && (
-            <div className="p-6 text-center text-sm text-muted-foreground">Nothing matches “{query}”. Try one word, or a number such as 2.1.</div>
+            <div className="p-6 text-center text-sm text-muted-foreground">Nothing matches "{query}". Try one word, or a number such as 2.1.</div>
           )}
         </div>
 
@@ -405,7 +405,7 @@ const ListRow: React.FC<{ def: RegistryDef; active: boolean; onSelect: () => voi
         {!def.canWrite && !sb && <Lock className="h-3 w-3 text-muted-foreground" aria-label="Read-only for you" />}
       </div>
       <div className="mt-0.5 line-clamp-1 pl-11 text-xs text-muted-foreground">{def.description}</div>
-      {summary.length > 0 && <div className="mt-1 line-clamp-1 pl-11 text-[11px] text-gray-600">{summary.join(' · ')}</div>}
+      {summary.length > 0 && <div className="mt-1 line-clamp-1 pl-11 text-[11px] text-gray-600">{summary.join('; ')}</div>}
       {!summary.length && def.page && <div className="mt-1 pl-11 text-[11px] text-gray-600">Edited on: {def.page.label}</div>}
     </button>
   );
@@ -506,7 +506,7 @@ const Editor: React.FC<{ def: RegistryDef; all: RegistryDef[]; onSaved: (d: Regi
           ))}
           {def.canWrite && (
             <div className="flex items-center justify-between border-t border-gray-100 pt-3">
-              <div className="text-xs text-muted-foreground">{dirty.length ? `${dirty.length} unsaved change${dirty.length === 1 ? '' : 's'}` : 'No changes'} · Ctrl+S saves</div>
+              <div className="text-xs text-muted-foreground">{dirty.length ? `${dirty.length} unsaved change${dirty.length === 1 ? '' : 's'}` : 'No changes'}. Ctrl+S saves</div>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" disabled={!dirty.length || saving} onClick={() => setWork(initial)}>Discard</Button>
                 <Button size="sm" disabled={!dirty.length || saving} onClick={save}>

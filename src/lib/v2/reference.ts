@@ -17,6 +17,96 @@ export const REFERENCE_PATHS = {
 
 interface WireCountry { iso2?: string; name?: string; dial_code?: string | null; currency?: string | null }
 
+/* ── currencies, languages, subdivisions (MENU-1 settings-core) ─────────────────────────────────────────
+ * The same registry, the same rule as the countries below: one read per table for the page's life, the
+ * caller's small fallback until it answers or when it fails. The Settings Center validates a store setting
+ * against these very lists (commerce `svc/settings_center.rs` resolve_options), so a picker built from them
+ * never offers a value the server refuses: currencies are the current ISO ones without funds, a state's
+ * value is the subdivision's address key (for India, its name). */
+
+/** The registry's other whole tables, and one country's subdivisions (growcord-rs `apps/platform/core/src/api/reference.rs`). */
+export const REFERENCE_TABLE_PATHS = {
+  currencies: '/api/v2/platform/public/reference/currencies',
+  languages: '/api/v2/platform/public/reference/languages',
+  subdivisions: (iso2: string) =>
+    `/api/v2/platform/public/reference/countries/${encodeURIComponent(iso2.trim().toUpperCase())}/subdivisions`,
+} as const;
+
+export interface CurrencyOption { code: string; name: string; symbol: string }
+export interface LanguageOption { code: string; name: string }
+export interface SubdivisionOption { value: string; name: string }
+
+interface WireCurrency { code?: string; name?: string; symbol?: string | null; narrow_symbol?: string | null; iso_current?: boolean; is_fund?: boolean }
+interface WireLanguage { code?: string; name?: string }
+interface WireSubdivision { key?: string; name?: string }
+
+const tables = new Map<string, unknown[]>();
+const tablesInflight = new Map<string, Promise<void>>();
+const tableListeners = new Set<() => void>();
+
+function loadTable<T>(path: string, map: (rows: any[]) => T[]): Promise<void> {
+  if (tables.has(path) || !V2_ENABLED) return Promise.resolve();
+  let p = tablesInflight.get(path);
+  if (!p) {
+    p = v2call<any[]>('GET', path)
+      .then((rows) => {
+        const list = map(Array.isArray(rows) ? rows : []);
+        if (list.length) {
+          tables.set(path, list);
+          tableListeners.forEach((l) => l());
+        }
+      })
+      .catch(() => { /* the fallback stays; a later mount may retry */ })
+      .finally(() => { tablesInflight.delete(path); });
+    tablesInflight.set(path, p);
+  }
+  return p;
+}
+
+function useTable<T>(path: string | null, map: (rows: any[]) => T[], fallback: T[]): T[] {
+  const now = () => (path && (tables.get(path) as T[] | undefined)) || fallback;
+  const [list, setList] = useState<T[]>(now);
+  useEffect(() => {
+    const sync = () => setList(now());
+    tableListeners.add(sync);
+    if (path) void loadTable(path, map);
+    sync();
+    return () => { tableListeners.delete(sync); };
+    // `map` and `fallback` are the caller's constants; the path decides the list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path]);
+  return list;
+}
+
+const toCurrencies = (rows: WireCurrency[]): CurrencyOption[] => rows
+  .filter((r) => r.code && r.iso_current !== false && !r.is_fund)
+  .map((r) => ({ code: String(r.code), name: String(r.name ?? r.code), symbol: String(r.symbol ?? r.narrow_symbol ?? r.code) }));
+
+const toLanguages = (rows: WireLanguage[]): LanguageOption[] => rows
+  .filter((r) => r.code)
+  .map((r) => ({ code: String(r.code), name: String(r.name ?? r.code) }))
+  .sort((a, b) => a.name.localeCompare(b.name));
+
+const toSubdivisions = (rows: WireSubdivision[]): SubdivisionOption[] => rows
+  .filter((r) => r.key || r.name)
+  .map((r) => ({ value: String(r.key ?? r.name), name: String(r.name ?? r.key) }))
+  .sort((a, b) => a.name.localeCompare(b.name));
+
+/** Every current ISO 4217 currency (no funds), the fallback until the registry answers. */
+export function useCurrencies(fallback: CurrencyOption[] = []): CurrencyOption[] {
+  return useTable(REFERENCE_TABLE_PATHS.currencies, toCurrencies, fallback);
+}
+
+/** Every language the registry knows, by name. */
+export function useLanguages(fallback: LanguageOption[] = []): LanguageOption[] {
+  return useTable(REFERENCE_TABLE_PATHS.languages, toLanguages, fallback);
+}
+
+/** The first-level subdivisions (states, provinces) of one country; empty for a country without any. */
+export function useSubdivisions(iso2: string | null | undefined, fallback: SubdivisionOption[] = []): SubdivisionOption[] {
+  return useTable(iso2 ? REFERENCE_TABLE_PATHS.subdivisions(iso2) : null, toSubdivisions, fallback);
+}
+
 let cached: CountryRef[] | null = null;
 let inflight: Promise<CountryRef[]> | null = null;
 const listeners = new Set<() => void>();

@@ -10,9 +10,9 @@
  * BACKEND GAPS (rows the ROUTE_MAP names, NOT mounted in the binary): `PATCH
  * /settings` (settings.ts:445, + the merged `POST /settings/bulk`), `PATCH
  * /settings/{key}` (:388) and the staff `GET /settings/{key}` (:372). The flat
- * settings writes are therefore refused locally with `v2.backend_gap` naming the
- * call — never sent to a route that does not exist. `GET /settings/registry`
- * answers 503 `commerce.port_not_wired` (the settings peers port).
+ * saves (`PUT /settings`, `POST /settings/bulk`) go section by section through the
+ * registry's own write (settingsRegistryWrite.ts); `PUT /settings/{key}` is refused
+ * locally with `v2.backend_gap` naming the call, never sent to a route that does not exist.
  */
 import type { V2Route } from '../routes';
 import { backendGap } from '../http';
@@ -29,7 +29,15 @@ const liftSettings = (d: any) => (d && typeof d === 'object' && d.settings && ty
  * (commerce views/catalog_admin.rs:1736); OrderNumbering reads the old `{config:{retail, b2b,
  * separateB2bSeries}, preview:{retail, b2b}}` — without it the form showed the defaults, not the store's rules.
  */
-const numberingReply = (d: any) => (d && typeof d === 'object' && !Array.isArray(d) && !d.config && (d.retail || d.b2b)
+/** `{settings: [{key, value}]}` (the old bulk body) becomes `{key: value}`, the sections the registry save takes. */
+const bulkSections = (body: any): Record<string, unknown> => {
+  const rows: any[] = Array.isArray(body?.settings) ? body.settings : [];
+  const out: Record<string, unknown> = {};
+  for (const r of rows) if (r && typeof r.key === 'string' && r.key) out[r.key] = r.value;
+  return out;
+};
+
+const numberingReply =(d: any) => (d && typeof d === 'object' && !Array.isArray(d) && !d.config && (d.retail || d.b2b)
   ? { ...d, config: { retail: d.retail, b2b: d.b2b, separateB2bSeries: d.separate_b2b_series }, preview: d.preview ?? { retail: d.next_retail ?? '', b2b: d.next_b2b ?? '' } }
   : d);
 
@@ -55,7 +63,10 @@ export const SETTINGS_ROUTES: V2Route[] = [
   // registry's own write (`PATCH /settings/registry/{key}`) — API Integrations, Shipping and the other `PUT /settings`
   // callers save again; a section this server has no setting for is named, never dropped silently.
   { m: 'PUT', from: '/settings', row: 'commerce settings.ts:445 → PATCH /settings/registry/{key} per section (settings.ts:364)', run: async (c) => saveSettingsThroughRegistry(c.body) },
-  { m: 'POST', from: '/settings/bulk', row: 'commerce settings.ts:424 (merged → PATCH /settings) — NOT MOUNTED', run: async () => backendGap('PATCH /api/v2/commerce/settings (settings.ts:424 merged)') },
+  // MENU-1 settings-core: the bulk save (`{settings: [{key, value, grp, is_public}]}`, Store Configuration and the
+  // Setup wizard) is the same flat save in a list: each row becomes its section, written through the registry.
+  // `grp` and `is_public` are the definition's own on v2, so they are not sent.
+  { m: 'POST', from: '/settings/bulk', row: 'commerce settings.ts:424, written as PATCH /settings/registry/{key} per row (settings.ts:364)', run: async (c) => saveSettingsThroughRegistry(bulkSections(c.body)) },
   { m: 'PUT', from: '/settings/:key', row: 'commerce settings.ts:388 PATCH /settings/{key} — NOT MOUNTED', run: async (c) => backendGap(`PATCH /api/v2/commerce/settings/${c.params.key} (settings.ts:388)`) },
 
   // The shell's product bar (platform P1).

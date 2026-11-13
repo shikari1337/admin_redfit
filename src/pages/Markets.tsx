@@ -31,14 +31,8 @@ import { useToast } from '@/hooks/use-toast';
  * registry deep-merges at the top level, and since `default`/`list` are the
  * only two keys the row has, sending both is a full, unambiguous overwrite).
  *
- * NOTE for future readers: the backend registry entry for `markets` does not
- * currently declare a `page` (unlike e.g. `payment_method_rules`), so the
- * generic Settings Center detail view has no "Full editor" link to this page —
- * it still renders the raw `default`/`list` JSON fields inline. This page is
- * reachable from the sidebar (Settings ▸ Markets) and the Settings directory
- * instead. Adding `page: { path: '/settings/markets', label: 'Markets' }` to
- * that registry entry would let the Settings Center link here too, but that is
- * a backend change outside this page's scope.
+ * The registry entry for `markets` names this page (`page: /settings/markets`), so the Settings Center's
+ * "Full editor" link and the All settings pages list (registry PAGES) both lead here.
  */
 
 type TaxTreatment = 'domestic' | 'export' | 'ca';
@@ -780,11 +774,16 @@ const Markets: React.FC = () => {
   const [selected, setSelected] = useState<string>('in');
   const [showJson, setShowJson] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
+  // A failed load must never leave India-only defaults on screen to be saved: that would delete every
+  // international market the store has. The page shows the failure and a retry instead.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
+      setLoadError(null);
       try {
         const view = await settingsRegistryAPI.get();
         const defs: Array<{ key: string; value: any }> = Array.isArray(view?.definitions) ? view.definitions : [];
@@ -794,18 +793,14 @@ const Markets: React.FC = () => {
           setCfg(next);
           setSelected(next.list.some((m) => m.code === next.default) ? next.default : (next.list[0]?.code ?? 'in'));
         }
-      } catch {
-        if (!cancelled) {
-          toast({ title: 'Could not load Markets', description: 'Showing India-only defaults — reload to try again.', variant: 'destructive' });
-          setCfg(normalizeConfig(null));
-        }
+      } catch (e: any) {
+        if (!cancelled) setLoadError(e?.response?.data?.message || e?.message || 'Markets could not be loaded.');
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [reloadKey]);
 
   const activeMarket = cfg.list.find((m) => m.code === selected) ?? null;
 
@@ -841,6 +836,7 @@ const Markets: React.FC = () => {
   };
 
   const handleSave = async () => {
+    if (loadError) return;
     const errs = validateConfig(cfg);
     setErrors(errs);
     if (errs.length) {
@@ -866,6 +862,21 @@ const Markets: React.FC = () => {
     );
   }
 
+  if (loadError) {
+    return (
+      <div className="mx-auto max-w-xl space-y-3 py-10">
+        <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-foreground">
+          <Globe2 className="h-6 w-6 text-muted-foreground" /> Markets
+        </h1>
+        <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>Your markets could not be loaded ({loadError}). Nothing is shown, so nothing can be saved over them by mistake.</span>
+        </div>
+        <Button type="button" variant="outline" onClick={() => setReloadKey((k) => k + 1)}>Try again</Button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 pb-16">
       <div>
@@ -874,11 +885,11 @@ const Markets: React.FC = () => {
         </Button>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight text-foreground">
+            <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
               <Globe2 className="h-7 w-7 text-muted-foreground" /> Markets
             </h1>
             <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-              The regions you sell in — each with its own website address, currency, countries, tax treatment, payment
+              The regions you sell in, each with its own website address, currency, countries, tax treatment, payment
               options and product exclusions. India is always present; switch on an international market to sell abroad.
             </p>
           </div>
@@ -944,7 +955,7 @@ const Markets: React.FC = () => {
                   <Badge variant="outline" className="font-mono text-[10px]">{m.code}</Badge>
                   {cfg.default === m.code && <Badge className="text-[10px]">Default</Badge>}
                 </div>
-                <div className="text-xs text-muted-foreground">{m.locale} · {m.countries.join(', ') || '—'}</div>
+                <div className="text-xs text-muted-foreground">{m.locale}, {m.countries.join(', ') || 'no countries yet'}</div>
               </div>
               <div className="ml-auto flex items-center gap-2">
                 {cfg.default !== m.code && (

@@ -107,6 +107,11 @@ export { type CountryRef };
 
 export interface CurrencyRef { code: string; symbol: string; name: string; }
 
+/*
+ * FALLBACK ONLY (MENU-1 settings-core): CURRENCIES, LANGUAGES and INDIAN_STATES show until the backend
+ * reference registry answers (`useCurrencies`, `useLanguages`, `useSubdivisions` in `lib/v2/reference.ts`),
+ * or when it cannot be reached. The full lists, and the values the server accepts, come from there.
+ */
 export const CURRENCIES: CurrencyRef[] = [
   { code: 'INR', symbol: '₹',  name: 'Indian Rupee' },
   { code: 'USD', symbol: '$',  name: 'US Dollar' },
@@ -148,6 +153,9 @@ export const INDIAN_STATES = [
   'Andaman and Nicobar Islands', 'Chandigarh', 'Dadra and Nagar Haveli and Daman and Diu',
   'Delhi', 'Jammu and Kashmir', 'Ladakh', 'Lakshadweep', 'Puducherry',
 ];
+
+/** The fallback states in the picker's shape (a subdivision's value is its address key: for India, its name). */
+export const INDIAN_STATE_OPTIONS = INDIAN_STATES.map((s) => ({ value: s, name: s }));
 
 export const WEEKDAYS: { key: string; label: string }[] = [
   { key: 'mon', label: 'Monday' },
