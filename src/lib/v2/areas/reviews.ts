@@ -7,7 +7,8 @@
  * answered without `success`); a `gap` row is a NAMED refusal (docs/PORT_NOTES/ADMIN-V2-2.md, "gaps").
  */
 import type { V2Route } from '../routes';
-import { v2http, normaliseEnvelope, mapList } from '../http';
+import { v2http, normaliseEnvelope, mapList, v2call, backendGap } from '../http';
+import { V2_ENABLED } from '../config';
 
 /**
  * A v2 review view nests the catalogue labels (`product {name, slug, sku, image}`, `variation {name, sku}`,
@@ -38,12 +39,12 @@ export const REVIEW_ROUTES: V2Route[] = [
   { m: 'PUT', from: '/reviews/:id', row: 'reviews :706', method: 'PATCH', to: '/api/v2/reviews/reviews/{id}', bs: {'customer_email':'s','customer_image':'s','customer_name':'s','description':'s','display_order':'i','is_featured':'b','is_verified':'b','link':'s','media':[{'bytes':'i','duration':'i','h':'i','mime':'s','thumb':'s','type':'s','url':'s','w':'i'}],'moderation_reason':'s','product_id':'s','rating':'i','review':'s','status':'s','title':'s','variation_id':'s'}, reply: reviewReply },
   { m: 'DELETE', from: '/reviews/:id', row: 'reviews :741', to: '/api/v2/reviews/reviews/{id}' },
   { m: 'POST', from: '/reviews/:id/reply', row: 'reviews :571', to: '/api/v2/reviews/reviews/{id}/reply', bs: {'body':'s','published':'b'}, reply: reviewReply },
-  { m: 'GET', from: '/reviews/admin', row: 'reviews :317', to: '/api/v2/reviews/moderation/reviews', qs: ['date_from','date_to','featured','has_media','has_video','limit','offset','product_id','rating','reported','search','sort','source','status','verified'], reply: reviewReply },
+  { m: 'GET', from: '/reviews/admin', row: 'reviews :317', to: '/api/v2/reviews/moderation/reviews', qs: ['date_from','date_to','featured','has_media','has_video','kind','limit','offset','product_id','rating','reported','search','sort','source','status','verified'], reply: reviewReply },
   { m: 'POST', from: '/reviews/admin', row: 'reviews :599', to: '/api/v2/reviews/moderation/reviews', bs: {'customer_email':'s','customer_image':'s','customer_name':'s','description':'s','is_featured':'b','is_verified':'b','link':'s','media':[{'bytes':'i','duration':'i','h':'i','mime':'s','thumb':'s','type':'s','url':'s','w':'i'}],'product_id':'s','rating':'i','review':'s','status':'s','title':'s','variation_id':'s'}, reply: reviewReply },
   { m: 'GET', from: '/reviews/admin/:id/reports', row: 'reviews :360', to: '/api/v2/reviews/reviews/{id}/reports' },
   { m: 'POST', from: '/reviews/admin/:id/resolve-reports', row: 'reviews :587', to: '/api/v2/reviews/reviews/{id}/reports/resolve', bs: {'status':'s'} },
   { m: 'POST', from: '/reviews/admin/bulk-delete', row: 'reviews :561', to: '/api/v2/reviews/moderation/reviews/delete', bs: {'ids':['s']} },
-  { m: 'GET', from: '/reviews/admin/export', row: 'reviews :368', to: '/api/v2/reviews/moderation/reviews/export', qs: ['product_id','rating','search','status'] }, // download
+  { m: 'GET', from: '/reviews/admin/export', row: 'reviews :368', to: '/api/v2/reviews/moderation/reviews/export', qs: ['kind','product_id','rating','search','status'] }, // download
   { m: 'POST', from: '/reviews/admin/feature', row: 'reviews :551', to: '/api/v2/reviews/moderation/reviews/feature', bs: {'featured':'b','ids':['s']} },
   { m: 'POST', from: '/reviews/admin/import', row: 'reviews :640', to: '/api/v2/reviews/moderation/reviews/import', bs: {'rows':[{'customer_email':'j','customer_image':'j','customer_name':'j','description':'j','images':'j','link':'j','product_id':'j','rating':'j','review':'j','sku':'j','status':'j','title':'j','verified':'j','video':'j'}]} },
   { m: 'POST', from: '/reviews/admin/moderate', row: 'reviews :527', to: '/api/v2/reviews/moderation/reviews/status', bs: {'ids':['s'],'reason':'s','status':'s'} },
@@ -61,3 +62,49 @@ export const REVIEW_ROUTES: V2Route[] = [
   { m: 'GET', from: '/wishlist/admin/export', row: 'commerce wishlist.ts:184', to: '/api/v2/commerce/wishlist/export', qs: ['days','grain','limit','offset','search','stock'] }, // download
   { m: 'GET', from: '/wishlist/admin/summary', row: 'commerce wishlist.ts:133', to: '/api/v2/commerce/wishlist/summary' },
 ];
+
+/**
+ * The calls the two screens make straight to v2 (no legacy path ever existed for them): the AI proposals
+ * of the Reviews app, each one a PROPOSAL a person reads and publishes (`products/reviews.md` section 3).
+ *   suggestAnswer   POST /moderation/questions/{id}/suggest  (content.manage) a draft answer from the product's own content
+ *   summaryOf       GET  /moderation/summaries               (content.read)   the product's summary in any status, or null
+ *   proposeSummary  POST /moderation/summaries               (content.manage) a new proposal; it takes the live one off until published
+ *   setSummary      POST /moderation/summaries/{id}/status   (content.manage) publish or withdraw
+ */
+export interface ReviewSummary {
+  id: string;
+  target_kind: 'product' | 'subject' | 'store';
+  item?: string | null;
+  language: string;
+  summary: string;
+  pros: string[];
+  cons: string[];
+  review_count: number;
+  status: 'proposed' | 'published' | 'withdrawn';
+  model?: string | null;
+}
+
+const RV = '/api/v2/reviews';
+async function reviewsCall<T>(method: string, path: string, opts: Parameters<typeof v2call>[2] = {}): Promise<T> {
+  if (!V2_ENABLED) backendGap(`${method} ${path} (this build is not on the v2 API)`);
+  return v2call<T>(method, path, opts);
+}
+
+export const reviewsV2 = {
+  suggestAnswer: async (questionId: string): Promise<string> => {
+    const d = await reviewsCall<any>('POST', `${RV}/moderation/questions/${encodeURIComponent(questionId)}/suggest`, { data: {} });
+    return String(d?.suggestion ?? '');
+  },
+  summaryOf: async (productId: string): Promise<ReviewSummary | null> => {
+    const d = await reviewsCall<any>('GET', `${RV}/moderation/summaries`, { params: { kind: 'product', product_id: productId } });
+    return d && typeof d === 'object' && d.id ? (d as ReviewSummary) : null;
+  },
+  proposeSummary: async (productId: string): Promise<ReviewSummary> =>
+    reviewsCall<ReviewSummary>('POST', `${RV}/moderation/summaries`, { data: { kind: 'product', product_id: productId } }),
+  setSummary: async (id: string, status: 'published' | 'withdrawn'): Promise<ReviewSummary> =>
+    reviewsCall<ReviewSummary>('POST', `${RV}/moderation/summaries/${encodeURIComponent(id)}/status`, { data: { status } }),
+};
+
+/** The message of a failed call, whichever envelope it came back in. */
+export const reviewsError = (e: any, fallback: string): string =>
+  e?.response?.data?.message || e?.response?.data?.error?.message || e?.message || fallback;

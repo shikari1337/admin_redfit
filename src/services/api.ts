@@ -2734,12 +2734,16 @@ export interface AdminReview {
   reply_by?: string | null;
   reply_at?: string | null;
   reply_published?: boolean;
+  /** What the review is about: a product of this store, the store itself, or an outside site's product. */
+  kind?: 'product' | 'store' | 'subject';
   created_at: string;
   updated_at?: string;
 }
 
 export interface ReviewListParams {
   status?: string;
+  /** `product`, `store` or `subject`; omitted is every kind. */
+  kind?: string;
   rating?: string;
   productId?: string;
   search?: string;
@@ -2759,6 +2763,8 @@ export interface ReviewListParams {
 export interface ReviewCounts {
   pending: number; approved: number; rejected: number; spam: number; hidden: number;
   reported: number; with_media: number; total: number; avg_rating: number;
+  /** Reviews of the store itself, every status. */
+  store?: number;
 }
 
 const rows = <T = any>(r: any): T[] => {
@@ -2880,6 +2886,8 @@ export interface AdminQuestion {
 
 export interface QuestionCounts {
   total: number; pending: number; published: number; rejected: number; unanswered: number;
+  /** When the longest-waiting unanswered question was asked (the whole inbox, not one page). */
+  oldest_unanswered_at?: string | null;
 }
 
 export interface QuestionListParams {

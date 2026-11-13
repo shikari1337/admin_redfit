@@ -1,23 +1,29 @@
 import React from 'react';
 import {
   X, Check, Ban, Flag, EyeOff, Trash2, Star, ShieldCheck, MessageSquare,
-  ExternalLink, Loader2, AlertTriangle, Pencil, Save,
+  ExternalLink, Loader2, AlertTriangle, Pencil, Save, Store, Globe,
 } from 'lucide-react';
 import { reviewsAPI, type AdminReview, type ReviewStatus, type ReviewMedia as Asset } from '@/services/api';
 import { Btn, StatusChip } from '@/components/erp';
 import { StarRating } from './StarRating';
 import { MediaStrip, MediaLightbox, MediaEditor } from './ReviewMedia';
 import { ProductPicker, type PickedProduct } from './ProductPicker';
+import { ReviewSummaryCard } from './ReviewSummaryCard';
 import { cn } from '@/lib/utils';
 import { localeDate, localeDateTime } from '../../utils/date';
 
 /**
  * The review workspace's detail panel.
  *
- * Everything a moderator needs is on ONE surface — read the review, watch the
+ * Everything a moderator needs is on ONE surface: read the review, watch the
  * video, see why it was auto-flagged, act on it, reply publicly, and fix a wrong
- * product link — because the previous page made each of those a different mode
+ * product link, because the previous page made each of those a different mode
  * of a single always-open form at the top of the list.
+ *
+ * A review of the store itself (`kind = store`) has no product, and one of an
+ * outside site's product (`kind = subject`) belongs to that site's catalogue:
+ * neither can be moved to a product here (the database refuses it), so the
+ * re-link picker shows only for product reviews.
  */
 
 const STATUS_ACTIONS: Array<{
@@ -72,6 +78,8 @@ export const ReviewDetailDrawer: React.FC<{
   }, [review?.id, review?.reported_count]);
 
   if (!review) return null;
+  const isStore = review.kind === 'store';
+  const isSubject = review.kind === 'subject';
 
   const run = async (key: string, fn: () => Promise<any>) => {
     setBusy(key); setError(null);
@@ -118,7 +126,7 @@ export const ReviewDetailDrawer: React.FC<{
             <p className="mt-1 truncate text-sm text-gray-500">
               {review.customer_name}
               {(review.customer_email || review.customer_email_masked) &&
-                ` · ${review.customer_email || review.customer_email_masked}`}
+                `, ${review.customer_email || review.customer_email_masked}`}
             </p>
           </div>
           <button onClick={onClose} className="rounded p-1.5 text-gray-400 hover:bg-gray-100" aria-label="Close">
@@ -134,14 +142,28 @@ export const ReviewDetailDrawer: React.FC<{
             </p>
           )}
 
-          {/* Product it belongs to */}
+          {/* What it is about: the store, an outside product, or a product of this store */}
+          {isStore ? (
           <section className="rounded-lg border border-gray-200 p-3">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Product</p>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">About</p>
+            <div className="flex items-center gap-3">
+              <span className="flex h-11 w-11 items-center justify-center rounded bg-indigo-50 text-indigo-600"><Store className="h-5 w-5" /></span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-gray-900">The store</p>
+                <p className="text-xs text-gray-500">A review of the business (service, delivery, support), not of a product.</p>
+              </div>
+            </div>
+          </section>
+          ) : (
+          <section className="rounded-lg border border-gray-200 p-3">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">{isSubject ? 'Product on another site' : 'Product'}</p>
             <div className="flex items-center gap-3">
               {review.product_image ? (
                 <img src={review.product_image} alt="" className="h-11 w-11 rounded object-cover" />
               ) : (
-                <span className="h-11 w-11 rounded bg-gray-100" />
+                <span className="flex h-11 w-11 items-center justify-center rounded bg-gray-100 text-gray-400">
+                  {isSubject && <Globe className="h-5 w-5" />}
+                </span>
               )}
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-gray-900">
@@ -161,7 +183,7 @@ export const ReviewDetailDrawer: React.FC<{
                 </a>
               )}
             </div>
-            {editing && (
+            {editing && !isSubject && (
               <div className="mt-3 border-t border-gray-100 pt-3">
                 <ProductPicker
                   value={relink}
@@ -171,6 +193,7 @@ export const ReviewDetailDrawer: React.FC<{
               </div>
             )}
           </section>
+          )}
 
           {/* Content */}
           <section className="space-y-2">
@@ -232,14 +255,14 @@ export const ReviewDetailDrawer: React.FC<{
               <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-amber-800">
                 <AlertTriangle className="h-3.5 w-3.5" /> Needs a look
               </p>
-              <ul className="space-y-1 text-sm text-amber-900">
-                {review.auto_flags?.map((f) => <li key={f}>• {FLAG_LABEL[f] || f}</li>)}
+              <ul className="list-disc space-y-1 pl-5 text-sm text-amber-900">
+                {review.auto_flags?.map((f) => <li key={f}>{FLAG_LABEL[f] || f}</li>)}
                 {review.reported_count > 0 && (
-                  <li>• Reported by {review.reported_count} shopper{review.reported_count === 1 ? '' : 's'}</li>
+                  <li>Reported by {review.reported_count} shopper{review.reported_count === 1 ? '' : 's'}</li>
                 )}
                 {reports.map((r) => (
-                  <li key={r.id} className="pl-3 text-xs text-amber-800/80">
-                    – {r.reason}{r.note ? `: ${r.note}` : ''}
+                  <li key={r.id} className="list-none text-xs text-amber-800/80">
+                    {r.reason}{r.note ? `: ${r.note}` : ''}
                   </li>
                 ))}
               </ul>
@@ -254,6 +277,11 @@ export const ReviewDetailDrawer: React.FC<{
             </section>
           )}
 
+          {/* What buyers say about this product (AI proposes, a person publishes) */}
+          {!isStore && !isSubject && review.product_id && (
+            <ReviewSummaryCard productId={review.product_id} canManage={canManage} />
+          )}
+
           {/* Store reply */}
           <section>
             <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -264,7 +292,7 @@ export const ReviewDetailDrawer: React.FC<{
               value={replyText}
               disabled={!canManage}
               onChange={(e) => setReplyText(e.target.value)}
-              placeholder="Thanks for the feedback — we're glad it helped…"
+              placeholder="Thanks for the feedback, we are glad it helped."
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 disabled:bg-gray-50"
             />
             {canManage && (
@@ -290,7 +318,7 @@ export const ReviewDetailDrawer: React.FC<{
             {review.reply_at && (
               <p className="mt-1.5 text-xs text-gray-400">
                 Replied {localeDate(review.reply_at)} by {review.reply_by || 'Store'}
-                {review.reply_published === false && ' · not visible to shoppers'}
+                {review.reply_published === false && ' (not visible to shoppers)'}
               </p>
             )}
           </section>
@@ -302,7 +330,7 @@ export const ReviewDetailDrawer: React.FC<{
             <span>Source</span>
             <span className="text-gray-700 capitalize">{review.source || 'storefront'}</span>
             <span>Helpful votes</span>
-            <span className="text-gray-700">{review.helpful_count} up · {review.not_helpful_count} down</span>
+            <span className="text-gray-700">{review.helpful_count} up, {review.not_helpful_count} down</span>
             <span>Customer account</span>
             <span className="text-gray-700">{review.has_customer_account ? 'Signed in' : 'Guest'}</span>
             {review.moderated_at && (
@@ -310,7 +338,7 @@ export const ReviewDetailDrawer: React.FC<{
                 <span>Last moderated</span>
                 <span className="text-gray-700">
                   {localeDateTime(review.moderated_at)}
-                  {review.moderation_reason ? ` · ${review.moderation_reason}` : ''}
+                  {review.moderation_reason ? `: ${review.moderation_reason}` : ''}
                 </span>
               </>
             )}

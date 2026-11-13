@@ -2,6 +2,7 @@ import React from 'react';
 import {
   Star, Plus, Upload, Download, Search, Check, Ban, Flag, EyeOff, Trash2,
   ShieldCheck, MessageSquare, Image as ImageIcon, RefreshCw, X, Loader2, AlertTriangle,
+  Store, Globe,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { reviewsAPI, type AdminReview, type ReviewCounts, type ReviewStatus } from '@/services/api';
@@ -20,8 +21,8 @@ import { localeDate } from '../utils/date';
 /**
  * REVIEWS WORKSPACE
  *
- * Built around the job the store owner actually has — "clear the queue, then
- * curate" — instead of the old page's single always-open form.
+ * Built around the job the store owner actually has, "clear the queue, then
+ * curate", instead of the old page's single always-open form.
  *
  *   Tabs      = the moderation queue, with live counts so you can see the work.
  *   Row click = a detail drawer (read, watch, moderate, reply, re-link).
@@ -29,16 +30,21 @@ import { localeDate } from '../utils/date';
  *   Import    = preview + validate before anything is written.
  *
  * Permissions: reading needs content.read, acting needs content.manage, and
- * deleting needs content.delete — which is a SEPARATE permission because deletes
+ * deleting needs content.delete, which is a SEPARATE permission because deletes
  * in this codebase are permanent (COMMON_MISTAKES #49).
+ *
+ * Kinds: a review is about a product, about the store itself (`kind = store`,
+ * no product) or about an outside site's product (`kind = subject`). The queue
+ * tabs show every kind; "Store reviews" narrows to the business.
  */
 
 const TABS = [
-  { key: 'pending',  label: 'Needs review', status: 'pending' },
-  { key: 'approved', label: 'Published',    status: 'approved' },
-  { key: 'reported', label: 'Reported',     status: '' },
-  { key: 'rejected', label: 'Rejected',     status: 'rejected,spam' },
-  { key: 'all',      label: 'All',          status: '' },
+  { key: 'pending',  label: 'Needs review',  status: 'pending',       kind: '' },
+  { key: 'approved', label: 'Published',     status: 'approved',      kind: '' },
+  { key: 'reported', label: 'Reported',      status: '',              kind: '' },
+  { key: 'rejected', label: 'Rejected',      status: 'rejected,spam', kind: '' },
+  { key: 'store',    label: 'Store reviews', status: '',              kind: 'store' },
+  { key: 'all',      label: 'All',           status: '',              kind: '' },
 ] as const;
 
 type TabKey = typeof TABS[number]['key'];
@@ -52,6 +58,65 @@ const SORTS = [
   { v: 'media', l: 'With photos & video' },
   { v: 'reported', l: 'Most reported' },
 ];
+
+/** What a review is about, for the list: the product, the store itself, or an outside product. */
+const Subject: React.FC<{ r: AdminReview }> = ({ r }) => {
+  if (r.kind === 'store') {
+    return (
+      <div className="flex items-center gap-2">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-indigo-50 text-indigo-600"><Store className="h-4 w-4" /></span>
+        <span className="min-w-0">
+          <span className="block font-medium text-gray-900">The store</span>
+          <span className="block truncate text-xs text-gray-400">Service, delivery, support</span>
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center gap-2">
+      {r.product_image ? (
+        <img src={r.product_image} alt="" className="h-9 w-9 shrink-0 rounded object-cover" />
+      ) : (
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-gray-100 text-gray-400">
+          {r.kind === 'subject' && <Globe className="h-4 w-4" />}
+        </span>
+      )}
+      <span className="min-w-0">
+        <span className="block max-w-[13rem] truncate font-medium text-gray-900">
+          {r.variation_name || r.product_name || 'Product'}
+        </span>
+        <span className="block truncate text-xs text-gray-400">
+          {r.kind === 'subject' ? 'On another site' : r.product_sku}
+        </span>
+      </span>
+    </div>
+  );
+};
+
+/** The small signals under a review: who wrote it, votes, a reply, reports, auto flags. */
+const Signals: React.FC<{ r: AdminReview }> = ({ r }) => (
+  <span className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-gray-400">
+    <span>{r.customer_name}</span>
+    {r.helpful_count > 0 && <span>{r.helpful_count} found helpful</span>}
+    {r.reply_body && (
+      <span className="inline-flex items-center gap-0.5 text-indigo-600">
+        <MessageSquare className="h-3 w-3" /> replied
+      </span>
+    )}
+    {r.reported_count > 0 && (
+      <span className="inline-flex items-center gap-0.5 text-red-600">
+        <Flag className="h-3 w-3" /> {r.reported_count}
+      </span>
+    )}
+    {(r.auto_flags?.length ?? 0) > 0 && (
+      <span className="inline-flex items-center gap-0.5 text-amber-600">
+        <AlertTriangle className="h-3 w-3" /> check
+      </span>
+    )}
+  </span>
+);
+
+const shortDate = (iso: string) => localeDate(iso, { day: 'numeric', month: 'short', year: '2-digit' }, undefined);
 
 const Reviews: React.FC = () => {
   const { hasPerm } = useAuth();
@@ -93,6 +158,7 @@ const Reviews: React.FC = () => {
       const [list, c] = await Promise.all([
         reviewsAPI.list({
           status: def.status || undefined,
+          kind: def.kind || undefined,
           reported: tab === 'reported' || undefined,
           rating: rating || undefined,
           hasMedia: mediaOnly || undefined,
@@ -158,8 +224,9 @@ const Reviews: React.FC = () => {
               <>
                 <Btn variant="outline" onClick={() => reviewsAPI.exportCsv({
                   status: TABS.find((t) => t.key === tab)!.status || undefined,
+                  kind: TABS.find((t) => t.key === tab)!.kind || undefined,
                   search: debounced || undefined,
-                })}>
+                }).catch((e: any) => setError(e?.response?.data?.message || 'The export could not be made.'))}>
                   <Download className="h-4 w-4" /> Export
                 </Btn>
                 <Btn variant="outline" onClick={() => setShowImport(true)}>
@@ -174,33 +241,33 @@ const Reviews: React.FC = () => {
         }
       />
 
-      {/* Health at a glance */}
+      {/* What to act on first, then the health numbers */}
       <StatGrid>
         <StatCard
-          label="Average rating"
-          value={counts ? Number(counts.avg_rating || 0).toFixed(1) : '—'}
-          sub={<StarRating value={Math.round(Number(counts?.avg_rating || 0))} size={12} />}
-          icon={Star}
-        />
-        <StatCard
           label="Awaiting moderation"
-          value={counts?.pending ?? '—'}
+          value={counts?.pending ?? '-'}
           sub={counts?.pending ? 'Shoppers cannot see these yet' : 'Queue is clear'}
           tone={counts?.pending ? 'warn' : 'default'}
           icon={MessageSquare}
         />
         <StatCard
-          label="Published"
-          value={counts?.approved ?? '—'}
-          sub={`${counts?.total ?? 0} total collected`}
-          icon={Check}
-        />
-        <StatCard
           label="Reported"
-          value={counts?.reported ?? '—'}
+          value={counts?.reported ?? '-'}
           sub={counts?.reported ? 'Flagged by shoppers' : 'Nothing flagged'}
           tone={counts?.reported ? 'bad' : 'default'}
           icon={Flag}
+        />
+        <StatCard
+          label="Average rating"
+          value={counts ? Number(counts.avg_rating || 0).toFixed(1) : '-'}
+          sub={<StarRating value={Math.round(Number(counts?.avg_rating || 0))} size={12} />}
+          icon={Star}
+        />
+        <StatCard
+          label="Published"
+          value={counts?.approved ?? '-'}
+          sub={`${counts?.total ?? 0} total collected`}
+          icon={Check}
         />
       </StatGrid>
 
@@ -213,6 +280,7 @@ const Reviews: React.FC = () => {
             : t.key === 'approved' ? counts.approved
             : t.key === 'reported' ? counts.reported
             : t.key === 'rejected' ? counts.rejected + counts.spam
+            : t.key === 'store' ? (counts.store ?? 0)
             : counts.total;
           return {
             key: t.key,
@@ -253,7 +321,7 @@ const Reviews: React.FC = () => {
         <SelectInput value={rating} onChange={(e) => { setRating(e.target.value); setPage(1); }} className="h-9 w-auto">
           <option value="">All ratings</option>
           {[5, 4, 3, 2, 1].map((n) => <option key={n} value={n}>{n} star{n > 1 ? 's' : ''}</option>)}
-          <option value="1,2">Critical (1–2)</option>
+          <option value="1,2">Critical (1 or 2)</option>
         </SelectInput>
 
         <SelectInput value={sort} onChange={(e) => setSort(e.target.value)} className="h-9 w-auto">
@@ -283,7 +351,7 @@ const Reviews: React.FC = () => {
         </p>
       )}
 
-      {/* Bulk action bar — appears only when something is selected */}
+      {/* Bulk action bar: appears only when something is selected */}
       {selected.size > 0 && canManage && (
         <div className="sticky top-2 z-20 flex flex-wrap items-center gap-2 rounded-lg border border-gray-900/10 bg-gray-900 px-3 py-2 text-white shadow-lg">
           <span className="text-sm font-medium tabular-nums">{selected.size} selected</span>
@@ -341,13 +409,17 @@ const Reviews: React.FC = () => {
       ) : !rows.length ? (
         <EmptyState
           icon={Star}
-          title={debounced ? 'No reviews match your search' : tab === 'pending' ? 'Nothing waiting for you' : 'No reviews yet'}
+          title={debounced ? 'No reviews match your search'
+            : tab === 'pending' ? 'Nothing waiting for you'
+            : tab === 'store' ? 'No reviews of the store yet'
+            : 'No reviews yet'}
           description={
             debounced ? 'Try a different word, or clear the filters.'
               : tab === 'pending' ? 'Every review has been moderated. New ones will land here.'
+              : tab === 'store' ? 'Reviews about the business itself (service, delivery, support) land here, apart from product reviews.'
               : 'Reviews shoppers leave on your product pages appear here. You can also add or import existing ones.'
           }
-          action={canManage && !debounced ? (
+          action={canManage && !debounced && tab !== 'store' ? (
             <div className="flex gap-2">
               <Btn onClick={() => setShowEditor(true)}><Plus className="h-4 w-4" /> Add review</Btn>
               <Btn variant="outline" onClick={() => setShowImport(true)}><Upload className="h-4 w-4" /> Import CSV</Btn>
@@ -355,7 +427,61 @@ const Reviews: React.FC = () => {
           ) : undefined}
         />
       ) : (
-        <TableShell>
+        <>
+          {/* Phone width: one card per review, the same actions */}
+          <ul className="space-y-2 md:hidden">
+            {rows.map((r) => (
+              <li
+                key={r.id}
+                className={cn('rounded-lg border border-gray-200 bg-white p-3', selected.has(r.id) && 'border-indigo-300 bg-indigo-50/60')}
+              >
+                <div className="flex items-start gap-2">
+                  {canManage && (
+                    <input
+                      type="checkbox"
+                      checked={selected.has(r.id)}
+                      onChange={() => toggleOne(r.id)}
+                      aria-label={`Select review by ${r.customer_name}`}
+                      className="mt-2.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                  )}
+                  <button type="button" onClick={() => setActive(r)} className="min-w-0 flex-1 text-left">
+                    <Subject r={r} />
+                    <span className="mt-2 flex flex-wrap items-center gap-2">
+                      <StarRating value={r.rating} size={13} />
+                      <StatusChip status={r.status} />
+                      {r.is_featured && <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />}
+                      {r.is_verified && (
+                        <span className="inline-flex items-center gap-1 text-[11px] text-emerald-700">
+                          <ShieldCheck className="h-3 w-3" /> Verified
+                        </span>
+                      )}
+                      <span className="text-[11px] text-gray-400">{shortDate(r.created_at)}</span>
+                    </span>
+                    {r.title && <span className="mt-1.5 block font-medium text-gray-900">{r.title}</span>}
+                    <span className="mt-0.5 line-clamp-3 block text-sm text-gray-600">{r.review}</span>
+                    <Signals r={r} />
+                  </button>
+                </div>
+                {(r.media?.length ?? 0) > 0 && (
+                  <div className="mt-2">
+                    <MediaStrip media={r.media} onOpen={(i) => setLightbox({ media: r.media, index: i })} />
+                  </div>
+                )}
+                {canManage && r.status === 'pending' && (
+                  <button
+                    onClick={() => bulk(() => reviewsAPI.moderate([r.id], 'approved'))}
+                    disabled={bulkBusy}
+                    className="mt-2 inline-flex h-9 items-center gap-1 rounded-lg bg-emerald-600 px-3 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    <Check className="h-4 w-4" /> Approve
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+
+        <TableShell className="hidden md:block">
           <table className="w-full text-sm">
             <THead>
               {canManage && (
@@ -369,7 +495,7 @@ const Reviews: React.FC = () => {
                   />
                 </Th>
               )}
-              <Th>Product</Th>
+              <Th>About</Th>
               <Th className="w-28">Rating</Th>
               <Th>Review</Th>
               <Th className="w-36">Media</Th>
@@ -395,21 +521,7 @@ const Reviews: React.FC = () => {
                     </Td>
                   )}
 
-                  <Td>
-                    <div className="flex items-center gap-2">
-                      {r.product_image ? (
-                        <img src={r.product_image} alt="" className="h-9 w-9 shrink-0 rounded object-cover" />
-                      ) : (
-                        <span className="h-9 w-9 shrink-0 rounded bg-gray-100" />
-                      )}
-                      <span className="min-w-0">
-                        <span className="block max-w-[13rem] truncate font-medium text-gray-900">
-                          {r.variation_name || r.product_name}
-                        </span>
-                        <span className="block truncate text-xs text-gray-400">{r.product_sku}</span>
-                      </span>
-                    </div>
-                  </Td>
+                  <Td><Subject r={r} /></Td>
 
                   <Td>
                     <StarRating value={r.rating} size={13} />
@@ -424,25 +536,7 @@ const Reviews: React.FC = () => {
                     <span className="block max-w-md">
                       {r.title && <span className="block truncate font-medium text-gray-900">{r.title}</span>}
                       <span className="block truncate text-gray-600">{r.review}</span>
-                      <span className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-gray-400">
-                        <span>{r.customer_name}</span>
-                        {r.helpful_count > 0 && <span>· {r.helpful_count} found helpful</span>}
-                        {r.reply_body && (
-                          <span className="inline-flex items-center gap-0.5 text-indigo-600">
-                            <MessageSquare className="h-3 w-3" /> replied
-                          </span>
-                        )}
-                        {r.reported_count > 0 && (
-                          <span className="inline-flex items-center gap-0.5 text-red-600">
-                            <Flag className="h-3 w-3" /> {r.reported_count}
-                          </span>
-                        )}
-                        {(r.auto_flags?.length ?? 0) > 0 && (
-                          <span className="inline-flex items-center gap-0.5 text-amber-600">
-                            <AlertTriangle className="h-3 w-3" /> check
-                          </span>
-                        )}
-                      </span>
+                      <Signals r={r} />
                     </span>
                   </Td>
 
@@ -468,14 +562,13 @@ const Reviews: React.FC = () => {
                     )}
                   </Td>
 
-                  <Td muted>
-                    {localeDate(r.created_at, { day: 'numeric', month: 'short', year: '2-digit' }, undefined)}
-                  </Td>
+                  <Td muted>{shortDate(r.created_at)}</Td>
                 </Tr>
               ))}
             </TBody>
           </table>
         </TableShell>
+        </>
       )}
 
       <Pagination

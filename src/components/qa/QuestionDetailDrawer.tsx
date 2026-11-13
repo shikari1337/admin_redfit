@@ -2,9 +2,10 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import {
   X, Send, Check, Ban, Trash2, ShieldCheck, ThumbsUp, ExternalLink,
-  AlertTriangle, Loader2, Clock, User,
+  AlertTriangle, Loader2, Clock, User, Sparkles,
 } from 'lucide-react';
 import { productQuestionsAPI, type AdminQuestion } from '@/services/api';
+import { reviewsV2, reviewsError } from '@/lib/v2/areas/reviews';
 import { Btn, StatusChip } from '@/components/erp';
 import { cn } from '@/lib/utils';
 import { localeDateTime } from '../../utils/date';
@@ -14,18 +15,23 @@ import { localeDateTime } from '../../utils/date';
  *
  * The primary action is ANSWERING, not approving: a question is invisible to
  * shoppers until it is answered and published, and `POST /:id/answer` publishes
- * by default — so the useful gesture is "type the reply and send", with
+ * by default, so the useful gesture is "type the reply and send", with
  * publish-later as the exception. Reject is for spam and questions the store
  * will not answer publicly.
  *
+ * "Suggest an answer" asks the Reviews app for a draft written from the
+ * product's own content (`POST /moderation/questions/{id}/suggest`). It only
+ * fills the composer: a person reads it, edits it and sends it, nothing is
+ * published by the suggestion itself.
+ *
  * The asker's email is shown because it is already in the moderator field-set
  * (`FIELD_SETS.moderator`, db/queries/productQuestions.ts) and answering by mail
- * is often the right call for a stock or dosage question — but it is never
+ * is often the right call for a stock or dosage question, but it is never
  * echoed to the storefront.
  */
 
 const fmt = (d?: string | null) =>
-  d ? localeDateTime(d, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }, undefined) : '—';
+  d ? localeDateTime(d, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }, undefined) : '-';
 
 export const QuestionDetailDrawer: React.FC<{
   question: AdminQuestion | null;
@@ -37,6 +43,7 @@ export const QuestionDetailDrawer: React.FC<{
   const [draft, setDraft] = React.useState('');
   const [busy, setBusy] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [suggested, setSuggested] = React.useState(false);
 
   // Re-seed the composer whenever a DIFFERENT question opens. Keying on id (not
   // the object) keeps a half-typed answer alive when the list refreshes under
@@ -44,6 +51,7 @@ export const QuestionDetailDrawer: React.FC<{
   React.useEffect(() => {
     setDraft(question?.answer ?? '');
     setError(null);
+    setSuggested(false);
   }, [question?.id]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!question) return null;
@@ -63,6 +71,21 @@ export const QuestionDetailDrawer: React.FC<{
   };
 
   const answerChanged = draft.trim() !== (q.answer ?? '').trim();
+
+  // The draft answer is only a proposal: it lands in the composer for a person to read and send.
+  const suggest = async () => {
+    if (draft.trim() && !confirm('Replace what is in the answer box with a suggested answer?')) return;
+    setBusy('suggest'); setError(null);
+    try {
+      const text = await reviewsV2.suggestAnswer(q.id);
+      if (text.trim()) { setDraft(text.trim()); setSuggested(true); }
+      else setError('No answer could be suggested from this product\'s content.');
+    } catch (e) {
+      setError(reviewsError(e, 'An answer could not be suggested.'));
+    } finally {
+      setBusy(null);
+    }
+  };
 
   return (
     <>
@@ -143,7 +166,7 @@ export const QuestionDetailDrawer: React.FC<{
           <div>
             <div className="mb-1 flex items-center justify-between">
               <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
-                Your answer {q.answer && <span className="normal-case text-gray-400">· by {q.answered_by || 'Store'}, {fmt(q.answered_at)}</span>}
+                Your answer {q.answer && <span className="normal-case text-gray-400">(by {q.answered_by || 'Store'}, {fmt(q.answered_at)})</span>}
               </p>
               <span className={cn('text-[11px] tabular-nums', draft.length > 4000 ? 'text-red-600' : 'text-gray-400')}>
                 {draft.length}/4000
@@ -154,9 +177,15 @@ export const QuestionDetailDrawer: React.FC<{
               onChange={(e) => setDraft(e.target.value)}
               readOnly={!canManage}
               rows={7}
-              placeholder="Answer in the store's voice — this is published on the product page for every future shopper with the same question."
+              placeholder="Answer in the store's voice. This is published on the product page for every future shopper with the same question."
               className="w-full resize-y rounded-lg border border-gray-300 p-3 text-sm leading-relaxed focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 disabled:bg-gray-50 read-only:bg-gray-50"
             />
+            {suggested && (
+              <p className="mt-1 flex items-start gap-1.5 text-[11px] text-indigo-700">
+                <Sparkles className="mt-0.5 h-3 w-3 shrink-0" />
+                Suggested from the product's own content. Check every fact (dose, stock, price) before you send it.
+              </p>
+            )}
             {canManage && (
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <Btn
@@ -174,8 +203,19 @@ export const QuestionDetailDrawer: React.FC<{
                 >
                   Save as draft
                 </Btn>
+                {q.product_id && (
+                  <Btn
+                    variant="ghost"
+                    disabled={busy !== null}
+                    onClick={suggest}
+                    title="A draft answer from the product's own content, for you to check and send"
+                  >
+                    {busy === 'suggest' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                    Suggest an answer
+                  </Btn>
+                )}
                 {answerChanged && q.answer && (
-                  <button onClick={() => setDraft(q.answer ?? '')} className="text-xs text-gray-500 hover:underline">
+                  <button onClick={() => { setDraft(q.answer ?? ''); setSuggested(false); }} className="text-xs text-gray-500 hover:underline">
                     Revert
                   </button>
                 )}

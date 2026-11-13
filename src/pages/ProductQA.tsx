@@ -22,14 +22,14 @@ import { localeDate } from '../utils/date';
  * The job here is different from Reviews. A review is already written and only
  * needs a verdict; a question is a customer WAITING for the store to say
  * something, and it stays invisible on the storefront until it is answered.
- * So the queue is ordered by that debt — "Unanswered" is the landing tab, and
+ * So the queue is ordered by that debt: "Unanswered" is the landing tab, and
  * the row action is a composer, not an approve button.
  *
  * Backend: routes/productQuestions.ts. `status` is canonical (`is_published` is
  * a trigger-maintained mirror); answering publishes by default.
  *
  * Permissions: reading needs content.read, answering/moderating content.manage,
- * deleting content.delete — a separate permission because deletes here are
+ * deleting content.delete, a separate permission because deletes here are
  * permanent (COMMON_MISTAKES #49).
  */
 
@@ -133,11 +133,14 @@ const ProductQA: React.FC = () => {
   const toggleOne = (id: string) =>
     setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
+  // The longest wait over the WHOLE inbox (the counts answer it); the loaded page is only the fallback
+  // for a server that does not send it yet.
   const oldestUnanswered = React.useMemo(() => {
+    if (counts?.oldest_unanswered_at) return counts.oldest_unanswered_at;
     const pendingRows = rows.filter((r) => !r.answer && r.status !== 'rejected');
     if (!pendingRows.length) return null;
-    return pendingRows.reduce((a, b) => (new Date(a.created_at) < new Date(b.created_at) ? a : b));
-  }, [rows]);
+    return pendingRows.reduce((a, b) => (new Date(a.created_at) < new Date(b.created_at) ? a : b)).created_at;
+  }, [rows, counts?.oldest_unanswered_at]);
 
   return (
     <Page>
@@ -155,28 +158,28 @@ const ProductQA: React.FC = () => {
       <StatGrid>
         <StatCard
           label="Waiting for an answer"
-          value={counts?.unanswered ?? '—'}
+          value={counts?.unanswered ?? '-'}
           sub={counts?.unanswered
-            ? (oldestUnanswered ? `Oldest asked ${relative(oldestUnanswered.created_at)}` : 'Shoppers are waiting')
+            ? (oldestUnanswered ? `Oldest asked ${relative(oldestUnanswered)}` : 'Shoppers are waiting')
             : 'Nothing outstanding'}
           tone={counts?.unanswered ? 'warn' : 'default'}
           icon={Inbox}
         />
         <StatCard
           label="Live on product pages"
-          value={counts?.published ?? '—'}
+          value={counts?.published ?? '-'}
           sub={`${counts?.total ?? 0} asked in total`}
           icon={Check}
         />
         <StatCard
           label="Pending"
-          value={counts?.pending ?? '—'}
+          value={counts?.pending ?? '-'}
           sub="Not visible to shoppers yet"
           icon={Clock}
         />
         <StatCard
           label="Rejected"
-          value={counts?.rejected ?? '—'}
+          value={counts?.rejected ?? '-'}
           sub={counts?.rejected ? 'Spam or not answered publicly' : 'Nothing rejected'}
           icon={Ban}
         />
@@ -216,7 +219,7 @@ const ProductQA: React.FC = () => {
           <input
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            placeholder="Filter this page — question, answer, asker, SKU…"
+            placeholder="Filter this page: question, answer, asker, SKU"
             className="h-9 w-full rounded-lg border border-gray-300 pl-9 pr-8 text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
           />
           {filter && (
@@ -230,7 +233,7 @@ const ProductQA: React.FC = () => {
             value={product}
             onChange={(p) => { setProduct(p); setPage(1); }}
             label=""
-            placeholder="All products — pick one to narrow the queue"
+            placeholder="All products, or pick one to narrow the queue"
           />
         </div>
       </div>
@@ -301,7 +304,53 @@ const ProductQA: React.FC = () => {
           }
         />
       ) : (
-        <TableShell>
+        <>
+          {/* Phone width: one card per question; tapping opens the composer */}
+          <ul className="space-y-2 md:hidden">
+            {visible.map((r) => (
+              <li
+                key={r.id}
+                className={cn('rounded-lg border border-gray-200 bg-white p-3', selected.has(r.id) && 'border-indigo-300 bg-indigo-50/60')}
+              >
+                <div className="flex items-start gap-2">
+                  {canManage && (
+                    <input
+                      type="checkbox"
+                      checked={selected.has(r.id)}
+                      onChange={() => toggleOne(r.id)}
+                      aria-label={`Select question from ${r.asker_name}`}
+                      className="mt-1 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                  )}
+                  <button type="button" onClick={() => setActive(r)} className="min-w-0 flex-1 text-left">
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="min-w-0 truncate text-xs font-medium text-gray-500">{r.variation_name || r.product_name || 'Product'}</span>
+                      <StatusChip status={r.status} />
+                    </span>
+                    <span className="mt-1 block text-sm text-gray-900">{r.question}</span>
+                    <span className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-gray-400">
+                      <span>{r.asker_name}</span>
+                      <span>{relative(r.created_at)}</span>
+                      {r.verified_buyer && (
+                        <span className="inline-flex items-center gap-0.5 text-emerald-700">
+                          <ShieldCheck className="h-3 w-3" /> bought this
+                        </span>
+                      )}
+                    </span>
+                    {r.answer ? (
+                      <span className="mt-1.5 line-clamp-2 block rounded bg-gray-50 px-2 py-1 text-xs text-gray-600">{r.answer}</span>
+                    ) : (
+                      <span className="mt-1.5 inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-700">
+                        <MessageSquare className="h-3 w-3" /> Needs an answer
+                      </span>
+                    )}
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+
+        <TableShell className="hidden md:block">
           <table className="w-full text-sm">
             <THead>
               {canManage && (
@@ -394,6 +443,7 @@ const ProductQA: React.FC = () => {
             </TBody>
           </table>
         </TableShell>
+        </>
       )}
 
       <Pagination
