@@ -43,10 +43,19 @@ const pageOffset = (c: V2Ctx) => {
 
 export const CUSTOMER_ROUTES: V2Route[] = [
   {
+    // Every filter runs on the server before the page is cut (lane MENU-1): kind b2b|retail,
+    // activity ordered|never|once|repeat, one tag, the origin channel and the search.
     m: 'GET', from: '/customers', row: 'commerce customers.ts:30', to: `${C}/customers`,
-    query: (c) => ({ search: c.query.search, origin: c.query.origin, limit: c.query.limit, offset: pageOffset(c) }),
+    query: (c) => ({
+      search: c.query.search, origin: c.query.origin, kind: c.query.kind, activity: c.query.activity,
+      tag: c.query.tag, limit: c.query.limit, offset: pageOffset(c),
+    }),
     reply: (d) => (Array.isArray(d) ? mapList(d, customerRow) : d),
   },
+  // CustomerSummaryView (commerce views/shoppers.rs): counts, every sales channel with its count, tags in use.
+  { m: 'GET', from: '/customers/summary', row: 'commerce lane MENU-1', to: `${C}/customers/summary` },
+  // The store's own tags and note on its directory row (never the person's global contact).
+  { m: 'PATCH', from: '/customers/:id', row: 'commerce customers.ts:410', to: `${C}/customers/{id}`, body: (c) => ({ tags: c.body?.tags, notes: c.body?.notes }) },
   { m: 'GET', from: '/customers/duplicates', row: 'commerce customers.ts:146', to: `${C}/customer-duplicates`, query: (c) => ({ status: c.query.status }) },
   { m: 'POST', from: '/customers/duplicates', row: 'commerce customers.ts:157', to: `${C}/customer-duplicates`, body: (c) => ({ customer_id_a: c.body?.customerIdA, customer_id_b: c.body?.customerIdB }) },
   { m: 'POST', from: '/customers/duplicates/:id/dismiss', row: 'commerce customers.ts:168', to: `${C}/customer-duplicates/{id}/dismiss`, body: () => ({}) },

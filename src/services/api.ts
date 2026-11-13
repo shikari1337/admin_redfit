@@ -3926,14 +3926,48 @@ export const journeyAPI = {
 
 // Store Customers API — the shoppers who registered/ordered on THIS store.
 // (Distinct from usersAPI, which is admin/staff accounts.)
+export interface CustomerListParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  /** A sales-channel code, or `unrecorded`. */
+  origin?: string;
+  kind?: 'b2b' | 'retail';
+  activity?: 'ordered' | 'never' | 'once' | 'repeat';
+  tag?: string;
+}
+
+/** commerce CustomerSummaryView: the store's customers at a glance (store staff excluded, as in the list). */
+export interface CustomerSummary {
+  customers: number;
+  wholesale: number;
+  ordered: number;
+  never_ordered: number;
+  repeat: number;
+  unrecorded: number;
+  channels: Array<{ code: string; label: string; customers: number }>;
+  tags: Array<{ tag: string; customers: number }>;
+}
+
 export const customersAPI = {
-  getAll: async (params?: { page?: number; limit?: number; search?: string }) => {
+  /** Every filter is applied by the server across the whole directory, before the page is cut. */
+  getAll: async (params?: CustomerListParams) => {
     const response = await api.get('/customers', { params });
     return response.data;
+  },
+  /** The directory at a glance: counts, every sales channel with its count, and the tags in use. */
+  summary: async (): Promise<CustomerSummary> => {
+    const response = await api.get('/customers/summary');
+    return (response.data?.data ?? response.data) as CustomerSummary;
   },
   getById: async (customerId: string) => {
     const response = await api.get(`/customers/${customerId}`);
     return response.data?.data ?? response.data;
+  },
+  /** The store's own tags and note on a customer (customers.manage). An empty note clears it. */
+  updateNotes: async (customerId: string, body: { tags?: string[]; notes?: string }): Promise<{ tags: string[]; notes: string | null }> => {
+    const response = await api.patch(`/customers/${customerId}`, body);
+    return (response.data?.data ?? response.data) as { tags: string[]; notes: string | null };
   },
   // Mint a customer-portal share link (no login for the B2B buyer). Returns { token, path }.
   mintPortalToken: async (customerId: string, opts?: { label?: string; expiresAt?: string | null }) => {

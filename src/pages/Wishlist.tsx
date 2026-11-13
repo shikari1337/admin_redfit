@@ -17,7 +17,7 @@ import { localeDate } from '../utils/date';
 /**
  * WISHLIST WORKSPACE
  *
- * A wishlist belongs to the SHOPPER — the store does not edit someone's saved
+ * A wishlist belongs to the SHOPPER: the store does not edit someone's saved
  * items, and this page deliberately offers no way to. What the store manages is
  * the DEMAND those saves represent, which is a merchandising job:
  *
@@ -28,7 +28,8 @@ import { localeDate } from '../utils/date';
  * product in this catalogue is a remedy family of up to 50+ packs
  * (COMMON_MISTAKES #58).
  *
- * Backend: routes/wishlist.ts /admin/* — reads need `reports.read` and the
+ * Backend: commerce `GET /wishlist/{summary,demand,customers,export}` (the admin's
+ * legacy `/wishlist/admin/*` calls are mapped in lib/v2/areas/reviews.ts). Reads need `reports.read` and the
  * `wishlist` module. Saves against deactivated products are excluded, matching
  * the customer-facing list.
  */
@@ -50,7 +51,7 @@ const PERIODS = [
 ];
 
 const fmtDate = (d?: string | null) =>
-  d ? localeDate(d, { day: 'numeric', month: 'short', year: '2-digit' }, undefined) : '—';
+  d ? localeDate(d, { day: 'numeric', month: 'short', year: '2-digit' }, undefined) : '';
 
 const Wishlist: React.FC = () => {
   const [tab, setTab] = React.useState<TabKey>('out');
@@ -129,26 +130,26 @@ const Wishlist: React.FC = () => {
       <StatGrid>
         <StatCard
           label="Saved but out of stock"
-          value={summary?.out_of_stock_saves ?? '—'}
+          value={summary ? summary.out_of_stock_saves : '...'}
           sub={summary?.out_of_stock_saves ? 'Demand you cannot fill today' : 'Everything saved is buyable'}
           tone={summary?.out_of_stock_saves ? 'bad' : 'good'}
           icon={PackageX}
         />
         <StatCard
           label="Items saved"
-          value={summary?.saves ?? '—'}
+          value={summary ? summary.saves : '...'}
           sub={`${summary?.skus ?? 0} distinct SKUs`}
           icon={Bookmark}
         />
         <StatCard
           label="Shoppers saving"
-          value={summary?.customers ?? '—'}
+          value={summary ? summary.customers : '...'}
           sub="People with at least one saved item"
           icon={Users}
         />
         <StatCard
           label="Saved recently"
-          value={summary?.saves_30d ?? '—'}
+          value={summary ? summary.saves_30d : '...'}
           sub={`${summary?.saves_7d ?? 0} in the last 7 days`}
           icon={TrendingUp}
         />
@@ -207,7 +208,7 @@ const Wishlist: React.FC = () => {
           }
           description={
             debounced ? 'Try a different word, or clear the search.'
-              : tab === 'out' ? 'Every item shoppers saved is currently buyable — nothing to restock.'
+              : tab === 'out' ? 'Every item shoppers saved is buyable right now. Nothing to restock.'
               : 'When shoppers tap the heart on a product, it shows up here as demand you can act on.'
           }
         />
@@ -227,11 +228,16 @@ const Wishlist: React.FC = () => {
                 <Tr key={s.customer_id}>
                   <Td>
                     {/* Name/contact arrive only when this account also holds
-                        customers.read — a reports-only role sees the demand
+                        customers.read; a reports-only role sees the demand
                         numbers against an opaque id, which is the point. */}
                     {s.name || s.email || s.phone ? (
                       <span className="min-w-0">
-                        <span className="block truncate font-medium text-gray-900">{s.name || 'Customer'}</span>
+                        {/* The contact arrives only with customers.read, which also opens the customer's page. */}
+                        <Link to={`/customers/${s.customer_id}`}
+                          className="block truncate font-medium text-gray-900 hover:text-indigo-600 hover:underline"
+                          title="Open this customer's page: their orders, addresses and the store's notes">
+                          {s.name || 'Customer'}
+                        </Link>
                         <span className="block truncate text-xs text-gray-400">{s.phone || s.email}</span>
                       </span>
                     ) : (
@@ -246,7 +252,7 @@ const Wishlist: React.FC = () => {
                   <Td className="text-right tabular-nums">
                     {s.out_of_stock > 0
                       ? <span className="font-medium text-red-600">{s.out_of_stock}</span>
-                      : <span className="text-gray-400">—</span>}
+                      : <span className="text-gray-400">0</span>}
                   </Td>
                   <Td muted>{fmtDate(s.last_added)}</Td>
                 </Tr>
@@ -284,7 +290,7 @@ const Wishlist: React.FC = () => {
                         >
                           {r.name}
                         </Link>
-                        <span className="block truncate font-mono text-xs text-gray-400">{r.sku ?? '—'}</span>
+                        <span className="block truncate font-mono text-xs text-gray-400">{r.sku ?? 'No SKU'}</span>
                       </span>
                     </div>
                   </Td>
@@ -302,7 +308,7 @@ const Wishlist: React.FC = () => {
                     )}
                   </Td>
                   <Td className="text-right tabular-nums">
-                    {r.selling_price != null ? inr(r.selling_price) : '—'}
+                    {r.selling_price != null ? inr(r.selling_price) : <span className="text-gray-400">No price</span>}
                   </Td>
                   <Td muted>{fmtDate(r.last_added)}</Td>
                 </Tr>

@@ -1,16 +1,18 @@
 /**
- * Customer detail — profile, order history and saved addresses for ONE customer.
+ * Customer detail: profile, the store's own tags and note, order history and saved addresses
+ * for ONE customer.
  *
  * Everything here comes from a single `GET /customers/:id`, which already
- * returns the customer, their last 100 orders, their addresses and lifetime
- * totals. It previously called four `/users/:id/...` endpoints that do not
- * exist (all 404), because it predates customers becoming global: `/users` is
- * the STAFF table (staff.read/manage/delete), managed at Settings ▸ Staff.
+ * returns the customer, their last 100 orders, their addresses, lifetime
+ * totals, the store's tags and note, and where the store first met them (code
+ * and label). `PATCH /customers/:id` changes only the store's tags and note.
+ * `/users` is the STAFF table (staff.read/manage/delete), managed at Settings, Staff.
  */
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { customersAPI } from '../services/api';
 import { fmtRupees } from '../lib/money';
+import { useAuth } from '../contexts/AuthContext';
 import {
   User,
   Mail,
@@ -19,8 +21,14 @@ import {
   MapPin,
   ArrowLeft,
   Plus,
+  StickyNote,
+  Pencil,
+  X,
+  Loader2,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -37,8 +45,152 @@ import {
   TableRow,
 } from '@/components/ui/table';
 
+/** The server's limits (commerce customers.rs): 20 tags of 40 characters, a note of 2000. */
+const MAX_TAGS = 20;
+const MAX_TAG_CHARS = 40;
+const MAX_NOTE_CHARS = 2000;
+
+/**
+ * The store's own tags and note on this customer: kept on the store's directory row, never on the
+ * person's global record, and recorded on the customer's activity with who changed it. Tags are
+ * what the Customers list filters by.
+ */
+const NotesCard: React.FC<{
+  customerId: string;
+  tags: string[];
+  notes: string | null;
+  canEdit: boolean;
+  onSaved: (v: { tags: string[]; notes: string | null }) => void;
+}> = ({ customerId, tags, notes, canEdit, onSaved }) => {
+  const [editing, setEditing] = useState(false);
+  const [draftTags, setDraftTags] = useState<string[]>(tags);
+  const [draftNote, setDraftNote] = useState(notes ?? '');
+  const [tagInput, setTagInput] = useState('');
+  const [known, setKnown] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const open = () => {
+    setDraftTags(tags); setDraftNote(notes ?? ''); setTagInput(''); setErr(null); setEditing(true);
+    // The tags already in use at this store, so the same word is picked again rather than retyped.
+    customersAPI.summary().then((s) => setKnown((s?.tags ?? []).map((t) => t.tag))).catch(() => {});
+  };
+
+  const addTag = (raw: string) => {
+    const t = raw.split(/\s+/).filter(Boolean).join(' ');
+    if (!t) return;
+    if (t.length > MAX_TAG_CHARS) { setErr(`A tag is at most ${MAX_TAG_CHARS} characters.`); return; }
+    if (draftTags.some((d) => d.toLowerCase() === t.toLowerCase())) { setTagInput(''); return; }
+    if (draftTags.length >= MAX_TAGS) { setErr(`A customer carries at most ${MAX_TAGS} tags.`); return; }
+    setErr(null);
+    setDraftTags([...draftTags, t]);
+    setTagInput('');
+  };
+
+  const save = async () => {
+    setSaving(true); setErr(null);
+    try {
+      const pending = tagInput.trim();
+      const nextTags = pending && !draftTags.some((d) => d.toLowerCase() === pending.toLowerCase()) ? [...draftTags, pending] : draftTags;
+      const saved = await customersAPI.updateNotes(customerId, { tags: nextTags, notes: draftNote });
+      onSaved({ tags: Array.isArray(saved?.tags) ? saved.tags : nextTags, notes: saved?.notes ?? null });
+      setEditing(false);
+    } catch (e: any) {
+      setErr(e?.response?.data?.error?.message || e?.response?.data?.message || 'The note could not be saved.');
+    } finally { setSaving(false); }
+  };
+
+  const suggestions = known.filter((k) => !draftTags.some((d) => d.toLowerCase() === k.toLowerCase())
+    && (!tagInput || k.toLowerCase().includes(tagInput.toLowerCase()))).slice(0, 8);
+
+  return (
+    <Card>
+      <CardContent className="space-y-3 p-5">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-sm font-medium text-ink">
+            <StickyNote className="h-4 w-4 text-ink-mute" /> Store notes
+            <InfoTip text="Only your staff see these. They stay with this store and never change the customer's own account." />
+          </div>
+          {canEdit && !editing && (
+            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={open}>
+              <Pencil className="mr-1 h-3.5 w-3.5" /> Edit
+            </Button>
+          )}
+        </div>
+
+        {!editing ? (
+          <>
+            {tags.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {tags.map((t) => (
+                  <Link key={t} to={`/customers?tag=${encodeURIComponent(t)}`}
+                    className="rounded border border-line bg-surface-2 px-2 py-0.5 text-xs text-ink-soft hover:border-line-strong">{t}</Link>
+                ))}
+              </div>
+            ) : null}
+            {notes ? (
+              <p className="whitespace-pre-wrap text-sm text-ink">{notes}</p>
+            ) : (
+              tags.length === 0 && (
+                <p className="text-xs text-ink-mute">
+                  {canEdit ? 'No tags or note yet. Add what the team should know, like a preferred delivery time or a regular order.' : 'No tags or note yet.'}
+                </p>
+              )
+            )}
+          </>
+        ) : (
+          <div className="space-y-3">
+            <div>
+              <div className="mb-1 text-xs text-ink-soft">Tags</div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {draftTags.map((t) => (
+                  <span key={t} className="inline-flex items-center gap-1 rounded border border-line bg-surface-2 px-2 py-0.5 text-xs text-ink">
+                    {t}
+                    <button type="button" aria-label={`Remove ${t}`} onClick={() => setDraftTags(draftTags.filter((d) => d !== t))}
+                      className="text-ink-mute hover:text-ink"><X className="h-3 w-3" /></button>
+                  </span>
+                ))}
+                <Input value={tagInput} onChange={(e) => setTagInput(e.target.value)} maxLength={MAX_TAG_CHARS}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(tagInput); }
+                    else if (e.key === 'Backspace' && !tagInput && draftTags.length) setDraftTags(draftTags.slice(0, -1));
+                  }}
+                  placeholder="Add a tag, then Enter" className="h-8 w-full min-w-[10rem] flex-1 text-sm sm:w-auto" />
+              </div>
+              {suggestions.length > 0 && (
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {suggestions.map((s) => (
+                    <button key={s} type="button" onClick={() => addTag(s)}
+                      className="rounded-full border border-dashed border-line px-2 py-0.5 text-[11px] text-ink-soft hover:border-line-strong">+ {s}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div>
+              <div className="mb-1 flex items-center justify-between text-xs text-ink-soft">
+                <span>Note</span>
+                <span className="tabular-nums">{draftNote.length}/{MAX_NOTE_CHARS}</span>
+              </div>
+              <Textarea value={draftNote} onChange={(e) => setDraftNote(e.target.value.slice(0, MAX_NOTE_CHARS))} rows={4}
+                placeholder="What the team should know about this customer" />
+            </div>
+            {err && <p className="text-xs text-bad-ink">{err}</p>}
+            <div className="flex justify-end gap-2">
+              <Button size="sm" variant="outline" onClick={() => setEditing(false)} disabled={saving}>Cancel</Button>
+              <Button size="sm" onClick={save} disabled={saving}>
+                {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />} Save
+              </Button>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
 const UserDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const { hasPerm } = useAuth();
   const [user, setUser] = useState<any>(null);
   const [orders, setOrders] = useState<any[]>([]);
   const [addresses, setAddresses] = useState<any[]>([]);
@@ -69,10 +221,8 @@ const UserDetail: React.FC = () => {
     }
   };
 
-  // Was a coarse switch returning non-standard Badge variants ('warning'/
-  // 'success' aren't real shadcn variants — hence the `as any` cast at the
-  // call site) — now sources real per-status colors from the same 'order'
-  // palette components/order/StatusBadge.tsx centralizes elsewhere.
+  // Order status colours come from the same 'order' palette components/order/StatusBadge.tsx
+  // centralizes elsewhere.
 
   if (loading) {
     return (
@@ -94,14 +244,15 @@ const UserDetail: React.FC = () => {
   }
 
   const b2b = user.b2b ?? {};
-  const ORIGIN_LABEL: Record<string, string> = {
-    online_store: 'Website', pos: 'Counter (POS)', offline: 'Manual / phone', bulk_order: 'Bulk Order Platform',
-    books: 'Books', imported: 'Imported history',
-  };
+  // Where the store first met them: the code and the sales-channel vocabulary's own label, from the server.
+  const originCode: string | null = user.acquisition_channel ?? b2b.acquisition_channel ?? null;
+  const originLabel: string | null = user.acquisition_channel_label ?? originCode;
   const avgOrder = orders.length ? totalSpent / orders.length : 0;
   const capped = orders.length >= 100;
   const lastOrder = orders[0]?.created_at ?? null;
-  const money = (n: number) => `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+  const canManage = hasPerm('customers.manage');
+  const tags: string[] = Array.isArray(user.tags) ? user.tags : [];
+  const notes: string | null = typeof user.notes === 'string' && user.notes ? user.notes : null;
 
   return (
     <div className="space-y-4">
@@ -131,11 +282,11 @@ const UserDetail: React.FC = () => {
               <div className="min-w-0">
                 <div className="flex flex-wrap gap-1.5">
                   {b2b.is_b2b
-                    ? <Badge variant="outline" className="border-info bg-info-bg text-info-ink">Wholesale{b2b.b2b_tier ? ` · ${b2b.b2b_tier}` : ''}</Badge>
+                    ? <Badge variant="outline" className="border-info bg-info-bg text-info-ink">Wholesale{b2b.b2b_tier ? `, ${b2b.b2b_tier}` : ''}</Badge>
                     : <Badge variant="outline" className="border-line text-ink-soft">Retail</Badge>}
-                  {b2b.acquisition_channel && (
+                  {originLabel && (
                     <Badge variant="outline" className="border-line text-ink-soft" title="Where the store first met this customer">
-                      From {ORIGIN_LABEL[b2b.acquisition_channel] ?? b2b.acquisition_channel}
+                      From {originLabel}
                     </Badge>
                   )}
                 </div>
@@ -155,9 +306,9 @@ const UserDetail: React.FC = () => {
           <CardContent className="grid grid-cols-2 gap-4 p-5 sm:grid-cols-4">
             {[
               { label: 'Orders', value: capped ? '100+' : String(orders.length), tip: capped ? 'This page reads the latest 100 orders, so the true count is at least 100.' : undefined },
-              { label: 'Lifetime value', value: money(totalSpent), tip: 'The total of the orders listed below, as each order recorded it.' },
-              { label: 'Average order', value: orders.length ? money(avgOrder) : '—' },
-              { label: 'Last order', value: lastOrder ? formatDate(lastOrder, 'dd MMM yyyy') : '—' },
+              { label: 'Lifetime value', value: fmtRupees(totalSpent), tip: 'The total of the orders listed below, as each order recorded it.' },
+              { label: 'Average order', value: orders.length ? fmtRupees(avgOrder) : 'None yet' },
+              { label: 'Last order', value: lastOrder ? formatDate(lastOrder, 'dd MMM yyyy') : 'None yet' },
             ].map((k) => (
               <div key={k.label}>
                 <div className="flex items-center gap-1 text-xs text-ink-soft">{k.label}{k.tip && <InfoTip text={k.tip} />}</div>
@@ -167,18 +318,29 @@ const UserDetail: React.FC = () => {
             {b2b.is_b2b && (
               <div className="col-span-2 rounded-md border border-line bg-surface-2 p-3 text-sm sm:col-span-4">
                 <div className="mb-1 flex items-center gap-1 text-xs font-medium text-ink-soft">
-                  Wholesale terms <InfoTip text="Set on the Wholesale (B2B) page ▸ Customers. Prices on a new order follow this tier or pinned price list." />
+                  Wholesale terms <InfoTip text="Set on the Wholesale (B2B) page, under Customers. Prices on a new order follow this tier or pinned price list." />
                 </div>
                 <div className="flex flex-wrap gap-x-6 gap-y-1 tabular-nums text-ink">
                   {b2b.company_name && <span>{b2b.company_name}</span>}
                   <span>Tier: {b2b.b2b_tier || 'store default'}</span>
-                  {Number(b2b.credit_limit) > 0 && <span>Credit {money(Number(b2b.credit_limit))} · {b2b.credit_days ?? 0} days</span>}
+                  {Number(b2b.credit_limit) > 0 && <span>Credit {fmtRupees(Number(b2b.credit_limit))}, {b2b.credit_days ?? 0} days</span>}
                 </div>
               </div>
             )}
           </CardContent>
         </Card>
       </div>
+
+      {/* The store's own tags and note: what the team should know before talking to them. */}
+      {!user.person_erased_at && (
+        <NotesCard
+          customerId={String(id)}
+          tags={tags}
+          notes={notes}
+          canEdit={canManage}
+          onSaved={(v) => setUser((u: any) => ({ ...u, tags: v.tags, notes: v.notes }))}
+        />
+      )}
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -200,7 +362,7 @@ const UserDetail: React.FC = () => {
                 <div className="flex flex-col items-center justify-center py-8 text-center">
                   <ShoppingCart className="h-10 w-10 text-muted-foreground mb-4" />
                   <p className="text-sm font-medium text-ink">No orders yet</p>
-                  <p className="mt-1 text-xs text-ink-soft">Use “New order for them” above to key one in.</p>
+                  <p className="mt-1 text-xs text-ink-soft">Use "New order for them" above to key one in.</p>
                 </div>
               ) : (
                 <Table>

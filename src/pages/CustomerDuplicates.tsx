@@ -29,9 +29,9 @@ interface DuplicateFlag {
   b: CustomerSummary;
 }
 
-const fmtDate = (v?: string | null) => (v ? localeDateTime(v, { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }, 'en-IN') : '—');
+const fmtDate = (v?: string | null) => (v ? localeDateTime(v, { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }, 'en-IN') : '');
 
-/** One side of a flagged pair — click to pick as the surviving account. */
+/** One side of a flagged pair: click to pick it as the surviving account. */
 const AccountCard: React.FC<{ c: CustomerSummary; picked: boolean; onPick: () => void; disabled: boolean }> = ({ c, picked, onPick, disabled }) => (
   <button
     type="button"
@@ -92,7 +92,7 @@ const FlagRow: React.FC<{ flag: DuplicateFlag; onResolved: () => void }> = ({ fl
               {flag.matched_via === 'manual' ? 'Manually flagged' : `OTP-proved via ${flag.matched_via}`}
             </Badge>
             {flag.matched_value_masked && <span className="mono">{flag.matched_value_masked}</span>}
-            <span>· {fmtDate(flag.created_at)}</span>
+            <span>{fmtDate(flag.created_at)}</span>
           </div>
           {flag.status !== 'open' && (
             <Badge variant={flag.status === 'merged' ? 'default' : 'outline'}>
@@ -111,7 +111,7 @@ const FlagRow: React.FC<{ flag: DuplicateFlag; onResolved: () => void }> = ({ fl
         {flag.status === 'open' && (
           <>
             <p className="text-xs text-gray-500">
-              Pick which account to keep — the other's orders, addresses, cart, wishlist and reviews move over, then it's deleted. Whichever email/phone/name the surviving account is missing is filled in from the one you remove.
+              Pick which account to keep. The other's orders, addresses, cart, wishlist and reviews move over, then it's deleted. Whichever email/phone/name the surviving account is missing is filled in from the one you remove.
             </p>
             {error && <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded p-2">{error}</div>}
             <div className="flex items-center gap-2">
@@ -129,7 +129,7 @@ const FlagRow: React.FC<{ flag: DuplicateFlag; onResolved: () => void }> = ({ fl
   );
 };
 
-/** Search-and-pick two customers to flag manually — for a duplicate spotted
+/** Search-and-pick two customers to flag manually, for a duplicate spotted
  *  via a support call rather than caught by the automatic OTP-link check. */
 const ManualFlagPanel: React.FC<{ onFlagged: () => void }> = ({ onFlagged }) => {
   const [open, setOpen] = useState(false);
@@ -205,7 +205,7 @@ const ManualFlagPanel: React.FC<{ onFlagged: () => void }> = ({ onFlagged }) => 
               return (
                 <button key={c.id} type="button" onClick={() => toggle(c)}
                   className={`w-full text-left text-sm px-2 py-1.5 rounded border flex items-center justify-between ${isPicked ? 'border-green-500 bg-green-50' : 'border-transparent hover:bg-gray-50'}`}>
-                  <span>{c.name || 'No name'} — {c.email || c.phone_number || '—'}</span>
+                  <span>{c.name || 'No name'}, {c.email || c.phone_number || 'no contact'}</span>
                   {isPicked && <CheckCircle2 size={14} className="text-green-600" />}
                 </button>
               );
@@ -213,7 +213,7 @@ const ManualFlagPanel: React.FC<{ onFlagged: () => void }> = ({ onFlagged }) => 
           </div>
         )}
         {picked.length > 0 && (
-          <p className="text-xs text-gray-500">Selected {picked.length}/2{picked.length === 2 ? ' — ready to flag' : ' — pick one more'}</p>
+          <p className="text-xs text-gray-500">Selected {picked.length}/2{picked.length === 2 ? ', ready to flag' : ', pick one more'}</p>
         )}
         {error && <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded p-2">{error}</div>}
         <Button size="sm" onClick={submit} disabled={picked.length !== 2 || flagging}>
@@ -253,7 +253,7 @@ const CustomerDuplicates: React.FC = () => {
             <Users2 className="h-7 w-7 text-muted-foreground" /> Duplicate Accounts
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            One person, two accounts — usually one signed up with email, once with phone. Flagged automatically when a
+            One person, two accounts: usually one signed up with email, once with phone. Flagged automatically when a
             customer proves (via OTP) they own an identifier already on a different account.
           </p>
         </div>
