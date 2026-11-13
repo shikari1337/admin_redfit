@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, Loader2, FileText, Eye, Plus, Trash2, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, FileText, Eye, Plus, Trash2, AlertTriangle, CheckCircle2, RefreshCw } from 'lucide-react';
 import { invoicesAPI } from '../services/api';
+import { lookupIfsc } from '../lib/v2/reference';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -54,6 +55,9 @@ const InvoiceSettings: React.FC = () => {
   const [numberingReset, setNumberingReset] = useState<{ mode: string; text: string; warning: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** What the backend IFSC lookup said about the code in the Bank tab. */
+  const [ifscNote, setIfscNote] = useState<{ ok: boolean; text: string } | null>(null);
+  const [ifscBusy, setIfscBusy] = useState(false);
   const previewUrl = useRef<string | null>(null);
 
   useEffect(() => { load(); return () => { if (previewUrl.current) URL.revokeObjectURL(previewUrl.current); }; }, []);
@@ -61,6 +65,7 @@ const InvoiceSettings: React.FC = () => {
   const load = async () => {
     try {
       setLoading(true);
+      setError(null);
       const res = await invoicesAPI.getConfig();
       const d = res?.data ?? res;
       setCfg(d.config);
@@ -95,8 +100,13 @@ const InvoiceSettings: React.FC = () => {
       const d = res?.data ?? res;
       setCfg(d.config); setOriginal(JSON.stringify(d.config)); setMissing(d.missing ?? []);
       setNumberingReset(d.numbering_reset ?? null);
-      setNotice('Invoice settings saved.');
-      setTimeout(() => setNotice(null), 4000);
+      // A GSTIN change says what it did to the documents already raised; keep that on screen.
+      if (d.gstin_change?.message) {
+        setNotice(`Invoice settings saved. ${d.gstin_change.message}`);
+      } else {
+        setNotice('Invoice settings saved.');
+        setTimeout(() => setNotice(null), 4000);
+      }
     } catch (e: any) {
       setError(e?.response?.data?.message || 'Failed to save');
     } finally { setSaving(false); }
@@ -143,8 +153,48 @@ const InvoiceSettings: React.FC = () => {
   const setTitle = (kind: string, v: string) =>
     setCfg((prev: any) => ({ ...prev, theme: { ...prev.theme, titles: { ...(prev.theme?.titles ?? {}), [kind]: v } } }));
 
-  if (loading || !cfg) {
+  /** Ask the backend's IFSC lookup (RBI list) about the code typed, and fill the bank and branch when blank. */
+  const checkIfsc = async (raw: string) => {
+    const code = String(raw ?? '').trim();
+    if (!code) { setIfscNote(null); return; }
+    setIfscBusy(true);
+    try {
+      const r = await lookupIfsc(code);
+      if (!r.ok) { setIfscNote({ ok: false, text: r.reason }); return; }
+      const b = r.branch;
+      setCfg((prev: any) => ({
+        ...prev,
+        bank: {
+          ...prev.bank,
+          bank_name: String(prev.bank?.bank_name ?? '').trim() ? prev.bank.bank_name : b.bank,
+          branch: String(prev.bank?.branch ?? '').trim() ? prev.bank.branch : b.branch,
+        },
+      }));
+      setIfscNote({ ok: true, text: [b.bank, b.branch, b.city || b.district, b.state].filter(Boolean).join(', ') });
+    } finally {
+      setIfscBusy(false);
+    }
+  };
+
+  if (loading) {
     return <div className="flex items-center justify-center p-16"><Loader2 className="h-7 w-7 animate-spin text-muted-foreground" /></div>;
+  }
+
+  if (!cfg) {
+    return (
+      <div className="mx-auto max-w-xl space-y-4 p-4">
+        <Button variant="ghost" size="sm" onClick={() => navigate('/settings')} className="text-muted-foreground">
+          <ArrowLeft className="mr-2 h-4 w-4" /> Back to Settings
+        </Button>
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          <p className="font-medium">Invoice settings could not be loaded.</p>
+          <p className="mt-1">{error || 'The server did not answer.'}</p>
+          <Button variant="outline" size="sm" className="mt-3 bg-white" onClick={() => void load()}>
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Try again
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -219,8 +269,10 @@ const InvoiceSettings: React.FC = () => {
             <Field label="Trade / brand name" hint="Shown large at the top. Leave blank to use the legal name.">
               <Input value={cfg.seller.trade_name} onChange={(e) => set('seller.trade_name', e.target.value)} placeholder="Acme" />
             </Field>
-            <Field label="GSTIN" required missing={isMissing('seller.gstin')} hint="Primary registration. Add more under GST registrations.">
-              <Input value={cfg.seller.gstin} onChange={(e) => set('seller.gstin', e.target.value.toUpperCase())} placeholder="07AAAAA0000A1Z5" />
+            <Field label="GSTIN" required missing={isMissing('seller.gstin')}
+              hint="Primary registration, the same number GST Display shows. Add more under GST registrations.">
+              <Input value={cfg.seller.gstin} maxLength={15} className="font-mono"
+                onChange={(e) => set('seller.gstin', e.target.value.toUpperCase().replace(/\s+/g, ''))} placeholder="07AAAAA0000A1Z5" />
             </Field>
             <Field label="PAN"><Input value={cfg.seller.pan} onChange={(e) => set('seller.pan', e.target.value.toUpperCase())} placeholder="AAAAA0000A" /></Field>
             <Field
@@ -497,8 +549,15 @@ const InvoiceSettings: React.FC = () => {
             <Field label="Account number" required={cfg.bank.show_on_invoice} missing={isMissing('bank.account_number')}>
               <Input value={cfg.bank.account_number} onChange={(e) => set('bank.account_number', e.target.value)} />
             </Field>
-            <Field label="IFSC" required={cfg.bank.show_on_invoice} missing={isMissing('bank.ifsc')}>
-              <Input value={cfg.bank.ifsc} onChange={(e) => set('bank.ifsc', e.target.value.toUpperCase())} />
+            <Field label="IFSC" required={cfg.bank.show_on_invoice} missing={isMissing('bank.ifsc')}
+              hint="Checked against the RBI branch list; a blank bank name and branch fill in from it.">
+              <Input value={cfg.bank.ifsc} maxLength={11} className="font-mono"
+                onChange={(e) => { set('bank.ifsc', e.target.value.toUpperCase().replace(/\s+/g, '')); setIfscNote(null); }}
+                onBlur={(e) => void checkIfsc(e.target.value)} />
+              {ifscBusy && <p className="text-[11px] text-muted-foreground">Checking the IFSC.</p>}
+              {!ifscBusy && ifscNote && (
+                <p className={`text-[11px] ${ifscNote.ok ? 'text-green-700' : 'text-amber-700'}`}>{ifscNote.text}</p>
+              )}
             </Field>
             <Field label="Bank name"><Input value={cfg.bank.bank_name} onChange={(e) => set('bank.bank_name', e.target.value)} /></Field>
             <Field label="Branch"><Input value={cfg.bank.branch} onChange={(e) => set('bank.branch', e.target.value)} /></Field>

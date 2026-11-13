@@ -11,6 +11,8 @@ import { COUNTRIES_FALLBACK, type CountryRef } from '../countries';
 
 export const REFERENCE_PATHS = {
   countries: '/api/v2/platform/public/reference/countries',
+  /** THE IFSC lookup (RBI list through the directory port, cached by the server; growcord-rs `apps/books/core/src/api/ifsc.rs`). */
+  ifsc: (code: string) => `/api/v2/books/public/ifsc/${encodeURIComponent(code)}`,
 } as const;
 
 interface WireCountry { iso2?: string; name?: string; dial_code?: string | null; currency?: string | null }
@@ -56,4 +58,36 @@ export function useCountries(): CountryRef[] {
     return () => { listeners.delete(sync); };
   }, []);
   return list;
+}
+
+/** One bank branch as the IFSC lookup answers it (`IfscView`). */
+export interface IfscBranch {
+  ifsc: string; bank: string; bankCode: string; branch: string;
+  address: string; city: string; district: string; state: string;
+}
+
+/**
+ * The branch an IFSC belongs to, from the backend's one lookup (never an outside site; the server checks the
+ * shape). `ok: false` carries the reason in words: not IFSC-shaped, no branch carries it, or the lookup could
+ * not be reached.
+ */
+export async function lookupIfsc(input: string): Promise<{ ok: true; branch: IfscBranch } | { ok: false; reason: string }> {
+  const code = String(input ?? '').replace(/\s+/g, '').toUpperCase();
+  if (code.length !== 11) return { ok: false, reason: 'An IFSC has 11 characters.' };
+  if (!V2_ENABLED) return { ok: false, reason: 'The IFSC lookup is not available on this server.' };
+  try {
+    const r = await v2call<Record<string, unknown>>('GET', REFERENCE_PATHS.ifsc(code));
+    const t = (k: string) => (r?.[k] == null ? '' : String(r[k]));
+    return {
+      ok: true,
+      branch: {
+        ifsc: t('ifsc') || code, bank: t('bank'), bankCode: t('bank_code') || t('bankCode'), branch: t('branch'),
+        address: t('address'), city: t('city'), district: t('district'), state: t('state'),
+      },
+    };
+  } catch (e: any) {
+    const status = e?.response?.status;
+    if (status === 404) return { ok: false, reason: `No bank branch carries the IFSC ${code}.` };
+    return { ok: false, reason: e?.response?.data?.message || 'The IFSC lookup could not be reached. Check the code by hand.' };
+  }
 }

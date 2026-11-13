@@ -3741,11 +3741,15 @@ export const gstSettingsAPI = {
     const response = await api.get('/settings/gst');
     return response.data;
   },
+  /** The registry key `gst` (v2 PATCH /commerce/settings/registry/gst): only the fields given change.
+   *  `PUT /settings/gst` has no v2 route. */
   update: async (data: {
+    enabled?: boolean;
+    defaultRate?: number;
     showPriceIncludingGst?: boolean;
     showGstOnCheckout?: boolean;
   }) => {
-    const response = await api.put('/settings/gst', data);
+    const response = await api.put('/settings/registry/gst', data);
     return response.data;
   },
 };
