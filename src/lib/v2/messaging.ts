@@ -218,8 +218,29 @@ export interface InboxSettings {
   pushed: Array<{ platform: string; ok: boolean; error: string | null; at: string | null; by: string | null }>;
   updated_by: string | null;
 }
-/** §6 route 9: one row of the SMS routing table. */
-export interface SmsRoute { country: string; provider: string | null; sender: string | null; source: 'growcord' | 'own' | null; reachable: boolean }
+/** §6 route 9: one row of the SMS routing table. `rule`: the provider's destination rule in plain words. */
+export interface SmsRoute { country: string; provider: string | null; sender: string | null; source: 'growcord' | 'own' | null; reachable: boolean; rule: string | null }
+
+/**
+ * MENU-1 sms: one SMS message against the DLT text registered under its id (`GET /sms-config/text-checks`).
+ * `matches` passes; `off` is the store's own switch; `growcord` = Growcord's header and words. Every other
+ * state stops the message (the operator answers "Invalid Template Match", or the sender refuses it first).
+ */
+export type DltCheckState = 'matches' | 'text_differs' | 'not_registered' | 'no_template_id' | 'no_template' | 'off' | 'growcord' | 'no_sender';
+export interface DltCheck {
+  event: string; title: string; state: DltCheckState; will_send: boolean;
+  template_id: string | null; stored_text: string | null; registered_text: string | null;
+  /** The registration that would make it pass, and our words for it (apply with `applyDlt([event], fix_template_id)`). */
+  fix_template_id: string | null; fix_text: string | null;
+}
+export interface DltCheckList { sender: 'own' | 'growcord' | 'none'; registered: number; blocked: number; rows: DltCheck[]; note: string | null }
+
+/** MSG-LIVE-1 `GET /dispatches/unsent`: messages refused for want of a registered template, per event and channel. */
+export interface UnsentItem {
+  event: string; channel: string; refused: number; reached_on_another_channel: number;
+  first_at: string | null; last_at: string | null; detail: string | null;
+}
+export interface UnsentReport { from: string | null; to: string | null; timezone: string | null; refused: number; items: UnsentItem[]; note: string | null }
 
 export interface DispatchFilter {
   channel?: string;
@@ -564,10 +585,44 @@ export const messagingAPI = {
     const d = await call<any>('GET', '/sms-config/mappings');
     return { rows: listOf(d?.rows ?? d).map(dltProposal), providerTemplateCount: n(d?.provider_template_count) };
   },
-  /** Apply the proposals (all, or the named events) so sends use the registered wording (MappingAppliedView). */
-  applyDlt: async (events?: string[]): Promise<{ applied: string[]; message: string }> => {
-    const d = await call<any>('POST', '/sms-config/mappings', { data: events?.length ? { events } : {} });
+  /**
+   * Apply the proposals (all, or the named events) so sends use the registered wording (MappingAppliedView).
+   * With `templateId` and one event, that event adopts THAT registration (the text check's fix).
+   */
+  applyDlt: async (events?: string[], templateId?: string | null): Promise<{ applied: string[]; message: string }> => {
+    const data = events?.length ? { events, ...(templateId ? { template_id: templateId } : {}) } : {};
+    const d = await call<any>('POST', '/sms-config/mappings', { data });
     return { applied: Array.isArray(d?.applied) ? d.applied.map(String) : [], message: String(d?.message ?? '') };
+  },
+  /** MENU-1 sms: each SMS message's words against the DLT text registered under its id (`text_checks`). */
+  dltChecks: async (): Promise<DltCheckList> => {
+    const d = await call<any>('GET', '/sms-config/text-checks');
+    const sender = d?.sender === 'own' || d?.sender === 'growcord' ? d.sender : 'none';
+    return {
+      sender, registered: n(d?.registered), blocked: n(d?.blocked), note: s(d?.note),
+      rows: listOf(d?.rows).map((r: any) => ({
+        event: String(r?.event ?? ''), title: String(r?.title || r?.event || ''),
+        state: String(r?.state ?? 'no_template') as DltCheckState, will_send: !!r?.will_send,
+        template_id: s(r?.template_id), stored_text: s(r?.stored_text), registered_text: s(r?.registered_text),
+        fix_template_id: s(r?.fix_template_id), fix_text: s(r?.fix_text),
+      })),
+    };
+  },
+  /** MSG-LIVE-1: messages refused for want of a registered template (the server's default period when no dates). */
+  unsent: async (q: { channel?: MsgCh; from?: string; to?: string } = {}): Promise<UnsentReport> => {
+    const params: Record<string, unknown> = {};
+    if (q.channel) params.channel = q.channel;
+    if (q.from) params.from = q.from;
+    if (q.to) params.to = q.to;
+    const d = await call<any>('GET', '/dispatches/unsent', { params });
+    return {
+      from: s(d?.from), to: s(d?.to), timezone: s(d?.timezone), refused: n(d?.refused), note: s(d?.note),
+      items: listOf(d?.items).map((r: any) => ({
+        event: String(r?.event ?? ''), channel: String(r?.channel ?? ''), refused: n(r?.refused),
+        reached_on_another_channel: n(r?.reached_on_another_channel),
+        first_at: s(r?.first_at), last_at: s(r?.last_at), detail: s(r?.detail),
+      })),
+    };
   },
 
   /** §6 route 8: conversations, newest first, a keyset page at a time. */
@@ -629,6 +684,7 @@ export const messagingAPI = {
       items: listOf(d).map((r: any) => ({
         country: String(r?.country ?? ''), provider: s(r?.provider), sender: s(r?.sender),
         source: r?.source === 'own' || r?.source === 'growcord' ? r.source : null, reachable: !!r?.reachable,
+        rule: s(r?.rule),
       })),
       default_country: s((d as any)?.default_country),
     };

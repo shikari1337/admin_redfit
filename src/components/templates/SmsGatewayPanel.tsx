@@ -16,6 +16,12 @@ import { useToast } from '@/hooks/use-toast';
  *
  * Deliberately does NOT test the connection on open — that POSTs to the
  * provider and spends a real API call on every visit.
+ *
+ * The Sender ID (DLT header) is shown, never edited: Growcord assigns it to a
+ * store (console, `PUT /comms/console/stores/{slug}/sms-sender-id`) and the
+ * store's `PATCH /comms/sms-config` refuses it, because a store choosing its own
+ * header could adopt another store's DLT registration. `showDlt={false}` hides
+ * the DLT box where the page has its own DLT tab (Messaging, SMS).
  */
 interface SmsConfigMode { baseUrl: string; route: string; senderId: string; apiKey: string; apiKeySet: boolean }
 interface SmsConfigForm { isEnabled: boolean; test: SmsConfigMode; live: SmsConfigMode }
@@ -26,7 +32,7 @@ const modeView = (m: any): SmsConfigMode => ({
   apiKey: '', apiKeySet: Boolean(m?.apiKeySet),
 });
 
-const SmsGatewayPanel: React.FC<{ canWrite: boolean; onChanged?: () => void }> = ({ canWrite, onChanged }) => {
+const SmsGatewayPanel: React.FC<{ canWrite: boolean; onChanged?: () => void; showDlt?: boolean }> = ({ canWrite, onChanged, showDlt = true }) => {
   const { toast } = useToast();
   const [config, setConfig] = useState<SmsConfigForm>({ isEnabled: false, test: { ...EMPTY_MODE }, live: { ...EMPTY_MODE } });
   const [original, setOriginal] = useState<SmsConfigForm | null>(null);
@@ -57,21 +63,22 @@ const SmsGatewayPanel: React.FC<{ canWrite: boolean; onChanged?: () => void }> =
     setDltCount(r?.ok ? r.templates.length : 0);
   };
 
+  // The pair the store's mode uses: a TEST store proves its test key, not the live one.
   const testConnection = async () => {
     setConn({ state: 'testing' });
-    const r: any = await smsConfigAPI.test();
+    const r: any = await smsConfigAPI.test(environment);
     setConn({ state: r?.ok ? 'ok' : 'fail', message: r?.message });
-    if (r?.ok) loadDlt();
+    if (r?.ok && showDlt) loadDlt();
   };
 
   const changed = (a: SmsConfigMode, b: SmsConfigMode) =>
-    a.baseUrl !== b.baseUrl || a.route !== b.route || a.senderId !== b.senderId || Boolean(b.apiKey.trim());
+    a.baseUrl !== b.baseUrl || a.route !== b.route || Boolean(b.apiKey.trim());
   const dirty = !!original && (original.isEnabled !== config.isEnabled || changed(original.test, config.test) || changed(original.live, config.live));
 
   const save = async () => {
     setSaving(true); setErr(null);
     try {
-      const out = (m: SmsConfigMode) => ({ baseUrl: m.baseUrl, route: m.route, senderId: m.senderId, apiKey: m.apiKey.trim() ? m.apiKey.trim() : undefined });
+      const out = (m: SmsConfigMode) => ({ baseUrl: m.baseUrl, route: m.route, apiKey: m.apiKey.trim() ? m.apiKey.trim() : undefined });
       const res: any = await smsConfigAPI.update({ isEnabled: config.isEnabled, test: out(config.test), live: out(config.live) } as any);
       const u = res?.data || res || {};
       const next: SmsConfigForm = { isEnabled: Boolean(u.isEnabled), test: modeView(u.test), live: modeView(u.live) };
@@ -105,7 +112,8 @@ const SmsGatewayPanel: React.FC<{ canWrite: boolean; onChanged?: () => void }> =
         <Chip tone={config.isEnabled ? 'green' : 'neutral'}>{config.isEnabled ? 'Sending on' : 'Sending off'}</Chip>
         {conn.state === 'ok' && <span className="inline-flex items-center gap-1 text-xs text-good-ink"><CheckCircle2 className="h-3.5 w-3.5" /> {conn.message}</span>}
         {conn.state === 'fail' && <span className="inline-flex items-center gap-1 text-xs text-bad-ink"><XCircle className="h-3.5 w-3.5" /> {conn.message}</span>}
-        <Button type="button" variant="outline" size="sm" className="ml-auto" onClick={testConnection} disabled={conn.state === 'testing'}>
+        <Button type="button" variant="outline" size="sm" className="ml-auto" onClick={testConnection} disabled={conn.state === 'testing'}
+          title={`Checks the ${environment === 'live' ? 'LIVE' : 'TEST'} key with the provider`}>
           {conn.state === 'testing' ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Plug className="mr-1.5 h-3.5 w-3.5" />} Test connection
         </Button>
       </div>
@@ -122,7 +130,7 @@ const SmsGatewayPanel: React.FC<{ canWrite: boolean; onChanged?: () => void }> =
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             <label className="space-y-1 text-sm">
-              <span className="font-medium">Base URL <InfoTip text="Base only — the endpoint is added for you." /></span>
+              <span className="font-medium">Base URL <InfoTip text="Base only; the endpoint is added for you." /></span>
               <Input type="url" value={config[mode].baseUrl} placeholder="https://www.smsalert.co.in/api" disabled={!canWrite}
                 onChange={(e) => setMode(mode, 'baseUrl', e.target.value)} />
             </label>
@@ -131,15 +139,16 @@ const SmsGatewayPanel: React.FC<{ canWrite: boolean; onChanged?: () => void }> =
               <Input value={config[mode].route} placeholder="transactional" disabled={!canWrite}
                 onChange={(e) => setMode(mode, 'route', e.target.value)} />
             </label>
-            <label className="space-y-1 text-sm">
-              <span className="font-medium">Sender ID <InfoTip text="Six letters, approved on your gateway account (your DLT header)." /></span>
-              <Input value={config[mode].senderId} maxLength={6} className="uppercase" placeholder="GRWCRD" disabled={!canWrite}
-                onChange={(e) => setMode(mode, 'senderId', e.target.value.toUpperCase())} />
-            </label>
+            <div className="space-y-1 text-sm">
+              <span className="font-medium">Sender ID <InfoTip text="Your DLT header. Growcord sets it once the header is registered to your store; ask Growcord support to change it." /></span>
+              <p className="flex h-9 items-center rounded-md border border-line bg-surface-2 px-3 font-mono text-sm text-ink" aria-label={`${mode} sender ID`}>
+                {config[mode].senderId || <span className="font-sans text-xs text-ink-soft">Not set by Growcord yet</span>}
+              </p>
+            </div>
             <label className="space-y-1 text-sm">
               <span className="font-medium">API key</span>
               <Input type="password" value={config[mode].apiKey} disabled={!canWrite}
-                placeholder={config[mode].apiKeySet ? 'Saved — leave blank to keep' : 'Enter API key'}
+                placeholder={config[mode].apiKeySet ? 'Saved; leave blank to keep' : 'Enter API key'}
                 onChange={(e) => setMode(mode, 'apiKey', e.target.value)} />
             </label>
           </div>
@@ -162,7 +171,7 @@ const SmsGatewayPanel: React.FC<{ canWrite: boolean; onChanged?: () => void }> =
         </div>
       </div>
 
-      <div className="space-y-2 rounded-lg border border-line p-4">
+      {showDlt && <div className="space-y-2 rounded-lg border border-line p-4">
         <p className="text-sm font-semibold text-ink">DLT registered texts {dltCount !== null && <span className="font-normal text-ink-soft">({dltCount})</span>}</p>
         <p className="text-xs text-ink-soft">
           Indian operators refuse any SMS that is not a character-for-character match of a text registered on your account.
@@ -175,9 +184,9 @@ const SmsGatewayPanel: React.FC<{ canWrite: boolean; onChanged?: () => void }> =
           </Button>
         </div>
         {dltCount === 0 && (
-          <p className="inline-flex items-center gap-1 text-xs text-warn-ink"><AlertTriangle className="h-3.5 w-3.5" /> No registered texts loaded — test the connection first.</p>
+          <p className="inline-flex items-center gap-1 text-xs text-warn-ink"><AlertTriangle className="h-3.5 w-3.5" /> No registered texts loaded; test the connection first.</p>
         )}
-      </div>
+      </div>}
 
       {err && <div className="rounded-md border border-bad bg-bad-bg px-3 py-2 text-sm text-bad-ink">{err}</div>}
     </div>

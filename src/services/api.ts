@@ -3568,10 +3568,10 @@ export const smsConfigAPI = {
     const response = await api.put('/sms-config', data);
     return response.data;
   },
-  /** Verify the saved key against the provider; returns balance/credits. */
-  test: async () => {
+  /** Verify the saved key against the provider; returns balance/credits. `mode`: which pair (the server's default is live). */
+  test: async (mode?: 'test' | 'live') => {
     try {
-      const response = await api.post('/sms-config/test', {});
+      const response = await api.post('/sms-config/test', mode ? { mode } : {});
       return { ok: true, ...(response.data?.data ?? response.data ?? {}) };
     } catch (e: any) {
       return { ok: false, message: e?.response?.data?.message || 'Connection test failed' };

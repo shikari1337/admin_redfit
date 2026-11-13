@@ -10,14 +10,15 @@ import SmsRoutes from '@/components/messaging/SmsRoutes';
 import { AccountBanner, MessagingHeader, MessagingTabs, useCommerceCatalogue, useNotificationRows, useTabParam } from '@/components/messaging/common';
 
 /**
- * MESSAGING ▸ SMS — the store's SMS in one place: how it is doing (Overview),
- * the SMS account and its DLT sender (Provider & DLT — the same gateway panel
- * the Message templates page opens), the DLT mapping of each message, the
- * Commerce templates, and every SMS sent. Lane ADMIN-MSG-1.
+ * MESSAGING, SMS: the store's SMS in one place. How it is doing (Overview),
+ * whose account and DLT sender it goes out on and which countries it reaches
+ * (Provider), whether each message's words pass as its registered DLT text and
+ * the fix (DLT mapping), the Commerce templates, and every SMS sent.
+ * Lane ADMIN-MSG-1; MENU-1 sms added the DLT text check.
  */
 const TABS = [
   { key: 'overview', label: 'Overview' },
-  { key: 'provider', label: 'Provider & DLT' },
+  { key: 'provider', label: 'Provider' },
   { key: 'dlt', label: 'DLT mapping' },
   { key: 'templates', label: 'Templates' },
   { key: 'log', label: 'Sent log' },
@@ -35,7 +36,7 @@ const Sms: React.FC = () => {
   return (
     <div className="space-y-4 pb-12">
       <MessagingHeader icon={Smartphone} title="SMS"
-        purpose="OTPs, order updates and reminders by SMS — the account they go out on, their DLT registration, and what was sent." />
+        purpose="OTPs, order updates and reminders by SMS: the account they go out on, their DLT registration, and what was sent." />
       <MessagingTabs label="SMS" tabs={TABS} active={tab} onChange={setTab} />
       {tab === 'overview' && <ChannelOverview channel="sms" />}
       {tab === 'provider' && (
@@ -43,12 +44,16 @@ const Sms: React.FC = () => {
           <AccountBanner own={!!catalogue.cat?.smsOwnHeader}>
             {catalogue.cat?.smsOwnHeader
               ? 'Your own registered DLT sender is in use; your SMS end with your own signature.'
-              : 'Growcord’s DLT sender (header GRWCRD) is in use; your SMS name your store and end with -GROWCORD until you register your own header.'}
+              : 'Growcord\'s DLT sender (header GRWCRD) is in use; your SMS name your store and end with -GROWCORD until you register your own header.'}
           </AccountBanner>
           <SmsRoutes />
           <div className="rounded-lg border border-line bg-surface p-4">
-            <SmsGatewayPanel canWrite={canWriteConfig} onChanged={() => { catalogue.reload(); notes.reload(); }} />
+            <SmsGatewayPanel canWrite={canWriteConfig} showDlt={false} onChanged={() => { catalogue.reload(); notes.reload(); }} />
           </div>
+          <p className="text-xs text-ink-soft">
+            Whether each message passes as its registered DLT text, and the fix, is on the{' '}
+            <button type="button" className="font-medium text-ink underline underline-offset-2 hover:no-underline" onClick={() => setTab('dlt')}>DLT mapping</button> tab.
+          </p>
         </div>
       )}
       {tab === 'dlt' && <DltPanel canWrite={canWriteConfig} rows={notes.rows} onApplied={() => { catalogue.reload(); notes.reload(); }} />}
