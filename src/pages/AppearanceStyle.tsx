@@ -5,6 +5,7 @@ import ImageInputWithActions from '../components/common/ImageInputWithActions';
 import NoticePopupSection, { DEFAULT_NOTICE_POPUP, type NoticePopupForm } from '../components/appearance/NoticePopupSection';
 import { useSettingsSection } from '../hooks/useSettingsSection';
 import { toast } from '@/hooks/use-toast';
+import { StoreFiguresHint } from '../components/common/StoreFiguresHint';
 
 /** A message that used to be a blocking alert() — now a toast (the shell mounts the Toaster). */
 const notify = (message: string) =>
@@ -46,7 +47,7 @@ const DEFAULT_FORM_DATA: FormData = {
   },
   fonts: { headingFontFamily: '', bodyFontFamily: '' },
   instagram: { username: '', isEnabled: false },
-  announcementBar: { text: 'Free Shipping on orders above ₹500', bgColor: '#f9fafb', textColor: '#111827', link: '', isEnabled: true },
+  announcementBar: { text: 'Free shipping on orders above {{free_shipping_threshold}}', bgColor: '#f9fafb', textColor: '#111827', link: '', isEnabled: true },
   storePopup: DEFAULT_NOTICE_POPUP,
 };
 
@@ -88,7 +89,7 @@ const AppearanceStyle: React.FC = () => {
         isEnabled: settings.instagram?.isEnabled || false,
       },
       announcementBar: {
-        text: settings.announcementBar?.text || 'Free Shipping on orders above ₹500',
+        text: settings.announcementBar?.text || 'Free shipping on orders above {{free_shipping_threshold}}',
         bgColor: settings.announcementBar?.bgColor || '#f9fafb',
         textColor: settings.announcementBar?.textColor || '#111827',
         link: settings.announcementBar?.link || '',
@@ -298,7 +299,8 @@ const AppearanceStyle: React.FC = () => {
             </label>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Announcement Text</label>
-              <input type="text" value={formData.announcementBar.text} onChange={(e) => handleChange('announcementBar', 'text', e.target.value)} placeholder="Free Shipping on orders above ₹500" disabled={!formData.announcementBar.isEnabled} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-50" />
+              <input type="text" value={formData.announcementBar.text} onChange={(e) => handleChange('announcementBar', 'text', e.target.value)} placeholder="Free shipping on orders above {{free_shipping_threshold}}" disabled={!formData.announcementBar.isEnabled} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-50" />
+              <StoreFiguresHint className="mt-1" />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>

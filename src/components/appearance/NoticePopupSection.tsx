@@ -1,6 +1,7 @@
 import React from 'react';
 import { FaBullhorn } from 'react-icons/fa';
 import ImageInputWithActions from '../common/ImageInputWithActions';
+import { StoreFiguresHint } from '../common/StoreFiguresHint';
 
 /**
  * Editor for the scheduled store notice popup (public `storePopup` setting,
@@ -182,6 +183,7 @@ const NoticePopupSection: React.FC<Props> = ({ value, onChange, today, savedStat
             Press Enter for a new line — line breaks appear exactly as you type them. Emoji are fine.
             Styling tags are not supported.
           </p>
+          <StoreFiguresHint className="mt-1" />
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -16,6 +16,7 @@
 import React, { useMemo } from 'react';
 import type { Component } from 'grapesjs';
 import HomepageBlockEditor, { HOMEPAGE_SCHEMAS } from '../pages/HomepageBlockEditors';
+import { StoreFiguresHint } from '../common/StoreFiguresHint';
 
 /** Structured values travel base64-encoded (`b64:` prefix) because the pages
  *  routes reverse xss-clean's escaping and would shred raw JSON's quotes inside
@@ -88,6 +89,7 @@ const StoreBlockContentPanel: React.FC<{
       <p className="text-[11px] text-slate-500 mb-3 leading-snug">
         This section pulls live data from your store. Everything below is saved with the page.
       </p>
+      <StoreFiguresHint className="mb-3 !text-[11px] !text-slate-500 leading-snug" />
       <HomepageBlockEditor blockType={kind} data={data} onChange={apply} />
     </div>
   );

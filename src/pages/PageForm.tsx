@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from '@/hooks/use-toast';
+import { StoreFiguresHint } from '../components/common/StoreFiguresHint';
 
 /** A message that used to be a blocking alert() — now a toast (the shell mounts the Toaster). */
 const notify = (message: string) =>
@@ -495,7 +496,10 @@ const PageForm: React.FC = () => {
         {/* Content Blocks */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Content Blocks</CardTitle>
+            <div>
+              <CardTitle>Content Blocks</CardTitle>
+              <StoreFiguresHint className="mt-1 max-w-xl" />
+            </div>
             <div className="flex items-center gap-3">
               <select
                 onChange={(e) => {
