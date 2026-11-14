@@ -76,7 +76,16 @@ const PLATFORM_STATUS: Record<PlatformStatus, { label: string; tone: Tone; dot: 
 const isLive = (c?: Connection | null): c is Connection => !!c && c.status !== 'pending' && c.status !== 'revoked';
 const STOPPED = new Set(['needs_reauth', 'error']);
 
-type NextAction = 'select' | 'add' | 'enable' | 'choose' | 'credential' | 'reconnect' | 'open' | 'none';
+type NextAction = 'select' | 'add' | 'enable' | 'choose' | 'credential' | 'reconnect' | 'register' | 'open' | 'none';
+
+/**
+ * Google's Merchant API answers only an app whose Google Cloud project is registered with the store's Merchant Center
+ * account (PRICING-AUTO E). The Merchant Center row offers that registration while its last problem is about it:
+ * Google's own "is not registered with the merchant account", or the server's note after a registration or a refused
+ * one (each says "regist").
+ */
+const needsMerchantRegistration = (provider: string, svc?: ConnService): boolean =>
+  provider === 'google' && svc?.service === 'merchant_feed' && !!svc.lastError && /regist/i.test(svc.lastError);
 
 interface UseCaseView {
   tone: Tone; state: string; missing?: string; action: NextAction;
@@ -104,6 +113,13 @@ function useCaseView(provider: ProviderDef, def: ServiceDef, conn: Connection | 
   if ((item && needs.includes('permission')) || perms.length) {
     const text = item ? needText(item, perms)[needs.indexOf('permission')] : `${provider.label} has not given this permission yet. Reconnect and allow everything it asks for.`;
     return { tone: 'warn', state: 'Needs permission', missing: text, perms, action: 'reconnect', item };
+  }
+  if (needsMerchantRegistration(provider.key, svc)) {
+    return {
+      tone: 'warn', state: 'Needs registration', action: 'register', item,
+      missing: 'Google answers Merchant Center only after your Merchant Center account registers the app this connection signs in with. '
+        + 'Press Register Merchant API access: it uses the account ID on your Google Shopping channel and then chooses that account here.',
+    };
   }
   if (def.resourceLabel && !svc.externalResourceId) {
     return { tone: 'warn', state: 'Needs a choice', missing: `Choose the ${def.resourceLabel} this store uses.`, action: 'choose', item };
@@ -259,6 +275,24 @@ const Connections: React.FC = () => {
       const results: AutoResult[] = Array.isArray(out?.results) ? out.results : [];
       if (results.length) setAuto({ connId: conn.id, results });
       else setInfo('Nothing to set up: every service that is on already has its choice.');
+      await refresh();
+    } catch (e: any) { setError(e?.response?.data?.message ?? e.message); }
+    finally { setBusy(null); }
+  };
+
+  /**
+   * Registers the store's Merchant Center account (the ID on the Google Shopping channel) for Google's Merchant API,
+   * then chooses that account for Merchant Center (PRICING-AUTO E). The server says what happened in plain words:
+   * picked, waiting (Google takes a few minutes), refused (for example, the signed in Google account is not an admin of
+   * that Merchant Center account) or not found.
+   */
+  const registerMerchantApi = async (conn: Connection) => {
+    setBusy(`${conn.id}:merchant-api`); setError(''); setInfo('');
+    try {
+      const out = payload<any>(await api.post(`/connectors/${conn.id}/merchant-api/register`));
+      const message: string = out?.message ?? 'Done.';
+      if (out?.outcome === 'picked' || out?.outcome === 'waiting') setInfo(message);
+      else setError(message);
       await refresh();
     } catch (e: any) { setError(e?.response?.data?.message ?? e.message); }
     finally { setBusy(null); }
@@ -593,6 +627,11 @@ const Connections: React.FC = () => {
                               )}
                               {canManage && view.action === 'reconnect' && live && (
                                 <Button size="sm" onClick={() => reconnect(provider, conn)} disabled={busy === provider.key}>Reconnect</Button>
+                              )}
+                              {canManage && view.action === 'register' && live && (
+                                <Button size="sm" onClick={() => registerMerchantApi(conn)} disabled={busy === `${conn.id}:merchant-api`}>
+                                  {busy === `${conn.id}:merchant-api` ? 'Registering...' : 'Register Merchant API access'}
+                                </Button>
                               )}
                               {canManage && view.action === 'credential' && live && (
                                 <Button size="sm" onClick={() => { setCredsFor(conn.id); setCredDraft({}); }}>Add {view.field?.label}</Button>
