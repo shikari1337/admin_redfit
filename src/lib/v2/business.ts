@@ -28,11 +28,18 @@ export interface BusinessType {
   labels?: Record<string, string>;
   licence: string;
   hospital_or_dispensary: boolean;
+  /** The apply is refused without a GSTIN (HMAPP-T6c). */
+  gstin_required?: boolean;
+  /** The apply is refused without a photo or PDF of the drug licence, its certificate or the clinic
+   *  (owner, 14 Nov 2026; on unless the store turns it off, so absent reads as on). */
+  proof_required?: boolean;
 }
 export interface BusinessTypesView { types: BusinessType[]; source: string; default_types?: BusinessType[] }
 
 export const getBusinessTypes = () => v2call<BusinessTypesView>('GET', `${T}/business-types`);
-export const putBusinessTypes = (types: BusinessType[]) => v2call<BusinessTypesView>('PUT', `${T}/business-types`, { data: { types } });
+/** The list replaced whole, with the reason the change log keeps (3 to 300 characters, HMAPP-T6c). */
+export const putBusinessTypes = (types: BusinessType[], reason: string) =>
+  v2call<BusinessTypesView>('PUT', `${T}/business-types`, { data: { types, reason } });
 
 /* ── an application's app facts ────────────────────────────────────────── */
 
