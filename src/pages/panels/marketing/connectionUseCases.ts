@@ -106,10 +106,6 @@ export const USE_CASES: Record<string, Record<string, UseCase>> = {
       what: 'Run Google Search, Shopping and Performance Max ads, and let AI draft them for you.',
       links: [{ to: SCREENS.adAccounts, label: 'Open ad accounts' }, { to: SCREENS.aiStudio, label: 'Open AI Ads Studio' }],
     },
-    tag_manager: {
-      what: 'Checks that your Google tracking tags are firing on the store.',
-      links: [{ to: SCREENS.seo, label: 'Open SEO and tracking tags' }],
-    },
     business_profile: {
       what: 'Brings in your Google reviews so you can answer them from here.',
       links: [{ to: SCREENS.googleReviews, label: 'Open Google reviews' }],
