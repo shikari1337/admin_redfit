@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { FaPlus, FaTimes, FaEdit, FaTrash } from 'react-icons/fa';
 import { formatDay } from '../utils/date';
@@ -24,6 +25,13 @@ interface ReturnPolicy {
   is_refundable: boolean;
   refund_window_days?: number | null;
   refund_mode?: string | null;
+  /** How a product comes back (by_mail, in_store, at_kiosk); null = not stated. Shown to search engines
+   *  with the return window (the storefront's product data, schema.org returnMethod). */
+  return_methods?: string[] | null;
+  /** Who pays to send it back (free, customer_pays, return_shipping_fee); null = not stated. */
+  return_fees?: string | null;
+  /** The fixed fee charged with return_fees = return_shipping_fee. */
+  return_shipping_fee?: string | number | null;
   /** A json column: text as the form saves it, `{}` when a policy was saved without any. */
   conditions?: unknown;
   exceptions?: unknown;
@@ -41,6 +49,21 @@ interface ReturnPolicy {
  *  window an order gets when neither its products nor the store name one. */
 const DEFAULT_RETURN_WINDOW_DAYS = 7;
 
+/** How a returned product comes back (books RETURN_POLICIES `return_methods`). */
+const RETURN_METHODS: { value: string; label: string; hint: string }[] = [
+  { value: 'by_mail', label: 'By courier or post', hint: 'Including a pickup you arrange' },
+  { value: 'in_store', label: 'At your store', hint: 'The customer hands it in' },
+  { value: 'at_kiosk', label: 'At a drop-off point', hint: 'A kiosk or parcel point' },
+];
+
+/** Who pays to send it back (books RETURN_POLICIES `return_fees`); "not_stated" is the empty choice. */
+const RETURN_FEES: { value: string; label: string }[] = [
+  { value: 'not_stated', label: 'Not stated' },
+  { value: 'free', label: 'Free for the customer' },
+  { value: 'customer_pays', label: 'The customer arranges and pays' },
+  { value: 'return_shipping_fee', label: 'A fixed return shipping fee' },
+];
+
 /** A new policy starts as the table's own defaults (everything allowed): the switches are enforced
  *  (DEC-086), so a policy saved without looking at them must not quietly refuse every return. */
 const EMPTY_FORM = {
@@ -54,6 +77,9 @@ const EMPTY_FORM = {
   is_refundable: true,
   refund_window_days: '',
   refund_mode: 'original_payment',
+  return_methods: [] as string[],
+  return_fees: '',
+  return_shipping_fee: '',
   conditions: '',
   exceptions: '',
 };
@@ -169,6 +195,9 @@ const ReturnPolicies: React.FC = () => {
       is_refundable: !!policy.is_refundable,
       refund_window_days: policy.refund_window_days != null ? String(policy.refund_window_days) : '',
       refund_mode: policy.refund_mode ?? 'original_payment',
+      return_methods: Array.isArray(policy.return_methods) ? policy.return_methods.map(String) : [],
+      return_fees: policy.return_fees ?? '',
+      return_shipping_fee: policy.return_shipping_fee != null ? String(policy.return_shipping_fee) : '',
       conditions: asText(policy.conditions),
       exceptions: asText(policy.exceptions),
     });
@@ -181,6 +210,11 @@ const ReturnPolicies: React.FC = () => {
     if (!form.name.trim()) { setFormError('Give the policy a name.'); return; }
     if (form.is_default && !form.is_active) {
       setFormError('The store default has to be in use. Turn on "In use", or make another policy the default first.');
+      return;
+    }
+    const fee = Number(form.return_shipping_fee);
+    if (form.is_returnable && form.return_fees === 'return_shipping_fee' && !(Number.isFinite(fee) && fee > 0)) {
+      setFormError('Give the return shipping fee the customer pays, or choose who pays another way.');
       return;
     }
 
@@ -199,6 +233,10 @@ const ReturnPolicies: React.FC = () => {
       is_refundable: form.is_refundable,
       refund_window_days: windowValue(form.refund_window_days, editing),
       refund_mode: form.refund_mode || undefined,
+      // Not stated = null on an edit (cleared), left out on a new policy.
+      return_methods: form.return_methods.length ? form.return_methods : (editing ? null : undefined),
+      return_fees: form.return_fees || (editing ? null : undefined),
+      return_shipping_fee: form.return_fees === 'return_shipping_fee' ? fee : (editing ? null : undefined),
       conditions: form.conditions.trim() || (editing && !partial ? '' : undefined),
       exceptions: form.exceptions.trim() || (editing && !partial ? '' : undefined),
     };
@@ -500,6 +538,67 @@ const ReturnPolicies: React.FC = () => {
                       />
                       <p className="text-xs text-muted-foreground">Counted from the day the order is delivered. Leave empty to use the store's window.</p>
                     </div>
+                  )}
+                  {form.is_returnable && (
+                    <div className="space-y-2">
+                      <Label>How it comes back</Label>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        {RETURN_METHODS.map(m => (
+                          <label key={m.value} htmlFor={`method-${m.value}`} className="flex items-start gap-2 p-2 border border-border rounded-md cursor-pointer">
+                            <Checkbox
+                              id={`method-${m.value}`}
+                              checked={form.return_methods.includes(m.value)}
+                              onCheckedChange={checked => setForm(f => ({
+                                ...f,
+                                return_methods: checked
+                                  ? [...f.return_methods.filter(v => v !== m.value), m.value]
+                                  : f.return_methods.filter(v => v !== m.value),
+                              }))}
+                            />
+                            <span className="text-sm leading-tight">
+                              {m.label}
+                              <span className="block text-xs text-muted-foreground">{m.hint}</span>
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {form.is_returnable && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="return-fees">Return shipping</Label>
+                        <Select
+                          value={form.return_fees || 'not_stated'}
+                          onValueChange={v => setForm(f => ({ ...f, return_fees: v === 'not_stated' ? '' : v }))}
+                        >
+                          <SelectTrigger id="return-fees"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {RETURN_FEES.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {form.return_fees === 'return_shipping_fee' && (
+                        <div className="space-y-2">
+                          <Label htmlFor="return-fee">Fee the customer pays</Label>
+                          <Input
+                            id="return-fee"
+                            type="number"
+                            inputMode="decimal"
+                            min={0.01}
+                            step="0.01"
+                            value={form.return_shipping_fee}
+                            onChange={e => setForm(f => ({ ...f, return_shipping_fee: e.target.value }))}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {form.is_returnable && (
+                    <p className="text-xs text-muted-foreground">
+                      How it comes back and who pays are shown to Google with the return window on your product pages
+                      (the store default policy). Left as not stated, they are left out.
+                    </p>
                   )}
                   <p className="text-xs text-muted-foreground">
                     {form.is_returnable
