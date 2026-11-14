@@ -6,7 +6,7 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { connectionsHref } from './routes';
+import { connectionsHref, META_ROUTES } from './routes';
 import { ImageOff, Loader2, Plus, RefreshCw, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -158,6 +158,13 @@ const CatalogBody: React.FC<{ ctx: MetaCtx; channelId: string; summaryFailure: F
     <div className="space-y-5">
       {summaryFailure && !summary && <LoadFailure failure={summaryFailure} what="The catalog summary (GET /api/v2/commerce/channels/{id}/catalog-summary) is not served yet." onRetry={ctx.reloadSummary} />}
 
+      {c && summary?.last_error && (
+        <Lead tone="bad" title={c.synced > 0 ? 'Last sync failed' : 'Nothing was sent to Meta'}
+          actions={<Button size="sm" variant="outline" className="bg-white" asChild><Link to={META_ROUTES.setup}>Open Setup</Link></Button>}>
+          {summary.last_error}
+        </Lead>
+      )}
+
       {c && (c.errors > 0 ? (
         <Lead tone="bad" title={`${plural(c.errors, 'product')} rejected by Meta`}
           actions={<Button size="sm" variant="outline" className="bg-white" onClick={() => showStatus('error')}>Show them</Button>}>
@@ -168,9 +175,9 @@ const CatalogBody: React.FC<{ ctx: MetaCtx; channelId: string; summaryFailure: F
         </Lead>
       ) : c.pending > 0 ? (
         <Lead tone="info" title={`${plural(c.pending, 'product')} on the way to Meta`}>Everything else is on Meta. Nothing for you to do.</Lead>
-      ) : (
+      ) : c.synced > 0 && !summary?.last_error ? (
         <Lead tone="good" title={`All ${num(c.synced)} products are on Meta`}>{c.warnings ? `${plural(c.warnings, 'warning')} to look at when you have time.` : 'No warnings.'}</Lead>
-      ))}
+      ) : null)}
 
       {summary && <SummarySection summary={summary} status={status} onStatus={showStatus} syncing={syncing} onSync={syncNow} canSync={ctx.can.catalog} />}
 
@@ -297,7 +304,7 @@ const SummarySection: React.FC<{ summary: CatalogSummary; status: string; onStat
         <Figure label="Waiting" value={num(c.pending)} tone={c.pending ? 'info' : 'neutral'} onClick={() => onStatus('pending')} active={status === 'pending'} />
         <Figure label="Warnings" value={num(c.warnings)} tone={c.warnings ? 'warn' : 'neutral'} onClick={() => onStatus('warning')} active={status === 'warning'} />
         <Figure label="Rejected" value={num(c.errors)} tone={c.errors ? 'bad' : 'neutral'} onClick={() => onStatus('error')} active={status === 'error'} />
-        <Figure label="Not sent (your rules)" value={num(c.excluded)} onClick={() => onStatus('excluded')} active={status === 'excluded'} />
+        <Figure label="Not sent" value={num(c.excluded)} onClick={() => onStatus('excluded')} active={status === 'excluded'} />
       </div>
     </Section>
   );
