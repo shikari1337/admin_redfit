@@ -114,10 +114,6 @@ export const USE_CASES: Record<string, Record<string, UseCase>> = {
       what: 'Brings in your Google reviews so you can answer them from here.',
       links: [{ to: SCREENS.googleReviews, label: 'Open Google reviews' }],
     },
-    gmail: {
-      what: 'Shows your email conversations with a person on their CRM record. Nothing is sent or changed in your mailbox.',
-      links: [CRM],
-    },
     pagespeed: {
       what: 'Scores how fast your store pages load.',
       links: [REPORTS],
