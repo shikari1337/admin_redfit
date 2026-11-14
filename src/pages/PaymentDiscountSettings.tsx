@@ -2,7 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save, CreditCard, Plus, Trash2, Percent, Loader2, Ban, Pencil, RotateCcw, X } from 'lucide-react';
 import { api, paymentRulesAPI } from '../services/api';
+import { payload as unwrapPayload } from '../lib/unwrap';
 import { fmtRupees } from '@/lib/money';
+import { paymentLabel } from '@/components/dashboard/shared';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,22 +25,88 @@ interface PaymentRule {
   id: string;
   name: string;
   method: string;
-  conditions: { minOrderValue?: number; maxOrderValue?: number; orderValueAbove?: number; excludePincodes?: string[]; customerSegment?: string; system?: string };
+  conditions: {
+    minOrderValue?: number; maxOrderValue?: number; orderValueAbove?: number; excludePincodes?: string[];
+    customerSegment?: string; system?: string; checkedAt?: string; [key: string]: unknown;
+  };
   is_active: boolean;
   sort_order: number;
 }
 
-// The methods a rule can switch off: exactly what the server takes (growcord-rs checkout resources.rs
-// `payment_rules.method` OneOf cod, prepaid) and what checkout tells apart (commerce totals evaluates
-// rules for `cod` and `prepaid` only). Card, UPI or net banking are picked inside the gateway's own
-// window, so no rule can switch one of them off on its own.
-const PAYMENT_METHODS: Array<{ value: string; label: string }> = [
-  { value: 'cod', label: 'Cash on delivery' },
-  { value: 'prepaid', label: 'Online payment (every gateway, UPI and bank transfer)' },
+// Owner decision DEC-083: a rule switches off ONE payment method, and checkout judges it against the
+// method the shopper picks. Two words always applied (growcord-rs checkout contract payment_rules
+// COD, PREPAID): cash on delivery and every online way together. Every other method a rule may name
+// comes from the store's own gateways (useStoreMethods), never from a list typed here.
+const GROUP_METHODS: Array<{ value: string; label: string; short: string }> = [
+  { value: 'cod', label: 'Cash on delivery', short: 'COD' },
+  { value: 'prepaid', label: 'Every online payment (all gateways, UPI and bank transfer)', short: 'Every online payment' },
 ];
-const METHOD_WORD: Record<string, string> = { cod: 'COD', prepaid: 'Online' };
-const enforced = (method: string) => PAYMENT_METHODS.some((m) => m.value === method);
-const emptyRuleForm = { id: '', name: '', method: 'cod', minOrderValue: '', maxOrderValue: '', excludePincodes: '', customerSegment: 'all', is_active: true };
+const isGroup = (method: string) => GROUP_METHODS.some((m) => m.value === method);
+const methodShort = (method: string) => GROUP_METHODS.find((m) => m.value === method)?.short ?? paymentLabel(method);
+/** A rule naming one method applies only once a person checked it: the server writes `conditions.checkedAt` when a
+ *  rule is created or switched on (growcord-rs checkout contract payment_rules::applies). A rule saved before
+ *  DEC-083 with upi, card, netbanking or wallet never applied at checkout, so it waits here until a person
+ *  switches it on. */
+const needsReview = (r: PaymentRule) => {
+  const checked = r.conditions?.checkedAt;
+  return !isGroup(r.method) && !(typeof checked === 'string' && checked.trim() !== '');
+};
+/** The condition keys this form edits. Every other key a rule carries (orderValueAbove, system) is sent back
+ *  unchanged; checkedAt is the server's own and never sent. */
+const FORM_CONDITION_KEYS = ['minOrderValue', 'maxOrderValue', 'excludePincodes', 'customerSegment', 'checkedAt'];
+const emptyRuleForm = {
+  id: '', name: '', method: 'cod', minOrderValue: '', maxOrderValue: '', excludePincodes: '', customerSegment: 'all', is_active: true,
+  legacy: false, base: {} as Record<string, unknown>,
+};
+
+/** One method a rule may switch off on its own, with the gateways that present it. */
+interface MethodOption { value: string; label: string; via: string[] }
+
+/**
+ * The methods the store's gateways present, for the rule editor (DEC-083): the gateways shoppers are offered
+ * (GET /settings/payment-gateways, checkout /api/v2/checkout/gateways) and the methods each presents as the
+ * store's markets declare them (GET /settings, commerce public settings `markets`, seeded with the India
+ * market's gateways). Checkout judges a rule against the same declarations, so every option here can match.
+ */
+const useStoreMethods = () => {
+  const [options, setOptions] = useState<MethodOption[]>([]);
+  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const [gw, pub] = await Promise.allSettled([api.get('/settings/payment-gateways'), api.get('/settings')]);
+      if (!alive) return;
+      const markets: any = pub.status === 'fulfilled' ? unwrapPayload<any>(pub.value)?.markets?.list : null;
+      if (!Array.isArray(markets)) { setState('error'); return; }
+      const rows: any[] = gw.status === 'fulfilled' ? unwrapPayload<any>(gw.value)?.gateways ?? [] : [];
+      const offered = new Map<string, string>();
+      for (const g of Array.isArray(rows) ? rows : []) {
+        if (g && typeof g.id === 'string' && g.id.trim()) offered.set(g.id.trim().toLowerCase(), String(g.name || g.id));
+      }
+      // Gateways unreadable: every gateway the markets declare (the editor still offers real methods).
+      const gatewaysKnown = gw.status === 'fulfilled';
+      const byMethod = new Map<string, Set<string>>();
+      for (const m of markets) {
+        if (!m || m.enabled === false) continue;
+        for (const g of Array.isArray(m.paymentGateways) ? m.paymentGateways : []) {
+          const code = String(g?.gateway ?? '').trim().toLowerCase();
+          if (!code || code === 'cod' || (gatewaysKnown && !offered.has(code))) continue;
+          for (const raw of Array.isArray(g?.methods) ? g.methods : []) {
+            const word = String(raw ?? '').trim().toLowerCase();
+            if (!word || isGroup(word)) continue;
+            const via = byMethod.get(word) ?? new Set<string>();
+            via.add(offered.get(code) ?? code);
+            byMethod.set(word, via);
+          }
+        }
+      }
+      setOptions([...byMethod.entries()].map(([value, via]) => ({ value, label: paymentLabel(value), via: [...via] })));
+      setState('ready');
+    })().catch(() => { if (alive) setState('error'); });
+    return () => { alive = false; };
+  }, []);
+  return { options, state };
+};
 
 // Not set = what checkout applies (commerce domain/orders/discounts.rs: no prepaid discount, no
 // quantity tiers), so saving this page never switches a discount on that the owner did not set.
@@ -522,22 +590,29 @@ const PaymentDiscountSettings: React.FC = () => {
     finally { setRulesLoading(false); }
   };
 
+  const storeMethods = useStoreMethods();
+  const offeredMethod = (method: string) => isGroup(method) || storeMethods.options.some((o) => o.value === method);
+
   const openCreateRule = () => { setRuleForm(emptyRuleForm); setShowRuleForm(true); };
   const openEditRule = (r: PaymentRule) => {
+    const legacy = needsReview(r);
     setRuleForm({
       id: r.id, name: r.name, method: r.method,
       minOrderValue: r.conditions?.minOrderValue != null ? String(r.conditions.minOrderValue) : '',
       maxOrderValue: r.conditions?.maxOrderValue != null ? String(r.conditions.maxOrderValue) : '',
       excludePincodes: (r.conditions?.excludePincodes || []).join(', '),
       customerSegment: r.conditions?.customerSegment || 'all',
-      is_active: r.is_active,
+      // A rule that needs review has never applied: it starts unticked, so only a person's tick switches it on.
+      is_active: legacy ? false : r.is_active,
+      legacy,
+      base: r.conditions && typeof r.conditions === 'object' ? { ...r.conditions } : {},
     });
     setShowRuleForm(true);
   };
 
   const saveRule = async () => {
     if (!ruleForm.name.trim()) { setRuleError('Rule name is required.'); return; }
-    if (!enforced(ruleForm.method)) { setRuleError('Pick cash on delivery or online payment: checkout can switch off only one of these.'); return; }
+    if (!ruleForm.method.trim()) { setRuleError('Pick the payment method this rule switches off.'); return; }
     const min = ruleForm.minOrderValue ? Number(ruleForm.minOrderValue) : null;
     const max = ruleForm.maxOrderValue ? Number(ruleForm.maxOrderValue) : null;
     if ((min !== null && !(min >= 0)) || (max !== null && !(max >= 0))) { setRuleError('Order values are amounts of at least 0.'); return; }
@@ -545,7 +620,9 @@ const PaymentDiscountSettings: React.FC = () => {
     setSavingRule(true);
     setRuleError(null);
     try {
+      // The rule's other conditions (orderValueAbove, system) are kept as they are; checkedAt is the server's.
       const conditions: PaymentRule['conditions'] = {};
+      for (const [k, v] of Object.entries(ruleForm.base)) if (!FORM_CONDITION_KEYS.includes(k)) conditions[k] = v;
       if (ruleForm.minOrderValue) conditions.minOrderValue = parseFloat(ruleForm.minOrderValue);
       if (ruleForm.maxOrderValue) conditions.maxOrderValue = parseFloat(ruleForm.maxOrderValue);
       const pins = ruleForm.excludePincodes.split(',').map(p => p.trim()).filter(Boolean);
@@ -569,8 +646,10 @@ const PaymentDiscountSettings: React.FC = () => {
   };
 
   // A rule is never deleted on v2: it is switched off and its history stays (checkout resources.rs).
+  // Switching on a rule that needs review is the person's check (DEC-083): from then on it applies at checkout.
   const setRuleActive = async (r: PaymentRule, active: boolean) => {
     if (!active && !confirm(`Switch off "${r.name}"? The method is offered again where this rule blocked it.`)) return;
+    if (active && needsReview(r) && !confirm(`Check "${r.name}" and switch it on? It has never applied. From now on, ${methodShort(r.method)} is not offered at checkout for the orders it matches.`)) return;
     setRuleError(null);
     try {
       const updated = await paymentRulesAPI.update(r.id, { is_active: active });
@@ -633,9 +712,10 @@ const PaymentDiscountSettings: React.FC = () => {
         </Button>
         <h1 className="text-3xl font-bold tracking-tight text-foreground">Payment Methods &amp; Discounts</h1>
         <p className="text-sm text-muted-foreground mt-2">
-          Prepaid discount, quantity discounts, and <strong>Payment Method Rules</strong>: switch off cash on delivery or
-          online payment by order value, PIN code or customer type (for example no COD from ₹2,000). COD on or off and the COD
-          convenience fee live under Settings, Shipping; taking that fee online at checkout is set below.
+          Prepaid discount, quantity discounts, and <strong>Payment Method Rules</strong>: switch off cash on delivery, every
+          online payment, or one method such as UPI, card or bank transfer, by order value, PIN code or customer type (for
+          example no COD from ₹2,000). COD on or off and the COD convenience fee live under Settings, Shipping; taking that fee
+          online at checkout is set below.
         </p>
       </div>
 
@@ -648,8 +728,13 @@ const PaymentDiscountSettings: React.FC = () => {
           Quantity tiers: {savedDiscount.tiers > 0 ? savedDiscount.tiers : 'none'}
         </Badge>
         <Badge variant="outline" className="bg-background">
-          Active rules: {rulesLoading ? '...' : rules.filter((r) => r.is_active).length}
+          Active rules: {rulesLoading ? '...' : rules.filter((r) => r.is_active && !needsReview(r)).length}
         </Badge>
+        {!rulesLoading && rules.some(needsReview) && (
+          <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-200">
+            Rules to review: {rules.filter(needsReview).length}
+          </Badge>
+        )}
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6 pb-12">
@@ -879,9 +964,10 @@ const PaymentDiscountSettings: React.FC = () => {
             <div className="min-w-0">
               <CardTitle>Payment Method Rules</CardTitle>
               <CardDescription>
-                Switch off cash on delivery or online payment under conditions: <em>cash on delivery, from order value 2000</em> hides
-                COD for every order of ₹2,000 or more. Order value is the items subtotal before discounts. A switched-off method is
-                hidden at checkout and refused at placement; the first matching rule decides.
+                Switch off a payment method under conditions: <em>cash on delivery, from order value 2000</em> hides COD for every
+                order of ₹2,000 or more; <em>UPI, only at PIN code 110001</em> hides UPI there while cards stay open. Order value is
+                the items subtotal before discounts. A switched-off method is hidden at checkout and refused at placement and at
+                payment; the first matching rule for a method decides.
               </CardDescription>
             </div>
           </div>
@@ -908,9 +994,25 @@ const PaymentDiscountSettings: React.FC = () => {
                     value={ruleForm.method} onChange={e => setRuleForm(f => ({ ...f, method: e.target.value }))}
                     className="w-full h-9 px-3 border border-input rounded-md bg-background text-sm"
                   >
-                    {!enforced(ruleForm.method) && <option value={ruleForm.method} disabled>{ruleForm.method.toUpperCase()} (not checked at checkout)</option>}
-                    {PAYMENT_METHODS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                    {GROUP_METHODS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                    {storeMethods.options.length > 0 && (
+                      <optgroup label="One method">
+                        {storeMethods.options.map(o => (
+                          <option key={o.value} value={o.value}>{o.label}{o.via.length ? ` (through ${o.via.join(', ')})` : ''}</option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {ruleForm.method && !offeredMethod(ruleForm.method) && (
+                      <option value={ruleForm.method}>{methodShort(ruleForm.method)} (no gateway of yours offers it now)</option>
+                    )}
                   </select>
+                  {storeMethods.state === 'loading' && <p className="text-[10px] text-muted-foreground">Reading the methods your gateways offer...</p>}
+                  {storeMethods.state === 'error' && (
+                    <p className="text-[10px] text-amber-700">Your gateways' methods could not be read: only cash on delivery and every online payment can be picked now.</p>
+                  )}
+                  {storeMethods.state === 'ready' && storeMethods.options.length === 0 && (
+                    <p className="text-[10px] text-muted-foreground">No online gateway is set up, so only cash on delivery and every online payment can be picked.</p>
+                  )}
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs">Applies to</Label>
@@ -942,6 +1044,12 @@ const PaymentDiscountSettings: React.FC = () => {
                 <Checkbox checked={ruleForm.is_active} onCheckedChange={c => setRuleForm(f => ({ ...f, is_active: c as boolean }))} />
                 <span className="text-sm">Active</span>
               </div>
+              {ruleForm.legacy && (
+                <p className="text-xs text-amber-800 rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+                  This rule was saved before rules could switch off one method, and it has never applied at checkout. Check the
+                  method and conditions, then tick Active and save to start applying it. Saved without Active, it stays off.
+                </p>
+              )}
               <div className="flex gap-2">
                 <Button size="sm" onClick={saveRule} disabled={savingRule}>
                   {savingRule && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
@@ -966,9 +1074,9 @@ const PaymentDiscountSettings: React.FC = () => {
                   <TableRow key={r.id}>
                     <TableCell className="font-medium">{r.name}</TableCell>
                     <TableCell>
-                      <Badge variant="outline">{METHOD_WORD[r.method] ?? r.method.toUpperCase()}</Badge>
-                      {!enforced(r.method) && (
-                        <span className="mt-1 block text-[10px] text-amber-700" title="Checkout tells only cash on delivery from online payment apart, so this rule never applies. Edit it to one of those, or switch it off.">Not checked at checkout</span>
+                      <Badge variant="outline">{methodShort(r.method)}</Badge>
+                      {!storeMethods.options.length || offeredMethod(r.method) ? null : (
+                        <span className="mt-1 block text-[10px] text-muted-foreground">No gateway of yours offers it now</span>
                       )}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
@@ -987,21 +1095,30 @@ const PaymentDiscountSettings: React.FC = () => {
                       {!r.conditions?.minOrderValue && !r.conditions?.maxOrderValue && r.conditions?.orderValueAbove == null && !r.conditions?.excludePincodes?.length && (!r.conditions?.customerSegment || r.conditions.customerSegment === 'all') && 'Any order'}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={r.is_active ? 'default' : 'secondary'} className={r.is_active ? 'bg-green-500/15 text-green-700 border-green-200 hover:bg-green-500/25' : ''}>
-                        {r.is_active ? 'Active' : 'Off'}
-                      </Badge>
+                      {needsReview(r) ? (
+                        <>
+                          <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-200">Needs review</Badge>
+                          <span className="mt-1 block text-[10px] text-amber-700">Saved before rules worked per method; it has never applied.</span>
+                        </>
+                      ) : (
+                        <Badge variant={r.is_active ? 'default' : 'secondary'} className={r.is_active ? 'bg-green-500/15 text-green-700 border-green-200 hover:bg-green-500/25' : ''}>
+                          {r.is_active ? 'Active' : 'Off'}
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell className="text-right">
                       {r.conditions?.system ? (
                         <Link to="/settings?key=cod" className="text-xs text-primary underline">Edit in Settings</Link>
                       ) : (
-                      <Button variant="outline" size="sm" className="h-7 w-7 p-0 mr-1" onClick={() => openEditRule(r)}><Pencil className="h-3.5 w-3.5" /></Button>
+                      <Button variant="outline" size="sm" className="h-7 w-7 p-0 mr-1" onClick={() => openEditRule(r)} aria-label={`Edit ${r.name}`}><Pencil className="h-3.5 w-3.5" /></Button>
                       )}
                       {!r.conditions?.system && (
-                        r.is_active ? (
+                        needsReview(r) ? (
+                          <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => setRuleActive(r, true)} title="Start applying this rule at checkout">Check and switch on</Button>
+                        ) : r.is_active ? (
                           <Button variant="outline" size="sm" className="h-7 px-2 text-xs text-destructive" onClick={() => setRuleActive(r, false)} title="Switch off (the rule and its history are kept)">Switch off</Button>
                         ) : (
-                          <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => setRuleActive(r, true)} disabled={!enforced(r.method)} title={enforced(r.method) ? 'Switch on' : 'Edit it to cash on delivery or online payment first'}>Switch on</Button>
+                          <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => setRuleActive(r, true)} title="Switch on">Switch on</Button>
                         )
                       )}
                     </TableCell>
@@ -1014,8 +1131,9 @@ const PaymentDiscountSettings: React.FC = () => {
           <div className="bg-green-50 border border-green-200 rounded-lg p-3">
             <p className="text-xs text-green-800">
               <strong>Enforced at checkout:</strong> an active rule hides its method at checkout and refuses it at
-              placement, matching on order value, PIN code and customer type. Wholesale-only rules apply only while
-              the B2B module is on. A rule is never deleted: switched off, it keeps its history.
+              placement and at payment, matching on order value, PIN code and customer type. A gateway whose every
+              method is switched off is hidden; inside the Razorpay window a switched-off method is hidden. Wholesale-only
+              rules apply only while the B2B module is on. A rule is never deleted: switched off, it keeps its history.
             </p>
           </div>
         </CardContent>
