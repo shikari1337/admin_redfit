@@ -5,6 +5,7 @@ import { FaTrash, FaCog, FaChevronDown, FaChevronRight, FaCheck, FaTimes, FaMagi
 import { attributesAPI, attributeValuesAPI, uploadAPI, categoriesAPI } from '../../services/api';
 import type { AttributeOption, AttributeValueOption, ProductVariation } from '../../types/productForm';
 import ProductImageUpload from './ProductImageUpload';
+import ItemPricing from '../pricing/ItemPricing';
 
 // UI-only tuning: attributes with more values than this render a searchable checkbox
 // picker instead of a chip cloud (homeomead potency/volume carry 40–150+ values).
@@ -1655,6 +1656,11 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
                                     />
                                   </div>
                                 </div>
+
+                                {/* PRICING-AUTO (DEC-089): this option's automatic pricing and its facts,
+                                    opened on demand; saved by its own button, not with the product. */}
+                                <ItemPricing variationId={UUID_LIKE.test(String(variation.id)) ? String(variation.id) : null}
+                                  collapsible className="mb-4 rounded-md border border-gray-200 bg-white px-3 py-2.5" />
 
                                 {/* Status toggle */}
                                 <div className="flex items-center gap-3 mb-4">

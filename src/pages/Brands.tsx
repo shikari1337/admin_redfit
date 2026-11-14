@@ -4,6 +4,8 @@ import { useCountries } from '../lib/v2/reference';
 import BrandLicenses from '../components/brands/BrandLicenses';
 import BrandProducts from '../components/brands/BrandProducts';
 import BrandRanges from '../components/brands/BrandRanges';
+// PRICING-AUTO (DEC-089): the brand's pricing policy, the same form as the whole website's and one item's.
+import PolicyForm from '../components/pricing/PolicyForm';
 import { FaPlus, FaSave, FaUndo, FaTrash, FaSearch, FaGripVertical, FaArrowUp, FaArrowDown, FaTimes, FaPen } from 'react-icons/fa';
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent,
@@ -186,6 +188,9 @@ const Brands: React.FC = () => {
   // sent the brand story, SEO and ownership as null).
   const [openedForm, setOpenedForm] = useState<typeof emptyForm | null>(null);
   const editingId = useRef<string | null>(null);
+  // The Pricing tab's policy loads once that tab is first opened for this brand, then stays mounted
+  // so typed values survive a tab switch.
+  const [pricingSeen, setPricingSeen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // list controls
@@ -281,6 +286,7 @@ const Brands: React.FC = () => {
   const openCreate = () => {
     setSelectedId(null);
     editingId.current = null;
+    setPricingSeen(false);
     setOpenedForm(null);
     setFormState({ ...emptyForm });
     setError(null);
@@ -290,6 +296,7 @@ const Brands: React.FC = () => {
   const openEdit = (brand: Brand) => {
     setSelectedId(brand._id);
     editingId.current = brand._id;
+    setPricingSeen(false);
     const b = brand as any;
     const form = {
       name: brand.name || '',
@@ -865,12 +872,14 @@ const Brands: React.FC = () => {
             )}
 
             <div className="flex-1 px-6 py-4">
-              <Tabs defaultValue="details">
-                <TabsList className="grid w-full grid-cols-6">
+              <Tabs defaultValue="details" onValueChange={(v) => { if (v === 'pricing') setPricingSeen(true); }}>
+                {/* Seven tabs wrap onto a second row in the drawer instead of squeezing. */}
+                <TabsList className="flex h-auto w-full flex-wrap justify-start">
                   <TabsTrigger value="details">Details</TabsTrigger>
                   <TabsTrigger value="images">Images</TabsTrigger>
                   <TabsTrigger value="products">Products</TabsTrigger>
                   <TabsTrigger value="ranges">Shop by range</TabsTrigger>
+                  <TabsTrigger value="pricing">Pricing</TabsTrigger>
                   <TabsTrigger value="ownership">Ownership</TabsTrigger>
                   <TabsTrigger value="seo">Content &amp; SEO</TabsTrigger>
                 </TabsList>
@@ -974,6 +983,24 @@ const Brands: React.FC = () => {
 
                 <TabsContent value="ranges" forceMount className="data-[state=inactive]:hidden mt-4">
                   <BrandRanges brandId={selectedId} canManage={canManageBrands} />
+                </TabsContent>
+
+                {/* The policy loads when the tab is first opened, and saves on its own button
+                    (Update Brand does not save it). */}
+                <TabsContent value="pricing" forceMount className="data-[state=inactive]:hidden mt-4">
+                  {pricingSeen && <PolicyForm
+                    scope="brand"
+                    id={selectedId}
+                    canManage={canManageBrands}
+                    narrow
+                    heading={(
+                      <p className="text-xs text-muted-foreground">
+                        Automatic pricing for every item of this brand. Each value inherits from the whole website
+                        (Catalog, Pricing) unless set here; one item can still set its own on the product form.
+                        Saved with its own Save pricing button.
+                      </p>
+                    )}
+                  />}
                 </TabsContent>
 
                 <TabsContent value="ownership" forceMount className="data-[state=inactive]:hidden mt-4 space-y-5">

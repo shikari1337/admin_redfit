@@ -7,6 +7,7 @@ import { resolveTaxRate, describeTaxRate } from '../components/product/taxRate';
 import type { ProductVariation } from '../types/productForm';
 import { useAuth } from '../contexts/AuthContext';
 import ProductInventoryPanel from '../components/product/ProductInventoryPanel';
+import ItemPricing from '../components/pricing/ItemPricing';
 import ErpAtTheErp from '../components/inventory/ErpAtTheErp';
 import { FieldGroup, Field, SwitchRow, fieldInputCls, fieldTextareaCls } from '../components/product/FormField';
 import RichTextEditor from '../components/common/RichTextEditor';
@@ -737,6 +738,9 @@ const VariationEditPage: React.FC = () => {
           </FieldGroup>
         );
       })()}
+
+      {/* PRICING-AUTO (DEC-089): this option's automatic pricing, saved by its own button. */}
+      <ItemPricing variationId={UUID_RE.test(String(v.id || '')) ? String(v.id) : null} />
 
       {/* Inventory & ERP — live balances, batches, incoming POs, ledger history */}
       {UUID_RE.test(String(v.id || '')) && (

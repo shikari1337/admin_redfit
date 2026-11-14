@@ -39,6 +39,8 @@ import { Inbox as InboxIcon } from 'lucide-react';
 import { Handshake, Clapperboard } from 'lucide-react';
 // The store app, round two (HMAPP-3 lane DA), on its own line for the same reason.
 import { BadgePercent } from 'lucide-react';
+// Pricing (PRICING-AUTO lane D), on its own line for the same reason.
+import { IndianRupee } from 'lucide-react';
 import {
   Home, ShoppingCart, Package2, Wallet, Truck, Users, LineChart, Settings,
   RotateCcw, FileText, Store, Megaphone, Ticket, Plug, Palette, Star,
@@ -225,6 +227,13 @@ export const MENU: MenuGroup[] = [
         { label: 'Specifications', to: '/products/specifications', perm: 'products.read', tip: 'Reusable spec tables for a product page.', owns: ['/products/specifications/new', '/products/specifications/:id/edit'] },
         { label: 'Variant Link Groups', to: '/products/variant-link-groups', perm: 'products.read', tip: 'Products that are each other’s variants.' },
       ],
+    },
+    // PRICING-AUTO (DEC-089): prices against Google and other sellers. /pricing/discovery is the settings registry's
+    // page for the key pricingDiscovery; the other tabs are owned routes under the same gate (products.read).
+    {
+      label: 'Pricing', to: '/pricing/discovery', icon: IndianRupee, perm: 'products.read',
+      tip: 'Prices set against Google and other sellers, every change made, and undo.',
+      owns: ['/pricing', '/pricing/:tab'],
     },
     {
       label: 'Inventory', to: '/inventory', icon: Warehouse, perm: 'inventory.read', modules: ['inventory'],

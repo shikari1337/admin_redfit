@@ -90,6 +90,8 @@ const MarketingAnalytics = lazyRetry(() => import('./pages/analytics/MarketingAn
 const Modules = lazyRetry(() => import('./pages/Modules'));
 const PackageBoxes = lazyRetry(() => import('./pages/PackageBoxes'));
 const B2B = lazyRetry(() => import('./pages/B2B'));
+// PRICING-AUTO (DEC-089): competitive repricing and Google automated discounts.
+const Pricing = lazyRetry(() => import('./pages/Pricing'));
 const Marketing = lazyRetry(() => import('./pages/Marketing'));
 const Billing = lazyRetry(() => import('./pages/Billing'));
 const Inventory = lazyRetry(() => import('./pages/Inventory'));
@@ -603,6 +605,9 @@ function App() {
           <Route path="settings/return-policies" element={<ReturnPolicies />} />
           <Route path="settings/manufacturers" element={<Manufacturers />} />
           <Route path="products/variant-link-groups" element={<VariantLinkGroups />} />
+          {/* Pricing: /pricing/discovery is the settings registry's page for pricingDiscovery. */}
+          <Route path="pricing" element={<Navigate to="/pricing/discovery" replace />} />
+          <Route path="pricing/:tab" element={<Pricing />} />
           <Route path="vendors" element={<Vendors />} />
           <Route path="vendors/new" element={<VendorForm />} />
           <Route path="vendors/:id/edit" element={<VendorForm />} />

@@ -42,6 +42,7 @@ import AiPageWizard, { type AiPageApplyPayload } from '../components/product/stu
 import { flatWholesalePrice, type B2BPricingTier } from '../components/product/ProductB2BPricing';
 import type { PricingSection } from '../components/product/ProductPricing';
 import ProductInventoryPanel from '../components/product/ProductInventoryPanel';
+import ItemPricing from '../components/pricing/ItemPricing';
 import type { ProductOffer } from '../components/product/ProductOffers';
 import { normalizeSpecifications, normalizeContentBlocks, serializeContentBlocks, normalizePageSections, serializePageSections } from '../lib/productNormalize';
 import {
@@ -357,6 +358,10 @@ const ProductForm: React.FC = () => {
     if (hydrateSkipRef.current > 0) { hydrateSkipRef.current -= 1; return; }
     setDirty(true);
   }, [formData]);
+
+  // PRICING-AUTO: the simple product's automatic pricing loads once the Pricing tab is first opened.
+  const [pricingSeen, setPricingSeen] = useState(false);
+  useEffect(() => { if (activeTab === 'pricing') setPricingSeen(true); }, [activeTab]);
 
   // If the active tab disappears (module toggled off, product type switched
   // away from Variable…) snap back to General instead of a blank page.
@@ -1642,6 +1647,18 @@ const ProductForm: React.FC = () => {
           <TabsContent value="pricing" forceMount className={tabContentCls}>
             <div className="space-y-4">
               {renderPricing(['price', 'codes'])}
+              {/* PRICING-AUTO (DEC-089): a simple product is sold through its ONE variation row, so its
+                  automatic pricing is that row's. A product with options sets it per option on the
+                  Variations tab. Loaded once this tab is first opened, then kept (edits survive a tab switch). */}
+              {pricingSeen && formData.productType === 'single' && formData.variations.length === 1
+                && UUID_RE.test(String(formData.variations[0]?.id || '')) && (
+                <ItemPricing variationId={String(formData.variations[0].id)} />
+              )}
+              {formData.productType === 'variation' && (
+                <p className="text-xs text-gray-500">
+                  Automatic pricing is set for each option: open an option on the Variations tab.
+                </p>
+              )}
             </div>
           </TabsContent>
 
