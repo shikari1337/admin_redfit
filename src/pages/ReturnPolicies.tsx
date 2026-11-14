@@ -12,6 +12,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { FaPlus, FaTimes, FaEdit, FaTrash } from 'react-icons/fa';
+import { formatDay } from '../utils/date';
 
 interface ReturnPolicy {
   id: string;
@@ -40,15 +41,17 @@ interface ReturnPolicy {
  *  window an order gets when neither its products nor the store name one. */
 const DEFAULT_RETURN_WINDOW_DAYS = 7;
 
+/** A new policy starts as the table's own defaults (everything allowed): the switches are enforced
+ *  (DEC-086), so a policy saved without looking at them must not quietly refuse every return. */
 const EMPTY_FORM = {
   name: '',
   is_default: false,
   is_active: true,
-  is_returnable: false,
+  is_returnable: true,
   return_window_days: '',
-  is_replaceable: false,
+  is_replaceable: true,
   replacement_window_days: '',
-  is_refundable: false,
+  is_refundable: true,
   refund_window_days: '',
   refund_mode: 'original_payment',
   conditions: '',
@@ -78,6 +81,19 @@ const windowValue = (raw: string, editing: boolean): number | null | undefined =
 
 const days = (n?: number | null) => (n != null ? `${n} day${n === 1 ? '' : 's'}` : null);
 
+/** How the server enforces the policies (commerce `GET /returns/meta`, staff half, DEC-086). */
+interface Enforcement {
+  enforced: boolean;
+  /** When this store first fixed an order's terms at its delivery (none yet: no order delivered since). */
+  since: string | null;
+}
+
+const enforcementOf = (m: any): Enforcement | null => {
+  const e = m?.policy_enforcement ?? m?.policyEnforcement;
+  if (!e || typeof e !== 'object') return null;
+  return { enforced: e.enforced !== false, since: e.fixed_at_delivery_since ?? e.fixedAtDeliverySince ?? null };
+};
+
 const ReturnPolicies: React.FC = () => {
   const [policies, setPolicies] = useState<ReturnPolicy[]>([]);
   const [loading, setLoading] = useState(true);
@@ -91,8 +107,13 @@ const ReturnPolicies: React.FC = () => {
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [enforcement, setEnforcement] = useState<Enforcement | null>(null);
 
   useEffect(() => { fetchPolicies(); }, []);
+  // Best effort: without it the page still says the rules are enforced, only not since when.
+  useEffect(() => {
+    api.get('/returns/meta').then((r) => setEnforcement(enforcementOf(payload<any>(r)))).catch(() => setEnforcement(null));
+  }, []);
 
   const fetchPolicies = async () => {
     setLoading(true);
@@ -243,6 +264,29 @@ const ReturnPolicies: React.FC = () => {
         <div className="p-4 border border-destructive/50 bg-destructive/10 text-sm text-destructive rounded-md flex items-center justify-between gap-3 flex-wrap">
           <span>{error}</span>
           <Button variant="outline" size="sm" onClick={fetchPolicies}>Try again</Button>
+        </div>
+      )}
+
+      {/* DEC-086: the rules below are enforced by the server, and from when. */}
+      {!loading && !error && (
+        <div className="p-4 border border-border rounded-md text-sm space-y-1.5">
+          <p className="font-medium text-foreground">These rules are enforced.</p>
+          <p className="text-muted-foreground">
+            A customer&apos;s request that a policy does not allow (an item that is not returnable, replaceable or
+            refundable, or a window that has closed) is refused, with the reason shown to them. Your returns desk can
+            still raise one as an exception, but only with a reason, which is kept with the name of the person who
+            raised it. Windows count from the day the order is delivered.
+          </p>
+          <p className="text-muted-foreground">
+            {enforcement?.since ? (
+              <>Since <strong className="text-foreground">{formatDay(enforcement.since)}</strong>, each delivered order
+                keeps the policy that was in force on its delivery day, so editing a policy changes only orders
+                delivered after the edit. Orders delivered before that are judged by the policy as it stands now.</>
+            ) : (
+              <>From the next order delivered, each order keeps the policy in force on its delivery day, so a later
+                edit does not change it. Orders delivered before that are judged by the policy as it stands now.</>
+            )}
+          </p>
         </div>
       )}
 
@@ -457,6 +501,11 @@ const ReturnPolicies: React.FC = () => {
                       <p className="text-xs text-muted-foreground">Counted from the day the order is delivered. Leave empty to use the store's window.</p>
                     </div>
                   )}
+                  <p className="text-xs text-muted-foreground">
+                    {form.is_returnable
+                      ? 'Requests are accepted until the return window closes. The replacement and refund windows never run past it.'
+                      : 'Off: the item cannot be sent back for anything, so no replacement or refund can be asked either.'}
+                  </p>
                 </div>
 
                 {/* Replaceable */}
@@ -479,9 +528,13 @@ const ReturnPolicies: React.FC = () => {
                         min={1}
                         value={form.replacement_window_days}
                         onChange={e => setForm(f => ({ ...f, replacement_window_days: e.target.value }))}
-                        placeholder={String(DEFAULT_RETURN_WINDOW_DAYS)}
+                        placeholder="Return window"
                       />
+                      <p className="text-xs text-muted-foreground">Days after delivery a replacement can be asked for. Leave empty to use the return window.</p>
                     </div>
+                  )}
+                  {!form.is_replaceable && (
+                    <p className="text-xs text-muted-foreground">Off: a request for a replacement of this item is refused.</p>
                   )}
                 </div>
 
@@ -506,8 +559,9 @@ const ReturnPolicies: React.FC = () => {
                           min={1}
                           value={form.refund_window_days}
                           onChange={e => setForm(f => ({ ...f, refund_window_days: e.target.value }))}
-                          placeholder={String(DEFAULT_RETURN_WINDOW_DAYS)}
+                          placeholder="Return window"
                         />
+                        <p className="text-xs text-muted-foreground">Days after delivery money back can be asked for. Empty: the return window.</p>
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="refund-mode">Refund Mode</Label>
@@ -525,6 +579,9 @@ const ReturnPolicies: React.FC = () => {
                         </Select>
                       </div>
                     </div>
+                  )}
+                  {!form.is_refundable && (
+                    <p className="text-xs text-muted-foreground">Off: a request for a refund or store credit for this item is refused.</p>
                   )}
                 </div>
 

@@ -47,6 +47,7 @@ import {
 import type { RazorpayAuditResult, RefundOutcome } from '../components/order';
 import { PickupModal } from '../components/shipments';
 import CodSentPanel from '../components/order/CodSentPanel';
+import { OrderReturnTermsCard } from '../components/returns/ReturnTerms';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import InfoTip from '../components/common/InfoTip';
 import { Button } from "@/components/ui/button";
@@ -1395,6 +1396,16 @@ const OrderDetail: React.FC = () => {
               has the floor picked them, what box are they in, what does it
               weigh, which bin and which batch. Reading it reserves nothing. */}
           <WarehouseFulfilmentCard orderId={order._id || order.id} />
+
+          {/* WHAT EACH ITEM MAY STILL COME BACK FOR (DEC-086): the server enforces each
+              item's return policy, so the desk sees the same windows and refusals the shopper
+              does. Shown once the order is delivered; the windows count from that day. */}
+          {canAccess('returns') && hasPerm('returns.read') && (
+            <OrderReturnTermsCard
+              orderRef={order._id || order.id || order.orderId}
+              deliveredAt={order.deliveredAt ?? order.delivered_at}
+            />
+          )}
 
           {/* Ship-to and bill-to read together, with ships-from / invoiced-by /
               fulfilment as one footer strip — the three facts an invoice or a

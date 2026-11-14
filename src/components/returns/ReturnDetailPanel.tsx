@@ -12,6 +12,7 @@ import ReturnPhotos from './ReturnPhotos';
 import ReceiveGoodsModal from './ReceiveGoodsModal';
 import SettleReturnModal from './SettleReturnModal';
 import { RESOLUTION_META, STATUS_LABEL, STATUS_TONE } from './returnWords';
+import { ReturnTermsLine, useReturnEligibility, type EligibleLine } from './ReturnTerms';
 
 /**
  * One return, end to end: what the customer said and sent, what physically
@@ -67,6 +68,13 @@ const ReturnDetailPanel: React.FC<Props> = ({
 
   const lines: any[] = doc?.lines ?? [];
   const res = RESOLUTION_META[doc?.resolution] ?? RESOLUTION_META.undecided;
+  /** An exception code in the desk's words (the server's `/returns/meta` exceptions). */
+  const exceptionWords = (code?: string | null) =>
+    (meta?.exceptions ?? []).find((e: any) => e.code === code)?.label ?? code ?? '';
+  // DEC-086: each item's return terms, from the same answer the shop's form reads.
+  const termsOf = useReturnEligibility(doc?.order_uuid ?? doc?.order_number ?? null);
+  const termsByItem = new Map<string, EligibleLine>(
+    ((termsOf.data?.lines ?? []) as EligibleLine[]).map((l) => [l.order_item_id, l]));
   const ResIcon = res.icon;
 
   const totalReceived = lines.reduce((s, l) => s + Number(l.qty_received || 0), 0);
@@ -170,7 +178,7 @@ const ReturnDetailPanel: React.FC<Props> = ({
                   <ResIcon className="h-3 w-3 mr-1 inline" />{res.label}
                 </Chip>
                 {doc?.is_exception && (
-                  <Chip tone="red">Exception: {doc.exception_reason}</Chip>
+                  <Chip tone="red">Exception: {exceptionWords(doc.exception_reason)}</Chip>
                 )}
                 {doc?.raised_by === 'staff' && <Chip tone="neutral">Raised by staff</Chip>}
               </div>
@@ -339,6 +347,11 @@ const ReturnDetailPanel: React.FC<Props> = ({
                 </button>
               )}
             </div>
+            {termsOf.error && (
+              <p className="px-4 pt-3 text-xs text-muted-foreground">
+                Each item&apos;s return terms could not be read: {termsOf.error}
+              </p>
+            )}
             <div className="divide-y divide-border">
               {lines.length === 0 && (
                 <p className="px-4 py-6 text-sm text-muted-foreground text-center">No line items.</p>
@@ -358,12 +371,17 @@ const ReturnDetailPanel: React.FC<Props> = ({
                             {l.qty_received}/{l.qty_expected} received
                           </span>
                           {lineRes && <Chip tone={lineRes.tone}>{lineRes.label}</Chip>}
-                          {l.exception_reason && <Chip tone="red">{l.exception_reason}</Chip>}
+                          {l.exception_reason && <Chip tone="red">{exceptionWords(l.exception_reason)}</Chip>}
                           {l.batch_number && <Chip tone="neutral">Batch {l.batch_number}</Chip>}
                           {Number(l.qty_resellable) > 0 && <Chip tone="green">{l.qty_resellable} back on sale</Chip>}
                           {Number(l.qty_damaged) > 0 && <Chip tone="amber">{l.qty_damaged} damaged</Chip>}
                           {Number(l.qty_scrapped) > 0 && <Chip tone="red">{l.qty_scrapped} destroyed</Chip>}
                         </div>
+                        {l.order_item_id && termsByItem.get(l.order_item_id) && (
+                          <div className="mt-2">
+                            <ReturnTermsLine line={termsByItem.get(l.order_item_id)!} />
+                          </div>
+                        )}
                         {l.customer_note && (
                           <p className="text-xs mt-2 bg-muted rounded p-2">{l.customer_note}</p>
                         )}

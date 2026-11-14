@@ -28,6 +28,8 @@ export const ACTION_LABEL: Record<string, string> = {
   'order.sales_claim': 'claimed the sale on',
   'order.sales_claim_withdraw': 'withdrew their claim on',
   'order.sales_claim_decide': 'decided the sales credit on',
+  // DEC-086: a return the desk raised outside the order's or an item's return policy, with a reason.
+  'order.return_exception': 'raised a return outside the return policy on',
 };
 
 /** Short noun form for charts/columns, where a verb phrase reads badly. */
@@ -51,6 +53,7 @@ export const ACTION_SHORT: Record<string, string> = {
   'order.sales_claim': 'Sales claims',
   'order.sales_claim_withdraw': 'Claims withdrawn',
   'order.sales_claim_decide': 'Credit decisions',
+  'order.return_exception': 'Returns outside the policy',
 };
 
 /** Fallback: 'purchase_order.receive' → 'Purchase order receive'. */

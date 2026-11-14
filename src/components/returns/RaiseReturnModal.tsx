@@ -4,26 +4,19 @@ import { api } from '../../services/api';
 import { payload } from '@/lib/unwrap';
 import { inrMinor } from '../../components/erp';
 import { formatDate } from '../../utils/date';
+import { ReturnTermsLine, outcomeOf, type EligibleLine as EligLine } from './ReturnTerms';
 
 /**
  * RAISE A RETURN FOR A CUSTOMER: the desk's half of the shopper's return form, for a customer who
  * phoned, wrote or walked in (`POST /api/v2/commerce/returns`, `returns.manage`).
  *
- * It reads the same eligibility the shop's form reads (one resolver on the server: window, units
- * still returnable, the line's net price) and never computes money: every amount shown is the
- * server's. A request the policy refuses can still be raised, but only as a recorded exception with
- * a reason, which the server keeps on the return.
+ * It reads the same eligibility the shop's form reads (one resolver on the server: each item's
+ * return policy and window, units still returnable, the line's net price) and never computes money
+ * or windows: every amount and date shown is the server's. A request the policy refuses (DEC-086:
+ * an item not returnable, replaceable or refundable, or past its window) can still be raised, but
+ * only as a recorded exception with a reason, which the server keeps on the return and on the
+ * order's activity with the person who raised it.
  */
-
-interface EligLine {
-  order_item_id: string;
-  sku?: string | null;
-  name?: string | null;
-  qty_ordered: number;
-  qty_already_returned: number;
-  qty_returnable: number;
-  eligible_amount_minor?: number | null;
-}
 
 interface Photo { url: string; mime?: string | null; type?: string | null; bytes?: number | null }
 
@@ -50,6 +43,8 @@ const RaiseReturnModal: React.FC<Props> = ({ meta, onClose, onRaised }) => {
   const [overrideReason, setOverrideReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  /** The server refused the request in words this screen did not foresee: the desk may still raise it as an exception. */
+  const [serverRefusal, setServerRefusal] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
   const reasons: any[] = meta?.returnReasons ?? meta?.return_reasons ?? [];
@@ -68,13 +63,24 @@ const RaiseReturnModal: React.FC<Props> = ({ meta, onClose, onRaised }) => {
   const lines: EligLine[] = elig?.lines ?? [];
   const returnable = lines.filter((l) => Number(l.qty_returnable) > 0);
   const chosen = returnable.filter((l) => (qty[l.order_item_id] ?? 0) > 0);
-  const refused = !!elig && elig.eligible === false;
+  // What the server will refuse, in its own words: the order's reason, then each chosen item's
+  // for the outcome asked (left open = decided after checking the goods). The server judges again
+  // when the return is raised; this only lets the desk give its reason first.
+  const asked = resolution || 'undecided';
+  const lineRefusals = chosen
+    .map((l) => {
+      const o = outcomeOf(l, asked);
+      return o && !o.open && o.reason ? `${l.name ?? l.sku ?? 'Item'}: ${o.reason}` : null;
+    })
+    .filter((x): x is string => !!x);
+  const orderRefused = !!elig && elig.eligible === false;
+  const refused = orderRefused || lineRefusals.length > 0 || !!serverRefusal;
 
   const check = async (e?: React.FormEvent) => {
     e?.preventDefault();
     const ref = orderRef.trim();
     if (!ref) { setError('Enter the order number.'); return; }
-    setChecking(true); setError(''); setElig(null); setQty({}); setOverride(false); setOverrideReason('');
+    setChecking(true); setError(''); setServerRefusal(''); setElig(null); setQty({}); setOverride(false); setOverrideReason('');
     try {
       const d = payload<any>(await api.get(`/returns/eligibility/${encodeURIComponent(ref)}`));
       setElig(d);
@@ -137,16 +143,19 @@ const RaiseReturnModal: React.FC<Props> = ({ meta, onClose, onRaised }) => {
       });
       onRaised(payload<any>(res));
     } catch (err: any) {
-      setError(err?.response?.data?.message || err?.message || 'Could not raise this return.');
+      const msg = err?.response?.data?.message || err?.message || 'Could not raise this return.';
+      // 422: the policy refuses it (DEC-086). The desk can raise it as an exception, with its reason.
+      if (err?.response?.status === 422 && !(refused && override)) setServerRefusal(msg);
+      setError(msg);
     } finally { setBusy(false); }
   };
 
   const windowLine = (() => {
     if (!elig) return null;
     const closes = elig.window_closes_at ? formatDate(elig.window_closes_at, 'dd MMM yyyy') : null;
-    if (elig.window_state === 'within' && closes) return `Return window open until ${closes} (${elig.window_days} days from delivery).`;
-    if (elig.window_state === 'expired' && closes) return `Return window closed on ${closes} (${elig.window_days} days from delivery).`;
-    return `Not delivered yet, so the ${elig.window_days}-day window has not started.`;
+    if (elig.window_state === 'within' && closes) return `The order's last return window is open until ${closes} (${elig.window_days} days from delivery). Each item's own terms are below.`;
+    if (elig.window_state === 'expired' && closes) return `Every return window on this order closed by ${closes} (${elig.window_days} days from delivery).`;
+    return 'Not delivered yet, so no return window has started.';
   })();
 
   return (
@@ -201,30 +210,6 @@ const RaiseReturnModal: React.FC<Props> = ({ meta, onClose, onRaised }) => {
                 )}
               </div>
 
-              {refused && (
-                <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200 dark:border-amber-800 text-sm space-y-2">
-                  <p className="flex gap-2">
-                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-                    <span>{elig.reason}</span>
-                  </p>
-                  {returnable.length > 0 && (
-                    <>
-                      <label className="flex items-start gap-2 text-xs">
-                        <input type="checkbox" checked={override} onChange={(e) => setOverride(e.target.checked)}
-                               className="h-3.5 w-3.5 mt-0.5 accent-primary" />
-                        <span>Raise it anyway as an exception. The reason is kept on the return.</span>
-                      </label>
-                      {override && (
-                        <textarea rows={2} value={overrideReason} onChange={(e) => setOverrideReason(e.target.value)}
-                                  placeholder="Why this exception is being made"
-                                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm resize-none text-foreground
-                                             focus:outline-none focus:ring-2 focus:ring-primary/40" />
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
-
               {/* What is coming back */}
               <div>
                 <p className="text-sm font-medium mb-2">What is coming back?</p>
@@ -240,9 +225,10 @@ const RaiseReturnModal: React.FC<Props> = ({ meta, onClose, onRaised }) => {
                             <span className="block text-sm">{l.name ?? l.sku ?? 'Item'}</span>
                             <span className="block text-xs text-muted-foreground">
                               <span className="font-mono">{l.sku}</span>
-                              {' '}{l.qty_returnable} of {l.qty_ordered} returnable
+                              {' '}{l.qty_returnable} of {l.qty_ordered} not yet in a return
                               {l.eligible_amount_minor != null && <>, worth up to {inrMinor(Number(l.eligible_amount_minor))}</>}
                             </span>
+                            <span className="block mt-1.5"><ReturnTermsLine line={l} /></span>
                           </span>
                           <span className="inline-flex items-center gap-1">
                             <button type="button" aria-label="Fewer" onClick={() => setLineQty(l, n - 1)}
@@ -297,6 +283,39 @@ const RaiseReturnModal: React.FC<Props> = ({ meta, onClose, onRaised }) => {
                   </select>
                 </label>
               </div>
+
+              {refused && (
+                <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200 dark:border-amber-800 text-sm space-y-2">
+                  <div className="flex gap-2">
+                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                    <div className="space-y-1 min-w-0">
+                      <p className="font-medium">The return policy refuses this request.</p>
+                      {orderRefused && elig.reason && <p>{elig.reason}</p>}
+                      {lineRefusals.map((r) => <p key={r}>{r}</p>)}
+                      {serverRefusal && lineRefusals.length === 0 && !orderRefused && <p>{serverRefusal}</p>}
+                    </div>
+                  </div>
+                  {returnable.length > 0 && (
+                    <>
+                      <label className="flex items-start gap-2 text-xs">
+                        <input type="checkbox" checked={override} onChange={(e) => setOverride(e.target.checked)}
+                               className="h-3.5 w-3.5 mt-0.5 accent-primary" />
+                        <span>
+                          Raise it anyway as an exception. The reason is kept on the return, and the order&apos;s
+                          activity records that you raised it.
+                        </span>
+                      </label>
+                      {override && (
+                        <textarea rows={2} value={overrideReason} onChange={(e) => setOverrideReason(e.target.value)}
+                                  placeholder="Why this exception is being made (required)"
+                                  aria-label="Why this exception is being made"
+                                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm resize-none text-foreground
+                                             focus:outline-none focus:ring-2 focus:ring-primary/40" />
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
 
               <div>
                 <label className="text-sm font-medium block mb-1.5" htmlFor="raise-notes">What the customer said (optional)</label>
