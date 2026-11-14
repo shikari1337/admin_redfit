@@ -57,8 +57,8 @@ export const ImageTextBlockEditor: React.FC<{ block: any; onChange: (b: ContentB
       </div>
       <div className="sm:w-40">
         <LabelRow label="Image side" />
-        <select className={inputCls} value={block.data.imagePosition} onChange={(e) => onChange({ ...block, data: { ...block.data, imagePosition: e.target.value as 'left' | 'right' } })}>
-          <option value="left">Left</option><option value="right">Right</option>
+        <select className={inputCls} value={block.data.imagePosition} onChange={(e) => onChange({ ...block, data: { ...block.data, imagePosition: e.target.value as 'left' | 'right' | 'top' } })}>
+          <option value="left">Left</option><option value="right">Right</option><option value="top">Above the text</option>
         </select>
       </div>
     </div>

@@ -95,7 +95,7 @@ function normalizeOneBlock(b: any): any {
               heading: String(d.heading ?? b.title ?? b.heading ?? ''),
               body: String(d.body ?? b.html ?? b.text ?? b.description ?? ''),
               imageUrl: String(d.imageUrl ?? b.imageUrl ?? b.image ?? ''),
-              imagePosition: (d.imagePosition ?? b.imagePosition ?? (b.reverse ? 'right' : 'left')) as 'left' | 'right',
+              imagePosition: (d.imagePosition ?? b.imagePosition ?? (b.reverse ? 'right' : 'left')) as 'left' | 'right' | 'top',
             },
           };
         case 'icon_box':
@@ -232,6 +232,8 @@ export function serializeContentBlocks(blocks: any[]): any[] {
           // `reverse` is what the renderers actually read; only emit it when true
           // so a left-aligned block keeps the exact shape it was imported with.
           ...(d.imagePosition === 'right' ? { reverse: true } : {}),
+          // "top": the picture above the heading and text (storefront reads imagePosition).
+          ...(d.imagePosition === 'top' ? { imagePosition: 'top' } : {}),
         };
       case 'icon_box':
         return { type: 'icon_box', items: (b.items || []).map((i: any) => ({ icon: i.icon || '', title: i.title || '', desc: i.desc || '', text: i.desc || '' })) };

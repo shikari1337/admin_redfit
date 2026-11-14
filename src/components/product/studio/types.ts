@@ -55,7 +55,7 @@ export interface PageSection {
 
 export type ContentBlock =
   | { type: 'text'; data: { heading?: string; body: string }; display?: DisplaySettings }
-  | { type: 'image_text'; data: { heading?: string; body: string; imageUrl: string; imagePosition: 'left' | 'right' }; display?: DisplaySettings }
+  | { type: 'image_text'; data: { heading?: string; body: string; imageUrl: string; imagePosition: 'left' | 'right' | 'top' }; display?: DisplaySettings }
   | { type: 'icon_box'; items: Array<{ icon: string; title: string; desc: string }>; display?: DisplaySettings }
   | { type: 'faq'; items: Array<{ q: string; a: string }>; display?: DisplaySettings }
   | { type: 'video'; url: string; caption?: string; display?: DisplaySettings }

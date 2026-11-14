@@ -141,7 +141,7 @@ const AiPageWizard: React.FC<AiPageWizardProps> = ({ open, onClose, productId, d
   const toBlocks = (): ContentBlock[] => (page?.aplusContent || []).map((b: any): ContentBlock | null => {
     switch (b.type) {
       case 'image': return { type: 'image', data: { heading: b.heading || '', imageUrl: b.image?.url || '', alt: b.image?.alt || '' } } as any;
-      case 'image_text': return { type: 'image_text', data: { heading: b.heading || '', body: b.body || '', imageUrl: b.image?.url || '', imagePosition: b.imagePosition === 'right' ? 'right' : 'left' } } as any;
+      case 'image_text': return { type: 'image_text', data: { heading: b.heading || '', body: b.body || '', imageUrl: b.image?.url || '', imagePosition: b.imagePosition === 'right' || b.imagePosition === 'top' ? b.imagePosition : 'left' } } as any;
       case 'text': return { type: 'text', data: { heading: b.heading || '', body: b.body || '' } } as any;
       case 'highlight_strip': return { type: 'highlight_strip', items: (b.items || []).map((i: any) => ({ icon: i.icon || 'lucide:Star', title: i.title || '', text: i.text || '' })) } as any;
       case 'icon_box': return { type: 'icon_box', items: (b.items || []).map((i: any) => ({ icon: i.icon || 'lucide:Check', title: i.title || '', desc: i.text || '' })) } as any;
