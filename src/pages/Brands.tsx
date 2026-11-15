@@ -91,7 +91,16 @@ const emptyForm = {
   // CAT-11 (META-9C, tenant 411): what the Meta catalog sends as this brand's country of origin and importer.
   originCountry: '',
   importerPartyId: null as string | null,
+  // PRODUCT-ID: does this maker print barcodes on its packs (identifiers_assigned true / false / null).
+  identifiersAssigned: '' as BarcodeAnswer,
 };
+
+/** PRODUCT-ID: the brand's barcode answer as the form holds it ('' = not sure). */
+type BarcodeAnswer = '' | 'yes' | 'no';
+const barcodeAnswerOf = (v: unknown): BarcodeAnswer => (v === true ? 'yes' : v === false ? 'no' : '');
+const BARCODE_ANSWERS: Array<{ value: BarcodeAnswer; label: string }> = [
+  { value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }, { value: '', label: 'Not sure' },
+];
 
 const rankOf = (b: Brand): number | null => {
   const r = b.preferenceRank ?? (b as any).preference_rank;
@@ -320,6 +329,7 @@ const Brands: React.FC = () => {
       manufacturerPartyId: b.manufacturerPartyId ?? b.manufacturer_party_id ?? null,
       originCountry: b.originCountry ?? b.origin_country ?? '',
       importerPartyId: b.importerPartyId ?? b.importer_party_id ?? null,
+      identifiersAssigned: barcodeAnswerOf(b.identifiers_assigned ?? b.identifiersAssigned),
     };
     setFormState(form);
     setOpenedForm(form);
@@ -337,6 +347,7 @@ const Brands: React.FC = () => {
         ogImageUrl: full.og_image_url || full.ogImageUrl || '',
         originCountry: full.origin_country || full.originCountry || '',
         importerPartyId: full.importer_party_id ?? full.importerPartyId ?? null,
+        identifiersAssigned: barcodeAnswerOf(full.identifiers_assigned ?? full.identifiersAssigned),
       };
       setOpenedForm((o) => (o ? { ...o, ...extra } : o));
       setFormState((f) => {
@@ -386,6 +397,8 @@ const Brands: React.FC = () => {
         // CAT-11: sent as null to clear, like the companies above.
         originCountry: formState.originCountry || null,
         importerPartyId: formState.importerPartyId || null,
+        // PRODUCT-ID: null = not sure (sent as null so "Not sure" clears an earlier answer).
+        identifiersAssigned: formState.identifiersAssigned === 'yes' ? true : formState.identifiersAssigned === 'no' ? false : null,
       };
 
       if (formState.slug?.trim()) {
@@ -404,6 +417,9 @@ const Brands: React.FC = () => {
         toast({ title: 'No changes to save' });
         return;
       }
+    } else if (payload.identifiersAssigned === null) {
+      // A new brand starts as "not sure" anyway.
+      delete payload.identifiersAssigned;
     }
 
     try {
@@ -1068,6 +1084,23 @@ const Brands: React.FC = () => {
                       value={formState.importerPartyId}
                       onChange={(id) => setFormState({ ...formState, importerPartyId: id })}
                     />
+                  </div>
+
+                  {/* PRODUCT-ID: brands.identifiers_assigned (true / false / null). */}
+                  <div className="space-y-1">
+                    <Label id="brand-barcodes-label">Does this maker print barcodes on its packs?</Label>
+                    <div role="radiogroup" aria-labelledby="brand-barcodes-label" className="flex flex-wrap gap-2">
+                      {BARCODE_ANSWERS.map((o) => (
+                        <label key={o.label}
+                          className={`inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm cursor-pointer ${formState.identifiersAssigned === o.value ? 'border-primary bg-primary/10' : 'bg-white hover:bg-muted/50'}`}>
+                          <input type="radio" name="brand-barcodes" className="accent-primary"
+                            checked={formState.identifiersAssigned === o.value}
+                            onChange={() => setFormState({ ...formState, identifiersAssigned: o.value })} />
+                          {o.label}
+                        </label>
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground">No means Google is told these items have no barcode, unless a variation has one.</p>
                   </div>
 
 
