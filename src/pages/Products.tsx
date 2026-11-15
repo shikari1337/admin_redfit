@@ -6,6 +6,10 @@ import { FaPlus, FaTrash, FaCog, FaCopy } from 'react-icons/fa';
 import { Pencil, Download, Upload, Loader2, ChevronDown, Search, X, FileSpreadsheet, PackageSearch } from 'lucide-react';
 import { fmtRupees } from '../lib/money';
 import {
+  CSV_BARCODE_TYPES, IDENTIFIER_CSV_COLUMNS, IDENTIFIER_CSV_NOTE, IDENTIFIER_STATUS_LABEL, identifiersFromCsv, statusOf,
+  type IdentifierStatus,
+} from '../lib/productIdentifiers';
+import {
   Page, PageHeader, Pagination, EmptyState,
   FilterChips, ColumnChooser, useColumnChoice, TableSkeleton,
   type ChipGroup, type ColumnDef,
@@ -25,6 +29,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -377,6 +382,8 @@ function wooRowsToProducts(
         importantInfo: row['section_important-info_content'] || undefined,
         faqs: varFaqs.length ? varFaqs : undefined,
         faqGroupId: row.faq_group_id || undefined,
+        // PRODUCT-ID: barcode, barcode_type, mpn, no_identifier (all empty = the saved ones stay).
+        identifiers: identifiersFromCsv(row),
       });
       parent.productType = 'variation';
     }
@@ -403,6 +410,8 @@ function downloadTemplate(): void {
     'hsnCode', 'taxRuleId', 'weight', 'length', 'breadth', 'height',
     'faq_group_id', 'faq_question1', 'faq_answer1', 'faq_question2', 'faq_answer2',
     'attribute1_name', 'attribute1_value', 'attribute2_name', 'attribute2_value',
+    // PRODUCT-ID, on variation rows: see IDENTIFIER_CSV_HELP.
+    'barcode', 'barcode_type', 'mpn', 'no_identifier',
   ];
 
   const rows = [
@@ -411,22 +420,28 @@ function downloadTemplate(): void {
       'A natural herbal syrup.', '', '', 'Herbal', '', '', 'WellnessCo', 'herbal|syrup', '', '',
       '4818', '', '0.5', '10', '10', '5',
       '', 'What is this product?', 'It is a herbal syrup.', 'How to use?', 'Take 2 tsp twice daily.',
+      '', '', '', '',
       '', '', '', ''],
     // Variable product parent — sku = ARNICA-001 (variations reference this in post_parent)
     ['product', 'MY-ARNICA-001', '', '', 'Arnica Montana', '', 'ARNICA-001', '120', '200', '', 'true', 'variable',
       'Classic homeopathic remedy.', '', '', 'Homeopathic', 'Dilutions', '', 'SBL', 'homeopathic', '', '',
       '3004', '', '0.1', '6', '6', '8',
       '', 'How to store?', 'Store in a cool dry place.', '', '',
+      '', '', '', '',
       '', '', '', ''],
     // Variation 1 — post_parent = parent SKU, variation_id = this variation SKU
+    // (PRODUCT-ID: with the barcode printed on its pack)
     ['variation', '', 'ARNICA-001', 'ARNICA-30CH-30ML', '', '', 'ARNICA-30CH-30ML', '120', '200', '50', 'true', 'variation',
       '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
       '', '', '', '', '',
-      'Potency', '30CH', 'Volume', '30ml'],
+      'Potency', '30CH', 'Volume', '30ml',
+      '8901234567890', 'gtin13', '', ''],
+    // Variation 2: this pack has no barcode and no part number
     ['variation', '', 'ARNICA-001', 'ARNICA-200CH-30ML', '', '', 'ARNICA-200CH-30ML', '150', '250', '30', 'true', 'variation',
       '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
       '', '', '', '', '',
-      'Potency', '200CH', 'Volume', '30ml'],
+      'Potency', '200CH', 'Volume', '30ml',
+      '', '', '', 'yes'],
   ];
 
   downloadCsv('products-import-template.csv', headers, rows);
@@ -488,6 +503,7 @@ const COLUMNS: ColumnDef[] = [
   { key: 'stock', label: 'Stock' },
   { key: 'hsn', label: 'HSN', defaultHidden: true },
   { key: 'tax', label: 'Tax rule', defaultHidden: true },
+  { key: 'identifier', label: 'Identifier' },
   { key: 'status', label: 'Status', always: true },
 ];
 
@@ -502,6 +518,12 @@ const COL_HELP: Record<string, string> = {
   hsn: 'The tax code on the invoice. A product whose variations each have their own HSN shows "per variation".',
   tax: 'The GST rule that sets this product’s rate. Blank means the store default applies.',
   type: 'Simple: one thing to buy. Variable: several potencies or pack sizes under one product.',
+  identifier: "What Google is told: the barcode (GTIN), only the maker's part number (MPN), that the item has none, or nothing yet (missing). Set it per variant on the product.",
+};
+
+/** PRODUCT-ID: the small mark of a row's `identifier_status`. */
+const IDENTIFIER_TONE: Record<IdentifierStatus, string> = {
+  gtin: 'bg-good', mpn: 'bg-info', none: 'bg-ink-mute', missing: 'bg-warn',
 };
 
 /** One cell. Kept at module level so the table body stays readable. */
@@ -545,6 +567,16 @@ function renderCell(key: string, p: any): React.ReactNode {
           : <span className="text-ink-mute">—</span>;
     case 'tax':
       return p.tax_rule_id ? <span className="text-xs">Set</span> : <span className="text-xs text-ink-mute">Store default</span>;
+    case 'identifier': {
+      const s = statusOf(p.identifier_status ?? p.identifierStatus);
+      if (!s) return <span className="text-ink-mute">-</span>;
+      return (
+        <span className={`inline-flex items-center gap-1.5 text-xs ${s === 'missing' ? 'text-warn-ink' : 'text-ink-soft'}`}>
+          <span className={`h-2 w-2 rounded-full ${IDENTIFIER_TONE[s]}`} aria-hidden />
+          {IDENTIFIER_STATUS_LABEL[s]}
+        </span>
+      );
+    }
     case 'stock':
       return p.in_stock
         ? <span className="text-good-ink">In stock</span>
@@ -656,7 +688,7 @@ const Products: React.FC = () => {
     setPage(1);
   };
   const activeFilterCount =
-    ['status', 'category', 'brand', 'form', 'stock', 'sort'].filter((k) => q(k)).length + missing.length;
+    ['status', 'category', 'brand', 'form', 'stock', 'identifier', 'sort'].filter((k) => q(k)).length + missing.length;
 
   // Search — debounced, 3-char minimum (matches the project's search convention elsewhere).
   const [searchInput, setSearchInput] = useState(() => sp.get('search') ?? '');
@@ -747,6 +779,7 @@ const Products: React.FC = () => {
       // the 2 Nov 2026 data fix), and the filter matches exactly, so send the name.
       if (q('form')) params.attributes = JSON.stringify({ 'product-form': productForms.find((f) => f.slug === q('form'))?.name ?? q('form') });
       if (missing.length) params.missing = missing.join(',');
+      if (q('identifier')) params.identifier = q('identifier');
       const response = await productsAPI.getAll(params);
       let list: any[] = Array.isArray(response) ? response : (response?.data?.data || response?.data || []);
       setProducts(list.map(sanitizeProduct));
@@ -1172,6 +1205,18 @@ const Products: React.FC = () => {
       ],
     },
     {
+      // PRODUCT-ID: what Google is told about the product's barcode (query identifier=…).
+      key: 'identifier', label: 'Identifier', value: q('identifier'),
+      onChange: (v: string) => setFilter({ identifier: v }),
+      help: 'The barcode or part number Google matches the product by.',
+      options: [
+        { value: 'missing', label: IDENTIFIER_STATUS_LABEL.missing, hint: 'nothing typed, nothing marked' },
+        { value: 'gtin', label: 'Has a barcode (GTIN)' },
+        { value: 'mpn', label: IDENTIFIER_STATUS_LABEL.mpn, hint: 'part number, no barcode' },
+        { value: 'none', label: IDENTIFIER_STATUS_LABEL.none, hint: 'marked as having none' },
+      ],
+    },
+    {
       key: 'sort', label: 'Sort', value: q('sort'),
       onChange: (v: string) => setFilter({ sort: v }),
       options: [
@@ -1225,6 +1270,12 @@ const Products: React.FC = () => {
                 <DropdownMenuItem onClick={downloadSpecsTemplate}>Blank specifications template</DropdownMenuItem>
                 <DropdownMenuItem onClick={downloadWashCareTemplate}>Blank wash-care template</DropdownMenuItem>
                 <DropdownMenuItem onClick={downloadFaqsTemplate}>Blank FAQs template</DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {/* PRODUCT-ID: the identifier columns, explained in full on the workbook page. */}
+                <DropdownMenuLabel className="text-[11px] font-normal leading-snug text-ink-soft" title={IDENTIFIER_CSV_NOTE}>
+                  Barcodes: variation rows take {IDENTIFIER_CSV_COLUMNS.map((c) => c.column).join(', ')}
+                  {' '}(barcode_type: {CSV_BARCODE_TYPES.join(', ')}). See Catalogue workbook for what each means.
+                </DropdownMenuLabel>
               </DropdownMenuContent>
             </DropdownMenu>
 

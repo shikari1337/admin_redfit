@@ -4,6 +4,7 @@ import { Download, Upload, FileSpreadsheet, ArrowLeft, Loader2, CheckCircle2, Al
 import { Button } from '@/components/ui/button';
 import { productsAPI } from '../services/api';
 import { formatDay } from '../utils/date';
+import { IDENTIFIER_CSV_COLUMNS, IDENTIFIER_CSV_NOTE } from '../lib/productIdentifiers';
 
 interface SheetPreview {
   sheetKey: string;
@@ -262,6 +263,19 @@ const ProductImportExport: React.FC = () => {
               ? <span className="text-gray-800 font-medium">{file.name}</span>
               : <span className="text-gray-500">Drop an <b>.xlsx</b> workbook here, or click to choose. Column names do not have to match; you map them below.</span>}
         </div>
+        {/* PRODUCT-ID: the identifier columns of the variations (the same four as the product CSV). */}
+        <details className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-2 text-sm">
+          <summary className="cursor-pointer font-medium text-gray-800">Barcode and part number columns</summary>
+          <dl className="mt-2 space-y-1.5">
+            {IDENTIFIER_CSV_COLUMNS.map((c) => (
+              <div key={c.column} className="grid grid-cols-1 sm:grid-cols-[9rem_1fr] gap-x-3">
+                <dt className="font-mono text-gray-900">{c.column}</dt>
+                <dd className="text-gray-600">{c.help}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="mt-2 text-xs text-gray-500">{IDENTIFIER_CSV_NOTE}</p>
+        </details>
       </div>
 
       {error && (
