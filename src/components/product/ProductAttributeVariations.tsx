@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useInventoryLock } from '../../hooks/useInventoryLock';
 import { Link } from 'react-router-dom';
 import { FaTrash, FaCog, FaChevronDown, FaChevronRight, FaCheck, FaTimes, FaMagic, FaExternalLinkAlt, FaPlus } from 'react-icons/fa';
@@ -6,6 +6,11 @@ import { attributesAPI, attributeValuesAPI, uploadAPI, categoriesAPI } from '../
 import type { AttributeOption, AttributeValueOption, ProductVariation } from '../../types/productForm';
 import ProductImageUpload from './ProductImageUpload';
 import ItemPricing from '../pricing/ItemPricing';
+import ProductIdentifiers from './ProductIdentifiers';
+import {
+  IDENTIFIER_STATUS_LABEL, codeOwners, draftChanged, draftOf, statusOf, takenFor, withNoIdentifier,
+  type RowErrors,
+} from '../../lib/productIdentifiers';
 
 // UI-only tuning: attributes with more values than this render a searchable checkbox
 // picker instead of a chip cloud (homeomead potency/volume carry 40–150+ values).
@@ -62,7 +67,21 @@ interface ProductAttributeVariationsProps {
   /** A variation's flat wholesale price (from the B2B slabs), for the side-by-side
    *  B2B column. Omitted = the column is not drawn (b2b module off). Display only. */
   b2bPriceFor?: (variationId: string) => number | null;
+  /** PRODUCT-ID: the server's refusals of a variation's barcodes on the last save, by variation id. */
+  identifierErrors?: Record<string, RowErrors>;
 }
+
+/** PRODUCT-ID: the small identifier mark of a variant row (its unsaved edit, else its saved status). */
+const IdentifierMark: React.FC<{ variation: ProductVariation; refused?: boolean }> = ({ variation, refused }) => {
+  if (refused) return <span className="block text-[10px] font-medium text-red-600">Check barcode</span>;
+  if (draftChanged(variation.identifiers, variation.identifiersDraft)) {
+    return <span className="block text-[10px] text-blue-700">{variation.identifiersDraft?.exists === false ? 'No barcode, not saved' : 'Barcode changed, not saved'}</span>;
+  }
+  const s = statusOf(variation.identifiers?.effective?.status);
+  if (!s) return null;
+  const tone = s === 'gtin' ? 'text-green-700' : s === 'missing' ? 'text-amber-700' : 'text-gray-500';
+  return <span className={`block text-[10px] ${tone}`}>{IDENTIFIER_STATUS_LABEL[s]}</span>;
+};
 
 /** A saved variation (a real row id) is the only one a B2B slab can be bound to. */
 const UUID_LIKE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -84,6 +103,7 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
   productSlug,
   availableBrands = [],
   b2bPriceFor,
+  identifierErrors,
 }) => {
   // DEC-069: stock is locked while the ERP keeps it (the server refuses manual changes too).
   const stockLock = useInventoryLock();
@@ -591,6 +611,18 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
       )
     );
   };
+
+  // PRODUCT-ID: codes already held by a variant, so a second variant cannot take the same one.
+  const identifierCodeOwners = useMemo(() => codeOwners(variations), [variations]);
+  // Barcodes differ per pack, so only "no barcode" is offered for every variant at once.
+  const allNoIdentifier = variations.length > 0 && variations.every(v => draftOf(v).exists === false);
+  const setNoIdentifierForAll = (on: boolean) =>
+    onVariationsChange(variations.map(v => ({ ...v, identifiersDraft: withNoIdentifier(draftOf(v), on) })));
+  // A refused save opens the first variant whose barcode the server refused.
+  useEffect(() => {
+    const first = Object.keys(identifierErrors ?? {})[0];
+    if (first) setEditingVariationId(first);
+  }, [identifierErrors]);
 
   // Handle image upload for variation
   const handleImageUpload = async (variationId: string, files: FileList) => {
@@ -1300,6 +1332,16 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
                 )}
                 <button
                   type="button"
+                  onClick={() => setNoIdentifierForAll(!allNoIdentifier)}
+                  title={allNoIdentifier
+                    ? 'Turn off "no barcode or part number" on every variant. Saved when you save the product.'
+                    : 'Say that no variant has a barcode or part number (for example a maker that prints none). Saving removes typed codes; label codes stay.'}
+                  className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 text-gray-600 bg-white hover:bg-gray-50 transition-colors"
+                >
+                  {allNoIdentifier ? 'Undo no barcode for all' : 'Same for all: no barcode or part number'}
+                </button>
+                <button
+                  type="button"
                   onClick={onRegenerateAllSkus}
                   className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 text-gray-600 bg-white hover:bg-gray-50 transition-colors flex items-center gap-1.5"
                 >
@@ -1459,6 +1501,7 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
                           </td>
                           <td className="px-3 py-2.5">
                             <span className="text-xs font-mono text-gray-600">{variation.sku}</span>
+                            <IdentifierMark variation={variation} refused={!!identifierErrors?.[variation.id]} />
                           </td>
                           {(() => {
                             const mrp = (variation.originalPrice ?? baseOriginalPrice) || 0;
@@ -1655,6 +1698,22 @@ const ProductAttributeVariations: React.FC<ProductAttributeVariationsProps> = ({
                                       placeholder="0"
                                     />
                                   </div>
+                                </div>
+
+                                {/* PRODUCT-ID: this pack's barcode, part number, or "it has none".
+                                    Saved with the product. */}
+                                <div className="mb-4 rounded-md border border-gray-200 bg-white px-3 py-2.5">
+                                  <p className="text-xs font-semibold text-gray-800">Product identifier</p>
+                                  <p className="text-[11px] text-gray-500 mb-2">The barcode printed on this pack, or the maker&apos;s part number. Google and Meta match the item by it.</p>
+                                  <ProductIdentifiers
+                                    read={variation.identifiers}
+                                    draft={draftOf(variation)}
+                                    onChange={d => handleVariationChange(variation.id, 'identifiersDraft', d)}
+                                    sku={variation.sku}
+                                    taken={takenFor(identifierCodeOwners, variation.id)}
+                                    serverErrors={identifierErrors?.[variation.id]}
+                                    idPrefix={`pid-${variation.id}`}
+                                  />
                                 </div>
 
                                 {/* PRICING-AUTO (DEC-089): this option's automatic pricing and its facts,

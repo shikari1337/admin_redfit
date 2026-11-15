@@ -14,6 +14,11 @@ import RichTextEditor from '../components/common/RichTextEditor';
 import ProductImageUpload from '../components/product/ProductImageUpload';
 import { localeDate } from '../utils/date';
 import { UUID_RE } from '../lib/uuid';
+import ProductIdentifiers from '../components/product/ProductIdentifiers';
+import {
+  codeValueOf, draftChanged, draftErrors, draftFromRead, labelCodesOf, serverRowErrors, toWrite,
+  type IdentifiersDraft, type RowErrors, type WriteMap,
+} from '../lib/productIdentifiers';
 
 
 /** Coerce PG NUMERIC (the API returns it as a string) / mixed input to a finite number, else null. */
@@ -135,6 +140,10 @@ const VariationEditPage: React.FC = () => {
   const [catDirty, setCatDirty] = useState(false);
   const [catSearch, setCatSearch] = useState('');
   const [allCategories, setAllCategories] = useState<Array<{ id: string; name: string }> | null>(null);
+  // PRODUCT-ID: this variant's barcodes and part number as edited here (sent only when changed), and
+  // the server's refusals of the last save by row.
+  const [idDraft, setIdDraft] = useState<IdentifiersDraft | null>(null);
+  const [idErrors, setIdErrors] = useState<RowErrors>({});
 
   const loadAllCategories = async () => {
     if (allCategories) return;
@@ -191,6 +200,8 @@ const VariationEditPage: React.FC = () => {
       const loaded = normalizeVariationRow(v, idx) as ProductVariation;
       loadedRef.current = JSON.parse(JSON.stringify(loaded));
       setVariation(loaded);
+      setIdDraft(draftFromRead(loaded.identifiers));
+      setIdErrors({});
       // Seed the flat wholesale input from this variation's generic slab
       // (variation-scoped, no tier, min_qty 1, fixed) — first match wins.
       const slabRows: Slab[] = (prod?.b2bPricing ?? prod?.b2b_pricing ?? []).map(normalizeSlab);
@@ -232,7 +243,17 @@ const VariationEditPage: React.FC = () => {
 
   const handleSave = async () => {
     if (!product || !variation) return;
+    // PRODUCT-ID: a changed barcode or part number must pass the check the editor shows.
+    const idChanged = draftChanged(variation.identifiers, idDraft);
+    if (idChanged && idDraft && Object.keys(draftErrors(idDraft, {
+      sku: variation.sku, labelValues: labelCodesOf(variation.identifiers).map(codeValueOf),
+    })).length > 0) {
+      alert('Check the barcode or part number: the line in red says what is wrong.');
+      return;
+    }
     setSaving(true);
+    setIdErrors({});
+    let idMap: WriteMap | undefined;
     try {
       const idx = resolvedIdx.current;
       const varUuid = String(variation.id || '');
@@ -249,6 +270,14 @@ const VariationEditPage: React.FC = () => {
         : { ...((product.variations || [])[idx] || {}), ...variation };
       if (catDirty) varBody.categories = catSelection.map(c => c.id);
       else delete varBody.categories;
+      // The read copy of the identifiers is never re-sent; the edited one only when it changed.
+      delete varBody.identifiers;
+      delete varBody.identifiersDraft;
+      if (idChanged && idDraft) {
+        const w = toWrite(idDraft);
+        varBody.identifiers = w.body;
+        idMap = { codeKeys: w.codeKeys, mpnKey: w.mpnKey };
+      }
 
       // Save THIS variation via the single-variation endpoint — it updates one
       // row (and its categories) and never touches the siblings, so it returns in
@@ -258,7 +287,8 @@ const VariationEditPage: React.FC = () => {
       if (UUID_RE.test(varUuid)) {
         await productsAPI.updateVariation(product._id, varUuid, varBody);
       } else {
-        const updatedVariations = [...(product.variations || [])];
+        // The siblings' read identifiers are not re-sent (absent = kept).
+        const updatedVariations = (product.variations || []).map(({ identifiers: _ids, ...rest }: any) => rest);
         updatedVariations[idx] = varBody;
         await productsAPI.update(product._id, { variations: updatedVariations });
       }
@@ -278,6 +308,12 @@ const VariationEditPage: React.FC = () => {
       }
       navigate(`/products/${productSlug}/edit`);
     } catch (err: any) {
+      // PRODUCT-ID: a refused code (`identifiers.codes[i].value`) is shown on its row. On the
+      // fallback product save the field carries `variations[i].`; that is this variant too.
+      const rowErrors = serverRowErrors(err?.response?.data?.errors, () => idMap);
+      const mine: RowErrors = {};
+      for (const errs of rowErrors.values()) Object.assign(mine, errs);
+      if (Object.keys(mine).length) setIdErrors(mine);
       // The server names the reason — a slug already in use, a malformed one.
       const msg = err?.response?.data?.error?.message || err?.response?.data?.message || err?.message;
       alert(msg ? `Could not save this variant: ${msg}` : 'Failed to save variation');
@@ -686,6 +722,23 @@ const VariationEditPage: React.FC = () => {
           )}
         </div>
       </FieldGroup>
+
+      {/* ══ Product identifier: barcode (GTIN), part number, or "has none" (PRODUCT-ID) ══ */}
+      {idDraft && (
+        <FieldGroup
+          title="Product identifier"
+          description="The barcode printed on this pack, or the maker's part number. Google and Meta match the item by it."
+        >
+          <ProductIdentifiers
+            read={v.identifiers}
+            draft={idDraft}
+            onChange={(d) => { setIdDraft(d); setIdErrors({}); }}
+            sku={v.sku}
+            serverErrors={idErrors}
+            idPrefix="vIdentifiers"
+          />
+        </FieldGroup>
+      )}
 
       {/* B2B / wholesale — ONE flat per-variant price (a generic qty-1 fixed slab
           in product_b2b_pricing). Gated on the b2b module; hidden when the admin

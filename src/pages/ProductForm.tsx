@@ -59,6 +59,10 @@ import {
 import { slugifyValue } from '../utils/slugify';
 import { useAuth } from '../contexts/AuthContext';
 import { UUID_RE } from '../lib/uuid';
+import {
+  codeOwners, draftChanged, draftErrors, draftOf, labelCodesOf, codeValueOf, serverRowErrors, takenFor, toWrite,
+  type RowErrors, type WriteMap,
+} from '../lib/productIdentifiers';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -70,7 +74,7 @@ type TabId = 'general' | 'pricing' | 'tax' | 'stock' | 'media' | 'content' | 'va
  *  save NAVIGATES to the right tab before scrolling. */
 const ERROR_TAB_MAP: Record<string, TabId> = {
   name: 'general', categories: 'general', tags: 'general',
-  variations: 'variants',
+  variations: 'variants', identifiers: 'variants',
   price: 'pricing', originalPrice: 'pricing', salePrice: 'pricing',
   saleStartsAt: 'pricing', saleEndsAt: 'pricing', sku: 'pricing',
   hsnCode: 'tax',
@@ -321,6 +325,8 @@ const ProductForm: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // PRODUCT-ID: the server's refusals of variation barcodes on the last save, by variation id.
+  const [identifierErrors, setIdentifierErrors] = useState<Record<string, RowErrors>>({});
 
   const [showCreateCategory, setShowCreateCategory] = useState(false);
   const [showCreateTag, setShowCreateTag] = useState(false);
@@ -868,6 +874,18 @@ const ProductForm: React.FC = () => {
         if (noPrice) e.variations = `${noPrice} active variant${noPrice === 1 ? ' has' : 's have'} no price — fill it in or deactivate ${noPrice === 1 ? 'it' : 'them'}.`;
         else if (badMrp) e.variations = `${badMrp} variant${badMrp === 1 ? ' has' : 's have'} MRP below the selling price.`;
       }
+      // PRODUCT-ID: a changed barcode or part number must pass the same check the editor shows.
+      const owners = codeOwners(rows);
+      const badIds = rows.filter(v => draftChanged(v.identifiers, v.identifiersDraft)
+        && Object.keys(draftErrors(draftOf(v), {
+          sku: v.sku, taken: takenFor(owners, v.id), labelValues: labelCodesOf(v.identifiers).map(codeValueOf),
+        })).length > 0);
+      if (badIds.length) {
+        const skus = badIds.slice(0, 5).map(v => v.sku).filter(Boolean).join(', ');
+        e.identifiers = badIds.length === 1
+          ? `Check the barcode or part number of variant ${skus}. Open it with the arrow on its row.`
+          : `Check the barcode or part number of ${badIds.length} variants: ${skus}${badIds.length > 5 ? ' and more' : ''}.`;
+      }
       // The optional parent FALLBACK price only needs to be self-consistent.
       if (formData.price && formData.originalPrice
         && parseFloat(formData.originalPrice) > 0
@@ -912,6 +930,10 @@ const ProductForm: React.FC = () => {
     e.preventDefault();
     if (!validateForm()) return;
     setSaving(true);
+    setIdentifierErrors({});
+    // PRODUCT-ID: for each sent variation (by its index in `variations`), which variation it was and
+    // which row each sent code came from, so a server refusal lands on that row.
+    const sentIdentifiers: Array<{ variationId: string; map?: WriteMap }> = [];
     try {
       const fd = formDataRef.current;
 
@@ -964,9 +986,20 @@ const ProductForm: React.FC = () => {
             // Per-variation categories — always send the array (even empty) so clearing
             // a variation's categories actually removes the links on the backend.
             if (Array.isArray(v.categories)) pld.categories = v.categories;
-            return pld;
+            // PRODUCT-ID: barcodes, part number and "has none", only when changed here (absent = kept).
+            let map: WriteMap | undefined;
+            if (draftChanged(v.identifiers, v.identifiersDraft)) {
+              const w = toWrite(draftOf(v));
+              pld.identifiers = w.body;
+              map = { codeKeys: w.codeKeys, mpnKey: w.mpnKey };
+            }
+            return { pld, variationId: String(v.id), map };
           })
-          .filter((v): v is any => v !== null);
+          .filter((x): x is { pld: any; variationId: string; map: WriteMap | undefined } => x !== null)
+          .map(({ pld, variationId, map }) => {
+            sentIdentifiers.push({ variationId, map });
+            return pld;
+          });
       } else if (productType === 'variation') {
         cleanedVariations = [];
       }
@@ -1095,6 +1128,17 @@ const ProductForm: React.FC = () => {
       setDirty(false);
       navigate('/products');
     } catch (error: any) {
+      // PRODUCT-ID: a refused code (`variations[i].identifiers.codes[j].value`) is shown on its row.
+      const byIndex = serverRowErrors(error?.response?.data?.errors, (i) => (i === undefined ? undefined : sentIdentifiers[i]?.map));
+      const byVariation: Record<string, RowErrors> = {};
+      for (const [i, rowErrors] of byIndex) {
+        const vid = i === undefined ? undefined : sentIdentifiers[i]?.variationId;
+        if (vid) byVariation[vid] = rowErrors;
+      }
+      if (Object.keys(byVariation).length) {
+        setIdentifierErrors(byVariation);
+        setActiveTab('variants');
+      }
       alert(error.response?.data?.message || 'Failed to save product');
     } finally {
       setSaving(false);
@@ -1245,6 +1289,7 @@ const ProductForm: React.FC = () => {
       availableBrands={availableBrands}
       // Each variation's flat wholesale slab, shown beside its MRP and selling price.
       b2bPriceFor={canAccess('b2b') ? (vid: string) => flatWholesalePrice(formData.b2bPricing || [], vid) : undefined}
+      identifierErrors={identifierErrors}
       onRegenerateAllSkus={() => {
         const base = formData.sku || slug.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10) || 'PROD';
         setFormData(p => ({ ...p, variations: p.variations.map((v, i) => ({ ...v, sku: `${base}-${Object.keys(v.attributes).join('-').toUpperCase().slice(0, 20)}-${i + 1}`.slice(0, 48) })) }));
@@ -1835,6 +1880,11 @@ const ProductForm: React.FC = () => {
               {errors.variations && (
                 <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3.5 py-2.5 font-medium">
                   {errors.variations}
+                </p>
+              )}
+              {errors.identifiers && (
+                <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3.5 py-2.5 font-medium">
+                  {errors.identifiers}
                 </p>
               )}
               {/* Homeopathy axis rule (pharmacy stores): which attributes a form's
