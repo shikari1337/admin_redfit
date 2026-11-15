@@ -51,7 +51,32 @@ const parseTrackingIds = (settingsRes: any): TrackingIds => {
 
 interface GoogleReviewsForm { enabled: boolean; title: string; subtitle: string; embedCode: string; }
 
-interface GoogleCustomerReviewsForm { enabled: boolean; deliveryDays: number; deliveryCountry: string; merchantId: string; }
+interface GoogleCustomerReviewsForm {
+  enabled: boolean; deliveryDays: number; deliveryCountry: string; merchantId: string;
+  /** PRODUCT-ID Design rule 10: where Google's survey opt-in shows, and the store badge. */
+  optInStyle: OptInStyle; badgeEnabled: boolean; badgePosition: BadgePosition;
+}
+
+/** Google's own values for the survey opt-in position (opt_in_style), with plain labels. */
+const OPT_IN_STYLES = [
+  { value: 'CENTER_DIALOG', label: 'Middle of the page (Google default)' },
+  { value: 'BOTTOM_RIGHT_DIALOG', label: 'Bottom right corner' },
+  { value: 'BOTTOM_LEFT_DIALOG', label: 'Bottom left corner' },
+  { value: 'TOP_RIGHT_DIALOG', label: 'Top right corner' },
+  { value: 'TOP_LEFT_DIALOG', label: 'Top left corner' },
+  { value: 'BOTTOM_TRAY', label: 'Bar along the bottom' },
+] as const;
+type OptInStyle = typeof OPT_IN_STYLES[number]['value'];
+
+/** Google's own values for the store badge position. */
+const BADGE_POSITIONS = [
+  { value: 'RIGHT_BOTTOM', label: 'Bottom right (Google default)' },
+  { value: 'LEFT_BOTTOM', label: 'Bottom left' },
+] as const;
+type BadgePosition = typeof BADGE_POSITIONS[number]['value'];
+
+const pick = <T extends string>(list: ReadonlyArray<{ value: T }>, v: unknown, fallback: T): T =>
+  (list.find((o) => o.value === v)?.value ?? fallback);
 
 const DEFAULT_GOOGLE_REVIEWS: GoogleReviewsForm = {
   enabled: false, title: 'Loved by customers on Google', subtitle: '', embedCode: '',
@@ -69,6 +94,7 @@ const parseGoogleReviews = (settingsRes: any): GoogleReviewsForm => {
 
 const DEFAULT_GOOGLE_CUSTOMER_REVIEWS: GoogleCustomerReviewsForm = {
   enabled: false, deliveryDays: 7, deliveryCountry: 'IN', merchantId: '',
+  optInStyle: 'CENTER_DIALOG', badgeEnabled: false, badgePosition: 'RIGHT_BOTTOM',
 };
 
 const parseGoogleCustomerReviews = (settingsRes: any): GoogleCustomerReviewsForm => {
@@ -78,6 +104,9 @@ const parseGoogleCustomerReviews = (settingsRes: any): GoogleCustomerReviewsForm
     deliveryDays: Math.min(30, Math.max(1, Number(gcr.deliveryDays) || 7)),
     deliveryCountry: String(gcr.deliveryCountry || 'IN').trim().toUpperCase(),
     merchantId: String(gcr.merchantId ?? '').trim(),
+    optInStyle: pick(OPT_IN_STYLES, gcr.optInStyle, 'CENTER_DIALOG'),
+    badgeEnabled: gcr.badgeEnabled === true,
+    badgePosition: pick(BADGE_POSITIONS, gcr.badgePosition, 'RIGHT_BOTTOM'),
   };
 };
 
@@ -186,6 +215,10 @@ const Seo: React.FC = () => {
 
   const [redirects, setRedirects] = useState<RedirectsSummary | null>(null);
   const [connectedMerchant, setConnectedMerchant] = useState('');
+  // The Merchant Center id the shop itself answers (public `tracking.googleMerchantId`, from the
+  // Google Shopping channel): what an empty Merchant Center ID field means on the storefront.
+  const [shopMerchant, setShopMerchant] = useState('');
+  const storeMerchant = shopMerchant || connectedMerchant;
 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -253,34 +286,43 @@ const Seo: React.FC = () => {
     skipInitialFetch: true,
     parse: parseGoogleCustomerReviews,
     submitter: async (data) => {
-      const merchantId = (data.merchantId.trim() || connectedMerchant).replace(/^accounts\//, '');
-      if (data.enabled && !merchantId) {
+      // Empty means the store's own Merchant Center id (the one the shop already answers), so it is
+      // stored empty rather than copied: a later change of account then needs no edit here. Only
+      // when the shop answers none is the Google connection's account written in, as before.
+      const typed = data.merchantId.trim().replace(/^accounts\//, '');
+      const merchantId = typed || (shopMerchant ? '' : connectedMerchant);
+      if ((data.enabled || data.badgeEnabled) && !merchantId && !shopMerchant) {
         throw new Error('Add the Merchant Center ID first, or pick a Merchant Center account on the Google connection.');
       }
       const value = {
         enabled: data.enabled,
         deliveryDays: Math.min(30, Math.max(1, Number(data.deliveryDays) || 7)),
         deliveryCountry: (data.deliveryCountry || 'IN').trim().toUpperCase(),
-        // The storefront's opt-in names this account to Google; without it the survey never shows.
         merchantId,
+        optInStyle: data.optInStyle,
+        badgeEnabled: data.badgeEnabled,
+        badgePosition: data.badgePosition,
       };
       await saveSetting('googleCustomerReviews', value);
       setGoogleCustomerReviews(value);
     },
-    onSuccess: (data) => flash(data.enabled
+    onSuccess: (data) => flash(`${data.enabled
       ? 'Google Customer Reviews is on. New order confirmations show Google\'s survey opt-in.'
-      : 'Google Customer Reviews saved. The survey opt-in is off.'),
+      : 'Google Customer Reviews saved. The survey opt-in is off.'}${data.badgeEnabled ? ' The store badge is on.' : ''}`),
     onError: (err: any) => setError(errText(err, 'Google Customer Reviews was not saved')),
   });
 
   const load = async () => {
     setLoading(true);
     try {
-      const [s, settingsRes] = await Promise.all([
+      const [s, settingsRes, publicRes] = await Promise.all([
         seoAPI.get(),
         // Admin settings carry the stored `tracking` object (axios unwraps {success,data}).
         api.get('/settings/admin').then((res) => res.data).catch(() => ({})),
+        // The public answer adds the Merchant Center id the shop uses (Google Shopping channel).
+        api.get('/settings').then((res) => res.data?.data ?? res.data).catch(() => ({})),
       ]);
+      setShopMerchant(String(publicRes?.tracking?.googleMerchantId ?? '').replace(/^accounts\//, '').trim());
       setSettings(s || {});
       setRobotsTxt(s?.robotsTxt || '');
       setSavedRobotsTxt(s?.robotsTxt || '');
@@ -349,12 +391,12 @@ const Seo: React.FC = () => {
 
   // What to act on first, then the numbers.
   const tagsOn = TRACKING_FIELDS.filter((f) => tracking[f.key].trim()).length;
-  const merchantForSurvey = googleCustomerReviews.merchantId || connectedMerchant;
-  const surveyBlocked = googleCustomerReviews.enabled && !merchantForSurvey;
+  const merchantForSurvey = googleCustomerReviews.merchantId || storeMerchant;
+  const surveyBlocked = (googleCustomerReviews.enabled || googleCustomerReviews.badgeEnabled) && !merchantForSurvey;
   const robotsLines = savedRobotsTxt.split('\n').filter((l) => l.trim() && !l.trim().startsWith('#')).length;
   const actions: string[] = [];
   if (redirects && !redirects.enabled) actions.push('Redirects are switched off, so every old address shows a not-found page.');
-  if (surveyBlocked) actions.push('Google Customer Reviews is on but has no Merchant Center ID, so the survey never shows.');
+  if (surveyBlocked) actions.push('Google Customer Reviews is on but has no Merchant Center ID, so the survey and badge never show.');
   if (tagsOn === 0) actions.push('No analytics or advertising tag is set, so visits and sales are not reported to Google or Meta.');
   const sitemapUrls = (sitemapPreview.match(/<loc>/g) ?? []).length;
 
@@ -562,18 +604,46 @@ const Seo: React.FC = () => {
             <span className="text-xs">Show the Google Customer Reviews opt-in after checkout</span>
           </label>
           <div className="space-y-1.5">
+            <Label className="text-xs">Where the survey opt-in shows</Label>
+            <select value={googleCustomerReviews.optInStyle} disabled={!canSettings}
+              onChange={(e) => setGoogleCustomerReviews((p) => ({ ...p, optInStyle: e.target.value as OptInStyle }))}
+              className="h-9 w-full rounded-md border bg-background px-2 text-sm">
+              {OPT_IN_STYLES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            <p className="text-[11px] text-muted-foreground">Google asks that it is never hidden behind another box on the page.</p>
+          </div>
+          <div className="space-y-1.5">
             <Label className="text-xs">Merchant Center ID</Label>
             <Input value={googleCustomerReviews.merchantId} disabled={!canSettings}
               onChange={(e) => setGoogleCustomerReviews((p) => ({ ...p, merchantId: e.target.value.replace(/\s+/g, '') }))}
-              placeholder={connectedMerchant || '123456789'} inputMode="numeric" className="h-9 font-mono text-sm" />
+              placeholder={storeMerchant || '123456789'} inputMode="numeric" className="h-9 font-mono text-sm" />
             <p className={`text-[11px] ${surveyBlocked ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground'}`}>
-              {connectedMerchant
-                ? <>Your Google connection uses account <span className="font-mono">{connectedMerchant}</span>. Leave this blank to use it.</>
+              {storeMerchant
+                ? <>Leave this empty to use your store&apos;s Merchant Center account <span className="font-mono">{storeMerchant}</span>.</>
                 : <>The number at the top of Merchant Center. Or pick the account on the{' '}
                   <Link to="/panel/marketing/connections" className="font-medium text-primary hover:underline">Google connection</Link>.</>}
-              {googleCustomerReviews.merchantId && connectedMerchant && googleCustomerReviews.merchantId !== connectedMerchant
+              {googleCustomerReviews.merchantId && storeMerchant && googleCustomerReviews.merchantId !== storeMerchant
                 && ' The ID typed here is a different account.'}
             </p>
+          </div>
+          <div className="space-y-2 rounded-md border px-3 py-2.5">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={googleCustomerReviews.badgeEnabled} disabled={!canSettings}
+                onChange={(e) => setGoogleCustomerReviews((p) => ({ ...p, badgeEnabled: e.target.checked }))}
+                className="h-4 w-4" />
+              <span className="text-xs">Show the Google Customer Reviews store badge</span>
+            </label>
+            <p className="text-[11px] text-muted-foreground">
+              A small badge with your store rating from Google. It can be on even before you have ratings.
+            </p>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Badge position</Label>
+              <select value={googleCustomerReviews.badgePosition} disabled={!canSettings || !googleCustomerReviews.badgeEnabled}
+                onChange={(e) => setGoogleCustomerReviews((p) => ({ ...p, badgePosition: e.target.value as BadgePosition }))}
+                className="h-9 w-full rounded-md border bg-background px-2 text-sm disabled:opacity-50">
+                {BADGE_POSITIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
