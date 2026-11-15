@@ -155,6 +155,8 @@ function productQuery(c: V2Ctx): Record<string, unknown> {
     featured: q.featured,
     in_stock: q.inStock ?? q.in_stock,
     missing: q.missing,
+    // PRODUCT-ID: missing | gtin | mpn | none (Design rule 5); each row answers `identifier_status`.
+    identifier: q.identifier,
     has_bundles: q.hasBundles,
     tag: q.tag,
     search: q.search,
@@ -181,6 +183,29 @@ function productQuery(c: V2Ctx): Record<string, unknown> {
 
 const blankToNull = (v: unknown) => (v === '' ? null : v);
 const decimalText = (v: unknown) => (v === undefined ? undefined : v === null || v === '' ? null : String(v));
+
+/**
+ * PRODUCT-ID Design rule 4: a variation's `identifiers {codes: [{type, value, pack_qty}], mpn, exists}`.
+ * Absent stays absent (the saved identifiers are kept). A code read back with source legacy or
+ * internal (a WMS label code) is never sent: the server keeps those, and re-sending one would turn it
+ * into the store's own code. Read-only keys (`id`, `source`, `effective`, the camelCase aliases) drop.
+ */
+function identifiersInput(x: unknown): Record<string, unknown> | undefined {
+  if (!x || typeof x !== 'object' || Array.isArray(x)) return undefined;
+  const o = x as Record<string, any>;
+  const out: Record<string, unknown> = {};
+  if (Array.isArray(o.codes)) {
+    out.codes = o.codes
+      .filter((c: any) => c && typeof c === 'object' && c.source !== 'legacy' && c.source !== 'internal' && c.is_internal !== true && c.isInternal !== true)
+      .map((c: any) => {
+        const pq = Number(c.pack_qty ?? c.packQty);
+        return { type: String(c.type ?? ''), value: String(c.value ?? '').trim(), pack_qty: Number.isInteger(pq) && pq > 0 ? pq : null };
+      });
+  }
+  if ('mpn' in o) out.mpn = typeof o.mpn === 'string' && o.mpn.trim() ? o.mpn.trim() : null;
+  if ('exists' in o) out.exists = o.exists === true || o.exists === false ? o.exists : null;
+  return out;
+}
 
 /** One variation as the form holds it → the v2 typed variation input. */
 function variationInput(v: any): Record<string, unknown> {
@@ -211,6 +236,7 @@ function variationInput(v: any): Record<string, unknown> {
     faqs: v.faqs ?? undefined,
     specifications: v.specifications ?? undefined,
     aplus_content: v.aplusContent ?? v.aplus_content ?? undefined,
+    identifiers: identifiersInput(v.identifiers),
   };
   const sell = v.price ?? v.sellingPrice ?? v.selling_price;
   const mrp = v.originalPrice ?? v.mrp;

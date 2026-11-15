@@ -1,3 +1,5 @@
+import type { IdentifiersDraft, IdentifiersRead } from '../lib/productIdentifiers';
+
 export interface CategoryOption {
   _id: string;
   name: string;
@@ -73,6 +75,10 @@ export interface ProductVariation {
   importantInfo?: string;
   faqs?: Array<{ question: string; answer: string }>;
   isActive?: boolean;
+  /** PRODUCT-ID: the identifiers as read (codes, mpn, exists, effective status). */
+  identifiers?: IdentifiersRead | null;
+  /** PRODUCT-ID: the identifiers as edited here; sent only when it differs from `identifiers`. */
+  identifiersDraft?: IdentifiersDraft | null;
 }
 
 export interface ProductFormData {
