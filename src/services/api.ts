@@ -5956,6 +5956,13 @@ export const settingsRegistryAPI = {
     const response = await api.get('/settings/registry');
     return response.data;
   },
+  /** One definition of that read (its fields with their defaults, the store's value, canWrite), or null when
+   *  the caller may not see it or this server has no such key. Errors propagate (the read needs settings.read). */
+  definition: async (key: string): Promise<any | null> => {
+    const d: any = await settingsRegistryAPI.get();
+    const reg = d?.definitions ? d : (d?.data ?? d?.center ?? d);
+    return (reg?.definitions ?? []).find((x: any) => x?.key === key) ?? null;
+  },
   update: async (key: string, patch: Record<string, any>) => {
     const response = await api.put(`/settings/registry/${encodeURIComponent(key)}`, patch);
     return response.data;

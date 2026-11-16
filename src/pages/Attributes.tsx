@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { FaPlus, FaSave, FaUndo, FaTrash, FaEdit, FaChevronDown, FaChevronRight, FaArrowUp, FaArrowDown, FaGripVertical, FaEye, FaEyeSlash } from 'react-icons/fa';
-import api, { attributesAPI, attributeValuesAPI } from '../services/api';
+import api, { attributesAPI, attributeValuesAPI, settingsRegistryAPI } from '../services/api';
 import ImageInputWithActions from '../components/common/ImageInputWithActions';
 import { slugifyValue } from '../utils/slugify';
 import { useAuth } from '../contexts/AuthContext';
@@ -268,10 +268,7 @@ const Attributes: React.FC = () => {
 
   const fetchFilterOrder = async () => {
     try {
-      const res = await api.get('/settings/registry');
-      const d: any = res?.data;
-      const reg = d?.definitions ? d : (d?.data ?? d?.center ?? d);
-      const def = (reg?.definitions ?? []).find((x: any) => x?.key === 'productSettings');
+      const def = await settingsRegistryAPI.definition('productSettings');
       const field = (def?.fields ?? []).find((f: any) => f?.path === 'filterSections');
       if (!def) { setFilterNote('You need the settings read permission to see the filter order.'); return; }
       if (!field) { setFilterNote('This server has no filter order setting yet.'); return; }
