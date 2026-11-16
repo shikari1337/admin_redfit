@@ -12,7 +12,7 @@ import {
 } from '@/components/erp';
 import { StarRating } from '@/components/reviews/StarRating';
 import { MediaStrip, MediaLightbox } from '@/components/reviews/ReviewMedia';
-import { ReviewDetailDrawer } from '@/components/reviews/ReviewDetailDrawer';
+import { ReviewDetailDrawer, ReviewerName } from '@/components/reviews/ReviewDetailDrawer';
 import { ReviewEditorModal } from '@/components/reviews/ReviewEditorModal';
 import { ReviewImportModal } from '@/components/reviews/ReviewImportModal';
 import { cn } from '@/lib/utils';
@@ -93,10 +93,13 @@ const Subject: React.FC<{ r: AdminReview }> = ({ r }) => {
   );
 };
 
-/** The small signals under a review: who wrote it, votes, a reply, reports, auto flags. */
+/**
+ * The small signals under a review: who wrote it (a link to the customer when there is one),
+ * votes, a reply, reports, auto flags. It holds a link, so it never goes inside a button.
+ */
 const Signals: React.FC<{ r: AdminReview }> = ({ r }) => (
   <span className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-gray-400">
-    <span>{r.customer_name}</span>
+    <ReviewerName review={r} />
     {r.helpful_count > 0 && <span>{r.helpful_count} found helpful</span>}
     {r.reply_body && (
       <span className="inline-flex items-center gap-0.5 text-indigo-600">
@@ -445,23 +448,26 @@ const Reviews: React.FC = () => {
                       className="mt-2.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
                     />
                   )}
-                  <button type="button" onClick={() => setActive(r)} className="min-w-0 flex-1 text-left">
-                    <Subject r={r} />
-                    <span className="mt-2 flex flex-wrap items-center gap-2">
-                      <StarRating value={r.rating} size={13} />
-                      <StatusChip status={r.status} />
-                      {r.is_featured && <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />}
-                      {r.is_verified && (
-                        <span className="inline-flex items-center gap-1 text-[11px] text-emerald-700">
-                          <ShieldCheck className="h-3 w-3" /> Verified
-                        </span>
-                      )}
-                      <span className="text-[11px] text-gray-400">{shortDate(r.created_at)}</span>
-                    </span>
-                    {r.title && <span className="mt-1.5 block font-medium text-gray-900">{r.title}</span>}
-                    <span className="mt-0.5 line-clamp-3 block text-sm text-gray-600">{r.review}</span>
+                  <div className="min-w-0 flex-1">
+                    <button type="button" onClick={() => setActive(r)} className="block w-full text-left">
+                      <Subject r={r} />
+                      <span className="mt-2 flex flex-wrap items-center gap-2">
+                        <StarRating value={r.rating} size={13} />
+                        <StatusChip status={r.status} />
+                        {r.is_featured && <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />}
+                        {r.is_verified && (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-emerald-700">
+                            <ShieldCheck className="h-3 w-3" /> Verified
+                          </span>
+                        )}
+                        <span className="text-[11px] text-gray-400">{shortDate(r.created_at)}</span>
+                      </span>
+                      {r.title && <span className="mt-1.5 block font-medium text-gray-900">{r.title}</span>}
+                      <span className="mt-0.5 line-clamp-3 block text-sm text-gray-600">{r.review}</span>
+                    </button>
+                    {/* Outside the button: the reviewer's name is a link of its own. */}
                     <Signals r={r} />
-                  </button>
+                  </div>
                 </div>
                 {(r.media?.length ?? 0) > 0 && (
                   <div className="mt-2">

@@ -1,8 +1,10 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import {
   X, Check, Ban, Flag, EyeOff, Trash2, Star, ShieldCheck, MessageSquare,
   ExternalLink, Loader2, AlertTriangle, Pencil, Save, Store, Globe,
 } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
 import { reviewsAPI, type AdminReview, type ReviewStatus, type ReviewMedia as Asset } from '@/services/api';
 import { Btn, StatusChip } from '@/components/erp';
 import { StarRating } from './StarRating';
@@ -41,6 +43,33 @@ const FLAG_LABEL: Record<string, string> = {
   all_caps: 'Written in all caps',
   repeated_chars: 'Repeated characters',
   very_short: 'Very short',
+};
+
+/**
+ * Who wrote a review: a link to that customer's page (/customers/:id, the route every other
+ * screen links a customer to) when the review belongs to a signed-in customer and this staff
+ * member may read customers. A guest, imported or staff-added review has no customer and stays
+ * plain text, as does every review for staff without content.manage (their view has no
+ * customer id). Owner, 16 Nov 2026: "on clicking the reviewer name it opens up its profile".
+ */
+export const ReviewerName: React.FC<{
+  review: Pick<AdminReview, 'customer_name' | 'customer_id'>;
+  className?: string;
+}> = ({ review, className }) => {
+  const { hasPerm } = useAuth();
+  const name = review.customer_name || 'Anonymous';
+  if (!review.customer_id || !hasPerm('customers.read')) return <span className={className}>{name}</span>;
+  return (
+    <Link
+      to={`/customers/${review.customer_id}`}
+      // The name sits inside rows that open the review drawer on click.
+      onClick={(e) => e.stopPropagation()}
+      className={cn('hover:text-indigo-600 hover:underline', className)}
+      title="Open this customer's page: their orders, addresses and the store's notes"
+    >
+      {name}
+    </Link>
+  );
 };
 
 export const ReviewDetailDrawer: React.FC<{
@@ -124,7 +153,7 @@ export const ReviewDetailDrawer: React.FC<{
               )}
             </div>
             <p className="mt-1 truncate text-sm text-gray-500">
-              {review.customer_name}
+              <ReviewerName review={review} className="font-medium text-gray-700" />
               {(review.customer_email || review.customer_email_masked) &&
                 `, ${review.customer_email || review.customer_email_masked}`}
             </p>

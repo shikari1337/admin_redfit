@@ -2782,6 +2782,12 @@ export interface AdminReview {
   customer_email_masked?: string | null;
   customer_image?: string | null;
   has_customer_account?: boolean;
+  /**
+   * The signed-in customer who wrote it (a platform customer id, the one /customers/:id opens).
+   * Null for a guest, imported or staff-added review. Only staff with content.manage receive it
+   * (reviews `ReviewManagerView`); the content.read view carries `has_customer_account` alone.
+   */
+  customer_id?: string | null;
   media: ReviewMedia[];
   media_count: number;
   images?: string[];
