@@ -29,6 +29,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Page, PageHeader, EmptyState, FilterChips, BlockSkeleton, downloadCsv, type ChipGroup,
@@ -129,6 +130,13 @@ const emptyFeatured: FeaturedValue = { mode: 'off', productIds: [], brandIds: []
 /** Read a field that may arrive camelCase (admin transform) or snake_case (raw row). */
 const pick = (o: any, camel: string, snake: string, fallback: any = undefined) =>
   o?.[camel] ?? o?.[snake] ?? fallback;
+
+/** A category filter value as the server compares it: no case, letters and digits only, so
+ *  "Ointment / Cream" and "ointment-cream" are one value (growcord-rs products queries
+ *  push_own_match). */
+const filterKey = (s: string) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+/** The values a category filter names: one, or several separated by "|". */
+const filterValues = (v: string) => String(v ?? '').split('|').map((x) => x.trim()).filter(Boolean);
 
 const Categories: React.FC = () => {
   /** This store's own website — from the server, per store (lib/storefront.ts). */
@@ -893,7 +901,9 @@ const Categories: React.FC = () => {
                   <p className="-mt-1 text-[11px] text-muted-foreground">
                     Show <strong>only</strong> — or <strong>hide</strong> — variations whose attribute value matches.
                     E.g. a “Dilutions” category with <em>Potency · Hide · Q</em> hides mother tinctures;
-                    “Mother Tinctures” with <em>Potency · Only show · Q</em> shows only them. Leave blank to show everything.
+                    “Mother Tinctures” with <em>Potency · Only show · Q</em> shows only them. Tick several values to
+                    show all of them (“Globules &amp; Sundries”: <em>Product form · Only show · Globules, Sundries</em>).
+                    Leave blank to show everything.
                   </p>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                     <div className="space-y-2">
@@ -932,27 +942,35 @@ const Categories: React.FC = () => {
                           return <Input disabled placeholder="Pick an attribute first" />;
                         }
                         if (values.length) {
+                          // Several values may be ticked: a form category stands for every form it
+                          // sells (Globules and Sundries). Saved as "a|b"; compared like the server.
+                          const picked = filterValues(formState.filterAttributeValue);
+                          const pickedKeys = new Set(picked.map(filterKey));
+                          const toggle = (val: string, on: boolean) => {
+                            const next = on
+                              ? [...picked, val]
+                              : picked.filter((p) => filterKey(p) !== filterKey(val));
+                            setFormState({ ...formState, filterAttributeValue: next.join('|') });
+                          };
                           return (
-                            <Select
-                              value={formState.filterAttributeValue || 'none'}
-                              onValueChange={(v) =>
-                                setFormState({ ...formState, filterAttributeValue: v === 'none' ? '' : v })}
-                            >
-                              <SelectTrigger><SelectValue placeholder="Any" /></SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="none">Any</SelectItem>
-                                {values.map((val: any, i: number) => {
-                                  const slug = val.slug ?? val.value ?? String(val);
-                                  return <SelectItem key={`${slug}-${i}`} value={slug}>{val.name ?? val.label ?? slug}</SelectItem>;
-                                })}
-                              </SelectContent>
-                            </Select>
+                            <div className="max-h-48 overflow-y-auto rounded-md border p-2 space-y-1.5">
+                              {values.map((val: any, i: number) => {
+                                const slug = String(val.slug ?? val.value ?? val);
+                                const on = pickedKeys.has(filterKey(slug)) || pickedKeys.has(filterKey(val.value ?? ''));
+                                return (
+                                  <label key={`${slug}-${i}`} className="flex items-center gap-2 text-sm cursor-pointer">
+                                    <Checkbox checked={on} onCheckedChange={(c) => toggle(slug, c === true)} />
+                                    <span>{val.name ?? val.label ?? val.value ?? slug}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
                           );
                         }
                         return (
                           <Input value={formState.filterAttributeValue}
                             onChange={(e) => setFormState({ ...formState, filterAttributeValue: e.target.value })}
-                            placeholder="Attribute value slug (e.g. dilution)" />
+                            placeholder="Value slug (e.g. dilution); several: gel|lotion" />
                         );
                       })()}
                     </div>
