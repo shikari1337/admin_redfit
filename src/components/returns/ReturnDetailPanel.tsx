@@ -11,7 +11,7 @@ import { formatDate, formatDateTime } from '../../utils/date';
 import ReturnPhotos from './ReturnPhotos';
 import ReceiveGoodsModal from './ReceiveGoodsModal';
 import SettleReturnModal from './SettleReturnModal';
-import ReturnPickup, { earlierPickups } from './ReturnPickup';
+import ReturnPickup, { ReturnCourierPicker, earlierPickups } from './ReturnPickup';
 import ReturnCharges from './ReturnCharges';
 import { RESOLUTION_META, STATUS_LABEL, STATUS_TONE, returnStage, stepResult, wordsFor } from './returnWords';
 import { ReturnTermsLine, useReturnEligibility, type EligibleLine } from './ReturnTerms';
@@ -61,7 +61,12 @@ const ReturnDetailPanel: React.FC<Props> = ({
   const [showReceive, setShowReceive] = useState(false);
   const [showSettle, setShowSettle] = useState(false);
   const [pickupOpen, setPickupOpen] = useState(false);
-  const [pickup, setPickup] = useState({ courierName: '', awb: '', mode: '', provider: 'shiprocket', qc: false });
+  /** `courierId`: the Shiprocket courier the desk chose from the offers; null = the cheapest (or Shiprocket's pick). */
+  const [pickup, setPickup] = useState<{
+    courierName: string; awb: string; mode: string; provider: string; qc: boolean; courierId: number | null;
+  }>({ courierName: '', awb: '', mode: '', provider: 'shiprocket', qc: false, courierId: null });
+  /** The courier chosen before Get AWB; null = the cheapest. */
+  const [awbCourier, setAwbCourier] = useState<number | null>(null);
   /** How many units of each line the next decision applies to. Received goods
    *  are rarely all one thing — 3 back, 2 fine and 1 broken is the normal case,
    *  and an all-or-nothing button cannot express it. */
@@ -149,7 +154,7 @@ const ReturnDetailPanel: React.FC<Props> = ({
    *  a customer sending it themselves is recorded with their courier and AWB. Either can be changed in the form. */
   const openPickup = () => {
     setPickup({
-      courierName: '', awb: '', qc: false,
+      courierName: '', awb: '', qc: false, courierId: null,
       provider: byCourier ? 'shiprocket' : 'manual',
       mode: byCourier ? '' : String(doc?.return_mode ?? ''),
     });
@@ -167,11 +172,12 @@ const ReturnDetailPanel: React.FC<Props> = ({
         courierName: pickup.courierName.trim() || undefined,
         awb: pickup.awb.trim() || undefined,
         qualityCheck: pickup.provider === 'shiprocket' ? pickup.qc : undefined,
+        courierId: pickup.provider === 'shiprocket' ? (pickup.courierId ?? undefined) : undefined,
       });
       // A step reply: its `message` says when the AWB or the pickup request still needs Get AWB.
       const out = stepResult(payload<any>(res));
       setPickupOpen(false);
-      setPickup({ courierName: '', awb: '', mode: '', provider: 'shiprocket', qc: false });
+      setPickup({ courierName: '', awb: '', mode: '', provider: 'shiprocket', qc: false, courierId: null });
       setFlash(out?.message ?? `Collection booked (attempt ${out?.attemptNo ?? 1}).`);
       await refresh();
     } catch (e: any) {
@@ -184,7 +190,9 @@ const ReturnDetailPanel: React.FC<Props> = ({
   const getAwb = async () => {
     setBusy('awb'); setError(''); setFlash('');
     try {
-      const res = await api.post(`/returns/${doc.id}/pickup/awb`, {}, {
+      // The chosen courier goes with the AWB only; once the AWB exists Get AWB only asks for the pickup.
+      const courierId = current?.awb ? undefined : (awbCourier ?? undefined);
+      const res = await api.post(`/returns/${doc.id}/pickup/awb`, { courierId }, {
         headers: { 'X-Idempotency-Key': crypto.randomUUID() },
       });
       const out = stepResult(payload<any>(res));
@@ -375,13 +383,21 @@ const ReturnDetailPanel: React.FC<Props> = ({
                     pickup={current}
                     earlier={earlierPickups(doc)}
                     action={stage === 'collecting' && current.can_get_awb && hasShipPerm ? (
-                      <button onClick={getAwb} disabled={!!busy}
-                              title="Asks Shiprocket for the AWB of this collection, then for the pickup. It never books a second collection."
-                              className="px-3 py-1.5 text-xs rounded-md bg-primary text-primary-foreground font-medium
-                                         hover:bg-primary/90 disabled:opacity-50 inline-flex items-center gap-1.5">
-                        {busy === 'awb' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Truck className="h-3.5 w-3.5" />}
-                        Get AWB
-                      </button>
+                      <div className="flex items-end gap-2 flex-wrap">
+                        {/* The courier is chosen with the AWB; once the AWB exists only the pickup is left. */}
+                        {!current.awb && (
+                          <div className="flex-1 min-w-[16rem]">
+                            <ReturnCourierPicker returnId={doc.id} disabled={!!busy} onChange={setAwbCourier} />
+                          </div>
+                        )}
+                        <button onClick={getAwb} disabled={!!busy}
+                                title="Asks Shiprocket for the AWB of this collection with the courier chosen, then for the pickup. It never books a second collection."
+                                className="px-3 py-1.5 text-xs rounded-md bg-primary text-primary-foreground font-medium
+                                           hover:bg-primary/90 disabled:opacity-50 inline-flex items-center gap-1.5">
+                          {busy === 'awb' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Truck className="h-3.5 w-3.5" />}
+                          Get AWB
+                        </button>
+                      </div>
                     ) : undefined}
                   />
                   {stage === 'collecting' && current.can_get_awb && !hasShipPerm && (
@@ -414,6 +430,12 @@ const ReturnDetailPanel: React.FC<Props> = ({
                           out at the customer&apos;s doorstep instead of at your dock.
                         </span>
                       </label>
+                      {/* RET-FLOW-UI (owner 17 Nov 2026: "in return also show option to choose courier"): the
+                          offers follow the doorstep check, which changes what Shiprocket books by default. */}
+                      <div className="sm:col-span-3">
+                        <ReturnCourierPicker returnId={doc.id} qualityCheck={pickup.qc} disabled={busy === 'pickup'}
+                                             onChange={(courierId) => setPickup((p) => ({ ...p, courierId }))} />
+                      </div>
                       <p className="sm:col-span-3 text-xs text-muted-foreground">
                         Shiprocket collects from the address on the order and delivers to your
                         warehouse. The AWB comes back here and the collection appears on the

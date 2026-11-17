@@ -150,7 +150,7 @@ export const PAYMENT_ROUTES: V2Route[] = [
   { m: 'GET', from: '/returns/:id', row: 'commerce returns.ts:293', to: '/api/v2/commerce/returns/{id}', reply: returnReply },
   { m: 'PUT', from: '/returns/:id', row: 'commerce returns.ts:400', method: 'PATCH', to: '/api/v2/commerce/returns/{id}', bs: {'decision_note':'s','notes':'s','resolution':'s','status':'s'} },
   { m: 'POST', from: '/returns/:id/items/:itemId/disposition', row: 'commerce returns.ts:491', to: '/api/v2/commerce/returns/{id}/items/{itemId}/disposition', bs: {'disposition':'s','note':'s','photo_url':'s','qty':'i','reason_code':'s'} },
-  { m: 'POST', from: '/returns/:id/pickup', row: 'commerce returns.ts:467', to: '/api/v2/commerce/returns/{id}/pickup', bs: {'awb':'s','courier_name':'s','expected_at':'s','mode':'s','note':'s','provider':'s','quality_check':'b','tracking_url':'s','warehouse_id':'s'} },
+  { m: 'POST', from: '/returns/:id/pickup', row: 'commerce returns.ts:467', to: '/api/v2/commerce/returns/{id}/pickup', bs: {'awb':'s','courier_id':'i','courier_name':'s','expected_at':'s','mode':'s','note':'s','provider':'s','quality_check':'b','tracking_url':'s','warehouse_id':'s'} },
   { m: 'POST', from: '/returns/:id/receive', row: 'commerce returns.ts:441', to: '/api/v2/commerce/returns/{id}/receive', body: respelt({'lines':[{'batch_number':'s','exception_reason':'s','expiry_date':'s','item_id':'s','qty':'i'}],'warehouse_id':'s'}, (b) => {
     // ReceiveLine.qty: u32, required (commerce api/returns/mod.rs:802); ReceiveGoodsModal sends qtyReceived
     if (Array.isArray(b.lines)) b.lines = b.lines.map((l: any) => { if (!l || typeof l !== 'object') return l; const { qtyReceived, qty_received, ...rest } = l; return { ...rest, qty: l.qty ?? qtyReceived ?? qty_received }; });
@@ -168,8 +168,12 @@ export const PAYMENT_ROUTES: V2Route[] = [
       'items':[{'order_item_id':'s','quantity':'i','reason_code':'s','resolution':'s','customer_note':'s','photos':[{'url':'s','mime':'s','type':'s','bytes':'i'}]}]} },
   { m: 'GET', from: '/returns/eligibility/:orderRef', row: 'commerce returns.ts:190', to: '/api/v2/commerce/orders/{orderRef}/return-eligibility', reply: eligibilityReply },
   // RET-PICKUP-2 (growcord-rs .runs/RET-PICKUP-2/API.md §2): finish the return's existing Shiprocket reverse order (the AWB,
-  // then the pickup request); it never books a new one. Body `{}`; a step reply `{result: {shipment, carrier, message, document}}`.
-  { m: 'POST', from: '/returns/:id/pickup/awb', row: 'commerce new RET-PICKUP-2 §2', to: '/api/v2/commerce/returns/{id}/pickup/awb', body: () => ({}) },
+  // then the pickup request); it never books a new one. Body `{courier_id}` (RET-FLOW-UI: the courier the desk chose; none = the
+  // cheapest); a step reply `{result: {shipment, carrier, message, document}}`.
+  { m: 'POST', from: '/returns/:id/pickup/awb', row: 'commerce new RET-PICKUP-2 §2', to: '/api/v2/commerce/returns/{id}/pickup/awb', bs: {'courier_id':'i'} },
+  // RET-FLOW-UI (owner 17 Nov 2026: "in return also show option to choose courier"): Shiprocket's courier offers for the collection
+  // Get AWB would finish, else for a new booking (`quality_check` as the booking would ask); ReturnCourierOffersView.
+  { m: 'GET', from: '/returns/:id/pickup/couriers', row: 'commerce new RET-FLOW-UI', to: '/api/v2/commerce/returns/{id}/pickup/couriers', qs: ['quality_check'] },
   // §4: a charge the customer bears (label 1 to 80, amount in paise, a note); both answer the staff return view.
   { m: 'POST', from: '/returns/:id/charges', row: 'commerce new RET-PICKUP-2 §4', to: '/api/v2/commerce/returns/{id}/charges', bs: {'label':'s','amount_minor':'i','note':'s'}, reply: returnReply },
   { m: 'POST', from: '/returns/:id/charges/:chargeId/delete', row: 'commerce new RET-PICKUP-2 §4', to: '/api/v2/commerce/returns/{id}/charges/{chargeId}/delete', body: () => ({}), reply: returnReply },
