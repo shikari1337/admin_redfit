@@ -7,7 +7,7 @@
  * answered without `success`); a `gap` row is a NAMED refusal (docs/PORT_NOTES/ADMIN-V2-2.md, "gaps").
  */
 import type { V2Ctx, V2Route } from '../routes';
-import { mapList } from '../http';
+import { asList, mapList } from '../http';
 import { majorToMinor } from '../money';
 import { shapeBody } from '../shape';
 import type { Spec } from '../shape';
@@ -167,6 +167,17 @@ export const PAYMENT_ROUTES: V2Route[] = [
       'photos':[{'url':'s','mime':'s','type':'s','bytes':'i'}],
       'items':[{'order_item_id':'s','quantity':'i','reason_code':'s','resolution':'s','customer_note':'s','photos':[{'url':'s','mime':'s','type':'s','bytes':'i'}]}]} },
   { m: 'GET', from: '/returns/eligibility/:orderRef', row: 'commerce returns.ts:190', to: '/api/v2/commerce/orders/{orderRef}/return-eligibility', reply: eligibilityReply },
+  // RET-PICKUP-2 (growcord-rs .runs/RET-PICKUP-2/API.md §2): finish the return's existing Shiprocket reverse order (the AWB,
+  // then the pickup request); it never books a new one. Body `{}`; a step reply `{result: {shipment, carrier, message, document}}`.
+  { m: 'POST', from: '/returns/:id/pickup/awb', row: 'commerce new RET-PICKUP-2 §2', to: '/api/v2/commerce/returns/{id}/pickup/awb', body: () => ({}) },
+  // §4: a charge the customer bears (label 1 to 80, amount in paise, a note); both answer the staff return view.
+  { m: 'POST', from: '/returns/:id/charges', row: 'commerce new RET-PICKUP-2 §4', to: '/api/v2/commerce/returns/{id}/charges', bs: {'label':'s','amount_minor':'i','note':'s'}, reply: returnReply },
+  { m: 'POST', from: '/returns/:id/charges/:chargeId/delete', row: 'commerce new RET-PICKUP-2 §4', to: '/api/v2/commerce/returns/{id}/charges/{chargeId}/delete', body: () => ({}), reply: returnReply },
+  // §5: deny after the goods arrived (QC failed): the reason, what happens to the goods (`/returns/meta` qc_outcomes), a note.
+  { m: 'POST', from: '/returns/:id/deny', row: 'commerce new RET-PICKUP-2 §5', to: '/api/v2/commerce/returns/{id}/deny', bs: {'goods':'s','note':'s','reason':'s'} },
+  // §3: the order page's returns, newest first, each the staff return view (`{items: [...]}`; a Page is read the same way).
+  { m: 'GET', from: '/orders/:id/returns', row: 'commerce new RET-PICKUP-2 §3', to: '/api/v2/commerce/orders/{id}/returns',
+    reply: (d) => (Array.isArray(d) ? mapList(d, returnRow) : asList(Array.isArray(d?.items) ? d.items.map(returnRow) : [])) },
   // One evidence photo, multipart field `file` (8 MB, raster images); answers {type, url, mime, bytes}.
   { m: 'POST', from: '/returns/photos', row: 'commerce returns.ts:140', to: '/api/v2/commerce/returns/photos' },
   { m: 'GET', from: '/returns/meta', row: 'commerce returns.ts:87', to: '/api/v2/commerce/returns/meta' },

@@ -23,3 +23,22 @@ export const RESOLUTION_META: Record<string, { label: string; icon: React.Elemen
   store_credit: { label: 'Store credit', icon: Wallet,      tone: 'amber' },
   undecided:    { label: 'Undecided',    icon: Clock,       tone: 'neutral' },
 };
+
+/** A code from one of the server's `{code, label}` lists (`/returns/meta` qc_outcomes, exceptions) in its words;
+ *  the code itself, spaced, when the list does not name it. */
+export const wordsFor = (list: unknown, code?: string | null): string => {
+  const hit = (Array.isArray(list) ? list : []).find((x: any) => x?.code === code) as { label?: string } | undefined;
+  return hit?.label ?? String(code ?? '').replace(/_/g, ' ');
+};
+
+/** A return step's answer (commerce `ReturnStepView {result, replayed}`) as the step's own result
+ *  (`{message, document, ...}`); an answer without the wrapper as it came. */
+export const stepResult = (d: any): any =>
+  (d && typeof d === 'object' && d.result && typeof d.result === 'object' ? d.result : d);
+
+/** A return event on the order's timeline (RET-PICKUP-2: `event` such as `return_pickup_booked`) in words,
+ *  "Return pickup booked". The entry's `notes` carry the server's own sentence beside it. */
+export const returnEventLabel = (code?: string | null): string => {
+  const rest = String(code ?? '').replace(/^return_/, '').replace(/_/g, ' ').replace(/\bawb\b/gi, 'AWB').trim();
+  return rest ? `Return ${rest}` : 'Return';
+};

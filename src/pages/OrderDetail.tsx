@@ -48,6 +48,7 @@ import type { RazorpayAuditResult, RefundOutcome } from '../components/order';
 import { PickupModal } from '../components/shipments';
 import CodSentPanel from '../components/order/CodSentPanel';
 import { OrderReturnTermsCard } from '../components/returns/ReturnTerms';
+import { OrderReturnsCard, returnParcelsOf, useOrderReturns } from '../components/returns/OrderReturns';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import InfoTip from '../components/common/InfoTip';
 import { Button } from "@/components/ui/button";
@@ -113,6 +114,9 @@ const OrderDetail: React.FC = () => {
     return null;
   }
   const { canAccess, hasPerm } = useAuth();
+  // RET-PICKUP-2 §3: the returns raised on this order (the Returns card and the return parcels), read by the route id.
+  const orderReturns = useOrderReturns(id, canAccess('returns') && hasPerm('returns.read'));
+  const returnParcels = returnParcelsOf(orderReturns.items);
   const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
@@ -1383,11 +1387,12 @@ const OrderDetail: React.FC = () => {
               table now carries Shipped / To ship per line; this carries the
               other half — the parcels themselves, what each one holds, its AWB
               and where it has got to. */}
-          {(order.shipments?.length || order.fulfillment?.partially_shipped) ? (
+          {(order.shipments?.length || order.fulfillment?.partially_shipped || returnParcels.length) ? (
             <OrderFulfillmentCard
               fulfillment={order.fulfillment}
               shipments={order.shipments}
               sla={order.sla}
+              returnParcels={returnParcels}
             />
           ) : null}
 
@@ -1400,6 +1405,17 @@ const OrderDetail: React.FC = () => {
           {/* WHAT EACH ITEM MAY STILL COME BACK FOR (DEC-086): the server enforces each
               item's return policy, so the desk sees the same windows and refusals the shopper
               does. Shown once the order is delivered; the windows count from that day. */}
+          {/* THE RETURNS RAISED ON THIS ORDER (RET-PICKUP-2 §3): lines, reason, photos, collection, charges,
+              settlement; the return number opens it on the returns desk. Nothing is drawn without a return. */}
+          {canAccess('returns') && hasPerm('returns.read') && (
+            <OrderReturnsCard
+              items={orderReturns.items}
+              meta={orderReturns.meta}
+              loading={orderReturns.loading}
+              error={orderReturns.error}
+            />
+          )}
+
           {canAccess('returns') && hasPerm('returns.read') && (
             <OrderReturnTermsCard
               orderRef={order._id || order.id || order.orderId}

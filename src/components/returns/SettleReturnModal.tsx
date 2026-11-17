@@ -15,7 +15,9 @@ import { inrMinor } from '../../components/erp';
  *
  * It never computes money. Every figure shown comes from the return document's
  * own server-derived `eligible_amount_minor` — the customer's asking price is
- * displayed separately, and never as the payable amount.
+ * displayed separately, and never as the payable amount. With charges on the
+ * return (RET-PICKUP-2), the server's preview gives the goods credit, each
+ * charge and the net amount that is refunded or credited.
  */
 
 export type Resolution = 'refund' | 'replacement' | 'store_credit';
@@ -86,7 +88,13 @@ const SettleReturnModal: React.FC<Props> = ({ returnDoc, onClose, onSettled }) =
   // The credit note's own figure (RET-NET-1), priced by the backend and written nowhere: each
   // item's share of the order discount and coupon is already off. The lines' stored amounts are
   // only the fallback (a return raised before 13 Nov 2026 stored the undiscounted price).
-  const [preview, setPreview] = useState<{ credit: number; list: number; share: number } | null>(null);
+  // RET-PICKUP-2 §4: the charges the customer bears come off it; `net` is what is refunded or credited.
+  const [preview, setPreview] = useState<{
+    credit: number; list: number; share: number;
+    charges: Array<{ id: string; label: string; amount_minor: number; note?: string | null }>;
+    chargesMinor: number; net: number | null;
+  } | null>(null);
+  const docCharges: any[] = Array.isArray(returnDoc?.charges) ? returnDoc.charges : [];
   const chosenKey = chosenIds.join(',');
   useEffect(() => {
     if (!returnDoc?.id || alreadySettled || chosenIds.length === 0) { setPreview(null); return; }
@@ -99,18 +107,27 @@ const SettleReturnModal: React.FC<Props> = ({ returnDoc, onClose, onSettled }) =
         if (cancelled) return;
         const d: any = payload<any>(res);
         const r: any = d?.result ?? d;
-        const credit = Number(r?.creditMinor ?? r?.credit_minor);
+        const credit = Number(r?.goodsCreditMinor ?? r?.creditMinor ?? r?.credit_minor);
+        const net = Number(r?.netMinor ?? r?.net_minor);
         setPreview(Number.isFinite(credit) ? {
           credit,
           list: Number(r?.listMinor ?? r?.list_minor ?? 0),
           share: Number(r?.discountShareMinor ?? r?.discount_share_minor ?? 0),
+          charges: Array.isArray(r?.charges) ? r.charges : [],
+          chargesMinor: Number(r?.chargesMinor ?? r?.charges_minor ?? 0) || 0,
+          net: Number.isFinite(net) ? net : null,
         } : null);
       })
       .catch(() => { if (!cancelled) setPreview(null); });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [returnDoc?.id, resolution, chosenKey, alreadySettled]);
-  const figure = preview ? preview.credit : chosenValue;
+  const figure = preview ? (preview.net ?? preview.credit) : chosenValue;
+  /** Charges on the return: from the preview when it answered, else the return's own list. */
+  const hasCharges = preview ? preview.charges.length > 0 || preview.chargesMinor > 0 : docCharges.length > 0;
+  // The server refuses a replacement that carries charges, and charges above the goods credit (RET-PICKUP-2 §4).
+  const replacementBlocked = resolution === 'replacement' && hasCharges;
+  const chargesTooHigh = !!preview && preview.net !== null && preview.net < 0;
 
   const submit = async () => {
     setBusy(true); setError('');
@@ -238,7 +255,38 @@ const SettleReturnModal: React.FC<Props> = ({ returnDoc, onClose, onSettled }) =
                     items' share of the order discount and coupon the customer did not pay.
                   </p>
                 )}
+                {preview && hasCharges && (
+                  <div className="text-xs mb-2 rounded-md border border-border bg-background divide-y divide-border">
+                    <div className="flex justify-between gap-3 px-2.5 py-1.5">
+                      <span>Goods credit</span>
+                      <span className="tabular-nums">{inrMinor(preview.credit)}</span>
+                    </div>
+                    {preview.charges.map((c) => (
+                      <div key={c.id} className="flex justify-between gap-3 px-2.5 py-1.5 text-muted-foreground">
+                        <span className="min-w-0 break-words">Less {c.label}{c.note ? ` (${c.note})` : ''}</span>
+                        <span className="tabular-nums whitespace-nowrap">{inrMinor(c.amount_minor)}</span>
+                      </div>
+                    ))}
+                    {preview.net !== null && (
+                      <div className="flex justify-between gap-3 px-2.5 py-1.5 font-medium">
+                        <span>Net to {resolution === 'store_credit' ? 'credit' : 'refund'}</span>
+                        <span className="tabular-nums">{inrMinor(preview.net)}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <p className="text-xs text-muted-foreground leading-relaxed">{opt.consequence}</p>
+                {hasCharges && (
+                  <p className={`text-xs mt-2 ${replacementBlocked ? 'text-destructive font-medium' : 'text-muted-foreground'}`}>
+                    A replacement cannot carry charges. To send one, remove the charges first; otherwise settle as a
+                    refund or store credit.
+                  </p>
+                )}
+                {chargesTooHigh && (
+                  <p className="text-xs mt-2 text-destructive font-medium">
+                    The charges are more than the goods credit, so this cannot be settled. Lower or remove a charge.
+                  </p>
+                )}
                 {returnDoc?.claimed_amount_minor != null
                   && Number(returnDoc.claimed_amount_minor) !== figure && (
                   <p className="text-xs text-muted-foreground mt-2 pt-2 border-t border-border">
@@ -277,7 +325,7 @@ const SettleReturnModal: React.FC<Props> = ({ returnDoc, onClose, onSettled }) =
           </button>
           <button
             onClick={submit}
-            disabled={busy || receivedLines.length === 0 || chosenIds.length === 0 || alreadySettled}
+            disabled={busy || receivedLines.length === 0 || chosenIds.length === 0 || alreadySettled || replacementBlocked || chargesTooHigh}
             className="px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground font-medium
                        hover:bg-primary/90 disabled:opacity-50 inline-flex items-center gap-2"
           >

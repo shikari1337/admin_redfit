@@ -1,6 +1,7 @@
 import React from 'react';
 import { getStatusColorClass, getStatusLabel } from './StatusBadge';
 import { formatPicked, pickDate, HISTORY_DATE_KEYS } from '../../utils/date';
+import { returnEventLabel } from '../returns/returnWords';
 
 interface StatusHistoryEntry {
   status: string;
@@ -18,6 +19,9 @@ interface StatusHistoryEntry {
   changed_by?: string;
   notes?: string;
   location?: string;
+  /** A return event (RET-PICKUP-2 §3: `return_approved`, `return_pickup_booked` ...). `status` is then the order's
+   *  status after it, often unchanged, so the entry is labelled by the event, and `notes` say which return. */
+  event?: string | null;
 }
 
 interface OrderStatusHistoryProps {
@@ -60,10 +64,12 @@ const OrderStatusHistory: React.FC<OrderStatusHistoryProps> = ({ statusHistory }
             const changedBy = (typeof entry.changedBy === 'string'
               ? entry.changedBy
               : entry.changedBy?.name || entry.changedBy?.email) || entry.changed_by;
+            const returnEvent = typeof entry.event === 'string' && entry.event ? entry.event : null;
             return (
               <li key={index} className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 py-1.5">
-                <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${getStatusColorClass('order', entry.status)}`}>
-                  {getStatusLabel('order', entry.status)}
+                <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                  getStatusColorClass('order', returnEvent ? 'returned' : entry.status)}`}>
+                  {returnEvent ? returnEventLabel(returnEvent) : getStatusLabel('order', entry.status)}
                 </span>
                 {/* Date AND time — an ops timeline is useless without the clock. */}
                 <span className="whitespace-nowrap text-xs font-bold tabular-nums text-slate-600">

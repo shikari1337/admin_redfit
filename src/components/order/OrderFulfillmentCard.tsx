@@ -1,7 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from '../../utils/date';
+import ShipmentDetailDrawer from '../shipments/ShipmentDetailDrawer';
+import ShipmentTimeline from '../shipments/ShipmentTimeline';
+import type { ReturnParcel } from '../returns/OrderReturns';
+import { TrackingLink, carrierOf, spaced } from '../returns/ReturnPickup';
 
 interface FulfillmentLine {
   sku: string;
@@ -51,14 +55,19 @@ interface Props {
    * addresses footer strip, beside "Invoiced by".
    */
   variant?: 'card' | 'inline';
+  /** The order's return collections (RET-PICKUP-2 §3): each attempt with its carrier tracking events, drawn
+   *  beside the forward parcels so the package's whole life reads in one place. */
+  returnParcels?: ReturnParcel[] | null;
 }
 
 /**
  * Fulfillment picture for one order: how many units are on their way, which
  * parcel carries what, and whether the store is inside its dispatch SLA.
  */
-const OrderFulfillmentCard: React.FC<Props> = ({ fulfillment, shipments, sla, variant = 'card' }) => {
-  if (!fulfillment && !(shipments?.length) && !sla) return null;
+const OrderFulfillmentCard: React.FC<Props> = ({ fulfillment, shipments, sla, variant = 'card', returnParcels }) => {
+  /** The parcel whose tracking events are open (the shipment drawer, the one place a forward parcel's events show). */
+  const [trackId, setTrackId] = useState<string | null>(null);
+  if (!fulfillment && !(shipments?.length) && !sla && !(returnParcels?.length)) return null;
   const f = fulfillment;
   const pct = f && f.total_qty > 0 ? Math.round((f.shipped_qty / f.total_qty) * 100) : 0;
   const expectedShipBy = sla?.expectedShipBy ?? sla?.expected_ship_by;
@@ -243,12 +252,51 @@ const OrderFulfillmentCard: React.FC<Props> = ({ fulfillment, shipments, sla, va
                       {s.items.map((i) => `${i.name} × ${i.quantity}`).join(', ')}
                     </div>
                   )}
+                  <button type="button" onClick={() => setTrackId(s.id)}
+                          className="mt-1 text-xs font-medium text-blue-600 hover:underline">
+                    Tracking events
+                  </button>
                 </div>
               );
             })}
           </div>
         )}
+
+        {/* The way back: each return collection with the carrier's tracking events, beside the parcels out. */}
+        {(returnParcels?.length ?? 0) > 0 && (
+          <div className="space-y-2">
+            <p className="text-sm font-semibold text-foreground">Return parcels ({returnParcels!.length})</p>
+            {returnParcels!.map(({ returnId, returnNumber, pickup: p }, i) => (
+              <div key={p.shipment_id ?? `${returnId}-${i}`} className="border rounded-md px-3 py-2 text-sm">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="font-medium">
+                    {p.shipment_number ?? 'Collection'}
+                    <span className="font-normal text-muted-foreground"> for return {returnNumber}</span>
+                    {p.attempt_no != null && <span className="font-normal text-muted-foreground">, attempt {p.attempt_no}</span>}
+                  </span>
+                  {p.status && <Badge variant="secondary" className="capitalize text-[10px]">{spaced(p.status)}</Badge>}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1 flex flex-wrap gap-x-3">
+                  <span className="capitalize">{carrierOf(p) || 'Carrier not known yet'}</span>
+                  {p.awb
+                    ? (p.tracking_url ? <TrackingLink url={p.tracking_url}><span className="font-mono">{p.awb}</span></TrackingLink> : <span className="font-mono">{p.awb}</span>)
+                    : <span>No AWB yet</span>}
+                  {p.tracking_status && <span className="capitalize">{spaced(p.tracking_status)}</span>}
+                </div>
+                <details className="mt-1">
+                  <summary className="cursor-pointer text-xs font-medium text-blue-600">
+                    Tracking events ({Array.isArray(p.timeline) ? p.timeline.length : 0})
+                  </summary>
+                  <div className="mt-2">
+                    <ShipmentTimeline events={p.timeline} emptyText="The carrier has not reported any tracking events yet." />
+                  </div>
+                </details>
+              </div>
+            ))}
+          </div>
+        )}
       </CardContent>
+      <ShipmentDetailDrawer shipmentId={trackId} onClose={() => setTrackId(null)} />
     </Card>
   );
 };

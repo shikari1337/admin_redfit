@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { X, Loader2, AlertTriangle, Search, Camera, Trash2, RotateCcw } from 'lucide-react';
 import { api } from '../../services/api';
 import { payload } from '@/lib/unwrap';
@@ -16,6 +16,12 @@ import { ReturnTermsLine, outcomeOf, type EligibleLine as EligLine } from './Ret
  * an item not returnable, replaceable or refundable, or past its window) can still be raised, but
  * only as a recorded exception with a reason, which the server keeps on the return and on the
  * order's activity with the person who raised it.
+ *
+ * RET-PICKUP-2 (owner 17 Nov 2026: "add option to select iteams ... add option to add photos for return, make it
+ * mandatory"): every line of the order is listed; the desk ticks the ones coming back, sets how many (1 to the
+ * line's `qty_returnable`) and the reason for each. A line with nothing returnable is shown, greyed, with the
+ * server's reason. Photos follow the store's photo rule (`photo_policy` on the eligibility answer, else
+ * `/returns/meta`): while it is required, the return cannot be raised with fewer than `min_photos`.
  */
 
 interface Photo { url: string; mime?: string | null; type?: string | null; bytes?: number | null }
@@ -32,8 +38,12 @@ const RaiseReturnModal: React.FC<Props> = ({ meta, onClose, onRaised }) => {
   const [orderRef, setOrderRef] = useState('');
   const [checking, setChecking] = useState(false);
   const [elig, setElig] = useState<any>(null);
+  /** Units coming back per ticked line (a line is ticked while it is above 0). */
   const [qty, setQty] = useState<Record<string, number>>({});
-  const [reasonCode, setReasonCode] = useState('');
+  /** The reason per ticked line (`/returns/meta` return_reasons codes). */
+  const [lineReason, setLineReason] = useState<Record<string, string>>({});
+  /** A stricter photo minimum the server named when it refused (422 `photos_required`). */
+  const [serverMinPhotos, setServerMinPhotos] = useState(0);
   const [resolution, setResolution] = useState('');
   const [mode, setMode] = useState('');
   const [notes, setNotes] = useState('');
@@ -52,17 +62,26 @@ const RaiseReturnModal: React.FC<Props> = ({ meta, onClose, onRaised }) => {
   const modes: any[] = meta?.modes ?? [];
   const maxPhotos = Number(meta?.limits?.photosPerRequest ?? meta?.limits?.photos_per_request ?? MAX_PHOTOS_FALLBACK);
 
-  const reason = reasons.find((r) => r.code === reasonCode) ?? null;
-  const photoRequired = !!(reason?.photo_required ?? reason?.photoRequired);
-  // The outcomes this reason offers first (the server's list), else every outcome.
-  const offered = useMemo(() => {
-    const codes: string[] | null = Array.isArray(reason?.resolutions) && reason.resolutions.length ? reason.resolutions : null;
-    return codes ? allResolutions.filter((o) => codes.includes(o.code) || o.code === 'undecided') : allResolutions;
-  }, [reason, allResolutions]);
+  const reasonOf = (code?: string | null) => reasons.find((r) => r.code === code) ?? null;
 
   const lines: EligLine[] = elig?.lines ?? [];
   const returnable = lines.filter((l) => Number(l.qty_returnable) > 0);
   const chosen = returnable.filter((l) => (qty[l.order_item_id] ?? 0) > 0);
+  const chosenReasons = chosen.map((l) => reasonOf(lineReason[l.order_item_id]));
+  const reasonCode = chosen.map((l) => lineReason[l.order_item_id]).find((c) => !!c) ?? '';
+  // The outcomes the chosen reasons offer first (the server's lists), else every outcome.
+  const offeredCodes = new Set<string>(chosenReasons.flatMap((r) => (Array.isArray(r?.resolutions) ? r.resolutions : [])));
+  const offered = offeredCodes.size
+    ? allResolutions.filter((o) => offeredCodes.has(o.code) || o.code === 'undecided')
+    : allResolutions;
+
+  // Photos: the store's rule for this order (the strictest of its items' policies), else the store default;
+  // a reason that asks for a photo needs at least one; the server's own minimum when it refused.
+  const policy = elig?.photo_policy ?? elig?.photoPolicy ?? meta?.photo_policy ?? meta?.photoPolicy ?? null;
+  const policyMin = policy?.required ? Math.max(0, Number(policy.min_photos ?? policy.minPhotos ?? 1) || 0) : 0;
+  const reasonNeedsPhoto = chosenReasons.some((r) => !!(r?.photo_required ?? r?.photoRequired));
+  const minPhotos = Math.max(policyMin, reasonNeedsPhoto ? 1 : 0, serverMinPhotos);
+  const photosShort = Math.max(0, minPhotos - photos.length);
   // What the server will refuse, in its own words: the order's reason, then each chosen item's
   // for the outcome asked (left open = decided after checking the goods). The server judges again
   // when the return is raised; this only lets the desk give its reason first.
@@ -80,11 +99,12 @@ const RaiseReturnModal: React.FC<Props> = ({ meta, onClose, onRaised }) => {
     e?.preventDefault();
     const ref = orderRef.trim();
     if (!ref) { setError('Enter the order number.'); return; }
-    setChecking(true); setError(''); setServerRefusal(''); setElig(null); setQty({}); setOverride(false); setOverrideReason('');
+    setChecking(true); setError(''); setServerRefusal(''); setElig(null); setQty({}); setLineReason({}); setServerMinPhotos(0);
+    setOverride(false); setOverrideReason('');
     try {
       const d = payload<any>(await api.get(`/returns/eligibility/${encodeURIComponent(ref)}`));
       setElig(d);
-      // One line: it is the one coming back. Several: the desk picks.
+      // One line: it is the one coming back. Several: the desk ticks.
       const open = (d?.lines ?? []).filter((l: EligLine) => Number(l.qty_returnable) > 0);
       if (open.length === 1) setQty({ [open[0].order_item_id]: Number(open[0].qty_returnable) });
     } catch (err: any) {
@@ -92,8 +112,26 @@ const RaiseReturnModal: React.FC<Props> = ({ meta, onClose, onRaised }) => {
     } finally { setChecking(false); }
   };
 
+  /** A ticked line keeps 1 to its returnable units; unticking is the checkbox. */
   const setLineQty = (l: EligLine, n: number) =>
-    setQty((q) => ({ ...q, [l.order_item_id]: Math.max(0, Math.min(Number(l.qty_returnable), n)) }));
+    setQty((q) => ({ ...q, [l.order_item_id]: Math.max(1, Math.min(Number(l.qty_returnable), n)) }));
+
+  /** Tick: every returnable unit is coming back (the usual case), with the reason last chosen; untick: none. */
+  const toggleLine = (l: EligLine, on: boolean) => {
+    const id = l.order_item_id;
+    setQty((q) => ({ ...q, [id]: on ? Number(l.qty_returnable) : 0 }));
+    if (on && !lineReason[id]) {
+      const last = chosen.map((c) => lineReason[c.order_item_id]).filter(Boolean).pop();
+      if (last) setLineReason((r) => ({ ...r, [id]: last }));
+    }
+  };
+
+  const pickReason = (l: EligLine, code: string) => {
+    setLineReason((r) => ({ ...r, [l.order_item_id]: code }));
+    // The reason's first outcome, while the desk has not chosen one.
+    const first = Array.isArray(reasonOf(code)?.resolutions) ? reasonOf(code).resolutions[0] : '';
+    if (first && !resolution) setResolution(first);
+  };
 
   const upload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -116,11 +154,19 @@ const RaiseReturnModal: React.FC<Props> = ({ meta, onClose, onRaised }) => {
     }
   };
 
+  /** "Add 2 more photos of the item. This store asks for at least 3 on a return." */
+  const photoSentence = photosShort > 0
+    ? `Add ${photosShort} more photo${photosShort === 1 ? '' : 's'} of the item. ${
+      minPhotos === policyMin || minPhotos === serverMinPhotos
+        ? `This store asks for at least ${minPhotos} on a return.`
+        : 'The reason chosen needs a photo.'}`
+    : '';
+
   const problems: string[] = [];
   if (elig) {
-    if (chosen.length === 0) problems.push('Choose at least one item and how many are coming back.');
-    if (!reasonCode) problems.push('Choose the reason.');
-    if (photoRequired && photos.length === 0) problems.push('This reason needs at least one photo of the item.');
+    if (chosen.length === 0) problems.push('Tick at least one item and say how many are coming back.');
+    if (chosen.some((l) => !lineReason[l.order_item_id])) problems.push('Choose the reason for each ticked item.');
+    if (photoSentence) problems.push(photoSentence);
     if (refused && !override) problems.push('The policy refuses this return. Raise it as an exception, with the reason, or close.');
     if (refused && override && !overrideReason.trim()) problems.push('Say why this exception is being made.');
   }
@@ -131,19 +177,36 @@ const RaiseReturnModal: React.FC<Props> = ({ meta, onClose, onRaised }) => {
     try {
       const res = await api.post('/returns', {
         order: elig?.order_id || elig?.order_number || orderRef.trim(),
+        // The return's own reason: the first ticked item's; each item carries its own below.
         reasonCode,
         // Left open is said as such: an absent outcome is read by the server as a refund.
         resolution: resolution || 'undecided',
         returnMode: mode || undefined,
         notes: notes.trim() || undefined,
         photos: photos.length ? photos : undefined,
-        items: chosen.map((l) => ({ orderItemId: l.order_item_id, quantity: qty[l.order_item_id] })),
+        items: chosen.map((l) => ({
+          orderItemId: l.order_item_id,
+          quantity: qty[l.order_item_id],
+          reasonCode: lineReason[l.order_item_id],
+        })),
         overrideWindow: refused && override ? true : undefined,
         overrideReason: refused && override ? overrideReason.trim() : undefined,
       });
       onRaised(payload<any>(res));
     } catch (err: any) {
-      const msg = err?.response?.data?.message || err?.message || 'Could not raise this return.';
+      const data = err?.response?.data;
+      const msg = data?.message || err?.message || 'Could not raise this return.';
+      // 422 `photos_required` (RET-PICKUP-2 §1): fewer photos than the store's rule. Said in words, never
+      // taken for a policy refusal (that one the desk may override as an exception).
+      const photosRefused = data?.details?.code === 'photos_required' || /photos_required$/.test(String(data?.code ?? ''));
+      if (err?.response?.status === 422 && photosRefused) {
+        const n = Number(data?.details?.min_photos ?? data?.details?.minPhotos);
+        if (Number.isFinite(n) && n > 0) setServerMinPhotos(n);
+        setError(Number.isFinite(n) && n > 0
+          ? `The return was not raised: this store needs at least ${n} photo${n === 1 ? '' : 's'} of the item, and ${photos.length} ${photos.length === 1 ? 'is' : 'are'} attached. Add the rest and raise it again.`
+          : msg);
+        return;
+      }
       // 422: the policy refuses it (DEC-086). The desk can raise it as an exception, with its reason.
       if (err?.response?.status === 422 && !(refused && override)) setServerRefusal(msg);
       setError(msg);
@@ -210,33 +273,65 @@ const RaiseReturnModal: React.FC<Props> = ({ meta, onClose, onRaised }) => {
                 )}
               </div>
 
-              {/* What is coming back */}
+              {/* What is coming back: every line of the order; tick the ones coming back, how many, and why. */}
               <div>
                 <p className="text-sm font-medium mb-2">What is coming back?</p>
-                {returnable.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Nothing on this order can still be returned.</p>
-                ) : (
+                {returnable.length === 0 && (
+                  <p className="text-sm text-muted-foreground mb-2">Nothing on this order can still be returned.</p>
+                )}
+                {lines.length > 0 && (
                   <div className="border border-border rounded-lg divide-y divide-border">
-                    {returnable.map((l) => {
-                      const n = qty[l.order_item_id] ?? 0;
+                    {lines.map((l) => {
+                      const id = l.order_item_id;
+                      const canTick = Number(l.qty_returnable) > 0;
+                      const n = qty[id] ?? 0;
+                      const ticked = canTick && n > 0;
+                      const why = l.reason
+                        ?? (Number(l.qty_already_returned) >= Number(l.qty_ordered)
+                          ? 'Every unit of this item is already in a return.'
+                          : 'Nothing on this line can be returned.');
                       return (
-                        <div key={l.order_item_id} className="flex items-center gap-3 p-2.5 flex-wrap">
-                          <span className="flex-1 min-w-[10rem]">
-                            <span className="block text-sm">{l.name ?? l.sku ?? 'Item'}</span>
-                            <span className="block text-xs text-muted-foreground">
-                              <span className="font-mono">{l.sku}</span>
-                              {' '}{l.qty_returnable} of {l.qty_ordered} not yet in a return
-                              {l.eligible_amount_minor != null && <>, worth up to {inrMinor(Number(l.eligible_amount_minor))}</>}
+                        <div key={id} className={`p-2.5 ${canTick ? '' : 'opacity-60'}`}>
+                          <div className="flex items-start gap-3 flex-wrap">
+                            <input type="checkbox" checked={ticked} disabled={!canTick}
+                                   onChange={(e) => toggleLine(l, e.target.checked)}
+                                   aria-label={`Return ${l.name ?? l.sku ?? 'this item'}`}
+                                   className="h-4 w-4 mt-0.5 accent-primary disabled:cursor-not-allowed" />
+                            <span className="flex-1 min-w-[10rem]">
+                              <span className="block text-sm">{l.name ?? l.sku ?? 'Item'}</span>
+                              <span className="block text-xs text-muted-foreground">
+                                <span className="font-mono">{l.sku}</span>
+                                {' '}{l.qty_returnable} of {l.qty_ordered} not yet in a return
+                                {canTick && l.eligible_amount_minor != null && <>, worth up to {inrMinor(Number(l.eligible_amount_minor))}</>}
+                              </span>
+                              {canTick
+                                ? <span className="block mt-1.5"><ReturnTermsLine line={l} /></span>
+                                : <span className="block mt-1 text-xs text-amber-700 dark:text-amber-300">{why}</span>}
                             </span>
-                            <span className="block mt-1.5"><ReturnTermsLine line={l} /></span>
-                          </span>
-                          <span className="inline-flex items-center gap-1">
-                            <button type="button" aria-label="Fewer" onClick={() => setLineQty(l, n - 1)}
-                                    className="h-8 w-8 rounded-md border border-border hover:bg-muted">-</button>
-                            <span className="w-8 text-center text-sm font-semibold tabular-nums">{n}</span>
-                            <button type="button" aria-label="More" onClick={() => setLineQty(l, n + 1)}
-                                    className="h-8 w-8 rounded-md border border-border hover:bg-muted">+</button>
-                          </span>
+                            {ticked && (
+                              <span className="inline-flex items-center gap-1">
+                                <button type="button" aria-label="Fewer" onClick={() => setLineQty(l, n - 1)} disabled={n <= 1}
+                                        className="h-8 w-8 rounded-md border border-border hover:bg-muted disabled:opacity-40">-</button>
+                                <span className="w-8 text-center text-sm font-semibold tabular-nums">{n}</span>
+                                <button type="button" aria-label="More" onClick={() => setLineQty(l, n + 1)} disabled={n >= Number(l.qty_returnable)}
+                                        className="h-8 w-8 rounded-md border border-border hover:bg-muted disabled:opacity-40">+</button>
+                              </span>
+                            )}
+                          </div>
+                          {ticked && (
+                            <label className="block mt-2 ml-7 text-sm">
+                              <span className="sr-only">Reason for {l.name ?? l.sku ?? 'this item'}</span>
+                              <select value={lineReason[id] ?? ''} onChange={(e) => pickReason(l, e.target.value)}
+                                      className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm">
+                                <option value="">Why is it coming back?</option>
+                                {reasons.map((r) => (
+                                  <option key={r.code} value={r.code}>
+                                    {r.label}{(r.photo_required ?? r.photoRequired) ? ' (photo needed)' : ''}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          )}
                         </div>
                       );
                     })}
@@ -244,27 +339,9 @@ const RaiseReturnModal: React.FC<Props> = ({ meta, onClose, onRaised }) => {
                 )}
               </div>
 
-              {/* Why, and what they want */}
+              {/* What they want, and how it comes back */}
               <div className="grid sm:grid-cols-2 gap-3">
-                <label className="text-sm">
-                  <span className="block font-medium mb-1">Reason</span>
-                  <select value={reasonCode}
-                          onChange={(e) => {
-                            setReasonCode(e.target.value);
-                            const def = reasons.find((r) => r.code === e.target.value);
-                            const first = Array.isArray(def?.resolutions) ? def.resolutions[0] : '';
-                            if (first) setResolution(first);
-                          }}
-                          className="w-full rounded-md border border-border bg-background px-2 py-2 text-sm">
-                    <option value="">Choose a reason</option>
-                    {reasons.map((r) => (
-                      <option key={r.code} value={r.code}>
-                        {r.label}{(r.photo_required ?? r.photoRequired) ? ' (photo needed)' : ''}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="text-sm">
+                <label className="text-sm sm:col-span-2">
                   <span className="block font-medium mb-1">They want</span>
                   <select value={resolution} onChange={(e) => setResolution(e.target.value)}
                           className="w-full rounded-md border border-border bg-background px-2 py-2 text-sm">
@@ -329,7 +406,9 @@ const RaiseReturnModal: React.FC<Props> = ({ meta, onClose, onRaised }) => {
               <div>
                 <div className="flex items-center justify-between gap-2 mb-1.5">
                   <span className="text-sm font-medium">
-                    Photos {photoRequired ? <span className="text-destructive">(needed for this reason)</span> : <span className="text-muted-foreground font-normal">(optional)</span>}
+                    Photos {minPhotos > 0
+                      ? <span className="text-destructive">(at least {minPhotos} needed)</span>
+                      : <span className="text-muted-foreground font-normal">(optional)</span>}
                   </span>
                   {photos.length < maxPhotos && (
                     <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}
@@ -355,6 +434,7 @@ const RaiseReturnModal: React.FC<Props> = ({ meta, onClose, onRaised }) => {
                     ))}
                   </div>
                 )}
+                {photoSentence && <p className="text-xs text-destructive mt-1.5">{photoSentence}</p>}
               </div>
             </>
           )}
@@ -364,7 +444,11 @@ const RaiseReturnModal: React.FC<Props> = ({ meta, onClose, onRaised }) => {
           )}
         </div>
 
-        <div className="flex justify-end gap-2 p-5 border-t border-border bg-muted/30 sticky bottom-0">
+        <div className="flex justify-end items-center gap-2 p-5 border-t border-border bg-muted/30 sticky bottom-0 flex-wrap">
+          {/* Why the button is off, in the open (the photos still needed, an item without a reason ...). */}
+          {elig && problems.length > 0 && (
+            <p className="mr-auto text-xs text-muted-foreground max-w-sm">{problems[0]}</p>
+          )}
           <button onClick={onClose} disabled={busy}
                   className="px-4 py-2 text-sm rounded-md border border-border hover:bg-muted disabled:opacity-50">
             Cancel

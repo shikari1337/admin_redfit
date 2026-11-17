@@ -43,11 +43,20 @@ interface ReturnPolicy {
   is_default?: boolean;
   /** How many products name this policy (books RETURN_POLICIES `product_count`). */
   product_count?: number | null;
+  /** RET-PICKUP-2 §1: a return of an item on this policy needs photos (default on) ... */
+  photos_required?: boolean | null;
+  /** ... at least this many, 0 to 8 (default 1). An order takes the strictest of its items' policies. */
+  min_photos?: number | null;
 }
 
 /** Mirrors DEFAULT_RETURN_WINDOW_DAYS in growcord-rs commerce service/orders/lifecycle.rs: the
  *  window an order gets when neither its products nor the store name one. */
 const DEFAULT_RETURN_WINDOW_DAYS = 7;
+
+/** The photo minimum a policy may ask (books RETURN_POLICIES `min_photos`, 0 to 8). */
+const MAX_MIN_PHOTOS = 8;
+/** What the table and the form start from when a policy has no photo rule saved (the server's seeded default). */
+const DEFAULT_MIN_PHOTOS = 1;
 
 /** How a returned product comes back (books RETURN_POLICIES `return_methods`). */
 const RETURN_METHODS: { value: string; label: string; hint: string }[] = [
@@ -82,6 +91,8 @@ const EMPTY_FORM = {
   return_shipping_fee: '',
   conditions: '',
   exceptions: '',
+  photos_required: true,
+  min_photos: String(DEFAULT_MIN_PHOTOS),
 };
 
 /** A json or text column as the text box shows it: `{}` and `[]` are nothing, never "[object Object]". */
@@ -200,6 +211,8 @@ const ReturnPolicies: React.FC = () => {
       return_shipping_fee: policy.return_shipping_fee != null ? String(policy.return_shipping_fee) : '',
       conditions: asText(policy.conditions),
       exceptions: asText(policy.exceptions),
+      photos_required: policy.photos_required !== false,
+      min_photos: policy.min_photos != null ? String(policy.min_photos) : String(DEFAULT_MIN_PHOTOS),
     });
     setFormError(null);
     setShowModal(true);
@@ -215,6 +228,11 @@ const ReturnPolicies: React.FC = () => {
     const fee = Number(form.return_shipping_fee);
     if (form.is_returnable && form.return_fees === 'return_shipping_fee' && !(Number.isFinite(fee) && fee > 0)) {
       setFormError('Give the return shipping fee the customer pays, or choose who pays another way.');
+      return;
+    }
+    const minPhotos = Number(form.min_photos);
+    if (form.photos_required && !(Number.isInteger(minPhotos) && minPhotos >= 0 && minPhotos <= MAX_MIN_PHOTOS)) {
+      setFormError(`Give the number of photos needed, a whole number from 0 to ${MAX_MIN_PHOTOS}.`);
       return;
     }
 
@@ -239,6 +257,9 @@ const ReturnPolicies: React.FC = () => {
       return_shipping_fee: form.return_fees === 'return_shipping_fee' ? fee : (editing ? null : undefined),
       conditions: form.conditions.trim() || (editing && !partial ? '' : undefined),
       exceptions: form.exceptions.trim() || (editing && !partial ? '' : undefined),
+      photos_required: form.photos_required,
+      // Off keeps the number saved, so turning photos back on restores it.
+      min_photos: Number.isInteger(minPhotos) && minPhotos >= 0 && minPhotos <= MAX_MIN_PHOTOS ? minPhotos : undefined,
     };
 
     try {
@@ -364,6 +385,7 @@ const ReturnPolicies: React.FC = () => {
                   <TableHead className="font-semibold px-4 py-3">Return window</TableHead>
                   <TableHead className="font-semibold px-4 py-3">Replacement</TableHead>
                   <TableHead className="font-semibold px-4 py-3">Refund</TableHead>
+                  <TableHead className="font-semibold px-4 py-3">Photos</TableHead>
                   <TableHead className="font-semibold px-4 py-3 text-right">Products</TableHead>
                   <TableHead className="font-semibold px-4 py-3 text-right">Actions</TableHead>
                 </TableRow>
@@ -371,13 +393,13 @@ const ReturnPolicies: React.FC = () => {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-48 text-center">
+                    <TableCell colSpan={7} className="h-48 text-center">
                       <Loader2 className="h-6 w-6 animate-spin inline text-muted-foreground" />
                     </TableCell>
                   </TableRow>
                 ) : policies.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-48 text-center text-muted-foreground">
+                    <TableCell colSpan={7} className="h-48 text-center text-muted-foreground">
                       <p className="font-medium">No return policies yet.</p>
                       <p className="text-xs mt-1">
                         Add one and mark it as the store default to set how long customers have to return an order.
@@ -418,6 +440,11 @@ const ReturnPolicies: React.FC = () => {
                               )}
                             </span>
                           ) : <span className="text-muted-foreground">No</span>}
+                        </TableCell>
+                        <TableCell className="px-4 py-3 text-sm whitespace-nowrap">
+                          {policy.photos_required === false
+                            ? <span className="text-muted-foreground">Optional</span>
+                            : `At least ${policy.min_photos ?? DEFAULT_MIN_PHOTOS}`}
                         </TableCell>
                         <TableCell className="px-4 py-3 text-sm text-right tabular-nums">
                           {count == null ? <span className="text-muted-foreground">-</span> : count === 0 ? <span className="text-muted-foreground">None</span> : count}
@@ -681,6 +708,41 @@ const ReturnPolicies: React.FC = () => {
                   )}
                   {!form.is_refundable && (
                     <p className="text-xs text-muted-foreground">Off: a request for a refund or store credit for this item is refused.</p>
+                  )}
+                </div>
+
+                {/* Photos with a return (RET-PICKUP-2 §1, owner 17 Nov 2026: "add option to add photos for return,
+                    make it mandatory"). Enforced by the server on the shop's form and the desk's. */}
+                <div className="space-y-3 p-4 border border-border rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <Switch
+                      id="photos-required"
+                      checked={form.photos_required}
+                      onCheckedChange={checked => setForm(f => ({ ...f, photos_required: checked }))}
+                    />
+                    <Label htmlFor="photos-required" className="cursor-pointer font-medium">Photos needed with a return</Label>
+                  </div>
+                  {form.photos_required && (
+                    <div className="space-y-2">
+                      <Label htmlFor="min-photos">Photos needed (at least)</Label>
+                      <Input
+                        id="min-photos"
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        max={MAX_MIN_PHOTOS}
+                        step={1}
+                        value={form.min_photos}
+                        onChange={e => setForm(f => ({ ...f, min_photos: e.target.value }))}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        0 to {MAX_MIN_PHOTOS}. A return of this item cannot be raised, by the customer or by your desk, with
+                        fewer photos. When an order holds items on different policies, the strictest one applies.
+                      </p>
+                    </div>
+                  )}
+                  {!form.photos_required && (
+                    <p className="text-xs text-muted-foreground">Off: photos are optional when this item is returned.</p>
                   )}
                 </div>
 

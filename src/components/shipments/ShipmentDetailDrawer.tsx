@@ -10,6 +10,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { formatDate, formatPickupWhen } from '../../utils/date';
+import ShipmentTimeline from './ShipmentTimeline';
 
 interface ShipmentDetailDrawerProps {
   shipmentId: string | null;
@@ -54,7 +55,6 @@ const ShipmentDetailDrawer: React.FC<ShipmentDetailDrawerProps> = ({ shipmentId,
   }, [shipmentId]);
 
   const milestones: Record<string, string> = shipment?.milestones ?? {};
-  const timeline: any[] = Array.isArray(shipment?.timeline) ? [...shipment.timeline].reverse() : [];
   const ndr = shipment?.ndrDetails;
 
   return (
@@ -165,26 +165,11 @@ const ShipmentDetailDrawer: React.FC<ShipmentDetailDrawerProps> = ({ shipmentId,
               </div>
             </div>
 
-            {/* Full raw timeline — complete audit trail */}
+            {/* Full raw timeline, the complete audit trail (one list for every parcel: ShipmentTimeline) */}
             <Separator />
             <div>
               <h3 className="text-sm font-semibold mb-3">Full timeline</h3>
-              {timeline.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No timeline events yet.</p>
-              ) : (
-                <div className="space-y-3">
-                  {timeline.map((e: any, i: number) => (
-                    <div key={i} className="text-sm border-l-2 border-slate-200 pl-3">
-                      <p className="font-medium">{e.event || e.description || 'Update'}</p>
-                      {e.description && e.description !== e.event && (
-                        <p className="text-xs text-muted-foreground">{e.description}</p>
-                      )}
-                      {e.location && <p className="text-xs text-muted-foreground">{e.location}</p>}
-                      <p className="text-xs text-muted-foreground">{safeDate(e.timestamp) || ''}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <ShipmentTimeline events={shipment.timeline} />
             </div>
           </div>
         )}

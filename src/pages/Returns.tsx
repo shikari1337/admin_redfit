@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   RotateCcw, RefreshCw, Camera, Plus,
   AlertTriangle, ExternalLink, Loader2,
@@ -105,6 +105,18 @@ const Returns: React.FC = () => {
     try { setSelected(payload<any>(await api.get(`/returns/${row.id}`))); }
     catch { setSelected(row); }
   };
+
+  // `/returns?open=<id>`: the order page's returns link straight to one return (RET-PICKUP-2 §3).
+  const [searchParams, setSearchParams] = useSearchParams();
+  const openId = searchParams.get('open');
+  useEffect(() => {
+    if (!openId) return;
+    openRow({ id: openId });
+    const next = new URLSearchParams(searchParams);
+    next.delete('open');
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openId]);
 
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 

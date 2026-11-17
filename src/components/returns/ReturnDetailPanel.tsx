@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   X, Loader2, PackageCheck, CheckCircle2, XCircle, ExternalLink, Clock,
-  ShieldAlert, Receipt, RotateCcw, Trash2, Recycle, Truck, Undo2,
+  ShieldAlert, Receipt, RotateCcw, Trash2, Recycle, Truck, Undo2, Ban, IndianRupee,
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { payload } from '@/lib/unwrap';
@@ -11,7 +11,9 @@ import { formatDate, formatDateTime } from '../../utils/date';
 import ReturnPhotos from './ReturnPhotos';
 import ReceiveGoodsModal from './ReceiveGoodsModal';
 import SettleReturnModal from './SettleReturnModal';
-import { RESOLUTION_META, STATUS_LABEL, STATUS_TONE } from './returnWords';
+import ReturnPickup, { earlierPickups } from './ReturnPickup';
+import ReturnCharges from './ReturnCharges';
+import { RESOLUTION_META, STATUS_LABEL, STATUS_TONE, stepResult, wordsFor } from './returnWords';
 import { ReturnTermsLine, useReturnEligibility, type EligibleLine } from './ReturnTerms';
 
 /**
@@ -65,8 +67,16 @@ const ReturnDetailPanel: React.FC<Props> = ({
    *  and an all-or-nothing button cannot express it. */
   const [dispQty, setDispQty] = useState<Record<string, number>>({});
   const [flash, setFlash] = useState('');
+  /** Deny after inspection (RET-PICKUP-2 §5): the goods arrived and failed the check. */
+  const [denyOpen, setDenyOpen] = useState(false);
+  const [deny, setDeny] = useState({ reason: '', goods: '', note: '' });
 
   const lines: any[] = doc?.lines ?? [];
+  /** The goods-check outcomes (kept, sent back, scrapped) and the charge labels, from `/returns/meta`. */
+  const qcOutcomes: any[] = meta?.qc_outcomes ?? meta?.qcOutcomes ?? [];
+  const chargeLabels: string[] = meta?.charge_labels ?? meta?.chargeLabels ?? [];
+  const settled = !!doc?.credit_note_id || !!doc?.settled_at;
+  const closed = ['rejected', 'cancelled', 'completed'].includes(doc?.status);
   const res = RESOLUTION_META[doc?.resolution] ?? RESOLUTION_META.undecided;
   /** An exception code in the desk's words (the server's `/returns/meta` exceptions). */
   const exceptionWords = (code?: string | null) =>
@@ -88,8 +98,9 @@ const ReturnDetailPanel: React.FC<Props> = ({
   };
 
   /** Approve, reject, or reopen (a rejected or withdrawn request goes back to "needs a decision";
-   *  the server allows nothing else from there). */
+   *  the server allows nothing else from there). Rejecting needs its reason (RET-PICKUP-2 §5). */
   const decide = async (status: 'approved' | 'rejected' | 'pending') => {
+    if (status === 'rejected' && !note.trim()) { setError('Write why the return is rejected first.'); return; }
     setBusy(status); setError('');
     try {
       await api.put(`/returns/${doc.id}`, { status, decisionNote: note.trim() || undefined });
@@ -132,13 +143,53 @@ const ReturnDetailPanel: React.FC<Props> = ({
         awb: pickup.awb.trim() || undefined,
         qualityCheck: pickup.provider === 'shiprocket' ? pickup.qc : undefined,
       });
-      const out = payload<any>(res);
+      // A step reply: its `message` says when the AWB or the pickup request still needs Get AWB.
+      const out = stepResult(payload<any>(res));
       setPickupOpen(false);
       setPickup({ courierName: '', awb: '', mode: '', provider: 'shiprocket', qc: false });
       setFlash(out?.message ?? `Collection booked (attempt ${out?.attemptNo ?? 1}).`);
       await refresh();
     } catch (e: any) {
       setError(e?.response?.data?.message || 'Could not book the collection.');
+    } finally { setBusy(''); }
+  };
+
+  /** Finish the return's existing Shiprocket reverse order: the AWB, then the pickup request (RET-PICKUP-2 §2).
+   *  It never books a second collection; a carrier refusal leaves it ready to try again. */
+  const getAwb = async () => {
+    setBusy('awb'); setError(''); setFlash('');
+    try {
+      const res = await api.post(`/returns/${doc.id}/pickup/awb`, {}, {
+        headers: { 'X-Idempotency-Key': crypto.randomUUID() },
+      });
+      const out = stepResult(payload<any>(res));
+      setFlash(out?.message ?? 'The carrier was asked for the AWB and the pickup.');
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'The carrier did not assign an AWB.');
+    } finally {
+      // The carrier's answer (the AWB, or its refusal in `awb_error`) is on the return either way.
+      try { await refresh(); } catch { /* the panel keeps what it shows */ }
+      setBusy('');
+    }
+  };
+
+  /** Deny after the goods arrived and failed the check (RET-PICKUP-2 §5): the reason, what happens to the goods,
+   *  a note. The return closes as rejected with no credit note. */
+  const denyAfterInspection = async () => {
+    if (!deny.reason.trim()) { setError('Write why the return is denied.'); return; }
+    if (!deny.goods) { setError('Choose what happens to the goods.'); return; }
+    setBusy('deny'); setError('');
+    try {
+      const res = await api.post(`/returns/${doc.id}/deny`, {
+        reason: deny.reason.trim(), goods: deny.goods, note: deny.note.trim() || undefined,
+      }, { headers: { 'X-Idempotency-Key': crypto.randomUUID() } });
+      const out = stepResult(payload<any>(res));
+      setDenyOpen(false);
+      setDeny({ reason: '', goods: '', note: '' });
+      await refresh();
+      setFlash(out?.message ?? 'Denied after inspection. No credit note was raised.');
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'Could not deny this return.');
     } finally { setBusy(''); }
   };
 
@@ -181,6 +232,9 @@ const ReturnDetailPanel: React.FC<Props> = ({
                   <Chip tone="red">Exception: {exceptionWords(doc.exception_reason)}</Chip>
                 )}
                 {doc?.raised_by === 'staff' && <Chip tone="neutral">Raised by staff</Chip>}
+                {doc?.qc_outcome && (
+                  <Chip tone="red">Denied after inspection, goods {wordsFor(qcOutcomes, doc.qc_outcome).toLowerCase()}</Chip>
+                )}
               </div>
               <p className="text-sm text-muted-foreground mt-1 flex items-center gap-2 flex-wrap">
                 {doc?.order_number ? (
@@ -248,7 +302,7 @@ const ReturnDetailPanel: React.FC<Props> = ({
           </section>
 
           {/* ── Getting the goods back ──────────────────────────────────── */}
-          {totalReceived === 0 && doc?.status !== 'rejected' && doc?.status !== 'cancelled' && (
+          {((totalReceived === 0 && doc?.status !== 'rejected' && doc?.status !== 'cancelled') || doc?.pickup) && (
             <section className="rounded-lg border border-border p-4">
               <div className="flex items-center justify-between gap-4 flex-wrap">
                 <div>
@@ -261,7 +315,7 @@ const ReturnDetailPanel: React.FC<Props> = ({
                       : 'Nothing is on its way back yet. Book a courier collection, or record that the customer is shipping it themselves.'}
                   </p>
                 </div>
-                {hasShipPerm && !pickupOpen && (
+                {hasShipPerm && !pickupOpen && totalReceived === 0 && doc?.status !== 'rejected' && doc?.status !== 'cancelled' && (
                   <button onClick={() => setPickupOpen(true)}
                           className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-muted inline-flex items-center gap-1.5">
                     <Truck className="h-3.5 w-3.5" />
@@ -269,6 +323,29 @@ const ReturnDetailPanel: React.FC<Props> = ({
                   </button>
                 )}
               </div>
+              {/* Where the parcel is: carrier, AWB, tracking, pickup date and the carrier's events (RET-PICKUP-2 §2). */}
+              {doc?.pickup && (
+                <div className="mt-3 pt-3 border-t border-border">
+                  <ReturnPickup
+                    pickup={doc.pickup}
+                    earlier={earlierPickups(doc)}
+                    action={doc.pickup.can_get_awb && hasShipPerm ? (
+                      <button onClick={getAwb} disabled={!!busy}
+                              title="Asks Shiprocket for the AWB of this collection, then for the pickup. It never books a second collection."
+                              className="px-3 py-1.5 text-xs rounded-md bg-primary text-primary-foreground font-medium
+                                         hover:bg-primary/90 disabled:opacity-50 inline-flex items-center gap-1.5">
+                        {busy === 'awb' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Truck className="h-3.5 w-3.5" />}
+                        Get AWB
+                      </button>
+                    ) : undefined}
+                  />
+                  {doc.pickup.can_get_awb && !hasShipPerm && (
+                    <p className="text-xs text-muted-foreground mt-2">
+                      This collection has no AWB or pickup yet. Getting one needs the shipments permission.
+                    </p>
+                  )}
+                </div>
+              )}
               {pickupOpen && (
                 <div className="mt-3 pt-3 border-t border-border grid sm:grid-cols-3 gap-2">
                   {/* WHO carries it. Shiprocket actually books the reverse pickup
@@ -462,6 +539,27 @@ const ReturnDetailPanel: React.FC<Props> = ({
             </div>
           </section>
 
+          {/* ── What the customer bears (RET-PICKUP-2 §4) ───────────────── */}
+          <section className="rounded-lg border border-border p-4">
+            <h3 className="text-sm font-semibold mb-1 flex items-center gap-2">
+              <IndianRupee className="h-4 w-4 text-muted-foreground" /> Charges
+            </h3>
+            <p className="text-xs text-muted-foreground mb-3">
+              What the customer pays for this return, such as a pickup fee. Settling takes them off the goods credit.
+            </p>
+            <ReturnCharges
+              returnId={doc.id}
+              charges={doc?.charges}
+              totalMinor={doc?.charges_total_minor}
+              labels={chargeLabels}
+              editable={canManage && !settled && !closed}
+              onChanged={() => { refresh().catch(() => undefined); }}
+              lockedNote={settled ? 'This return is settled, so its charges can no longer change.'
+                : closed ? 'This return is closed, so its charges can no longer change.'
+                : !canManage ? 'Adding a charge needs the returns manager permission.' : undefined}
+            />
+          </section>
+
           {/* ── The money ───────────────────────────────────────────────── */}
           <section className="rounded-lg border border-border p-4">
             <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
@@ -480,6 +578,11 @@ const ReturnDetailPanel: React.FC<Props> = ({
                       </Link>
                     : '—'} />
               </dl>
+            ) : doc?.qc_outcome ? (
+              <p className="text-sm text-muted-foreground">
+                Denied after inspection. Nothing is credited or refunded, and the goods were{' '}
+                {wordsFor(qcOutcomes, doc.qc_outcome).toLowerCase()}.
+              </p>
             ) : totalReceived === 0 ? (
               <p className="text-sm text-muted-foreground">
                 Nothing is owed yet — no goods have been booked in. Receive the parcel first.
@@ -492,7 +595,7 @@ const ReturnDetailPanel: React.FC<Props> = ({
                     {doc?.eligible_amount_minor != null ? inrMinor(Number(doc.eligible_amount_minor)) : '—'}
                   </span>. Nothing has been credited or refunded yet.
                 </p>
-                {canSettle && (
+                {canSettle && !closed && (
                   <button
                     onClick={() => setShowSettle(true)}
                     className="px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground font-medium hover:bg-primary/90"
@@ -520,7 +623,7 @@ const ReturnDetailPanel: React.FC<Props> = ({
                 onChange={(e) => setNote(e.target.value)}
                 placeholder={doc.status === 'rejected' || doc.status === 'cancelled'
                   ? 'Why it is being reopened (optional)'
-                  : 'Note for the record, or why it is withdrawn (optional)'}
+                  : 'Why it is rejected (needed to reject), or a note for the record or the withdrawal'}
                 className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm resize-none mb-3
                            focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
@@ -534,7 +637,8 @@ const ReturnDetailPanel: React.FC<Props> = ({
                   </button>
                 )}
                 {(doc.status === 'pending' || (doc.status === 'approved' && totalReceived === 0)) && (
-                  <button onClick={() => decide('rejected')} disabled={!!busy}
+                  <button onClick={() => decide('rejected')} disabled={!!busy || !note.trim()}
+                          title={note.trim() ? undefined : 'Write why it is rejected first'}
                           className="px-4 py-2 text-sm rounded-md border border-destructive/40 text-destructive font-medium
                                      hover:bg-destructive/10 disabled:opacity-50 inline-flex items-center gap-2">
                     {busy === 'rejected' ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
@@ -560,13 +664,78 @@ const ReturnDetailPanel: React.FC<Props> = ({
               </div>
               {(doc.status === 'pending' || doc.status === 'approved') && totalReceived === 0 && (
                 <p className="text-xs text-muted-foreground mt-2">
-                  Withdraw when the customer no longer wants to return it. Reject when the store refuses it.
+                  Withdraw when the customer no longer wants to return it. Reject when the store refuses it;
+                  rejecting needs the reason written above, and it is kept on the return.
                 </p>
               )}
               {doc?.decision_note && (
                 <p className="text-xs text-muted-foreground mt-3">
                   Last decision note: {doc.decision_note}
                 </p>
+              )}
+            </section>
+          )}
+
+          {/* ── Deny after inspection (RET-PICKUP-2 §5): the goods came back and failed the check ── */}
+          {canManage && totalReceived > 0 && !settled && !closed && (
+            <section className="rounded-lg border border-border p-4">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <div>
+                  <h3 className="text-sm font-semibold flex items-center gap-2">
+                    <Ban className="h-4 w-4 text-muted-foreground" /> Deny after inspection
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    When the goods that came back do not qualify. The return closes as rejected and no credit note is raised.
+                  </p>
+                </div>
+                {!denyOpen && (
+                  <button onClick={() => setDenyOpen(true)} disabled={!!busy}
+                          className="px-3 py-1.5 text-xs rounded-md border border-destructive/40 text-destructive font-medium
+                                     hover:bg-destructive/10 disabled:opacity-50 inline-flex items-center gap-1.5">
+                    <Ban className="h-3.5 w-3.5" /> Deny this return
+                  </button>
+                )}
+              </div>
+              {denyOpen && (
+                <div className="mt-3 pt-3 border-t border-border space-y-2">
+                  <textarea rows={2} value={deny.reason}
+                            onChange={(e) => setDeny((d) => ({ ...d, reason: e.target.value }))}
+                            placeholder="Why it is denied (required)" aria-label="Why it is denied"
+                            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm resize-none
+                                       focus:outline-none focus:ring-2 focus:ring-primary/40" />
+                  {qcOutcomes.length > 0 ? (
+                    <select value={deny.goods} onChange={(e) => setDeny((d) => ({ ...d, goods: e.target.value }))}
+                            aria-label="What happens to the goods"
+                            className="w-full rounded-md border border-border bg-background px-2 py-2 text-sm">
+                      <option value="">What happens to the goods?</option>
+                      {qcOutcomes.map((o: any) => <option key={o.code} value={o.code}>{o.label ?? o.code}</option>)}
+                    </select>
+                  ) : (
+                    <p className="text-xs text-destructive">The choices for the goods could not be read from the server.</p>
+                  )}
+                  <input value={deny.note} onChange={(e) => setDeny((d) => ({ ...d, note: e.target.value }))}
+                         placeholder="Note (optional)" aria-label="Note"
+                         className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm" />
+                  {awaitingDisposition > 0 && !canManageStock && (
+                    <p className="text-xs text-muted-foreground">
+                      {awaitingDisposition} unit{awaitingDisposition !== 1 ? 's' : ''} still wait for a decision on their
+                      condition. Deciding what happens to them needs the inventory manager permission.
+                    </p>
+                  )}
+                  <div className="flex gap-2 flex-wrap">
+                    <button onClick={denyAfterInspection}
+                            disabled={busy === 'deny' || !deny.reason.trim() || !deny.goods || (awaitingDisposition > 0 && !canManageStock)}
+                            className="px-4 py-2 text-sm rounded-md bg-destructive text-destructive-foreground font-medium
+                                       hover:bg-destructive/90 disabled:opacity-50 inline-flex items-center gap-2">
+                      {busy === 'deny' && <Loader2 className="h-4 w-4 animate-spin" />}
+                      Deny return
+                    </button>
+                    <button onClick={() => setDenyOpen(false)}
+                            className="px-4 py-2 text-sm rounded-md border border-border hover:bg-muted">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
               )}
             </section>
           )}
@@ -591,8 +760,10 @@ const ReturnDetailPanel: React.FC<Props> = ({
           onClose={() => setShowSettle(false)}
           onSettled={(r) => {
             setShowSettle(false);
-            setFlash(r?.message ?? 'Settled.');
-            if (r?.document) onChanged(r.document); else refresh();
+            const out = stepResult(r);
+            setFlash(out?.message ?? 'Settled.');
+            // The step's `document` is the stored row; the desk's view (charges, pickup) is read again.
+            refresh().catch(() => undefined);
           }}
         />
       )}
