@@ -13,7 +13,7 @@ import ReceiveGoodsModal from './ReceiveGoodsModal';
 import SettleReturnModal from './SettleReturnModal';
 import ReturnPickup, { earlierPickups } from './ReturnPickup';
 import ReturnCharges from './ReturnCharges';
-import { RESOLUTION_META, STATUS_LABEL, STATUS_TONE, stepResult, wordsFor } from './returnWords';
+import { RESOLUTION_META, STATUS_LABEL, STATUS_TONE, returnStage, stepResult, wordsFor } from './returnWords';
 import { ReturnTermsLine, useReturnEligibility, type EligibleLine } from './ReturnTerms';
 
 /**
@@ -75,8 +75,17 @@ const ReturnDetailPanel: React.FC<Props> = ({
   /** The goods-check outcomes (kept, sent back, scrapped) and the charge labels, from `/returns/meta`. */
   const qcOutcomes: any[] = meta?.qc_outcomes ?? meta?.qcOutcomes ?? [];
   const chargeLabels: string[] = meta?.charge_labels ?? meta?.chargeLabels ?? [];
-  const settled = !!doc?.credit_note_id || !!doc?.settled_at;
-  const closed = ['rejected', 'cancelled', 'completed'].includes(doc?.status);
+  /** RET-FLOW-UI: one reading of where the return stands; every block below offers only that stage's acts. */
+  const { stage, current, collection, received: totalReceived, allIn, settled } = returnStage(doc);
+  const closed = stage === 'closed';
+  /** The customer is sending it back by courier pickup (`return_mode`; none recorded means pickup, as the server books it). */
+  const byCourier = !doc?.return_mode || doc.return_mode === 'pickup';
+  /** How they said they would send it, in their words (`/returns/meta` modes, such as "I will ship it back myself"). */
+  const modeWords = wordsFor(meta?.modes, doc?.return_mode);
+  /** Booking is offered only on an approved return with nothing back and no live collection, and not after the
+   *  courier delivered it (then the goods are booked in). Another attempt only after a failed or cancelled one. */
+  const canBook = stage === 'arrange' && collection !== 'delivered';
+  const anotherAttempt = collection === 'failed' || collection === 'cancelled';
   const res = RESOLUTION_META[doc?.resolution] ?? RESOLUTION_META.undecided;
   /** An exception code in the desk's words (the server's `/returns/meta` exceptions). */
   const exceptionWords = (code?: string | null) =>
@@ -87,7 +96,6 @@ const ReturnDetailPanel: React.FC<Props> = ({
     ((termsOf.data?.lines ?? []) as EligibleLine[]).map((l) => [l.order_item_id, l]));
   const ResIcon = res.icon;
 
-  const totalReceived = lines.reduce((s, l) => s + Number(l.qty_received || 0), 0);
   const awaitingDisposition = lines.reduce(
     (s, l) => s + Math.max(0, Number(l.qty_received || 0)
       - Number(l.qty_resellable || 0) - Number(l.qty_damaged || 0) - Number(l.qty_scrapped || 0)), 0);
@@ -102,12 +110,18 @@ const ReturnDetailPanel: React.FC<Props> = ({
   const decide = async (status: 'approved' | 'rejected' | 'pending') => {
     if (status === 'rejected' && !note.trim()) { setError('Write why the return is rejected first.'); return; }
     setBusy(status); setError('');
+    // What comes after the approval, read before it (the stage it leaves).
+    const approvedNext = stage === 'decide_booked'
+      ? 'Approved. The collection already booked carries on; book the goods in when they arrive.'
+      : byCourier
+        ? 'Approved. Arrange the collection next.'
+        : 'Approved. Book the goods in when the parcel arrives.';
     try {
       await api.put(`/returns/${doc.id}`, { status, decisionNote: note.trim() || undefined });
       setNote('');
       await refresh();
       setFlash(status === 'approved'
-        ? 'Approved. When the parcel arrives, book the goods in.'
+        ? approvedNext
         : status === 'rejected'
           ? 'Rejected. No goods will be booked in against this return.'
           : 'Reopened. It is back with the requests that need a decision.');
@@ -129,6 +143,17 @@ const ReturnDetailPanel: React.FC<Props> = ({
     } catch (e: any) {
       setError(e?.response?.data?.message || 'Could not withdraw this return.');
     } finally { setBusy(''); }
+  };
+
+  /** The booking form, set for how the customer said it comes back: a courier collection books with Shiprocket;
+   *  a customer sending it themselves is recorded with their courier and AWB. Either can be changed in the form. */
+  const openPickup = () => {
+    setPickup({
+      courierName: '', awb: '', qc: false,
+      provider: byCourier ? 'shiprocket' : 'manual',
+      mode: byCourier ? '' : String(doc?.return_mode ?? ''),
+    });
+    setPickupOpen(true);
   };
 
   const bookPickup = async () => {
@@ -302,7 +327,9 @@ const ReturnDetailPanel: React.FC<Props> = ({
           </section>
 
           {/* ── Getting the goods back ──────────────────────────────────── */}
-          {((totalReceived === 0 && doc?.status !== 'rejected' && doc?.status !== 'cancelled') || doc?.pickup) && (
+          {/* RET-FLOW-UI: what this block offers follows the stage. Before approval nothing is booked; while a
+              collection is live there is no second booking; another attempt only after a failed or cancelled one. */}
+          {(['decide', 'decide_booked', 'arrange', 'collecting'].includes(stage) || current) && (
             <section className="rounded-lg border border-border p-4">
               <div className="flex items-center justify-between gap-4 flex-wrap">
                 <div>
@@ -310,26 +337,44 @@ const ReturnDetailPanel: React.FC<Props> = ({
                     <Truck className="h-4 w-4 text-muted-foreground" /> Collection
                   </h3>
                   <p className="text-xs text-muted-foreground mt-1">
-                    {doc?.pickup_shipment_id
-                      ? 'A collection is booked. It appears on the shipments board like any other shipment.'
-                      : 'Nothing is on its way back yet. Book a courier collection, or record that the customer is shipping it themselves.'}
+                    {stage === 'decide'
+                      ? 'Approve the return first, then arrange its collection.'
+                      : stage === 'decide_booked'
+                        ? 'This collection was booked before the return was approved. Approve the return to carry on with it.'
+                        : stage === 'collecting'
+                          ? 'A collection is booked. It appears on the shipments board like any other shipment.'
+                          : stage === 'arrange'
+                            ? (collection === 'delivered'
+                                ? 'The courier reports the parcel delivered to the warehouse. Book the goods in below.'
+                                : anotherAttempt
+                                  ? `The last collection attempt ${collection === 'failed' ? 'failed' : 'was cancelled'}. Book another attempt, or record that the customer is sending it themselves.`
+                                  : byCourier
+                                    ? 'Approved. Nothing is on its way back yet. Arrange the courier collection, or record that the customer is sending it themselves.'
+                                    : `The customer said: ${modeWords}. Book the goods in when it arrives, and record their courier and AWB here if they share them.`)
+                            : stage === 'goods_in'
+                              ? 'The goods are back. Their collection is kept here for the record.'
+                              : 'This return is closed. Its collection is kept here for the record.'}
                   </p>
+                  {canBook && !hasShipPerm && (
+                    <p className="text-xs text-muted-foreground mt-1">Arranging the collection needs the shipments permission.</p>
+                  )}
                 </div>
-                {hasShipPerm && !pickupOpen && totalReceived === 0 && doc?.status !== 'rejected' && doc?.status !== 'cancelled' && (
-                  <button onClick={() => setPickupOpen(true)}
+                {canBook && hasShipPerm && !pickupOpen && (
+                  <button onClick={openPickup}
                           className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-muted inline-flex items-center gap-1.5">
                     <Truck className="h-3.5 w-3.5" />
-                    {doc?.pickup_shipment_id ? 'Book another attempt' : 'Arrange collection'}
+                    {anotherAttempt ? 'Book another attempt' : byCourier ? 'Arrange collection' : 'Record their parcel'}
                   </button>
                 )}
               </div>
-              {/* Where the parcel is: carrier, AWB, tracking, pickup date and the carrier's events (RET-PICKUP-2 §2). */}
-              {doc?.pickup && (
+              {/* Where the parcel is: carrier, AWB, tracking, pickup date and the carrier's events (RET-PICKUP-2 §2).
+                  Get AWB only finishes a live collection of an approved return. */}
+              {current && (
                 <div className="mt-3 pt-3 border-t border-border">
                   <ReturnPickup
-                    pickup={doc.pickup}
+                    pickup={current}
                     earlier={earlierPickups(doc)}
-                    action={doc.pickup.can_get_awb && hasShipPerm ? (
+                    action={stage === 'collecting' && current.can_get_awb && hasShipPerm ? (
                       <button onClick={getAwb} disabled={!!busy}
                               title="Asks Shiprocket for the AWB of this collection, then for the pickup. It never books a second collection."
                               className="px-3 py-1.5 text-xs rounded-md bg-primary text-primary-foreground font-medium
@@ -339,14 +384,14 @@ const ReturnDetailPanel: React.FC<Props> = ({
                       </button>
                     ) : undefined}
                   />
-                  {doc.pickup.can_get_awb && !hasShipPerm && (
+                  {stage === 'collecting' && current.can_get_awb && !hasShipPerm && (
                     <p className="text-xs text-muted-foreground mt-2">
                       This collection has no AWB or pickup yet. Getting one needs the shipments permission.
                     </p>
                   )}
                 </div>
               )}
-              {pickupOpen && (
+              {canBook && hasShipPerm && pickupOpen && (
                 <div className="mt-3 pt-3 border-t border-border grid sm:grid-cols-3 gap-2">
                   {/* WHO carries it. Shiprocket actually books the reverse pickup
                       and returns an AWB; the others only record an arrangement. */}
@@ -415,13 +460,17 @@ const ReturnDetailPanel: React.FC<Props> = ({
           <section className="rounded-lg border border-border overflow-hidden">
             <div className="px-4 py-3 border-b border-border flex items-center justify-between">
               <h3 className="text-sm font-semibold">Items</h3>
-              {canAdjustStock && doc?.status !== 'rejected' && doc?.status !== 'cancelled' && (
+              {/* Goods are booked in once the return is approved, until every expected unit is in. */}
+              {canAdjustStock && ['arrange', 'collecting', 'goods_in'].includes(stage) && !allIn && (
                 <button
                   onClick={() => setShowReceive(true)}
                   className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-muted inline-flex items-center gap-1.5"
                 >
                   <PackageCheck className="h-3.5 w-3.5" /> Book goods in
                 </button>
+              )}
+              {canAdjustStock && (stage === 'decide' || stage === 'decide_booked') && (
+                <span className="text-xs text-muted-foreground">Book the goods in once the return is approved.</span>
               )}
             </div>
             {termsOf.error && (
@@ -595,7 +644,7 @@ const ReturnDetailPanel: React.FC<Props> = ({
                     {doc?.eligible_amount_minor != null ? inrMinor(Number(doc.eligible_amount_minor)) : '—'}
                   </span>. Nothing has been credited or refunded yet.
                 </p>
-                {canSettle && !closed && (
+                {canSettle && stage === 'goods_in' && (
                   <button
                     onClick={() => setShowSettle(true)}
                     className="px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground font-medium hover:bg-primary/90"
@@ -614,21 +663,41 @@ const ReturnDetailPanel: React.FC<Props> = ({
           </section>
 
           {/* ── Decide ──────────────────────────────────────────────────── */}
-          {canManage && ['pending', 'approved', 'rejected', 'cancelled'].includes(doc?.status) && (
+          {/* RET-FLOW-UI: Approve while it needs a decision; Reject and Withdraw only while no collection is live;
+              nothing to decide while the collection runs; Reopen a rejected or withdrawn return, as before. */}
+          {canManage && (['decide', 'decide_booked', 'arrange', 'collecting'].includes(stage)
+            || (stage === 'closed' && (doc?.status === 'rejected' || doc?.status === 'cancelled'))) && (
             <section className="rounded-lg border border-border p-4">
               <h3 className="text-sm font-semibold mb-3">Decision</h3>
-              <textarea
-                rows={2}
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder={doc.status === 'rejected' || doc.status === 'cancelled'
-                  ? 'Why it is being reopened (optional)'
-                  : 'Why it is rejected (needed to reject), or a note for the record or the withdrawal'}
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm resize-none mb-3
-                           focus:outline-none focus:ring-2 focus:ring-primary/40"
-              />
-              <div className="flex gap-2 flex-wrap">
-                {doc.status === 'pending' && (
+              {stage === 'decide_booked' && (
+                <p className="text-sm text-muted-foreground mb-3">
+                  A collection was booked before this return was approved. Approve the return to carry on with it.
+                  While the collection is live the return cannot be rejected or withdrawn. To stop this return,
+                  cancel the pickup with the courier first.
+                </p>
+              )}
+              {stage === 'collecting' && (
+                <p className="text-sm text-muted-foreground">
+                  Approved, and its collection is live, so the return cannot be rejected or withdrawn now. To stop
+                  this return, cancel the pickup with the courier first.
+                </p>
+              )}
+              {stage !== 'collecting' && (
+                <textarea
+                  rows={2}
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder={stage === 'closed'
+                    ? 'Why it is being reopened (optional)'
+                    : stage === 'decide_booked'
+                      ? 'A note for the record (optional)'
+                      : 'Why it is rejected (needed to reject), or a note for the record or the withdrawal'}
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm resize-none mb-3
+                             focus:outline-none focus:ring-2 focus:ring-primary/40"
+                />
+              )}
+              <div className={`flex gap-2 flex-wrap ${stage === 'collecting' ? 'hidden' : ''}`}>
+                {(stage === 'decide' || stage === 'decide_booked') && (
                   <button onClick={() => decide('approved')} disabled={!!busy}
                           className="px-4 py-2 text-sm rounded-md bg-green-600 text-white font-medium
                                      hover:bg-green-700 disabled:opacity-50 inline-flex items-center gap-2">
@@ -636,7 +705,7 @@ const ReturnDetailPanel: React.FC<Props> = ({
                     Approve
                   </button>
                 )}
-                {(doc.status === 'pending' || (doc.status === 'approved' && totalReceived === 0)) && (
+                {(stage === 'decide' || stage === 'arrange') && (
                   <button onClick={() => decide('rejected')} disabled={!!busy || !note.trim()}
                           title={note.trim() ? undefined : 'Write why it is rejected first'}
                           className="px-4 py-2 text-sm rounded-md border border-destructive/40 text-destructive font-medium
@@ -645,7 +714,7 @@ const ReturnDetailPanel: React.FC<Props> = ({
                     Reject
                   </button>
                 )}
-                {(doc.status === 'pending' || doc.status === 'approved') && totalReceived === 0 && (
+                {(stage === 'decide' || stage === 'arrange') && (
                   <button onClick={withdraw} disabled={!!busy}
                           className="px-4 py-2 text-sm rounded-md border border-border font-medium
                                      hover:bg-muted disabled:opacity-50 inline-flex items-center gap-2">
@@ -653,7 +722,7 @@ const ReturnDetailPanel: React.FC<Props> = ({
                     Withdraw
                   </button>
                 )}
-                {(doc.status === 'rejected' || doc.status === 'cancelled') && (
+                {stage === 'closed' && (doc.status === 'rejected' || doc.status === 'cancelled') && (
                   <button onClick={() => decide('pending')} disabled={!!busy}
                           className="px-4 py-2 text-sm rounded-md border border-border font-medium
                                      hover:bg-muted disabled:opacity-50 inline-flex items-center gap-2">
@@ -662,7 +731,7 @@ const ReturnDetailPanel: React.FC<Props> = ({
                   </button>
                 )}
               </div>
-              {(doc.status === 'pending' || doc.status === 'approved') && totalReceived === 0 && (
+              {(stage === 'decide' || stage === 'arrange') && (
                 <p className="text-xs text-muted-foreground mt-2">
                   Withdraw when the customer no longer wants to return it. Reject when the store refuses it;
                   rejecting needs the reason written above, and it is kept on the return.
@@ -677,7 +746,7 @@ const ReturnDetailPanel: React.FC<Props> = ({
           )}
 
           {/* ── Deny after inspection (RET-PICKUP-2 §5): the goods came back and failed the check ── */}
-          {canManage && totalReceived > 0 && !settled && !closed && (
+          {canManage && stage === 'goods_in' && totalReceived > 0 && (
             <section className="rounded-lg border border-border p-4">
               <div className="flex items-center justify-between gap-4 flex-wrap">
                 <div>

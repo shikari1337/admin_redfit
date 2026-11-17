@@ -267,7 +267,7 @@ const OrderFulfillmentCard: React.FC<Props> = ({ fulfillment, shipments, sla, va
           <div className="space-y-2">
             <p className="text-sm font-semibold text-foreground">Return parcels ({returnParcels!.length})</p>
             {returnParcels!.map(({ returnId, returnNumber, pickup: p }, i) => (
-              <div key={p.shipment_id ?? `${returnId}-${i}`} className="border rounded-md px-3 py-2 text-sm">
+              <div key={p.id ?? `${returnId}-${i}`} className="border rounded-md px-3 py-2 text-sm">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <span className="font-medium">
                     {p.shipment_number ?? 'Collection'}

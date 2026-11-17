@@ -12,7 +12,8 @@ import ShipmentTimeline, { type TrackingEvent } from '../shipments/ShipmentTimel
  */
 
 export interface ReturnPickupView {
-  shipment_id?: string | null;
+  /** The collection's shipment id (Ship `return_pickup::desk_view` names it `id`). */
+  id?: string | null;
   shipment_number?: string | null;
   attempt_no?: number | null;
   status?: string | null;
@@ -121,7 +122,7 @@ const ReturnPickup: React.FC<Props> = ({ pickup, earlier = [], foldTimeline = fa
           </summary>
           <div className="mt-3 space-y-4 divide-y divide-border">
             {earlier.map((p, i) => (
-              <div key={p.shipment_id ?? i} className={i > 0 ? 'pt-3' : ''}>
+              <div key={p.id ?? i} className={i > 0 ? 'pt-3' : ''}>
                 <ReturnPickup pickup={p} foldTimeline />
               </div>
             ))}
@@ -132,11 +133,30 @@ const ReturnPickup: React.FC<Props> = ({ pickup, earlier = [], foldTimeline = fa
   );
 };
 
-/** The attempts other than the one the return points at (`pickups` is newest first). */
+/** Every attempt except the current one (`pickup`: the one the return points at, else its newest; `pickups` is
+ *  newest first). Compared by the row's `id`: the earlier `shipment_id` was never sent, so every attempt was
+ *  listed as earlier, the current one too (RET/26-27/00018 showed 2 earlier attempts for 1). */
 export const earlierPickups = (doc: any): ReturnPickupView[] => {
   const all: ReturnPickupView[] = Array.isArray(doc?.pickups) ? doc.pickups : [];
-  const current = doc?.pickup?.shipment_id ?? null;
-  return all.filter((p) => p && p.shipment_id !== current);
+  const current = doc?.pickup?.id ?? null;
+  return all.filter((p) => p && (current == null || p.id !== current));
+};
+
+/** Where a collection stands, as the returns desk acts on it: `live` (booked and not over yet), `delivered` (the
+ *  courier brought it to our warehouse), `failed` (the courier could not collect it, or it went back to the
+ *  customer) or `cancelled`. The failed statuses are the ones Ship's `return_pickup::tracked_event` reports as
+ *  `return_pickup_failed`; any other status counts as live, so the desk never books a second courier on a guess. */
+export type CollectionState = 'live' | 'delivered' | 'failed' | 'cancelled';
+
+const FAILED_COLLECTION = new Set(['ndr_failed_delivery', 'rto_in_transit', 'rto_delivered', 'rto_failed']);
+
+export const collectionState = (p?: ReturnPickupView | null): CollectionState | null => {
+  if (!p) return null;
+  const s = String(p.status ?? '').trim().toLowerCase();
+  if (s === 'cancelled') return 'cancelled';
+  if (s === 'delivered') return 'delivered';
+  if (FAILED_COLLECTION.has(s)) return 'failed';
+  return 'live';
 };
 
 export default ReturnPickup;
