@@ -245,6 +245,8 @@ const MetaSocialInsights = lazyRetry(() => import('./pages/panels/marketing/meta
 const MarketingInbox = lazyRetry(() => import('./pages/panels/marketing/meta/inbox/InboxPage'));
 const MessengerSettings = lazyRetry(() => import('./pages/panels/marketing/meta/inbox/MessengerSettingsPage'));
 const MetaLeadForms = lazyRetry(() => import('./pages/panels/marketing/meta/leads/LeadFormsPage'));
+// CHATGPT-3: ChatGPT pixels, conversion tracking and the ad account.
+const ChatgptAdsPage = lazyRetry(() => import('./pages/panels/marketing/chatgpt/ChatgptAdsPage'));
 import { useAuth } from './contexts/AuthContext';
 import { ROLE_SURFACE, ErpRole } from './lib/rbac';
 import { PRODUCT, IS_SUITE } from './lib/product';
@@ -479,6 +481,7 @@ function App() {
           <Route path="panel/marketing/meta/catalog" element={<MetaCatalogPage />} />
           <Route path="panel/marketing/meta/instagram" element={<MetaInstagramPage />} />
           <Route path="panel/marketing/meta/events" element={<MetaEventsPage />} />
+          <Route path="panel/marketing/chatgpt" element={<ChatgptAdsPage />} />
           <Route path="analytics" element={<Navigate to="/analytics/dashboard" replace />} />
           <Route path="analytics/dashboard" element={<AnalyticsDashboard />} />
           <Route path="analytics/store" element={<StoreAnalytics />} />

@@ -165,7 +165,7 @@ const SettingFieldControl: React.FC<Props> = ({ field, value, onChange, options,
         <div className="space-y-1">
           <Input id={id} type="password" autoComplete="new-password" className="h-9 font-mono"
             value={value ?? ''} disabled={isDisabled}
-            placeholder={secretSet ? '•••••••• (stored — type to replace)' : 'not set'}
+            placeholder={secretSet ? '•••••••• (stored, type to replace)' : 'not set'}
             onChange={(e) => onChange(e.target.value)} />
           <p className="text-[11px] text-muted-foreground">
             {secretSet ? 'A value is stored. Leave blank to keep it; the stored value is never shown.' : 'Nothing stored yet.'}

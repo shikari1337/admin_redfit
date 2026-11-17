@@ -356,6 +356,8 @@ export const MENU: MenuGroup[] = [
           children: [
             { label: 'Connections', to: '/panel/marketing/connections', perm: 'marketing.read', modules: ['connectors'], tip: 'Sign in to Google and Meta once; every service follows.', owns: ['/panel/marketing/connections/callback'] },
             { label: 'Events health', to: '/panel/marketing/meta/events', perm: 'marketing.read', modules: ['connectors'], tip: 'What Meta received from your pixel and server, and how well it matched.' },
+            // CHATGPT-3: ChatGPT pixels, conversion tracking and the ad account, beside the Meta pixel page.
+            { label: 'ChatGPT ads', to: '/panel/marketing/chatgpt', perm: 'marketing.read', tip: 'ChatGPT pixels, conversion tracking and the ad account Growcord can manage.' },
             { label: 'Compliance', to: '/panel/marketing/compliance', perm: 'marketing.read', modules: ['marketing'], tip: 'Consent, suppression and marketing data controls.' },
             { label: 'Settings', to: '/panel/marketing/settings', perm: 'marketing.read', modules: ['marketing'], tip: 'Channel readiness and marketing configuration.' },
           ],
