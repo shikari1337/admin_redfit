@@ -4,6 +4,7 @@ import { usePanelStats, fetchRanged } from '../../components/panelAnalytics/useP
 import { ChartCard, TimeSeries, CategoryBars, Donut, KpiTile, InsightCard, Insight, TileDelta, Unavailable } from '../../components/panelAnalytics/Kit';
 import { SERIES, fmtBucket, fmtMoneyShort } from '../../components/panelAnalytics/vizTheme';
 import { fmtRupees } from '../../lib/money';
+import ShopperReport from '../../components/analytics/ShopperReport';
 
 /**
  * Analytics > Dashboard. Opens with what to act on (money held for refunds, sales and conversion
@@ -131,7 +132,7 @@ const AnalyticsDashboard: React.FC = () => {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Analytics</h1>
-          <p className="text-sm text-gray-500">What to act on first, then the period's numbers against the previous period of the same length.</p>
+          <p className="text-sm text-gray-500">What to act on first, then the period's numbers, then how shoppers actually buy: brands, the pipeline, search and the messages that bring a cart back.</p>
         </div>
         <DateRangeBar preset={preset} onPreset={setPreset} custom={custom} onCustom={setCustom} />
       </div>
@@ -198,6 +199,8 @@ const AnalyticsDashboard: React.FC = () => {
       )}
 
       {!loading && !error && data && !s && <Unavailable>No figures for this period.</Unavailable>}
+
+      <ShopperReport range={range} />
     </div>
   );
 };

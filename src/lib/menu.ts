@@ -170,7 +170,7 @@ export const MENU: MenuGroup[] = [
       label: 'Analytics', to: '/analytics/dashboard', icon: LineChart, perm: 'reports.read', modules: ['analytics'],
       tip: 'Sales, orders and customers over a period.',
       children: [
-        { label: 'Dashboard', to: '/analytics/dashboard', perm: 'reports.read', modules: ['analytics'], tip: 'Sales, orders and customers over a period.' },
+        { label: 'Dashboard', to: '/analytics/dashboard', perm: 'reports.read', modules: ['analytics'], tip: 'Sales, each brand’s top sellers, the pipeline, search and carts brought back.' },
         { label: 'Sales Insights', to: '/analytics/insights', perm: 'reports.read', modules: ['analytics'], tip: 'Brand, item and campaign sales, what moved, and what to act on.' },
         { label: 'Delivery & RTO', to: '/analytics/outcomes', perm: 'orders.read', modules: ['analytics'], tip: 'Delivered, returned and RTO orders by payment, campaign, source and ads vs organic.' },
         { label: 'Store', to: '/analytics/store', perm: 'reports.read', modules: ['analytics'], tip: 'Products, categories and the checkout funnel.' },
