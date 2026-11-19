@@ -113,7 +113,8 @@ export const DOCUMENT_ROUTES: V2Route[] = [
   { m: 'POST', from: '/invoices/order/:orderId/send', row: 'books documents.ts', to: '/api/v2/books/order-invoices/{orderId}/send', bs: {'channels':['s'],'email':'s','force':'b','invoice_url':'s','phone':'s','subject':'s'} },
   { m: 'POST', from: '/invoices/preview', row: 'books documents.ts', to: '/api/v2/books/invoice-config/preview', bs: {'config':'j'} }, // download
   { m: 'GET', from: '/quotations', row: 'books documents.ts', to: '/api/v2/books/quotations', qs: ['customer_id','limit','offset','status'] },
-  { m: 'POST', from: '/quotations', row: 'books documents.ts', to: '/api/v2/books/quotations', bs: {'billing_address':'j','customer_email':'s','customer_id':'s','customer_name':'s','customer_phone':'s','gstin':'s','items':[{'attributes':'j','product_id':'s','quantity':'s','sku':'s','variation_id':'s'}],'notes':'s','place_of_supply':'s','shipping_address':'j','valid_until':'s'} },
+  { m: 'POST', from: '/quotations/sheet', row: 'books quotations.ts', to: '/api/v2/books/quotations/sheet', bs: {'#mp':'j','file':'f'} },
+  { m: 'POST', from: '/quotations', row: 'books documents.ts', to: '/api/v2/books/quotations', bs: {'billing_address':'j','customer_email':'s','customer_id':'s','customer_name':'s','customer_phone':'s','gstin':'s','items':[{'attributes':'j','batch_number':'s','discount_percent':'d','expiry_date':'s','free_qty':'d','mrp':'d','product_id':'s','quantity':'s','sale_rate':'d','sku':'s','variation_id':'s'}],'notes':'s','place_of_supply':'s','shipping_address':'j','valid_until':'s'} },
   { m: 'GET', from: '/quotations/:id', row: 'books documents.ts', to: '/api/v2/books/quotations/{id}' },
   { m: 'POST', from: '/quotations/:id/accept', row: 'books documents.ts', to: '/api/v2/books/quotations/{id}/accept', bs: 'j' },
   { m: 'POST', from: '/quotations/:id/cancel', row: 'books documents.ts', to: '/api/v2/books/quotations/{id}/cancel', bs: 'j' },

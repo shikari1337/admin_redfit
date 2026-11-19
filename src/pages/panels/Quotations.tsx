@@ -10,7 +10,8 @@ import {
 import InfoTip from '../../components/common/InfoTip';
 import type { Tone } from '../../components/erp';
 import { todayIso, isoDaysFromToday } from '../../utils/date';
-import { FileText, Plus, ArrowLeft, Download, Trash2, ShoppingCart, Send, Clock, CheckCircle2, PenLine } from 'lucide-react';
+import { FileText, Plus, ArrowLeft, Download, Trash2, ShoppingCart, Send, Clock, CheckCircle2, PenLine, Upload } from 'lucide-react';
+import CustomerPicker, { type PickedCustomer, type AccountChoice } from '../../components/sales/CustomerPicker';
 
 /**
  * Quotations / Estimates (Part I §8). A B2B sales-clerk flow, in plain language:
@@ -20,7 +21,43 @@ import { FileText, Plus, ArrowLeft, Download, Trash2, ShoppingCart, Send, Clock,
  */
 
 type View = 'list' | 'create' | 'detail';
-interface Line { productId: string; variationId: string | null; sku: string; name: string; qty: number; price: number | null }
+interface Line {
+  productId: string;
+  variationId: string | null;
+  sku: string;
+  name: string;
+  qty: number;
+  /** What the form shows as the sale rate. Sent only when the sheet stated one. */
+  price: number | null;
+  /** Printed MRP. Sent only when the sheet stated one; a searched line keeps the catalogue MRP on save. */
+  mrp: number | null;
+  discountPercent: number | null;
+  freeQty: number | null;
+  batch: string;
+  expiry: string;
+  sendRate: boolean;
+  sendMrp: boolean;
+  sendDisc: boolean;
+}
+
+/** A rupee number, a decimal string, or a Money object `{minor, currency}`. */
+function rupee(v: unknown): number | null {
+  if (v == null || v === '') return null;
+  if (typeof v === 'object' && v !== null && 'minor' in v) {
+    const n = Number((v as { minor: unknown }).minor);
+    return Number.isFinite(n) ? n / 100 : null;
+  }
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function blankLine(over: Partial<Line> & Pick<Line, 'productId' | 'variationId' | 'sku' | 'name'>): Line {
+  return {
+    qty: 1, price: null, mrp: null, discountPercent: null, freeQty: null,
+    batch: '', expiry: '',
+    sendRate: false, sendMrp: false, sendDisc: false, ...over,
+  };
+}
 
 const STATUS_TONE: Record<string, Tone> = {
   draft: 'amber', sent: 'blue', accepted: 'green', converted: 'green', expired: 'red', cancelled: 'red',
@@ -158,33 +195,41 @@ const Quotations: React.FC = () => {
   // ── Create form ──
   const [cust, setCust] = useState({ name: '', phone: '', email: '', gstin: '', state: '' });
   const [customerId, setCustomerId] = useState<string | null>(null);
+  const [picked, setPicked] = useState<PickedCustomer | null>(null);
+  const [accountChoice, setAccountChoice] = useState<AccountChoice>('guest');
   const [validUntil, setValidUntil] = useState('');
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<Line[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const sheetRef = useRef<HTMLInputElement>(null);
   const [saving, setSaving] = useState(false);
 
   const resetForm = () => {
     setCust({ name: '', phone: '', email: '', gstin: '', state: '' });
-    setCustomerId(null); setValidUntil(''); setNotes(''); setLines([]);
+    setCustomerId(null); setPicked(null); setAccountChoice('guest');
+    setValidUntil(''); setNotes(''); setLines([]);
     setResults([]); setSearchQ('');
   };
 
-  /** Known customer? Phone lookup attaches their id so B2B pricing applies. */
-  const lookupCustomer = async () => {
-    const phone = cust.phone.trim();
-    setCustomerId(null);
-    if (phone.length < 10) return;
-    try {
-      const res = await api.get('/customers', { params: { search: phone, limit: 1 } });
-      const list = res.data?.customers ?? res.data?.rows ?? (Array.isArray(res.data) ? res.data : payload<any>(res));
-      const hit = Array.isArray(list) ? list[0] : null;
-      if (hit && String(hit.phone ?? hit.phone_number ?? '').includes(phone.slice(-10))) {
-        setCustomerId(hit.id ?? hit._id ?? null);
-        if (!cust.name.trim() && (hit.name || hit.full_name)) setCust((c) => ({ ...c, name: hit.name ?? hit.full_name }));
-        if (!cust.gstin.trim() && (hit.gstin || hit.b2b_gstin)) setCust((c) => ({ ...c, gstin: hit.gstin ?? hit.b2b_gstin }));
-      }
-    } catch { /* anonymous quote is fine */ }
+  /** A directory hit fills name, phone, email, GSTIN and the state on their address. */
+  const applyCustomer = (c: PickedCustomer) => {
+    setPicked(c);
+    setCustomerId(c.id);
+    const book = c.addresses.find((a: any) => a.is_default ?? a.isDefault) ?? c.addresses[0] ?? c.lastOrderAddress ?? null;
+    setCust({
+      name: book?.full_name ?? book?.fullName ?? c.name ?? '',
+      phone: book?.mobile ?? book?.mobile_number ?? book?.mobileNumber ?? c.phone ?? '',
+      email: c.email ?? book?.email ?? '',
+      gstin: c.gstin ? String(c.gstin) : '',
+      state: book?.state ?? '',
+    });
   };
+  const useSavedAddress = (a: any) => setCust((c) => ({
+    ...c,
+    name: a.full_name ?? a.fullName ?? c.name,
+    phone: a.mobile ?? a.mobile_number ?? a.mobileNumber ?? c.phone,
+    state: a.state ?? c.state,
+  }));
 
   // POS-style live product search: /products?search&expand=variations → per-variation cards with the canonical price.
   const [searchQ, setSearchQ] = useState('');
@@ -213,7 +258,10 @@ const Quotations: React.FC = () => {
     setLines((ls) => {
       const found = ls.find((l) => l.variationId === vid);
       if (found) return ls.map((l) => (l.variationId === vid ? { ...l, qty: l.qty + 1 } : l));
-      return [...ls, { productId: pid, variationId: vid, sku: r.sku ?? '', name: r.name ?? r.product_name ?? 'Item', qty: 1, price: price != null ? Number(price) : null }];
+      return [...ls, blankLine({
+        productId: pid, variationId: vid, sku: r.sku ?? '', name: r.name ?? r.product_name ?? 'Item',
+        price: price != null ? Number(price) : null, mrp: rupee(r.mrp),
+      })];
     });
     setResults([]); setSearchQ('');
   };
@@ -237,7 +285,18 @@ const Quotations: React.FC = () => {
         shippingAddress: cust.state ? { fullName: cust.name, phone: cust.phone, state: cust.state } : undefined,
         validUntil: validUntil || undefined,
         notes: notes || undefined,
-        items: lines.map((l) => ({ productId: l.productId, variationId: l.variationId || undefined, quantity: l.qty })),
+        items: lines.map((l) => ({
+          productId: l.productId,
+          variationId: l.variationId || undefined,
+          sku: l.sku || undefined,
+          quantity: l.qty,
+          ...(l.sendMrp && l.mrp != null ? { mrp: l.mrp } : {}),
+          ...(l.sendRate && l.price != null ? { sale_rate: l.price } : {}),
+          ...(l.sendDisc && l.discountPercent != null ? { discount_percent: l.discountPercent } : {}),
+          ...(l.freeQty != null && l.freeQty > 0 ? { free_qty: l.freeQty } : {}),
+          ...(l.batch ? { batch_number: l.batch } : {}),
+          ...(l.expiry ? { expiry_date: l.expiry } : {}),
+        })),
       });
       const q = payload<any>(res);
       resetForm();
@@ -245,6 +304,61 @@ const Quotations: React.FC = () => {
       setMsg(`Quotation ${q.quote_number} created.`);
     } catch (e: any) { setErr(e?.response?.data?.message ?? e.message); }
     finally { setSaving(false); }
+  };
+
+  const uploadSheet = async (file: File) => {
+    setUploading(true); setErr(''); setMsg('');
+    try {
+      const body = new FormData();
+      body.append('file', file);
+      const data = payload<any>(await api.post('/quotations/sheet', body));
+      const rows: any[] = Array.isArray(data?.rows) ? data.rows : [];
+      const problems: string[] = [];
+      const added: Line[] = [];
+      for (const row of rows) {
+        if (row.status !== 'ok' || !row.item) {
+          problems.push(`Row ${row.line ?? '?'}: ${row.reason || row.status || 'could not be read'}`);
+          continue;
+        }
+        const item = row.item;
+        const sheetRate = rupee(row.rate);
+        const sheetMrp = rupee(row.mrp);
+        const sheetDisc = rupee(row.discount_percent);
+        const free = rupee(row.free_qty);
+        added.push(blankLine({
+          productId: item.product_id,
+          variationId: item.variation_id ?? null,
+          sku: item.sku ?? row.sku ?? '',
+          name: item.name ?? row.sku ?? 'Item',
+          qty: Number(row.qty) || 1,
+          price: sheetRate ?? rupee(item.selling_price),
+          mrp: sheetMrp ?? rupee(item.mrp),
+          discountPercent: sheetDisc,
+          freeQty: free,
+          batch: row.batch_number ? String(row.batch_number) : '',
+          expiry: row.expiry_date ? String(row.expiry_date) : '',
+          sendRate: sheetRate != null,
+          sendMrp: sheetMrp != null,
+          sendDisc: sheetDisc != null,
+        }));
+      }
+      setLines((prev) => {
+        const next = [...prev];
+        for (const l of added) {
+          const i = next.findIndex((x) => x.variationId && x.variationId === l.variationId);
+          if (i >= 0) next[i] = { ...next[i], ...l, qty: next[i].qty + l.qty };
+          else next.push(l);
+        }
+        return next;
+      });
+      if (problems.length) setErr(problems.slice(0, 6).join(' · '));
+      else if (added.length) setMsg(`Added ${added.length} line${added.length === 1 ? '' : 's'} from the sheet.`);
+      else setErr('That sheet has no lines.');
+    } catch (e: any) { setErr(e?.response?.data?.message ?? e.message); }
+    finally {
+      setUploading(false);
+      if (sheetRef.current) sheetRef.current.value = '';
+    }
   };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -256,13 +370,20 @@ const Quotations: React.FC = () => {
           actions={<Btn variant="ghost" onClick={() => { resetForm(); setView('list'); }}><ArrowLeft className="h-4 w-4" /> Back</Btn>} />
         {err && <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{err}</div>}
 
-        <SectionCard title="Customer" description="Optional — leave blank for a walk-in quote. Enter a phone to look up a known (B2B) customer.">
+        <SectionCard title="Customer" description="Search for an existing customer first. A match fills their name, phone, email, GSTIN and state. If nobody matches, fill the details in and save the quotation anyway.">
+          <CustomerPicker
+            mode="quote"
+            customer={picked}
+            onPick={applyCustomer}
+            onClear={() => { setPicked(null); setCustomerId(null); }}
+            accountChoice={accountChoice}
+            onAccountChoice={setAccountChoice}
+            newPhone={cust.phone.trim() || undefined}
+            onUseAddress={useSavedAddress}
+          />
           <FilterBar>
             <Field label="Name"><TextInput className="w-56" value={cust.name} onChange={(e) => setCust({ ...cust, name: e.target.value })} /></Field>
-            <Field label="Phone">
-              <TextInput className={`w-40 ${customerId ? 'border-emerald-500' : ''}`} value={cust.phone}
-                onChange={(e) => setCust({ ...cust, phone: e.target.value })} onBlur={lookupCustomer} />
-            </Field>
+            <Field label="Phone"><TextInput className="w-40" value={cust.phone} onChange={(e) => setCust({ ...cust, phone: e.target.value })} /></Field>
             <Field label="Email"><TextInput className="w-56" value={cust.email} onChange={(e) => setCust({ ...cust, email: e.target.value })} /></Field>
             <Field label="GSTIN"><TextInput className="w-44" value={cust.gstin} onChange={(e) => setCust({ ...cust, gstin: e.target.value })} /></Field>
             <Field label="State (for GST)"><TextInput className="w-44" placeholder="e.g. Karnataka" value={cust.state} onChange={(e) => setCust({ ...cust, state: e.target.value })} /></Field>
@@ -270,14 +391,17 @@ const Quotations: React.FC = () => {
           {customerId && <div className="mt-2 text-xs text-emerald-700">Known customer attached — their B2B pricing will be applied automatically.</div>}
         </SectionCard>
 
-        <SectionCard title="Products" description="Search by name, brand or SKU. Prices shown are the store's current prices; the quote is priced authoritatively when you save.">
-          <div className="max-w-xl">
+        <SectionCard title="Products" description="Search by name, brand or SKU, or upload a sheet with SKU and quantity. MRP and the sale rate are kept apart. A blank sale rate is priced for this customer when you save; a rate, MRP or discount % filled in the sheet is the rate you offered.">
+          <div className="flex flex-wrap items-end gap-3">
+          <div className="max-w-xl flex-1">
             <SearchInput placeholder="Search products to add…" value={searchQ} onChange={(e) => liveSearch(e.target.value)} />
             {results.length > 0 && (
               <div className="mt-1 max-h-72 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-sm">
                 {results.map((r: any) => {
                   const vid = r.variation_id ?? r.id;
                   const price = r.final_price ?? r.sale_price ?? r.selling_price ?? r.price;
+                  const mrp = rupee(r.mrp);
+                  const sale = price != null ? Number(price) : null;
                   const oos = r.in_stock === false || Number(r.stock ?? 1) <= 0;
                   return (
                     <button key={vid} onClick={() => addLine(r)}
@@ -287,7 +411,8 @@ const Quotations: React.FC = () => {
                         <span className="block truncate font-mono text-xs text-gray-400">{[r.sku, r.brand_name].filter(Boolean).join('  ·  ')}</span>
                       </span>
                       <span className="shrink-0 text-right">
-                        {price != null && <span className="block font-semibold">{inr(Number(price))}</span>}
+                        {mrp != null && <span className="block text-xs text-gray-500">MRP {inr(mrp)}</span>}
+                        {sale != null && <span className="block font-semibold">Sale {inr(sale)}</span>}
                         <span className={`text-[11px] ${oos ? 'text-red-600' : 'text-gray-400'}`}>{oos ? 'out of stock' : `stock ${r.stock ?? '—'}`}</span>
                       </span>
                     </button>
@@ -296,16 +421,29 @@ const Quotations: React.FC = () => {
               </div>
             )}
           </div>
+          <div>
+            <input ref={sheetRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadSheet(f); }} />
+            <Btn variant="outline" onClick={() => sheetRef.current?.click()} disabled={uploading}>
+              <Upload className="h-4 w-4" /> {uploading ? 'Reading…' : 'Upload Excel'}
+            </Btn>
+            <div className="mt-1 max-w-xs text-[11px] text-gray-500">SKU and QTY are required. MRP, Discount % and Sale rate are used when those columns are filled.</div>
+          </div>
+          </div>
 
           <div className="mt-4">
             <TableShell>
               <table className="w-full text-sm">
                 <THead>
-                  <Th>Product</Th><Th>SKU</Th><Th num>Qty</Th><Th num>Price (est.)</Th><Th num>Line total</Th><Th></Th>
+                  <Th>Product</Th><Th>SKU</Th><Th num>Qty</Th><Th num>MRP</Th><Th num>Discount %</Th><Th num>Sale rate</Th><Th num>Line total</Th><Th></Th>
                 </THead>
                 <TBody>
-                  {lines.length === 0 && <EmptyRow colSpan={6}>No products yet — search above to add them.</EmptyRow>}
-                  {lines.map((l) => (
+                  {lines.length === 0 && <EmptyRow colSpan={8}>No products yet — search above, or upload a sheet.</EmptyRow>}
+                  {lines.map((l) => {
+                    const off = l.mrp != null && l.price != null && l.mrp > l.price
+                      ? Math.round((1 - l.price / l.mrp) * 1000) / 10 : null;
+                    const pct = l.discountPercent ?? off;
+                    return (
                     <Tr key={l.variationId ?? l.productId}>
                       <Td>{l.name}</Td>
                       <Td className="font-mono text-xs text-gray-500">{l.sku}</Td>
@@ -316,11 +454,14 @@ const Quotations: React.FC = () => {
                           <button className="h-7 w-7 rounded border text-base font-bold" onClick={() => setQty(l.variationId, l.qty + 1)}>+</button>
                         </span>
                       </Td>
+                      <Td num>{l.mrp != null ? inr(l.mrp) : '—'}</Td>
+                      <Td num>{pct != null && pct > 0 ? `${pct}%` : '—'}</Td>
                       <Td num>{l.price != null ? inr(l.price) : '—'}</Td>
                       <Td num>{l.price != null ? inr(l.price * l.qty) : '—'}</Td>
                       <Td><Btn variant="ghost" size="sm" onClick={() => setQty(l.variationId, 0)}><Trash2 className="h-4 w-4" /></Btn></Td>
                     </Tr>
-                  ))}
+                    );
+                  })}
                 </TBody>
               </table>
             </TableShell>
@@ -401,21 +542,49 @@ const Quotations: React.FC = () => {
 
         <SectionCard title="Items">
           <TableShell>
-            <table className="w-full text-sm">
+            <table className="w-full text-sm whitespace-nowrap">
               <THead>
-                <Th>Product</Th><Th>SKU</Th><Th num>Qty</Th><Th num>Unit price</Th><Th num>Line total</Th>
+                <Th>SL No</Th><Th>SKU</Th><Th>Mfac Name</Th><Th>Item Description</Th><Th>Potency</Th><Th>Pack/Size</Th>
+                <Th>Batch</Th><Th>Exp Date</Th>
+                <Th>HSN</Th><Th num>QTY</Th><Th num>MRP</Th><Th num>Discount %</Th><Th num>Free/Scheme Disc</Th>
+                <Th num>Sale rate</Th><Th num>GST</Th><Th num>Total value</Th>
               </THead>
               <TBody>
-                {(q.items ?? []).length === 0 && <EmptyRow colSpan={5}>No items.</EmptyRow>}
-                {(q.items ?? []).map((it: any) => (
-                  <Tr key={it.id}>
-                    <Td>{it.product_name}</Td>
-                    <Td className="font-mono text-xs text-gray-500">{it.sku}</Td>
+                {(q.items ?? []).length === 0 && <EmptyRow colSpan={16}>No items.</EmptyRow>}
+                {(q.items ?? []).map((it: any, idx: number) => {
+                  const a = it.attributes ?? {};
+                  const sale = rupee(it.unit_price);
+                  const mrp = rupee(it.mrp) ?? rupee(a.mrp);
+                  const qty = Number(it.quantity) || 0;
+                  const disc = rupee(it.discount_amount) ?? (mrp != null && sale != null && mrp > sale ? (mrp - sale) * qty : 0);
+                  const pct = rupee(it.discount_percent) ?? (mrp != null && sale != null && mrp > sale && mrp > 0 ? ((mrp - sale) / mrp) * 100 : 0);
+                  const gst = rupee(a.gst_rate);
+                  const free = rupee(a.free_qty);
+                  const cell = (v: unknown) => (v == null || v === '' ? '—' : String(v));
+                  const scheme = disc > 0 && free != null && free > 0
+                    ? `${inr(disc)} + ${free} free`
+                    : disc > 0 ? inr(disc) : free != null && free > 0 ? `${free} free` : '—';
+                  return (
+                  <Tr key={it.id ?? idx}>
+                    <Td>{idx + 1}</Td>
+                    <Td className="font-mono text-xs text-gray-500">{it.sku || '—'}</Td>
+                    <Td>{cell(a.manufacturer)}</Td>
+                    <Td className="whitespace-normal">{it.product_name}</Td>
+                    <Td>{cell(a.potency)}</Td>
+                    <Td>{cell(a.pack)}</Td>
+                    <Td>{cell(a.batch ?? a.batch_number)}</Td>
+                    <Td>{cell(a.expiry ?? a.expiry_date)}</Td>
+                    <Td>{cell(a.hsn_code ?? a.hsn)}</Td>
                     <Td num>{it.quantity}</Td>
-                    <Td num>{inr(it.unit_price)}</Td>
+                    <Td num>{mrp != null ? inr(mrp) : '—'}</Td>
+                    <Td num>{pct > 0 ? `${Math.round(pct * 10) / 10}%` : '—'}</Td>
+                    <Td num>{scheme}</Td>
+                    <Td num>{sale != null ? inr(sale) : '—'}</Td>
+                    <Td num>{gst != null && gst > 0 ? `${gst}%` : '—'}</Td>
                     <Td num className="font-semibold">{inr(it.line_total)}</Td>
                   </Tr>
-                ))}
+                  );
+                })}
               </TBody>
             </table>
           </TableShell>

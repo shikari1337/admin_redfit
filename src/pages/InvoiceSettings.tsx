@@ -643,8 +643,8 @@ const InvoiceSettings: React.FC = () => {
                 </SelectContent>
               </Select>
             </Field>
-            <Field label="Logo (data URI)" hint="Paste a data:image/... URI. Remote URLs can't be embedded.">
-              <Input value={cfg.theme.logo_url} onChange={(e) => set('theme.logo_url', e.target.value)} placeholder="data:image/png;base64,…" />
+            <Field label="Logo" hint="Leave this blank to use the store logo. A PNG or JPEG uploaded for this store is drawn on the invoice, the quotation and the other documents. A pasted data:image URI works too.">
+              <Input value={cfg.theme.logo_url} onChange={(e) => set('theme.logo_url', e.target.value)} placeholder="Store logo, or data:image/png;base64,…" />
             </Field>
             <div className="flex items-center gap-6 md:col-span-2">
               <label className="flex items-center gap-2 text-sm">
@@ -680,10 +680,10 @@ const InvoiceSettings: React.FC = () => {
                   <Switch checked={cfg.theme.show_expiry !== false} onCheckedChange={(v) => set('theme.show_expiry', v)} /> Expiry
                 </label>
                 <label className="flex items-center gap-2 text-sm">
-                  <Switch checked={cfg.theme.show_discount !== false} onCheckedChange={(v) => set('theme.show_discount', v)} /> Discount
+                  <Switch checked={cfg.theme.show_discount !== false} onCheckedChange={(v) => set('theme.show_discount', v)} /> Discount % and amount
                 </label>
                 <label className="flex items-center gap-2 text-sm">
-                  <Switch checked={cfg.theme.show_mrp !== false} onCheckedChange={(v) => set('theme.show_mrp', v)} /> MRP under the rate
+                  <Switch checked={cfg.theme.show_mrp !== false} onCheckedChange={(v) => set('theme.show_mrp', v)} /> MRP column
                 </label>
               </div>
             </div>

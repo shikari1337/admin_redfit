@@ -62,6 +62,11 @@ interface Props {
   newPhone?: string;
   /** Re-apply one of this customer's saved addresses. */
   onUseAddress?: (addr: any) => void;
+  /**
+   * `quote` is a quotation: nobody matching still leaves a quote to send.
+   * The account question belongs to an order, where saving can create a customer.
+   */
+  mode?: 'order' | 'quote';
 }
 
 /**
@@ -97,7 +102,7 @@ export async function loadPickedCustomer(id: string, base?: Partial<PickedCustom
 }
 
 const CustomerPicker: React.FC<Props> = ({
-  customer, onPick, onClear, accountChoice, onAccountChoice, newPhone, onUseAddress,
+  customer, onPick, onClear, accountChoice, onAccountChoice, newPhone, onUseAddress, mode = 'order',
 }) => {
   const [q, setQ] = useState('');
   const [results, setResults] = useState<any[]>([]);
@@ -218,15 +223,17 @@ const CustomerPicker: React.FC<Props> = ({
             })}
             {nothingFound && (
               <div className="px-3 py-2.5 text-sm text-ink-soft">
-                Nobody here matches “{q.trim()}”. Fill the details in below — this is a new customer.
+                {mode === 'quote'
+                  ? `Nobody here matches “${q.trim()}”. Fill the details in below and save the quotation.`
+                  : `Nobody here matches “${q.trim()}”. Fill the details in below — this is a new customer.`}
               </div>
             )}
           </div>
         )}
       </div>
 
-      {/* The choice the screen used to make silently. */}
-      <div className="rounded-md border border-line bg-surface-2 p-3">
+      {/* The choice the screen used to make silently. A quotation does not create an account. */}
+      {mode === 'order' && <div className="rounded-md border border-line bg-surface-2 p-3">
         <div className="flex items-center gap-1.5">
           <Store className="h-3.5 w-3.5 text-ink-soft" />
           <span className="text-sm font-medium text-ink">New customer — do they get an account?</span>
@@ -263,7 +270,7 @@ const CustomerPicker: React.FC<Props> = ({
             );
           })}
         </div>
-      </div>
+      </div>}
     </div>
   );
 };

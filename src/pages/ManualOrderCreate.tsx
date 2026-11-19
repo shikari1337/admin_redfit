@@ -194,6 +194,17 @@ const ManualOrderCreate: React.FC = () => {
       // cannot show one pack on two rows.
       setLines((ls) => ls.map((l, i) => (i === existing ? { ...l, quantity: l.quantity + 1 } : l)));
     } else {
+      const attributes = { ...(v.attributes && typeof v.attributes === 'object' ? v.attributes : {}) };
+      const fill = (key: string, ...vals: unknown[]) => {
+        const cur = attributes[key];
+        if (cur != null && String(cur).trim() !== '') return;
+        const found = vals.find((x) => x != null && String(x).trim() !== '');
+        if (found != null) attributes[key] = String(found).trim();
+      };
+      fill('manufacturer', v.brand_name, v.brandName, v.manufacturer, v.brand);
+      fill('potency', v.potency);
+      fill('pack', v.pack, v.size, v.pack_size, v.packaging);
+      fill('hsn_code', v.hsn, v.hsn_code, v.hsnCode);
       setLines((ls) => [...ls, {
         productId, variationId,
         sku: v.sku ?? undefined,
@@ -201,7 +212,7 @@ const ManualOrderCreate: React.FC = () => {
         price: Number(v.salePrice ?? v.sale_price ?? v.sellingPrice ?? v.selling_price ?? v.mrp ?? 0),
         mrp: v.mrp != null ? Number(v.mrp) : undefined,
         stock: v.stock != null ? Number(v.stock) : undefined,
-        attributes: v.attributes ?? {},
+        attributes,
         quantity: 1,
       }]);
     }
@@ -515,10 +526,10 @@ const ManualOrderCreate: React.FC = () => {
               )}
               {lines.length > 0 && (
                 <p className="text-[11px] leading-snug text-ink-soft">
-                  <span className="font-medium">Rate</span> is what the price book resolved for this customer: a running
+                  <span className="font-medium">Sale rate</span> is what the price book resolved for this customer: a running
                   offer, a batch price or their wholesale tier is already in it.
-                  <span className="ml-1 font-medium">Disc %</span> takes more off that rate;
-                  <span className="ml-1 font-medium">Set rate</span> names the figure outright. Either one is recorded on the
+                  <span className="ml-1 font-medium">Discount %</span> takes more off that rate;
+                  <span className="ml-1 font-medium">Set rate</span>, under the sale rate, names the figure outright. Either one is recorded on the
                   order as a manual price.
                 </p>
               )}
