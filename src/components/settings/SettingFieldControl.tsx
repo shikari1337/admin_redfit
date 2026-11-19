@@ -205,22 +205,26 @@ const SettingFieldControl: React.FC<Props> = ({ field, value, onChange, options,
 
     case 'select': {
       const current = value == null ? '' : String(value);
-      if (opts.length >= NATIVE_SELECT_FROM) {
+      // An option whose value is '' (e.g. "Ask each time") IS the unset row: Radix
+      // throws on <SelectItem value="">, which takes down the whole Settings page.
+      const unsetLabel = opts.find((o) => String(o.value) === '')?.label ?? '—';
+      const valued = opts.filter((o) => String(o.value) !== '');
+      if (valued.length >= NATIVE_SELECT_FROM) {
         return (
           <select id={id} className="h-9 w-full max-w-[420px] rounded-md border border-input bg-background px-3 text-sm" value={current} disabled={isDisabled}
-            onChange={(e) => { const o = opts.find((x) => String(x.value) === e.target.value); onChange(o ? o.value : e.target.value); }}>
-            <option value="">—</option>
-            {opts.map((o) => <option key={String(o.value)} value={String(o.value)}>{o.label}</option>)}
+            onChange={(e) => { const o = valued.find((x) => String(x.value) === e.target.value); onChange(o ? o.value : e.target.value); }}>
+            <option value="">{unsetLabel}</option>
+            {valued.map((o) => <option key={String(o.value)} value={String(o.value)}>{o.label}</option>)}
           </select>
         );
       }
       return (
         <Select value={current || '__unset__'} disabled={isDisabled}
-          onValueChange={(v) => { if (v === '__unset__') { onChange(''); return; } const o = opts.find((x) => String(x.value) === v); onChange(o ? o.value : v); }}>
-          <SelectTrigger id={id} className="h-9 max-w-[420px]"><SelectValue placeholder="—" /></SelectTrigger>
+          onValueChange={(v) => { if (v === '__unset__') { onChange(''); return; } const o = valued.find((x) => String(x.value) === v); onChange(o ? o.value : v); }}>
+          <SelectTrigger id={id} className="h-9 max-w-[420px]"><SelectValue placeholder={unsetLabel} /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="__unset__">—</SelectItem>
-            {opts.map((o) => (
+            <SelectItem value="__unset__">{unsetLabel}</SelectItem>
+            {valued.map((o) => (
               <SelectItem key={String(o.value)} value={String(o.value)}>
                 {o.label}{o.hint ? <span className="ml-2 text-xs text-muted-foreground">{o.hint}</span> : null}
               </SelectItem>
@@ -301,6 +305,7 @@ export default SettingFieldControl;
 /** Compact, human summary of a field's current value for list rows. */
 export function summarizeField(field: RegistryField, value: any, secretSet?: boolean): string {
   if (field.type === 'secret') return secretSet ? 'set' : 'not set';
+  if (field.type === 'select' && (value == null || value === '')) return (field.options ?? []).find((x) => String(x.value) === '')?.label ?? '—';
   if (value === undefined || value === null || value === '') return '—';
   if (field.type === 'boolean') return value === true ? 'On' : 'Off';
   if (field.type === 'date') return String(value);
