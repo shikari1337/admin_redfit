@@ -60,7 +60,7 @@ const Table: React.FC<{ heads: string[]; children: React.ReactNode }> = ({ heads
   </div>
 );
 
-const ShopperReport: React.FC<{ range: PanelRange }> = ({ range }) => {
+const ShopperReport: React.FC<{ range: PanelRange; orderChecks?: number | null }> = ({ range, orderChecks }) => {
   const { data, loading, error, status } = usePanelStats<any>('shoppers', range);
   const [openBrand, setOpenBrand] = useState<string | null>(null);
 
@@ -81,13 +81,39 @@ const ShopperReport: React.FC<{ range: PanelRange }> = ({ range }) => {
   const brands = (data.brands ?? []) as Brand[];
   const active = openBrand === '' ? null : (openBrand ?? brands[0]?.brand ?? null);
   const pipe = data.pipeline ?? {};
-  const stages = [
-    { label: 'Visits', count: n(pipe.visitors) },
-    { label: 'Viewed a product', count: n(pipe.product_views) },
-    { label: 'Added to cart', count: n(pipe.carts) },
-    { label: 'Checkout', count: n(pipe.checkouts) },
-    { label: 'Payment', count: n(pipe.payments) },
-    { label: 'Orders', count: n(pipe.orders) },
+  const stagesOf = (prefix: '' | 'new' | 'registered') => {
+    const key = (base: string) => (prefix ? pipe[`${prefix}_${base}`] : pipe[base]);
+    return [
+      { label: 'Visits', count: n(key('visitors')) },
+      { label: 'Viewed a product', count: n(key('product_views')) },
+      { label: 'Added to cart', count: n(key('carts')) },
+      { label: 'Checkout', count: n(key('checkouts')) },
+      { label: 'Payment', count: n(key('payments')) },
+      { label: 'Orders', count: n(key('orders')) },
+    ];
+  };
+  const funnels = [
+    {
+      title: 'Total visitors',
+      caption: 'Every visit. Orders are orders placed, not sessions that reached the thank-you page, so the last step can be higher or lower than payment.',
+      stages: stagesOf(''),
+      sales: n(pipe.sales),
+      first: 'Everyone who visited',
+    },
+    {
+      title: 'New visitors',
+      caption: 'No kept order before this period. A guest counts, because that visit is not tied to an earlier order. A visit that only opened an existing order or account is left out. Someone signed in for the first time is also in Registered.',
+      stages: stagesOf('new'),
+      sales: n(pipe.new_sales),
+      first: 'New visits',
+    },
+    {
+      title: 'Registered visitors',
+      caption: 'Someone was signed in. Orders are orders by those customers. People opening an old order stay in this funnel, so the later steps are often much smaller than the visits.',
+      stages: stagesOf('registered'),
+      sales: n(pipe.registered_sales),
+      first: 'Signed-in visits',
+    },
   ];
   const pace = data.pace ?? {};
   const oneOrders = n(pace.one_time_orders);
@@ -152,23 +178,25 @@ const ShopperReport: React.FC<{ range: PanelRange }> = ({ range }) => {
         )}
       </Section>
 
-      <Section
-        title="Sales pipeline"
-        caption="Visits are sessions. Orders are orders placed, not sessions that reached the thank-you page, so the last step can be higher or lower than payment."
-      >
-        <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
-          {stages.map((s, i) => (
-            <div key={s.label} className="rounded-lg border bg-white p-3">
-              <div className="text-xs font-medium text-gray-500">{s.label}</div>
-              <div className="mt-1 text-xl font-semibold tabular-nums text-gray-900">{count(s.count)}</div>
-              <div className="mt-1 text-xs text-gray-500">
-                {i === 0 ? 'Everyone who visited' : `${pct(s.count, stages[i - 1].count)} of the previous step`}
+      {funnels.map((f) => (
+        <Section key={f.title} title={f.title} caption={f.caption}>
+          <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
+            {f.stages.map((s, i) => (
+              <div key={s.label} className="rounded-lg border bg-white p-3">
+                <div className="text-xs font-medium text-gray-500">{s.label}</div>
+                <div className="mt-1 text-xl font-semibold tabular-nums text-gray-900">{count(s.count)}</div>
+                <div className="mt-1 text-xs text-gray-500">
+                  {i === 0 ? f.first : `${pct(s.count, f.stages[i - 1].count)} of the previous step`}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-        {n(pipe.sales) > 0 && <p className="text-sm text-gray-500">Orders in the pipeline are worth {money(pipe.sales)}.</p>}
-      </Section>
+            ))}
+          </div>
+          {f.sales > 0 && <p className="text-sm text-gray-500">Orders in this funnel are worth {money(f.sales)}.</p>}
+        </Section>
+      ))}
+      {orderChecks != null && orderChecks > 0 && (
+        <p className="text-sm text-gray-500">{count(orderChecks)} visits only opened an existing order or account. They are in Total and, when someone was signed in, in Registered. They are left out of New.</p>
+      )}
 
       <Section
         title="One-time checkout, and shoppers who took time"

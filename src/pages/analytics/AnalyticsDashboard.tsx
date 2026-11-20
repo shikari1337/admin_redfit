@@ -86,9 +86,17 @@ const AnalyticsDashboard: React.FC = () => {
       const conv = Number(s.conversion_rate ?? 0);
       const convBefore = Number(p.conversion_rate ?? 0);
       if (Number(s.sessions) >= 100 && Number(p.sessions) >= 100 && convBefore - conv >= 0.3) {
+        const shop = Number(s.shopping_conversion_rate ?? 0);
+        const shopBefore = Number(p.shopping_conversion_rate ?? 0);
+        const fresh = Number(s.new_user_conversion ?? 0);
+        const checks = Number(s.order_check_sessions ?? 0);
+        const shopHeld = shopBefore - shop < 0.3;
         out.push({
-          tone: 'bad', title: `Fewer visits turn into orders`,
-          body: <>{conv.toFixed(1)}% of visits ordered, down from {convBefore.toFixed(1)}%. See where shoppers leave the funnel.</>,
+          tone: shopHeld && checks > 0 ? 'info' : 'bad',
+          title: shopHeld && checks > 0 ? 'Headline conversion includes people opening an old order' : 'Fewer visits turn into orders',
+          body: shopHeld && checks > 0
+            ? <>{conv.toFixed(1)}% of all visits ordered, down from {convBefore.toFixed(1)}%. {count(checks)} visits only opened an existing order or account. Without those, conversion is {shop.toFixed(1)}%, from {shopBefore.toFixed(1)}%. New-user conversion is {fresh.toFixed(1)}%.</>
+            : <>{conv.toFixed(1)}% of visits ordered, down from {convBefore.toFixed(1)}%. Without visits that only opened an old order it is {shop.toFixed(1)}%. New-user conversion is {fresh.toFixed(1)}%. See where shoppers leave the funnel.</>,
           action: { label: 'Open the store funnel', to: '/analytics/store' },
         });
       }
@@ -132,7 +140,7 @@ const AnalyticsDashboard: React.FC = () => {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Analytics</h1>
-          <p className="text-sm text-gray-500">What to act on first, then the period's numbers, then how shoppers actually buy: brands, the pipeline, search and the messages that bring a cart back.</p>
+          <p className="text-sm text-gray-500">What to act on first, then the period's numbers. Conversion counts every visit. New-user conversion leaves out people who only opened an existing order.</p>
         </div>
         <DateRangeBar preset={preset} onPreset={setPreset} custom={custom} onCustom={setCustom} />
       </div>
@@ -159,11 +167,22 @@ const AnalyticsDashboard: React.FC = () => {
             <KpiTile label="Orders" value={count(s.orders)} delta={delta(s.orders, p?.orders)} sub={`${count(s.cancelled_orders)} cancelled`} />
             <KpiTile label="Average order" value={money(s.aov)} delta={delta(s.aov, p?.aov)} />
             <KpiTile label="Units sold" value={count(s.units_sold)} delta={delta(s.units_sold, p?.units_sold)} />
-            <KpiTile label="Sessions" value={count(s.sessions)} delta={delta(s.sessions, p?.sessions)} />
+            <KpiTile label="Total visitors" value={count(s.sessions)} delta={delta(s.sessions, p?.sessions)} sub="Every visit" />
+            <KpiTile label="New visitors" value={count(s.new_visitor_sessions)} delta={delta(s.new_visitor_sessions, p?.new_visitor_sessions)}
+              sub="No earlier order. Guests count." />
+            <KpiTile label="Registered visitors" value={count(s.registered_visitors)} delta={delta(s.registered_visitors, p?.registered_visitors)}
+              sub="Signed in on the visit" />
             <KpiTile label="Conversion" value={`${Number(s.conversion_rate ?? 0).toFixed(1)}%`}
-              delta={delta(s.conversion_rate, p?.conversion_rate, { mode: 'points' })} sub="Orders over sessions" />
+              delta={delta(s.conversion_rate, p?.conversion_rate, { mode: 'points' })} sub="Every visit, including an old order" />
+            <KpiTile label="New-user conversion" value={`${Number(s.new_user_conversion ?? 0).toFixed(1)}%`}
+              delta={delta(s.new_user_conversion, p?.new_user_conversion, { mode: 'points' })} sub="First orders over new visits" />
+            <KpiTile label="Order checks" value={count(s.order_check_sessions)} delta={delta(s.order_check_sessions, p?.order_check_sessions)}
+              sub="Only an existing order or account" />
             <KpiTile label="New buyers" value={count(s.new_customers)} delta={delta(s.new_customers, p?.new_customers)} sub="First order in the period" />
           </div>
+          <p className="text-sm text-gray-500">
+            A new visitor is a visit that looked at the shop, not one that only opened an existing order, tracking, the account, login, or a pay link for an order already placed. A guest counts as new, because that visit is not tied to an earlier order. A signed-in customer counts as new only when they had not ordered before this period. The conversion above still divides orders by every visit, so people checking an old order pull that rate down. New-user conversion is first orders divided by the new visits. A first order with no recorded visit still counts in that rate.
+          </p>
 
           <div className="grid gap-4 lg:grid-cols-3">
             <div className="min-w-0 lg:col-span-2">
@@ -200,7 +219,7 @@ const AnalyticsDashboard: React.FC = () => {
 
       {!loading && !error && data && !s && <Unavailable>No figures for this period.</Unavailable>}
 
-      <ShopperReport range={range} />
+      <ShopperReport range={range} orderChecks={s ? Number(s.order_check_sessions ?? 0) : null} />
     </div>
   );
 };
