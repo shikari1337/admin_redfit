@@ -11,6 +11,7 @@ import {
   type DispatchDetail, type DispatchFilter, type DispatchRow, type MsgCh,
 } from '@/lib/v2/messaging';
 import { ErrorNotice, GapNotice, failureOf, type LoadFailure } from './common';
+import { shownActor } from '../../lib/v2/activityLog';
 
 /**
  * The Sent log of one channel (or every channel): the dispatch rows the comms
@@ -166,7 +167,7 @@ const SentLog: React.FC<{
                     <button type="button" className="text-left font-medium text-ink hover:underline" onClick={(e) => { e.stopPropagation(); setOpenId(r.id); }}>
                       {labelOf(r)}
                     </button>
-                    {r.is_automated === false && r.actor_name && <span className="ml-1.5 text-xs text-ink-mute">by {r.actor_name}</span>}
+                    {r.is_automated === false && r.actor_name && <span className="ml-1.5 text-xs text-ink-mute">by {shownActor(r.actor_name)}</span>}
                   </td>
                   {!channel && <td className="px-3 py-2 text-ink-soft">{r.channel ? (MSG_CHANNEL_LABEL[r.channel as MsgCh] ?? r.channel) : '—'}</td>}
                   <td className="px-3 py-2 font-mono text-xs text-ink-soft">{r.recipient || '—'}</td>
@@ -216,7 +217,7 @@ const DispatchDrawer: React.FC<{ id: string | null; onClose: () => void; label: 
     ['Sent through', [d.provider, d.account_source === 'store' ? 'your own account' : d.account_source === 'platform' ? 'Growcord’s account' : d.account_source].filter(Boolean).join(' · ') || '—'],
     ['Template', d.template_key ? `${d.template_key}${d.template_version ? ` · version ${d.template_version}` : ''}` : '—'],
     ['Kind', [d.purpose_category, d.send_purpose].filter(Boolean).join(' · ').replace(/_/g, ' ') || '—'],
-    ['Sent by', d.is_automated ? 'Automatic' : d.actor_name || '—'],
+    ['Sent by', d.is_automated ? 'Automatic' : shownActor(d.actor_name) || '—'],
     ['Provider message id', d.provider_message_id ? <span className="break-all font-mono text-xs">{d.provider_message_id}</span> : '—'],
     ['Held until', d.deferred_until ? formatDateTime(d.deferred_until) : null],
     ['Order', d.order_id ? <Link className="text-brand underline" to={`/orders/${d.order_id}`}>Open the order</Link> : null],

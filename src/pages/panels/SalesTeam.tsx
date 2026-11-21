@@ -11,6 +11,7 @@ import { Page, PageHeader, SectionCard, StatusChip, EmptyState } from '../../com
 import { actionLabel } from '../../lib/activityVocab';
 import { Inbox, AlertTriangle, ArrowRight, Activity, X } from 'lucide-react';
 import { localeDate, localeDateTime } from '../../utils/date';
+import { shownActor } from '../../lib/v2/activityLog';
 
 /**
  * Sales & Team — who sold what, who is managing what, and who did which steps.
@@ -298,7 +299,7 @@ const SalesTeam: React.FC = () => {
                     <li key={r.id} className="flex items-start gap-3 py-2 text-sm">
                       <Activity className="mt-0.5 h-4 w-4 shrink-0 text-gray-300" />
                       <div className="min-w-0 flex-1">
-                        <span className="font-medium text-gray-900">{r.actor_name || 'System'}</span>{' '}
+                        <span className="font-medium text-gray-900">{shownActor(r.actor_name) || 'System'}</span>{' '}
                         <span className="text-gray-600">{actionLabel(r.action)}</span>{' '}
                         {r.entity_label && (
                           <Link to={`/orders/${r.entity_id}`} className="font-medium text-blue-600 hover:underline">

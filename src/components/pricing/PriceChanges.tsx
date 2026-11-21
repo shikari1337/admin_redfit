@@ -13,6 +13,7 @@ import { ConfirmDialog, ErrorNote, Notice, useLoad, whyDisabled } from '@/pages/
 import { errorCode } from '@/lib/v2/erp';
 import { fmtRupees } from '@/lib/money';
 import { saveBlob } from '@/lib/saveBlob';
+import { shownActor } from '@/lib/v2/activityLog';
 import { formatDateTime } from '@/utils/date';
 import {
   PRICING_CODES, SOURCE_WORDS, exportChanges, listChanges, revertChange, wordsOf,
@@ -139,7 +140,7 @@ const PriceChanges: React.FC<{
                     {wasUndone && <span className="ml-2"><StatusChip status="reversed" label="Undone" /></span>}
                   </Td>
                   <Td muted className="whitespace-nowrap text-xs">
-                    {r.actor_kind === 'service' ? 'Daily run' : (r.actor_name || wordsOf(r.source, SOURCE_WORDS))}
+                    {r.actor_kind === 'service' ? 'Daily run' : (shownActor(r.actor_name, r.actor_kind) || wordsOf(r.source, SOURCE_WORDS))}
                   </Td>
                   <Td className="text-right">
                     <Btn type="button" size="sm" variant="outline" disabled={!!blocked} title={blocked ?? 'Put the price back to what it was before'}

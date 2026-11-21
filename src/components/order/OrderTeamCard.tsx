@@ -13,6 +13,7 @@ import {
   UserCheck, Award, KeyRound, Loader2, History, Gavel, Hand, Lock, AlertTriangle, Bot,
 } from 'lucide-react';
 import { localeDateTime } from '../../utils/date';
+import { shownActor } from '../../lib/v2/activityLog';
 
 interface StaffLite { id: string; name?: string | null; role?: string }
 
@@ -336,7 +337,7 @@ const OrderTeamCard: React.FC<Props> = ({
               {activity.map((r) => (
                 <li key={r.id} className="flex items-start justify-between gap-2 text-xs">
                   <span className="min-w-0 text-gray-700">
-                    <span className="font-medium text-gray-900">{r.actor_name || 'System'}</span>{' '}
+                    <span className="font-medium text-gray-900">{shownActor(r.actor_name) || 'System'}</span>{' '}
                     {actionLabel(r.action)}
                     {r.from_value && r.to_value && (
                       <span className="text-gray-500"> · {r.from_value} → {r.to_value}</span>

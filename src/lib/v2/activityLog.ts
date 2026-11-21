@@ -188,11 +188,32 @@ export function words(code: string): string {
 }
 
 /**
+ * The name every screen shows for work the platform's automation did (owner 21 Nov 2026): an automated
+ * Growcord system, never a tool or vendor name. The stored records keep their own names and the kind
+ * `ai_agent`; only what a screen shows changes.
+ */
+export const AUTOMATION_NAME = 'Growcord Autopilot';
+
+/** A stored actor name written by the automation before it signed as {@link AUTOMATION_NAME}. */
+const AUTOMATION_SIGNATURE = /\b(claude|anthropic)\b/i;
+
+/**
+ * The actor name a screen shows: {@link AUTOMATION_NAME} for the automation (kind `ai_agent`, or a stored name
+ * it signed with earlier), otherwise the stored name as it is (null when none).
+ */
+export function shownActor(name: string | null | undefined, kind?: string | null): string | null {
+  if (kind === 'ai_agent') return AUTOMATION_NAME;
+  if (!name) return null;
+  return AUTOMATION_SIGNATURE.test(name) ? AUTOMATION_NAME : name;
+}
+
+/**
  * Who acted, in words: the store account's name; otherwise the kind of actor (the kernel's actor words)
  * with what names it. An unknown kind falls back to its own words.
  */
 export function actorLabel(e: Pick<LogEntry, 'actor_kind' | 'actor_detail' | 'actor_name'>): string {
-  if (e.actor_name) return e.actor_name;
+  const shown = shownActor(e.actor_name, e.actor_kind);
+  if (shown) return shown;
   const detail = e.actor_detail ? words(e.actor_detail) : '';
   switch (e.actor_kind) {
     case 'admin': return 'A staff account';
@@ -200,7 +221,7 @@ export function actorLabel(e: Pick<LogEntry, 'actor_kind' | 'actor_detail' | 'ac
     case 'platform_support': return 'Growcord support';
     case 'service': return detail ? `Automatic (${detail})` : 'Automatic';
     case 'api_key': return 'An API key';
-    case 'ai_agent': return detail ? `AI agent ${detail}` : 'An AI agent';
+    case 'ai_agent': return AUTOMATION_NAME;
     case 'customer': return 'A shopper';
     case 'system': return 'The system';
     default: return words(e.actor_kind) || 'Unknown';

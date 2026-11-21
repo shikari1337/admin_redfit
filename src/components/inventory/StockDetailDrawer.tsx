@@ -4,6 +4,7 @@ import { formatDay, formatDateTime } from '../../utils/date';
 import { movementLabel, refDocLabel, shortHash } from './ledgerLabels';
 import { useAuth } from '../../contexts/AuthContext';
 import ErpAtTheErp from './ErpAtTheErp';
+import { shownActor } from '../../lib/v2/activityLog';
 
 /**
  * EVERYTHING ABOUT ONE SKU — opened from the Inventory table.
@@ -338,7 +339,7 @@ export default function StockDetailDrawer({ variationId, onClose, onUpdate, lock
                                   {refDocLabel(e.ref_doc_type)}
                                   {e.ref_doc_id && <div style={{ fontSize: 11, color: 'var(--n-400)', fontFamily: 'ui-monospace, monospace' }}>{String(e.ref_doc_id).slice(0, 18)}</div>}
                                 </td>
-                                <td style={{ padding: '6px 10px', color: 'var(--n-600)' }}>{e.actor_name ?? (e.actor_id ? 'staff' : <span style={{ color: 'var(--n-300)' }}>system</span>)}</td>
+                                <td style={{ padding: '6px 10px', color: 'var(--n-600)' }}>{shownActor(e.actor_name) ?? (e.actor_id ? 'staff' : <span style={{ color: 'var(--n-300)' }}>system</span>)}</td>
                                 <td style={{ padding: '6px 10px', fontFamily: 'ui-monospace, monospace', fontSize: 11, whiteSpace: 'nowrap', color: good ? 'var(--g-700)' : 'var(--d-700)' }}
                                     title={`This entry: ${e.row_hash ?? '—'}\nPoints at: ${e.prev_hash ?? '(first entry)'}`}>
                                   {good ? '✓' : '✗'} {shortHash(e.row_hash)}

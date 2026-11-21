@@ -26,6 +26,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ordersAPI, type OrderCommunicationEntry } from '../../services/api';
 import { formatDateTime } from '../../utils/date';
+import { shownActor } from '../../lib/v2/activityLog';
 
 interface Props {
   /** Internal order UUID — what `/orders/:id/communications` is called with. */
@@ -182,7 +183,7 @@ const OrderCommunicationLog: React.FC<Props> = ({ orderId }) => {
                   <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
                     {row.recipient && <span>To {row.recipient}</span>}
                     {row.provider && <span>via {row.provider}</span>}
-                    <span>{row.is_automated ? 'Automated' : (row.actor_name ? `by ${row.actor_name}` : 'by staff')}</span>
+                    <span>{row.is_automated ? 'Automated' : (row.actor_name ? `by ${shownActor(row.actor_name)}` : 'by staff')}</span>
                   </div>
 
                   {/* WHAT IT SAID. The hub stores no message body (a log is not a
