@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../../services/api';
-import { analyticsAPI, LiveSummary } from '../../services/analyticsService';
+import { analyticsAPI, LiveSummary, visitorPlace } from '../../services/analyticsService';
 import { payload } from '../../lib/unwrap';
 import DateRangeBar, { useDateRange } from '../../components/panelAnalytics/DateRangeBar';
 import { ChartCard, CategoryBars, Donut, KpiTile, InsightCard, Insight, Unavailable } from '../../components/panelAnalytics/Kit';
@@ -262,7 +262,7 @@ const UserAnalytics: React.FC = () => {
                 <button key={sid} type="button" onClick={() => loadJourney(sid)}
                   className="flex w-full items-center justify-between gap-3 px-4 py-2 text-left hover:bg-gray-50">
                   <div className="min-w-0">
-                    <div className="font-medium text-gray-800">{v.location || 'Unknown'}, {words(v.device)}</div>
+                    <div className="font-medium text-gray-800">{visitorPlace(v)} <span className="font-normal text-gray-500">({words(v.device)})</span></div>
                     <div className="truncate font-mono text-xs text-gray-400">{sid}</div>
                   </div>
                   <span className="shrink-0 rounded bg-blue-50 px-1.5 py-0.5 text-xs text-blue-800">{words(v.last_action ?? v.lastAction)}</span>

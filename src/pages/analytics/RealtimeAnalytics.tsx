@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { analyticsAPI, LiveSummary, LiveCount } from '../../services/analyticsService';
+import { analyticsAPI, LiveSummary, LiveCount, LiveVisitor, visitorPlace } from '../../services/analyticsService';
 import { api } from '../../services/api';
 import { payload } from '../../lib/unwrap';
 import { fmtRupees } from '../../lib/money';
@@ -12,7 +12,7 @@ import { ChevronDown, ChevronRight, RefreshCw } from 'lucide-react';
 /**
  * Analytics > Realtime. The shop right now, as totals over the last half hour: how many people are on
  * the site, how far each has got (browsing, a product, a cart, checkout, paying, bought) and where they
- * are (page, device, place). Every count comes from `GET /api/v2/insights/realtime/summary`, which has
+ * are (page, device, place and state). Every count comes from `GET /api/v2/insights/realtime/summary`, which has
  * no row cap (the visitor list stops at 100 rows, so "active now" used to read 100 at most). Today's
  * orders and sales come from the commerce panel. The list of sessions is one click away, not the page.
  */
@@ -51,7 +51,7 @@ const RealtimeAnalytics: React.FC = () => {
   const [today, setToday] = useState<any>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [showSessions, setShowSessions] = useState(false);
-  const [visitors, setVisitors] = useState<any[] | null>(null);
+  const [visitors, setVisitors] = useState<LiveVisitor[] | null>(null);
   const [visitorsError, setVisitorsError] = useState<string | null>(null);
   const alive = useRef(true);
 
@@ -73,7 +73,7 @@ const RealtimeAnalytics: React.FC = () => {
     try {
       setVisitorsError(null);
       const res = await analyticsAPI.getRealtimeVisitors();
-      if (alive.current) setVisitors(payload<any[]>(res) ?? []);
+      if (alive.current) setVisitors(payload<LiveVisitor[]>(res) ?? []);
     } catch (e: any) {
       if (alive.current) setVisitorsError(statusOf(e) === 403 ? 'The session list is open to the store owner only.' : 'Could not load the sessions.');
     }
@@ -207,8 +207,11 @@ const RealtimeAnalytics: React.FC = () => {
           <Block title="Devices">
             {summary.devices.length > 0 ? <CompareBars rows={bars(summary.devices, (n) => words(n))} /> : <Unavailable>No devices yet.</Unavailable>}
           </Block>
-          <Block title="Places" sub="City, else country, from the visitor's address.">
+          <Block title="Places" sub="City and state, where the visitor connects from.">
             {summary.places.length > 0 ? <CompareBars rows={bars(summary.places)} /> : <Unavailable>No places yet.</Unavailable>}
+          </Block>
+          <Block title="States" sub="Each person once, by the state they connect from.">
+            {(summary.states ?? []).length > 0 ? <CompareBars rows={bars(summary.states)} /> : <Unavailable>No states yet.</Unavailable>}
           </Block>
         </div>
       )}
@@ -236,13 +239,13 @@ const RealtimeAnalytics: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {visitors.map((v: any, i: number) => {
+                    {visitors.map((v: LiveVisitor & Record<string, any>, i: number) => {
                       const sid = v.session_id ?? v.sessionId;
                       return (
                         <tr key={sid ?? i} className="hover:bg-gray-50">
                           <td className="px-4 py-2">
                             <Link to={`/analytics/users?session=${encodeURIComponent(sid ?? '')}`} className="font-medium text-gray-900 hover:underline">
-                              {v.location || 'Unknown'}
+                              {visitorPlace(v)}
                             </Link>
                             <div className="text-xs text-gray-500">{words(v.device)}</div>
                           </td>

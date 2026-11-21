@@ -32,8 +32,34 @@ export interface LiveSummary {
     stages: LiveStage[];
     devices: LiveCount[];
     pages: LiveCount[];
+    /** "City, State" (or "State, Country", or the country), each session once. */
     places: LiveCount[];
+    /** States by the reference registry's name, with the country when the list spans countries. */
+    states: LiveCount[];
 }
+
+/** `GET /api/v2/insights/realtime/visitors`: one session active in the last half hour. */
+export interface LiveVisitor {
+    session_id: string | null;
+    device: string | null;
+    /** The words to show: "City, State"; "State, Country" or "City, Country" when a part is missing. */
+    location: string | null;
+    city?: string | null;
+    state?: string | null;
+    /** ISO 3166-1 alpha-2. */
+    country?: string | null;
+    last_active: string | null;
+    last_action: string | null;
+    page: string | null;
+}
+
+/** Where a live visitor is, as staff read it: the server's label, else its parts, else "Unknown". */
+export const visitorPlace = (v: Partial<LiveVisitor> | null | undefined): string => {
+    const label = String(v?.location ?? '').trim();
+    if (label) return label;
+    const parts = [v?.city, v?.state, v?.country].map((x) => String(x ?? '').trim()).filter(Boolean);
+    return parts.length ? parts.slice(0, 2).join(', ') : 'Unknown';
+};
 
 /** One saved report of the team (`/api/v2/insights/reports`, tenant 510). */
 export interface SavedReportConfig { dimension: string; preset?: string; from?: string; to?: string }
@@ -47,7 +73,7 @@ const asSavedReports = (res: any): SavedReports => {
 };
 
 export const analyticsAPI = {
-    /** The shop right now: active sessions, how far they got, devices, pages and places. */
+    /** The shop right now: active sessions, how far they got, devices, pages, places and states. */
     getRealtimeSummary: async (): Promise<LiveSummary> => {
         const response = await api.get('/analytics/realtime/summary');
         const d: any = response?.data?.data !== undefined ? response.data.data : response?.data;
@@ -61,6 +87,7 @@ export const analyticsAPI = {
             devices: list(d?.devices),
             pages: list(d?.pages),
             places: list(d?.places),
+            states: list(d?.states),
         };
     },
 
