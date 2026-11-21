@@ -203,12 +203,53 @@ const Quotations: React.FC = () => {
   const [uploading, setUploading] = useState(false);
   const sheetRef = useRef<HTMLInputElement>(null);
   const [saving, setSaving] = useState(false);
+  /** The draft being edited (owner 21 Nov 2026); null = a new quotation. */
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const resetForm = () => {
     setCust({ name: '', phone: '', email: '', gstin: '', state: '' });
     setCustomerId(null); setPicked(null); setAccountChoice('guest');
     setValidUntil(''); setNotes(''); setLines([]);
     setResults([]); setSearchQ('');
+    setEditingId(null);
+  };
+
+  /** Opens a draft in the same form, its lines at the rates it quoted (a changed quantity keeps the rate). */
+  const startEdit = (q: any) => {
+    resetForm();
+    setEditingId(q.id);
+    setCustomerId(q.customer_id ?? null);
+    setCust({
+      name: q.customer_name ?? '',
+      phone: q.customer_phone ?? '',
+      email: q.customer_email ?? '',
+      gstin: q.customer_gstin ?? '',
+      state: q.shipping_address?.state ?? q.billing_address?.state ?? q.place_of_supply ?? '',
+    });
+    setValidUntil(q.valid_until ? String(q.valid_until).slice(0, 10) : '');
+    setNotes(q.notes ?? '');
+    setLines((q.items ?? []).map((it: any) => {
+      const a = it.attributes ?? {};
+      const rate = rupee(it.unit_price);
+      const mrp = rupee(it.mrp) ?? rupee(a.mrp);
+      return blankLine({
+        productId: it.product_id,
+        variationId: it.variation_id ?? null,
+        sku: it.sku ?? '',
+        name: it.product_name ?? 'Item',
+        qty: Number(it.quantity) || 1,
+        price: rate,
+        mrp,
+        discountPercent: rupee(it.discount_percent),
+        freeQty: rupee(a.free_qty),
+        batch: String(a.batch ?? a.batch_number ?? ''),
+        expiry: String(a.expiry ?? a.expiry_date ?? ''),
+        sendRate: rate != null,
+        sendMrp: mrp != null,
+      });
+    }));
+    setErr(''); setMsg('');
+    setView('create');
   };
 
   /** A directory hit fills name, phone, email, GSTIN and the state on their address. */
@@ -275,7 +316,10 @@ const Quotations: React.FC = () => {
     if (!lines.length) { setErr('Add at least one product to the quote.'); return; }
     setSaving(true); setErr(''); setMsg('');
     try {
-      const res = await api.post('/quotations', {
+      const send = editingId
+        ? (body: Record<string, unknown>) => api.patch(`/quotations/${editingId}`, body)
+        : (body: Record<string, unknown>) => api.post('/quotations', body);
+      const res = await send({
         customerId: customerId || undefined,
         customerName: cust.name || undefined,
         customerPhone: cust.phone || undefined,
@@ -299,9 +343,10 @@ const Quotations: React.FC = () => {
         })),
       });
       const q = payload<any>(res);
+      const edited = !!editingId;
       resetForm();
       setDetail(q); setView('detail');
-      setMsg(`Quotation ${q.quote_number} created.`);
+      setMsg(`Quotation ${q.quote_number} ${edited ? 'saved' : 'created'}.`);
     } catch (e: any) { setErr(e?.response?.data?.message ?? e.message); }
     finally { setSaving(false); }
   };
@@ -365,9 +410,9 @@ const Quotations: React.FC = () => {
   if (view === 'create') {
     return (
       <Page>
-        <PageHeader icon={FileText} title="New quotation"
+        <PageHeader icon={FileText} title={editingId ? 'Edit quotation' : 'New quotation'}
           description="Build a price quote with the customer's real pricing. Prices are calculated on the server (B2B pricing applies when you attach a known customer)."
-          actions={<Btn variant="ghost" onClick={() => { resetForm(); setView('list'); }}><ArrowLeft className="h-4 w-4" /> Back</Btn>} />
+          actions={<Btn variant="ghost" onClick={() => { const back = editingId ? 'detail' : 'list'; resetForm(); setView(back); }}><ArrowLeft className="h-4 w-4" /> Back</Btn>} />
         {err && <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{err}</div>}
 
         <SectionCard title="Customer" description="Search for an existing customer first. A match fills their name, phone, email, GSTIN and state. If nobody matches, fill the details in and save the quotation anyway.">
@@ -477,8 +522,8 @@ const Quotations: React.FC = () => {
             <Field label="Notes" className="flex-1 min-w-[16rem]"><TextInput value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Anything the customer should see on the quote" /></Field>
           </FilterBar>
           <div className="mt-4 flex justify-end gap-2">
-            <Btn variant="outline" onClick={() => { resetForm(); setView('list'); }}>Cancel</Btn>
-            <Btn variant="success" onClick={saveQuote} disabled={saving || !lines.length}>{saving ? 'Saving…' : 'Save quotation'}</Btn>
+            <Btn variant="outline" onClick={() => { const back = editingId ? 'detail' : 'list'; resetForm(); setView(back); }}>Cancel</Btn>
+            <Btn variant="success" onClick={saveQuote} disabled={saving || !lines.length}>{saving ? 'Saving…' : editingId ? 'Save changes' : 'Save quotation'}</Btn>
           </div>
         </SectionCard>
       </Page>
@@ -509,6 +554,7 @@ const Quotations: React.FC = () => {
           title={<span className="flex items-center gap-2">Status <StatusPill status={q.status} /></span>}
           action={
             <div className="flex flex-wrap items-center gap-2">
+              {q.status === 'draft' && <Btn variant="outline" onClick={() => startEdit(q)} disabled={busy}>Edit</Btn>}
               {canSend && <Btn variant="outline" onClick={() => act('send', 'Marked as sent.')} disabled={busy}>Mark sent</Btn>}
               {canAccept && <Btn variant="outline" onClick={() => act('accept', 'Marked as accepted.')} disabled={busy}>Mark accepted</Btn>}
               {canCancel && <Btn variant="dangerOutline" onClick={() => act('cancel', 'Quotation cancelled.')} disabled={busy}>Cancel</Btn>}
