@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   RotateCcw, RefreshCw, Camera, Plus,
@@ -67,6 +67,12 @@ const Returns: React.FC = () => {
   const [page, setPage] = useState(0);
   const [tab, setTab] = useState<string>('all');
   const [search, setSearch] = useState('');
+  // What the list is filtered by: the typed text after a short pause, not every keystroke.
+  const [searchNow, setSearchNow] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setSearchNow(search), 350);
+    return () => clearTimeout(t);
+  }, [search]);
   const [resolution, setResolution] = useState('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -84,7 +90,7 @@ const Returns: React.FC = () => {
       const params: Record<string, any> = { limit: PAGE_SIZE, offset: page * PAGE_SIZE };
       if (tab !== 'all') params.status = tab;
       if (resolution !== 'all') params.resolution = resolution;
-      if (search.trim()) params.search = search.trim();
+      if (searchNow.trim()) params.search = searchNow.trim();
       const res = await api.get('/returns', { params });
       const data = payload<any[]>(res) ?? [];
       setRows(Array.isArray(data) ? data : []);
@@ -96,10 +102,19 @@ const Returns: React.FC = () => {
       setError(e?.response?.data?.message || 'Could not load returns.');
       setRows([]);
     } finally { setLoading(false); }
-  }, [tab, page, search, resolution]);
+  }, [tab, page, searchNow, resolution]);
 
-  useEffect(() => { load(); }, [load]);
-  useEffect(() => { setPage(0); }, [tab, search, resolution]);
+  // A tab, search or resolution change goes back to the first page and asks ONCE. It used to ask
+  // twice from the second page on: the new filter with the old page, then the first page.
+  const filterKey = `${tab}|${searchNow}|${resolution}`;
+  const lastFilterKey = useRef(filterKey);
+  useEffect(() => {
+    if (lastFilterKey.current !== filterKey) {
+      lastFilterKey.current = filterKey;
+      if (page !== 0) { setPage(0); return; } // the page change runs this again
+    }
+    load();
+  }, [load]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openRow = async (row: any) => {
     try { setSelected(payload<any>(await api.get(`/returns/${row.id}`))); }

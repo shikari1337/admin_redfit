@@ -3,7 +3,7 @@
  * Comprehensive order detail view with notes, status history, discounts, and payment gateway data
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ordersAPI, shippingAPI, paymentsAPI, shipmentsAPI, invoicesAPI } from '../services/api';
@@ -187,9 +187,20 @@ const OrderDetail: React.FC = () => {
 
   useEffect(() => {
     fetchOrder();
+  }, [id]);
+
+  // Warehouses and couriers serve only the Create Shipment dialog. They are asked for once the
+  // Ship button is on screen (shipping access, and an order that can still ship), not for every
+  // order opened (owner, 21 Nov 2026: only what is on screen asks the backend). Same test as the button.
+  const shipButtonShown = !!order && canAccess('shipping') && hasPerm('shipments.manage')
+    && ['confirmed', 'processing', 'shipped'].includes(order.orderStatus);
+  const shipListsAsked = useRef(false);
+  useEffect(() => {
+    if (!shipButtonShown || shipListsAsked.current) return;
+    shipListsAsked.current = true;
     fetchWarehouses();
     fetchShippingProviders();
-  }, [id]);
+  }, [shipButtonShown]);
 
   const fetchOrder = async () => {
     try {

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ordersAPI, shippingAPI } from '../services/api';
@@ -287,16 +287,15 @@ const Orders: React.FC = () => {
 
   // Best-effort: the bulk bar drops its Assign picker rather than blocking if
   // this fails (a desk role may not be allowed to read the staff list).
+  // The staff list serves only the bulk bar's Assign picker, which is on screen only while rows
+  // are ticked: asked for at the first tick, not with every visit to the list (owner, 21 Nov 2026).
+  const staffAsked = useRef(false);
+  const anySelected = selectedIds.length > 0;
   useEffect(() => {
-    if (!canManageOrders) return;
+    if (!canManageOrders || !anySelected || staffAsked.current) return;
+    staffAsked.current = true;
     ordersAPI.assignableStaff().then(setAssignableStaff).catch(() => setAssignableStaff([]));
-  }, [canManageOrders]);
-
-  // Any filter/search change starts back at page 1 — otherwise a narrower
-  // result set can leave the page number pointing past the last real page.
-  useEffect(() => {
-    setPage(1);
-  }, [statusFilter, typeFilter, channelFilter, paymentFilter, codOver, flaggedOnly, debouncedSearch, dates.from, dates.to]);
+  }, [canManageOrders, anySelected]);
 
   /** Filters that are applied to the page already fetched, not to the query. */
   const onPageFiltered = React.useMemo(() => orders.filter((o: any) => {
@@ -340,9 +339,18 @@ const Orders: React.FC = () => {
     dates.setRange(r.from ?? '', r.to ?? '');
   }
 
+  // Any filter or search change starts back at page 1 (a narrower result can leave the page number
+  // past the last real page) and asks ONCE, for page 1. It used to ask twice from page 2 on: first
+  // the new filters with the old page, then page 1, and a late first answer could replace the second.
+  const filterKey = JSON.stringify([statusFilter, typeFilter, channelFilter, paymentFilter, codOver, flaggedOnly, debouncedSearch, dates.from, dates.to]);
+  const lastFilterKey = useRef(filterKey);
   useEffect(() => {
+    if (lastFilterKey.current !== filterKey) {
+      lastFilterKey.current = filterKey;
+      if (page !== 1) { setPage(1); return; } // the page change runs this again
+    }
     fetchOrders();
-  }, [statusFilter, typeFilter, channelFilter, paymentFilter, codOver, flaggedOnly, debouncedSearch, page, dates.from, dates.to]);
+  }, [filterKey, page]);
 
   /**
    * The list's SERVER filters as one object: the page asks with them, and the
@@ -362,11 +370,15 @@ const Orders: React.FC = () => {
     return params;
   }
 
+  const fetchSeq = useRef(0);
   const fetchOrders = async () => {
+    const seq = ++fetchSeq.current;
     try {
       setLoading(true);
       const params: any = serverFilters();
       const response = await ordersAPI.getAll({ ...params, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE });
+      // Only the newest question's answer is drawn.
+      if (seq !== fetchSeq.current) return;
 
       let fetchedOrders: any[] = [];
       if (Array.isArray(response)) {
@@ -413,6 +425,7 @@ const Orders: React.FC = () => {
         params,
       });
     } catch (error: any) {
+      if (seq !== fetchSeq.current) return;
       console.error('Failed to fetch orders:', error);
       toast({
         variant: "destructive",
@@ -421,7 +434,7 @@ const Orders: React.FC = () => {
       });
       setOrders([]);
     } finally {
-      setLoading(false);
+      if (seq === fetchSeq.current) setLoading(false);
     }
   };
 

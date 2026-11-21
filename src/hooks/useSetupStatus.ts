@@ -34,14 +34,16 @@ function checkPaymentConfigured(settings: Record<string, any>): boolean {
   return false;
 }
 
-export function useSetupStatus(): SetupStatus {
+/** `enabled=false` asks nothing (the banner while it is dismissed): no steps, not loading. */
+export function useSetupStatus(enabled = true): SetupStatus {
   const [steps, setSteps] = useState<SetupStep[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(enabled);
   const [tick, setTick] = useState(0);
 
   const refresh = useCallback(() => setTick(t => t + 1), []);
 
   useEffect(() => {
+    if (!enabled) { setLoading(false); return undefined; }
     let cancelled = false;
     setLoading(true);
 
@@ -116,7 +118,7 @@ export function useSetupStatus(): SetupStatus {
       });
 
     return () => { cancelled = true; };
-  }, [tick]);
+  }, [tick, enabled]);
 
   const completedCount = steps.filter(s => s.done).length;
   const totalCount = steps.length;

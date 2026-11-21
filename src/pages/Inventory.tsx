@@ -104,6 +104,9 @@ export default function Inventory() {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  // What the list is filtered by: the typed text after a short pause (or on Search). Every
+  // keystroke used to ask for a whole page of stock with its lots (owner, 21 Nov 2026).
+  const [searchNow, setSearchNow] = useState('');
   // `?filter=out|low|mismatch|expiring` opens the list already filtered — the
   // dashboard's "out of stock / running low" lines link here that way.
   const [filter, setFilter] = useState<'all' | 'low' | 'out' | 'mismatch' | 'expiring'>(() => {
@@ -151,7 +154,7 @@ export default function Inventory() {
       const data = await inventoryAPI.list({
         page,
         limit: LIMIT,
-        search: search || undefined,
+        search: searchNow || undefined,
         lowStock: filter === 'low',
         outOfStock: filter === 'out',
         mismatch: filter === 'mismatch',
@@ -171,9 +174,15 @@ export default function Inventory() {
     } finally {
       setLoading(false);
     }
-  }, [page, search, filter, lotsOn]);
+  }, [page, searchNow, filter, lotsOn]);
 
   useEffect(() => { loadInventory(); }, [loadInventory]);
+  // A new search starts at page 1; both changes land together, so the list is asked for once.
+  useEffect(() => {
+    if (search === searchNow) return undefined;
+    const t = setTimeout(() => { setSearchNow(search); setPage(1); }, 350);
+    return () => clearTimeout(t);
+  }, [search, searchNow]);
 
   const loadValuation = useCallback(async () => {
     try {
@@ -211,7 +220,7 @@ export default function Inventory() {
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     setPage(1);
-    loadInventory();
+    if (search === searchNow) loadInventory(); else setSearchNow(search);
   };
 
   /**

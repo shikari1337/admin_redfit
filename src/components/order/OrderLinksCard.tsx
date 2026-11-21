@@ -27,6 +27,7 @@
  *     "working" link that does not fit is worse than no link.
  */
 import { useEffect, useState } from 'react';
+import { useInView } from '../panelAnalytics/useInView';
 import { FaLink, FaRegCopy, FaCheck, FaExclamationTriangle, FaExternalLinkAlt } from 'react-icons/fa';
 import { ordersAPI, type OrderLinkGroup } from '../../services/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -90,6 +91,7 @@ export function OrderLinksCard({ orderId }: { orderId: string }) {
   const [links, setLinks] = useState<OrderLinkGroup[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [viewRef, inView] = useInView<HTMLDivElement>();
 
   const load = async () => {
     setLoading(true);
@@ -107,19 +109,24 @@ export function OrderLinksCard({ orderId }: { orderId: string }) {
   // `orderId` in the dependency list, not `[]`: OrderNavigator moves between
   // orders without remounting this card, and an empty list would leave the
   // previous order's links on screen under the new order's number.
+  //
+  // Asked for when the card is scrolled to, not when the order opens: making the links calls the
+  // shortener, and an order desk opens far more orders than it sends links from.
   useEffect(() => {
     let cancelled = false;
     setLinks(null);
     setError(null);
+    if (!inView) return undefined;
     setLoading(true);
     ordersAPI.links(orderId)
       .then((data) => { if (!cancelled) setLinks(data.links); })
       .catch((e: any) => { if (!cancelled) setError(e?.response?.data?.message || 'Could not load links'); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [orderId]);
+  }, [orderId, inView]);
 
   return (
+    <div ref={viewRef}>
     <Card className="shadow-sm">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 border-b border-line px-4 py-2.5">
         <CardTitle className="flex items-center gap-2 text-sm font-semibold text-slate-700">
@@ -150,6 +157,7 @@ export function OrderLinksCard({ orderId }: { orderId: string }) {
         )}
       </CardContent>
     </Card>
+    </div>
   );
 }
 

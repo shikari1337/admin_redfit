@@ -8,13 +8,14 @@ const DISMISS_KEY = 'setup_banner_dismissed_until';
 
 export const SetupBanner: React.FC = () => {
   const navigate = useNavigate();
-  const { isComplete, completedCount, totalCount, steps, loading } = useSetupStatus();
   const [dismissed, setDismissed] = React.useState(() => {
     try {
       const until = localStorage.getItem(DISMISS_KEY);
       return until ? Date.now() < parseInt(until, 10) : false;
     } catch { return false; }
   });
+  // A dismissed banner draws nothing, so it asks nothing.
+  const { isComplete, completedCount, totalCount, steps, loading } = useSetupStatus(!dismissed);
 
   if (loading || isComplete || dismissed) return null;
 
