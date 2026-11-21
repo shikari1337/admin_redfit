@@ -14,6 +14,7 @@ import { v2call, v2try, v2http, normaliseEnvelope, asList, listMeta, mapList } f
 import { toMoney, majorToMinor } from '../money';
 import { shapeBody, pageAs } from '../shape';
 import type { Spec } from '../shape';
+import { storeKeyNow } from '../tenant';
 
 const O = '/api/v2/commerce';
 
@@ -233,17 +234,35 @@ const listQuery = (c: V2Ctx) => ({
   offset: c.query.offset ?? (c.query.page ? (Number(c.query.page) - 1) * (Number(c.query.limit) || 20) : undefined),
 });
 
+/**
+ * The channel picker beside the order list changes rarely, so one read serves every list call of
+ * this store for five minutes. It used to go out with EVERY list call: each filter, each page and
+ * each 30 second turn of the notification bell (owner, 21 Nov 2026: only what is on screen asks).
+ * A failed read is not kept.
+ */
+const CHANNELS_TTL_MS = 5 * 60_000;
+let channelsMemo: { store: string; at: number; p: Promise<any> } | null = null;
+function salesChannels(): Promise<any> {
+  const store = storeKeyNow() ?? '';
+  if (channelsMemo && channelsMemo.store === store && Date.now() - channelsMemo.at < CHANNELS_TTL_MS) return channelsMemo.p;
+  const p = v2try<any>('GET', `${O}/sales-channels`, null);
+  const memo = { store, at: Date.now(), p };
+  channelsMemo = memo;
+  void p.then((v) => { if (v == null && channelsMemo === memo) channelsMemo = null; });
+  return p;
+}
+
 export const ORDER_ROUTES: V2Route[] = [
   {
     // The list + the channel picker the old envelope carried beside it (`channels`, `channelAccess`)
-    // — v2 serves those at GET /sales-channels (orders.ts:9), asked once with the page.
+    // — v2 serves those at GET /sales-channels (orders.ts:9), asked once per store (`salesChannels`).
     m: 'GET', from: '/orders', row: 'commerce orders.ts:269 + :9',
     run: async (c) => {
       const q: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(listQuery(c))) if (v !== undefined && v !== null && v !== '') q[k] = v;
       const [list, ch] = await Promise.all([
         v2call<any[]>('GET', `${O}/orders`, { params: q }),
-        v2try<any>('GET', `${O}/sales-channels`, null),
+        salesChannels(),
       ]);
       const asked = Number(q.limit);
       const mapped = (Array.isArray(list) ? list : []).map(orderRow);

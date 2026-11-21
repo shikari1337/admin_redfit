@@ -197,9 +197,10 @@ const Brands: React.FC = () => {
   // sent the brand story, SEO and ownership as null).
   const [openedForm, setOpenedForm] = useState<typeof emptyForm | null>(null);
   const editingId = useRef<string | null>(null);
-  // The Pricing tab's policy loads once that tab is first opened for this brand, then stays mounted
-  // so typed values survive a tab switch.
-  const [pricingSeen, setPricingSeen] = useState(false);
+  // The Products, Shop by range and Pricing tabs each load once that tab is first opened for this
+  // brand, then stay mounted so typed values survive a tab switch. Opening a brand used to read the
+  // products and ranges of tabs nobody was looking at (owner, 21 Nov 2026: only what is on screen asks).
+  const [tabsSeen, setTabsSeen] = useState<ReadonlySet<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
 
   // list controls
@@ -295,7 +296,7 @@ const Brands: React.FC = () => {
   const openCreate = () => {
     setSelectedId(null);
     editingId.current = null;
-    setPricingSeen(false);
+    setTabsSeen(new Set());
     setOpenedForm(null);
     setFormState({ ...emptyForm });
     setError(null);
@@ -305,7 +306,7 @@ const Brands: React.FC = () => {
   const openEdit = (brand: Brand) => {
     setSelectedId(brand._id);
     editingId.current = brand._id;
-    setPricingSeen(false);
+    setTabsSeen(new Set());
     const b = brand as any;
     const form = {
       name: brand.name || '',
@@ -888,7 +889,7 @@ const Brands: React.FC = () => {
             )}
 
             <div className="flex-1 px-6 py-4">
-              <Tabs defaultValue="details" onValueChange={(v) => { if (v === 'pricing') setPricingSeen(true); }}>
+              <Tabs defaultValue="details" onValueChange={(v) => setTabsSeen((seen) => (seen.has(v) ? seen : new Set(seen).add(v)))}>
                 {/* Seven tabs wrap onto a second row in the drawer instead of squeezing. */}
                 <TabsList className="flex h-auto w-full flex-wrap justify-start">
                   <TabsTrigger value="details">Details</TabsTrigger>
@@ -994,17 +995,17 @@ const Brands: React.FC = () => {
                 </TabsContent>
 
                 <TabsContent value="products" forceMount className="data-[state=inactive]:hidden mt-4">
-                  <BrandProducts brandId={selectedId} brandSlug={formState.slug} canManage={canManageBrands} />
+                  {tabsSeen.has('products') && <BrandProducts brandId={selectedId} brandSlug={formState.slug} canManage={canManageBrands} />}
                 </TabsContent>
 
                 <TabsContent value="ranges" forceMount className="data-[state=inactive]:hidden mt-4">
-                  <BrandRanges brandId={selectedId} canManage={canManageBrands} />
+                  {tabsSeen.has('ranges') && <BrandRanges brandId={selectedId} canManage={canManageBrands} />}
                 </TabsContent>
 
                 {/* The policy loads when the tab is first opened, and saves on its own button
                     (Update Brand does not save it). */}
                 <TabsContent value="pricing" forceMount className="data-[state=inactive]:hidden mt-4">
-                  {pricingSeen && <PolicyForm
+                  {tabsSeen.has('pricing') && <PolicyForm
                     scope="brand"
                     id={selectedId}
                     canManage={canManageBrands}

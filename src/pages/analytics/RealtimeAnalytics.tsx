@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { analyticsAPI, LiveSummary, LiveCount, LiveVisitor, visitorPlace } from '../../services/analyticsService';
 import { api } from '../../services/api';
 import { payload } from '../../lib/unwrap';
+import { useVisibleInterval } from '../../lib/pageActive';
 import { fmtRupees } from '../../lib/money';
 import { localeTime, todayIso } from '../../utils/date';
 import { KpiTile, InsightCard, Insight, CompareBars, Unavailable } from '../../components/panelAnalytics/Kit';
@@ -81,18 +82,12 @@ const RealtimeAnalytics: React.FC = () => {
 
   useEffect(() => {
     alive.current = true;
-    load();
-    const id = setInterval(load, REFRESH_MS);
-    return () => { alive.current = false; clearInterval(id); };
-  }, [load]);
-
+    return () => { alive.current = false; };
+  }, []);
+  // Both reads repeat only while this tab is on screen; coming back refreshes at once.
+  useVisibleInterval(load, REFRESH_MS);
   // The session list is asked for only while it is open.
-  useEffect(() => {
-    if (!showSessions) return undefined;
-    loadVisitors();
-    const id = setInterval(loadVisitors, REFRESH_MS);
-    return () => clearInterval(id);
-  }, [showSessions, loadVisitors]);
+  useVisibleInterval(loadVisitors, REFRESH_MS, showSessions);
 
   const stage = (key: string) => summary?.stages.find((x) => x.key === key)?.sessions ?? 0;
 

@@ -3,6 +3,12 @@
  * as a dropdown feed + a browser notification (permission asked on first click).
  * Last-seen watermark lives in localStorage so refreshes don't re-announce.
  *
+ * Only the tab on screen polls (owner, 21 Nov 2026: only what is active on screen
+ * asks the backend). With no admin tab on screen, ONE hidden tab per browser
+ * goes on asking for new orders about once a minute, so the desktop alert still
+ * arrives; the rest ask nothing until they are looked at again. What has been
+ * announced is shared between tabs, so no order is announced twice.
+ *
  * META-21 (INS-07): the bell also lists the store team's in-app notifications from the comms app
  * (`lib/v2/staffNotifications.ts`): Meta ads alerts, the Meta connection, the Meta catalog push, a post
  * that did not publish, a lead form that could not be read. Each opens its screen and is marked read for
@@ -25,6 +31,7 @@ import {
 } from '@/lib/v2/staffNotifications';
 import { metaHref } from '@/pages/panels/marketing/meta/routes';
 import { cn } from '@/lib/utils';
+import { claimBackgroundTurn, pageVisible, stampTurn } from '@/lib/pageActive';
 
 interface Notif {
   id: string;
@@ -37,6 +44,14 @@ interface Notif {
 
 const SEEN_KEY = 'admin_notif_last_seen_v1';
 const POLL_MS = 30_000;
+/** Newest order any tab of this browser has already looked at for the desktop alert. */
+const ANNOUNCED_KEY = 'admin_notif_announced_v1';
+/** When a tab of this browser last asked for new orders (`lib/pageActive.ts`). */
+const TURN_KEY = 'admin_bell_turn_v1';
+/** Coming back to the tab refreshes the bell, but not more often than this. */
+const BACK_MIN_MS = 10_000;
+
+const stored = (key: string): string => { try { return localStorage.getItem(key) || ''; } catch { return ''; } };
 /** How many staff notifications the dropdown lists. */
 const NOTES_SHOWN = 10;
 
@@ -54,7 +69,6 @@ const NotificationBell: React.FC = () => {
   const [notifs, setNotifs] = useState<Notif[]>([]);
   const [unread, setUnread] = useState(0);
   const lastSeenRef = useRef<string>(localStorage.getItem(SEEN_KEY) || '');
-  const knownIdsRef = useRef<Set<string>>(new Set());
   const firstPollRef = useRef(true);
 
   // META-21: the store team's notifications (null = not loaded yet).
@@ -83,16 +97,19 @@ const NotificationBell: React.FC = () => {
       setNotifs(items);
       setUnread(items.filter(n => !n.seen).length);
 
-      // Browser notification for orders that appeared since the previous poll —
-      // never on the first poll (that would re-announce history on every reload).
-      if (!firstPollRef.current) {
+      // Browser notification for orders newer than the newest one any tab of this
+      // browser has looked at: never on a tab's first poll (that would re-announce
+      // history on every reload), and never twice for the same order.
+      const announced = stored(ANNOUNCED_KEY);
+      if (!firstPollRef.current && announced) {
         for (const n of items) {
-          if (!knownIdsRef.current.has(n.id) && !n.seen && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          if (!n.seen && String(n.at) > announced && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
             new Notification(`🛒 New order ${n.orderId}`, { body: n.detail, tag: n.id });
           }
         }
       }
-      knownIdsRef.current = new Set(items.map(n => n.id));
+      const newest = items.reduce((m, n) => (String(n.at ?? '') > m ? String(n.at) : m), announced);
+      if (newest > announced) { try { localStorage.setItem(ANNOUNCED_KEY, newest); } catch { /* private mode */ } }
       firstPollRef.current = false;
     } catch { /* polling is best-effort */ }
   }, []);
@@ -108,10 +125,20 @@ const NotificationBell: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    poll();
-    pollNotes();
-    const t = setInterval(() => { poll(); pollNotes(); }, POLL_MS);
-    return () => clearInterval(t);
+    let last = 0;
+    // On screen: orders and the unread count.
+    const full = () => { last = Date.now(); stampTurn(TURN_KEY); poll(); pollNotes(); };
+    const turn = () => {
+      if (pageVisible()) full();
+      // Hidden: nothing, unless no tab of this browser has asked lately. Then this
+      // one asks for orders alone, for the desktop alert (the count waits for a look).
+      else if (claimBackgroundTurn(TURN_KEY, POLL_MS)) poll();
+    };
+    const back = () => { if (pageVisible() && Date.now() - last >= BACK_MIN_MS) full(); };
+    turn();
+    const t = setInterval(turn, POLL_MS);
+    document.addEventListener('visibilitychange', back);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', back); };
   }, [poll, pollNotes]);
 
   const loadNotes = useCallback(async () => {

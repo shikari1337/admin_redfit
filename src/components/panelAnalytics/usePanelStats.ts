@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../services/api';
 import { payload } from '../../lib/unwrap';
+import { v2http } from '../../lib/v2/http';
 import type { PanelRange } from './DateRangeBar';
+import { todayIso } from '../../utils/date';
 
 /** Extra query parameters beside from/to (e.g. `granularity`). Undefined values are not sent. */
 export type ExtraParams = Record<string, string | number | undefined>;
@@ -20,10 +22,40 @@ export function usePanelStats<T = any>(panel: string, range: PanelRange, enabled
  * A short memory of answers, shared by every caller: the same URL + range
  * asked twice inside a minute (two tiles, a page revisited, a preset toggled
  * back) is ONE request. In-flight requests are shared too.
+ *
+ * The analytics panels keep theirs longer, by what the range can still do
+ * (21 Nov 2026: every pass through the dashboard re-asked five ranges of the
+ * commerce panel, 4 to 18 seconds of database time each, 123 times an hour):
+ *   a period that has ended   15 minutes (only a late cancellation or refund moves it)
+ *   today alone               1 minute
+ *   a period still running,
+ *   or the whole history      5 minutes
  */
 const TTL_MS = 60_000;
+const TTL_RUNNING_MS = 5 * 60_000;
+const TTL_ENDED_MS = 15 * 60_000;
 const cache = new Map<string, { at: number; data: unknown }>();
 const inflight = new Map<string, Promise<unknown>>();
+
+function ttlFor(url: string, range: PanelRange, extra?: ExtraParams): number {
+  if (!url.startsWith('/analytics/panels/')) return TTL_MS;
+  const today = todayIso();
+  if (range.to && range.to < today) return TTL_ENDED_MS;
+  if (range.from && range.from === range.to) return TTL_MS;
+  // No range and no buckets is a live count (order queues, stock), not a period.
+  if (!range.from && !range.to && !cleanExtra(extra).granularity) return TTL_MS;
+  return TTL_RUNNING_MS;
+}
+
+// Whatever this tab saves may move a figure, so the next read after a save is a fresh one.
+// (Another person's save shows within the times above.)
+const forgetOnWrite = (res: any) => {
+  const method = String(res?.config?.method ?? 'get').toLowerCase();
+  if (method !== 'get' && method !== 'head' && method !== 'options') cache.clear();
+  return res;
+};
+api.interceptors.response.use(forgetOnWrite);
+v2http.interceptors.response.use(forgetOnWrite);
 
 function cleanExtra(extra?: ExtraParams): Record<string, string> {
   const out: Record<string, string> = {};
@@ -40,7 +72,7 @@ function keyFor(url: string, range: PanelRange, extra?: ExtraParams): string {
 export function fetchRanged<T>(url: string, range: PanelRange, extra?: ExtraParams): Promise<T> {
   const key = keyFor(url, range, extra);
   const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < TTL_MS) return Promise.resolve(hit.data as T);
+  if (hit && Date.now() - hit.at < ttlFor(url, range, extra)) return Promise.resolve(hit.data as T);
   const pending = inflight.get(key);
   if (pending) return pending as Promise<T>;
   const p = api.get(url, { params: { from: range.from, to: range.to, ...cleanExtra(extra) } })

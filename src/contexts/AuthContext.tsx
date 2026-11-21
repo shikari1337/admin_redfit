@@ -89,6 +89,8 @@ interface AuthContextValue extends AuthState {
 // ─── Session storage helpers ──────────────────────────────────────────────────
 
 const SESSION_KEY = 'admin_session_v2';
+/** Coming back to the tab re-reads the module map, at most this often. */
+const MODULES_REFRESH_MIN_MS = 60_000;
 
 interface StoredSession {
   token: string;
@@ -238,7 +240,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // focus — otherwise toggling a module (e.g. B2B) in the super-admin wouldn't
   // take effect until a full re-login, leaving the module's page/menu blocked
   // by a stale cache.
+  const modulesAskedAt = useRef(0);
   const refreshModules = useCallback(async () => {
+    modulesAskedAt.current = Date.now();
     try {
       const { modulesAPI } = await import('../services/api');
       const mods = await modulesAPI.list();
@@ -374,7 +378,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => { isAuthedRef.current = state.isAuthenticated; }, [state.isAuthenticated]);
   useEffect(() => {
     const onFocus = () => {
-      if (document.visibilityState === 'visible' && isAuthedRef.current) refreshModules();
+      if (document.visibilityState !== 'visible' || !isAuthedRef.current) return;
+      // A return fires both `focus` and `visibilitychange`, and a person switching windows
+      // returns many times a minute: one request per return, and not more than one a minute
+      // (21 Nov 2026: 650 of these in 45 minutes from one office).
+      if (Date.now() - modulesAskedAt.current < MODULES_REFRESH_MIN_MS) return;
+      refreshModules();
     };
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onFocus);
