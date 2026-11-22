@@ -118,6 +118,12 @@ export const HOMEPAGE_SCHEMAS: Record<string, Field[]> = {
     { key: 'limit', label: 'Max concerns', type: 'number' },
     { key: 'viewAllUrl', label: 'View-all link', type: 'url' },
   ],
+  // The category strip above the hero (storefront components/home/CategoryTabs): "All" and the store's
+  // product forms in the order set on the product-form attribute's values (Attributes), largest first
+  // where that order ties. Choosing one shows that form's shelves on the homepage.
+  'category-tabs': [
+    { key: 'limit', label: 'Max tabs', type: 'number', help: 'Product forms after "All", in the order of the product-form values (Attributes)' },
+  ],
   'icon-grid': [
     ...titleSub,
     { key: 'source', label: 'Show', type: 'select', options: [
@@ -241,6 +247,7 @@ export function homepageBlockDefault(blockType: string): any {
     case 'category-grid': return { title: 'Shop by Category', subtitle: 'Explore our range', limit: 14, viewAllUrl: '/categories' };
     case 'brand-grid': return { title: 'Trusted Brands', subtitle: "From India's top manufacturers", limit: 12, viewAllUrl: '/brands' };
     case 'health-concerns-grid': return { title: 'Shop by Health Concern', subtitle: 'Find remedies for your needs', parentSlug: 'health-concerns', limit: 16 };
+    case 'category-tabs': return { source: 'product-form', limit: 10 };
     case 'icon-grid': return { title: 'Shop by Body Part', subtitle: '', source: 'category', parentSlug: 'shop-by-body-part', limit: 12 };
     case 'product-row': return { title: 'New Section', subtitle: '', accentColor: 'primary', viewAllUrl: '/products', config: { collection: 'bestsellers', limit: 12 } };
     case 'promo-banners': return { columns: 1, banners: [{ imageUrl: '', buttonUrl: '/products' }] };
