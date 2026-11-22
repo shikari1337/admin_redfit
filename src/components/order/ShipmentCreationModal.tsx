@@ -944,7 +944,13 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
     }
     return match;
   });
-  
+  // The providers "Get Courier Rates & Partners" asks, in the order fetchAllRates asks them.
+  const rateSources: string[] = [
+    ...(hasGrowcordShip ? ['Growcord Ship'] : []),
+    ...(hasShiprocket && selectedWarehouse?.shippingProviders?.shiprocket?.enabled ? ['Shiprocket'] : []),
+    ...(hasDelhivery && selectedWarehouse?.shippingProviders?.delhivery?.enabled ? ['Delhivery'] : []),
+  ];
+
   if (selectedWarehouseId && !selectedWarehouse) {
     console.error('❌ Selected warehouse not found!', {
       selectedWarehouseId,
@@ -994,7 +1000,7 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
                       {isDelhiveryEnabled && warehouse.shippingProviders?.delhivery?.warehouseCode &&
                         ` - DELHIVERY: ${warehouse.shippingProviders.delhivery.warehouseCode}`
                       }
-                      {!isShiprocketEnabled && !isDelhiveryEnabled && ` ⚠️ (No provider enabled)`}
+                      {!isShiprocketEnabled && !isDelhiveryEnabled && !hasGrowcordShip && ` ⚠️ (No provider enabled)`}
                     </option>
                   );
                 })}
@@ -1016,6 +1022,11 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
                     <div className="mt-3 pt-3 border-t border-blue-200">
                       <p className="font-semibold mb-2 text-sm">Enabled Providers:</p>
                       <div className="flex flex-wrap gap-2">
+                        {hasGrowcordShip && (
+                          <span className="inline-flex items-center gap-1 px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
+                            ✓ Growcord Ship
+                          </span>
+                        )}
                         {selectedWarehouse.shippingProviders?.shiprocket?.enabled && (
                           <span className="inline-flex items-center gap-1 px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
                             ✓ Shiprocket
@@ -1026,13 +1037,19 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
                             ✓ DELHIVERY
                           </span>
                         )}
-                        {!selectedWarehouse.shippingProviders?.shiprocket?.enabled && 
+                        {!hasGrowcordShip &&
+                         !selectedWarehouse.shippingProviders?.shiprocket?.enabled &&
                          !selectedWarehouse.shippingProviders?.delhivery?.enabled && (
                           <span className="inline-flex items-center gap-1 px-3 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs font-medium">
                             ⚠️ No providers enabled
                           </span>
                         )}
                       </div>
+                      {hasGrowcordShip && (
+                        <p className="mt-2 text-xs text-gray-600">
+                          Growcord Ship sets this warehouse up on each of its couriers by itself, so nothing to map here.
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1258,7 +1275,7 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
                       !weight || parseFloat(weight) <= 0 || 
                       !length || !breadth || !height || 
                       parseFloat(length) <= 0 || parseFloat(breadth) <= 0 || parseFloat(height) <= 0 ||
-                      loadingRates || loadingDelhiveryRate
+                      loadingRates || loadingDelhiveryRate || loadingGsRates
                     }
                     className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-semibold text-sm shadow-lg hover:shadow-xl transition-all transform hover:scale-[1.02]"
                     title={
@@ -1269,7 +1286,7 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
                         : 'Get courier rates and partners'
                     }
                   >
-                    {(loadingRates || loadingDelhiveryRate) ? (
+                    {(loadingRates || loadingDelhiveryRate || loadingGsRates) ? (
                       <>
                         <FaSpinner className="animate-spin" size={16} />
                         <span>Fetching Rates...</span>
@@ -1282,7 +1299,9 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
                     )}
                   </button>
                   <p className="text-xs text-gray-500 mt-2 text-center">
-                    This will fetch rates from all enabled shipping providers (Shiprocket & DELHIVERY)
+                    {rateSources.length > 0
+                      ? `Asks ${rateSources.length > 1 ? `${rateSources.slice(0, -1).join(', ')} and ${rateSources[rateSources.length - 1]}` : rateSources[0]} for this parcel's rates`
+                      : 'No shipping provider is switched on for this warehouse'}
                   </p>
                 </div>
               </div>
