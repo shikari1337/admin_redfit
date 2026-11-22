@@ -719,7 +719,7 @@ const OrderDetail: React.FC = () => {
         shipmentData.manualCarrierName = manualCarrierName;
         shipmentData.manualTrackingUrl = manualTrackingUrl;
       } else {
-        if (selectedShippingProvider === 'shiprocket' && modalData?.selectedCourierId) shipmentData.courierCompanyId = modalData.selectedCourierId;
+        if ((selectedShippingProvider === 'shiprocket' || (selectedShippingProvider as string) === 'growcord_ship') && modalData?.selectedCourierId) shipmentData.courierCompanyId = modalData.selectedCourierId;
         if (selectedShippingProvider === 'delhivery' && modalData?.selectedDelhiveryType) shipmentData.delhiveryServiceType = modalData.selectedDelhiveryType;
       }
       

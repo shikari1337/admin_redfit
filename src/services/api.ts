@@ -3264,10 +3264,12 @@ export const shippingAPI = {
     const response = await api.get('/shipping/warehouses');
     return response.data;
   },
+  /** Every courier offer of `provider` for this order (Shiprocket, or Growcord Ship's own courier network). */
   getCourierRates: async (
     orderId: string,
     warehouseId?: string,
-    options?: { weight?: number; length?: number; breadth?: number; height?: number }
+    options?: { weight?: number; length?: number; breadth?: number; height?: number },
+    provider: 'shiprocket' | 'growcord_ship' = 'shiprocket'
   ) => {
     const params = new URLSearchParams({ orderId });
     if (warehouseId) {
@@ -3282,7 +3284,7 @@ export const shippingAPI = {
     if (options?.length && options.length > 0) params.append('length', String(options.length));
     if (options?.breadth && options.breadth > 0) params.append('breadth', String(options.breadth));
     if (options?.height && options.height > 0) params.append('height', String(options.height));
-    const response = await api.get(`/shipping/shiprocket/rates?${params.toString()}`);
+    const response = await api.get(`/shipping/${provider}/rates?${params.toString()}`);
     return response.data;
   },
   getDelhiveryRates: async (
@@ -3342,7 +3344,8 @@ export const shipmentsAPI = {
     length?: number;
     breadth?: number;
     height?: number;
-    courierCompanyId?: number;
+    /** Shiprocket's courier id, or Growcord Ship's offer id the booking names. */
+    courierCompanyId?: number | string;
     delhiveryServiceType?: 'express' | 'surface';
     manualTrackingId?: string;
     manualCarrierName?: string;

@@ -448,7 +448,7 @@ const Shipments: React.FC = () => {
         shipmentData.manualCarrierName = manualCarrierName;
         shipmentData.manualTrackingUrl = manualTrackingUrl;
       }
-      if (selectedShippingProvider === 'shiprocket' && modalData?.selectedCourierId) {
+      if ((selectedShippingProvider === 'shiprocket' || (selectedShippingProvider as string) === 'growcord_ship') && modalData?.selectedCourierId) {
         shipmentData.courierCompanyId = modalData.selectedCourierId;
       }
       if (selectedShippingProvider === 'delhivery' && modalData?.selectedDelhiveryType) {

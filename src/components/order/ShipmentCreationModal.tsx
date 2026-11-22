@@ -24,8 +24,12 @@ interface ShippingProvider {
   name: string;
 }
 
+/** A provider whose courier offers the window lists for a person to choose from. */
+type RateProvider = 'shiprocket' | 'growcord_ship';
+
 interface CourierRate {
-  courierCompanyId: number;
+  /** Shiprocket's numeric courier id, or Growcord Ship's offer id (the exact courier and buy it was quoted). */
+  courierCompanyId: number | string;
   courierName: string;
   rate: number;
   estimatedDeliveryDays: number;
@@ -85,7 +89,7 @@ interface ShipmentCreationModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (data?: {
-    selectedCourierId?: number | null;
+    selectedCourierId?: number | string | null;
     selectedDelhiveryType?: 'express' | 'surface' | null;
     weight?: number;
     length?: number;
@@ -124,6 +128,112 @@ interface ShipmentCreationModalProps {
   remainingByKey?: Record<string, number>;
 }
 
+/**
+ * One provider's courier offers as a list to choose from (Shiprocket and Growcord Ship, owner 22 Nov 2026:
+ * "all couriers rate show ... while booking parcel for orders just like shiprocket"). Cheapest first.
+ */
+const CourierRateList: React.FC<{
+  rates: CourierRate[];
+  loading: boolean;
+  selected: number | string | null;
+  onSelect: (id: number | string) => void;
+  onFetch: () => void;
+  fetchLabel: string;
+  canFetch: boolean;
+  error?: string | null;
+  emptyText?: string;
+}> = ({ rates, loading, selected, onSelect, onFetch, fetchLabel, canFetch, error, emptyText }) => (
+  <div className="pl-7 space-y-3">
+    {rates.length === 0 && !loading && (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onFetch();
+        }}
+        disabled={!canFetch}
+        className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-semibold text-sm shadow-lg hover:shadow-xl transition-all transform hover:scale-[1.02]"
+      >
+        <FaSync size={14} />
+        {fetchLabel}
+      </button>
+    )}
+    {loading ? (
+      <div className="flex items-center gap-2 text-gray-500">
+        <FaSpinner className="animate-spin" size={16} />
+        <span>Loading courier rates...</span>
+      </div>
+    ) : rates.length > 0 ? (
+      <div className="space-y-2 max-h-96 overflow-y-auto">
+        {rates.map((courier, idx) => (
+          <div
+            key={courier.courierCompanyId ?? `courier-${idx}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect(courier.courierCompanyId);
+            }}
+            className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${
+              selected === courier.courierCompanyId
+                ? 'border-blue-600 bg-blue-50 shadow-md'
+                : 'border-gray-200 hover:border-gray-400 hover:shadow-sm bg-white'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3 flex-1">
+                <input
+                  type="radio"
+                  checked={selected === courier.courierCompanyId}
+                  onChange={() => onSelect(courier.courierCompanyId)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="h-4 w-4 text-blue-600"
+                />
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <h5 className="font-medium text-gray-900">{courier.courierName}</h5>
+                    {courier.rate > 0 && (
+                      <div className="flex items-center gap-1 text-green-600 font-semibold">
+                        <FaRupeeSign size={12} />
+                        <span>{courier.rate.toFixed(2)}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-4 mt-1 text-xs text-gray-500">
+                    {courier.estimatedDeliveryDays > 0 && (
+                      <div className="flex items-center gap-1">
+                        <FaClock size={10} />
+                        <span>{courier.estimatedDeliveryDays} days</span>
+                      </div>
+                    )}
+                    {courier.codAvailable && (
+                      <div className="flex items-center gap-1 text-green-600">
+                        <FaMoneyBillWave size={10} />
+                        <span>COD</span>
+                      </div>
+                    )}
+                    {(courier.airAvailable || courier.surfaceAvailable) && (
+                      <span>
+                        {courier.airAvailable && courier.surfaceAvailable
+                          ? 'Air + Surface'
+                          : courier.airAvailable
+                          ? 'Air'
+                          : 'Surface'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    ) : error ? (
+      <p className="text-sm text-red-600">{error}</p>
+    ) : (
+      emptyText !== '' && <p className="text-sm text-red-600">{emptyText ?? 'No courier rates available'}</p>
+    )}
+  </div>
+);
+
 const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
   isOpen,
   onClose,
@@ -150,7 +260,11 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
   const [selectedDelhiveryType, setSelectedDelhiveryType] = useState<'express' | 'surface' | null>(null);
   const [loadingRates, setLoadingRates] = useState(false);
   const [loadingDelhiveryRate, setLoadingDelhiveryRate] = useState(false);
-  const [selectedCourierId, setSelectedCourierId] = useState<number | null>(null);
+  const [selectedCourierId, setSelectedCourierId] = useState<number | string | null>(null);
+  // Growcord Ship's own courier offers (owner 22 Nov 2026: every courier's rate while booking, as Shiprocket shows).
+  const [gsRates, setGsRates] = useState<CourierRate[]>([]);
+  const [loadingGsRates, setLoadingGsRates] = useState(false);
+  const [gsRatesError, setGsRatesError] = useState<string | null>(null);
   const [hasShiprocket, setHasShiprocket] = useState(false);
   const [hasDelhivery, setHasDelhivery] = useState(false);
   // v2 lists warehouses without their own carrier switches (ship WarehouseView; the facility list keeps
@@ -246,19 +360,24 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
   useEffect(() => {
     if (!selectedWarehouseId || !orderId) {
       setCourierRates([]);
+      setGsRates([]);
       setDelhiveryRates([]);
       setSelectedCourierId(null);
       setSelectedDelhiveryType(null);
     }
   }, [selectedWarehouseId, orderId]);
 
-  const fetchCourierRates = async () => {
+  /** One provider's courier offers for this order, cheapest first; the cheapest is preselected. */
+  const loadRates = async (provider: RateProvider) => {
     if (!selectedWarehouseId || !orderId) return;
+    const setRates = provider === 'growcord_ship' ? setGsRates : setCourierRates;
+    const setLoading = provider === 'growcord_ship' ? setLoadingGsRates : setLoadingRates;
+    if (provider === 'growcord_ship') setGsRatesError(null);
     
     // Backend calculates weight from order items automatically
     // Weight and dimensions are optional - backend uses defaults if not provided
 
-    setLoadingRates(true);
+    setLoading(true);
     try {
       // Ensure warehouseId is a string (not an object)
       const warehouseIdStr = selectedWarehouseId && typeof selectedWarehouseId === 'object' 
@@ -273,9 +392,9 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
           length: parseFloat(length) || undefined,
           breadth: parseFloat(breadth) || undefined,
           height: parseFloat(height) || undefined,
-        }
+        },
+        provider
       );
-      console.log('Shiprocket rates response:', response);
 
       // API interceptor may return array directly (normalized) or { success, data }
       const ratesArray: any[] = Array.isArray(response)
@@ -293,28 +412,41 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
             rate: parseFloat(c.rate ?? c.total_price ?? 0),
             estimatedDeliveryDays: c.estimated_delivery_days ?? c.estimatedDeliveryDays ?? c.delivery_days ?? 0,
             estimatedDeliveryDate: c.estimated_delivery_date ?? c.estimatedDeliveryDate,
-            codAvailable: c.cod === 1 || c.cod === true || c.cod === 'Y',
-            airAvailable: c.air === 1 || c.air === true || c.air === 'Y',
-            surfaceAvailable: c.surface === 1 || c.surface === true || c.surface === 'Y',
+            // Growcord Ship states a COD fee and its service type instead of Shiprocket's flags.
+            codAvailable: c.cod === 1 || c.cod === true || c.cod === 'Y' || Number(c.cod_charge) > 0,
+            airAvailable: c.air === 1 || c.air === true || c.air === 'Y' || c.service_type === 'express' || c.service_type === 'air',
+            surfaceAvailable: c.surface === 1 || c.surface === true || c.surface === 'Y' || c.service_type === 'surface',
             qty: c.qty || 1,
           }))
           .sort((a, b) => a.rate - b.rate);
-        setCourierRates(sortedRates);
-        if (sortedRates.length > 0 && selectedShippingProvider === 'shiprocket') {
+        setRates(sortedRates);
+        if (sortedRates.length > 0 && selectedShippingProvider === provider) {
           setSelectedCourierId(sortedRates[0].courierCompanyId);
         }
       } else {
-        console.warn('No courier rates in response:', response);
-        setCourierRates([]);
+        setRates([]);
       }
     } catch (error: any) {
-      console.error('Failed to fetch courier rates:', error);
-      console.error('Error details:', error.response?.data || error.message);
-      setCourierRates([]);
+      console.error('Failed to fetch courier rates:', error.response?.data || error.message);
+      setRates([]);
+      if (provider === 'growcord_ship') {
+        setGsRatesError(error?.response?.data?.message || error?.response?.data?.error?.message || error?.message || 'Growcord Ship did not answer');
+      }
     } finally {
-      setLoadingRates(false);
+      setLoading(false);
     }
   };
+  // Rates are priced on the parcel's weight and box, so both must be filled first.
+  const dimsReady = [weight, length, breadth, height].every((v) => !!v && parseFloat(v) > 0);
+  const fetchCourierRates = () => loadRates('shiprocket');
+  const fetchGrowcordShipRates = () => loadRates('growcord_ship');
+
+  // A provider change keeps only that provider's courier: its cheapest offer when its rates are loaded.
+  useEffect(() => {
+    const list = selectedShippingProvider === 'growcord_ship' ? gsRates : selectedShippingProvider === 'shiprocket' ? courierRates : [];
+    setSelectedCourierId(list.length > 0 ? list[0].courierCompanyId : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedShippingProvider]);
 
   const fetchDelhiveryRates = async () => {
     if (!orderId) return;
@@ -448,6 +580,11 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
     // Fetch rates for all enabled providers
     const promises: Promise<any>[] = [];
 
+    // Growcord Ship's couriers: no per-warehouse mapping, the store's switch is enough.
+    if (hasGrowcordShip) {
+      promises.push(fetchGrowcordShipRates());
+    }
+
     // Fetch Shiprocket rates if enabled
     if (hasShiprocket && selectedWarehouse.shippingProviders?.shiprocket?.enabled) {
       promises.push(
@@ -518,6 +655,8 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
     onManualCarrierNameChange('');
     onManualTrackingUrlChange('');
     setCourierRates([]);
+    setGsRates([]);
+    setGsRatesError(null);
     setDelhiveryRates([]);
     setSelectedCourierId(null);
     setSelectedDelhiveryType(null);
@@ -579,6 +718,8 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
         return 'Please select a courier partner';
       }
     }
+    // Growcord Ship books the chosen offer; with none chosen it allocates the courier itself.
+    if (selectedShippingProvider === 'growcord_ship' && loadingGsRates) return 'Loading courier rates...';
     if (selectedShippingProvider === 'delhivery') {
       if (loadingDelhiveryRate) return 'Loading DELHIVERY rates...';
       if (!selectedDelhiveryType || delhiveryRates.length === 0) {
@@ -742,7 +883,7 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
             return;
           }
           onSubmit({
-            selectedCourierId: selectedShippingProvider === 'shiprocket' ? selectedCourierId : undefined,
+            selectedCourierId: selectedShippingProvider === 'shiprocket' || selectedShippingProvider === 'growcord_ship' ? selectedCourierId : undefined,
             selectedDelhiveryType: selectedShippingProvider === 'delhivery' ? selectedDelhiveryType || null : undefined,
             weight: parseFloat(weight),
             length: parseFloat(length),
@@ -1300,10 +1441,25 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
                     <div className="flex-1">
                       <h4 className="font-semibold text-gray-900">Growcord Ship</h4>
                       <p className="text-sm text-gray-500">
-                        Growcord Ship picks the courier for this parcel and books it. Freight comes off your wallet.
+                        Every courier in Growcord Ship with its price for this parcel. Choose one, or leave it and Growcord Ship picks. Freight comes off your wallet.
                       </p>
                     </div>
                   </div>
+                  {selectedShippingProvider === 'growcord_ship' && (
+                    <div className="mt-3">
+                      <CourierRateList
+                        rates={gsRates}
+                        loading={loadingGsRates}
+                        selected={selectedCourierId}
+                        onSelect={setSelectedCourierId}
+                        onFetch={fetchGrowcordShipRates}
+                        fetchLabel="Get courier rates"
+                        canFetch={dimsReady}
+                        error={gsRatesError}
+                        emptyText=""
+                      />
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1502,94 +1658,15 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
                   </div>
 
                   {selectedShippingProvider === 'shiprocket' && (
-                    <div className="pl-7 space-y-3">
-                      {courierRates.length === 0 && !loadingRates && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            fetchCourierRates();
-                          }}
-                          disabled={!weight || parseFloat(weight) <= 0 || !length || !breadth || !height || 
-                                   parseFloat(length) <= 0 || parseFloat(breadth) <= 0 || parseFloat(height) <= 0}
-                          className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-semibold text-sm shadow-lg hover:shadow-xl transition-all transform hover:scale-[1.02]"
-                        >
-                          <FaSync size={14} />
-                          Get Shiprocket Rates
-                        </button>
-                      )}
-                      {loadingRates ? (
-                        <div className="flex items-center gap-2 text-gray-500">
-                          <FaSpinner className="animate-spin" size={16} />
-                          <span>Loading courier rates...</span>
-                        </div>
-                      ) : courierRates.length > 0 ? (
-                        <div className="space-y-2 max-h-96 overflow-y-auto">
-                          {courierRates.map((courier, idx) => (
-                            <div
-                              key={courier.courierCompanyId ?? `courier-${idx}`}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelectedCourierId(courier.courierCompanyId);
-                              }}
-                              className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${
-                                selectedCourierId === courier.courierCompanyId
-                                  ? 'border-blue-600 bg-blue-50 shadow-md'
-                                  : 'border-gray-200 hover:border-gray-400 hover:shadow-sm bg-white'
-                              }`}
-                            >
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-3 flex-1">
-                                  <input
-                                    type="radio"
-                                    checked={selectedCourierId === courier.courierCompanyId}
-                                    onChange={() => setSelectedCourierId(courier.courierCompanyId)}
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="h-4 w-4 text-blue-600"
-                                  />
-                                  <div className="flex-1">
-                                    <div className="flex items-center justify-between">
-                                      <h5 className="font-medium text-gray-900">{courier.courierName}</h5>
-                                      {courier.rate > 0 && (
-                                        <div className="flex items-center gap-1 text-green-600 font-semibold">
-                                          <FaRupeeSign size={12} />
-                                          <span>{courier.rate.toFixed(2)}</span>
-                                        </div>
-                                      )}
-                                    </div>
-                                    <div className="flex items-center gap-4 mt-1 text-xs text-gray-500">
-                                      {courier.estimatedDeliveryDays > 0 && (
-                                        <div className="flex items-center gap-1">
-                                          <FaClock size={10} />
-                                          <span>{courier.estimatedDeliveryDays} days</span>
-                                        </div>
-                                      )}
-                                      {courier.codAvailable && (
-                                        <div className="flex items-center gap-1 text-green-600">
-                                          <FaMoneyBillWave size={10} />
-                                          <span>COD</span>
-                                        </div>
-                                      )}
-                                      {(courier.airAvailable || courier.surfaceAvailable) && (
-                                        <span>
-                                          {courier.airAvailable && courier.surfaceAvailable
-                                            ? 'Air + Surface'
-                                            : courier.airAvailable
-                                            ? 'Air'
-                                            : 'Surface'}
-                                        </span>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-sm text-red-600">No courier rates available</p>
-                      )}
-                    </div>
+                    <CourierRateList
+                      rates={courierRates}
+                      loading={loadingRates}
+                      selected={selectedCourierId}
+                      onSelect={setSelectedCourierId}
+                      onFetch={fetchCourierRates}
+                      fetchLabel="Get Shiprocket Rates"
+                      canFetch={dimsReady}
+                    />
                   )}
                 </div>
               )}
