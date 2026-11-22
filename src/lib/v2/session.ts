@@ -115,6 +115,15 @@ export function isSigningOut(): boolean {
   return leaving;
 }
 
+// Back from the issuer's sign-out page (the browser's Back button, or its "Stay signed in", which is history.back()),
+// the browser may restore this page from its back/forward cache with `leaving` still set and no tokens: it would send
+// nothing and go nowhere. A fresh load has no tokens and shows the sign-in page, the honest state.
+if (typeof window !== 'undefined') {
+  window.addEventListener('pageshow', (e) => {
+    if (e.persisted && leaving) location.reload();
+  });
+}
+
 export function onSessionChange(fn: (reason: 'ended' | 'refreshed') => void): () => void {
   listeners.add(fn);
   return () => listeners.delete(fn);
