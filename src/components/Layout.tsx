@@ -20,6 +20,7 @@ import StoreSwitcher from './StoreSwitcher';
 import { getDomainStore } from '../services/api';
 import NotificationBell from './NotificationBell';
 import { useAuth } from '../contexts/AuthContext';
+import { isSigningOut } from '../lib/v2/session';
 import { SetupBanner } from './SetupBanner';
 import { TestModeBanner } from './TestModeBanner';
 import RouteGuard from './RouteGuard';
@@ -75,7 +76,7 @@ const Layout: React.FC = () => {
 
   // Redirect to login if auth is lost mid-session (token expired etc.)
   useEffect(() => {
-    if (!isAuthenticated) navigate('/login', { replace: true });
+    if (!isAuthenticated && !isSigningOut()) navigate('/login', { replace: true });
   }, [isAuthenticated, navigate]);
 
   // The admin is light (owner: "make theme light color"). The theme's dark
@@ -88,7 +89,8 @@ const Layout: React.FC = () => {
 
   const handleLogout = async () => {
     await logout();
-    navigate('/login', { replace: true });
+    // A v2 sign-out is leaving for the issuer's /logout: going to /login now would cancel that navigation.
+    if (!isSigningOut()) navigate('/login', { replace: true });
   };
 
   const userPerms = {

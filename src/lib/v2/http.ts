@@ -2,16 +2,18 @@
  * The v2 transport and the ONE response normaliser. `client.ts` plugs these into
  * the legacy axios instance; the route areas use `v2call` for composite rows.
  */
-import axios, { AxiosHeaders } from 'axios';
+import axios, { AxiosError, AxiosHeaders } from 'axios';
 import type { AxiosInstance } from 'axios';
 import { V2_API_URL } from './config';
 import { moneyToMajorDeep } from './money';
-import { accessToken } from './session';
+import { accessToken, isSigningOut } from './session';
 import { storeKeyNow } from './tenant';
 
 export const v2http: AxiosInstance = axios.create({ baseURL: V2_API_URL, timeout: 120000 });
 
 v2http.interceptors.request.use(async (cfg) => {
+  // Signing out: no call leaves this page (it would go without a token and answer 401).
+  if (isSigningOut()) throw new AxiosError('Signing out', AxiosError.ERR_CANCELED, cfg);
   const headers = AxiosHeaders.from(cfg.headers);
   headers.set('accept', headers.get('accept') || 'application/json');
   const key = storeKeyNow();

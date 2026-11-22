@@ -17,6 +17,7 @@
 import React from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { isSigningOut } from '../lib/v2/session';
 import { Loader2, WifiOff } from 'lucide-react';
 
 interface Props {
@@ -69,6 +70,8 @@ export const ProtectedRoute: React.FC<Props> = ({ children }) => {
   }
 
   if (!isAuthenticated) {
+    // Signing out: the page is leaving for the issuer's /logout; a redirect to /login would cancel it.
+    if (isSigningOut()) return null;
     return <Navigate to="/login" replace />;
   }
 

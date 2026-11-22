@@ -103,6 +103,17 @@ let tokens: TokenSet | null = readJson<TokenSet>(TOKENS_KEY);
 let refreshing: Promise<void> | null = null;
 let timer: ReturnType<typeof setTimeout> | null = null;
 const listeners = new Set<(reason: 'ended' | 'refreshed') => void>();
+/** Set once sign-out has started; the page is leaving for the issuer's /logout (see `signOut`). */
+let leaving = false;
+
+/**
+ * True from the moment sign-out starts. Until the browser has left for the issuer's /logout nothing in the admin may
+ * navigate anywhere else, start a sign-in, send a call or end the session on a 401: any of those would cancel the
+ * navigation to /logout and leave the Growcord ID session open (22 Nov 2026, a 401 redirect to /login 50 ms later did).
+ */
+export function isSigningOut(): boolean {
+  return leaving;
+}
 
 export function onSessionChange(fn: (reason: 'ended' | 'refreshed') => void): () => void {
   listeners.add(fn);
@@ -147,12 +158,14 @@ function refresh(): Promise<void> {
   refreshing = (async () => {
     try {
       const body = await postToken({ grant_type: 'refresh_token', refresh_token: rt }, 'refresh_failed');
+      // Signing out meanwhile: the tokens stay cleared.
+      if (leaving) return;
       const next = tokenSetOf(body);
       setTokens({ ...next, refreshToken: next.refreshToken ?? rt, idToken: next.idToken ?? tokens?.idToken });
       listeners.forEach((fn) => fn('refreshed'));
     } catch (e) {
       // Only the issuer's refusal ends the session; offline, 5xx and 429 keep it.
-      if (e instanceof V2SessionError && e.providerError === 'invalid_grant') endLocal();
+      if (!leaving && e instanceof V2SessionError && e.providerError === 'invalid_grant') endLocal();
     } finally {
       refreshing = null;
     }
@@ -162,6 +175,8 @@ function refresh(): Promise<void> {
 
 /** Drop the credential here (the issuer session is untouched). */
 export function endLocal(): void {
+  // Signing out already cleared the tokens; nothing may re-render as "session ended" while the page leaves.
+  if (leaving) return;
   const had = !!tokens;
   setTokens(null);
   if (had) {
@@ -213,6 +228,8 @@ async function postToken(form: Record<string, string>, failCode: V2SessionErrorC
 
 /** Leaves the page for the issuer's hosted sign-in. */
 export async function startSignIn(opts: { returnTo?: string; silent?: boolean } = {}): Promise<void> {
+  // No sign-in, silent or not, while this page is leaving for the issuer's /logout.
+  if (leaving) return;
   if (!V2_ISSUER) throw new V2SessionError('not_configured', 'VITE_GROWCORD_ID_ISSUER / VITE_API_URL is not set for this build.');
   const verifier = randomToken(48);
   const pending: PendingRequest = {
@@ -311,6 +328,11 @@ async function verifyIdToken(jwt: string, nonce: string): Promise<IdClaims> {
  * `/login`; the root shows the sign-in page to a signed-out person (ProtectedRoute sends it to /login).
  */
 export function signOut(postLogoutPath = '/'): void {
+  if (leaving) return;
+  // First mark the page as leaving: the v2 client then sends no call and ignores every answer still on its way, so no
+  // 401 can end the session again or redirect to /login. Then clear the tokens without telling the listeners (nothing
+  // re-renders as signed out), then leave for the issuer.
+  leaving = true;
   const idToken = tokens?.idToken;
   setTokens(null);
   const q = new URLSearchParams({

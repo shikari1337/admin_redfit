@@ -403,9 +403,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = useCallback(async (all = false) => {
     if (V2_ENABLED) {
       // RP-initiated logout at the issuer with id_token_hint (identity A28); leaves the page and comes back to the
-      // host root, the address the `admin` client registers (the root then shows the sign-in page).
-      setStoreModules({});
-      setModulesLoaded(false);
+      // host root, the address the `admin` client registers (the root then shows the sign-in page). Nothing else
+      // happens here: a state change would re-render the screens, their calls would answer 401, and a redirect to
+      // /login would cancel the navigation to the issuer (v2 session `isSigningOut`).
       v2SignOut('/');
       return;
     }

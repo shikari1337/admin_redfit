@@ -5,7 +5,7 @@ import { PRODUCT } from '../lib/product';
 import { useAuth } from '../contexts/AuthContext';
 import GrowcordIdButton from '../components/GrowcordIdButton';
 import { V2_ENABLED } from '../lib/v2/config';
-import { startSignIn, hasSession as v2HasSession, accessToken as v2AccessToken, consumeEndedNotice } from '../lib/v2/session';
+import { startSignIn, hasSession as v2HasSession, accessToken as v2AccessToken, consumeEndedNotice, isSigningOut } from '../lib/v2/session';
 import { tenantNow, listPlatformStores, listMyStores, isRefused, pickPlatformStore } from '../lib/v2/tenant';
 import type { PlatformStore } from '../lib/v2/tenant';
 import {
@@ -511,6 +511,8 @@ const V2Login: React.FC = () => {
   const [stores, setStores] = useState<PlatformStore[] | null>(null);
 
   useEffect(() => {
+    // Signing out: the page is leaving for the issuer's /logout; navigating now would cancel it.
+    if (isSigningOut()) return;
     if (isAuthenticated) { navigate('/', { replace: true }); return; }
     let msg = '';
     try { msg = sessionStorage.getItem('gc_v2_signin_error') || ''; sessionStorage.removeItem('gc_v2_signin_error'); } catch { /* none */ }

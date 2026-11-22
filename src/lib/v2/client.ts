@@ -22,7 +22,7 @@
 import { AxiosError, AxiosHeaders } from 'axios';
 import type { AxiosAdapter, AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from 'axios';
 import { V2_API_URL } from './config';
-import { endLocal } from './session';
+import { endLocal, isSigningOut } from './session';
 import { v2http, normaliseEnvelope, backendGap } from './http';
 import { matchRoute } from './routes';
 import type { V2Ctx, V2Route } from './routes';
@@ -58,6 +58,9 @@ const ACCESS_NOTICE: Record<string, string> = {
 
 /** The legacy instance's error interceptor in v2 mode. */
 export function v2OnError(error: AxiosError): Promise<never> {
+  // Signing out: every answer still on its way is ignored. A 401 here must neither end the session again nor send
+  // the page to /login, which would cancel the navigation to the issuer's /logout.
+  if (isSigningOut()) return Promise.reject(error);
   const status = error.response?.status;
   const data = (error.response?.data ?? {}) as Record<string, unknown>;
   const code = String(data.code ?? '');
@@ -74,7 +77,7 @@ export function v2OnError(error: AxiosError): Promise<never> {
     // DEC-057: only 401 ends the session.
     endLocal();
     if (!location.pathname.startsWith('/login') && !location.pathname.startsWith('/auth/callback')) {
-      setTimeout(() => { location.href = '/login'; }, 50);
+      setTimeout(() => { if (!isSigningOut()) location.href = '/login'; }, 50);
     }
   } else if (status === 403) {
     // 403 never ends a session: it is the gate working. The access notice explains it.
