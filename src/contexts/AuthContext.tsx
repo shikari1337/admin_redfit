@@ -402,10 +402,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = useCallback(async (all = false) => {
     if (V2_ENABLED) {
-      // RP-initiated logout at the issuer with id_token_hint (identity A28); leaves the page.
+      // RP-initiated logout at the issuer with id_token_hint (identity A28); leaves the page and comes back to the
+      // host root, the address the `admin` client registers (the root then shows the sign-in page).
       setStoreModules({});
       setModulesLoaded(false);
-      v2SignOut('/login');
+      v2SignOut('/');
       return;
     }
     try {

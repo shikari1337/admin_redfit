@@ -305,8 +305,12 @@ async function verifyIdToken(jwt: string, nonce: string): Promise<IdClaims> {
   return claims;
 }
 
-/** RP-initiated logout with `id_token_hint`; leaves the page (back to /login). */
-export function signOut(postLogoutPath = '/login'): void {
+/**
+ * RP-initiated logout with `id_token_hint`; leaves the page. The issuer sends the browser back only to an address
+ * registered for this client, matched exactly, and the `admin` client registers each host's root (`<origin>/`), not
+ * `/login`; the root shows the sign-in page to a signed-out person (ProtectedRoute sends it to /login).
+ */
+export function signOut(postLogoutPath = '/'): void {
   const idToken = tokens?.idToken;
   setTokens(null);
   const q = new URLSearchParams({
