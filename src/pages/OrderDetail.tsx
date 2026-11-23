@@ -611,21 +611,23 @@ const OrderDetail: React.FC = () => {
 
   const handleSendInvoice = async (channel: 'email' | 'whatsapp' | 'sms') => {
     setInvoiceBusy(channel);
+    // Sending never issues: an unissued order goes out as its proforma.
+    const doc = invoiceIssued ? 'Invoice' : 'Proforma';
     try {
       const r = await invoicesAPI.send(order.orderId || id!, { channels: [channel] });
       const result = r?.results?.[channel] ?? r?.data?.results?.[channel];
       if (result && result.ok === false) {
-        toast({ variant: "destructive", title: `Invoice ${channel} failed`, description: result.reason || 'Send failed' });
+        toast({ variant: "destructive", title: `${doc} ${channel} failed`, description: result.reason || 'Send failed' });
       } else {
-        toast({ title: "Invoice sent", description: `Invoice sent via ${channel}` });
+        toast({ title: `${doc} sent`, description: `${doc} sent via ${channel}` });
       }
     } catch (error: any) {
       const missing = error.response?.data?.missing;
       toast({
         variant: "destructive",
-        title: `Invoice ${channel} failed`,
+        title: `${doc} ${channel} failed`,
         description: Array.isArray(missing) && missing.length
-          ? `Complete invoice settings first — missing: ${missing.join(', ')}`
+          ? `Complete invoice settings first. Missing: ${missing.join(', ')}`
           : (error.response?.data?.message || 'Send failed'),
       });
     } finally {
@@ -1097,8 +1099,9 @@ const OrderDetail: React.FC = () => {
                     and downloading used to do this by themselves — including a
                     customer opening their own unpaid order's PDF — which is why
                     live homeomead carries 30 invoice numbers on orders that were
-                    later cancelled. Now nothing issues an invoice except this
-                    and sending one. */}
+                    later cancelled. Now nothing on this page issues an invoice
+                    except this. Sending an unissued order sends the proforma
+                    and uses no number (owner, 23 Nov 2026, SM-13103). */}
                 {invoiceIssued ? (
                   <div className="px-2 py-1.5 text-xs text-muted-foreground">
                     Issued as <span className="font-mono font-medium text-foreground">{order.invoiceNumber ?? order.invoice_number}</span>
@@ -1121,13 +1124,13 @@ const OrderDetail: React.FC = () => {
                   {invoiceIssued ? 'Download PDF' : 'Download proforma PDF'}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => handleSendInvoice('email')} disabled={!order.shippingAddress?.email}>
-                  <FaEnvelope className="mr-1.5 h-3.5 w-3.5" /> Send via Email
+                  <FaEnvelope className="mr-1.5 h-3.5 w-3.5" /> {invoiceIssued ? 'Send via Email' : 'Send proforma via Email'}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => handleSendInvoice('whatsapp')}>
-                  <FaWhatsapp className="mr-1.5 h-3.5 w-3.5" /> Send via WhatsApp
+                  <FaWhatsapp className="mr-1.5 h-3.5 w-3.5" /> {invoiceIssued ? 'Send via WhatsApp' : 'Send proforma via WhatsApp'}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => handleSendInvoice('sms')}>
-                  <FaSms className="mr-1.5 h-3.5 w-3.5" /> Send via SMS
+                  <FaSms className="mr-1.5 h-3.5 w-3.5" /> {invoiceIssued ? 'Send via SMS' : 'Send proforma via SMS'}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
