@@ -265,6 +265,8 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
   const [gsRates, setGsRates] = useState<CourierRate[]>([]);
   const [loadingGsRates, setLoadingGsRates] = useState(false);
   const [gsRatesError, setGsRatesError] = useState<string | null>(null);
+  // Whose Shiprocket account priced the Shiprocket rates: the store's own ('store') or Growcord's ('platform').
+  const [srAccountSource, setSrAccountSource] = useState<string | null>(null);
   const [hasShiprocket, setHasShiprocket] = useState(false);
   const [hasDelhivery, setHasDelhivery] = useState(false);
   // v2 lists warehouses without their own carrier switches (ship WarehouseView; the facility list keeps
@@ -397,6 +399,10 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
       );
 
       // API interceptor may return array directly (normalized) or { success, data }
+      if (provider === 'shiprocket') {
+        const source = (response as any)?.account_source ?? (response as any)?.data?.account_source;
+        setSrAccountSource(typeof source === 'string' ? source : null);
+      }
       const ratesArray: any[] = Array.isArray(response)
         ? response
         : (response?.data && Array.isArray(response.data))
@@ -1671,7 +1677,13 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
                       />
                       <div>
                         <h4 className="font-semibold text-gray-900">Shiprocket</h4>
-                        <p className="text-sm text-gray-500">Multiple delivery partners</p>
+                        <p className="text-sm text-gray-500">
+                          {srAccountSource === 'store'
+                            ? "Your own Shiprocket account: Shiprocket's price, paid from your Shiprocket wallet."
+                            : srAccountSource === 'platform'
+                              ? "Growcord's Shiprocket account: freight comes off your Growcord wallet."
+                              : 'Multiple delivery partners'}
+                        </p>
                       </div>
                     </div>
                   </div>
