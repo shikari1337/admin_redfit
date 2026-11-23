@@ -182,8 +182,12 @@ const carrierData = (d: any) => (d && typeof d === 'object' && !Array.isArray(d)
 
 /** ShipmentView (ship views/store.rs:423) names its warehouse `warehouse` ({id, name, code} on the board, else the id); ShipmentTable.tsx:183 and ShipmentDetailDrawer.tsx:88 read the old `warehouseId`. */
 const shipmentRow = (s: any) => (s && typeof s === 'object' && !Array.isArray(s) ? { ...s, warehouse_id: s.warehouse_id ?? s.warehouse ?? null } : s);
-/** BoardView {items, total, limit, offset, status_counts} (ship views/store.rs:486) → rows + the `statusCounts` / `pagination` Shipments.tsx:182-189 reads. */
-const shipmentBoard = (d: any) => (Array.isArray(d) ? listPlus(d, shipmentRow, { statusCounts: (d as any).status_counts, pagination: pagination(d) }) : d);
+/**
+ * BoardView {items, total, limit, offset, status_counts, charges} (ship views/store.rs) as rows plus the `statusCounts` /
+ * `pagination` Shipments.tsx reads, and `chargeTotals` {total (rupees), unknown, counted}: the shipping charge of every
+ * shipment the filter matches, not only this page.
+ */
+const shipmentBoard = (d: any) => (Array.isArray(d) ? listPlus(d, shipmentRow, { statusCounts: (d as any).status_counts, pagination: pagination(d), chargeTotals: (d as any).charges }) : d);
 
 /** BookingsView {created[], failed[]} (ship views/store.rs:551) → the booked facts Shipments.tsx:455 and OrderDetail.tsx:721 read; BookedView carries no shipment number. */
 const bookingReply = (d: any) => {
@@ -305,7 +309,8 @@ export const SHIPPING_ROUTES: V2Route[] = [
   { m: 'PUT', from: '/ewb/settings/credentials', row: 'books — no row', gap: EWB_CREDENTIALS_GAP },
   { m: 'POST', from: '/ewb/settings/test-connection', row: 'books — no row', gap: EWB_CREDENTIALS_GAP },
   { m: 'GET', from: '/logistics/cod-remittances', row: 'ship routes/logistics.ts', to: '/api/v2/ship/cod-remittances', qs: ['limit','offset','status'] },
-  { m: 'POST', from: '/logistics/cod-remittances', row: 'ship routes/logistics.ts', to: '/api/v2/ship/cod-remittances', bs: {'courier':'s','lines':[{'awb':'s','cod_amount':'m','order_number':'s'}],'note':'s','reference':'s','remitted_amount':'m','remitted_on':'s'} },
+  // A payout recorded by hand: each parcel's cash collected and what the courier kept from it (COD charge, freight, other).
+  { m: 'POST', from: '/logistics/cod-remittances', row: 'ship routes/logistics.ts', to: '/api/v2/ship/cod-remittances', bs: {'courier':'s','lines':[{'awb':'s','cod_amount':'m','courier_cod_charge':'m','freight_deducted':'m','order_number':'s','other_deductions':'m'}],'note':'s','reference':'s','remitted_amount':'m','remitted_on':'s'} },
   { m: 'GET', from: '/logistics/cod-remittances/:id', row: 'ship routes/logistics.ts', to: '/api/v2/ship/cod-remittances/{id}' },
   { m: 'POST', from: '/logistics/cod-remittances/:id/cancel', row: 'ship routes/logistics.ts', to: '/api/v2/ship/cod-remittances/{id}/cancel', bs: 'j' },
   { m: 'POST', from: '/logistics/cod-remittances/:id/match', row: 'ship routes/logistics.ts', to: '/api/v2/ship/cod-remittances/{id}/match', bs: 'j' },
@@ -317,8 +322,13 @@ export const SHIPPING_ROUTES: V2Route[] = [
   { m: 'POST', from: '/logistics/rto/:id/receive', row: 'ship routes/logistics.ts', to: '/api/v2/ship/rto-receipts/{id}/receive', bs: {'lines':[{'item_id':'s','qty_damaged':'i','qty_good':'i'}]}, reply: (d) => { const x = rtoPaise(d); return x && typeof x === 'object' ? { ...x, result: x } : x; } }, // RtoReceivedView (ship views/store.rs:183) flat; ReturnsRto.tsx:78 reads `result.{refundDue, refundAmountMinor}`
   { m: 'GET', from: '/pincode/:pincode', row: 'commerce pincode.ts:13', to: '/api/v2/commerce/public/pincodes/{pincode}', reply: indiaPost }, // PincodeView (commerce views/storefront.rs:295) → India Post's array
   { m: 'GET', from: '/shipments', row: 'ship routes/shipments.ts', to: '/api/v2/ship/shipments', qs: ['end_date','limit','offset','page','shipping_provider','start_date','status','tab','warehouse_id'], reply: shipmentBoard }, // BoardView (ship views/store.rs:486): statusCounts, pagination, warehouse_id
-  { m: 'POST', from: '/shipments', row: 'ship routes/shipments.ts', to: '/api/v2/ship/shipments', reply: bookingReply, bs: {'breadth':'s','courier_company_id':'s','customs':'j','delhivery_service_type':'s','height':'s','item_selections':[{'quantity':'i','sku':'s'}],'item_skus':['s'],'length':'s','manual_carrier_name':'s','manual_tracking_id':'s','manual_tracking_url':'s','order_ids':['s'],'service_mode':'s','shipping_provider':'s','warehouse_id':'s','weight':'s'} },
+  // `manual_shipping_charge` (rupees, sent as Money): what the store paid its own carrier for a manual parcel; required for manual.
+  { m: 'POST', from: '/shipments', row: 'ship routes/shipments.ts', to: '/api/v2/ship/shipments', reply: bookingReply, bs: {'breadth':'s','courier_company_id':'s','customs':'j','delhivery_service_type':'s','height':'s','item_selections':[{'quantity':'i','sku':'s'}],'item_skus':['s'],'length':'s','manual_carrier_name':'s','manual_shipping_charge':'m','manual_tracking_id':'s','manual_tracking_url':'s','order_ids':['s'],'service_mode':'s','shipping_provider':'s','warehouse_id':'s','weight':'s'} },
   { m: 'GET', from: '/shipments/:id', row: 'ship routes/shipments.ts', to: '/api/v2/ship/shipments/{id}', reply: shipmentRow }, // ShipmentView (ship views/store.rs:423): warehouse → warehouse_id (here the bare id: get_one joins no name, api/shipments.rs:1260)
+  // One order's parcels with their shipping charge and COD figures (ShipmentView[]), for the order page.
+  { m: 'GET', from: '/shipments/order/:orderId', row: 'ship routes/shipments.ts', to: '/api/v2/ship/orders/{orderId}/shipments', reply: (d) => (Array.isArray(d) ? mapList(d, shipmentRow) : d) },
+  // Correct a parcel's shipping charge (a manual parcel, or one booked with no quote): amount and the reason, kept in its history.
+  { m: 'POST', from: '/shipments/:id/charge', row: 'ship SHIP-CHARGE-1', to: '/api/v2/ship/shipments/{id}/charge', bs: {'amount':'m','reason':'s'}, reply: shipmentRow },
   { m: 'POST', from: '/shipments/:p1/add-orders', row: 'ship — no row', gap: 'adding orders to an existing shipment has no v2 route (ship ROUTE_MAP: no row; the binary serves none)' },
   { m: 'GET', from: '/shipments/:id/download-label', row: 'ship routes/shipments.ts', to: '/api/v2/ship/shipments/{id}/label', qs: ['pdf_size'] }, // download
   { m: 'GET', from: '/shipments/:id/download-manifest', row: 'ship routes/shipments.ts', to: '/api/v2/ship/shipments/{id}/manifest' }, // download

@@ -5,7 +5,8 @@ import { Truck, FileText, ClipboardList, Package } from 'lucide-react';
 
 interface BulkActionsBarProps {
   selectedCount: number;
-  onBulkPickup: () => void;
+  /** Offered only where a pickup makes sense (booked parcels still waiting for one). */
+  onBulkPickup?: () => void;
   onBulkDownloadLabel?: () => void;
   onBulkDownloadManifest?: () => void;
   onBulkShip?: () => void;
@@ -37,10 +38,12 @@ const BulkActionsBar: React.FC<BulkActionsBarProps> = ({
                 Bulk Ship
               </Button>
             )}
-            <Button variant="default" size="sm" onClick={onBulkPickup} className="gap-1.5">
-              <Truck className="h-3.5 w-3.5" />
-              Schedule Pickup ({selectedCount})
-            </Button>
+            {onBulkPickup && (
+              <Button variant="default" size="sm" onClick={onBulkPickup} className="gap-1.5">
+                <Truck className="h-3.5 w-3.5" />
+                Schedule Pickup ({selectedCount})
+              </Button>
+            )}
             {onBulkDownloadLabel && (
               <Button variant="outline" size="sm" onClick={onBulkDownloadLabel} className="gap-1.5">
                 <FileText className="h-3.5 w-3.5" />

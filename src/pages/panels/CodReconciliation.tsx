@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Banknote, Plus, Loader2, CheckCircle2, X, RefreshCw, Trash2, Upload, LineChart } from 'lucide-react';
+import { Banknote, Plus, Loader2, CheckCircle2, X, RefreshCw, Trash2, Upload, LineChart, Truck } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api } from '../../services/api';
 import { payload } from '@/lib/unwrap';
@@ -12,19 +12,22 @@ import { formatDay } from '../../utils/date';
 import { majorToMinor } from '@/lib/v2/money';
 import {
   COD_MATCH_LABEL, COD_MATCH_TONE, LINK, codPayoutsAPI, codReason, failureOf, importProblems, isGap, minorOf, money, plainMajor,
-  toCodLine, type CodLine, type CodSummary, type LoadFailure,
+  toCodLine, type CodLine, type CodPayer, type CodSummary, type LoadFailure,
 } from '../payments/data';
 import { DEFAULT_FROM, DEFAULT_TO, FailureNotice, RangeFields, useUrlFilters } from '../payments/common';
+import CodPayoutRecorder, { payerName } from './CodPayoutRecorder';
 
 /**
- * COD remittance reconciliation (migration 064; PAY-0 §3 / §5 deductions, import and summary — lane
+ * COD remittance reconciliation (migration 064; PAY-0 §3 / §5 deductions, import and summary, lane
  * ADMIN-PAY-1). Plain-language screen:
  * "The courier collected cash at the customer's door and later paid us a lump
  * sum. Did they pay us the right amount for every parcel, and what did they keep?"
- * Enter the payout by hand or import the courier's remittance CSV → we match each parcel to its delivered
- * COD order and flag anything short, over, listed twice or with no matching order; the courier's
- * deductions (COD charge, freight, other) are shown beside the match, never hidden in it. Mark it
- * reconciled only when every line ties out.
+ * What each courier still owes (delivered COD parcels no payout names) opens the page; recording a payout
+ * picks that courier's parcels with their COD amount and shipping charge (SHIP-CHARGE-1, owner 23 Nov 2026),
+ * or the courier's remittance file is imported. The server matches each parcel to its delivered COD order and
+ * flags anything short, over, listed twice or with no matching order; the courier's deductions (COD charge,
+ * freight, other) are shown beside the match, never hidden in it. Mark it reconciled only when every line
+ * ties out. `?record=1` opens the recorder (`&order=<id>` ticks that order's parcel, `&payer=<key>` picks a courier).
  */
 
 interface Remittance {
@@ -37,13 +40,7 @@ interface Remittance {
 const STATUS_TONE: Record<string, any> = { open: 'amber', reconciled: 'green', cancelled: 'red' };
 const STATUS_LABEL: Record<string, string> = { open: 'Open', reconciled: 'Reconciled', cancelled: 'Cancelled' };
 
-// A blank payout line in the create form (amounts are entered in rupees).
-type Draft = { awb: string; orderNumber: string; amount: string };
-const blankLine = (): Draft => ({ awb: '', orderNumber: '', amount: '' });
-
 /* ── CSV import: courier + column mapping ─────────────────────────────────── */
-
-const COURIERS = ['Shiprocket', 'Delhivery', 'Blue Dart', 'Xpressbees', 'Ecom Express', 'DTDC', 'Shadowfax', 'Ekart', 'Other'];
 
 /** The remittance fields a courier's CSV can fill (PAY-0 §3), and the header words that usually name them. */
 const IMPORT_FIELDS: Array<{ key: string; label: string; required?: boolean; guess: RegExp }> = [
@@ -92,6 +89,7 @@ const LINE_CSV: CsvColumn<CodLine>[] = [
   { key: 'freight_deducted_minor', label: 'Freight deducted', format: (l) => plainMajor(l.freight_deducted_minor, l.currency) },
   { key: 'other_deductions_minor', label: 'Other deductions', format: (l) => plainMajor(l.other_deductions_minor, l.currency) },
   { key: 'net_remitted_minor', label: 'Net remitted', format: (l) => plainMajor(l.net_remitted_minor, l.currency) },
+  { key: 'ship_charge_minor', label: 'Shipping charge', format: (l) => plainMajor(l.ship_charge_minor, l.currency) },
   { key: 'match_status', label: 'Result', format: (l) => COD_MATCH_LABEL[l.match_status] ?? l.match_status },
   { key: 'match_note', label: 'Reason', format: (l) => codReason(l) },
 ];
@@ -115,21 +113,21 @@ const CodReconciliation: React.FC = () => {
 
   // summary (date range kept in the URL)
   const defaults = useMemo(() => ({ from: DEFAULT_FROM(), to: DEFAULT_TO() }), []);
-  // `?remittance=<id>` opens that payout (the order page links here).
-  const [range, setRange] = useUrlFilters(['from', 'to', 'remittance'] as const, defaults);
+  // `?remittance=<id>` opens that payout (the order page links here); `?record=1` opens the recorder.
+  const [range, setRange] = useUrlFilters(['from', 'to', 'remittance', 'record', 'order', 'payer'] as const, defaults);
   const days = Math.round((Date.parse(`${range.to}T00:00:00Z`) - Date.parse(`${range.from}T00:00:00Z`)) / 86400000) + 1;
   const [summary, setSummary] = useState<CodSummary | null>(null);
   const [summaryFail, setSummaryFail] = useState<LoadFailure | null>(null);
 
-  // create form
-  const [creating, setCreating] = useState(false);
-  const [courier, setCourier] = useState(''); const [reference, setReference] = useState('');
-  const [remittedOn, setRemittedOn] = useState('');
-  const [lines, setLines] = useState<Draft[]>([blankLine()]);
+  // Who still owes COD cash: delivered COD parcels no payout names yet, by courier (SHIP-CHARGE-1).
+  const [payers, setPayers] = useState<CodPayer[] | null>(null);
+  const [payersFail, setPayersFail] = useState<LoadFailure | null>(null);
+  const creating = range.record === '1';
+  const setCreating = (on: boolean, payer?: string) => setRange({ record: on ? '1' : '', order: '', payer: on ? (payer ?? '') : '' });
 
   // import form
   const [importing, setImporting] = useState(false);
-  const [impCourier, setImpCourier] = useState('Shiprocket');
+  const [impCourier, setImpCourier] = useState('');
   const [impFile, setImpFile] = useState<File | null>(null);
   const [impHeaders, setImpHeaders] = useState<string[]>([]);
   const [impMap, setImpMap] = useState<Record<string, string>>({});
@@ -143,9 +141,17 @@ const CodReconciliation: React.FC = () => {
     .catch((e) => { setList([]); setMsg(e?.response?.data?.message ?? e.message); });
   useEffect(() => { loadList(); }, []);
 
+  const loadPayers = useCallback(() => {
+    setPayersFail(null);
+    codPayoutsAPI.awaiting()
+      .then((a) => setPayers(a.couriers))
+      .catch((e) => { setPayers([]); setPayersFail(failureOf(e, 'what the couriers still owe could not be read')); });
+  }, []);
+  useEffect(() => { loadPayers(); }, [loadPayers]);
+
   const loadSummary = useCallback(() => {
     setSummary(null); setSummaryFail(null);
-    if (!(days > 0 && days <= 366)) { setSummaryFail({ gap: false, forbidden: false, message: 'The COD summary covers 1 to 366 days — pick a shorter range.' }); return; }
+    if (!(days > 0 && days <= 366)) { setSummaryFail({ gap: false, forbidden: false, message: 'The COD summary covers 1 to 366 days: pick a shorter range.' }); return; }
     codPayoutsAPI.summary({ from: range.from, to: range.to })
       .then(setSummary)
       .catch((e) => setSummaryFail(failureOf(e, 'the COD summary could not be read')));
@@ -164,35 +170,16 @@ const CodReconciliation: React.FC = () => {
       let r: Remittance;
       try { r = await codPayoutsAPI.remittance(id); }
       catch (e) { if (!isGap(e)) throw e; r = payload<Remittance>(await api.get(`/logistics/cod-remittances/${id}`)); }
-      setDetail(r); setCreating(false); setImporting(false);
+      setDetail(r); setImporting(false);
+      if (range.record) setCreating(false);
     } catch (e: any) { setMsg(e?.response?.data?.message ?? e.message); }
   };
 
-  const setLine = (i: number, patch: Partial<Draft>) =>
-    setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
-
-  const create = async () => {
-    const payoutLines = lines
-      .map((l) => ({
-        awb: l.awb.trim() || null,
-        orderNumber: l.orderNumber.trim() || null,
-        // the v2 route takes `cod_amount` as Money (rupees here; the body shaper converts); the Node route reads the paise
-        codAmount: l.amount.trim() || null,
-        codAmountMinor: Math.round((Number(l.amount) || 0) * 100),
-      }))
-      .filter((l) => (l.awb || l.orderNumber) && l.codAmountMinor > 0);
-    if (payoutLines.length === 0) { setMsg('Add at least one parcel: a tracking or order number and the cash collected.'); return; }
-    setBusy(true); setMsg(''); setOk('');
-    try {
-      const r = payload<Remittance>(await api.post('/logistics/cod-remittances', {
-        courier: courier.trim() || null, reference: reference.trim() || null,
-        remittedOn: remittedOn || null, lines: payoutLines,
-      }));
-      setOk('Payout entered and matched. Open it to see which parcels tie out.');
-      setCreating(false); setCourier(''); setReference(''); setRemittedOn(''); setLines([blankLine()]);
-      loadList(); loadSummary(); if (r?.id) openDetail(r.id);
-    } catch (e: any) { setMsg(e?.response?.data?.message ?? e.message); }
-    finally { setBusy(false); }
+  const recorded = (id: string | null) => {
+    setOk('Payout recorded and matched against your delivered COD orders. Lines in red need a look before it can be reconciled.');
+    setCreating(false);
+    loadList(); loadSummary(); loadPayers();
+    if (id) openDetail(id);
   };
 
   const pickFile = async (file: File | null) => {
@@ -207,6 +194,7 @@ const CodReconciliation: React.FC = () => {
 
   const runImport = async () => {
     if (!impFile) { setMsg('Choose the courier’s remittance file (CSV or Excel) first.'); return; }
+    if (!impCourier.trim()) { setMsg('Name the courier whose report this is.'); return; }
     const amountMinor = impAmount.trim() ? majorToMinor(impAmount, 'INR') : null;
     if (impAmount.trim() && amountMinor === null) { setMsg('The amount paid must be a number, e.g. 12450.50.'); return; }
     if (impHeaders.length && !impMap.collected) { setMsg('Pick the column that holds the cash collected.'); return; }
@@ -215,7 +203,7 @@ const CodReconciliation: React.FC = () => {
     try {
       const form = new FormData();
       form.append('file', impFile);
-      form.append('courier', impCourier);
+      form.append('courier', impCourier.trim());
       form.append('mapping', JSON.stringify(impMap));
       if (impRef.trim()) form.append('reference', impRef.trim());
       if (impBatch.trim()) form.append('batch_ref', impBatch.trim());
@@ -228,12 +216,12 @@ const CodReconciliation: React.FC = () => {
       setOk(`Imported${n ? ` ${n} parcels` : ''} and matched them to your orders. Check the lines marked in red.`);
       setImporting(false); setImpFile(null); setImpHeaders([]); setImpMap({});
       setImpRef(''); setImpBatch(''); setImpOn(''); setImpAmount(''); setImpNote('');
-      loadList(); loadSummary();
+      loadList(); loadSummary(); loadPayers();
       if (r?.id) { if (Array.isArray(r.lines)) setDetail(r); else openDetail(r.id); }
     } catch (e: any) {
       const st = e?.response?.status;
       if (isGap(e)) setMsg('Importing a courier file is not available on this server yet. Enter the payout by hand for now.');
-      else if (st === 409) setMsg('This file was already imported — open it from the payouts list below instead of importing it again.');
+      else if (st === 409) setMsg('This file was already imported: open it from the payouts list below instead of importing it again.');
       else if (st === 422) {
         const probs = importProblems(e);
         setImpProblems(probs);
@@ -253,7 +241,7 @@ const CodReconciliation: React.FC = () => {
   const reconcile = async () => {
     if (!detail) return;
     setBusy(true); setMsg(''); setOk('');
-    try { await api.post(`/logistics/cod-remittances/${detail.id}/reconcile`); setOk('Reconciled — this payout ties out to the paisa.'); await openDetail(detail.id); loadList(); loadSummary(); }
+    try { await api.post(`/logistics/cod-remittances/${detail.id}/reconcile`); setOk('Reconciled: this payout ties out to the paisa.'); await openDetail(detail.id); loadList(); loadSummary(); }
     catch (e: any) { setMsg(e?.response?.data?.message ?? e.message); }
     finally { setBusy(false); }
   };
@@ -261,7 +249,7 @@ const CodReconciliation: React.FC = () => {
   const cancel = async () => {
     if (!detail) return;
     setBusy(true); setMsg(''); setOk('');
-    try { await api.post(`/logistics/cod-remittances/${detail.id}/cancel`); setOk('Payout cancelled.'); await openDetail(detail.id); loadList(); loadSummary(); }
+    try { await api.post(`/logistics/cod-remittances/${detail.id}/cancel`); setOk('Payout cancelled. Its parcels are waiting for a payout again.'); await openDetail(detail.id); loadList(); loadSummary(); loadPayers(); }
     catch (e: any) { setMsg(e?.response?.data?.message ?? e.message); }
     finally { setBusy(false); }
   };
@@ -286,24 +274,53 @@ const CodReconciliation: React.FC = () => {
       && detailLines.every((l) => l.match_status === 'matched')
       && matchedAmt !== null && matchedAmt === remitted);
 
-  const colCount = showDeductions ? 9 : 5;
+  const showShip = detailLines.some((l) => l.ship_charge_minor !== null);
+  const colCount = (showDeductions ? 9 : 5) + (showShip ? 1 : 0);
   const s = summary;
   const sc = s?.currency ?? 'INR';
 
   return (
     <Page>
       <PageHeader
-        title="COD payouts — did the courier pay us right?"
+        title="COD payouts"
         icon={Banknote}
-        description="The courier collects cash at the door and later pays you a lump sum, minus its charges. Enter or import the payout, and we match every parcel to its delivered order — flagging anything paid short, over, or with no matching order."
+        description="The courier collects cash at the door and later pays you a lump sum, minus its charges. Record or import each payout, and every parcel is matched to its delivered order, flagging anything paid short, over, or with no matching order."
         actions={(
           <>
+            <Link to={LINK.settlements} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3.5 text-sm text-gray-700 shadow-sm hover:bg-gray-50">Settlements</Link>
             <Link to={LINK.analytics} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3.5 text-sm text-gray-700 shadow-sm hover:bg-gray-50"><LineChart className="h-4 w-4" />Payment analytics</Link>
-            <Btn variant="outline" onClick={() => { setImporting((v) => !v); setCreating(false); setDetail(null); setMsg(''); setOk(''); }}><Upload className="h-4 w-4" />{importing ? 'Close import' : 'Import CSV'}</Btn>
-            <Btn variant={creating ? 'outline' : 'primary'} onClick={() => { setCreating((v) => !v); setImporting(false); setDetail(null); setMsg(''); setOk(''); }}><Plus className="h-4 w-4" />{creating ? 'Cancel' : 'New payout'}</Btn>
+            <Btn variant="outline" onClick={() => { setImporting((v) => !v); setCreating(false); setDetail(null); setMsg(''); setOk(''); }}><Upload className="h-4 w-4" />{importing ? 'Close import' : 'Import courier file'}</Btn>
+            <Btn variant={creating ? 'outline' : 'primary'} onClick={() => { setCreating(!creating); setImporting(false); setDetail(null); setMsg(''); setOk(''); }}><Plus className="h-4 w-4" />{creating ? 'Close' : 'Record COD payout'}</Btn>
           </>
         )}
       />
+
+      {/* WHO STILL OWES: delivered COD parcels no payout names yet, by courier (the answer to "where do I enter it"). */}
+      {payersFail ? (
+        <FailureNotice failure={payersFail} what="The list of delivered COD parcels waiting for a payout is not on this server yet. Payouts can still be imported or recorded by hand." onRetry={loadPayers} />
+      ) : payers && payers.length > 0 ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+          <p className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-amber-900"><Truck className="h-4 w-4" aria-hidden />Waiting for a courier payout</p>
+          <TableShell>
+            <table className="w-full text-sm">
+              <THead><Th>Paid out by</Th><Th num>Delivered COD parcels</Th><Th num>Cash the courier holds</Th><Th num>Their shipping charges</Th><Th> </Th></THead>
+              <TBody>
+                {payers.map((p) => (
+                  <Tr key={p.key}>
+                    <Td className="font-medium">{payerName(p)}{p.provider === 'manual' && <span className="block text-[11px] font-normal text-gray-500">your own carrier</span>}</Td>
+                    <Td num>{p.parcels}</Td>
+                    <Td num className="font-semibold">{money(p.cod_minor, 'INR')}</Td>
+                    <Td num muted>{money(p.ship_charges_minor, 'INR')}{p.unpriced > 0 && <span className="block text-[11px] text-amber-700">{p.unpriced} with no charge recorded</span>}</Td>
+                    <Td><Btn size="sm" variant="outline" onClick={() => { setImporting(false); setDetail(null); setMsg(''); setOk(''); setCreating(true, p.key); }}>Record payout</Btn></Td>
+                  </Tr>
+                ))}
+              </TBody>
+            </table>
+          </TableShell>
+        </div>
+      ) : payers ? (
+        <p className="text-sm text-gray-500">No delivered COD parcel is waiting for a courier payout.</p>
+      ) : null}
 
       {/* SUMMARY */}
       <FilterBar><RangeFields from={range.from} to={range.to} onChange={(r) => setRange(r)} /></FilterBar>
@@ -319,10 +336,13 @@ const CodReconciliation: React.FC = () => {
             sub={s && s.mismatched_count > 0 ? `${s.mismatched_count} line${s.mismatched_count === 1 ? '' : 's'} do not match` : undefined} />
           <StatCard label={<span className="inline-flex items-center gap-1">Courier charges <InfoTip text="The courier’s COD charges. Freight and other amounts it deducted from the payout are listed under it." /></span>}
             value={s ? money(s.courier_cod_charges_minor, sc) : '…'}
-            sub={s && (s.freight_deducted_minor || s.other_deductions_minor) ? `+ ${money(s.freight_deducted_minor ?? 0, sc)} freight · ${money(s.other_deductions_minor ?? 0, sc)} other deducted` : undefined} />
+            sub={s && (s.freight_deducted_minor || s.other_deductions_minor) ? `+ ${money(s.freight_deducted_minor ?? 0, sc)} freight, ${money(s.other_deductions_minor ?? 0, sc)} other deducted` : undefined} />
           <StatCard label={<span className="inline-flex items-center gap-1">COD fee collected <InfoTip text="The COD fee your shoppers paid at checkout, without its GST." /></span>} value={s ? money(s.cod_fee_from_shoppers_minor, sc) : '…'} sub="excl. GST" />
           <StatCard label={<span className="inline-flex items-center gap-1">COD margin <InfoTip text="COD margin = COD fee from shoppers (without GST) − courier COD charges. Negative means COD costs you more than you charge for it." /></span>}
             value={s ? money(s.cod_margin_minor, sc) : '…'} sub="fee excl. GST − courier charges" tone={(s?.cod_margin_minor ?? 0) < 0 ? 'bad' : 'default'} />
+          <StatCard label={<span className="inline-flex items-center gap-1">Shipping charges <InfoTip text="What the parcels of these delivered COD orders cost to ship: each parcel's courier quote at booking, or the amount entered for your own carrier." /></span>}
+            value={s ? money(s.ship_charges_minor, sc) : '…'}
+            sub={s && s.ship_charges_unpriced > 0 ? `${s.ship_charges_unpriced} parcel${s.ship_charges_unpriced === 1 ? '' : 's'} with no charge recorded` : 'of the delivered COD orders'} />
         </StatGrid>
       )}
 
@@ -333,12 +353,13 @@ const CodReconciliation: React.FC = () => {
       {importing && (
         <div className="space-y-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
           <h3 className="text-sm font-semibold text-gray-800">Import a courier’s COD remittance report</h3>
-          <p className="text-xs text-gray-500">Download the COD remittance report from your courier’s panel (CSV or Excel). Pick the courier, choose the file, and check which column holds what — for a CSV we guessed from the column names.</p>
+          <p className="text-xs text-gray-500">Download the COD remittance report from your courier's panel (CSV or Excel). Name the courier, choose the file, and check which column holds what; for a CSV the columns are guessed from their names.</p>
           <FilterBar>
-            <Field label="Courier">
-              <SelectInput value={impCourier} onChange={(e) => setImpCourier(e.target.value)} aria-label="Courier">
-                {COURIERS.map((c) => <option key={c} value={c}>{c}</option>)}
-              </SelectInput>
+            <Field label="Courier *">
+              <TextInput value={impCourier} onChange={(e) => setImpCourier(e.target.value)} list="cod-import-couriers" placeholder="e.g. Shiprocket" aria-label="Courier" />
+              <datalist id="cod-import-couriers">
+                {(payers ?? []).map((p) => <option key={p.key} value={payerName(p)} />)}
+              </datalist>
             </Field>
             <Field label="Remittance file (CSV or Excel)">
               <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
@@ -350,7 +371,7 @@ const CodReconciliation: React.FC = () => {
               {IMPORT_FIELDS.map((fld) => (
                 <Field key={fld.key} label={`${fld.label}${fld.required ? ' *' : ''}`}>
                   <SelectInput value={impMap[fld.key] ?? ''} onChange={(e) => setImpMap((m) => { const n = { ...m }; if (e.target.value) n[fld.key] = e.target.value; else delete n[fld.key]; return n; })}>
-                    <option value="">— not in this file —</option>
+                    <option value="">Not in this file</option>
                     {impHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
                   </SelectInput>
                 </Field>
@@ -359,7 +380,7 @@ const CodReconciliation: React.FC = () => {
           )}
           {impFile && impHeaders.length === 0 && (
             <>
-              <p className="text-xs text-amber-700">{isExcel ? `An Excel file: type the column names as they appear in its header row (leave blank to use the ${impCourier} layout).` : `No column names found on the first line — type them, or leave blank to use the ${impCourier} layout.`}</p>
+              <p className="text-xs text-amber-700">{isExcel ? `An Excel file: type the column names as they appear in its header row (leave blank to use the ${impCourier || 'Shiprocket'} layout).` : `No column names found on the first line: type them, or leave blank to use the ${impCourier || 'Shiprocket'} layout.`}</p>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {IMPORT_FIELDS.map((fld) => (
                   <Field key={fld.key} label={`${fld.label}${fld.required ? ' *' : ''}`}>
@@ -370,7 +391,7 @@ const CodReconciliation: React.FC = () => {
             </>
           )}
           <details className="text-sm">
-            <summary className="cursor-pointer text-xs font-medium text-gray-600">Payout details (optional — the file may already carry them)</summary>
+            <summary className="cursor-pointer text-xs font-medium text-gray-600">Payout details (optional; the file may already carry them)</summary>
             <FilterBar className="mt-2">
               <Field label="Bank reference / UTR"><TextInput value={impRef} onChange={(e) => setImpRef(e.target.value)} /></Field>
               <Field label="Courier batch / CRF id"><TextInput value={impBatch} onChange={(e) => setImpBatch(e.target.value)} /></Field>
@@ -385,7 +406,7 @@ const CodReconciliation: React.FC = () => {
                 <THead><Th>Row</Th><Th>Column</Th><Th>Problem</Th></THead>
                 <TBody>
                   {impProblems.map((p, i) => (
-                    <Tr key={i}><Td className="tabular-nums">{p.row || '—'}</Td><Td>{p.field || '—'}</Td><Td className="text-red-700">{p.problem}</Td></Tr>
+                    <Tr key={i}><Td className="tabular-nums">{p.row || 'Not given'}</Td><Td>{p.field || 'Not given'}</Td><Td className="text-red-700">{p.problem}</Td></Tr>
                   ))}
                 </TBody>
               </table>
@@ -395,40 +416,16 @@ const CodReconciliation: React.FC = () => {
         </div>
       )}
 
-      {/* CREATE */}
+      {/* RECORD: a payout against the courier's delivered COD parcels, with their shipping charges */}
       {creating && (
-        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm space-y-3">
-          <h3 className="text-sm font-semibold text-gray-800">Enter a courier COD payout</h3>
-          <p className="text-xs text-gray-500">One row per parcel. Put the tracking number (AWB) if you have it — it's the most accurate — otherwise the order number, then the cash the courier says they collected.</p>
-          <FilterBar>
-            <Field label="Courier"><TextInput value={courier} onChange={(e) => setCourier(e.target.value)} placeholder="e.g. Delhivery" /></Field>
-            <Field label="Bank reference / UTR (optional)"><TextInput value={reference} onChange={(e) => setReference(e.target.value)} placeholder="UTR on the bank credit" /></Field>
-            <Field label="Paid on (optional)"><TextInput type="date" value={remittedOn} onChange={(e) => setRemittedOn(e.target.value)} /></Field>
-          </FilterBar>
-
-          <TableShell>
-            <table className="w-full text-sm">
-              <THead>
-                <Th>Tracking / AWB</Th><Th>or Order number</Th><Th num>Cash collected (₹)</Th><Th> </Th>
-              </THead>
-              <TBody>
-                {lines.map((l, i) => (
-                  <Tr key={i}>
-                    <Td><TextInput value={l.awb} onChange={(e) => setLine(i, { awb: e.target.value })} placeholder="courier AWB" aria-label={`Parcel ${i + 1} tracking number`} /></Td>
-                    <Td><TextInput value={l.orderNumber} onChange={(e) => setLine(i, { orderNumber: e.target.value })} placeholder="e.g. ORD-00003" aria-label={`Parcel ${i + 1} order number`} /></Td>
-                    <Td num><TextInput type="number" min={0} step="0.01" className="w-32 text-right" value={l.amount} onChange={(e) => setLine(i, { amount: e.target.value })} placeholder="0.00" aria-label={`Parcel ${i + 1} cash collected`} /></Td>
-                    <Td>{lines.length > 1 && <Btn variant="ghost" aria-label="Remove parcel" onClick={() => setLines((ls) => ls.filter((_, idx) => idx !== i))}><Trash2 className="h-4 w-4" /></Btn>}</Td>
-                  </Tr>
-                ))}
-              </TBody>
-            </table>
-          </TableShell>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <Btn variant="outline" onClick={() => setLines((ls) => [...ls, blankLine()])}><Plus className="h-4 w-4" />Add parcel</Btn>
-            <Btn variant="success" disabled={busy} onClick={create}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}Enter payout & match</Btn>
-          </div>
-        </div>
+        <CodPayoutRecorder
+          key={`${range.payer}|${range.order}`}
+          payers={payers ?? []}
+          initialPayer={range.payer || null}
+          initialOrderId={range.order || null}
+          onCreated={recorded}
+          onCancel={() => setCreating(false)}
+        />
       )}
 
       {/* DETAIL */}
@@ -437,11 +434,11 @@ const CodReconciliation: React.FC = () => {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <div className="flex items-center gap-2 text-sm font-semibold text-gray-800">
-                Payout {detail.reference ? `· ${detail.reference}` : ''}
+                Payout {detail.reference ? `${detail.reference}` : ''}
                 <Chip tone={STATUS_TONE[detail.status] ?? 'neutral'}>{STATUS_LABEL[detail.status] ?? detail.status}</Chip>
               </div>
               <div className="mt-0.5 text-xs text-gray-500">
-                {detail.courier ? `${detail.courier} · ` : ''}{detail.remitted_on ? `paid ${formatDay(detail.remitted_on)} · ` : ''}
+                {detail.courier ? `${detail.courier}, ` : ''}{detail.remitted_on ? `paid ${formatDay(detail.remitted_on)}, ` : ''}
                 {detail.line_count ?? detailLines.length} parcel(s)
               </div>
             </div>
@@ -456,7 +453,7 @@ const CodReconciliation: React.FC = () => {
             <div><span className="text-gray-500">Matched to orders: </span><strong className={matchedAmt === remitted ? 'text-emerald-700' : 'text-amber-700'}>{money(matchedAmt, cur)}</strong></div>
             {showDeductions && (
               <div><span className="text-gray-500">Courier kept: </span><strong>{money(sumOf('courier_cod_charge_minor') + sumOf('freight_deducted_minor') + sumOf('other_deductions_minor'), cur)}</strong>
-                <span className="text-xs text-gray-500"> (COD charge {money(sumOf('courier_cod_charge_minor'), cur)} · freight {money(sumOf('freight_deducted_minor'), cur)} · other {money(sumOf('other_deductions_minor'), cur)})</span>
+                <span className="text-xs text-gray-500"> (COD charge {money(sumOf('courier_cod_charge_minor'), cur)}, freight {money(sumOf('freight_deducted_minor'), cur)}, other {money(sumOf('other_deductions_minor'), cur)})</span>
               </div>
             )}
           </div>
@@ -477,14 +474,14 @@ const CodReconciliation: React.FC = () => {
             </details>
           )}
           {detail.status === 'reconciled' && (
-            <p className="text-xs text-gray-500">Reconciled{detail.reconciled_at ? ` on ${formatDay(detail.reconciled_at)}` : ''} — this payout is locked, so its matches can no longer be re-checked.</p>
+            <p className="text-xs text-gray-500">Reconciled{detail.reconciled_at ? ` on ${formatDay(detail.reconciled_at)}` : ''}: this payout is locked, so its matches can no longer be re-checked.</p>
           )}
           {detail.status === 'open' && (
             <div className="flex flex-wrap gap-2">
               <Btn variant="outline" disabled={busy} onClick={rematch}><RefreshCw className="h-4 w-4" />Re-check matches</Btn>
               <Btn variant="success" disabled={busy || !ties} onClick={reconcile}><CheckCircle2 className="h-4 w-4" />Mark reconciled</Btn>
               <Btn variant="danger" disabled={busy} onClick={cancel}><Trash2 className="h-4 w-4" />Cancel payout</Btn>
-              {!ties && <span className="self-center text-xs text-amber-700">Can't reconcile yet — every parcel must match its order to the paisa.</span>}
+              {!ties && <span className="self-center text-xs text-amber-700">Not ready to reconcile: every parcel must match its order to the paisa.</span>}
             </div>
           )}
 
@@ -498,6 +495,7 @@ const CodReconciliation: React.FC = () => {
                 {showDeductions && <Th num>Freight deducted</Th>}
                 {showDeductions && <Th num>Other deductions</Th>}
                 {showDeductions && <Th num><span className="inline-flex items-center gap-1">Net remitted <InfoTip text="Collected − the courier’s deductions: what reached your bank for this parcel." /></span></Th>}
+                {showShip && <Th num><span className="inline-flex items-center gap-1">Shipping charge <InfoTip text="What the order's parcels cost to ship (their courier quotes, or the amount entered for your own carrier), beside what the courier kept." /></span></Th>}
                 <Th>Result</Th><Th>Why</Th>
               </THead>
               <TBody>
@@ -506,7 +504,7 @@ const CodReconciliation: React.FC = () => {
                 ) : detailLines.map((l) => (
                   <Tr key={l.id}>
                     <Td>
-                      {l.order_id ? <DrillLink to={LINK.order(l.order_id)}>{l.order_number ?? 'Open order'}</DrillLink> : <span>{l.order_number ?? l.listed_order_number ?? '—'}</span>}
+                      {l.order_id ? <DrillLink to={LINK.order(l.order_id)}>{l.order_number ?? 'Open order'}</DrillLink> : <span>{l.order_number ?? l.listed_order_number ?? 'No order'}</span>}
                       {l.listed_order_number && l.order_id && l.listed_order_number !== l.order_number && <span className="block text-[11px] text-gray-400">file said {l.listed_order_number}</span>}
                       {l.awb && <span className="block font-mono text-[11px] text-gray-400">{l.awb}</span>}
                     </Td>
@@ -516,6 +514,7 @@ const CodReconciliation: React.FC = () => {
                     {showDeductions && <Td num muted>{money(l.freight_deducted_minor, l.currency)}</Td>}
                     {showDeductions && <Td num muted>{money(l.other_deductions_minor, l.currency)}</Td>}
                     {showDeductions && <Td num className="font-medium">{money(l.net_remitted_minor, l.currency)}</Td>}
+                    {showShip && <Td num muted>{money(l.ship_charge_minor, l.currency)}</Td>}
                     <Td><Chip tone={COD_MATCH_TONE[l.match_status] ?? 'neutral'}>{COD_MATCH_LABEL[l.match_status] ?? l.match_status}</Chip></Td>
                     <Td className="max-w-xs text-xs text-gray-600">{codReason(l)}</Td>
                   </Tr>
@@ -540,17 +539,17 @@ const CodReconciliation: React.FC = () => {
             {list == null ? (
               <EmptyRow colSpan={7}>Loading payouts…</EmptyRow>
             ) : list.length === 0 ? (
-              <EmptyRow colSpan={7}><EmptyState title="No COD payouts yet" description="When a courier pays out the cash they collected, import its report or enter it here to check it against your delivered COD orders." /></EmptyRow>
+              <EmptyRow colSpan={7}><EmptyState title="No COD payouts yet" description="When a courier pays out the cash it collected, press Record COD payout (or import its report) to check it against your delivered COD orders." /></EmptyRow>
             ) : list.map((r) => {
               const paid = minorOf(r, 'remitted_amount') ?? minorOf(r, 'net_remitted');
               const matched = minorOf(r, 'matched_amount');
               return (
                 <Tr key={r.id} className="cursor-pointer" tabIndex={0} onClick={() => openDetail(r.id)} onKeyDown={(e) => { if (e.key === 'Enter') openDetail(r.id); }}>
-                  <Td>{r.courier || '—'}<span className="block font-mono text-xs text-gray-400">{r.reference || ''}</span></Td>
-                  <Td className="whitespace-nowrap">{r.remitted_on ? formatDay(r.remitted_on) : '—'}</Td>
+                  <Td>{r.courier || 'Courier not named'}<span className="block font-mono text-xs text-gray-400">{r.reference || ''}</span></Td>
+                  <Td className="whitespace-nowrap">{r.remitted_on ? formatDay(r.remitted_on) : 'Not dated'}</Td>
                   <Td num>{money(paid, r.currency)}</Td>
                   <Td num className={matched !== null && matched === paid ? 'text-emerald-700' : ''}>{money(matched, r.currency)}</Td>
-                  <Td num>{r.line_count ?? '—'}</Td>
+                  <Td num>{r.line_count ?? 0}</Td>
                   <Td num className={(r.unmatched_count ?? 0) > 0 ? 'text-red-600 font-semibold' : ''}>{r.unmatched_count ?? 0}</Td>
                   <Td><Chip tone={STATUS_TONE[r.status] ?? 'neutral'}>{STATUS_LABEL[r.status] ?? r.status}</Chip></Td>
                 </Tr>

@@ -130,6 +130,10 @@ export interface CodSummary {
   /** COD fee from shoppers (without GST) − courier COD charges. */
   cod_margin_minor: number | null;
   mismatched_count: number;
+  /** What shipping these delivered COD orders cost: their parcels' charges (courier quotes, or entered). */
+  ship_charges_minor: number | null;
+  /** Their parcels with no shipping charge recorded. */
+  ship_charges_unpriced: number;
   currency: string;
 }
 
@@ -152,8 +156,42 @@ export interface CodLine {
   net_remitted_minor: number | null;
   match_status: CodMatch | string;
   match_note: string | null;
+  /** The shipping charges of the order's parcels, when known. */
+  ship_charge_minor: number | null;
   currency: string;
 }
+
+/** Who pays out delivered COD parcels no payout names yet (a provider, or a manual carrier by its name). */
+export interface CodPayer {
+  key: string;
+  provider: string | null;
+  label: string;
+  parcels: number;
+  cod_minor: number | null;
+  ship_charges_minor: number | null;
+  unpriced: number;
+}
+
+/** One delivered COD parcel waiting for its payout. */
+export interface CodAwaitingParcel {
+  shipment_id: string;
+  shipment_number: string | null;
+  order_id: string | null;
+  order_number: string | null;
+  awb: string | null;
+  provider: string | null;
+  courier_name: string | null;
+  payer_key: string | null;
+  delivered_at: string | null;
+  cod_minor: number | null;
+  ship_charge_minor: number | null;
+  ship_charge_cod_minor: number | null;
+  ship_charge_freight_minor: number | null;
+  ship_charge_gst_minor: number | null;
+  ship_charge_basis: string | null;
+}
+
+export interface CodAwaiting { couriers: CodPayer[]; items: CodAwaitingParcel[]; total: number; limit: number; currency: string }
 
 /** A COD line as the order page shows it: which payout it sits in, and that payout's state. */
 export interface CodOrderRemittance { id: string; courier: string | null; remitted_at: string | null; utr: string | null; status: string | null }
@@ -326,6 +364,8 @@ export function toCodSummary(r: any): CodSummary {
     cod_fee_from_shoppers_minor: minorOf(r, 'cod_fee_from_shoppers', currency),
     cod_margin_minor: minorOf(r, 'cod_margin', currency),
     mismatched_count: int(r?.mismatched_count),
+    ship_charges_minor: minorOf(r, 'ship_charges', currency),
+    ship_charges_unpriced: int(r?.ship_charges_unpriced),
     currency,
   };
 }
@@ -348,7 +388,43 @@ export function toCodLine(r: any, fallbackCurrency?: string | null): CodLine {
     net_remitted_minor: minorOf(r, 'net_remitted', currency),
     match_status: String(r?.match_status ?? (r?.matched ? 'matched' : 'unmatched')),
     match_note: str(r?.match_note),
+    ship_charge_minor: minorOf(r, 'ship_charge', currency),
     currency,
+  };
+}
+
+export function toCodAwaiting(d: any): CodAwaiting {
+  const currency = String(d?.currency || 'INR');
+  return {
+    currency,
+    total: int(d?.total),
+    limit: int(d?.limit),
+    couriers: (Array.isArray(d?.couriers) ? d.couriers : []).map((c: any): CodPayer => ({
+      key: String(c?.payer_key ?? ''),
+      provider: str(c?.provider),
+      label: String(c?.label ?? c?.payer_key ?? ''),
+      parcels: int(c?.parcels),
+      cod_minor: minorOf(c, 'cod_amount', currency),
+      ship_charges_minor: minorOf(c, 'ship_charges', currency),
+      unpriced: int(c?.unpriced),
+    })),
+    items: (Array.isArray(d?.items) ? d.items : []).map((r: any): CodAwaitingParcel => ({
+      shipment_id: String(r?.shipment_id ?? ''),
+      shipment_number: str(r?.shipment_number),
+      order_id: str(r?.order_id),
+      order_number: str(r?.order_number),
+      awb: str(r?.awb),
+      provider: str(r?.provider),
+      courier_name: str(r?.courier_name),
+      payer_key: str(r?.payer_key),
+      delivered_at: str(r?.delivered_at),
+      cod_minor: minorOf(r, 'cod_amount', currency),
+      ship_charge_minor: minorOf(r, 'ship_charge', currency),
+      ship_charge_cod_minor: minorOf(r, 'ship_charge_cod', currency),
+      ship_charge_freight_minor: minorOf(r, 'ship_charge_freight', currency),
+      ship_charge_gst_minor: minorOf(r, 'ship_charge_gst', currency),
+      ship_charge_basis: str(r?.ship_charge_basis),
+    })),
   };
 }
 
@@ -423,6 +499,13 @@ export const codPayoutsAPI = {
   },
   async importCsv(form: FormData): Promise<any> {
     return call('POST', C.import, { data: form });
+  },
+  /**
+   * Delivered COD parcels no payout names yet: who pays them out, and (for `courier`, a payer key, or one
+   * `order_id`) the parcels themselves with their COD amount and shipping charge, oldest delivery first.
+   */
+  async awaiting(f: { courier?: string; order_id?: string; from?: string; to?: string; limit?: number } = {}): Promise<CodAwaiting> {
+    return toCodAwaiting(await call('GET', C.awaiting, { params: params(f) }));
   },
   /** `{line|null, remittance|null}` — the order's COD payout line and the payout it sits in. */
   async byOrder(orderId: string): Promise<CodOrderLink> {

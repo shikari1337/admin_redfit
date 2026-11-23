@@ -241,6 +241,11 @@ export const COD_PAYOUT_PATHS = {
    * line. Until COD-1 serves it the card answers 404 and simply leaves the line out.
    */
   byOrder: (orderId: string) => `${SHIP}/cod/orders/${seg(orderId)}/remittance`,
+  /**
+   * GET ?courier&order_id&from&to&limit: delivered COD parcels no live payout names yet, grouped by who pays
+   * them out (`couriers`), and one courier's parcels (`items`) with each one's COD amount and shipping charge.
+   */
+  awaiting: `${SHIP}/cod/awaiting`,
 } as const;
 
 /* ── Fee vendors in Books: who each gateway / courier is, held fees, gateway tax invoices (DEC-072/073) ──

@@ -28,7 +28,10 @@ const Line: React.FC<{ k: React.ReactNode; children: React.ReactNode }> = ({ k, 
 
 const tip = (t: string) => <InfoTip text={t} />;
 
-const OrderPaymentLedger: React.FC<{ orderId: string; isCod?: boolean }> = ({ orderId, isCod }) => {
+/** Order statuses after which a COD parcel's cash is with the courier (it was delivered). */
+const DELIVERED = ['delivered', 'partially_delivered'];
+
+const OrderPaymentLedger: React.FC<{ orderId: string; isCod?: boolean; orderStatus?: string }> = ({ orderId, isCod, orderStatus }) => {
   const [txns, setTxns] = useState<Transaction[]>([]);
   const [cod, setCod] = useState<CodOrderLink | null>(null);
 
@@ -48,7 +51,9 @@ const OrderPaymentLedger: React.FC<{ orderId: string; isCod?: boolean }> = ({ or
 
   const codLine = cod?.line ?? null;
   const rem = cod?.remittance ?? null;
-  if (txns.length === 0 && !codLine && !rem) return null;
+  // A delivered COD order no payout names yet: the courier holds its cash; say so and offer to record it.
+  const owed = !!isCod && !!cod && !codLine && !rem && DELIVERED.includes(String(orderStatus || ''));
+  if (txns.length === 0 && !codLine && !rem && !owed) return null;
 
   return (
     <div className="space-y-3 border-t pt-3" data-testid="order-payment-ledger">
@@ -82,6 +87,16 @@ const OrderPaymentLedger: React.FC<{ orderId: string; isCod?: boolean }> = ({ or
         </div>
       ))}
 
+      {owed && (
+        <div className="rounded border border-amber-200 bg-amber-50 p-3">
+          <p className="flex items-center gap-1.5 text-sm font-medium text-amber-900"><Truck className="h-4 w-4" aria-hidden />Courier COD payout: not received yet</p>
+          <p className="mt-1 text-xs text-amber-800">The order is delivered, so the courier holds the cash it collected. No payout recorded so far names this order.</p>
+          <Link to={`${LINK.cod}?record=1&order=${encodeURIComponent(orderId)}`} className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-blue-700 hover:underline">
+            Record the courier&apos;s payout <ExternalLink className="h-3 w-3" aria-hidden />
+          </Link>
+        </div>
+      )}
+
       {(codLine || rem) && (
         <div className="rounded border border-gray-200 bg-white p-3">
           <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
@@ -96,6 +111,7 @@ const OrderPaymentLedger: React.FC<{ orderId: string; isCod?: boolean }> = ({ or
               {codLine.freight_deducted_minor !== null && <Line k="Freight deducted">− {money(codLine.freight_deducted_minor, codLine.currency)}</Line>}
               {codLine.other_deductions_minor !== null && <Line k="Other deductions">− {money(codLine.other_deductions_minor, codLine.currency)}</Line>}
               {codLine.net_remitted_minor !== null && <Line k="Net remitted">{money(codLine.net_remitted_minor, codLine.currency)}</Line>}
+              {codLine.ship_charge_minor !== null && <Line k={<span className="inline-flex items-center gap-1">Shipping charge {tip('What the order\'s parcels cost to ship (their courier quotes, or what was entered for your own carrier).')}</span>}>{money(codLine.ship_charge_minor, codLine.currency)}</Line>}
               <p className="mt-1 text-xs text-gray-600">{codReason(codLine)}</p>
             </>
           ) : <p className="text-xs text-gray-500">This order is not on a courier payout yet.</p>}
@@ -103,7 +119,7 @@ const OrderPaymentLedger: React.FC<{ orderId: string; isCod?: boolean }> = ({ or
             <Line k="Payout">
               {rem.courier ?? 'Courier'}{rem.remitted_at ? ` · ${formatDay(rem.remitted_at)}` : ''}
               {rem.utr && <span className="block font-mono text-xs text-gray-500">UTR {rem.utr}</span>}
-              {rem.status && <span className="block text-xs text-gray-500">{rem.status === 'reconciled' ? 'Reconciled' : rem.status === 'open' ? 'Open — not reconciled yet' : rem.status === 'cancelled' ? 'Cancelled' : rem.status}</span>}
+              {rem.status && <span className="block text-xs text-gray-500">{rem.status === 'reconciled' ? 'Reconciled' : rem.status === 'open' ? 'Open, not reconciled yet' : rem.status === 'cancelled' ? 'Cancelled' : rem.status}</span>}
             </Line>
           )}
           <Link to={rem ? `${LINK.cod}?remittance=${encodeURIComponent(rem.id)}` : LINK.cod} className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-blue-700 hover:underline">

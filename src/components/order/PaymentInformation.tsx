@@ -25,6 +25,8 @@ export interface RazorpayAuditResult {
 interface PaymentInformationProps {
   paymentMethod: 'cod' | 'prepaid';
   paymentStatus: string;
+  /** The order's status: a delivered COD order offers to record the courier's payout when none names it yet. */
+  orderStatus?: string;
   /** Money received against the order before it is paid in full (rupees): on a COD order with a
    *  Razorpay payment, its COD convenience fee paid online at checkout. */
   amountReceived?: number;
@@ -80,6 +82,7 @@ const MANUAL_METHOD_LABELS: Record<string, string> = {
 const PaymentInformation: React.FC<PaymentInformationProps> = ({
   paymentMethod,
   paymentStatus,
+  orderStatus,
   amountReceived = 0,
   paymentGateway,
   gatewayRef,
@@ -381,7 +384,7 @@ const PaymentInformation: React.FC<PaymentInformationProps> = ({
           </div>
         )}
 
-        {ledgerOrderId && <OrderPaymentLedger orderId={ledgerOrderId} isCod={paymentMethod === 'cod'} />}
+        {ledgerOrderId && <OrderPaymentLedger orderId={ledgerOrderId} isCod={paymentMethod === 'cod'} orderStatus={orderStatus} />}
       </div>
     </div>
   );

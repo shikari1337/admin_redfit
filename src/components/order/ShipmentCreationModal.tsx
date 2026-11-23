@@ -99,6 +99,8 @@ interface ShipmentCreationModalProps {
     /** PART-QUANTITY selections: exactly which units this parcel carries. */
     itemSelections?: Array<{ sku: string; quantity: number }>;
     packageBoxId?: string;
+    /** Manual parcels: what was paid to the carrier, rupees (asked every time; 0 only when typed as 0). */
+    manualShippingCharge?: number;
   }) => void;
   loading: boolean;
   selectedShippingProvider: ShipProviderId;
@@ -261,6 +263,9 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
   const [loadingRates, setLoadingRates] = useState(false);
   const [loadingDelhiveryRate, setLoadingDelhiveryRate] = useState(false);
   const [selectedCourierId, setSelectedCourierId] = useState<number | string | null>(null);
+  // What the store paid its own carrier for a manual parcel (owner, 23 Nov 2026: "in manual always ask shipping
+  // charges"). Kept here and handed over with the submit, so both callers send it without new props.
+  const [manualCharge, setManualCharge] = useState('');
   // Growcord Ship's own courier offers (owner 22 Nov 2026: every courier's rate while booking, as Shiprocket shows).
   const [gsRates, setGsRates] = useState<CourierRate[]>([]);
   const [loadingGsRates, setLoadingGsRates] = useState(false);
@@ -660,6 +665,7 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
     onManualTrackingIdChange('');
     onManualCarrierNameChange('');
     onManualTrackingUrlChange('');
+    setManualCharge('');
     setCourierRates([]);
     setGsRates([]);
     setGsRatesError(null);
@@ -714,8 +720,11 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
     if (!breadth || parseFloat(breadth) <= 0) return 'Please enter package breadth (cm)';
     if (!height || parseFloat(height) <= 0) return 'Please enter package height (cm)';
     if (selectedShippingProvider === 'manual') {
-      if (!manualTrackingId || !manualCarrierName || !manualTrackingUrl) {
-        return 'Please enter all manual tracking details';
+      if (!manualTrackingId.trim() || !manualCarrierName.trim()) {
+        return 'Enter the tracking ID (AWB) and the carrier name';
+      }
+      if (!/^\d+(\.\d{1,2})?$/.test(manualCharge.trim())) {
+        return 'Enter the shipping charge paid to the carrier in rupees (0 if it was free)';
       }
     }
     if (selectedShippingProvider === 'shiprocket') {
@@ -898,6 +907,7 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
             selectedItemIndices: selectedItemIndices.length > 0 ? selectedItemIndices : undefined,
             itemSelections: selectedItemIndices.length > 0 ? buildItemSelections() : undefined,
             packageBoxId: selectedPackageBoxId || undefined,
+            manualShippingCharge: selectedShippingProvider === 'manual' ? Number(manualCharge.trim()) : undefined,
           });
         }}
         disabled={isSubmitDisabled}
@@ -1539,7 +1549,27 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-gray-700 mb-1">
-                        Tracking URL *
+                        Shipping charge paid to the carrier (Rs) *
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={manualCharge}
+                        onChange={(e) => setManualCharge(e.target.value)}
+                        placeholder="e.g. 85 (type 0 if it was free)"
+                        aria-required="true"
+                        className={`w-full px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                          manualCharge.trim() === '' || /^\d+(\.\d{1,2})?$/.test(manualCharge.trim()) ? 'border-gray-300' : 'border-red-400'
+                        }`}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                      <p className="mt-1 text-[11px] text-gray-500">
+                        The full amount you paid for this parcel, GST included. It shows on the shipment and in COD payouts, and can be corrected later with a reason.
+                      </p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        Tracking URL (optional)
                       </label>
                       <input
                         type="url"

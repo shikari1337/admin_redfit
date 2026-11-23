@@ -5,15 +5,15 @@
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle2, CreditCard, Landmark, TriangleAlert } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, CreditCard, Landmark, TriangleAlert, Truck } from 'lucide-react';
 import {
   Page, PageHeader, FilterBar, StatCard, StatGrid, TableShell, THead, Th, TBody, Tr, Td, EmptyRow, EmptyState,
   ExportMenu, TableSkeleton, DrillLink, type CsvColumn,
 } from '@/components/erp';
 import { formatDay } from '@/utils/date';
 import {
-  LINK, failureOf, feePct, money, plainMajor, storePaymentsAPI,
-  type LoadFailure, type Settlement, type SettlementDetail as Detail,
+  LINK, codPayoutsAPI, failureOf, feePct, money, plainMajor, storePaymentsAPI,
+  type CodPayer, type LoadFailure, type Settlement, type SettlementDetail as Detail,
 } from './data';
 import {
   DEFAULT_FROM, DEFAULT_TO, FailureNotice, Hint, RangeFields, TIPS, TXN_CSV, TxnDrawer, TxnTable,
@@ -33,6 +33,42 @@ const CSV: CsvColumn<Settlement>[] = [
 ];
 
 const linkBtn = 'inline-flex h-9 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3.5 text-sm text-gray-700 shadow-sm hover:bg-gray-50';
+
+/**
+ * Cash on delivery does not come through the gateway: each courier pays it out on its own. The settlements page
+ * says so and opens the courier payouts from here (owner, 23 Nov 2026, looked for them under Settlements): what
+ * the couriers still hold for delivered COD parcels, their shipping charges, and the action to record a payout.
+ */
+const CourierCodPanel: React.FC = () => {
+  const [payers, setPayers] = useState<CodPayer[] | null>(null);
+  const [fail, setFail] = useState(false);
+  useEffect(() => {
+    let live = true;
+    codPayoutsAPI.awaiting()
+      .then((a) => { if (live) setPayers(a.couriers); })
+      .catch(() => { if (live) { setPayers([]); setFail(true); } });
+    return () => { live = false; };
+  }, []);
+  const parcels = (payers ?? []).reduce((a, p) => a + p.parcels, 0);
+  const held = (payers ?? []).reduce((a, p) => a + (p.cod_minor ?? 0), 0);
+  const ship = (payers ?? []).reduce((a, p) => a + (p.ship_charges_minor ?? 0), 0);
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm shadow-sm">
+      <Truck className="h-4 w-4 shrink-0 text-gray-400" aria-hidden />
+      <div className="min-w-0 flex-1">
+        <p className="font-medium text-gray-800">Cash on delivery is paid out by the couriers, not the gateway</p>
+        <p className="text-xs text-gray-500">
+          {payers === null ? 'Reading what the couriers still owe...'
+            : fail ? 'Record each courier payout under COD payouts.'
+              : parcels === 0 ? 'No delivered COD parcel is waiting for a courier payout.'
+                : `${parcels} delivered COD parcel${parcels === 1 ? '' : 's'}: couriers hold ${money(held, 'INR')}; their shipping charges ${money(ship, 'INR')}.`}
+        </p>
+      </div>
+      <Link to={LINK.cod} className={linkBtn}>COD payouts</Link>
+      <Link to={`${LINK.cod}?record=1`} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-gray-900 px-3.5 text-sm text-white shadow-sm hover:bg-gray-800">Record COD payout</Link>
+    </div>
+  );
+};
 
 /** gross − fee must equal the bank credit; a difference is shown, never hidden. */
 function tiesOut(s: Settlement): number | null {
@@ -70,14 +106,17 @@ const SettlementList: React.FC = () => {
       <PageHeader
         title="Settlements"
         icon={Landmark}
-        description="Each payout your payment gateway made into your bank. One settlement is one bank credit, with its bank reference (UTR) and the payments it carried."
+        description="Each payout your payment gateway made into your bank. One settlement is one bank credit, with its bank reference (UTR) and the payments it carried. Courier COD payouts are recorded under COD payouts."
         actions={(
           <>
             <Link to={LINK.transactions} className={linkBtn}><CreditCard className="h-4 w-4" />Payments</Link>
+            <Link to={LINK.cod} className={linkBtn}><Truck className="h-4 w-4" />COD payouts</Link>
             <ExportMenu filename={`settlements-${f.from}-to-${f.to}`} columns={CSV} rows={rows ?? []} disabled={!rows?.length} />
           </>
         )}
       />
+      <CourierCodPanel />
+
       <FilterBar><RangeFields from={f.from} to={f.to} onChange={(r) => setF(r)} /></FilterBar>
 
       {fail && <FailureNotice failure={fail} what="This server does not read the gateway’s settlement reports yet." onRetry={load} />}

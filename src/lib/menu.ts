@@ -199,6 +199,8 @@ export const MENU: MenuGroup[] = [
         // PAY-0 §5: the store's money in — what each payment cost, and when it reached the bank.
         { label: 'Payments', to: '/panel/orders/payments', perm: 'orders.read', tip: 'Every online payment: fee, net, and when it reached your bank.' },
         { label: 'Settlements', to: '/panel/orders/payments/settlements', perm: 'orders.read', tip: 'Each payout from your gateway, with its UTR.', owns: ['/panel/orders/payments/settlements/:settlementId'] },
+        // Owner, 23 Nov 2026, looked for the courier's COD payouts beside Settlements: listed here, not off-menu.
+        { label: 'COD payouts', to: '/panel/orders/cod-recon', perm: 'orders.read', tip: 'Cash the couriers collected on delivery: what they still hold, and recording each payout.' },
         { label: 'Payment analytics', to: '/panel/orders/payments/analytics', perm: 'orders.read', tip: 'Fees, net and anything not yet in the bank.' },
         { label: 'Payment requests', to: '/panel/orders/payments/requests', perm: 'orders.read', tip: 'What each order asked the payer to pay, and what came in.' },
         { label: 'Sales & Team', to: '/panel/orders/sales-team', perm: 'reports.read', tip: 'Who sold what, and who is handling it now.' },
@@ -460,7 +462,6 @@ export const MENU: MenuGroup[] = [
 export const OFF_MENU: MenuItem[] = [
   // Orders desk extras — reached from the Orders pages and the Ship panel.
   { label: 'Order desk', to: '/panel/orders', icon: Gauge, perm: 'orders.read', tip: 'The day at a glance: to confirm, to pack, to chase.' },
-  { label: 'COD payouts', to: '/panel/orders/cod-recon', icon: Wallet, perm: 'orders.read', tip: 'Cash the courier collected and owes you.' },
   { label: 'Automation', to: '/panel/orders/automation-rules', icon: Bot, perm: 'settings.manage', tip: 'When this happens on an order, do that.' },
   { label: 'Returns in', to: '/panel/orders/rto', icon: RotateCcw, perm: 'shipments.read', tip: 'Parcels coming back, and putting them away.' },
   { label: 'E-way bills', to: '/panel/orders/ewb', icon: FileText, perm: 'shipments.read', tip: 'The document a consignment needs to travel.' },

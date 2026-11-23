@@ -8,7 +8,7 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ClipboardList, CreditCard, Landmark, LineChart, Loader2 } from 'lucide-react';
+import { ClipboardList, CreditCard, Landmark, LineChart, Loader2, Truck } from 'lucide-react';
 import { INTENTS_LINK } from './intentsData';
 import {
   Page, PageHeader, Btn, FilterBar, Field, SearchInput, FilterChips, ExportMenu, type ChipGroup,
@@ -102,6 +102,8 @@ const Payments: React.FC = () => {
           <>
             <Link to={LINK.analytics} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3.5 text-sm text-gray-700 shadow-sm hover:bg-gray-50"><LineChart className="h-4 w-4" />Analytics</Link>
             <Link to={LINK.settlements} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3.5 text-sm text-gray-700 shadow-sm hover:bg-gray-50"><Landmark className="h-4 w-4" />Settlements</Link>
+            {/* Cash on delivery reaches the bank from the couriers, not the gateway: its payouts are recorded there. */}
+            <Link to={LINK.cod} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3.5 text-sm text-gray-700 shadow-sm hover:bg-gray-50" title="Cash the couriers collected on delivery, and their payouts"><Truck className="h-4 w-4" />COD payouts</Link>
             <Link to={INTENTS_LINK} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3.5 text-sm text-gray-700 shadow-sm hover:bg-gray-50"><ClipboardList className="h-4 w-4" />Requests</Link>
             <ExportMenu filename={`payments-${f.from}-to-${f.to}`} columns={TXN_CSV} rows={rows ?? []} disabled={!rows?.length} />
           </>

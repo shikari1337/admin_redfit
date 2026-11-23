@@ -9,6 +9,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { ordersAPI, shippingAPI, paymentsAPI, shipmentsAPI, invoicesAPI } from '../services/api';
 import { formatDate } from '../utils/date';
 import { fmtRupees, fmtCurrencyMinor } from '../lib/money';
+import { providerLabel, shipmentCharge } from '../components/shipments/shipmentFacts';
 import { FaCheckCircle, FaEnvelope, FaFileInvoice, FaCreditCard, FaTruck, FaArrowLeft, FaDownload, FaWhatsapp, FaSms, FaChevronDown, FaMoneyCheckAlt, FaTag, FaPaperPlane } from 'react-icons/fa';
 import {
   StatusBadge,
@@ -201,6 +202,20 @@ const OrderDetail: React.FC = () => {
     fetchWarehouses();
     fetchShippingProviders();
   }, [shipButtonShown]);
+
+  // The order's parcels as Ship reads them (shipping charge, COD to collect, courier), asked only when the
+  // order has parcels on screen and the person may read shipments.
+  const [parcelViews, setParcelViews] = useState<any[]>([]);
+  const orderKey = order ? String(order._id || order.id || '') : '';
+  const parcelCount = order?.shipments?.length ?? 0;
+  const parcelsReadable = canAccess('shipping') && hasPerm('shipments.read');
+  const loadParcels = () => {
+    if (!orderKey || !parcelCount || !parcelsReadable) { setParcelViews([]); return; }
+    shipmentsAPI.byOrder(orderKey)
+      .then((r: any) => setParcelViews(Array.isArray(r) ? r : Array.isArray(r?.data) ? r.data : []))
+      .catch(() => setParcelViews([]));
+  };
+  useEffect(() => { loadParcels(); }, [orderKey, parcelCount, parcelsReadable]);
 
   const fetchOrder = async () => {
     try {
@@ -682,8 +697,11 @@ const OrderDetail: React.FC = () => {
     }
 
     if (selectedShippingProvider === 'manual') {
-      if (!manualTrackingId || !manualCarrierName || !manualTrackingUrl) {
-        toast({ variant: "destructive", title: "Error", description: 'Please enter all manual tracking details' }); return;
+      if (!manualTrackingId || !manualCarrierName) {
+        toast({ variant: "destructive", title: "Error", description: 'Enter the tracking ID (AWB) and the carrier name' }); return;
+      }
+      if (modalData?.manualShippingCharge === undefined || !Number.isFinite(Number(modalData.manualShippingCharge))) {
+        toast({ variant: "destructive", title: "Error", description: 'Enter the shipping charge paid to the carrier (0 if it was free)' }); return;
       }
     }
 
@@ -711,7 +729,8 @@ const OrderDetail: React.FC = () => {
         length: modalData?.length || 10,
         breadth: modalData?.breadth || 10,
         height: modalData?.height || 5,
-        orderItemIndices: orderItemSkus.length > 0 ? orderItemSkus : undefined, // We repurposed orderItemIndices to carry SKUs dynamically for readable logging
+        // `item_skus` is the booking's field (the old `orderItemIndices` name was dropped by the v2 body shaper).
+        itemSkus: orderItemSkus.length > 0 ? orderItemSkus : undefined,
         // PART-QUANTITY selections win over the plain SKU list when present.
         itemSelections: modalData?.itemSelections?.length ? modalData.itemSelections : undefined,
       };
@@ -719,7 +738,8 @@ const OrderDetail: React.FC = () => {
       if (selectedShippingProvider === 'manual') {
         shipmentData.manualTrackingId = manualTrackingId;
         shipmentData.manualCarrierName = manualCarrierName;
-        shipmentData.manualTrackingUrl = manualTrackingUrl;
+        shipmentData.manualTrackingUrl = manualTrackingUrl || undefined;
+        shipmentData.manualShippingCharge = modalData?.manualShippingCharge;
       } else {
         if ((selectedShippingProvider === 'shiprocket' || (selectedShippingProvider as string) === 'growcord_ship') && modalData?.selectedCourierId) shipmentData.courierCompanyId = modalData.selectedCourierId;
         if (selectedShippingProvider === 'delhivery' && modalData?.selectedDelhiveryType) shipmentData.delhiveryServiceType = modalData.selectedDelhiveryType;
@@ -1407,6 +1427,9 @@ const OrderDetail: React.FC = () => {
               shipments={order.shipments}
               sla={order.sla}
               returnParcels={returnParcels}
+              parcelViews={parcelViews}
+              onParcelsChanged={loadParcels}
+              shippingPaid={order.shippingCost != null || order.shipping_cost != null ? Number(order.shippingCost ?? order.shipping_cost) : null}
             />
           ) : null}
 
@@ -1508,6 +1531,7 @@ const OrderDetail: React.FC = () => {
                   orderId={order._id || order.id}
                   paymentMethod={order.paymentMethod}
                   paymentStatus={order.paymentStatus}
+                  orderStatus={order.orderStatus || order.order_status}
                   amountReceived={Number(order.amountReceived ?? order.amount_received) || 0}
                   paymentGateway={order.paymentGateway}
                   gatewayRef={order.gatewayRef ?? order.gateway_ref}
@@ -1789,19 +1813,41 @@ const OrderDetail: React.FC = () => {
                 );
               })()}
               <CodSentPanel order={order} canManage={canAccess('shipping') && hasPerm('shipments.manage')} onChanged={fetchOrder} />
-              {order.shippingProvider && (
-                <TrackRow k="Carrier" v={
-                  <span className="capitalize">
-                    {order.shippingProvider}{order.courierName ? ` · ${order.courierName}` : ''}
-                  </span>
-                } />
-              )}
+              {order.shippingProvider && (() => {
+                // A parcel sent with the store's own carrier names it in manual_carrier_name, not courier_name.
+                const courier = order.courierName || order.manualCarrierName || order.manual_carrier_name;
+                return (
+                  <TrackRow k="Carrier" v={
+                    <span>{providerLabel(order.shippingProvider)}{courier ? `, ${courier}` : ''}</span>
+                  } />
+                );
+              })()}
               {shiprocketAwb && (
                 <TrackRow k="AWB" v={<span className="font-mono text-slate-800">{shiprocketAwb}</span>} />
               )}
               {order.delhiveryWaybill && (
                 <TrackRow k="Waybill" v={<span className="font-mono text-slate-800">{order.delhiveryWaybill}</span>} />
               )}
+              {!shiprocketAwb && !order.delhiveryWaybill && (order.manualTrackingId || order.manual_tracking_id) && (
+                <TrackRow k="AWB" v={<span className="font-mono text-slate-800">{order.manualTrackingId || order.manual_tracking_id}</span>} />
+              )}
+              {/* What shipping cost the store against what the customer paid for it (the parcels' charges, from Ship). */}
+              {parcelViews.length > 0 && (() => {
+                const live = parcelViews.filter((v: any) => v?.status !== 'cancelled');
+                const known = live.map((v: any) => shipmentCharge(v)).filter(Boolean) as Array<{ total: number }>;
+                const unknown = live.length - known.length;
+                const cost = known.reduce((a, c) => a + c.total, 0);
+                const paid = order.shippingCost ?? order.shipping_cost;
+                return (
+                  <TrackRow k="Shipping charge" v={
+                    <span className="block">
+                      <span className="font-semibold text-slate-900 tabular-nums">{known.length ? fmtRupees(cost) : 'Not recorded'}</span>
+                      {unknown > 0 && known.length > 0 && <span className="block text-[12px] text-amber-700">{unknown} parcel{unknown === 1 ? '' : 's'} not priced yet</span>}
+                      {paid != null && <span className="block text-[12px] text-slate-600">Customer paid {fmtRupees(paid)} for shipping</span>}
+                    </span>
+                  } />
+                );
+              })()}
               {order.expectedDelivery && (
                 <TrackRow k="Est. delivery" v={formatDate(order.expectedDelivery, 'dd MMM yyyy', 'N/A')} />
               )}

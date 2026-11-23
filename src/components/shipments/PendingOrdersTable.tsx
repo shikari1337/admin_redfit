@@ -25,6 +25,8 @@ interface PendingOrder {
     pincode?: string;
   };
   items?: any[];
+  /** How many lines the order has (the board's pending list carries the count, not the lines). */
+  itemCount?: number;
   total?: number;
   paymentMethod?: string;
   orderStatus?: string;
@@ -37,9 +39,6 @@ interface PendingOrdersTableProps {
 }
 
 const PendingOrdersTable: React.FC<PendingOrdersTableProps> = ({ orders, onCreateShipment }) => {
-  // Debug: log orders to check data structure
-  console.log('📦 PendingOrdersTable orders:', JSON.stringify(orders?.slice(0, 2), null, 2));
-
   const safeFormatDate = (date: any, fmt: string) => formatDate(date, fmt, 'N/A');
 
   return (
@@ -84,7 +83,7 @@ const PendingOrdersTable: React.FC<PendingOrdersTableProps> = ({ orders, onCreat
                     : order.shippingAddress?.pincode || 'N/A'}
                 </TableCell>
                 <TableCell className="text-sm">
-                  {order.items?.length || 0} item(s)
+                  {(() => { const n = order.itemCount ?? order.items?.length ?? 0; return `${n} line${n === 1 ? '' : 's'}`; })()}
                 </TableCell>
                 <TableCell className="text-sm font-medium">
                   {order.total != null ? `₹${order.total.toFixed(2)}` : 'N/A'}

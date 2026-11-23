@@ -3,12 +3,16 @@
  * Manage shipments with pickup scheduling and AWB generation
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
-import { shipmentsAPI, warehousesAPI, shippingAPI, errorText } from '../services/api';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import { Link } from 'react-router-dom';
+import { api, shipmentsAPI, warehousesAPI, shippingAPI, errorText } from '../services/api';
 import { FaSync, FaSpinner, FaLink } from 'react-icons/fa';
 import { ShipmentTabs, ShipmentFilters, ShipmentTable, PendingOrdersTable, PickupModal, BulkActionsBar, ReconcileModal, ShipmentDetailDrawer, ActNow } from '../components/shipments';
 import type { TabType, StatusCounts, ReconcileResultData } from '../components/shipments';
 import ShipmentCreationModal, { type ShipProviderId } from '../components/order/ShipmentCreationModal';
+import { getStatusLabel } from '../components/order/StatusBadge';
+import { providerLabel, providerOf } from '../components/shipments/shipmentFacts';
+import { fmtRupees } from '@/lib/money';
 
 const Shipments: React.FC = () => {
   const [shipments, setShipments] = useState<any[]>([]);
@@ -61,6 +65,9 @@ const Shipments: React.FC = () => {
     rto_failed: 0,
   });
   const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, pages: 0 });
+  // The shipping charges of every shipment the tab and filters match (the board's own sum, not this page's).
+  const [chargeTotals, setChargeTotals] = useState<{ total: number | null; counted: number; unknown: number } | null>(null);
+  const [openingOrder, setOpeningOrder] = useState<string | null>(null);
 
   useEffect(() => {
     fetchWarehouses();
@@ -84,6 +91,13 @@ const Shipments: React.FC = () => {
     }
   };
   const hasShiprocket = providers.some((p) => p.id === 'shiprocket');
+  // Carrier names come from the store's own provider list; parcels entered by hand are "manual".
+  const providerNames = useMemo(() => Object.fromEntries(providers.map((p) => [p.id, p.name])), [providers]);
+  const filterProviders = useMemo(() => {
+    const list = providers.map((p) => ({ id: p.id, name: p.name }));
+    if (!list.some((p) => p.id === 'manual')) list.push({ id: 'manual', name: providerLabel('manual') });
+    return list;
+  }, [providers]);
 
   useEffect(() => {
     // Map tab to status filter
@@ -164,6 +178,7 @@ const Shipments: React.FC = () => {
           ordersData = response.data.orders;
         }
         setPendingOrders(Array.isArray(ordersData) ? ordersData : []);
+        setChargeTotals(null);
         const pag = response?.pagination || response?.data?.pagination;
         if (pag) {
           setPagination(prev => ({ ...prev, ...pag }));
@@ -212,6 +227,10 @@ const Shipments: React.FC = () => {
         if (counts) {
           setStatusCounts(prev => ({ ...prev, ...counts }));
         }
+        const ct = response?.chargeTotals;
+        setChargeTotals(ct && typeof ct === 'object'
+          ? { total: ct.total === null || ct.total === undefined ? null : Number(ct.total), counted: Number(ct.counted) || 0, unknown: Number(ct.unknown) || 0 }
+          : null);
       }
     } catch (error) {
       console.error('Failed to fetch shipments:', error);
@@ -278,7 +297,7 @@ const Shipments: React.FC = () => {
       // siblings (dropped) or present — read the shipment's own pickup record.
       const pk = res?.pickup ?? res?.data?.pickup ?? {};
       const when = pk.scheduledFor || pk.scheduledDate || pickupDate;
-      const tokenBits = [pk.pickupId, pk.pickupToken].filter(Boolean).join(' · ');
+      const tokenBits = [pk.pickupId, pk.pickupToken].filter(Boolean).join(', ');
       alert(pk.source === 'carrier' || res?.meta?.alreadyScheduled
         ? `A pickup was already booked with the courier for ${when}${tokenBits ? ` (${tokenBits})` : ''}. Recorded on the shipment.`
         : `Pickup scheduled for ${when}${tokenBits ? ` (${tokenBits})` : ''}.`);
@@ -326,12 +345,12 @@ const Shipments: React.FC = () => {
       const already = scheduled.filter((s: any) => s.alreadyScheduled).length;
       const lines: string[] = [];
       if (scheduled.length) {
-        lines.push(`✅ Pickup confirmed for ${scheduled.length} shipment(s) on ${scheduled[0]?.scheduledFor || data?.scheduledDate || pickupDate}${already ? ` (${already} already booked with the courier — recorded)` : ''}${tokens.length ? `\nPickup id${tokens.length > 1 ? 's' : ''}: ${tokens.join(', ')}` : ''}`);
+        lines.push(`Pickup confirmed for ${scheduled.length} shipment(s) on ${scheduled[0]?.scheduledFor || data?.scheduledDate || pickupDate}${already ? ` (${already} already booked with the courier, recorded)` : ''}${tokens.length ? `\nPickup id${tokens.length > 1 ? 's' : ''}: ${tokens.join(', ')}` : ''}`);
       }
-      if (data?.hint) lines.push(`ℹ️ ${data.hint}`);
+      if (data?.hint) lines.push(String(data.hint));
       if (failed.length) {
-        lines.push(`❌ ${failed.length} not scheduled:\n` + failed
-          .map((f: any) => `• ${f.shipmentNumber || f.shipmentId}: ${f.message}`)
+        lines.push(`${failed.length} not scheduled:\n` + failed
+          .map((f: any) => `${f.shipmentNumber || f.shipmentId}: ${f.message}`)
           .join('\n'));
       }
       alert(lines.join('\n\n') || 'No shipments were scheduled.');
@@ -359,11 +378,11 @@ const Shipments: React.FC = () => {
       const r = await shipmentsAPI.downloadDocumentsBulk(kind, selectedShipments);
       const lines: string[] = [];
       if (r.documents.length) {
-        lines.push(`✅ ${r.documents.length} ${kind === 'labels' ? 'label' : 'manifest'} file(s) for ${selectedShipments.length - r.failed.length} shipment(s):\n` +
-          r.documents.map((d) => `• ${d.filename}${d.courier ? ` — ${d.courier}` : ''} (${d.shipmentNumbers.length})`).join('\n'));
+        lines.push(`${r.documents.length} ${kind === 'labels' ? 'label' : 'manifest'} file(s) for ${selectedShipments.length - r.failed.length} shipment(s):\n` +
+          r.documents.map((d) => `${d.filename}${d.courier ? `, ${d.courier}` : ''} (${d.shipmentNumbers.length})`).join('\n'));
       }
       if (r.failed.length) {
-        lines.push(`❌ ${r.failed.length} not included:\n` + r.failed.map((f) => `• ${f.shipmentNumber || f.shipmentId}: ${f.message}`).join('\n'));
+        lines.push(`${r.failed.length} not included:\n` + r.failed.map((f) => `${f.shipmentNumber || f.shipmentId}: ${f.message}`).join('\n'));
       }
       alert(lines.join('\n\n') || 'No documents were produced.');
     } catch (error: any) {
@@ -374,12 +393,13 @@ const Shipments: React.FC = () => {
   const handleBulkDownloadManifest = useCallback(() => handleBulkDocuments('manifests'), [handleBulkDocuments]);
 
   const handleUpdateStatus = async (shipmentId: string, status: string) => {
-    const notes = prompt(`Enter notes for status change to ${status} (optional):`);
+    const label = getStatusLabel('shipment', status);
+    const notes = prompt(`Move this shipment to "${label}". A note for its history (optional):`);
     if (notes === null) return; // User cancelled
 
     try {
       await shipmentsAPI.updateStatus(shipmentId, status, notes || undefined);
-      alert('Status updated successfully!');
+      alert(`Shipment moved to "${label}". Its order is updated to match.`);
       fetchShipments();
     } catch (error: any) {
       console.error('Failed to update status:', error);
@@ -413,7 +433,7 @@ const Shipments: React.FC = () => {
   const handleNdrRequestRto = async (shipmentId: string) => {
     try {
       await shipmentsAPI.ndrRequestRto(shipmentId);
-      alert('RTO requested — the courier will return this shipment instead of re-attempting delivery.');
+      alert('Return requested: the courier sends this parcel back instead of trying to deliver it again.');
       fetchShipments();
     } catch (error: any) {
       console.error('Failed to request RTO:', error);
@@ -429,16 +449,10 @@ const Shipments: React.FC = () => {
 
     setCreatingShipment(true);
     try {
-      // Use human-readable IDs for backend
-      let readableWarehouseId = selectedWarehouseId;
-      const selectedW = warehouses.find(w => w._id === selectedWarehouseId);
-      if (selectedW) {
-        readableWarehouseId = selectedW.code || selectedW.name || selectedWarehouseId;
-      }
-
+      // The warehouse's own id, as the order page sends it (the server resolves an id or a code, never a name).
       const shipmentData: any = {
         orderIds: [selectedOrder.orderId || selectedOrder._id],
-        warehouseId: readableWarehouseId,
+        warehouseId: selectedWarehouseId,
         shippingProvider: selectedShippingProvider,
       };
 
@@ -446,7 +460,9 @@ const Shipments: React.FC = () => {
       if (selectedShippingProvider === 'manual') {
         shipmentData.manualTrackingId = manualTrackingId;
         shipmentData.manualCarrierName = manualCarrierName;
-        shipmentData.manualTrackingUrl = manualTrackingUrl;
+        shipmentData.manualTrackingUrl = manualTrackingUrl || undefined;
+        // What was paid to the carrier: the modal refuses to submit a manual parcel without it (0 typed as 0).
+        shipmentData.manualShippingCharge = modalData?.manualShippingCharge;
       }
       if ((selectedShippingProvider === 'shiprocket' || (selectedShippingProvider as string) === 'growcord_ship') && modalData?.selectedCourierId) {
         shipmentData.courierCompanyId = modalData.selectedCourierId;
@@ -467,7 +483,8 @@ const Shipments: React.FC = () => {
         const skus = modalData.selectedItemIndices
           .map((idx: number) => selectedOrder.items[idx]?.sku)
           .filter(Boolean);
-        if (skus.length > 0) shipmentData.orderItemIndices = skus;
+        // `item_skus` is the booking's field (the old `orderItemIndices` name was dropped by the v2 body shaper).
+        if (skus.length > 0) shipmentData.itemSkus = skus;
       }
       // PART-QUANTITY selections win over the plain SKU list when present.
       if (modalData?.itemSelections?.length) shipmentData.itemSelections = modalData.itemSelections;
@@ -476,29 +493,26 @@ const Shipments: React.FC = () => {
       const response = await shipmentsAPI.create(shipmentData);
       console.log('[Shipments] Create shipment response:', response);
 
-      // After interceptor normalization, response is the shipment object directly
-      // or it could be { data: shipment } depending on response structure
+      // The booking answers {created[0]: {awb, courier, provider}} (lib/v2/areas/shipping.ts bookingReply);
+      // a manual parcel's AWB is the tracking id typed for it.
       const shipmentObj = response?.data || response;
-      const shipmentNumber = shipmentObj?.shipmentNumber || '';
-      // Provider bookings return awbCode/waybill; manual returns tracking info.
       const awb = shipmentObj?.awbCode
         || shipmentObj?.waybill
-        || shipmentObj?.providerData?.delhiveryWaybill
-        || shipmentObj?.providerData?.shiprocketAWB
+        || (selectedShippingProvider === 'manual' ? manualTrackingId : '')
         || '';
-      const provider = shipmentObj?.shippingProvider || selectedShippingProvider;
+      const provider = providerOf(shipmentObj) || selectedShippingProvider;
+      const courier = shipmentObj?.courierName || (selectedShippingProvider === 'manual' ? manualCarrierName : '');
 
-      alert(`✅ Shipment created successfully!${shipmentNumber ? `\n📦 Shipment: #${shipmentNumber}` : ''}${awb ? `\n🏷️ AWB: ${awb}` : ''}${provider ? `\n🚚 Provider: ${provider.toUpperCase()}` : ''}`);
+      alert(['Shipment created.', awb ? `AWB: ${awb}` : '', `Carrier: ${providerLabel(provider, providerNames)}${courier ? `, ${courier}` : ''}`]
+        .filter(Boolean).join('\n'));
       setShowCreateShipmentModal(false);
       setSelectedOrder(null);
       setManualTrackingId('');
       setManualCarrierName('');
       setManualTrackingUrl('');
 
-      // Switch to "Ready to Pick" tab so user sees the new shipment with AWB
-      if (awb) {
-        setActiveTab('ready_to_pick');
-      }
+      // Open the tab the new parcel is in: a booked parcel waits for its pickup, a manual one is already on its way.
+      setActiveTab(selectedShippingProvider === 'manual' ? 'in_transit' : 'ready_to_pick');
       // fetchShipments will be triggered by activeTab change, but force it for same-tab case
       fetchShipments();
     } catch (error: any) {
@@ -508,6 +522,40 @@ const Shipments: React.FC = () => {
       setCreatingShipment(false);
     }
   };
+
+  /**
+   * The pending list carries an order's line COUNT, not its lines, so the create dialog (which picks the
+   * lines to ship) opened from here had nothing to pick and refused every booking. The order is read whole
+   * first, with what is still unshipped per line, exactly as the order page hands it over.
+   */
+  const openCreateFor = async (orderId: string) => {
+    const row = pendingOrders.find(o => o._id === orderId);
+    if (!row) return;
+    setOpeningOrder(orderId);
+    try {
+      const res: any = await api.get(`/orders/${orderId}`);
+      const full = res?.data?.data ?? res?.data ?? null;
+      setSelectedOrder(full && Array.isArray(full.items) ? { ...row, ...full } : row);
+      setShowCreateShipmentModal(true);
+    } catch (error) {
+      alert(errorText(error, 'The order could not be opened for booking.'));
+    } finally {
+      setOpeningOrder(null);
+    }
+  };
+
+  const remainingByKey = useMemo(() => (
+    Array.isArray(selectedOrder?.fulfillment?.lines)
+      ? Object.fromEntries(selectedOrder.fulfillment.lines.map((l: any) => [String(l.sku || l.name || '').trim(), Number(l.remaining) || 0]))
+      : undefined
+  ), [selectedOrder]);
+
+  // Bulk actions apply to booked parcels (not manual) waiting for their pickup: pickup, labels, manifests.
+  const selectableIds = useMemo(() => (
+    ['ready_to_pick', 'pickup_scheduled'].includes(activeTab)
+      ? shipments.filter((s) => providerOf(s) !== 'manual' && ['pending', 'pickup_scheduled'].includes(s.status)).map((s) => s._id)
+      : []
+  ), [activeTab, shipments]);
 
   if (loading && shipments.length === 0 && pendingOrders.length === 0) {
     return (
@@ -577,16 +625,12 @@ const Shipments: React.FC = () => {
 
       {/* Filters - ABOVE the tabs */}
       <ShipmentFilters
-        statusFilter={statusFilter}
         warehouseFilter={warehouseFilter}
         providerFilter={providerFilter}
         startDate={startDate}
         endDate={endDate}
         warehouses={warehouses}
-        onStatusChange={(status) => {
-          setStatusFilter(status);
-          setPagination(prev => ({ ...prev, page: 1 }));
-        }}
+        providers={filterProviders}
         onWarehouseChange={(warehouseId) => {
           setWarehouseFilter(warehouseId);
           setPagination(prev => ({ ...prev, page: 1 }));
@@ -614,45 +658,52 @@ const Shipments: React.FC = () => {
 
       {/* Tab Content */}
       {activeTab === 'pending_orders' ? (
-        <PendingOrdersTable
-          orders={pendingOrders}
-          onCreateShipment={(orderId) => {
-            const order = pendingOrders.find(o => o._id === orderId);
-            if (order) {
-              setSelectedOrder(order);
-              setShowCreateShipmentModal(true);
-            }
-          }}
-        />
+        <>
+          {openingOrder && <p className="mb-2 text-sm text-muted-foreground">Opening the order for booking...</p>}
+          <PendingOrdersTable
+            orders={pendingOrders}
+            onCreateShipment={(orderId) => { if (!openingOrder) openCreateFor(orderId); }}
+          />
+        </>
       ) : (
         <>
-          {/* Bulk Actions Bar - shown when shipments are selected */}
+          {/* What the parcels in this view cost to ship: the board's sum over every shipment the tab and filters match. */}
+          {chargeTotals && chargeTotals.counted > 0 && (
+            <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border bg-white px-4 py-2.5 text-sm">
+              <span>
+                Shipping charges for the {chargeTotals.counted.toLocaleString('en-IN')} shipment{chargeTotals.counted === 1 ? '' : 's'} in this view:{' '}
+                <strong className="tabular-nums">{chargeTotals.total === null ? 'none recorded' : fmtRupees(chargeTotals.total)}</strong>
+              </span>
+              {chargeTotals.unknown > 0 && (
+                <span className="text-amber-700">
+                  {chargeTotals.unknown.toLocaleString('en-IN')} with no charge recorded (manual parcels entered before the charge was asked, or booked outside this admin). Open one to enter it.
+                </span>
+              )}
+              <Link to="/panel/orders/cod-recon" className="ml-auto text-blue-700 hover:underline">COD payouts</Link>
+            </div>
+          )}
+
+          {/* Bulk actions: booked parcels waiting for their pickup (pickup itself only while none is booked). */}
           <BulkActionsBar
             selectedCount={selectedShipments.length}
-            onBulkPickup={() => setShowBulkPickupModal(true)}
+            onBulkPickup={activeTab === 'ready_to_pick' ? () => setShowBulkPickupModal(true) : undefined}
             onBulkDownloadLabel={handleBulkDownloadLabel}
             onBulkDownloadManifest={handleBulkDownloadManifest}
           />
 
           <ShipmentTable
             shipments={shipments}
-            activeTab={activeTab}
+            selectableIds={selectableIds}
+            providerNames={providerNames}
             selectedShipments={selectedShipments}
             onSelectShipment={(id, checked) => {
               if (checked) {
-                setSelectedShipments([...selectedShipments, id]);
+                setSelectedShipments((prev) => (prev.includes(id) ? prev : [...prev, id]));
               } else {
-                setSelectedShipments(selectedShipments.filter(sId => sId !== id));
+                setSelectedShipments((prev) => prev.filter(sId => sId !== id));
               }
             }}
-            onSelectAll={(checked) => {
-              const selectableShipments = shipments.filter(s => s.status === 'pending' && s.shippingProvider !== 'manual');
-              if (checked) {
-                setSelectedShipments(selectableShipments.map(s => s._id));
-              } else {
-                setSelectedShipments([]);
-              }
-            }}
+            onSelectAll={(checked) => setSelectedShipments(checked ? selectableIds : [])}
             onSchedulePickup={handleSchedulePickup}
             onUpdateStatus={handleUpdateStatus}
             onDownloadLabel={async (shipmentId, size) => {
@@ -760,14 +811,8 @@ const Shipments: React.FC = () => {
         onManualCarrierNameChange={setManualCarrierName}
         onManualTrackingUrlChange={setManualTrackingUrl}
         orderId={selectedOrder?._id || ''}
-        orderItems={selectedOrder?.items?.map((item: any) => ({
-          productName: item.productName || item.name || 'Product',
-          size: item.size || 'N/A',
-          sku: item.sku,
-          quantity: item.quantity || 1,
-          price: item.price || 0,
-          weight_kg: item.weight_kg ?? item.weightKg,
-        })) || []}
+        orderItems={selectedOrder?.items || []}
+        remainingByKey={remainingByKey}
       />
 
       {/* Single Pickup Modal */}
@@ -803,6 +848,8 @@ const Shipments: React.FC = () => {
       <ShipmentDetailDrawer
         shipmentId={detailShipmentId}
         onClose={() => setDetailShipmentId(null)}
+        onChanged={() => fetchShipments()}
+        providerNames={providerNames}
       />
     </div>
   );

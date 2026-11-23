@@ -6,6 +6,8 @@ import ShipmentDetailDrawer from '../shipments/ShipmentDetailDrawer';
 import ShipmentTimeline from '../shipments/ShipmentTimeline';
 import type { ReturnParcel } from '../returns/OrderReturns';
 import { TrackingLink, carrierOf, spaced } from '../returns/ReturnPickup';
+import { fmtRupees } from '../../lib/money';
+import { chargeLine, providerLabel, shipmentAwb, shipmentCharge, shipmentCod, shipmentCourier } from '../shipments/shipmentFacts';
 
 interface FulfillmentLine {
   sku: string;
@@ -58,13 +60,19 @@ interface Props {
   /** The order's return collections (RET-PICKUP-2 §3): each attempt with its carrier tracking events, drawn
    *  beside the forward parcels so the package's whole life reads in one place. */
   returnParcels?: ReturnParcel[] | null;
+  /** The same parcels as Ship reads them (GET /ship/orders/{id}/shipments): shipping charge, COD, courier. */
+  parcelViews?: any[] | null;
+  /** Called after a parcel changed in its drawer (its charge entered or corrected). */
+  onParcelsChanged?: () => void;
+  /** What the customer paid for shipping on this order (rupees), set beside what the parcels cost. */
+  shippingPaid?: number | null;
 }
 
 /**
  * Fulfillment picture for one order: how many units are on their way, which
  * parcel carries what, and whether the store is inside its dispatch SLA.
  */
-const OrderFulfillmentCard: React.FC<Props> = ({ fulfillment, shipments, sla, variant = 'card', returnParcels }) => {
+const OrderFulfillmentCard: React.FC<Props> = ({ fulfillment, shipments, sla, variant = 'card', returnParcels, parcelViews, onParcelsChanged, shippingPaid }) => {
   /** The parcel whose tracking events are open (the shipment drawer, the one place a forward parcel's events show). */
   const [trackId, setTrackId] = useState<string | null>(null);
   if (!fulfillment && !(shipments?.length) && !sla && !(returnParcels?.length)) return null;
@@ -220,47 +228,82 @@ const OrderFulfillmentCard: React.FC<Props> = ({ fulfillment, shipments, sla, va
           </div>
         )}
 
-        {(shipments?.length ?? 0) > 0 && (
-          <div className="space-y-2">
-            <p className="text-sm font-semibold text-foreground">Parcels ({shipments!.length})</p>
-            {shipments!.map((s) => {
-              const number = s.shipmentNumber ?? s.shipment_number ?? s.id;
-              const provider = s.shippingProvider ?? s.shipping_provider ?? '';
-              const trackingUrl = s.trackingUrl ?? s.tracking_url;
-              const created = s.createdAt ?? s.created_at;
-              const partial = s.isPartial ?? s.is_partial;
-              return (
-                <div key={s.id} className="border rounded-md px-3 py-2 text-sm">
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <span className="font-medium">{number}</span>
-                    <span className="flex items-center gap-2">
-                      {partial && <Badge variant="outline" className="text-[10px]">PART</Badge>}
-                      <Badge variant="secondary" className="capitalize text-[10px]">{String(s.status).replace(/_/g, ' ')}</Badge>
-                    </span>
-                  </div>
-                  <div className="text-xs text-muted-foreground mt-1 flex flex-wrap gap-x-3">
-                    <span className="capitalize">{provider}{s.courier ? ` · ${s.courier}` : ''}</span>
-                    {s.awb && (
-                      trackingUrl
-                        ? <a href={trackingUrl} target="_blank" rel="noopener noreferrer" className="font-mono text-blue-600 hover:underline">{s.awb}</a>
-                        : <span className="font-mono">{s.awb}</span>
-                    )}
-                    {created && <span>{formatDate(created, 'MMM dd, HH:mm', '')}</span>}
-                  </div>
-                  {Array.isArray(s.items) && s.items.length > 0 && (
-                    <div className="text-xs text-muted-foreground mt-1">
-                      {s.items.map((i) => `${i.name} × ${i.quantity}`).join(', ')}
+        {(shipments?.length ?? 0) > 0 && (() => {
+          // Ship's own reading of each parcel (charge, COD, courier), matched by id; the order's list is the fallback.
+          const viewOf = (id: string) => (parcelViews ?? []).find((v: any) => String(v?._id ?? v?.id) === String(id)) ?? null;
+          const live = shipments!.filter((s) => s.status !== 'cancelled');
+          let charged = 0; let unknown = 0;
+          for (const s of live) {
+            const c = shipmentCharge(viewOf(s.id));
+            if (c) charged += c.total; else unknown += 1;
+          }
+          // Only when Ship answered: a refused or empty read never prints a zero that looks real.
+          const known = (parcelViews?.length ?? 0) > 0;
+          return (
+            <div className="space-y-2">
+              <p className="text-sm font-semibold text-foreground">Parcels ({shipments!.length})</p>
+              {known && live.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Shipping charges: <span className="font-semibold text-foreground tabular-nums">{fmtRupees(charged)}</span>
+                  {unknown > 0 ? `, ${unknown} parcel${unknown === 1 ? '' : 's'} with no charge recorded` : ''}
+                  {shippingPaid != null ? `. The customer paid ${fmtRupees(shippingPaid)} for shipping.` : ''}
+                </p>
+              )}
+              {shipments!.map((s) => {
+                const v = viewOf(s.id);
+                const number = s.shipmentNumber ?? s.shipment_number ?? s.id;
+                const provider = s.shippingProvider ?? s.shipping_provider ?? '';
+                const trackingUrl = s.trackingUrl ?? s.tracking_url;
+                const created = s.createdAt ?? s.created_at;
+                const partial = s.isPartial ?? s.is_partial;
+                const awb = s.awb || (v ? shipmentAwb(v) : null);
+                const courier = s.courier || (v ? shipmentCourier(v) : null);
+                const charge = v ? shipmentCharge(v) : null;
+                const cod = v ? shipmentCod(v) : null;
+                return (
+                  <div key={s.id} className="border rounded-md px-3 py-2 text-sm">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <span className="font-medium">{number}</span>
+                      <span className="flex items-center gap-2">
+                        {partial && <Badge variant="outline" className="text-[10px]">PART</Badge>}
+                        <Badge variant="secondary" className="capitalize text-[10px]">{String(s.status).replace(/_/g, ' ')}</Badge>
+                      </span>
                     </div>
-                  )}
-                  <button type="button" onClick={() => setTrackId(s.id)}
-                          className="mt-1 text-xs font-medium text-blue-600 hover:underline">
-                    Tracking events
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
+                    <div className="text-xs text-muted-foreground mt-1 flex flex-wrap gap-x-3">
+                      <span>{providerLabel(provider)}{courier && courier.toLowerCase() !== provider.toLowerCase() ? `, ${courier}` : ''}</span>
+                      {awb ? (
+                        trackingUrl
+                          ? <a href={trackingUrl} target="_blank" rel="noopener noreferrer" className="font-mono text-blue-600 hover:underline">{awb}</a>
+                          : <span className="font-mono">{awb}</span>
+                      ) : <span>No AWB yet</span>}
+                      {created && <span>{formatDate(created, 'dd MMM, HH:mm', '')}</span>}
+                    </div>
+                    {v && (
+                      <div className="text-xs mt-1 flex flex-wrap gap-x-3">
+                        <span>
+                          Shipping charge:{' '}
+                          <span className={charge ? 'font-medium text-foreground' : provider === 'manual' ? 'font-medium text-red-600' : 'text-muted-foreground'}>
+                            {chargeLine(charge)}
+                          </span>
+                        </span>
+                        <span>Collect: <span className="font-medium text-foreground">{cod !== null ? fmtRupees(cod) : 'nothing (prepaid)'}</span></span>
+                      </div>
+                    )}
+                    {Array.isArray(s.items) && s.items.length > 0 && (
+                      <div className="text-xs text-muted-foreground mt-1">
+                        {s.items.map((i) => `${i.name} × ${i.quantity}`).join(', ')}
+                      </div>
+                    )}
+                    <button type="button" onClick={() => setTrackId(s.id)}
+                            className="mt-1 text-xs font-medium text-blue-600 hover:underline">
+                      {v && !charge && provider === 'manual' ? 'Enter the shipping charge and see details' : 'Details and tracking events'}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
 
         {/* The way back: each return collection with the carrier's tracking events, beside the parcels out. */}
         {(returnParcels?.length ?? 0) > 0 && (
@@ -296,7 +339,7 @@ const OrderFulfillmentCard: React.FC<Props> = ({ fulfillment, shipments, sla, va
           </div>
         )}
       </CardContent>
-      <ShipmentDetailDrawer shipmentId={trackId} onClose={() => setTrackId(null)} />
+      <ShipmentDetailDrawer shipmentId={trackId} onClose={() => setTrackId(null)} onChanged={onParcelsChanged} />
     </Card>
   );
 };

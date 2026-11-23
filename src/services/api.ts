@@ -3335,10 +3335,25 @@ export const shipmentsAPI = {
     const response = await api.get(`/shipments/${id}`);
     return response.data;
   },
+  /** One order's parcels as ship reads them: shipping charge, COD to collect, courier, warehouse. */
+  byOrder: async (orderId: string) => {
+    const response = await api.get(`/shipments/order/${orderId}`);
+    return response.data;
+  },
+  /**
+   * States or corrects a parcel's shipping charge (a manual parcel, or one booked with no quote) with the
+   * reason; the server keeps every change in the parcel's charge history. Answers the shipment.
+   */
+  setCharge: async (id: string, amountRupees: number, reason: string) => {
+    const response = await api.post(`/shipments/${id}/charge`, { amount: amountRupees, reason });
+    return response.data;
+  },
   create: async (data: {
     orderIds: string[];
     warehouseId: string;
     shippingProvider: 'shiprocket' | 'delhivery' | 'manual';
+    /** What was paid to the carrier for a manual parcel (rupees; required for manual, 0 when free). */
+    manualShippingCharge?: number;
     notes?: string;
     weight?: number;
     length?: number;
