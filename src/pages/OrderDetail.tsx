@@ -46,6 +46,7 @@ import {
   WarehouseFulfilmentCard,
 } from '../components/order';
 import type { RazorpayAuditResult, RefundOutcome } from '../components/order';
+import { OrderProfitCard } from '../components/analytics/ProfitFunnel';
 import { PickupModal } from '../components/shipments';
 import CodSentPanel from '../components/order/CodSentPanel';
 import { OrderReturnTermsCard } from '../components/returns/ReturnTerms';
@@ -1352,6 +1353,8 @@ const OrderDetail: React.FC = () => {
               total={Number(order.total) || 0}
               gst={order.gst}
               amountReceived={order.amountReceived}
+              codDue={order.codDue ?? order.cod_due ?? null}
+              paymentStatus={order.paymentStatus ?? order.payment_status ?? null}
               refundedAmount={Number(order.refundedAmount ?? order.refunded_amount ?? 0) || 0}
               couponCode={order.couponCode ?? order.coupon_code}
               discountReason={order.discountReason ?? order.discount_reason}
@@ -1559,6 +1562,10 @@ const OrderDetail: React.FC = () => {
             </Card>
           </div>
 
+          {/* What this order earned after shipping, gateway and COD charges, and its GST to pay and to
+              claim (owner 24 Nov 2026: the order page's missing figures). The same funnel as Analytics. */}
+          <OrderProfitCard orderId={order._id || order.id} allowed={hasPerm('accounting.read')} />
+
           {/* Review-and-pay link — Shopify-style page the customer can open to
               check the order and pay online (works for COD before dispatch too). */}
           {payLink && (
@@ -1737,10 +1744,10 @@ const OrderDetail: React.FC = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-2 p-4 text-sm">
-                {order.gst?.storeId || order.gst?.storeName ? (
+                {order.gst?.storeId || order.gst?.storeName || order.gst?.taxType ? (
                   <>
                     <p className="text-base font-medium leading-tight text-slate-900">
-                      {order.gst.storeName || 'N/A'}
+                      {order.gst.storeName || 'The store'}
                     </p>
                     {order.gst.storeGstin && (
                       <TrackRow k="GSTIN" v={<span className="font-mono font-medium text-slate-900">{order.gst.storeGstin}</span>} />
@@ -1748,7 +1755,7 @@ const OrderDetail: React.FC = () => {
                     {(order.gst.storeState || order.gst.orderState) && (
                       <TrackRow k="Place of supply" v={
                         <span className="font-medium text-slate-900">
-                          {order.gst.storeState ?? '?'} → {order.gst.orderState ?? '?'}
+                          {order.gst.storeState ?? '?'} to {order.gst.orderState ?? '?'}
                         </span>
                       } />
                     )}
@@ -1758,7 +1765,7 @@ const OrderDetail: React.FC = () => {
                   </>
                 ) : (
                   <p className="font-medium text-slate-500">
-                    No GST snapshot on this order — it was placed before GST was configured.
+                    No GST snapshot on this order. It was placed before GST was configured.
                   </p>
                 )}
                 {(order.warehouseId as any)?.name && (
@@ -1785,7 +1792,16 @@ const OrderDetail: React.FC = () => {
                 const received = Number(order.amountReceived ?? order.amount_received) || 0;
                 const payId = order.razorpayPaymentId ?? order.razorpay_payment_id;
                 const advance = received > 0 && !!payId && order.paymentStatus !== 'completed';
-                const collect = Math.max(0, (Number(order.total) || 0) - received);
+                // THE COD amount due is the server's (`cod_due`: the total less what was received, 0 once
+                // paid); the page used to subtract here and kept showing a balance on an order marked paid.
+                const serverDue = order.codDue ?? order.cod_due;
+                const collect = serverDue !== undefined && serverDue !== null
+                  ? Number(serverDue) || 0
+                  : Math.max(0, (Number(order.total) || 0) - received);
+                // Only the COD fee itself is labelled as the fee; any other receipt is a part payment.
+                const codCharge = (order.gst?.charges ?? []).find((c: any) => /^COD handling$/i.test(c?.label ?? ''));
+                const feeTotal = codCharge ? (Number(codCharge.amount) || 0) + (Number(codCharge.taxToAdd) || 0) : null;
+                const isFee = feeTotal !== null && Math.abs(feeTotal - received) < 0.01;
                 return (
                   <>
                     {advance && (
@@ -1793,7 +1809,7 @@ const OrderDetail: React.FC = () => {
                         <TrackRow k="Paid online" v={
                           <span className="block">
                             <span className="block font-semibold text-slate-900 tabular-nums">{fmtRupees(received)}</span>
-                            <span className="block text-[12px] text-slate-600">COD convenience fee</span>
+                            <span className="block text-[12px] text-slate-600">{isFee ? 'COD convenience fee' : 'Received before delivery'}</span>
                             <span className="block break-all font-mono text-[11px] text-slate-400" title="Razorpay payment">{payId}</span>
                           </span>
                         } />
@@ -1843,7 +1859,7 @@ const OrderDetail: React.FC = () => {
                     <span className="block">
                       <span className="font-semibold text-slate-900 tabular-nums">{known.length ? fmtRupees(cost) : 'Not recorded'}</span>
                       {unknown > 0 && known.length > 0 && <span className="block text-[12px] text-amber-700">{unknown} parcel{unknown === 1 ? '' : 's'} not priced yet</span>}
-                      {paid != null && <span className="block text-[12px] text-slate-600">Customer paid {fmtRupees(paid)} for shipping</span>}
+                      {paid != null && <span className="block text-[12px] text-slate-600">Customer was charged {fmtRupees(paid)} for shipping</span>}
                     </span>
                   } />
                 );

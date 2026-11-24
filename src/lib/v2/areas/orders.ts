@@ -204,6 +204,9 @@ export function orderDetail(d: any): any {
     shipping_provider: provider,
     shiprocket_awb: provider === 'shiprocket' ? last?.awb ?? null : null,
     delhivery_waybill: provider === 'delhivery' ? last?.awb ?? null : null,
+    // Any other carrier's AWB (Growcord Ship, Xpressbees, a manual parcel) shows in the rail's AWB row.
+    manual_tracking_id: order.manual_tracking_id
+      ?? (provider && provider !== 'shiprocket' && provider !== 'delhivery' ? last?.awb ?? null : null),
     shiprocket_pickup_scheduled_date: provider === 'shiprocket' ? last?.pickup_scheduled ?? null : null,
   };
 }

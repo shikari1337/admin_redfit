@@ -25,6 +25,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast"; // Assuming useToast is available, fallback to alert if not
 import { FaCheckCircle } from 'react-icons/fa';
 import OrderBulkBar from '../components/order/OrderBulkBar';
+import { Pagination } from '@/components/erp';
 
 /**
  * THE OPTIONAL COLUMNS.
@@ -173,6 +174,20 @@ const OPTIONAL_COLUMNS: OptionalColumn[] = [
 
 const COLUMN_PREF_KEY = 'orders.columns.v1';
 
+/** Rows per page the order list offers. */
+const PAGE_SIZES = [25, 50, 100];
+const PAGE_SIZE_KEY = 'admin_orders_page_size';
+
+/** The rows per page this browser picked last time (25 when none or not allowed). */
+function rememberedPageSize(): number {
+  try {
+    const n = Number(localStorage.getItem(PAGE_SIZE_KEY));
+    return PAGE_SIZES.includes(n) ? n : PAGE_SIZES[0];
+  } catch {
+    return PAGE_SIZES[0];
+  }
+}
+
 const Orders: React.FC = () => {
   const { canAccess, hasPerm } = useAuth();
   // Backend (routes/orders.ts): status change / manual order create / payment
@@ -253,11 +268,17 @@ const Orders: React.FC = () => {
   const [datePreset, setDatePreset] = useState<string>('all');
   const [flagFilter, setFlagFilter] = useState<'all' | 'flagged' | 'po'>('all');
   const flaggedOnly = flagFilter === 'flagged';
-  // One screen of the desk. The API pages by this exact limit; a larger page
-  // was reading full order rows (history, timeline) and taking seconds.
+  // One screen of the desk. The API pages by this exact limit (its cap is 200). The person picks
+  // 25, 50 or 100 rows (owner, 24 Nov 2026: "option to show upto 100 orders per page and directly
+  // go to page number"); the choice is remembered on this browser.
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const PAGE_SIZE = 25;
+  const [pageSize, setPageSize] = useState<number>(rememberedPageSize);
+  const changePageSize = (n: number) => {
+    if (!PAGE_SIZES.includes(n)) return;
+    try { localStorage.setItem(PAGE_SIZE_KEY, String(n)); } catch { /* private mode: this visit only */ }
+    setPageSize(n);
+  };
   const b2bEnabled = canAccess('b2b');
   const [sendingToShiprocket, setSendingToShiprocket] = useState<string | null>(null);
   const [confirmingOrder, setConfirmingOrder] = useState<string | null>(null);
@@ -342,7 +363,7 @@ const Orders: React.FC = () => {
   // Any filter or search change starts back at page 1 (a narrower result can leave the page number
   // past the last real page) and asks ONCE, for page 1. It used to ask twice from page 2 on: first
   // the new filters with the old page, then page 1, and a late first answer could replace the second.
-  const filterKey = JSON.stringify([statusFilter, typeFilter, channelFilter, paymentFilter, codOver, flaggedOnly, debouncedSearch, dates.from, dates.to]);
+  const filterKey = JSON.stringify([statusFilter, typeFilter, channelFilter, paymentFilter, codOver, flaggedOnly, debouncedSearch, dates.from, dates.to, pageSize]);
   const lastFilterKey = useRef(filterKey);
   useEffect(() => {
     if (lastFilterKey.current !== filterKey) {
@@ -376,7 +397,7 @@ const Orders: React.FC = () => {
     try {
       setLoading(true);
       const params: any = serverFilters();
-      const response = await ordersAPI.getAll({ ...params, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE });
+      const response = await ordersAPI.getAll({ ...params, limit: pageSize, offset: (page - 1) * pageSize });
       // Only the newest question's answer is drawn.
       if (seq !== fetchSeq.current) return;
 
@@ -419,8 +440,8 @@ const Orders: React.FC = () => {
       saveOrderNav({
         ids: fetchedOrders.map((o) => o._id ?? o.id).filter(Boolean),
         labels: navLabels,
-        offset: (page - 1) * PAGE_SIZE,
-        limit: PAGE_SIZE,
+        offset: (page - 1) * pageSize,
+        limit: pageSize,
         total: resolvedTotal,
         params,
       });
@@ -592,9 +613,6 @@ const Orders: React.FC = () => {
   ];
   // (Retail/B2B moved out of the chip row and onto the tab strip — `orderTabs`.)
   const shown = onPageFiltered;
-  const firstRow = total ? (page - 1) * PAGE_SIZE + 1 : 0;
-  const lastRow = Math.min(page * PAGE_SIZE, total);
-  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
     <div className="space-y-4">
@@ -940,26 +958,28 @@ const Orders: React.FC = () => {
         </Table>
       </div>
 
-      {/* The count lives here, where the rows are — never as prose under the title. */}
-      <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-ink-soft">
-        <div className="tabular-nums">
-          {total > 0
-            ? `Showing ${firstRow.toLocaleString('en-IN')}–${lastRow.toLocaleString('en-IN')} of ${total.toLocaleString('en-IN')}`
-            : 'No orders'}
-          {hidingOnPage > 0 && (
-            <span className="ml-1 text-warn-ink">· {hidingOnPage} on this page hidden by a filter</span>
-          )}
-        </div>
-        {total > PAGE_SIZE && (
-          <div className="flex items-center gap-2">
-            <span className="tabular-nums">Page {page} of {pages}</span>
-            <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1 || loading}>
-              Previous
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.min(pages, p + 1))} disabled={page >= pages || loading}>
-              Next
-            </Button>
+      {/* The count lives here, where the rows are, never as prose under the title. The pager (the
+          shared kit one) carries the count, the rows per page and "Go to page"; with fewer orders
+          than the smallest page it is just the count. */}
+      <div className="space-y-1 text-sm text-ink-soft">
+        {total > PAGE_SIZES[0] ? (
+          <Pagination
+            page={page}
+            pageSize={pageSize}
+            total={total}
+            onPage={(n) => { if (!loading) setPage(n); }}
+            onPageSize={changePageSize}
+            pageSizeOptions={PAGE_SIZES}
+            jump
+            className="px-0 text-ink-soft"
+          />
+        ) : (
+          <div className="tabular-nums">
+            {total > 0 ? `Showing 1 to ${total.toLocaleString('en-IN')} of ${total.toLocaleString('en-IN')}` : 'No orders'}
           </div>
+        )}
+        {hidingOnPage > 0 && (
+          <div className="text-warn-ink">{hidingOnPage} on this page hidden by a filter</div>
         )}
       </div>
 

@@ -74,6 +74,10 @@ interface OrderItemsProps {
   total?: number;
   gst?: GstInfo | null;
   amountReceived?: number;
+  /** THE COD amount due, the server's (`cod_due`: total less what was received, 0 once paid). */
+  codDue?: number | null;
+  /** `payment_status`: a completed order owes nothing more. */
+  paymentStatus?: string | null;
   /** Money already sent back to the customer (`refunded_amount`). */
   refundedAmount?: number;
   couponCode?: string | null;
@@ -252,7 +256,7 @@ function useElementWidth<T extends HTMLElement>(ref: React.RefObject<T | null>):
  */
 const OrderItems: React.FC<OrderItemsProps> = ({
   items, b2bTier, orderDiscount = 0, headerAction,
-  subtotal, shipping = 0, total, gst, amountReceived, refundedAmount = 0, couponCode, discountReason, discountItems,
+  subtotal, shipping = 0, total, gst, amountReceived, codDue, paymentStatus, refundedAmount = 0, couponCode, discountReason, discountItems,
   orderNotes, paymentMethod, paymentGateway, placedAt, orderType, customerGstin,
   salesperson, importedFrom,
   onRemoveShipping, onRemoveCod, removingCharge, fulfilmentLines,
@@ -1121,7 +1125,9 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                             />
                           </>
                         ) : (
-                          <Step tone="subtotal" label="Balance due on delivery" value={m.balanceDue} />
+                          paymentMethod === 'cod'
+                            ? <Step tone="subtotal" label="Balance due on delivery" value={codDue !== undefined && codDue !== null ? codDue : m.balanceDue} />
+                            : <Step tone="subtotal" label="Balance due" value={paymentStatus === 'completed' ? 0 : m.balanceDue} />
                         )}
                       </>
                     )}

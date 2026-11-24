@@ -98,6 +98,12 @@ export const DASHBOARD_ROUTES: V2Route[] = [
     to: '/api/v2/insights/panels/custom-report/dimensions',
   },
   {
+    // PROFIT-1 (owner 24 Nov 2026): one order's place on the profitability funnel, all time, with its outcome.
+    // The store's funnel itself is the generic row above (`/analytics/panels/profitability?from&to`).
+    m: 'GET', from: '/analytics/panels/profitability/orders/:id', row: 'insights profit.rs: GET /api/v2/insights/panels/profitability/orders/{id}',
+    to: '/api/v2/insights/panels/profitability/orders/{id}', reply: lift,
+  },
+  {
     m: 'GET', from: '/analytics/panels/sales-team/agents/:id', row: 'insights sales-team',
     to: '/api/v2/insights/panels/sales-team/agents/{id}', query: (c) => panelQuery(c, 'sales-team'), reply: lift,
   },

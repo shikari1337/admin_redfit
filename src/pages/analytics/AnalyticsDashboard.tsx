@@ -5,6 +5,8 @@ import { ChartCard, TimeSeries, CategoryBars, Donut, KpiTile, InsightCard, Insig
 import { SERIES, fmtBucket, fmtMoneyShort } from '../../components/panelAnalytics/vizTheme';
 import { fmtRupees } from '../../lib/money';
 import ShopperReport from '../../components/analytics/ShopperReport';
+import { ProfitFunnel } from '../../components/analytics/ProfitFunnel';
+import { useAuth } from '../../contexts/AuthContext';
 
 /**
  * Analytics > Dashboard. Opens with what to act on (money held for refunds, sales and conversion
@@ -20,6 +22,7 @@ const change = (cur: number, prev: number) => (prev > 0 ? ((cur - prev) / prev) 
 const money = (v: number | undefined | null) => <span title={fmtRupees(v ?? 0)}>{fmtMoneyShort(v ?? 0)}</span>;
 
 const AnalyticsDashboard: React.FC = () => {
+  const { hasPerm } = useAuth();
   const { range, preset, setPreset, custom, setCustom } = useDateRange('30d');
   const { data, loading, error, status } = usePanelStats<any>('commerce', range);
   const prevRange = useMemo(() => previousRange(range), [range.from, range.to]);
@@ -183,6 +186,8 @@ const AnalyticsDashboard: React.FC = () => {
           <p className="text-sm text-gray-500">
             A new visitor is a visit that looked at the shop, not one that only opened an existing order, tracking, the account, login, or a pay link for an order already placed. A guest counts as new, because that visit is not tied to an earlier order. A signed-in customer counts as new only when they had not ordered before this period. The conversion above still divides orders by every visit, so people checking an old order pull that rate down. New-user conversion is first orders divided by the new visits. A first order with no recorded visit still counts in that rate.
           </p>
+
+          <ProfitFunnel range={range} allowed={hasPerm('accounting.read')} />
 
           <div className="grid gap-4 lg:grid-cols-3">
             <div className="min-w-0 lg:col-span-2">
