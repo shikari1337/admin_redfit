@@ -41,6 +41,7 @@ import InfoTip from '../components/common/InfoTip';
 import CustomerPicker, { loadPickedCustomer, type AccountChoice, type PickedCustomer } from '../components/sales/CustomerPicker';
 import OrderLinesTable, { type BasketLine } from '../components/sales/OrderLinesTable';
 import BulkAddFromSheet from '../components/sales/BulkAddFromSheet';
+import { EMAIL_INVALID_MESSAGE, isEmailShape, ownEmailOrEmpty } from '@/lib/email';
 
 /** A labelled field — one shape for every input on this page. */
 const Field: React.FC<{
@@ -126,7 +127,8 @@ const ManualOrderCreate: React.FC = () => {
     setAddress({
       fullName: book?.full_name ?? book?.fullName ?? c.name ?? '',
       mobileNumber: book?.mobile ?? book?.mobile_number ?? book?.mobileNumber ?? c.phone ?? '',
-      email: c.email ?? book?.email ?? '',
+      // Only a real e-mail: never a stand-in (@gc.mw, @redfit.in) or a phone number saved in the box (SM-13338).
+      email: ownEmailOrEmpty(c.email) || ownEmailOrEmpty(book?.email),
       address: [book?.line1 ?? book?.address ?? '', book?.line2 ?? '', book?.landmark ?? ''].filter(Boolean).join(', '),
       district: book?.district ?? book?.city ?? '',
       state: book?.state ?? '',
@@ -311,6 +313,9 @@ const ManualOrderCreate: React.FC = () => {
     if (!lines.length) { toast({ variant: 'destructive', title: 'Nothing to invoice', description: 'Add at least one pack.' }); return; }
     if (!address.fullName.trim() || !address.mobileNumber.trim()) {
       toast({ variant: 'destructive', title: 'Customer details', description: 'A name and a phone number are needed.' }); return;
+    }
+    if (address.email.trim() && !isEmailShape(address.email)) {
+      toast({ variant: 'destructive', title: 'Customer details', description: EMAIL_INVALID_MESSAGE }); return;
     }
     setCreating(true);
     try {
