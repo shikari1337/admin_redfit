@@ -11,7 +11,7 @@ import { ShipmentTabs, ShipmentFilters, ShipmentTable, PendingOrdersTable, Picku
 import type { TabType, StatusCounts, ReconcileResultData } from '../components/shipments';
 import ShipmentCreationModal, { type ShipProviderId } from '../components/order/ShipmentCreationModal';
 import { getStatusLabel } from '../components/order/StatusBadge';
-import { providerLabel, providerOf } from '../components/shipments/shipmentFacts';
+import { isTerminal, providerLabel, providerOf } from '../components/shipments/shipmentFacts';
 import { fmtRupees } from '@/lib/money';
 
 const Shipments: React.FC = () => {
@@ -550,10 +550,12 @@ const Shipments: React.FC = () => {
       : undefined
   ), [selectedOrder]);
 
-  // Bulk actions apply to booked parcels (not manual) waiting for their pickup: pickup, labels, manifests.
+  // Bulk labels and manifests: every booked parcel (not manual) that is not finished, on the Ready to Pick,
+  // Pickup Scheduled and In Transit tabs, as before 23 Nov 2026 (a parcel the courier has already picked up
+  // still needs its manifest). Bulk pickup stays on Ready to Pick only.
   const selectableIds = useMemo(() => (
-    ['ready_to_pick', 'pickup_scheduled'].includes(activeTab)
-      ? shipments.filter((s) => providerOf(s) !== 'manual' && ['pending', 'pickup_scheduled'].includes(s.status)).map((s) => s._id)
+    ['ready_to_pick', 'pickup_scheduled', 'in_transit'].includes(activeTab)
+      ? shipments.filter((s) => providerOf(s) !== 'manual' && !isTerminal(s.status)).map((s) => s._id)
       : []
   ), [activeTab, shipments]);
 
@@ -625,6 +627,12 @@ const Shipments: React.FC = () => {
 
       {/* Filters - ABOVE the tabs */}
       <ShipmentFilters
+        statusFilter={statusFilter}
+        onStatusChange={(status) => {
+          setStatusFilter(status);
+          setSelectedShipments([]);
+          setPagination(prev => ({ ...prev, page: 1 }));
+        }}
         warehouseFilter={warehouseFilter}
         providerFilter={providerFilter}
         startDate={startDate}
