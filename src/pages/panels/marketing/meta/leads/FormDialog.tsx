@@ -1,7 +1,8 @@
 /**
  * New instant form (lane META-15B, META-11 `POST /marketing/meta/leads/forms`): questions, language, the privacy
  * policy link (empty: the server uses the store's own privacy policy page), the thank you screen and a follow up link.
- * Question types and thank you buttons come from `GET /meta/leads/forms/options` (META-9D); there is no copy of them
+ * Question types, thank you buttons and the phone code check modes (Meta v27.0) come from `GET /meta/leads/forms/options`
+ * (META-9D, META-V27); there is no copy of them
  * here, so when that route cannot be read the form says so and cannot be sent. Meta checks the rest and its refusal is shown in its own words.
  */
 import React, { useState } from 'react';
@@ -42,8 +43,12 @@ const FormDialog: React.FC<{ onClose: () => void; onCreated: (name: string) => v
   const [tyType, setTyType] = useState('');
   const [tyPhone, setTyPhone] = useState('');
   const [followUp, setFollowUp] = useState('');
+  const [otp, setOtp] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+
+  const asksPhone = questions.some((q) => q.type === 'PHONE');
+  const otpModes = opts?.phone_otp_modes ?? [];
 
   const problem = (): string => {
     if (!opts) return 'The form options are not loaded yet.';
@@ -76,6 +81,7 @@ const FormDialog: React.FC<{ onClose: () => void; onCreated: (name: string) => v
       button_type: tyType || null, business_phone_number: tyType === 'CALL_BUSINESS' ? tyPhone.trim() || null : null,
     } : null,
     follow_up_action_url: followUp.trim() || null,
+    ...(asksPhone && otp ? { phone_otp_verification_type: otp } : {}),
   });
 
   const create = async () => {
@@ -143,6 +149,17 @@ const FormDialog: React.FC<{ onClose: () => void; onCreated: (name: string) => v
             </ol>
             <Button type="button" size="sm" variant="ghost" className="mt-1" onClick={() => setQuestions([...questions, { type: 'CUSTOM', label: '', key: '', options: '' }])}><Plus /> Add a question</Button>
           </fieldset>
+
+          {asksPhone && otpModes.length > 0 && (
+            <div className="sm:max-w-sm">
+              <Label htmlFor="lf-otp">Phone number check</Label>
+              <select id="lf-otp" value={otp} onChange={(e) => setOtp(e.target.value)} className="mt-1 h-9 w-full rounded-md border bg-white px-2 text-sm">
+                <option value="">Meta's default</option>
+                {otpModes.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
+              </select>
+              <p className="mt-1 text-xs text-gray-500">Meta texts a one time code to the number the person types, so the numbers you get are real. Meta allows the skippable check only on some ad accounts.</p>
+            </div>
+          )}
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div>

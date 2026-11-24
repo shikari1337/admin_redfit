@@ -1467,6 +1467,8 @@ export interface LeadFormInput {
   privacy_link_text?: string | null;
   thank_you?: { title: string; body?: string | null; button_text?: string | null; button_type?: string | null; website_url?: string | null; business_phone_number?: string | null } | null;
   follow_up_action_url?: string | null;
+  /** Meta's phone code check (v27.0), one of `LeadFormOptions.phone_otp_modes`; left out: Meta's own default. */
+  phone_otp_verification_type?: string;
 }
 export interface LeadForm {
   id: string;
@@ -1505,6 +1507,8 @@ export interface LeadFormOptions {
   default_button_type_with_website: string;
   max_questions: number;
   privacy_link_text_max: number;
+  /** Meta's phone code check modes (v27.0); empty when the server does not offer them. */
+  phone_otp_modes: Array<{ key: string; label: string }>;
   not_offered: Array<{ key: string; label: string }>;
 }
 
@@ -1633,6 +1637,7 @@ export const metaLeadsApi = {
         button_types: asArray<{ key: string; label: string }>(d?.button_types), default_button_type: String(d?.default_button_type ?? ''),
         default_button_type_with_website: String(d?.default_button_type_with_website ?? ''), max_questions: Number(d?.max_questions) || 0,
         privacy_link_text_max: Number(d?.privacy_link_text_max) || 0, not_offered: asArray<{ key: string; label: string }>(d?.not_offered),
+        phone_otp_modes: asArray<{ key: string; label: string }>(d?.phone_otp_modes),
       };
     },
     (m) => m.leadFormOptions(),

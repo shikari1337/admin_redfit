@@ -261,6 +261,7 @@ const LEAD_OPTIONS: LeadFormOptions = {
   button_types: [['VIEW_WEBSITE', 'View website'], ['CALL_BUSINESS', 'Call business'], ['MESSAGE_BUSINESS', 'Message business'], ['DOWNLOAD', 'Download'],
     ['SCHEDULE_APPOINTMENT', 'Schedule appointment'], ['VIEW_ON_FACEBOOK', 'View on Facebook'], ['PROMO_CODE', 'Promo code'], ['NONE', 'No button']].map(([key, label]) => ({ key, label })),
   default_button_type: 'VIEW_ON_FACEBOOK', default_button_type_with_website: 'VIEW_WEBSITE', max_questions: 15, privacy_link_text_max: 70,
+  phone_otp_modes: [{ key: 'NOT_ENABLED', label: 'No code check' }, { key: 'OTP_OPTIONAL', label: 'Code check, the person may skip it' }, { key: 'OTP_REQUIRED', label: 'Code check before the form is sent' }],
   not_offered: [{ key: 'STORE_LOOKUP', label: 'needs a store locator set up at Meta' }, { key: 'SLIDER', label: 'needs a range this API does not send' }],
 };
 const LEAD_NAMES = ['Anjali Mehta', 'Rohit Singh', 'Farah Khan', 'Vikram Rao', 'Sneha Pillai', 'Arjun Nair', 'Pooja Desai', 'Imran Qureshi', 'Meera Joshi', 'Kunal Bose'];
