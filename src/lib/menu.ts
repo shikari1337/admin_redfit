@@ -41,6 +41,8 @@ import { Handshake, Clapperboard } from 'lucide-react';
 import { BadgePercent } from 'lucide-react';
 // Pricing (PRICING-AUTO lane D), on its own line for the same reason.
 import { IndianRupee } from 'lucide-react';
+// Help and support (TICKETS-1), on its own line for the same reason.
+import { LifeBuoy } from 'lucide-react';
 import {
   Home, ShoppingCart, Package2, Wallet, Truck, Users, LineChart, Settings,
   RotateCcw, FileText, Store, Megaphone, Ticket, Plug, Palette, Star,
@@ -449,6 +451,8 @@ export const MENU: MenuGroup[] = [
     },
     { label: 'Staff & Access', to: '/settings/staff', icon: ShieldCheck, perm: 'staff.read', tip: 'Who can sign in, and what each of them may do.' },
     { label: 'Setup Guide', to: '/setup-guide', icon: HelpCircle, perm: 'settings.read', tip: 'The steps left before this store is ready to sell.' },
+    // TICKETS-1 (owner 25 Nov 2026): tickets to Growcord; /support/:id is under the same gate.
+    { label: 'Help and support', to: '/support', icon: LifeBuoy, perm: 'support.read', tip: 'Ask Growcord for help, and read and answer the replies.' },
     { label: 'Logs', to: '/logs', icon: FileText, perm: 'audit.read', tip: 'What happened in this admin, and who did it.' },
   ]),
 ];

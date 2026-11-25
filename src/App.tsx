@@ -209,6 +209,9 @@ const VendorPortal = lazyRetry(() => import('./pages/vendor/VendorPortal'));
 const CustomerPortal = lazyRetry(() => import('./pages/customer/CustomerPortal'));
 const PartnerPortal = lazyRetry(() => import('./pages/partner/PartnerPortal'));
 const SetupGuide = lazyRetry(() => import('./pages/SetupGuide'));
+// Help and support: the store's tickets to Growcord (TICKETS-1)
+const SupportTickets = lazyRetry(() => import('./pages/support/SupportTickets'));
+const SupportTicket = lazyRetry(() => import('./pages/support/SupportTicket'));
 // Marketing panel (docs/MARKETING_PANEL.md)
 const MarketingDashboard = lazyRetry(() => import('./pages/panels/marketing/MarketingDashboard'));
 const MarketingCampaigns = lazyRetry(() => import('./pages/panels/marketing/MarketingCampaigns'));
@@ -438,6 +441,8 @@ function App() {
           <Route path="panel/settings/custom-fields" element={<CustomFields />} />
           <Route path="panel/accounting/settlements" element={<MarketplaceSettlements />} />
           <Route path="setup-guide" element={<SetupGuide />} />
+          <Route path="support" element={<SupportTickets />} />
+          <Route path="support/:id" element={<SupportTicket />} />
           {/* Marketing panel — module-gated (marketing); ads pages also need ads_management */}
           <Route path="panel/marketing" element={<MarketingDashboard />} />
           <Route path="panel/marketing/performance" element={<MarketingPerformance />} />
