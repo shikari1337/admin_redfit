@@ -1,11 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, ChevronLeft, ChevronDown, ChevronUp, Eye, EyeOff, GripVertical,
   Loader2, Monitor, Plus, Settings2, Smartphone, Tablet, Trash2, X, LayoutTemplate,
 } from 'lucide-react';
+import {
+  DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove, SortableContext, verticalListSortingStrategy, sortableKeyboardCoordinates, useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { themeEngineAPI, EditorPayload, SectionSchema } from '../services/themeEngine';
 import { formatDateTime, fromStoreDateTimeInput } from '../utils/date';
+import ThemeSettingField from '../components/themeEditor/ThemeSettingField';
+import { useThemeLookups, ThemeLookups } from '../components/themeEditor/useThemeLookups';
 
 /**
  * Theme Customizer — Shopify-style live editor.
@@ -33,6 +42,49 @@ const TEMPLATE_OPTIONS = [
 
 const DEVICE_WIDTHS: Record<string, string> = { desktop: '100%', tablet: '768px', mobile: '390px' };
 
+/** The template picker: the theme's own template names (alternates such as `page.contact` included), labelled. */
+function templateOptions(names: string[]): { value: string; label: string }[] {
+  if (!names.length) return TEMPLATE_OPTIONS;
+  const base = new Map(TEMPLATE_OPTIONS.map((t) => [t.value, t.label]));
+  const label = (n: string) => {
+    if (base.has(n)) return base.get(n)!;
+    const [kind, ...rest] = n.split('.');
+    const alt = rest.join('.').replace(/[-_]/g, ' ');
+    return `${base.get(kind) || kind}: ${alt}`;
+  };
+  const order = (n: string) => { const i = TEMPLATE_OPTIONS.findIndex((t) => t.value === n.split('.')[0]); return i < 0 ? 99 : i; };
+  return [...names].sort((a, b) => order(a) - order(b) || a.localeCompare(b)).map((n) => ({ value: n, label: label(n) }));
+}
+
+/**
+ * A readable name for one section or block in the lists: its type's name plus the words a person would know it
+ * by (its title, heading or text), so two "Promises" sections read "Promises: Trust bar" and "Promises: Customer care".
+ */
+const LABEL_KEYS = ['title', 'heading', 'label', 'eyebrow', 'name', 'question', 'text', 'caption', 'message', 'kicker'];
+function itemSubtitle(settings: any): string {
+  const s = settings || {};
+  for (const k of LABEL_KEYS) {
+    const v = s[k];
+    if (typeof v === 'string' && v.trim()) return v.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 48);
+  }
+  return '';
+}
+
+/** Shopify placement rules for the Add section list: presets only, then enabled_on / disabled_on. */
+function canAddHere(schema: SectionSchema, scope: string): boolean {
+  if (!schema.presets?.length) return false;
+  const isGroup = scope.startsWith('group:');
+  const where = isGroup ? scope.slice('group:'.length).replace(/-group$/, '') : scope.slice('template:'.length).split('.')[0];
+  const listed = (l?: string[]) => (l || []).some((x) => x === '*' || x === where);
+  if (isGroup) {
+    if (schema.enabled_on && !listed(schema.enabled_on.groups)) return false;
+    return !listed(schema.disabled_on?.groups);
+  }
+  if (schema.enabled_on?.templates && !listed(schema.enabled_on.templates)) return false;
+  if (schema.enabled_on && !schema.enabled_on.templates) return false;
+  return !listed(schema.disabled_on?.templates);
+}
+
 let idCounter = 0;
 const genId = (prefix: string) => `${prefix}-${Date.now().toString(36)}${(idCounter++).toString(36)}`;
 
@@ -45,6 +97,8 @@ function schemaDefaults(settings: any[] | undefined): Record<string, any> {
 export default function ThemeCustomizer() {
   const { id: themeId } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const lookups = useThemeLookups();
 
   const [payload, setPayload] = useState<EditorPayload | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -55,7 +109,8 @@ export default function ThemeCustomizer() {
   const [groups, setGroups] = useState<Record<string, any>>({});
   const [dirty, setDirty] = useState(false);
 
-  const [currentTemplate, setCurrentTemplate] = useState('index');
+  // `?template=index` opens straight on that page (the Pages screen links the home page here on a theme store)
+  const [currentTemplate, setCurrentTemplate] = useState(() => searchParams.get('template') || 'index');
   const [sel, setSel] = useState<PanelSel>({ kind: 'tree' });
   const [device, setDevice] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
   const [iframeRev, setIframeRev] = useState(0);
@@ -147,11 +202,15 @@ export default function ThemeCustomizer() {
         const scope = findScopeOfSection(String(d.sectionId));
         if (scope) setSel({ kind: 'section', scope, sectionId: String(d.sectionId) });
       }
+      // The preview is drawn again after every change; bring back the section being edited instead of the top of the page.
+      if (d.type === 'ready' && selRef.current.kind === 'section') scrollPreviewTo(selRef.current.sectionId);
     };
     window.addEventListener('message', onMsg);
     return () => window.removeEventListener('message', onMsg);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [templates, groups, currentTemplate]);
+  const selRef = useRef<PanelSel>(sel);
+  useEffect(() => { selRef.current = sel; }, [sel]);
 
   const findScopeOfSection = (sectionId: string): string | null => {
     if (templates[currentTemplate]?.sections?.[sectionId]) return `template:${currentTemplate}`;
@@ -196,6 +255,25 @@ export default function ThemeCustomizer() {
     c.order = order;
   });
 
+  /** Drag and drop: the new order of a template's or group's sections. */
+  const reorderSections = (scope: string, fromId: string, toId: string) => mutate((d) => {
+    const c = getContainer(d, scope); if (!c) return;
+    const order: string[] = c.order || Object.keys(c.sections);
+    const i = order.indexOf(fromId), j = order.indexOf(toId);
+    if (i < 0 || j < 0 || i === j) return;
+    c.order = arrayMove(order, i, j);
+  });
+
+  const reorderBlocks = (scope: string, sectionId: string, fromId: string, toId: string) => mutate((d) => {
+    const c = getContainer(d, scope);
+    const s = c?.sections?.[sectionId];
+    if (!s) return;
+    const order: string[] = s.block_order || Object.keys(s.blocks || {});
+    const i = order.indexOf(fromId), j = order.indexOf(toId);
+    if (i < 0 || j < 0 || i === j) return;
+    s.block_order = arrayMove(order, i, j);
+  });
+
   const toggleSection = (scope: string, sectionId: string) => mutate((d) => {
     const c = getContainer(d, scope);
     const s = c?.sections?.[sectionId];
@@ -212,8 +290,8 @@ export default function ThemeCustomizer() {
     setSel({ kind: 'tree' });
   };
 
-  const addSection = (scope: string, schema: SectionSchema) => {
-    const preset = schema.presets?.[0];
+  const addSection = (scope: string, schema: SectionSchema, presetIndex = 0) => {
+    const preset = schema.presets?.[presetIndex];
     const sectionId = genId(schema.type);
     mutate((d) => {
       const c = getContainer(d, scope); if (!c) return;
@@ -248,15 +326,19 @@ export default function ThemeCustomizer() {
   });
 
   // ── Block operations ────────────────────────────────────────────────────
-  const addBlock = (scope: string, sectionId: string, blockSchema: any) => mutate((d) => {
-    const c = getContainer(d, scope);
-    const s = c?.sections?.[sectionId];
-    if (!s) return;
+  const addBlock = (scope: string, sectionId: string, blockSchema: any) => {
     const bid = genId('block');
-    s.blocks = s.blocks || {};
-    s.blocks[bid] = { type: blockSchema.type, settings: schemaDefaults(blockSchema.settings) };
-    s.block_order = [...(s.block_order || Object.keys(s.blocks).filter((k) => k !== bid)), bid];
-  });
+    mutate((d) => {
+      const c = getContainer(d, scope);
+      const s = c?.sections?.[sectionId];
+      if (!s) return;
+      s.blocks = s.blocks || {};
+      s.blocks[bid] = { type: blockSchema.type, settings: schemaDefaults(blockSchema.settings) };
+      s.block_order = [...(s.block_order || Object.keys(s.blocks).filter((k) => k !== bid)), bid];
+    });
+    // open the new block straight away: what a person adds, they want to fill in
+    setSel({ kind: 'section', scope, sectionId, blockId: bid });
+  };
 
   const removeBlock = (scope: string, sectionId: string, blockId: string) => mutate((d) => {
     const c = getContainer(d, scope);
@@ -370,7 +452,7 @@ export default function ThemeCustomizer() {
           onChange={(e) => { setCurrentTemplate(e.target.value); setSel({ kind: 'tree' }); }}
           className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-medium bg-white"
         >
-          {TEMPLATE_OPTIONS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+          {templateOptions(payload.templateNames).map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
         <div className="flex items-center gap-1 ml-auto">
           {(['desktop', 'tablet', 'mobile'] as const).map((d) => {
@@ -431,7 +513,9 @@ export default function ThemeCustomizer() {
               onAddBlock={addBlock}
               onRemoveBlock={removeBlock}
               onMoveBlock={moveBlock}
+              onReorderBlocks={reorderBlocks}
               onSelectBlock={(blockId) => setSel({ ...sel, blockId })}
+              lookups={lookups}
             />
           ) : sel.kind === 'themeSettings' ? (
             <ThemeSettingsPanel
@@ -439,32 +523,39 @@ export default function ThemeCustomizer() {
               values={settingsData}
               onBack={() => setSel({ kind: 'tree' })}
               onChange={(key, value) => mutate((d) => { d.settingsData[key] = value; })}
+              lookups={lookups}
             />
           ) : (
             <div className="flex-1 overflow-y-auto">
+              <p className="px-4 pt-3 pb-1 text-[11.5px] text-gray-500 m-0 leading-snug">
+                Click a section here or in the preview to edit it. Drag the handle to reorder. Changes save as a draft by themselves; Publish puts them on the website.
+              </p>
               {headerGroups.map((g) => (
                 <SectionTreeGroup key={g} label="Header" scope={`group:${g}`} container={groups[g]}
                   schemaByType={sectionSchemaByType}
                   onSelect={(sid) => { setSel({ kind: 'section', scope: `group:${g}`, sectionId: sid }); scrollPreviewTo(sid); }}
-                  onMove={moveSection} onToggle={toggleSection} onRemove={removeSection}
+                  onMove={moveSection} onReorder={reorderSections} onToggle={toggleSection} onRemove={removeSection}
                   onAdd={() => setAddPicker(`group:${g}`)}
+                  canAdd={payload.sectionSchemas.some((s) => canAddHere(s, `group:${g}`))}
                 />
               ))}
-              <SectionTreeGroup label="Template" scope={templateScope} container={templateContainer}
+              <SectionTreeGroup label={templateOptions(payload.templateNames).find((t) => t.value === currentTemplate)?.label || 'Template'} scope={templateScope} container={templateContainer}
                 schemaByType={sectionSchemaByType}
                 emptyNote={!templates[currentTemplate]
                   ? 'This page is laid out by a .liquid file, not sections. Change it in the theme code.'
                   : 'No sections yet.'}
                 onSelect={(sid) => { setSel({ kind: 'section', scope: templateScope, sectionId: sid }); scrollPreviewTo(sid); }}
-                onMove={moveSection} onToggle={toggleSection} onRemove={removeSection}
+                onMove={moveSection} onReorder={reorderSections} onToggle={toggleSection} onRemove={removeSection}
                 onAdd={() => setAddPicker(templateScope)}
+                canAdd
               />
               {footerGroups.map((g) => (
                 <SectionTreeGroup key={g} label="Footer" scope={`group:${g}`} container={groups[g]}
                   schemaByType={sectionSchemaByType}
                   onSelect={(sid) => { setSel({ kind: 'section', scope: `group:${g}`, sectionId: sid }); scrollPreviewTo(sid); }}
-                  onMove={moveSection} onToggle={toggleSection} onRemove={removeSection}
+                  onMove={moveSection} onReorder={reorderSections} onToggle={toggleSection} onRemove={removeSection}
                   onAdd={() => setAddPicker(`group:${g}`)}
+                  canAdd={payload.sectionSchemas.some((s) => canAddHere(s, `group:${g}`))}
                 />
               ))}
             </div>
@@ -509,14 +600,21 @@ export default function ThemeCustomizer() {
             </div>
             <div className="overflow-y-auto p-3 grid grid-cols-2 gap-2">
               {payload.sectionSchemas
-                .filter((s) => !/^main-/.test(s.type) && !/-group$/.test(s.type))
-                .map((s) => (
-                  <button key={s.type} onClick={() => addSection(addPicker, s)}
+                .filter((s) => canAddHere(s, addPicker))
+                .flatMap((s) => (s.presets || []).map((p: any, pi: number) => ({ s, p, pi })))
+                .sort((a, b) => String(a.p?.name || a.s.name).localeCompare(String(b.p?.name || b.s.name)))
+                .map(({ s, p, pi }) => (
+                  <button key={`${s.type}-${pi}`} onClick={() => addSection(addPicker, s, pi)}
                     className="text-left border border-gray-200 rounded-lg px-4 py-3 hover:border-indigo-400 hover:bg-indigo-50/40">
-                    <span className="block text-[13.5px] font-semibold text-gray-800">{s.name}</span>
-                    <span className="block text-[11.5px] text-gray-400 mt-0.5">{s.settings?.length || 0} settings{s.blocks?.length ? ` · ${s.blocks.length} block types` : ''}</span>
+                    <span className="block text-[13.5px] font-semibold text-gray-800">{p?.name || s.name}</span>
+                    <span className="block text-[11.5px] text-gray-400 mt-0.5">
+                      {(s.blocks || []).length ? `Has ${(s.blocks || []).map((b: any) => (b.name || b.type).toLowerCase()).join(', ')} items` : `${(s.settings || []).filter((x: any) => x.id).length} settings`}
+                    </span>
                   </button>
                 ))}
+              {!payload.sectionSchemas.some((s) => canAddHere(s, addPicker)) && (
+                <p className="col-span-2 text-[13px] text-gray-500 m-0 p-2">This theme has no sections that can be added here.</p>
+              )}
             </div>
           </div>
         </div>
@@ -525,48 +623,82 @@ export default function ThemeCustomizer() {
   );
 }
 
+// ── Sortable rows (sections and blocks) ───────────────────────────────────
+
+/** One row that can be dragged by its handle; the actions stay visible (faded until hover) so they work on touch too. */
+function SortableRow({ id, children }: { id: string; children: (handle: React.ReactNode) => React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style: React.CSSProperties = { transform: CSS.Transform.toString(transform), transition, zIndex: isDragging ? 20 : undefined, position: 'relative' };
+  const handle = (
+    <button type="button" {...attributes} {...listeners} className="p-1 rounded cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-600 touch-none" aria-label="Drag to reorder" title="Drag to reorder">
+      <GripVertical className="h-3.5 w-3.5" />
+    </button>
+  );
+  return <div ref={setNodeRef} style={style} className={isDragging ? 'bg-indigo-50 rounded-lg shadow-sm' : ''}>{children(handle)}</div>;
+}
+
+function useListSensors() {
+  return useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+}
+
 // ── Section tree group (Header / Template / Footer) ───────────────────────
 
-function SectionTreeGroup({ label, scope, container, schemaByType, onSelect, onMove, onToggle, onRemove, onAdd, emptyNote }: {
+function SectionTreeGroup({ label, scope, container, schemaByType, onSelect, onMove, onReorder, onToggle, onRemove, onAdd, canAdd, emptyNote }: {
   label: string;
   scope: string;
   container: any | null;
   schemaByType: Map<string, SectionSchema>;
   onSelect: (sectionId: string) => void;
   onMove: (scope: string, sectionId: string, dir: -1 | 1) => void;
+  onReorder: (scope: string, fromId: string, toId: string) => void;
   onToggle: (scope: string, sectionId: string) => void;
   onRemove: (scope: string, sectionId: string) => void;
   onAdd: () => void;
+  canAdd: boolean;
   emptyNote?: string;
 }) {
-  const order: string[] = container?.order || Object.keys(container?.sections || {});
+  const sensors = useListSensors();
+  const order: string[] = (container?.order || Object.keys(container?.sections || {})).filter((sid: string) => container?.sections?.[sid]);
+  const onDragEnd = (e: DragEndEvent) => { if (e.over && e.active.id !== e.over.id) onReorder(scope, String(e.active.id), String(e.over.id)); };
   return (
     <div className="border-b border-gray-100 py-2">
       <p className="px-4 pt-2 pb-1 text-[11px] font-bold uppercase tracking-wide text-gray-400 m-0">{label}</p>
       {order.length === 0 && <p className="px-4 py-1 text-[12px] text-gray-400 m-0">{emptyNote || 'No sections.'}</p>}
-      {order.map((sid, i) => {
-        const s = container?.sections?.[sid];
-        if (!s) return null;
-        const name = schemaByType.get(s.type)?.name || s.type;
-        return (
-          <div key={sid} className="group flex items-center gap-1 px-2 py-0.5">
-            <GripVertical className="h-3.5 w-3.5 text-gray-300 shrink-0" />
-            <button onClick={() => onSelect(sid)}
-              className={`flex-1 text-left px-2 py-1.5 rounded-lg text-[13px] font-medium hover:bg-gray-100 truncate ${s.disabled ? 'text-gray-400 line-through' : 'text-gray-700'}`}>
-              {name}
-            </button>
-            <div className="hidden group-hover:flex items-center">
-              <button onClick={() => onMove(scope, sid, -1)} disabled={i === 0} className="p-1 rounded hover:bg-gray-100 disabled:opacity-30" title="Move up"><ChevronUp className="h-3.5 w-3.5" /></button>
-              <button onClick={() => onMove(scope, sid, 1)} disabled={i === order.length - 1} className="p-1 rounded hover:bg-gray-100 disabled:opacity-30" title="Move down"><ChevronDown className="h-3.5 w-3.5" /></button>
-              <button onClick={() => onToggle(scope, sid)} className="p-1 rounded hover:bg-gray-100" title={s.disabled ? 'Show' : 'Hide'}>
-                {s.disabled ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-              </button>
-              <button onClick={() => onRemove(scope, sid)} className="p-1 rounded hover:bg-red-50 text-red-500" title="Remove"><Trash2 className="h-3.5 w-3.5" /></button>
-            </div>
-          </div>
-        );
-      })}
-      {container && (
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+        <SortableContext items={order} strategy={verticalListSortingStrategy}>
+          {order.map((sid, i) => {
+            const s = container.sections[sid];
+            const name = schemaByType.get(s.type)?.name || s.type;
+            const sub = itemSubtitle(s.settings);
+            return (
+              <SortableRow key={sid} id={sid}>
+                {(handle) => (
+                  <div className="group flex items-center gap-0.5 px-2 py-0.5">
+                    {handle}
+                    <button onClick={() => onSelect(sid)} title={sub ? `${name}: ${sub}` : name}
+                      className={`flex-1 min-w-0 text-left px-2 py-1.5 rounded-lg hover:bg-gray-100 ${s.disabled ? 'text-gray-400' : 'text-gray-700'}`}>
+                      <span className={`block text-[13px] font-medium truncate ${s.disabled ? 'line-through' : ''}`}>{name}</span>
+                      {sub && <span className="block text-[11px] text-gray-400 truncate">{sub}</span>}
+                    </button>
+                    <div className="flex items-center opacity-40 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                      <button onClick={() => onMove(scope, sid, -1)} disabled={i === 0} className="p-1 rounded hover:bg-gray-100 disabled:opacity-30" title="Move up" aria-label="Move up"><ChevronUp className="h-3.5 w-3.5" /></button>
+                      <button onClick={() => onMove(scope, sid, 1)} disabled={i === order.length - 1} className="p-1 rounded hover:bg-gray-100 disabled:opacity-30" title="Move down" aria-label="Move down"><ChevronDown className="h-3.5 w-3.5" /></button>
+                      <button onClick={() => onToggle(scope, sid)} className="p-1 rounded hover:bg-gray-100" title={s.disabled ? 'Show on the website' : 'Hide from the website'} aria-label={s.disabled ? 'Show' : 'Hide'}>
+                        {s.disabled ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                      </button>
+                      <button onClick={() => onRemove(scope, sid)} className="p-1 rounded hover:bg-red-50 text-red-500" title="Remove" aria-label="Remove"><Trash2 className="h-3.5 w-3.5" /></button>
+                    </div>
+                  </div>
+                )}
+              </SortableRow>
+            );
+          })}
+        </SortableContext>
+      </DndContext>
+      {container && canAdd && (
         <button onClick={onAdd} className="mx-4 mt-1.5 mb-1 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-indigo-600 hover:text-indigo-800">
           <Plus className="h-3.5 w-3.5" /> Add section
         </button>
@@ -577,7 +709,7 @@ function SectionTreeGroup({ label, scope, container, schemaByType, onSelect, onM
 
 // ── Per-section settings panel (schema-driven) ────────────────────────────
 
-function SectionSettingsPanel({ sel, container, schemaByType, onBack, onChange, onAddBlock, onRemoveBlock, onMoveBlock, onSelectBlock }: {
+function SectionSettingsPanel({ sel, container, schemaByType, onBack, onChange, onAddBlock, onRemoveBlock, onMoveBlock, onReorderBlocks, onSelectBlock, lookups }: {
   sel: { kind: 'section'; scope: string; sectionId: string; blockId?: string };
   container: any | null;
   schemaByType: Map<string, SectionSchema>;
@@ -586,8 +718,11 @@ function SectionSettingsPanel({ sel, container, schemaByType, onBack, onChange, 
   onAddBlock: (scope: string, sectionId: string, blockSchema: any) => void;
   onRemoveBlock: (scope: string, sectionId: string, blockId: string) => void;
   onMoveBlock: (scope: string, sectionId: string, blockId: string, dir: -1 | 1) => void;
+  onReorderBlocks: (scope: string, sectionId: string, fromId: string, toId: string) => void;
   onSelectBlock: (blockId: string | undefined) => void;
+  lookups: ThemeLookups;
 }) {
+  const sensors = useListSensors();
   const section = container?.sections?.[sel.sectionId];
   const schema = section ? schemaByType.get(section.type) : undefined;
   if (!section || !schema) {
@@ -599,70 +734,97 @@ function SectionSettingsPanel({ sel, container, schemaByType, onBack, onChange, 
     );
   }
 
-  const blockOrder: string[] = section.block_order || Object.keys(section.blocks || {});
+  const blockOrder: string[] = (section.block_order || Object.keys(section.blocks || {})).filter((bid: string) => section.blocks?.[bid]);
   const selectedBlock = sel.blockId ? section.blocks?.[sel.blockId] : null;
   const selectedBlockSchema = selectedBlock ? schema.blocks?.find((b: any) => b.type === selectedBlock.type) : null;
+  const countOf = (type: string) => blockOrder.filter((bid) => section.blocks[bid]?.type === type).length;
+  const roomLeft = schema.max_blocks === undefined || blockOrder.length < schema.max_blocks;
+  const sectionSub = itemSubtitle(section.settings);
+  const onDragEnd = (e: DragEndEvent) => { if (e.over && e.active.id !== e.over.id) onReorderBlocks(sel.scope, sel.sectionId, String(e.active.id), String(e.over.id)); };
 
   return (
     <div className="flex-1 overflow-y-auto min-h-0">
       <div className="sticky top-0 bg-white border-b border-gray-100 px-3 py-2.5 flex items-center gap-2 z-10">
-        <button onClick={() => (sel.blockId ? onSelectBlock(undefined) : onBack())} className="p-1.5 rounded-lg hover:bg-gray-100"><ChevronLeft className="h-4 w-4" /></button>
-        <p className="font-bold text-gray-900 text-[13.5px] m-0 truncate">
-          {sel.blockId ? (selectedBlockSchema?.name || selectedBlock?.type || 'Block') : schema.name}
-        </p>
+        <button onClick={() => (sel.blockId ? onSelectBlock(undefined) : onBack())} className="p-1.5 rounded-lg hover:bg-gray-100" aria-label="Back"><ChevronLeft className="h-4 w-4" /></button>
+        <div className="min-w-0">
+          <p className="font-bold text-gray-900 text-[13.5px] m-0 truncate">
+            {sel.blockId ? (selectedBlockSchema?.name || selectedBlock?.type || 'Item') : schema.name}
+          </p>
+          <p className="text-[11px] text-gray-400 m-0 truncate">{sel.blockId ? `in ${schema.name}${sectionSub ? `: ${sectionSub}` : ''}` : sectionSub}</p>
+        </div>
       </div>
 
       {sel.blockId && selectedBlock ? (
         <div className="p-4 space-y-4">
           {(selectedBlockSchema?.settings || []).map((st: any, i: number) => (
-            <SettingField key={st.id ?? i} setting={st}
+            <ThemeSettingField key={st.id ?? i} setting={st} lookups={lookups}
               value={selectedBlock.settings?.[st.id] ?? schemaDefaults([st])[st.id]}
               onChange={(v) => onChange(sel.scope, sel.sectionId, st.id, v, sel.blockId)} />
           ))}
+          {(selectedBlockSchema?.settings || []).length === 0 && <p className="text-[12.5px] text-gray-400">This item has no settings.</p>}
+          <button onClick={() => { onRemoveBlock(sel.scope, sel.sectionId, sel.blockId!); onSelectBlock(undefined); }}
+            className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-red-600 hover:text-red-700 pt-2">
+            <Trash2 className="h-3.5 w-3.5" /> Remove this item
+          </button>
         </div>
       ) : (
         <>
+          {(schema.blocks || []).length > 0 && (
+            <div className="border-b border-gray-100 p-4">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-2">Items ({blockOrder.length})</p>
+              {blockOrder.length === 0 && <p className="text-[12px] text-gray-400 mb-1">No items yet.</p>}
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+                <SortableContext items={blockOrder} strategy={verticalListSortingStrategy}>
+                  {blockOrder.map((bid, i) => {
+                    const b = section.blocks[bid];
+                    const bSchema = schema.blocks?.find((x: any) => x.type === b.type);
+                    const sub = itemSubtitle(b.settings);
+                    return (
+                      <SortableRow key={bid} id={bid}>
+                        {(handle) => (
+                          <div className="group flex items-center gap-0.5 py-0.5">
+                            {handle}
+                            <button onClick={() => onSelectBlock(bid)} className="flex-1 min-w-0 text-left px-2 py-1.5 rounded-lg hover:bg-gray-100">
+                              <span className="block text-[13px] font-medium text-gray-700 truncate">{sub || bSchema?.name || b.type}</span>
+                              {sub && <span className="block text-[11px] text-gray-400 truncate">{bSchema?.name || b.type}</span>}
+                            </button>
+                            <div className="flex items-center opacity-40 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                              <button onClick={() => onMoveBlock(sel.scope, sel.sectionId, bid, -1)} disabled={i === 0} className="p-1 rounded hover:bg-gray-100 disabled:opacity-30" aria-label="Move up" title="Move up"><ChevronUp className="h-3.5 w-3.5" /></button>
+                              <button onClick={() => onMoveBlock(sel.scope, sel.sectionId, bid, 1)} disabled={i === blockOrder.length - 1} className="p-1 rounded hover:bg-gray-100 disabled:opacity-30" aria-label="Move down" title="Move down"><ChevronDown className="h-3.5 w-3.5" /></button>
+                              <button onClick={() => onRemoveBlock(sel.scope, sel.sectionId, bid)} className="p-1 rounded hover:bg-red-50 text-red-500" aria-label="Remove" title="Remove"><Trash2 className="h-3.5 w-3.5" /></button>
+                            </div>
+                          </div>
+                        )}
+                      </SortableRow>
+                    );
+                  })}
+                </SortableContext>
+              </DndContext>
+              {roomLeft ? (
+                <div className="mt-2 space-y-1">
+                  {(schema.blocks || []).map((b: any) => {
+                    const full = b.limit !== undefined && countOf(b.type) >= b.limit;
+                    return (
+                      <button key={b.type} onClick={() => onAddBlock(sel.scope, sel.sectionId, b)} disabled={full}
+                        title={full ? `This section holds at most ${b.limit}` : undefined}
+                        className="w-full text-left inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-indigo-600 hover:text-indigo-800 px-2 py-1 disabled:text-gray-400 disabled:cursor-not-allowed">
+                        <Plus className="h-3.5 w-3.5" /> Add {(b.name || b.type).toLowerCase()}{full ? ` (at most ${b.limit})` : ''}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : <p className="text-[11px] text-gray-500 mt-2 mb-0">This section holds at most {schema.max_blocks} items.</p>}
+            </div>
+          )}
+
           <div className="p-4 space-y-4">
             {(schema.settings || []).map((st: any, i: number) => (
-              <SettingField key={st.id ?? i} setting={st}
+              <ThemeSettingField key={st.id ?? i} setting={st} lookups={lookups}
                 value={section.settings?.[st.id] ?? schemaDefaults([st])[st.id]}
                 onChange={(v) => onChange(sel.scope, sel.sectionId, st.id, v)} />
             ))}
             {(schema.settings || []).length === 0 && <p className="text-[12.5px] text-gray-400">This section has no settings.</p>}
           </div>
-
-          {(schema.blocks || []).length > 0 && (
-            <div className="border-t border-gray-100 p-4">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-2">Blocks</p>
-              {blockOrder.map((bid, i) => {
-                const b = section.blocks?.[bid];
-                if (!b) return null;
-                const bSchema = schema.blocks?.find((x: any) => x.type === b.type);
-                return (
-                  <div key={bid} className="group flex items-center gap-1 py-0.5">
-                    <button onClick={() => onSelectBlock(bid)} className="flex-1 text-left px-2 py-1.5 rounded-lg text-[13px] font-medium text-gray-700 hover:bg-gray-100 truncate">
-                      {bSchema?.name || b.type}
-                    </button>
-                    <div className="hidden group-hover:flex items-center">
-                      <button onClick={() => onMoveBlock(sel.scope, sel.sectionId, bid, -1)} disabled={i === 0} className="p-1 rounded hover:bg-gray-100 disabled:opacity-30"><ChevronUp className="h-3.5 w-3.5" /></button>
-                      <button onClick={() => onMoveBlock(sel.scope, sel.sectionId, bid, 1)} disabled={i === blockOrder.length - 1} className="p-1 rounded hover:bg-gray-100 disabled:opacity-30"><ChevronDown className="h-3.5 w-3.5" /></button>
-                      <button onClick={() => onRemoveBlock(sel.scope, sel.sectionId, bid)} className="p-1 rounded hover:bg-red-50 text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
-                    </div>
-                  </div>
-                );
-              })}
-              {(schema.max_blocks === undefined || blockOrder.length < schema.max_blocks) && (
-                <div className="mt-2 space-y-1">
-                  {(schema.blocks || []).map((b: any) => (
-                    <button key={b.type} onClick={() => onAddBlock(sel.scope, sel.sectionId, b)}
-                      className="w-full text-left inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-indigo-600 hover:text-indigo-800 px-2 py-1">
-                      <Plus className="h-3.5 w-3.5" /> Add {b.name || b.type}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
         </>
       )}
     </div>
@@ -671,18 +833,19 @@ function SectionSettingsPanel({ sel, container, schemaByType, onBack, onChange, 
 
 // ── Theme settings (settings_schema.json) ─────────────────────────────────
 
-function ThemeSettingsPanel({ schema, values, onBack, onChange }: {
+function ThemeSettingsPanel({ schema, values, onBack, onChange, lookups }: {
   schema: any[];
   values: Record<string, any>;
   onBack: () => void;
   onChange: (key: string, value: any) => void;
+  lookups: ThemeLookups;
 }) {
   const groups = (schema || []).filter((g) => g?.name !== 'theme_info' && Array.isArray(g?.settings) && g.settings.length);
   const [open, setOpen] = useState<string | null>(groups[0]?.name ?? null);
   return (
     <div className="flex-1 overflow-y-auto min-h-0">
       <div className="sticky top-0 bg-white border-b border-gray-100 px-3 py-2.5 flex items-center gap-2 z-10">
-        <button onClick={onBack} className="p-1.5 rounded-lg hover:bg-gray-100"><ChevronLeft className="h-4 w-4" /></button>
+        <button onClick={onBack} className="p-1.5 rounded-lg hover:bg-gray-100" aria-label="Back"><ChevronLeft className="h-4 w-4" /></button>
         <p className="font-bold text-gray-900 text-[13.5px] m-0">Theme settings</p>
       </div>
       {groups.map((g) => (
@@ -695,7 +858,7 @@ function ThemeSettingsPanel({ schema, values, onBack, onChange }: {
           {open === g.name && (
             <div className="px-4 pb-4 space-y-4">
               {g.settings.map((st: any, i: number) => (
-                <SettingField key={st.id ?? i} setting={st}
+                <ThemeSettingField key={st.id ?? i} setting={st} lookups={lookups}
                   value={values[st.id] ?? st.default}
                   onChange={(v) => onChange(st.id, v)} />
               ))}
@@ -705,146 +868,4 @@ function ThemeSettingsPanel({ schema, values, onBack, onChange }: {
       ))}
     </div>
   );
-}
-
-// ── One schema setting → input control ────────────────────────────────────
-
-function SettingField({ setting, value, onChange }: { setting: any; value: any; onChange: (v: any) => void }) {
-  const t = setting.type;
-  const label = setting.label || setting.id;
-
-  if (t === 'header') return <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400 pt-2 mb-0">{setting.content}</p>;
-  if (t === 'paragraph') return <p className="text-[12px] text-gray-500 m-0">{setting.content}</p>;
-
-  const labelEl = <label className="block text-[12.5px] font-semibold text-gray-700 mb-1">{label}</label>;
-  const inputCls = 'w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-[13px] bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400';
-
-  switch (t) {
-    case 'checkbox':
-      return (
-        <label className="flex items-center justify-between gap-2 text-[13px] font-semibold text-gray-700 cursor-pointer">
-          {label}
-          <input type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} className="h-4 w-4 accent-indigo-600" />
-        </label>
-      );
-    case 'range':
-      return (
-        <div>
-          {labelEl}
-          <div className="flex items-center gap-2">
-            <input type="range" min={setting.min ?? 0} max={setting.max ?? 100} step={setting.step ?? 1}
-              value={Number(value ?? setting.default ?? setting.min ?? 0)}
-              onChange={(e) => onChange(Number(e.target.value))} className="flex-1 accent-indigo-600" />
-            <span className="text-[12px] text-gray-500 w-14 text-right">{value ?? setting.default}{setting.unit || ''}</span>
-          </div>
-        </div>
-      );
-    case 'select':
-    case 'radio':
-      return (
-        <div>
-          {labelEl}
-          <select value={value ?? setting.default ?? ''} onChange={(e) => onChange(e.target.value)} className={inputCls}>
-            {(setting.options || []).map((o: any) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-        </div>
-      );
-    case 'color':
-      return (
-        <div>
-          {labelEl}
-          <div className="flex items-center gap-2">
-            <input type="color" value={/^#([0-9a-f]{6}|[0-9a-f]{3})$/i.test(String(value)) ? value : '#000000'}
-              onChange={(e) => onChange(e.target.value)} className="h-8 w-10 rounded border border-gray-300 p-0.5 bg-white" />
-            <input type="text" value={value ?? ''} onChange={(e) => onChange(e.target.value)} className={inputCls} placeholder="#000000" />
-          </div>
-        </div>
-      );
-    case 'color_background':
-      // Shopify accepts gradients here; a native colour input would replace a
-      // valid `linear-gradient(...)` with black on the next save.
-      return (
-        <div>
-          {labelEl}
-          <input type="text" value={value ?? ''} onChange={(e) => onChange(e.target.value)} className={inputCls}
-            placeholder="#000000 or linear-gradient(...)" />
-        </div>
-      );
-    case 'textarea':
-    case 'richtext':
-    case 'inline_richtext':
-    case 'html':
-    case 'liquid':
-      return (
-        <div>
-          {labelEl}
-          <textarea rows={t === 'textarea' ? 3 : 4} value={value ?? ''} onChange={(e) => onChange(e.target.value)} className={inputCls} />
-          {(t === 'richtext' || t === 'html') && <p className="text-[11px] text-gray-400 mt-1 mb-0">HTML supported (e.g. &lt;p&gt;…&lt;/p&gt;)</p>}
-        </div>
-      );
-    case 'image_picker':
-      return (
-        <div>
-          {labelEl}
-          {value ? (
-            <div className="relative mb-1.5">
-              <img src={value} alt="" className="w-full h-24 object-cover rounded-lg border border-gray-200" />
-              <button onClick={() => onChange('')} className="absolute top-1.5 right-1.5 bg-white/90 rounded-full p-1 shadow" title="Remove image">
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          ) : null}
-          <input type="text" value={value ?? ''} onChange={(e) => onChange(e.target.value)} className={inputCls} placeholder="Paste image URL (media library / upload URL)" />
-        </div>
-      );
-    case 'video':
-    case 'video_url':
-      return (
-        <div>
-          {labelEl}
-          <input type="url" value={value ?? ''} onChange={(e) => onChange(e.target.value)} className={inputCls}
-            placeholder="https://www.youtube.com/watch?v=… or uploaded video URL" />
-          <p className="text-[11px] text-gray-400 mt-1 mb-0">Paste a video URL. The theme decides how to render it.</p>
-        </div>
-      );
-    case 'product_list':
-    case 'collection_list':
-    case 'metaobject_list': {
-      const list = Array.isArray(value) ? value.join('\n') : String(value ?? '');
-      return (
-        <div>
-          {labelEl}
-          <textarea rows={3} value={list}
-            onChange={(e) => onChange(e.target.value.split(/\r?\n|,/).map((v) => v.trim()).filter(Boolean))}
-            className={inputCls} placeholder="One handle per line" />
-          <p className="text-[11px] text-gray-400 mt-1 mb-0">One handle per line (or comma-separated), in the order the theme should use.</p>
-        </div>
-      );
-    }
-    case 'number':
-      return (
-        <div>
-          {labelEl}
-          <input type="number" value={value ?? ''} onChange={(e) => onChange(e.target.value === '' ? '' : Number(e.target.value))} className={inputCls} />
-        </div>
-      );
-    default:
-      // text, url, link_list, collection, product, blog, page, font_picker, video_url…
-      return (
-        <div>
-          {labelEl}
-          <input type="text" value={value ?? ''} onChange={(e) => onChange(e.target.value)} className={inputCls}
-            placeholder={t === 'collection' ? 'collection handle (slug)' : t === 'product' ? 'product handle (slug)' : t === 'link_list' ? 'menu handle (e.g. main-menu)' : setting.placeholder || ''} />
-          {['collection', 'product', 'link_list', 'url', 'font_picker'].includes(t) && (
-            <p className="text-[11px] text-gray-400 mt-1 mb-0">
-              {t === 'collection' && 'Category slug from Catalog → Categories.'}
-              {t === 'product' && 'Product slug from Catalog → Products.'}
-              {t === 'link_list' && 'Menu handle from Appearance → Menus.'}
-              {t === 'url' && 'Any path (/collections/x) or full URL.'}
-              {t === 'font_picker' && 'Font stack name (theme-defined).'}
-            </p>
-          )}
-        </div>
-      );
-  }
 }

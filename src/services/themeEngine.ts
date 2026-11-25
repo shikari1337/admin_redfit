@@ -27,6 +27,8 @@ export interface EditorPayload {
   templates: Record<string, any>;
   groups: Record<string, any>;
   sectionSchemas: SectionSchema[];
+  /** Every template the theme has, alternates included (`page.contact`); empty on an older reply. */
+  templateNames: string[];
   hasDraft: boolean;
   /** The newest published version's number. */
   versionNumber: number;
@@ -42,6 +44,9 @@ export interface SectionSchema {
   blocks?: any[];
   max_blocks?: number;
   presets?: any[];
+  /** Shopify placement rules: where the section may be added (`templates`, `groups`). */
+  enabled_on?: { templates?: string[]; groups?: string[] };
+  disabled_on?: { templates?: string[]; groups?: string[] };
 }
 
 export interface ThemeVersion {
@@ -106,6 +111,7 @@ export const themeEngineAPI = {
       templates: obj(e?.templates),
       groups: obj(e?.groups),
       sectionSchemas: Array.isArray(e?.section_schemas) ? e.section_schemas : [],
+      templateNames: Array.isArray(e?.template_names) ? e.template_names.map(String) : [],
       hasDraft: !!e?.draft,
       versionNumber: Number(e?.version_number) || 0,
       isLive: e?.is_live === true,
