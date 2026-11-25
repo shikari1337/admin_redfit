@@ -61,11 +61,14 @@ function templateOptions(names: string[]): { value: string; label: string }[] {
  * by (its title, heading or text), so two "Promises" sections read "Promises: Trust bar" and "Promises: Customer care".
  */
 const LABEL_KEYS = ['title', 'heading', 'label', 'eyebrow', 'name', 'question', 'text', 'caption', 'message', 'kicker'];
-function itemSubtitle(settings: any): string {
+function itemSubtitle(settings: any, name = ''): string {
   const s = settings || {};
   for (const k of LABEL_KEYS) {
     const v = s[k];
-    if (typeof v === 'string' && v.trim()) return v.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 48);
+    if (typeof v !== 'string' || !v.trim()) continue;
+    // tags out; a theme's line-break mark (`|` in a headline) reads as a space
+    const words = v.replace(/<[^>]*>/g, ' ').replace(/\|/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 48);
+    return words.toLowerCase() === name.trim().toLowerCase() ? '' : words;
   }
   return '';
 }
@@ -203,7 +206,12 @@ export default function ThemeCustomizer() {
         if (scope) setSel({ kind: 'section', scope, sectionId: String(d.sectionId) });
       }
       // The preview is drawn again after every change; bring back the section being edited instead of the top of the page.
-      if (d.type === 'ready' && selRef.current.kind === 'section') scrollPreviewTo(selRef.current.sectionId);
+      if (d.type === 'ready' && selRef.current.kind === 'section') {
+        const sid = selRef.current.sectionId;
+        scrollPreviewTo(sid);
+        // a theme engine that says ready before its sections are parsed: ask once more when they are there
+        setTimeout(() => scrollPreviewTo(sid), 400);
+      }
     };
     window.addEventListener('message', onMsg);
     return () => window.removeEventListener('message', onMsg);
@@ -672,7 +680,7 @@ function SectionTreeGroup({ label, scope, container, schemaByType, onSelect, onM
           {order.map((sid, i) => {
             const s = container.sections[sid];
             const name = schemaByType.get(s.type)?.name || s.type;
-            const sub = itemSubtitle(s.settings);
+            const sub = itemSubtitle(s.settings, name);
             return (
               <SortableRow key={sid} id={sid}>
                 {(handle) => (
@@ -739,7 +747,7 @@ function SectionSettingsPanel({ sel, container, schemaByType, onBack, onChange, 
   const selectedBlockSchema = selectedBlock ? schema.blocks?.find((b: any) => b.type === selectedBlock.type) : null;
   const countOf = (type: string) => blockOrder.filter((bid) => section.blocks[bid]?.type === type).length;
   const roomLeft = schema.max_blocks === undefined || blockOrder.length < schema.max_blocks;
-  const sectionSub = itemSubtitle(section.settings);
+  const sectionSub = itemSubtitle(section.settings, schema.name);
   const onDragEnd = (e: DragEndEvent) => { if (e.over && e.active.id !== e.over.id) onReorderBlocks(sel.scope, sel.sectionId, String(e.active.id), String(e.over.id)); };
 
   return (
@@ -778,7 +786,7 @@ function SectionSettingsPanel({ sel, container, schemaByType, onBack, onChange, 
                   {blockOrder.map((bid, i) => {
                     const b = section.blocks[bid];
                     const bSchema = schema.blocks?.find((x: any) => x.type === b.type);
-                    const sub = itemSubtitle(b.settings);
+                    const sub = itemSubtitle(b.settings, bSchema?.name || b.type);
                     return (
                       <SortableRow key={bid} id={bid}>
                         {(handle) => (

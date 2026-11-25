@@ -228,7 +228,7 @@ export default function ThemeSettingField({ setting, value, onChange, lookups }:
     case 'image_picker':
       return (
         <div>
-          <ImageInputWithActions value={String(value ?? '')} onChange={(url) => onChange(url)} label={label} folder="theme" compact />
+          <ImageInputWithActions value={String(value ?? '')} onChange={(url) => onChange(url)} label={label} folder="theme" hideUrlInput />
           <Help text={info} />
         </div>
       );
