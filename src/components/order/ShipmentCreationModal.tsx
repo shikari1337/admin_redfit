@@ -38,7 +38,35 @@ interface CourierRate {
   airAvailable: boolean;
   surfaceAvailable: boolean;
   qty: number;
+  /** The price's parts when the rate states them: shipping (freight), the courier's COD charge, GST. */
+  freightCharge?: number;
+  codCharge?: number;
+  gstCharge?: number;
 }
+
+/** A positive rupee amount from a rate field, else undefined. */
+const rupeeOf = (v: unknown): number | undefined => {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+};
+
+/**
+ * "Shipping Rs a + COD Rs b + GST Rs c = Rs total" from what the rate states. Growcord Ship states all three;
+ * Shiprocket states freight and COD, and anything else in its total is shown as "other charges or tax".
+ */
+const breakupOf = (c: CourierRate): string | null => {
+  if (c.freightCharge === undefined) return null;
+  const r = (n: number) => `₹${n.toFixed(2)}`;
+  const parts = [`Shipping ${r(c.freightCharge)}`];
+  if (c.codCharge) parts.push(`COD ${r(c.codCharge)}`);
+  if (c.gstCharge !== undefined) {
+    parts.push(`GST ${r(c.gstCharge)}`);
+  } else {
+    const other = Math.round((c.rate - c.freightCharge - (c.codCharge ?? 0)) * 100) / 100;
+    if (other > 0) parts.push(`other charges or tax ${r(other)}`);
+  }
+  return `${parts.join(' + ')} = ${r(c.rate)}`;
+};
 
 interface DelhiveryServiceType {
   type: 'express' | 'surface';
@@ -222,6 +250,9 @@ const CourierRateList: React.FC<{
                       </span>
                     )}
                   </div>
+                  {breakupOf(courier) && (
+                    <p className="mt-1 text-xs text-gray-500 tabular-nums">{breakupOf(courier)}</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -428,6 +459,9 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
             airAvailable: c.air === 1 || c.air === true || c.air === 'Y' || c.service_type === 'express' || c.service_type === 'air',
             surfaceAvailable: c.surface === 1 || c.surface === true || c.surface === 'Y' || c.service_type === 'surface',
             qty: c.qty || 1,
+            freightCharge: rupeeOf(c.freight_charge ?? c.freightCharge),
+            codCharge: rupeeOf(c.cod_charge ?? c.cod_charges ?? c.codCharge),
+            gstCharge: c.gst_charge !== undefined && c.gst_charge !== null ? Number(c.gst_charge) : undefined,
           }))
           .sort((a, b) => a.rate - b.rate);
         setRates(sortedRates);
