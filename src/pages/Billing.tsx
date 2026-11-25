@@ -24,6 +24,9 @@ import { fmtRupees } from '@/lib/money';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+// BUY-1 (owner 25 Nov 2026): a store admin buys Growcord products here.
+import { useAuth } from '@/contexts/AuthContext';
+import BuyProducts from '@/components/billing/BuyProducts';
 
 interface FeeLine {
   type: string; description: string; base: number | null; rate_percent: number | null;
@@ -427,6 +430,7 @@ function InvoiceDetail({ invoice, onDownload, onPay, busy }: {
 }
 
 export default function Billing() {
+  const { hasPerm } = useAuth();
   const [invoices, setInvoices] = useState<InvoiceSummary[]>([]);
   const [usage, setUsage] = useState<Usage | null>(null);
   const [loading, setLoading] = useState(true);
@@ -748,6 +752,9 @@ export default function Billing() {
           </div>
         </>
       )}
+
+      {/* BUY-1: only a store admin (billing.manage) sees it; it asks the server for nothing until it scrolls into view. */}
+      {hasPerm('billing.manage') && <BuyProducts loadCheckout={loadRazorpayCheckout} />}
     </div>
   );
 }

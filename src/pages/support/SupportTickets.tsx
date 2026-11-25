@@ -144,7 +144,7 @@ export default function SupportTickets() {
                         </span>
                       ) : <span className="text-gray-400">Not set</span>}
                     </TableCell>
-                    <TableCell className="whitespace-nowrap text-sm text-gray-700">{formatDateTime(t.last_message_at ?? t.created_at)}</TableCell>
+                    <TableCell className="whitespace-nowrap text-sm text-gray-700">{formatDateTime(t.last_message_at ?? t.created_at, '')}</TableCell>
                     <TableCell className="whitespace-nowrap"><LastBy t={t} /></TableCell>
                     <TableCell className="text-right text-sm tabular-nums text-gray-700">
                       {t.file_count > 0 ? <span className="inline-flex items-center gap-1"><Paperclip className="size-3.5 text-gray-400" />{t.file_count}</span> : <span className="text-gray-400">0</span>}
