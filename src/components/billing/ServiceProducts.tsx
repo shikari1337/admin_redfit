@@ -169,6 +169,7 @@ export default function ServiceProducts({ summary, canManage, version, onAsked }
                 <>
                   <strong>{fmtNumber(count)}</strong> {count === 1 ? 'product' : 'products'} ticked.{' '}
                   {!kind ? 'Choose the work.'
+                    : !summary ? 'Loading your rate.'
                     : rate?.rate_minor != null
                       ? <>At {money(rate.rate_minor, rate.currency)} a product, that is <strong>{money(rate.rate_minor * count, rate.currency)}</strong> before GST. Products that already have this work are left out and not charged.</>
                       : 'Price to be agreed with Growcord.'}
