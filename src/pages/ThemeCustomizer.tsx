@@ -88,6 +88,15 @@ function canAddHere(schema: SectionSchema, scope: string): boolean {
   return !listed(schema.disabled_on?.templates);
 }
 
+/**
+ * Sections without presets that the editor always offered (everything but a page's main section and a group):
+ * kept reachable under "More sections" so no section staff could add before disappears (owner rule: never narrow a control).
+ */
+function moreSections(all: SectionSchema[]): SectionSchema[] {
+  return all.filter((s) => !s.presets?.length && !/(^|-)main-/.test(s.type) && !/-group$/.test(s.type))
+    .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+}
+
 let idCounter = 0;
 const genId = (prefix: string) => `${prefix}-${Date.now().toString(36)}${(idCounter++).toString(36)}`;
 
@@ -620,8 +629,21 @@ export default function ThemeCustomizer() {
                     </span>
                   </button>
                 ))}
-              {!payload.sectionSchemas.some((s) => canAddHere(s, addPicker)) && (
+              {!payload.sectionSchemas.some((s) => canAddHere(s, addPicker)) && !moreSections(payload.sectionSchemas).length && (
                 <p className="col-span-2 text-[13px] text-gray-500 m-0 p-2">This theme has no sections that can be added here.</p>
+              )}
+              {moreSections(payload.sectionSchemas).length > 0 && (
+                <>
+                  <p className="col-span-2 text-[11px] font-bold uppercase tracking-wide text-gray-400 mt-2 mb-0 px-1">More sections</p>
+                  <p className="col-span-2 text-[11.5px] text-gray-500 m-0 px-1 -mt-1">The theme did not make these to be added, so they start empty: fill in their settings after adding.</p>
+                  {moreSections(payload.sectionSchemas).map((s) => (
+                    <button key={s.type} onClick={() => addSection(addPicker, s)}
+                      className="text-left border border-dashed border-gray-200 rounded-lg px-4 py-3 hover:border-indigo-400 hover:bg-indigo-50/40">
+                      <span className="block text-[13.5px] font-semibold text-gray-700">{s.name}</span>
+                      <span className="block text-[11.5px] text-gray-400 mt-0.5">{s.type}</span>
+                    </button>
+                  ))}
+                </>
               )}
             </div>
           </div>
