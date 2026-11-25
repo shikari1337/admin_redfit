@@ -42,6 +42,8 @@ interface CourierRate {
   freightCharge?: number;
   codCharge?: number;
   gstCharge?: number;
+  /** What the courier charges if the parcel returns to origin (RTO), when its answer states it. */
+  rtoCharge?: number;
 }
 
 /** A positive rupee amount from a rate field, else undefined. */
@@ -239,6 +241,17 @@ const CourierRateList: React.FC<{
                         <FaMoneyBillWave size={10} />
                         <span>COD</span>
                       </div>
+                    )}
+                    {courier.rtoCharge !== undefined && (
+                      <span
+                        className="text-amber-700"
+                        title="What this courier charges if the parcel comes back to you (return to origin)"
+                      >
+                        RTO ₹{courier.rtoCharge.toFixed(2)}
+                        {rates.filter((r) => r.rtoCharge !== undefined).length > 1 &&
+                          courier.rtoCharge === Math.max(...rates.map((r) => r.rtoCharge ?? 0)) &&
+                          ' (highest)'}
+                      </span>
                     )}
                     {(courier.airAvailable || courier.surfaceAvailable) && (
                       <span>
@@ -462,6 +475,7 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
             freightCharge: rupeeOf(c.freight_charge ?? c.freightCharge),
             codCharge: rupeeOf(c.cod_charge ?? c.cod_charges ?? c.codCharge),
             gstCharge: c.gst_charge !== undefined && c.gst_charge !== null ? Number(c.gst_charge) : undefined,
+            rtoCharge: rupeeOf(c.rto_charge ?? c.rto_charges ?? c.rtoCharge),
           }))
           .sort((a, b) => a.rate - b.rate);
         setRates(sortedRates);
