@@ -3,7 +3,7 @@
  * ... images, videos files screenshot option"). Three ways to add, one list to check before sending:
  *
  *   Choose files     photos, videos, documents (sent under the `file` field)
- *   Record voice     the microphone through MediaRecorder, at most 5 minutes (`audio` field)
+ *   Record voice     the microphone through MediaRecorder (WebM, Ogg or Safari's MP4), at most 5 minutes (`audio` field)
  *   Take screenshot  one picture of a screen or window the person picks (`screenshot` field)
  *
  * Nothing is uploaded here: the parent sends the list after the ticket or the reply is saved.
@@ -191,9 +191,8 @@ export default function AttachmentPicker({ items, onChange, disabled }: {
       chunks.current = [];
       if (!blob.size) { setNote('Nothing was recorded. Try again.'); return; }
       const ext = type.includes('ogg') ? 'ogg' : type.includes('mp4') ? 'm4a' : 'webm';
-      // The server takes WebM and Ogg recordings as voice notes; any other recording goes as a file.
-      const field = ext === 'webm' || ext === 'ogg' ? 'audio' : 'file';
-      add([{ key: nextKey(), field, blob, name: `voice-note-${stamp()}.${ext}`, kind: 'audio', previewUrl: URL.createObjectURL(blob) }]);
+      // The server keeps WebM (Chrome, Firefox), Ogg and MP4 (Safari) recordings as voice notes.
+      add([{ key: nextKey(), field: 'audio', blob, name: `voice-note-${stamp()}.${ext}`, kind: 'audio', previewUrl: URL.createObjectURL(blob) }]);
     };
     recorder.current = rec;
     startedAt.current = Date.now();

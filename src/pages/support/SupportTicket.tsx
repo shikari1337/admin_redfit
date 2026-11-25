@@ -25,9 +25,6 @@ import AttachmentPicker from '@/components/support/AttachmentPicker';
 import TicketFileItem from '@/components/support/TicketFileItem';
 import { sendAttachments } from '@/components/support/sendAttachments';
 
-/** What a reply carries when the person sends only files (the server needs some words). */
-const FILES_ONLY_BODY = 'Files attached.';
-
 function Files({ ticketId, files }: { ticketId: string; files: TicketFile[] }) {
   if (!files.length) return null;
   return (
@@ -136,7 +133,8 @@ export default function SupportTicket() {
     setSending('Sending');
     let messageId = '';
     try {
-      const m: any = await supportAPI.reply(detail.ticket.id, words || FILES_ONLY_BODY);
+      // A reply of files only has no words: the server takes an empty body and the files follow.
+      const m: any = await supportAPI.reply(detail.ticket.id, words);
       messageId = String(m?.id ?? '');
     } catch (err) {
       setReplyError(errorText(err, 'Your reply could not be sent. Please try again.'));
@@ -281,11 +279,13 @@ export default function SupportTicket() {
             );
           }
           const mine = m.author_kind === 'store';
-          const words = m.body === FILES_ONLY_BODY && (byMessage.get(m.id)?.length ?? 0) > 0 ? '' : m.body;
+          const words = m.body.trim();
+          const own = byMessage.get(m.id) ?? [];
           return (
             <Bubble key={m.id} mine={mine} who={mine ? storeName(m.author_name) : `Growcord${m.author_name ? `, ${m.author_name}` : ''}`} when={m.created_at}>
-              {words && <p className="whitespace-pre-wrap break-words">{words}</p>}
-              <Files ticketId={t.id} files={byMessage.get(m.id) ?? []} />
+              {words && <p className="whitespace-pre-wrap break-words">{m.body}</p>}
+              {!words && !own.length && <p className="text-gray-500">No words and no files came with this message.</p>}
+              <Files ticketId={t.id} files={own} />
             </Bubble>
           );
         })}
