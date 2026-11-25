@@ -194,7 +194,22 @@ export function ndrActionsOf(s: any): NdrAction[] | null {
  */
 export function ndrActionsFor(s: any): NdrAction[] {
   if (String(s?.status || '') !== 'ndr_failed_delivery' || providerOf(s) === 'manual') return [];
-  return ndrActionsOf(s) ?? NDR_DEFAULT_ACTIONS;
+  // Today's three answers always stay on the parcel (owner, 24 Nov: never remove a control staff use); the carrier's
+  // own list adds what it takes beyond them.
+  const listed = new Set<NdrAction>([...NDR_DEFAULT_ACTIONS, ...(ndrActionsOf(s) ?? [])]);
+  return NDR_ACTIONS.filter((a) => listed.has(a));
+}
+
+/**
+ * Why this answer cannot reach the courier, when the carrier's own list says it does not take it; null when it can.
+ * A new phone is always saved and goes with a re-attempt when the carrier has no phone change, so it is never refused.
+ */
+export function ndrRefusal(s: any, action: NdrAction): string | null {
+  const listed = ndrActionsOf(s);
+  if (!listed || listed.includes(action) || action === 'change_phone') return null;
+  return action === 'rto'
+    ? 'This courier takes no return request online: ask for it on the courier\'s own panel.'
+    : 'This courier takes no re-attempt online: ask for it on the courier\'s own panel.';
 }
 
 const text = (v: unknown): string | null => (typeof v === 'string' || typeof v === 'number' ? str(v) : null);

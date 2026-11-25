@@ -16,7 +16,7 @@ import { api, shipmentsAPI, errorText } from '../../services/api';
 import { usePincodeLookup } from '../../hooks/usePincodeLookup';
 import { isoDaysFromToday } from '../../utils/date';
 import {
-  type NdrAction, customerAnswerLine, ndrActionsFor, ndrCustomerAnswerOf, ndrDetailsOf, ndrOutcome, ndrPhoneOf, shipmentAwb,
+  type NdrAction, customerAnswerLine, ndrActionsFor, ndrRefusal, ndrCustomerAnswerOf, ndrDetailsOf, ndrOutcome, ndrPhoneOf, shipmentAwb,
 } from './shipmentFacts';
 
 /**
@@ -42,8 +42,9 @@ export const NdrActionButtons: React.FC<{ shipment: any; onPick: (action: NdrAct
       {acts.map((a) => {
         const b = NDR_BUTTONS[a];
         const Icon = b.icon;
+        const refused = ndrRefusal(shipment, a);
         return (
-          <Button key={a} type="button" variant="outline" size="sm" onClick={() => onPick(a)} title={b.title} className={`h-7 gap-1 px-2 text-xs ${b.tone}`}>
+          <Button key={a} type="button" variant="outline" size="sm" onClick={() => onPick(a)} disabled={refused !== null} title={refused ?? b.title} className={`h-7 gap-1 px-2 text-xs ${b.tone}`}>
             <Icon className="h-3.5 w-3.5" aria-hidden />
             {b.label}
           </Button>
