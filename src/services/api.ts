@@ -4531,6 +4531,28 @@ export const billingAPI = {
     const response = await api.post(`/billing/purchases/${encodeURIComponent(purchaseId)}/verify`, payload);
     return response.data;
   },
+
+  // PSVC-1 (owner 25 Nov 2026): product work per product at the store's proposal rates.
+  /** {rates, totals, catalogue: {active_products, with_a_plus}}; paise, before GST. */
+  getProductServices: async () => {
+    const response = await api.get('/billing/product-services');
+    return response.data;
+  },
+  /** The work rows, newest first. `status` may be `open` (asked or in progress); `product_ids` is a comma list. */
+  getProductServiceItems: async (params: { kind?: string; status?: string; product_ids?: string; limit?: number; offset?: number }) => {
+    const response = await api.get('/billing/product-services/items', { params });
+    return response.data;
+  },
+  /** Asks Growcord for one kind of work on up to 500 products: {created, skipped, not_found, items}. */
+  askProductService: async (payload: { kind: string; product_ids: string[]; note?: string }) => {
+    const response = await api.post('/billing/product-services/requests', payload);
+    return response.data;
+  },
+  /** Cancels a row Growcord has not started. */
+  cancelProductService: async (id: string, reason?: string) => {
+    const response = await api.post(`/billing/product-services/requests/${encodeURIComponent(id)}/cancel`, reason ? { reason } : {});
+    return response.data;
+  },
 };
 
 // ─── SUPPORT TICKETS API ─────────────────────────────────────────────────────
