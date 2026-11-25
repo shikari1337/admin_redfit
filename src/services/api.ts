@@ -4502,6 +4502,83 @@ export const billingAPI = {
   },
   // Payments use Growcord's Razorpay Checkout and are posted to the linked
   // Growcord Books invoice after server-side verification.
+
+  // BUY-1 (owner 25 Nov 2026): a store admin buys a Growcord product's plan from Billing.
+  /** Growcord's products (the public catalogue): {products: [{code, name, tagline, host}]}. */
+  getProducts: async () => {
+    const response = await api.get('/billing/products');
+    return response.data;
+  },
+  /** One product's plans: {product: {code, name}, plans: [{id, name, price_minor, currency, interval, features, cta, ...}]}. */
+  getProductPlans: async (code: string) => {
+    const response = await api.get(`/billing/products/${encodeURIComponent(code)}/plans`);
+    return response.data;
+  },
+  /** The store's own purchases, newest first. */
+  getPurchases: async () => {
+    const response = await api.get('/billing/purchases');
+    return response.data;
+  },
+  /** Starts a checkout for a plan: the price and the Razorpay order come from the server. */
+  startPurchase: async (payload: { plan_id: string; phone: string; dial_code?: string; name?: string }) => {
+    const response = await api.post('/billing/purchases', payload);
+    return response.data;
+  },
+  /** Razorpay Checkout's signed answer for a purchase. */
+  verifyPurchase: async (purchaseId: string, payload: {
+    razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string;
+  }) => {
+    const response = await api.post(`/billing/purchases/${encodeURIComponent(purchaseId)}/verify`, payload);
+    return response.data;
+  },
+};
+
+// ─── SUPPORT TICKETS API ─────────────────────────────────────────────────────
+// TICKETS-1 (owner 25 Nov 2026): the store's tickets to Growcord. Reading needs
+// support.read; raising, replying, adding files and closing need support.manage.
+export const supportAPI = {
+  list: async (status: 'open' | 'closed' | 'all' = 'open') => {
+    const response = await api.get('/support/tickets', { params: { status } });
+    return response.data;
+  },
+  create: async (payload: {
+    subject: string; description?: string; priority?: string;
+    related_to?: string; related_ref?: string; due_at?: string;
+  }) => {
+    const response = await api.post('/support/tickets', payload);
+    return response.data;
+  },
+  /** One ticket: {ticket, messages, files}. */
+  get: async (id: string) => {
+    const response = await api.get(`/support/tickets/${encodeURIComponent(id)}`);
+    return response.data;
+  },
+  reply: async (id: string, body: string) => {
+    const response = await api.post(`/support/tickets/${encodeURIComponent(id)}/messages`, { body });
+    return response.data;
+  },
+  /**
+   * Files for a ticket in ONE multipart request (at most 5, 50 MB each): `file` for any file,
+   * `audio` for a voice note, `screenshot` for a screen capture. `messageId` puts them under a reply.
+   */
+  uploadFiles: async (id: string, parts: Array<{ field: 'file' | 'audio' | 'screenshot'; blob: Blob; name: string }>, messageId?: string) => {
+    const form = new FormData();
+    for (const p of parts) form.append(p.field, p.blob, p.name);
+    const response = await api.post(`/support/tickets/${encodeURIComponent(id)}/files`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' }, timeout: 600000,
+      ...(messageId ? { params: { message_id: messageId } } : {}),
+    });
+    return response.data;
+  },
+  /** A short signed link to one file: {url, expires_in}. */
+  fileUrl: async (id: string, fileId: string) => {
+    const response = await api.get(`/support/tickets/${encodeURIComponent(id)}/files/${encodeURIComponent(fileId)}/url`);
+    return response.data;
+  },
+  close: async (id: string) => {
+    const response = await api.post(`/support/tickets/${encodeURIComponent(id)}/close`);
+    return response.data;
+  },
 };
 
 // ─── B2B API ──────────────────────────────────────────────────────────────────

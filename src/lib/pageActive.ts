@@ -55,3 +55,30 @@ export function claimBackgroundTurn(key: string, ms: number): boolean {
   stampTurn(key);
   return true;
 }
+
+/**
+ * Calls `fn` when the person comes back to this tab or window, never on a timer
+ * and never while the tab is hidden. A return fires both `focus` and
+ * `visibilitychange`, and people switch windows many times a minute, so it runs
+ * at most once every `minMs` (TICKETS-1: a ticket list and thread stay current
+ * without polling).
+ */
+export function useRefetchOnReturn(fn: () => void, minMs = 30_000, enabled = true): void {
+  const fnRef = useRef(fn);
+  fnRef.current = fn;
+  useEffect(() => {
+    if (!enabled) return undefined;
+    let last = Date.now();
+    const back = () => {
+      if (!pageVisible() || Date.now() - last < minMs) return;
+      last = Date.now();
+      fnRef.current();
+    };
+    window.addEventListener('focus', back);
+    document.addEventListener('visibilitychange', back);
+    return () => {
+      window.removeEventListener('focus', back);
+      document.removeEventListener('visibilitychange', back);
+    };
+  }, [minMs, enabled]);
+}
