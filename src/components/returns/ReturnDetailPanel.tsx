@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   X, Loader2, PackageCheck, CheckCircle2, XCircle, ExternalLink, Clock,
   ShieldAlert, Receipt, RotateCcw, Trash2, Recycle, Truck, Undo2, Ban, IndianRupee,
 } from 'lucide-react';
-import { api } from '../../services/api';
+import { api, shippingAPI } from '../../services/api';
 import { payload } from '@/lib/unwrap';
 import { inrMinor, Chip } from '../../components/erp';
 import { formatDate, formatDateTime } from '../../utils/date';
@@ -61,10 +61,26 @@ const ReturnDetailPanel: React.FC<Props> = ({
   const [showReceive, setShowReceive] = useState(false);
   const [showSettle, setShowSettle] = useState(false);
   const [pickupOpen, setPickupOpen] = useState(false);
-  /** `courierId`: the Shiprocket courier the desk chose from the offers; null = the cheapest (or Shiprocket's pick). */
+  /** `courierId`: the Shiprocket courier the desk chose from the offers; null = the cheapest (or Shiprocket's pick).
+   *  `courierCode`: the Growcord Ship offer chosen (its text id); null = the cheapest (GS-RETURNS). */
   const [pickup, setPickup] = useState<{
     courierName: string; awb: string; mode: string; provider: string; qc: boolean; courierId: number | null;
-  }>({ courierName: '', awb: '', mode: '', provider: 'shiprocket', qc: false, courierId: null });
+    courierCode: string | null;
+  }>({ courierName: '', awb: '', mode: '', provider: 'shiprocket', qc: false, courierId: null, courierCode: null });
+  /** Growcord Ship is switched on for the store (GET /shipping/providers lists it), asked when the booking form opens:
+   *  only then is "Book with Growcord Ship" offered (GS-RETURNS). */
+  const [gsEnabled, setGsEnabled] = useState(false);
+  useEffect(() => {
+    if (!pickupOpen) return undefined;
+    let live = true;
+    shippingAPI.getProviders()
+      .then((r: any) => {
+        const list: any[] = Array.isArray(r) ? r : Array.isArray(r?.data) ? r.data : Array.isArray(r?.data?.data) ? r.data.data : [];
+        if (live) setGsEnabled(list.some((p) => p?.id === 'growcord_ship'));
+      })
+      .catch(() => { if (live) setGsEnabled(false); });
+    return () => { live = false; };
+  }, [pickupOpen]);
   /** The courier chosen before Get AWB; null = the cheapest. */
   const [awbCourier, setAwbCourier] = useState<number | null>(null);
   /** How many units of each line the next decision applies to. Received goods
@@ -154,7 +170,7 @@ const ReturnDetailPanel: React.FC<Props> = ({
    *  a customer sending it themselves is recorded with their courier and AWB. Either can be changed in the form. */
   const openPickup = () => {
     setPickup({
-      courierName: '', awb: '', qc: false, courierId: null,
+      courierName: '', awb: '', qc: false, courierId: null, courierCode: null,
       provider: byCourier ? 'shiprocket' : 'manual',
       mode: byCourier ? '' : String(doc?.return_mode ?? ''),
     });
@@ -164,20 +180,23 @@ const ReturnDetailPanel: React.FC<Props> = ({
   const bookPickup = async () => {
     setBusy('pickup'); setError('');
     try {
+      // Shiprocket and Growcord Ship book a courier; anything else records the store's own arrangement.
+      const byCarrier = pickup.provider === 'shiprocket' || pickup.provider === 'growcord_ship';
       const res = await api.post(`/returns/${doc.id}/pickup`, {
         provider: pickup.provider,
         // Shiprocket collects from the customer — the other modes are records
         // of an arrangement the store made off-system.
-        mode: pickup.provider === 'shiprocket' ? 'pickup' : (pickup.mode || doc.return_mode || 'pickup'),
+        mode: byCarrier ? 'pickup' : (pickup.mode || doc.return_mode || 'pickup'),
         courierName: pickup.courierName.trim() || undefined,
         awb: pickup.awb.trim() || undefined,
         qualityCheck: pickup.provider === 'shiprocket' ? pickup.qc : undefined,
         courierId: pickup.provider === 'shiprocket' ? (pickup.courierId ?? undefined) : undefined,
+        courierCode: pickup.provider === 'growcord_ship' ? (pickup.courierCode ?? undefined) : undefined,
       });
       // A step reply: its `message` says when the AWB or the pickup request still needs Get AWB.
       const out = stepResult(payload<any>(res));
       setPickupOpen(false);
-      setPickup({ courierName: '', awb: '', mode: '', provider: 'shiprocket', qc: false, courierId: null });
+      setPickup({ courierName: '', awb: '', mode: '', provider: 'shiprocket', qc: false, courierId: null, courierCode: null });
       setFlash(out?.message ?? `Collection booked (attempt ${out?.attemptNo ?? 1}).`);
       await refresh();
     } catch (e: any) {
@@ -350,7 +369,9 @@ const ReturnDetailPanel: React.FC<Props> = ({
                       : stage === 'decide_booked'
                         ? 'This collection was booked before the return was approved. Approve the return to carry on with it.'
                         : stage === 'collecting'
-                          ? 'A collection is booked. It appears on the shipments board like any other shipment.'
+                          ? (current?.shipping_provider === 'growcord_ship'
+                              ? 'A collection is booked with Growcord Ship. It appears on the shipments board like any other shipment; cancel it there if it is no longer needed, and Growcord Ship tells the courier and refunds your wallet.'
+                              : 'A collection is booked. It appears on the shipments board like any other shipment.')
                           : stage === 'arrange'
                             ? (collection === 'delivered'
                                 ? 'The courier reports the parcel delivered to the warehouse. Book the goods in below.'
@@ -415,10 +436,31 @@ const ReturnDetailPanel: React.FC<Props> = ({
                           onChange={(e) => setPickup((p) => ({ ...p, provider: e.target.value }))}
                           className="sm:col-span-3 rounded-md border border-border bg-background px-2 py-1.5 text-sm">
                     <option value="shiprocket">Book with Shiprocket — they collect from the customer</option>
+                    {/* GS-RETURNS: offered only where the store has Growcord Ship switched on. */}
+                    {(gsEnabled || pickup.provider === 'growcord_ship') && (
+                      <option value="growcord_ship">Book with Growcord Ship: its courier collects from the customer</option>
+                    )}
                     <option value="manual">Record it myself (no courier is called)</option>
                   </select>
 
-                  {pickup.provider === 'shiprocket' ? (
+                  {pickup.provider === 'growcord_ship' ? (
+                    <>
+                      {/* The courier offers of Growcord Ship's couriers that collect returns, cheapest first, at what
+                          Growcord Ship charges the store. No doorstep check is booked through Growcord Ship. */}
+                      <div className="sm:col-span-3">
+                        <ReturnCourierPicker returnId={doc.id} provider="growcord_ship" disabled={busy === 'pickup'}
+                                             onChange={() => undefined}
+                                             onOffer={(courierCode) => setPickup((p) => ({ ...p, courierCode }))} />
+                      </div>
+                      <p className="sm:col-span-3 text-xs text-muted-foreground">
+                        Growcord Ship books its courier to collect from the address on the order and deliver to your
+                        warehouse. The AWB comes back here at once and the collection appears on the shipments board,
+                        where you can cancel it while the courier has not picked it up. The charge is taken from your
+                        wallet like any Growcord Ship parcel. Nothing is added to stock until the goods arrive and you
+                        book them in.
+                      </p>
+                    </>
+                  ) : pickup.provider === 'shiprocket' ? (
                     <>
                       <label className="sm:col-span-3 flex items-start gap-2 text-xs text-muted-foreground">
                         <input type="checkbox" checked={pickup.qc}
@@ -466,7 +508,9 @@ const ReturnDetailPanel: React.FC<Props> = ({
                             className="px-3 py-1.5 text-sm rounded-md bg-primary text-primary-foreground font-medium
                                        hover:bg-primary/90 disabled:opacity-50 inline-flex items-center gap-2">
                       {busy === 'pickup' && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                      {pickup.provider === 'shiprocket' ? 'Book with Shiprocket' : 'Record collection'}
+                      {pickup.provider === 'shiprocket'
+                        ? 'Book with Shiprocket'
+                        : pickup.provider === 'growcord_ship' ? 'Book with Growcord Ship' : 'Record collection'}
                     </button>
                     <button onClick={() => setPickupOpen(false)}
                             className="px-3 py-1.5 text-sm rounded-md border border-border hover:bg-muted">

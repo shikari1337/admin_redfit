@@ -30,6 +30,8 @@ export interface ReturnPickupView {
   carrier_shipment_id?: string | null;
   awb_error?: string | null;
   can_get_awb?: boolean;
+  /** The courier's own label, when it gave one with the booking (a Growcord Ship collection, GS-RETURNS). */
+  label_url?: string | null;
   /** How the AWB's courier was chosen (Ship SHIP-CHEAPEST `provider_data.courier_choice`): `cheapest` (with the
    *  courier, its rate in rupees and days), `chosen` by the desk, or `shiprocket_default` with the reason. */
   courier_choice?: {
@@ -125,6 +127,7 @@ const ReturnPickup: React.FC<Props> = ({ pickup, earlier = [], foldTimeline = fa
         </Fact>
         <Fact label="Booked">{pickup.created_at ? formatDateTime(pickup.created_at) : <span className="text-muted-foreground font-normal">Not known</span>}</Fact>
         {choice && <Fact label="Courier choice">{choice}</Fact>}
+        {pickup.label_url && <Fact label="Label"><TrackingLink url={pickup.label_url}>Open the courier&apos;s label</TrackingLink></Fact>}
       </dl>
       {action && <div className="pt-1">{action}</div>}
       {pickup.awb_error && (
@@ -188,12 +191,13 @@ export const collectionState = (p?: ReturnPickupView | null): CollectionState | 
   return 'live';
 };
 
-/** One courier offer of a return collection (`GET /returns/{id}/pickup/couriers`, Ship SHIP-CHEAPEST). */
+/** One courier offer of a return collection (`GET /returns/{id}/pickup/couriers`, Ship SHIP-CHEAPEST). Shiprocket names
+ *  its couriers by number; a Growcord Ship offer is named by a text id (GS-RETURNS). */
 export interface CourierOffer {
-  courier_company_id: number;
+  courier_company_id: number | string;
   courier_name?: string | null;
   courier_code?: string | null;
-  /** Rupees, as Shiprocket quoted it. */
+  /** Rupees: as Shiprocket quoted it, or what Growcord Ship charges the store, tax included. */
   rate?: number | string | null;
   delivery_days?: number | string | null;
   etd?: string | null;
@@ -207,7 +211,7 @@ interface CourierOffers {
   weight_kg?: string | number | null;
   quality_check?: boolean;
   offers?: CourierOffer[];
-  default_choice?: { mode?: string | null; courier_company_id?: number | null; reason?: string | null } | null;
+  default_choice?: { mode?: string | null; courier_company_id?: number | string | null; reason?: string | null } | null;
   error?: string | null;
 }
 
@@ -224,28 +228,37 @@ const offerWords = (o: CourierOffer): string =>
  * the cheapest offer, or for a doorstep-check return Shiprocket's own pick (the rates do not say which courier
  * checks). Choosing it hands up `null`, so the server records its own choice with the rate; any other offer hands
  * up its `courier_company_id`. When no offer can be read the picker says so and the booking still works.
+ * With `provider` `growcord_ship` (GS-RETURNS) it lists Growcord Ship's offers instead, at what Growcord Ship charges
+ * the store, and hands a chosen offer's text id up through `onOffer`; without an offer a Growcord Ship booking is
+ * refused, and the picker says so.
  */
 export const ReturnCourierPicker: React.FC<{
   returnId: string;
   qualityCheck?: boolean;
   disabled?: boolean;
+  /** Whose offers: Shiprocket's (the default), or Growcord Ship's for a Growcord Ship booking. */
+  provider?: 'shiprocket' | 'growcord_ship';
   onChange: (courierId: number | null) => void;
-}> = ({ returnId, qualityCheck = false, disabled = false, onChange }) => {
+  /** The Growcord Ship offer chosen (its text id); null = the cheapest. */
+  onOffer?: (offerId: string | null) => void;
+}> = ({ returnId, qualityCheck = false, disabled = false, provider = 'shiprocket', onChange, onOffer }) => {
   const [data, setData] = useState<CourierOffers | null>(null);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState('');
   const [picked, setPicked] = useState('');
+  const gs = provider === 'growcord_ship';
+  const carrier = gs ? 'Growcord Ship' : 'Shiprocket';
 
   useEffect(() => {
     let live = true;
-    setLoading(true); setFailed(''); setData(null); setPicked(''); onChange(null);
-    api.get(`/returns/${returnId}/pickup/couriers`, { params: { qualityCheck } })
+    setLoading(true); setFailed(''); setData(null); setPicked(''); onChange(null); onOffer?.(null);
+    api.get(`/returns/${returnId}/pickup/couriers`, { params: gs ? { qualityCheck, provider } : { qualityCheck } })
       .then((r) => { if (live) setData(payload<CourierOffers>(r)); })
       .catch((e: any) => { if (live) setFailed(e?.response?.data?.message || 'The courier offers could not be read.'); })
       .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [returnId, qualityCheck]);
+  }, [returnId, qualityCheck, provider]);
 
   const offers: CourierOffer[] = Array.isArray(data?.offers) ? data!.offers! : [];
   const byDefault = data?.default_choice?.mode === 'cheapest' ? data.default_choice.courier_company_id ?? null : null;
@@ -255,16 +268,18 @@ export const ReturnCourierPicker: React.FC<{
   if (loading) {
     return (
       <p className="text-xs text-muted-foreground inline-flex items-center gap-1.5">
-        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Reading Shiprocket&apos;s courier offers
+        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Reading {carrier}&apos;s courier offers
       </p>
     );
   }
-  const reason = failed || data?.error || (data && offers.length === 0 ? 'Shiprocket offered no courier.' : '');
+  const reason = failed || data?.error || (data && offers.length === 0 ? `${carrier} offered no courier.` : '');
   if (reason) {
     return (
       <p className="text-xs text-muted-foreground">
-        No courier offers to choose from: {/[.!?]$/.test(reason.trim()) ? reason.trim() : `${reason.trim()}.`} You can
-        go ahead without choosing; Shiprocket then picks the courier.
+        No courier offers to choose from: {/[.!?]$/.test(reason.trim()) ? reason.trim() : `${reason.trim()}.`}{' '}
+        {gs
+          ? 'Growcord Ship cannot book this collection until a courier offers it. Record the collection yourself, or try again later.'
+          : 'You can go ahead without choosing; Shiprocket then picks the courier.'}
       </p>
     );
   }
@@ -276,12 +291,16 @@ export const ReturnCourierPicker: React.FC<{
               onChange={(e) => {
                 const v = e.target.value;
                 setPicked(v);
-                onChange(v === '' || (byDefault != null && v === String(byDefault)) ? null : Number(v));
+                const none = v === '' || (byDefault != null && v === String(byDefault));
+                if (gs) onOffer?.(none ? null : v);
+                else onChange(none ? null : Number(v));
               }}
               className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm">
         {byDefault == null && (
           <option value="">
-            Shiprocket&apos;s pick{data.default_choice?.reason ? ` (${data.default_choice.reason})` : ''}
+            {gs
+              ? 'The cheapest offer'
+              : `Shiprocket's pick${data.default_choice?.reason ? ` (${data.default_choice.reason})` : ''}`}
           </option>
         )}
         {offers.map((o) => (
@@ -291,7 +310,8 @@ export const ReturnCourierPicker: React.FC<{
       {data.pickup_pincode && data.delivery_pincode && (
         <span className="block text-xs text-muted-foreground">
           Rates from PIN {data.pickup_pincode} to PIN {data.delivery_pincode}
-          {data.weight_kg ? ` for ${data.weight_kg} kg` : ''}, as Shiprocket quoted them.
+          {data.weight_kg ? ` for ${data.weight_kg} kg` : ''}
+          {gs ? ': what Growcord Ship charges you, tax included.' : ', as Shiprocket quoted them.'}
         </span>
       )}
     </label>
