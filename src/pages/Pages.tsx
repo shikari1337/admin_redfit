@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { FaPlus, FaEdit, FaTrash, FaEye, FaMagic } from 'react-icons/fa';
 import api, { pagesAPI } from '../services/api';
 import { useStoreSiteUrl, cmsPageUrl } from '../lib/storefront';
+import { useLiveTheme, themeEditorUrl } from '../components/themeEditor/useLiveTheme';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { useAuth } from '../contexts/AuthContext';
 import { Card, CardContent } from '@/components/ui/card';
@@ -55,6 +56,10 @@ const Pages: React.FC = () => {
   const canManagePages = hasPerm('content.manage');
   const canDeletePages = hasPerm('content.delete');
   const siteUrl = useStoreSiteUrl();
+  // On a theme store the theme draws the website: the home page is edited in the theme editor and a page shows its Website text.
+  const theme = useLiveTheme();
+  const isHome = (p: Page) => p.slug === 'home' || p.pageType === 'homepage';
+  const textWords = (p: any) => String(p?.custom_html || '').replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length;
   const [pages, setPages] = useState<Page[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -185,6 +190,18 @@ const Pages: React.FC = () => {
         )}
       </div>
 
+      {theme.id && (
+        <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-900 flex flex-col sm:flex-row sm:items-center gap-2 sm:justify-between">
+          <span>
+            Your website runs on the theme <span className="font-semibold">{theme.name || 'in Themes'}</span>. The home page and the look of every page are edited in the theme editor.
+            {' '}Each page's own text is its <span className="font-semibold">Website text</span> (Edit).
+          </span>
+          <Button asChild size="sm" className="bg-indigo-600 hover:bg-indigo-700 text-white shrink-0">
+            <Link to={themeEditorUrl(theme.id, 'index')}>Edit home page in theme editor</Link>
+          </Button>
+        </div>
+      )}
+
       {drafts.length > 0 && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           <span className="font-semibold">{drafts.length} {drafts.length === 1 ? 'page is a draft' : 'pages are drafts'}</span>
@@ -223,7 +240,7 @@ const Pages: React.FC = () => {
                     <TableHead>Slug</TableHead>
                     <TableHead>Type</TableHead>
                     <TableHead>Template</TableHead>
-                    <TableHead>Blocks</TableHead>
+                    <TableHead>{theme.id ? 'Content' : 'Blocks'}</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -250,7 +267,9 @@ const Pages: React.FC = () => {
                       </TableCell>
                       <TableCell>
                         <div className="text-sm text-muted-foreground">
-                          {(Array.isArray(page.contentBlocks) ? page.contentBlocks : []).filter((b: any) => b?.enabled !== false).length} blocks
+                          {theme.id
+                            ? (isHome(page) ? 'Theme home page' : (textWords(page) ? `Website text, ${textWords(page)} words` : 'No website text yet'))
+                            : `${(Array.isArray(page.contentBlocks) ? page.contentBlocks : []).filter((b: any) => b?.enabled !== false).length} blocks`}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -292,9 +311,9 @@ const Pages: React.FC = () => {
                               size="icon"
                               asChild
                               className="h-8 w-8 text-muted-foreground hover:text-primary"
-                              title="Edit"
+                              title={theme.id && isHome(page) ? 'Edit in the theme editor' : 'Edit'}
                             >
-                              <Link to={`/pages/${getPageId(page)}/edit`}>
+                              <Link to={theme.id && isHome(page) ? themeEditorUrl(theme.id, 'index') : `/pages/${getPageId(page)}/edit`}>
                                 <FaEdit className="h-4 w-4" />
                               </Link>
                             </Button>
@@ -303,7 +322,7 @@ const Pages: React.FC = () => {
                               variant="ghost"
                               size="icon"
                               className="h-8 w-8 text-muted-foreground hover:text-violet-600"
-                              title="Visual Builder (drag & drop)"
+                              title={theme.id ? 'Visual Builder (its layout shows on the Growcord storefront, not on this theme website)' : 'Visual Builder (drag & drop)'}
                             >
                               <Link to={`/pages/${getPageId(page)}/builder`}>
                                 <FaMagic className="h-4 w-4" />

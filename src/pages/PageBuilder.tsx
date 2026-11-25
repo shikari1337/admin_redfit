@@ -24,6 +24,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useStoreSiteUrl, cmsPageUrl } from '../lib/storefront';
 import { Link, useParams } from 'react-router-dom';
+import { useLiveTheme, themeEditorUrl } from '../components/themeEditor/useLiveTheme';
 import grapesjs from 'grapesjs';
 import type { Editor } from 'grapesjs';
 import 'grapesjs/dist/css/grapes.min.css';
@@ -80,6 +81,7 @@ type Device = 'desktop' | 'tablet' | 'mobile';
 const PageBuilder: React.FC = () => {
   /** This store's own website — from the server, per store (lib/storefront.ts). */
   const siteUrl = useStoreSiteUrl();
+  const theme = useLiveTheme();
   const { id } = useParams<{ id: string }>();
   // The SERP preview shows the real "… | StoreName" suffix, so it needs the
   // store's actual name — already resolved by StoreContext, no extra fetch.
@@ -456,6 +458,15 @@ const PageBuilder: React.FC = () => {
           Save
         </button>
       </div>
+
+      {/* A theme website draws this page itself: the canvas layout below does not reach it. Say so, and where to go. */}
+      {theme.id && (
+        <div className="shrink-0 bg-amber-50 text-amber-900 text-[12px] px-4 py-2 flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-amber-200">
+          <span>This store's website runs on the theme {theme.name || 'in Themes'}. The layout made here shows on the Growcord storefront only; the theme website shows this page's Website text.</span>
+          <Link to={`/pages/${id}/edit`} className="font-semibold underline">Edit the Website text</Link>
+          <Link to={themeEditorUrl(theme.id, 'page')} className="font-semibold underline">Open the theme editor</Link>
+        </div>
+      )}
 
       {/* Sidebar + canvas */}
       <div className="pb-shell flex-1 min-h-0 flex">

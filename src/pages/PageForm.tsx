@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { Link, useParams, useNavigate } from 'react-router-dom';
 import { FaArrowLeft, FaSave, FaPlus, FaTrash, FaArrowUp, FaArrowDown, FaEye, FaEyeSlash } from 'react-icons/fa';
 import { pagesAPI } from '../services/api';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -12,6 +12,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from '@/hooks/use-toast';
 import { StoreFiguresHint } from '../components/common/StoreFiguresHint';
+import RichTextEditor from '../components/common/RichTextEditor';
+import { useLiveTheme, themeEditorUrl } from '../components/themeEditor/useLiveTheme';
 
 /** A message that used to be a blocking alert() — now a toast (the shell mounts the Toaster). */
 const notify = (message: string) =>
@@ -44,6 +46,8 @@ interface Page {
   isVisible: boolean;
   contentBlocks: ContentBlock[];
   seo?: any;
+  /** The page text a theme website shows (v2 `custom_html`). */
+  customHtml?: string;
 }
 
 const PageForm: React.FC = () => {
@@ -53,6 +57,9 @@ const PageForm: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [templates, setTemplates] = useState<PageTemplate[]>([]);
   const [blockTypes, setBlockTypes] = useState<string[]>([]);
+  // On a theme store the website shows a page's Website text (custom_html), and the home page is the theme's own.
+  const theme = useLiveTheme();
+  const [textMode, setTextMode] = useState<'visual' | 'html'>('visual');
   
   const [formData, setFormData] = useState<Page>({
     title: '',
@@ -129,6 +136,7 @@ const PageForm: React.FC = () => {
       setFormData({
         ...pageData,
         contentBlocks: blocks,
+        customHtml: pageData.customHtml ?? pageData.custom_html ?? '',
         pageType: pageData.pageType ?? pageData.type ?? 'custom',
         template: pageData.template ?? pageData.template_id ?? 'default',
         isActive: pageData.isActive ?? pageData.is_active ?? true,
@@ -493,11 +501,52 @@ const PageForm: React.FC = () => {
           </CardContent>
         </Card>
 
+        {theme.id && isHomePage && (
+          <Card className="border-indigo-200 bg-indigo-50/60">
+            <CardContent className="py-4 text-sm text-indigo-900 flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
+              <span>Your website runs on the theme <span className="font-semibold">{theme.name || 'in Themes'}</span>, so the home page shoppers see is the theme's home page. Its sections, pictures and words are edited in the theme editor. The blocks below are not shown on the theme website.</span>
+              <Button asChild type="button" className="bg-indigo-600 hover:bg-indigo-700 text-white shrink-0">
+                <Link to={themeEditorUrl(theme.id, 'index')}>Open the theme editor</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {theme.id && !isHomePage && (
+          <Card className="border-indigo-200">
+            <CardHeader className="flex flex-row items-center justify-between gap-3">
+              <div>
+                <CardTitle>Website text</CardTitle>
+                <p className="text-sm text-muted-foreground mt-1 mb-0">
+                  What shoppers read on /pages/{formData.slug || 'this-page'}. The header, footer and colours around it come from the theme ({theme.name || 'Themes'}).
+                </p>
+              </div>
+              <div className="inline-flex rounded-md border border-input overflow-hidden shrink-0" role="group" aria-label="Editor mode">
+                {(['visual', 'html'] as const).map((m) => (
+                  <button key={m} type="button" onClick={() => setTextMode(m)}
+                    className={`px-3 py-1.5 text-xs font-semibold ${textMode === m ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+                    {m === 'visual' ? 'Visual' : 'HTML'}
+                  </button>
+                ))}
+              </div>
+            </CardHeader>
+            <CardContent>
+              {textMode === 'visual' ? (
+                <RichTextEditor value={formData.customHtml || ''} onChange={(html) => setFormData((f) => ({ ...f, customHtml: html }))} minHeight={260} placeholder="Write the page text here" />
+              ) : (
+                <Textarea value={formData.customHtml || ''} onChange={(e) => setFormData((f) => ({ ...f, customHtml: e.target.value }))} rows={14} className="font-mono text-xs" spellCheck={false} />
+              )}
+              <p className="text-xs text-muted-foreground mt-2 mb-0">Tables, headings, lists and links are kept. Scripts and styles are removed when the page is saved.</p>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Content Blocks */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
               <CardTitle>Content Blocks</CardTitle>
+              {theme.id && <p className="text-xs text-amber-700 mt-1 mb-0 max-w-xl">Blocks show on the Growcord storefront. This store's theme website shows the Website text above instead.</p>}
               <StoreFiguresHint className="mt-1 max-w-xl" />
             </div>
             <div className="flex items-center gap-3">
