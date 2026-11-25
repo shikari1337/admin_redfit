@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Calendar, ClipboardList, Download, FileText, RotateCcw, Phone, Undo2, Eye } from 'lucide-react';
+import { Calendar, ClipboardList, Download, FileText, Eye } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import {
   Table,
   TableBody,
@@ -29,9 +30,11 @@ import StatusBadge, { getStatusLabel } from '@/components/order/StatusBadge';
 import { fmtRupees } from '@/lib/money';
 import { formatDate, formatPickupWhen } from '../../utils/date';
 import {
-  chargeBasisText, chargeLine, hasCarrierDocuments, isTerminal, nextStatuses, nextStep, providerLabel, providerOf,
-  shipmentAwb, shipmentCharge, shipmentCod, shipmentCourier,
+  type NdrAction, chargeBasisText, chargeLine, courierUpdate, customerAnswerLine, hasCarrierDocuments, isTerminal,
+  ndrActionsFor, ndrCustomerAnswerOf, ndrDetailsOf, needsNdrAnswer, nextStatuses, nextStep, providerLabel, providerOf,
+  shipmentAwb, shipmentCharge, shipmentCod, shipmentCourier, shipmentTags,
 } from './shipmentFacts';
+import { NdrActionButtons } from './NdrActions';
 
 interface Shipment {
   _id: string;
@@ -77,9 +80,11 @@ interface ShipmentTableProps {
   onDownloadLabel?: (shipmentId: string, size?: '4R' | 'A4') => void;
   onDownloadManifest?: (shipmentId: string) => void;
   onDownloadPickupReceipt?: (shipmentId: string) => void;
-  onNdrReattempt?: (shipmentId: string) => void;
-  onNdrUpdatePhone?: (shipmentId: string, phone: string) => void;
-  onNdrRequestRto?: (shipmentId: string) => void;
+  /**
+   * A failed delivery's answer (re-attempt, another day, new phone, new address, return): the page opens the form
+   * for it. Only the answers the carrier takes are offered (ndrActionsFor).
+   */
+  onNdrAction?: (shipment: Shipment, action: NdrAction) => void;
   onViewDetails?: (shipmentId: string) => void;
   /** The store's carrier names by code (GET /shipping/providers); a code not in it is spelled out. */
   providerNames?: Record<string, string>;
@@ -96,9 +101,7 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
   onDownloadLabel,
   onDownloadManifest,
   onDownloadPickupReceipt,
-  onNdrReattempt,
-  onNdrUpdatePhone,
-  onNdrRequestRto,
+  onNdrAction,
   onViewDetails,
   providerNames,
 }) => {
@@ -162,6 +165,13 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
               const step = nextStep(shipment);
               const warehouse = typeof shipment.warehouseId === 'object' ? shipment.warehouseId?.name : null;
               const docs = hasCarrierDocuments(shipment);
+              const tags = shipmentTags(shipment);
+              const said = courierUpdate(shipment);
+              const ndr = ndrDetailsOf(shipment);
+              const answer = ndrCustomerAnswerOf(shipment);
+              const failed = shipment.status === 'ndr_failed_delivery';
+              // A failed delivery leads with its answers; a courier that takes none online says so.
+              const ndrActs = failed && onNdrAction ? ndrActionsFor(shipment) : [];
               return (
                 <TableRow key={shipment._id}>
                   <TableCell className="font-medium">
@@ -176,6 +186,13 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
                       <span>{shipment.shipmentNumber}</span>
                     </div>
                     {warehouse && <div className="text-xs text-muted-foreground mt-0.5">from {warehouse}</div>}
+                    {tags.length > 0 && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {tags.map((t) => (
+                          <Badge key={t.key} variant={t.tone} className="px-1.5 py-0 text-[10px] font-medium" title={t.title}>{t.label}</Badge>
+                        ))}
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell>
                     {Array.isArray(shipment.orders) && shipment.orders.length > 0 ? (
@@ -213,13 +230,28 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
                   </TableCell>
                   <TableCell>
                     <StatusBadge status={shipment.status} type="shipment" />
-                    {shipment.status === 'ndr_failed_delivery' && shipment.ndrDetails && (
-                      <div className="text-xs text-muted-foreground mt-1 max-w-[180px]">
-                        {shipment.ndrDetails.reason || 'Reason not given'}
-                        {shipment.ndrDetails.attempts != null && `, attempt ${shipment.ndrDetails.attempts}`}
+                    {failed && ndr && (
+                      <div className="text-xs text-muted-foreground mt-1 max-w-[200px]">
+                        {ndr.reason || 'Reason not given'}
+                        {ndr.attempts != null && `, attempt ${ndr.attempts}`}
                       </div>
                     )}
-                    {step && <div className="text-xs text-amber-700 mt-1 max-w-[180px]">Next: {step}</div>}
+                    {failed && answer && (
+                      <div className="text-xs text-blue-800 mt-1 max-w-[200px]" title={answer.at ? `Answered ${safeFormatDate(answer.at, 'dd MMM yyyy, HH:mm')}` : undefined}>
+                        Customer: {customerAnswerLine(answer)}
+                      </div>
+                    )}
+                    {/* The courier's own latest words, and when; the badge above is the board's reading of them. */}
+                    {said && (
+                      <div className="text-xs text-slate-600 mt-1 max-w-[200px] line-clamp-2" title={said.words}>
+                        Courier: {said.words}
+                        {said.at && safeFormatDate(said.at, 'dd MMM, HH:mm') && (
+                          <span className="text-muted-foreground">, {safeFormatDate(said.at, 'dd MMM, HH:mm')}</span>
+                        )}
+                      </div>
+                    )}
+                    {failed && !needsNdrAnswer(shipment) && <div className="text-xs text-green-700 mt-1">Answered</div>}
+                    {step && <div className="text-xs text-amber-700 mt-1 max-w-[200px]">Next: {step}</div>}
                   </TableCell>
                   <TableCell className="text-right text-sm tabular-nums">
                     {cod !== null ? fmtRupees(cod) : <span className="text-muted-foreground">Prepaid</span>}
@@ -275,6 +307,13 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
                     )}
                   </TableCell>
                   <TableCell className="text-right">
+                    {/* Failed delivery: the courier's NDR answers come first (a manual parcel has none; its carrier is called directly). */}
+                    {ndrActs.length > 0 && (
+                      <NdrActionButtons shipment={shipment} onPick={(a) => onNdrAction?.(shipment, a)} className="mb-1.5 justify-end max-w-[280px] ml-auto" />
+                    )}
+                    {failed && onNdrAction && !manual && ndrActs.length === 0 && (
+                      <div className="mb-1.5 text-xs text-muted-foreground">This courier takes no answers online: call the courier.</div>
+                    )}
                     <div className="flex items-center justify-end gap-2 flex-wrap">
                       {onViewDetails && (
                         <Button
@@ -341,47 +380,6 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
                           title="Download pickup receipt (PDF)"
                         >
                           <Download className="h-4 w-4" />
-                        </Button>
-                      )}
-                      {/* Failed delivery: the courier's NDR flow (a manual parcel has none; its carrier is called directly). */}
-                      {shipment.status === 'ndr_failed_delivery' && !manual && onNdrReattempt && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => onNdrReattempt(shipment._id)}
-                          className="text-orange-600 hover:text-orange-700 hover:bg-orange-50"
-                          title="Re-attempt delivery"
-                        >
-                          <RotateCcw className="h-4 w-4" />
-                        </Button>
-                      )}
-                      {shipment.status === 'ndr_failed_delivery' && !manual && onNdrUpdatePhone && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => {
-                            const phone = prompt('The phone number the courier should call for delivery:');
-                            if (phone) onNdrUpdatePhone(shipment._id, phone);
-                          }}
-                          className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
-                          title="Update the delivery phone number"
-                        >
-                          <Phone className="h-4 w-4" />
-                        </Button>
-                      )}
-                      {shipment.status === 'ndr_failed_delivery' && !manual && onNdrRequestRto && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => {
-                            if (confirm('Send this parcel back? The courier stops trying to deliver it and returns it to you.')) {
-                              onNdrRequestRto(shipment._id);
-                            }
-                          }}
-                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                          title="Stop delivery and return the parcel"
-                        >
-                          <Undo2 className="h-4 w-4" />
                         </Button>
                       )}
                       {moves.length > 0 && (

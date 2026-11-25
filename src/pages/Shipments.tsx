@@ -7,11 +7,11 @@ import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { api, shipmentsAPI, warehousesAPI, shippingAPI, errorText } from '../services/api';
 import { FaSync, FaSpinner, FaLink } from 'react-icons/fa';
-import { ShipmentTabs, ShipmentFilters, ShipmentTable, PendingOrdersTable, PickupModal, BulkActionsBar, ReconcileModal, ShipmentDetailDrawer, ActNow } from '../components/shipments';
-import type { TabType, StatusCounts, ReconcileResultData } from '../components/shipments';
+import { ShipmentTabs, ShipmentFilters, ShipmentTable, PendingOrdersTable, PickupModal, BulkActionsBar, ReconcileModal, ShipmentDetailDrawer, ActNow, NdrActionDialog } from '../components/shipments';
+import type { TabType, StatusCounts, ReconcileResultData, NdrTarget } from '../components/shipments';
 import ShipmentCreationModal, { type ShipProviderId } from '../components/order/ShipmentCreationModal';
 import { getStatusLabel } from '../components/order/StatusBadge';
-import { isTerminal, providerLabel, providerOf } from '../components/shipments/shipmentFacts';
+import { isTerminal, providerLabel, providerOf, shipmentMatches } from '../components/shipments/shipmentFacts';
 import { fmtRupees } from '@/lib/money';
 
 const Shipments: React.FC = () => {
@@ -68,11 +68,29 @@ const Shipments: React.FC = () => {
   // The shipping charges of every shipment the tab and filters match (the board's own sum, not this page's).
   const [chargeTotals, setChargeTotals] = useState<{ total: number | null; counted: number; unknown: number } | null>(null);
   const [openingOrder, setOpeningOrder] = useState<string | null>(null);
+  // A failed delivery's answer picked on a row (the dialog asks what it needs and says whether the courier was told).
+  const [ndrTarget, setNdrTarget] = useState<NdrTarget | null>(null);
+  // The search box: what is typed, and what was applied after a short pause (sent to the board as `q`).
+  const [searchText, setSearchText] = useState('');
+  const [query, setQuery] = useState('');
+  // True when the server refused `q` (a backend without board search): the loaded page is searched instead.
+  const [searchLocal, setSearchLocal] = useState(false);
 
   useEffect(() => {
     fetchWarehouses();
     fetchProviders();
   }, []);
+
+  useEffect(() => {
+    const next = searchText.trim();
+    if (next === query) return;
+    const t = setTimeout(() => {
+      setQuery(next);
+      setSelectedShipments([]);
+      setPagination((p) => ({ ...p, page: 1 }));
+    }, 400);
+    return () => clearTimeout(t);
+  }, [searchText, query]);
 
   const fetchProviders = async () => {
     try {
@@ -138,7 +156,7 @@ const Shipments: React.FC = () => {
 
   useEffect(() => {
     fetchShipments();
-  }, [statusFilter, warehouseFilter, providerFilter, startDate, endDate, pagination.page]);
+  }, [statusFilter, warehouseFilter, providerFilter, startDate, endDate, pagination.page, query]);
 
   const fetchWarehouses = async () => {
     try {
@@ -205,8 +223,21 @@ const Shipments: React.FC = () => {
         if (providerFilter) params.shippingProvider = providerFilter;
         if (startDate) params.startDate = startDate;
         if (endDate) params.endDate = endDate;
+        if (query) params.q = query;
 
-        const response = await shipmentsAPI.getAll(params);
+        // The board searches when the server takes `q`; a server without board search refuses the unknown field
+        // (400), so the board is read again without it and the page it returns is searched here instead.
+        let local = false;
+        let response: any;
+        try {
+          response = await shipmentsAPI.getAll(params);
+        } catch (error: any) {
+          if (!params.q || error?.response?.status !== 400) throw error;
+          delete params.q;
+          response = await shipmentsAPI.getAll(params);
+          local = true;
+        }
+        setSearchLocal(local);
         let shipmentsData: any[] = [];
         if (Array.isArray(response)) {
           shipmentsData = response;
@@ -218,7 +249,8 @@ const Shipments: React.FC = () => {
           shipmentsData = response.data.shipments;
         }
 
-        setShipments(Array.isArray(shipmentsData) ? shipmentsData : []);
+        const rows = Array.isArray(shipmentsData) ? shipmentsData : [];
+        setShipments(local ? rows.filter((s) => shipmentMatches(s, query)) : rows);
         const pag = response?.pagination || response?.data?.pagination;
         if (pag) {
           setPagination(prev => ({ ...prev, ...pag }));
@@ -407,40 +439,6 @@ const Shipments: React.FC = () => {
     }
   };
 
-  const handleNdrReattempt = async (shipmentId: string) => {
-    if (!confirm('Are you sure you want to re-attempt delivery for this shipment?')) return;
-    try {
-      await shipmentsAPI.ndrReattempt(shipmentId);
-      alert('Re-attempt delivery requested successfully! Shipment moved back to In Transit.');
-      fetchShipments();
-    } catch (error: any) {
-      console.error('Failed to request re-attempt:', error);
-      alert(error.response?.data?.message || 'Failed to request re-attempt delivery');
-    }
-  };
-
-  const handleNdrUpdatePhone = async (shipmentId: string, phone: string) => {
-    try {
-      await shipmentsAPI.ndrUpdatePhone(shipmentId, phone);
-      alert('Delivery phone number updated successfully!');
-      fetchShipments();
-    } catch (error: any) {
-      console.error('Failed to update phone:', error);
-      alert(error.response?.data?.message || 'Failed to update delivery phone number');
-    }
-  };
-
-  const handleNdrRequestRto = async (shipmentId: string) => {
-    try {
-      await shipmentsAPI.ndrRequestRto(shipmentId);
-      alert('Return requested: the courier sends this parcel back instead of trying to deliver it again.');
-      fetchShipments();
-    } catch (error: any) {
-      console.error('Failed to request RTO:', error);
-      alert(error.response?.data?.message || 'Failed to request RTO');
-    }
-  };
-
   const handleCreateShipment = async (modalData?: any) => {
     if (!selectedOrder || !selectedWarehouseId) {
       alert('Please select a warehouse');
@@ -559,6 +557,19 @@ const Shipments: React.FC = () => {
       : []
   ), [activeTab, shipments]);
 
+  // The pending list's route takes only a page, so the search box looks through the orders on this page.
+  const visiblePendingOrders = useMemo(() => {
+    const needle = query.toLowerCase();
+    if (!needle) return pendingOrders;
+    const digits = needle.replace(/\D/g, '');
+    return pendingOrders.filter((o) => {
+      const a = o?.shippingAddress ?? {};
+      return [o?.orderId, o?.customerName ?? o?.customer_name, a.fullName, a.mobileNumber, a.pincode]
+        .map((v) => (v === null || v === undefined ? '' : String(v)))
+        .some((h) => h.toLowerCase().includes(needle) || (digits.length >= 4 && h.replace(/\D/g, '').includes(digits)));
+    });
+  }, [pendingOrders, query]);
+
   if (loading && shipments.length === 0 && pendingOrders.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -655,6 +666,12 @@ const Shipments: React.FC = () => {
           setEndDate(date);
           setPagination(prev => ({ ...prev, page: 1 }));
         }}
+        search={searchText}
+        onSearchChange={setSearchText}
+        searchNote={activeTab !== 'pending_orders' && query && searchLocal
+          ? 'The server does not search the whole board yet, so only the parcels on this page are searched.'
+          : null}
+        notApplied={activeTab === 'pending_orders'}
       />
 
       {/* Delivery Status Tabs - BELOW the filters */}
@@ -669,7 +686,7 @@ const Shipments: React.FC = () => {
         <>
           {openingOrder && <p className="mb-2 text-sm text-muted-foreground">Opening the order for booking...</p>}
           <PendingOrdersTable
-            orders={pendingOrders}
+            orders={visiblePendingOrders}
             onCreateShipment={(orderId) => { if (!openingOrder) openCreateFor(orderId); }}
           />
         </>
@@ -738,9 +755,7 @@ const Shipments: React.FC = () => {
                 alert(error.response?.data?.message || 'Failed to download pickup receipt');
               }
             }}
-            onNdrReattempt={handleNdrReattempt}
-            onNdrUpdatePhone={handleNdrUpdatePhone}
-            onNdrRequestRto={handleNdrRequestRto}
+            onNdrAction={(shipment, action) => setNdrTarget({ shipment, action })}
             onViewDetails={setDetailShipmentId}
           />
         </>
@@ -858,6 +873,12 @@ const Shipments: React.FC = () => {
         onClose={() => setDetailShipmentId(null)}
         onChanged={() => fetchShipments()}
         providerNames={providerNames}
+      />
+
+      <NdrActionDialog
+        target={ndrTarget}
+        onClose={() => setNdrTarget(null)}
+        onDone={() => fetchShipments()}
       />
     </div>
   );

@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import StatusBadge from '@/components/order/StatusBadge';
 import { formatDate } from '../../utils/date';
 
 interface PendingOrder {
@@ -30,7 +31,10 @@ interface PendingOrder {
   total?: number;
   paymentMethod?: string;
   orderStatus?: string;
+  /** The buyer's name on the order (the board's pending list carries it beside the address). */
+  customerName?: string;
   createdAt?: string;
+  [k: string]: any;
 }
 
 interface PendingOrdersTableProps {
@@ -73,9 +77,22 @@ const PendingOrdersTable: React.FC<PendingOrdersTableProps> = ({ orders, onCreat
                   >
                     {order.orderId}
                   </Link>
+                  {/* Where the order itself stands (confirmed, processing...), so an order on hold is not booked by mistake. */}
+                  {(order.orderStatus || order.order_status) && (
+                    <div className="mt-1">
+                      <StatusBadge status={order.orderStatus || order.order_status} type="order" className="text-[10px]" />
+                    </div>
+                  )}
                 </TableCell>
                 <TableCell className="text-sm">
-                  {order.shippingAddress?.fullName || 'N/A'}
+                  {order.customerName || order.customer_name || order.shippingAddress?.fullName || 'N/A'}
+                  {order.shippingAddress?.fullName && (order.customerName || order.customer_name)
+                    && order.shippingAddress.fullName.trim().toLowerCase() !== String(order.customerName || order.customer_name).trim().toLowerCase() && (
+                    <div className="text-xs text-muted-foreground">ship to {order.shippingAddress.fullName}</div>
+                  )}
+                  {order.shippingAddress?.mobileNumber && (
+                    <div className="text-xs text-muted-foreground tabular-nums">{order.shippingAddress.mobileNumber}</div>
+                  )}
                 </TableCell>
                 <TableCell className="text-sm">
                   {(order.shippingAddress?.district || order.shippingAddress?.city) && order.shippingAddress?.pincode

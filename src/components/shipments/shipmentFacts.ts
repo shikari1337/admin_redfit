@@ -146,8 +146,206 @@ export function nextStep(s: any): string | null {
   const status = String(s?.status || '');
   const manual = providerOf(s) === 'manual';
   if (status === 'pending' && !manual && !s?.pickup?.scheduledDate) return 'Schedule the pickup';
-  if (status === 'ndr_failed_delivery') return 'Answer the failed delivery: re-attempt, new phone, or return';
+  if (status === 'ndr_failed_delivery') {
+    if (!needsNdrAnswer(s)) return null;
+    if (manual) return 'Call your carrier about the failed delivery, then move the parcel';
+    const acts = ndrActionsFor(s);
+    if (acts.length === 0) return 'This courier takes no answers online: call the courier, then set the status';
+    return `Answer the failed delivery: ${joinWords(acts.map((a) => NDR_ACTION_WORDS[a]))}`;
+  }
   if (manual && ['pending', 'picked_up', 'in_transit', 'out_for_delivery'].includes(status)) return 'Mark delivered when the carrier confirms';
   if (manual && status === 'rto_in_transit') return 'Mark returned when it reaches you';
   return null;
+}
+
+const joinWords = (w: string[]): string => (w.length <= 1 ? w.join('') : `${w.slice(0, -1).join(', ')} or ${w[w.length - 1]}`);
+
+/* ── Failed delivery (NDR) ─────────────────────────────────────────────────────────────────── */
+
+/** The answers a courier may take on a failed delivery (ship `ndr_actions`). */
+export type NdrAction = 'reattempt' | 'reschedule' | 'change_phone' | 'change_address' | 'rto';
+
+/** Every answer, in the order a person weighs them: deliver again first, send back last. */
+export const NDR_ACTIONS: NdrAction[] = ['reattempt', 'reschedule', 'change_phone', 'change_address', 'rto'];
+
+/** The three answers offered before the server said what each carrier takes: kept whenever it does not say. */
+export const NDR_DEFAULT_ACTIONS: NdrAction[] = ['reattempt', 'change_phone', 'rto'];
+
+/** Each answer in a few words, lower case, for sentences. */
+export const NDR_ACTION_WORDS: Record<NdrAction, string> = {
+  reattempt: 'try again',
+  reschedule: 'another day',
+  change_phone: 'new phone',
+  change_address: 'new address',
+  rto: 'return',
+};
+
+/** The answers this carrier takes, as the server lists them (`ndr_actions`); null when the server does not say. */
+export function ndrActionsOf(s: any): NdrAction[] | null {
+  const raw = s?.ndrActions ?? s?.ndr_actions;
+  if (!Array.isArray(raw)) return null;
+  const set = new Set(raw.map((x: unknown) => String(x ?? '').trim().toLowerCase()));
+  return NDR_ACTIONS.filter((a) => set.has(a));
+}
+
+/**
+ * The answers to offer on this parcel now: only on a failed delivery, never on a manual parcel (its carrier is called
+ * directly), and only what the carrier takes. When the server does not list them, today's three.
+ */
+export function ndrActionsFor(s: any): NdrAction[] {
+  if (String(s?.status || '') !== 'ndr_failed_delivery' || providerOf(s) === 'manual') return [];
+  return ndrActionsOf(s) ?? NDR_DEFAULT_ACTIONS;
+}
+
+const text = (v: unknown): string | null => (typeof v === 'string' || typeof v === 'number' ? str(v) : null);
+
+export interface NdrAttempt { attempt: number | null; reason: string | null; at: string | null; action: string | null }
+
+export interface NdrDetails {
+  reason: string | null;
+  attempts: number | null;
+  raisedAt: string | null;
+  /** Set once the failed delivery is answered and closed. */
+  resolvedAt: string | null;
+  actionTaken: string | null;
+  lastCheckedAt: string | null;
+  history: NdrAttempt[];
+}
+
+/** The failed-delivery record (`ndr_details`), read the same for every carrier; null when there is none. */
+export function ndrDetailsOf(s: any): NdrDetails | null {
+  const d = s?.ndrDetails ?? s?.ndr_details;
+  if (!d || typeof d !== 'object' || Array.isArray(d)) return null;
+  const hist = Array.isArray(d.history) ? d.history : [];
+  return {
+    reason: text(d.reason),
+    attempts: num(d.attempts),
+    raisedAt: text(d.raisedAt ?? d.raised_at),
+    resolvedAt: text(d.resolvedAt ?? d.resolved_at),
+    actionTaken: text(d.actionTaken ?? d.action_taken),
+    lastCheckedAt: text(d.lastCheckedAt ?? d.last_checked_at),
+    history: hist.map((h: any) => (typeof h === 'string'
+      ? { attempt: null, reason: str(h), at: null, action: null }
+      : {
+        attempt: num(h?.attempt ?? h?.attempts),
+        reason: text(h?.reason ?? h?.remarks),
+        at: text(h?.raisedAt ?? h?.raised_at ?? h?.at ?? h?.date),
+        action: text(h?.action ?? h?.actionTaken ?? h?.action_taken),
+      })),
+  };
+}
+
+/** A failed delivery still waiting for an answer: the status says so and the record is not closed. */
+export function needsNdrAnswer(s: any): boolean {
+  return String(s?.status || '') === 'ndr_failed_delivery' && !ndrDetailsOf(s)?.resolvedAt;
+}
+
+export interface NdrCustomerAnswer {
+  action: string | null;
+  phone: string | null;
+  address: string | null;
+  landmark: string | null;
+  note: string | null;
+  at: string | null;
+  /** Whether the courier was told when the customer answered; null when not recorded. */
+  carrierNotified: boolean | null;
+}
+
+/** What the customer answered on the delivery-help link (`ndr_customer_answer`, kept as `provider_data.ndr_customer_request`). */
+export function ndrCustomerAnswerOf(s: any): NdrCustomerAnswer | null {
+  const raw = s?.ndrCustomerAnswer ?? s?.ndr_customer_answer ?? pd(s).ndr_customer_request ?? pd(s).ndrCustomerRequest;
+  if (typeof raw === 'string') return str(raw) ? { action: null, phone: null, address: null, landmark: null, note: str(raw), at: null, carrierNotified: null } : null;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const told = raw.carrierNotified ?? raw.carrier_notified;
+  return {
+    action: text(raw.action),
+    phone: text(raw.phone),
+    address: text(raw.address),
+    landmark: text(raw.landmark),
+    note: text(raw.note),
+    at: text(raw.at ?? raw.answeredAt ?? raw.answered_at),
+    carrierNotified: typeof told === 'boolean' ? told : null,
+  };
+}
+
+/** The customer's answer in words: "New phone 98...", "New address: ...", "Try again". */
+export function customerAnswerLine(a: NdrCustomerAnswer): string {
+  const bits: string[] = [];
+  if (a.action === 'change_phone') bits.push(a.phone ? `New phone ${a.phone}` : 'New phone');
+  else if (a.action === 'change_address') bits.push(a.address ? `New address: ${a.address}${a.landmark ? ` (landmark: ${a.landmark})` : ''}` : 'New address');
+  else if (a.action === 'reattempt') bits.push('Try again');
+  else if (a.action) bits.push(words(a.action));
+  if (a.note) bits.push(a.note);
+  return bits.join('; ') || 'Answered';
+}
+
+/** The delivery phone staff gave the courier on a failed delivery (`provider_data.ndr_phone`). */
+export function ndrPhoneOf(s: any): string | null {
+  const p = pd(s);
+  return text(p.ndr_phone ?? p.ndrPhone);
+}
+
+/** What an NDR call came to, in the words the person reads: told the courier, or only saved and why. */
+export function ndrOutcome(res: any, action: NdrAction): { notified: boolean; text: string; detail: string | null } {
+  const r = res && typeof res === 'object' && !Array.isArray(res) ? res : {};
+  const flag = r.carrierNotified ?? r.carrier_notified;
+  const ca = r.carrierAction ?? r.carrier_action;
+  const caObj = ca && typeof ca === 'object' && !Array.isArray(ca) ? ca : null;
+  // Before `carrierNotified`, the re-attempt and return routes answered only when the courier said yes.
+  const notified = typeof flag === 'boolean' ? flag : (action === 'reattempt' || action === 'rto');
+  const sent = text(caObj ? (caObj.action ?? caObj.name) : ca);
+  const detail = sent ? `Courier action: ${sent}` : null;
+  if (notified) return { notified, text: 'Sent to the courier', detail };
+  const reason = text(r.carrierReason ?? r.carrier_reason ?? r.carrierNote ?? r.carrier_note ?? r.carrierError ?? r.carrier_error
+    ?? caObj?.reason ?? caObj?.message ?? caObj?.note ?? r.reason ?? r.note);
+  return { notified, text: `Saved, the courier was not told: ${reason || 'the server gave no reason'}`, detail };
+}
+
+/* ── Context the board carries ─────────────────────────────────────────────────────────────── */
+
+const words = (code: string): string => code.split(/[_\s-]+/).filter(Boolean).map((w, i) => (i === 0 ? w.charAt(0).toUpperCase() + w.slice(1) : w)).join(' ');
+
+/** The courier's latest words on the parcel (`tracking_status`) and when it said them (`last_tracking_update`). */
+export function courierUpdate(s: any): { words: string; at: string | null } | null {
+  const w = text(s?.trackingStatus ?? s?.tracking_status);
+  return w ? { words: w, at: text(s?.lastTrackingUpdate ?? s?.last_tracking_update) } : null;
+}
+
+export interface ShipmentTag { key: string; label: string; title: string; tone: 'info' | 'warn' | 'bad' | 'neutral' }
+
+/** What sets a parcel apart, as small tags: a return pickup, international, dangerous goods, on hold, several packages. */
+export function shipmentTags(s: any): ShipmentTag[] {
+  const tags: ShipmentTag[] = [];
+  const kind = text(s?.shipmentKind ?? s?.shipment_kind);
+  if (kind && kind !== 'forward') {
+    tags.push({ key: 'kind', label: kind === 'return_pickup' ? 'Return pickup' : words(kind), title: 'The courier collects this parcel from the customer and brings it back to you', tone: 'info' });
+  }
+  const dest = text(s?.destinationCountry ?? s?.destination_country);
+  const origin = text(s?.originCountry ?? s?.origin_country);
+  if (text(s?.kind) === 'international' || (dest && origin && dest.toUpperCase() !== origin.toUpperCase())) {
+    tags.push({ key: 'intl', label: dest ? `International, to ${dest.toUpperCase()}` : 'International', title: 'Crosses a border: customs papers travel with it', tone: 'info' });
+  }
+  if (s?.containsDg === true || s?.contains_dg === true) {
+    tags.push({ key: 'dg', label: 'Dangerous goods', title: 'Declared as dangerous goods: only couriers that carry them may take it', tone: 'warn' });
+  }
+  const hold = text(s?.hold);
+  if (hold && hold.toLowerCase() !== 'none') {
+    tags.push({ key: 'hold', label: 'On hold', title: `On hold: ${words(hold)}`, tone: 'bad' });
+  }
+  const n = num(s?.packageCount ?? s?.package_count);
+  if (n !== null && n > 1) tags.push({ key: 'pkgs', label: `${n} packages`, title: `This shipment travels as ${n} packages`, tone: 'neutral' });
+  return tags;
+}
+
+/** Whether a board row matches a search typed on the page (used only when the server cannot search). */
+export function shipmentMatches(s: any, q: string): boolean {
+  const needle = q.trim().toLowerCase();
+  if (!needle) return true;
+  const digits = needle.replace(/\D/g, '');
+  const orders: any[] = Array.isArray(s?.orders) ? s.orders : [];
+  const hay = [
+    shipmentAwb(s), s?.shipmentNumber ?? s?.shipment_number, ndrPhoneOf(s),
+    ...orders.flatMap((o) => (o && typeof o === 'object' ? [o.orderId ?? o.order_id, o.customerName ?? o.customer_name] : [o])),
+  ].map((v) => (v === null || v === undefined ? '' : String(v)));
+  return hay.some((h) => h.toLowerCase().includes(needle) || (digits.length >= 4 && h.replace(/\D/g, '').includes(digits)));
 }

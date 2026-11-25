@@ -31,6 +31,19 @@ interface ShipmentTabsProps {
   statusCounts: StatusCounts;
 }
 
+/** What a person does on each tab, in one line under the tabs. */
+const TAB_HINTS: Record<TabType, string> = {
+  pending_orders: 'Orders with nothing booked yet. Create a shipment for each.',
+  ready_to_pick: 'Booked and waiting for the courier. Tick several to schedule one pickup and print labels and the manifest.',
+  pickup_scheduled: 'The courier is booked to collect these. Keep the labels on and the manifest ready.',
+  in_transit: 'On the way. The courier updates these; set a status by hand only for parcels on your own carrier.',
+  ndr_failed_delivery: 'The courier could not deliver. Answer each one before it is sent back: try again, another day, a new phone or address, or return.',
+  delivered: 'Delivered. Cash on delivery comes back on the courier\'s payout: record it in COD payouts.',
+  rto_in_transit: 'Coming back to you. Check each one in when it lands.',
+  rto_delivered: 'Returned to you.',
+  rto_failed: 'The courier could not bring these back. Take it up with the courier.',
+};
+
 const ShipmentTabs: React.FC<ShipmentTabsProps> = ({ activeTab, onTabChange, statusCounts }) => {
   const tabs: { id: TabType; label: string; count: number; group?: string }[] = [
     { id: 'pending_orders', label: 'Pending Orders', count: statusCounts.pending_orders },
@@ -64,6 +77,7 @@ const ShipmentTabs: React.FC<ShipmentTabsProps> = ({ activeTab, onTabChange, sta
           ))}
         </TabsList>
       </Tabs>
+      <p className="-mt-2 text-xs text-muted-foreground">{TAB_HINTS[activeTab]}</p>
     </div>
   );
 };

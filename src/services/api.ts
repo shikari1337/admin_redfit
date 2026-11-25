@@ -3323,6 +3323,8 @@ export const shipmentsAPI = {
     endDate?: string;
     page?: number;
     limit?: number;
+    /** Text search over the board: AWB, order number, customer name or phone. */
+    q?: string;
   }) => {
     const response = await api.get('/shipments', { params });
     return response.data;
@@ -3434,6 +3436,24 @@ export const shipmentsAPI = {
   },
   ndrRequestRto: async (id: string, remarks?: string) => {
     const response = await api.post(`/shipments/${id}/ndr-request-rto`, { remarks });
+    return response.data;
+  },
+  /** A failed delivery: the corrected address the courier should deliver to. Answers `{ carrierNotified, carrierAction }`. */
+  ndrChangeAddress: async (id: string, address: {
+    name?: string;
+    line1: string;
+    line2?: string;
+    landmark?: string;
+    city: string;
+    state: string;
+    pincode: string;
+  }) => {
+    const response = await api.post(`/shipments/${id}/ndr-change-address`, { address });
+    return response.data;
+  },
+  /** A failed delivery: deliver on this day (`YYYY-MM-DD`). Answers `{ carrierNotified, carrierAction }`. */
+  ndrReschedule: async (id: string, date: string, remarks?: string) => {
+    const response = await api.post(`/shipments/${id}/ndr-reschedule`, { date, remarks: remarks || undefined });
     return response.data;
   },
   downloadLabel: async (id: string, pdfSize: '4R' | 'A4' = '4R') => {

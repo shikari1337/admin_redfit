@@ -17,9 +17,11 @@ import { fmtRupees } from '@/lib/money';
 import { formatDate, formatPickupWhen } from '../../utils/date';
 import ShipmentTimeline from './ShipmentTimeline';
 import {
-  chargeBasisText, chargeEditable, chargeHistory, nextStep, providerLabel, providerOf, shipmentAwb, shipmentCharge,
-  shipmentCod, shipmentCourier,
+  chargeBasisText, chargeEditable, chargeHistory, courierUpdate, customerAnswerLine, ndrActionsFor, ndrCustomerAnswerOf,
+  ndrDetailsOf, ndrPhoneOf, needsNdrAnswer, nextStep, providerLabel, providerOf, shipmentAwb, shipmentCharge, shipmentCod,
+  shipmentCourier, shipmentTags,
 } from './shipmentFacts';
+import { NdrActionButtons, NdrActionDialog, type NdrTarget } from './NdrActions';
 
 interface ShipmentDetailDrawerProps {
   shipmentId: string | null;
@@ -75,6 +77,7 @@ const ShipmentDetailDrawer: React.FC<ShipmentDetailDrawerProps> = ({ shipmentId,
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [ndrTarget, setNdrTarget] = useState<NdrTarget | null>(null);
 
   const load = useCallback((id: string) => {
     setLoading(true); setLoadError(null);
@@ -85,13 +88,22 @@ const ShipmentDetailDrawer: React.FC<ShipmentDetailDrawerProps> = ({ shipmentId,
   }, []);
 
   useEffect(() => {
-    setEditing(false); setAmount(''); setReason(''); setSaveError(null);
+    setEditing(false); setAmount(''); setReason(''); setSaveError(null); setNdrTarget(null);
     if (!shipmentId) { setShipment(null); return; }
     load(shipmentId);
   }, [shipmentId, load]);
 
   const milestones: Record<string, string> = shipment?.milestones ?? {};
-  const ndr = shipment?.ndrDetails;
+  const ndr = shipment ? ndrDetailsOf(shipment) : null;
+  const answer = shipment ? ndrCustomerAnswerOf(shipment) : null;
+  const ndrPhone = shipment ? ndrPhoneOf(shipment) : null;
+  const failed = shipment?.status === 'ndr_failed_delivery';
+  const waiting = !!shipment && needsNdrAnswer(shipment);
+  const said = shipment ? courierUpdate(shipment) : null;
+  const tags = shipment ? shipmentTags(shipment) : [];
+  const returnBy = shipment?.billingReturnDeadline ?? shipment?.billing_return_deadline;
+  const attemptNo = shipment?.attemptNo ?? shipment?.attempt_no;
+  const notes = typeof shipment?.notes === 'string' ? shipment.notes.trim() : '';
   const provider = providerOf(shipment);
   const manual = provider === 'manual';
   const awb = shipment ? shipmentAwb(shipment) : null;
@@ -149,8 +161,22 @@ const ShipmentDetailDrawer: React.FC<ShipmentDetailDrawerProps> = ({ shipmentId,
 
         {!loading && shipment && (
           <div className="mt-6 space-y-6">
+            {tags.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {tags.map((t) => <Badge key={t.key} variant={t.tone} title={t.title}>{t.label}</Badge>)}
+              </div>
+            )}
+
             {step && (
               <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">Next: {step}</p>
+            )}
+
+            {/* The courier's own latest words on the parcel, and when it said them. */}
+            {said && (
+              <div className="rounded-md border bg-slate-50 px-3 py-2 text-sm">
+                <p className="text-xs text-muted-foreground">Courier's latest update{said.at && safeDate(said.at) ? `, ${safeDate(said.at)}` : ''}</p>
+                <p className="font-medium text-slate-800">{said.words}</p>
+              </div>
             )}
 
             <div className="grid grid-cols-2 gap-3 text-sm">
@@ -176,6 +202,18 @@ const ShipmentDetailDrawer: React.FC<ShipmentDetailDrawerProps> = ({ shipmentId,
               </Fact>
               <Fact k="Booked">{safeDate(shipment.createdAt) || '...'}</Fact>
               <Fact k="Expected delivery">{safeDate(shipment.expectedDelivery, 'dd MMM yyyy') || <span className="text-muted-foreground">Not given</span>}</Fact>
+              {returnBy && safeDate(returnBy, 'dd MMM yyyy') && (
+                <Fact k="Return window ends">{safeDate(returnBy, 'dd MMM yyyy')}</Fact>
+              )}
+              {attemptNo != null && attemptNo !== '' && (
+                <Fact k="Booking attempt">{String(attemptNo)}</Fact>
+              )}
+              {notes && (
+                <div className="col-span-2">
+                  <p className="text-muted-foreground">Notes</p>
+                  <p className="font-medium whitespace-pre-line">{notes}</p>
+                </div>
+              )}
             </div>
 
             {/* What the parcel cost to ship: the courier's quote at booking, or what staff entered for their own carrier. */}
@@ -257,30 +295,56 @@ const ShipmentDetailDrawer: React.FC<ShipmentDetailDrawerProps> = ({ shipmentId,
               </>
             )}
 
-            {/* NDR detail: why it is failing and whether it can still be delivered */}
-            {ndr && (
+            {/* NDR detail: why it is failing, what the customer said, and the answers this courier takes */}
+            {(failed || ndr || answer) && (
               <>
                 <Separator />
                 <div>
                   <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
                     Failed delivery
-                    <Badge variant="destructive">Needs an answer</Badge>
+                    {waiting && <Badge variant="destructive">Needs an answer</Badge>}
+                    {ndr?.resolvedAt && <Badge variant="good">Answered {safeDate(ndr.resolvedAt, 'dd MMM') || ''}</Badge>}
                   </h3>
                   <div className="text-sm space-y-1">
-                    <p><span className="text-muted-foreground">Reason: </span>{ndr.reason || 'Not given'}</p>
-                    <p><span className="text-muted-foreground">Attempts: </span>{ndr.attempts ?? 'Not given'}</p>
-                    <p><span className="text-muted-foreground">Raised: </span>{safeDate(ndr.raisedAt) || 'Not given'}</p>
+                    <p><span className="text-muted-foreground">Reason: </span>{ndr?.reason || 'Not given'}</p>
+                    <p><span className="text-muted-foreground">Attempts: </span>{ndr?.attempts ?? 'Not given'}</p>
+                    <p><span className="text-muted-foreground">Raised: </span>{safeDate(ndr?.raisedAt) || 'Not given'}</p>
+                    {ndr?.actionTaken && <p><span className="text-muted-foreground">Last answer sent: </span>{ndr.actionTaken}</p>}
+                    {ndrPhone && <p><span className="text-muted-foreground">Delivery phone given: </span><span className="tabular-nums">{ndrPhone}</span></p>}
+                    {ndr?.lastCheckedAt && <p className="text-xs text-muted-foreground">Checked with the courier {safeDate(ndr.lastCheckedAt)}</p>}
                   </div>
-                  {Array.isArray(ndr.history) && ndr.history.length > 0 && (
+
+                  {answer && (
+                    <div className="mt-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+                      <p className="text-xs text-blue-800">Customer's answer{answer.at && safeDate(answer.at) ? `, ${safeDate(answer.at)}` : ''}</p>
+                      <p className="font-medium">{customerAnswerLine(answer)}</p>
+                      {answer.carrierNotified !== null && (
+                        <p className="text-xs mt-0.5">{answer.carrierNotified ? 'Sent to the courier.' : 'The courier was not told: send it with a button below, or call the courier.'}</p>
+                      )}
+                    </div>
+                  )}
+
+                  {ndr && ndr.history.length > 0 && (
                     <div className="mt-3 space-y-1.5">
-                      {ndr.history.map((h: any, i: number) => (
+                      {ndr.history.map((h, i) => (
                         <div key={i} className="text-xs border-l-2 border-red-200 pl-2">
                           <span className="font-medium">Attempt {h.attempt ?? i + 1}</span>
                           {': '}{h.reason || 'reason not given'}
-                          {h.raisedAt && <span className="text-muted-foreground">, {safeDate(h.raisedAt)}</span>}
+                          {h.action && <span>, answered: {h.action}</span>}
+                          {h.at && safeDate(h.at) && <span className="text-muted-foreground">, {safeDate(h.at)}</span>}
                         </div>
                       ))}
                     </div>
+                  )}
+
+                  {failed && ndrActionsFor(shipment).length > 0 && (
+                    <NdrActionButtons shipment={shipment} onPick={(a) => setNdrTarget({ shipment, action: a })} className="mt-3" />
+                  )}
+                  {failed && !manual && ndrActionsFor(shipment).length === 0 && (
+                    <p className="mt-3 text-xs text-muted-foreground">This courier takes no answers online: call the courier, then set the status on the board.</p>
+                  )}
+                  {failed && manual && (
+                    <p className="mt-3 text-xs text-muted-foreground">Your own carrier: call it, then move the parcel on the board.</p>
                   )}
                 </div>
               </>
@@ -335,6 +399,13 @@ const ShipmentDetailDrawer: React.FC<ShipmentDetailDrawerProps> = ({ shipmentId,
             </div>
           </div>
         )}
+
+        {/* The failed-delivery answer picked above; the parcel is read again once the server took it. */}
+        <NdrActionDialog
+          target={ndrTarget}
+          onClose={() => setNdrTarget(null)}
+          onDone={() => { if (shipmentId) load(shipmentId); onChanged?.(); }}
+        />
       </SheetContent>
     </Sheet>
   );
