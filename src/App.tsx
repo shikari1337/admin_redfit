@@ -94,6 +94,8 @@ const B2B = lazyRetry(() => import('./pages/B2B'));
 const Pricing = lazyRetry(() => import('./pages/Pricing'));
 const Marketing = lazyRetry(() => import('./pages/Marketing'));
 const Billing = lazyRetry(() => import('./pages/Billing'));
+// Billing, Product services: product work at the proposal's rates (PSVC-1)
+const ProductServices = lazyRetry(() => import('./pages/ProductServices'));
 const Inventory = lazyRetry(() => import('./pages/Inventory'));
 const VariationEditPage = lazyRetry(() => import('./pages/VariationEditPage'));
 const Blogs = lazyRetry(() => import('./pages/Blogs'));
@@ -588,6 +590,7 @@ function App() {
           <Route path="settings/wallet" element={<Wallet />} />
           <Route path="seo" element={<Seo />} />
           <Route path="settings/billing" element={<Billing />} />
+          <Route path="settings/billing/product-services" element={<ProductServices />} />
           <Route path="settings/app" element={<AppSettings />} />
           <Route path="settings/app/audience" element={<AppAudience />} />
           <Route path="settings/app/assistant" element={<AppAssistant />} />

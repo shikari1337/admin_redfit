@@ -27,6 +27,9 @@ import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, Table
 // BUY-1 (owner 25 Nov 2026): a store admin buys Growcord products here.
 import { useAuth } from '@/contexts/AuthContext';
 import BuyProducts from '@/components/billing/BuyProducts';
+// PSVC-1 (owner 25 Nov 2026): the product work Growcord does at the proposal's rates has its own page.
+import { Link } from 'react-router-dom';
+import { PackageCheck } from 'lucide-react';
 
 interface FeeLine {
   type: string; description: string; base: number | null; rate_percent: number | null;
@@ -560,6 +563,9 @@ export default function Billing() {
         <p className="mt-1 text-sm text-gray-500">
           One invoice a month, raised on the 1st for the month before. Each has a tax invoice and an order-by-order list.
         </p>
+        <Link to="/settings/billing/product-services" className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-gray-900 underline underline-offset-2 hover:text-gray-700" data-product-services-link>
+          <PackageCheck className="size-4" /> Product services: A+ content, pictures and written content for your products
+        </Link>
       </div>
 
       {error && (
