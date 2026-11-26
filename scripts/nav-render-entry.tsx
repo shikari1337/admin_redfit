@@ -11,7 +11,7 @@ import { AppSidebar } from '../src/components/app-sidebar';
 import { AreaStrip } from '../src/components/menu/AreaTabs';
 import type { MenuItem } from '../src/lib/menu';
 import {
-  areaLanding, areaView, entryAt, keepOpenable, navEntries, trailFor, visibleMenu, type Access,
+  areaLanding, areaView, entryAt, navEntries, savedPages, trailFor, visibleMenu, type Access,
 } from '../src/components/menu/menuAccess';
 
 export interface Saved { pins: string[]; recent: string[]; last: Record<string, string> }
@@ -19,8 +19,7 @@ export interface Saved { pins: string[]; recent: string[]; last: Record<string, 
 export function renderNav(a: Access, pathname: string, saved: Saved) {
   const groups = visibleMenu(a);
   const entries = navEntries(groups, a);
-  const pinned = keepOpenable(saved.pins, entries, a);
-  const recent = keepOpenable(saved.recent, entries, a).filter((e) => !pinned.includes(e)).slice(0, 5);
+  const { pinned, recent } = savedPages(saved, entries, a, entryAt(entries, pathname)?.to ?? null);
   const landingOf = (key: string, row: MenuItem) => areaLanding(row, saved.last[key]);
   const view = areaView(groups, pathname);
   const sidebar = renderToStaticMarkup(

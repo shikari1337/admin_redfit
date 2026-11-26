@@ -29,7 +29,7 @@ import AccessNotice from './AccessNotice';
 import { PRODUCT, IS_SUITE } from '../lib/product';
 import type { MenuItem } from '../lib/menu';
 import {
-  areaLanding, areaView, entryAt, keepOpenable, navEntries, trailFor, visibleMenu, type Access,
+  areaLanding, areaView, entryAt, navEntries, savedPages, trailFor, visibleMenu, type Access,
 } from './menu/menuAccess';
 import { AreaStrip } from './menu/AreaTabs';
 import { useNavMemory } from './menu/navMemory';
@@ -79,10 +79,9 @@ const Layout: React.FC = () => {
   const landingOf = useCallback((key: string, row: MenuItem) => areaLanding(row, memory.last[key]), [memory.last]);
   const area = useMemo(() => areaView(groups, location.pathname), [groups, location.pathname]);
   const here = useMemo(() => entryAt(entries, location.pathname), [entries, location.pathname]);
-  const pinned = useMemo(() => keepOpenable(memory.pins, entries, access), [memory.pins, entries, access]);
-  const recent = useMemo(
-    () => keepOpenable(memory.recent, entries, access).filter((e) => !pinned.includes(e)).slice(0, 5),
-    [memory.recent, entries, access, pinned],
+  const { pinned, recent } = useMemo(
+    () => savedPages(memory, entries, access, here?.to ?? null),
+    [memory, entries, access, here?.to],
   );
   const { visit } = memory;
   useEffect(() => {

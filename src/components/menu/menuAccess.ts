@@ -331,6 +331,26 @@ export function keepOpenable(paths: string[], entries: NavEntry[], a: Access): N
   return out;
 }
 
+/** How many recent pages the sidebar shows. */
+export const RECENT_SHOWN = 5;
+
+/**
+ * The sidebar's Pinned and Recent pages from what was saved (`navMemory`): each an entry this person may open now;
+ * Recent leaves out what is pinned and the page that is open, and shows at most five.
+ */
+export function savedPages(
+  saved: { pins: string[]; recent: string[] },
+  entries: NavEntry[],
+  a: Access,
+  openPath: string | null,
+): { pinned: NavEntry[]; recent: NavEntry[] } {
+  const pinned = keepOpenable(saved.pins, entries, a);
+  const recent = keepOpenable(saved.recent, entries, a)
+    .filter((e) => !pinned.includes(e) && e.to !== openPath)
+    .slice(0, RECENT_SHOWN);
+  return { pinned, recent };
+}
+
 /** The entry a pathname IS (not merely under), for pinning and the recent list. */
 export function entryAt(entries: NavEntry[], pathname: string): NavEntry | null {
   const path = pathname.replace(/\/+$/, '') || '/';

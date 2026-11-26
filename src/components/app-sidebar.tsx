@@ -124,7 +124,8 @@ const AreaRow: React.FC<{
 
   return (
     <SidebarMenuItem ref={rowRef} onMouseEnter={enter} onMouseLeave={leave}>
-      <SidebarMenuButton asChild isActive={active}>
+      {/* No flyout for a single page: the collapsed sidebar's usual hover tip names it instead. */}
+      <SidebarMenuButton asChild isActive={active} tooltip={pages.length < 2 ? item.tip : undefined}>
         <Link to={href} onClick={go}>
           {item.icon && <item.icon />}
           <span>{item.label}</span>
