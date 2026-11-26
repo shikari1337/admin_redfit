@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   FaBolt, FaDownload, FaFlag, FaRegFlag, FaSpinner, FaStickyNote,
   FaTruck, FaUserCheck, FaCheck, FaTimes, FaMinus,
@@ -163,6 +163,20 @@ const OrderBulkBar: React.FC<Props> = ({
   const [channels, setChannels] = useState<Array<'whatsapp' | 'sms' | 'email'>>(['whatsapp']);
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState<RunResult[] | null>(null);
+  // Who books the parcels: Shiprocket as before, or Growcord Ship when the store has it on (owner 26 Nov 2026).
+  const [shipProvider, setShipProvider] = useState<'shiprocket' | 'growcord_ship'>('shiprocket');
+  const [hasGrowcordShip, setHasGrowcordShip] = useState(false);
+  useEffect(() => {
+    if (action !== 'ship') return;
+    shippingAPI.getProviders()
+      .then((res: any) => {
+        const rows: any[] = Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : [];
+        const on = rows.some((p) => p?.id === 'growcord_ship' && p?.enabled !== false);
+        setHasGrowcordShip(on);
+        if (!on) setShipProvider('shiprocket');
+      })
+      .catch(() => { setHasGrowcordShip(false); setShipProvider('shiprocket'); });
+  }, [action]);
 
   const selected = useMemo(
     () => rows.filter((r) => selectedIds.includes(r._id)),
@@ -242,9 +256,12 @@ const OrderBulkBar: React.FC<Props> = ({
             ? { id: o._id, label, state: 'fail', detail: r?.data?.results?.[0]?.error || 'no channel accepted it' }
             : { id: o._id, label, state: 'ok', detail: typeof sent === 'number' ? `${sent}/${channels.length} sent` : undefined };
         }
-        case 'ship':
-          await shippingAPI.createShipment(o._id, { shippingProvider: 'shiprocket' });
-          return { id: o._id, label, state: 'ok' };
+        case 'ship': {
+          const r: any = await shippingAPI.createShipment(o._id, { shippingProvider: shipProvider });
+          const s = r?.shipment ?? r?.data?.shipment;
+          const awb = s?.awbCode ?? s?.awb_code ?? s?.waybill;
+          return { id: o._id, label, state: 'ok', detail: awb ? `AWB ${awb}${s?.courierName ? `, ${s.courierName}` : ''}` : undefined };
+        }
         case 'codrebook': {
           // One parcel at a time: each is a cancel and a booking at the courier, and the
           // server's own words, what to print again included, are what the person reads.
@@ -509,10 +526,30 @@ const OrderBulkBar: React.FC<Props> = ({
             </div>
           )}
 
-          {!results && action === 'ship' && (
+          {!results && action === 'ship' && hasGrowcordShip && (
+            <div>
+              <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-ink-mute">Book with</span>
+              <div className="flex gap-4">
+                {([['shiprocket', 'Shiprocket'], ['growcord_ship', 'Growcord Ship']] as const).map(([v, l]) => (
+                  <label key={v} className="flex items-center gap-1.5 text-sm">
+                    <input type="radio" name="bulk-ship-provider" checked={shipProvider === v} onChange={() => setShipProvider(v)} />
+                    {l}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+          {!results && action === 'ship' && shipProvider === 'shiprocket' && (
             <p className="rounded border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
               This books <strong>real shipments with Shiprocket</strong>, one per order, and may cost
               money. It cannot be undone from this screen — a shipment is cancelled from the order.
+            </p>
+          )}
+          {!results && action === 'ship' && shipProvider === 'growcord_ship' && (
+            <p className="rounded border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+              This books <strong>real shipments with Growcord Ship</strong>, one per order. Growcord Ship picks the
+              courier for each parcel and the freight comes off your Growcord wallet. To see each price first, use
+              Growcord Ship, Bulk shipment. A shipment is cancelled from the order.
             </p>
           )}
 
