@@ -15,6 +15,7 @@
 const LANDING: Record<string, () => Promise<unknown>> = {
   overview: () => import('../../pages/Dashboard'),
   orders: () => import('../../pages/Orders'),
+  growship: () => import('../../pages/growship/Overview'),
   catalog: () => import('../../pages/Products'),
   marketing: () => import('../../pages/Coupons'),
   customers: () => import('../../pages/Customers'),

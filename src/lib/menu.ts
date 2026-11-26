@@ -43,6 +43,8 @@ import { BadgePercent } from 'lucide-react';
 import { IndianRupee } from 'lucide-react';
 // Help and support (TICKETS-1), on its own line for the same reason.
 import { LifeBuoy } from 'lucide-react';
+// The Growcord Ship group (owner 26 Nov 2026), on its own line for the same reason.
+import { Calculator, Receipt, Upload } from 'lucide-react';
 import {
   Home, ShoppingCart, Package2, Wallet, Truck, Users, LineChart, Settings,
   RotateCcw, FileText, Store, Megaphone, Ticket, Plug, Palette, Star,
@@ -211,6 +213,40 @@ export const MENU: MenuGroup[] = [
     { label: 'Returns', to: '/returns', icon: RotateCcw, perm: 'returns.read', modules: ['returns'], tip: 'What a customer sent back, and where it is.' },
     { label: 'Shipments', to: '/shipments', icon: Truck, perm: 'shipments.read', modules: ['shipping'], tip: 'Every parcel: booked, picked up, delivered.' },
     { label: 'POS (New Sale)', to: '/pos', icon: Store, perm: 'orders.manage', modules: ['pos'], tip: 'Sell over the counter and take payment now.' },
+  ]),
+
+  // GROWCORD SHIP (owner, 26 Nov 2026: "in admin panel create a growship menu in sidebar with complete panel option,
+  // shipment with status, wallet balance, bulk shipment, billing details charges and other details, wallet recharge
+  // option and more"). This overrides the shape rule at the top of this file for Growcord Ship only: its operations
+  // get a sidebar group here, and the Ship tab in the header stays as it is. Every item needs the store's shipping
+  // module and the permission Growcord Ship's own door checks (shipments.read to read, shipments.manage to book);
+  // the wallet needs billing.read. Pages another group owns are reached through redirects under /growship (App.tsx),
+  // so those pages keep their own group, trail, settings directory place and gate.
+  one('growship', 'Growcord Ship', Truck, '/growship', [
+    { label: 'Overview', to: '/growship', icon: Gauge, perm: 'shipments.read', modules: ['shipping'], tip: 'Wallet balance, parcels by status, charges this month, COD and weight disputes.' },
+    {
+      label: 'Shipments', to: '/growship/shipments', icon: Truck, perm: 'shipments.read', modules: ['shipping'],
+      tip: 'Every Growcord Ship parcel by status, with its charges and courier events.',
+      children: [
+        { label: 'All shipments', to: '/growship/shipments', perm: 'shipments.read', modules: ['shipping'], tip: 'Every Growcord Ship parcel by status, with its charges and courier events.' },
+        { label: 'Failed delivery', to: '/growship/shipments?tab=ndr_failed_delivery', perm: 'shipments.read', modules: ['shipping'], tip: 'Parcels the courier could not deliver: answer before they come back.' },
+        { label: 'RTO', to: '/growship/rto', perm: 'shipments.read', modules: ['shipping'], tip: 'Parcels coming back, and putting them away.' },
+        { label: 'Weight disputes', to: '/growship/weight-disputes', perm: 'shipments.read', modules: ['shipping'], tip: 'Where the courier billed more than the parcel weighs.' },
+        { label: 'COD payouts', to: '/growship/cod-payouts', perm: 'orders.read', modules: ['shipping'], tip: 'Cash collected on delivery: what is still owed, and each payout.' },
+      ],
+    },
+    { label: 'Bulk shipment', to: '/growship/bulk', icon: Upload, perm: 'shipments.manage', modules: ['shipping'], tip: 'Book many ready orders at once, or upload a sheet of parcels.' },
+    { label: 'Wallet', to: '/growship/wallet', icon: Wallet, perm: 'billing.read', modules: ['shipping'], tip: 'Balance, add money, and the freight taken for each parcel.' },
+    { label: 'Billing and charges', to: '/growship/billing', icon: Receipt, perm: 'shipments.read', modules: ['shipping'], tip: 'What each parcel cost: freight, COD fee, return charges, GST and the final amount.' },
+    { label: 'Rate calculator', to: '/growship/rates', icon: Calculator, perm: 'shipments.read', modules: ['shipping'], tip: 'Price a parcel between two pincodes, courier by courier.' },
+    {
+      label: 'Setup', to: '/growship/settings', icon: Settings, perm: ['settings.manage', 'inventory.read'], modules: ['shipping'],
+      tip: 'Growcord Ship settings and the addresses couriers collect from.',
+      children: [
+        { label: 'Settings', to: '/growship/settings', perm: 'settings.manage', modules: ['shipping'], tip: 'Switch Growcord Ship on or off, and the store\'s shipping fees.' },
+        { label: 'Pickup locations', to: '/growship/pickup-locations', perm: 'inventory.read', modules: ['shipping', 'inventory'], tip: 'The warehouses couriers collect from.' },
+      ],
+    },
   ]),
 
   one('catalog', 'Catalog', Package2, '/products', [

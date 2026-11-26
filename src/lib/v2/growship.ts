@@ -278,7 +278,7 @@ export const GS_SHEET_HEADERS = [
 
 /* ── reading a parcel ───────────────────────────────────────────────────── */
 
-/** The store's shipment row → its Growcord Ship parcel id (the booking stores it as `carrier_shipment_id`). */
+/** The store's shipment row to its Growcord Ship parcel id (the booking stores it as `carrier_shipment_id`). */
 export function consignmentIdOf(shipment: any): string | null {
   const pd = shipment?.providerData ?? shipment?.provider_data ?? {};
   const id = pd?.carrier_shipment_id ?? pd?.carrierShipmentId ?? null;
