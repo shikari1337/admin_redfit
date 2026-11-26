@@ -47,6 +47,7 @@ import {
 } from '../components/order';
 import type { RazorpayAuditResult, RefundOutcome } from '../components/order';
 import { OrderProfitCard } from '../components/analytics/ProfitFunnel';
+import { OrderFactsStrip } from '../components/order/OrderFactsStrip';
 import { PickupModal } from '../components/shipments';
 import CodSentPanel from '../components/order/CodSentPanel';
 import { OrderReturnTermsCard } from '../components/returns/ReturnTerms';
@@ -917,10 +918,10 @@ const OrderDetail: React.FC = () => {
        var(--content-pad)) so the command bar spans the whole width and the
        items table gets the room its columns need. The wrapper is exactly the
        parent's padding-box width, so nothing overflows horizontally. */
-    /* WHITE CANVAS (owner call). The page used to sit on a grey wash with white
-       cards floating on it; every panel now carries its own border instead, so
-       separation comes from lines, never from tint. */
-    <div className="-m-[var(--content-pad-phone)] min-h-full bg-surface md:-m-[var(--content-pad)]">
+    /* The page's own ground shows through (owner 27 Nov 2026: "background color more dark in container",
+       which replaces the earlier white canvas call): white cards with their borders sit on the darker
+       admin ground (index.css [data-admin-main]). */
+    <div className="-m-[var(--content-pad-phone)] min-h-full md:-m-[var(--content-pad)]">
       {/* ONE command row (owner call): identity, state, every write, and the
           Prev/Next walk, on a single dark band. The figures that used to sit on
           a second row (total, lines/units, payment, placed) are all in the items
@@ -1315,6 +1316,9 @@ const OrderDetail: React.FC = () => {
           80/20 at every size instead of drifting with the viewport. */}
       <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,4fr)_minmax(0,1fr)]">
         <div className="min-w-0 space-y-4">
+          {/* The facts the page did not show (channel, who created it, invoice issue, B2B due date, the
+              customer's cancel request, phone verification), as one row of chips (ADMIN-BRAND-1). */}
+          <OrderFactsStrip order={order} />
           <OrderProgressStepper
             orderStatus={order.orderStatus}
             paymentStatus={order.paymentStatus}

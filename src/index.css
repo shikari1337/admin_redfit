@@ -243,3 +243,14 @@ table thead th {
 table tbody tr { border-block-end: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
 table tbody tr:hover { background: color-mix(in srgb, var(--b-50) 60%, transparent); }
 table tbody td:first-child { color: var(--ink); font-weight: 500; }
+
+/* Cards (ADMIN-BRAND-1): a card whose header is a strip (it has a bottom border) gets the erp kit's tint, and
+   every card title the display face, so a shadcn card and an erp SectionCard read as one element. */
+[data-slot="card-header"].border-b {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 80%, transparent), var(--surface));
+}
+[data-slot="card-title"] {
+  font-family: "Plus Jakarta Sans", Inter, ui-sans-serif, system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+}
