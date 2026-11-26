@@ -43,8 +43,8 @@ import { BadgePercent } from 'lucide-react';
 import { IndianRupee } from 'lucide-react';
 // Help and support (TICKETS-1), on its own line for the same reason.
 import { LifeBuoy } from 'lucide-react';
-// The Growcord Ship group (owner 26 Nov 2026), on its own line for the same reason.
-import { Calculator, Receipt, Upload } from 'lucide-react';
+// Growcord Ship (owner 26 Nov 2026), on its own line for the same reason.
+import { Ship } from 'lucide-react';
 import {
   Home, ShoppingCart, Package2, Wallet, Truck, Users, LineChart, Settings,
   RotateCcw, FileText, Store, Megaphone, Ticket, Plug, Palette, Star,
@@ -76,6 +76,11 @@ export interface MenuItem {
   external?: boolean;
   /** Collapsible sub-items (rendered with a chevron, as the admin always did). */
   children?: MenuItem[];
+  /**
+   * Pages inside this item that the sidebar does not list but the command search (Cmd K) finds by their own name
+   * (Growcord Ship's tabs). Each keeps its own gate, and a person sees only those they may open.
+   */
+  palette?: MenuItem[];
 }
 
 export interface MenuSubGroup {
@@ -162,6 +167,30 @@ export const SETTINGS_AREA_LIST: Array<{ no: number; id: string; label: string }
 
 /* ───────────────────────────── the menu ───────────────────────────── */
 
+/**
+ * GROWCORD SHIP's pages, as tabs on top of its one sidebar entry (pages/growship/GrowshipLayout.tsx), each with its
+ * own gate (EXTRA_ROUTES below) and found by name in the command search. Billing and charges opens with either
+ * shipments.read (its gate before the tabs) or billing.read; the Wallet needs billing.read.
+ */
+export const GROWSHIP_TABS: MenuItem[] = [
+  { label: 'Overview', to: '/growship', perm: 'shipments.read', modules: ['shipping'], tip: 'Growcord Ship at a glance: wallet, account, latest parcels, COD and weight disputes.' },
+  { label: 'Shipments', to: '/growship/shipments', perm: 'shipments.read', modules: ['shipping'], tip: 'Every Growcord Ship parcel by status, with its charges and courier events.' },
+  { label: 'Bulk shipment', to: '/growship/bulk', perm: 'shipments.manage', modules: ['shipping'], tip: 'Book many ready orders at once, or upload a sheet of parcels.' },
+  { label: 'Wallet', to: '/growship/wallet', perm: 'billing.read', modules: ['shipping'], tip: 'Balance, add money, and the freight taken and refunded for each parcel.' },
+  { label: 'Billing and charges', to: '/growship/billing', perm: ['shipments.read', 'billing.read'], modules: ['shipping'], tip: 'What each parcel cost: freight, COD fee, return charges, GST and the final amount.' },
+  { label: 'Rate calculator', to: '/growship/rates', perm: 'shipments.read', modules: ['shipping'], tip: 'Price a parcel between two pincodes, courier by courier.' },
+];
+
+/** Under More: the board's failed delivery tab, and pages that live elsewhere in the admin (redirects, App.tsx). */
+export const GROWSHIP_MORE: MenuItem[] = [
+  { label: 'Failed delivery', to: '/growship/failed-delivery', perm: 'shipments.read', modules: ['shipping'], tip: 'Parcels the courier could not deliver: answer before they come back.' },
+  { label: 'RTO', to: '/growship/rto', perm: 'shipments.read', modules: ['shipping'], tip: 'Parcels coming back, and putting them away.' },
+  { label: 'Weight disputes', to: '/growship/weight-disputes', perm: 'shipments.read', modules: ['shipping'], tip: 'Where the courier billed more than the parcel weighs.' },
+  { label: 'COD payouts', to: '/growship/cod-payouts', perm: 'orders.read', modules: ['shipping'], tip: 'Cash collected on delivery: what is still owed, and each payout.' },
+  { label: 'Settings', to: '/growship/settings', perm: 'settings.manage', modules: ['shipping'], tip: 'Switch Growcord Ship on or off, and the store\'s shipping fees.' },
+  { label: 'Pickup locations', to: '/growship/pickup-locations', perm: 'inventory.read', modules: ['shipping', 'inventory'], tip: 'The warehouses couriers collect from.' },
+];
+
 /** A group with ONE section: the sidebar shows the group label only. */
 const one = (id: string, label: string, icon: LucideIcon, home: string, items: MenuItem[]): MenuGroup => ({
   id, label, icon, home, subs: [{ label, items }],
@@ -212,42 +241,16 @@ export const MENU: MenuGroup[] = [
     },
     { label: 'Returns', to: '/returns', icon: RotateCcw, perm: 'returns.read', modules: ['returns'], tip: 'What a customer sent back, and where it is.' },
     { label: 'Shipments', to: '/shipments', icon: Truck, perm: 'shipments.read', modules: ['shipping'], tip: 'Every parcel: booked, picked up, delivered.' },
+    // GROWCORD SHIP: ONE entry (owner 26 Nov 2026: "instead of 5 options in sidebar create options on top as tabs or
+    // inner sidebar"); its pages are tabs inside it (pages/growship/GrowshipLayout.tsx), each gated in EXTRA_ROUTES.
+    // This overrides the shape rule at the top of this file for Growcord Ship; the Ship tab in the header stays.
+    // Shown to anyone who may open one of its tabs; /growship lands on the first of them (GrowshipLayout).
+    {
+      label: 'Growcord Ship', to: '/growship', icon: Ship, perm: ['shipments.read', 'billing.read'], modules: ['shipping'],
+      tip: 'Book, track and pay for parcels with Growcord Ship: wallet, bulk booking, charges and rates.',
+      palette: [...GROWSHIP_TABS, ...GROWSHIP_MORE],
+    },
     { label: 'POS (New Sale)', to: '/pos', icon: Store, perm: 'orders.manage', modules: ['pos'], tip: 'Sell over the counter and take payment now.' },
-  ]),
-
-  // GROWCORD SHIP (owner, 26 Nov 2026: "in admin panel create a growship menu in sidebar with complete panel option,
-  // shipment with status, wallet balance, bulk shipment, billing details charges and other details, wallet recharge
-  // option and more"). This overrides the shape rule at the top of this file for Growcord Ship only: its operations
-  // get a sidebar group here, and the Ship tab in the header stays as it is. Every item needs the store's shipping
-  // module and the permission Growcord Ship's own door checks (shipments.read to read, shipments.manage to book);
-  // the wallet needs billing.read. Pages another group owns are reached through redirects under /growship (App.tsx),
-  // so those pages keep their own group, trail, settings directory place and gate.
-  one('growship', 'Growcord Ship', Truck, '/growship', [
-    { label: 'Overview', to: '/growship', icon: Gauge, perm: 'shipments.read', modules: ['shipping'], tip: 'Wallet balance, parcels by status, charges this month, COD and weight disputes.' },
-    {
-      label: 'Shipments', to: '/growship/shipments', icon: Truck, perm: 'shipments.read', modules: ['shipping'],
-      tip: 'Every Growcord Ship parcel by status, with its charges and courier events.',
-      children: [
-        { label: 'All shipments', to: '/growship/shipments', perm: 'shipments.read', modules: ['shipping'], tip: 'Every Growcord Ship parcel by status, with its charges and courier events.' },
-        // Its own path (a redirect to the board's Failed Delivery tab), so the board's trail and highlight stay on All shipments.
-        { label: 'Failed delivery', to: '/growship/failed-delivery', perm: 'shipments.read', modules: ['shipping'], tip: 'Parcels the courier could not deliver: answer before they come back.' },
-        { label: 'RTO', to: '/growship/rto', perm: 'shipments.read', modules: ['shipping'], tip: 'Parcels coming back, and putting them away.' },
-        { label: 'Weight disputes', to: '/growship/weight-disputes', perm: 'shipments.read', modules: ['shipping'], tip: 'Where the courier billed more than the parcel weighs.' },
-        { label: 'COD payouts', to: '/growship/cod-payouts', perm: 'orders.read', modules: ['shipping'], tip: 'Cash collected on delivery: what is still owed, and each payout.' },
-      ],
-    },
-    { label: 'Bulk shipment', to: '/growship/bulk', icon: Upload, perm: 'shipments.manage', modules: ['shipping'], tip: 'Book many ready orders at once, or upload a sheet of parcels.' },
-    { label: 'Wallet', to: '/growship/wallet', icon: Wallet, perm: 'billing.read', modules: ['shipping'], tip: 'Balance, add money, and the freight taken for each parcel.' },
-    { label: 'Billing and charges', to: '/growship/billing', icon: Receipt, perm: 'shipments.read', modules: ['shipping'], tip: 'What each parcel cost: freight, COD fee, return charges, GST and the final amount.' },
-    { label: 'Rate calculator', to: '/growship/rates', icon: Calculator, perm: 'shipments.read', modules: ['shipping'], tip: 'Price a parcel between two pincodes, courier by courier.' },
-    {
-      label: 'Setup', to: '/growship/settings', icon: Settings, perm: ['settings.manage', 'inventory.read'], modules: ['shipping'],
-      tip: 'Growcord Ship settings and the addresses couriers collect from.',
-      children: [
-        { label: 'Settings', to: '/growship/settings', perm: 'settings.manage', modules: ['shipping'], tip: 'Switch Growcord Ship on or off, and the store\'s shipping fees.' },
-        { label: 'Pickup locations', to: '/growship/pickup-locations', perm: 'inventory.read', modules: ['shipping', 'inventory'], tip: 'The warehouses couriers collect from.' },
-      ],
-    },
   ]),
 
   one('catalog', 'Catalog', Package2, '/products', [
@@ -582,7 +585,7 @@ export const OFF_MENU: MenuItem[] = [
  * used to carry separately and was the reason `/panel/*` children were
  * ungated (L5 §1, mechanism 2).
  */
-export const EXTRA_ROUTES: Array<{ path: string; perm?: string; modules?: string[] }> = [
+export const EXTRA_ROUTES: Array<{ path: string; perm?: string | string[]; modules?: string[] }> = [
   // A redirect target, kept because old bookmarks point at it.
   { path: '/settings/general', perm: 'settings.manage' },
   { path: '/appearance', perm: 'content.manage' },
@@ -593,6 +596,11 @@ export const EXTRA_ROUTES: Array<{ path: string; perm?: string; modules?: string
   // policy pages are core, not a builder feature (COMMON_MISTAKES #250).
   { path: '/pages', perm: 'content.manage', modules: ['page_builder'] },
   { path: '/analytics', perm: 'reports.read', modules: ['analytics'] },
+  // Growcord Ship's tabs (the sidebar shows only /growship): each page keeps its own gate, from GROWSHIP_TABS and
+  // GROWSHIP_MORE, the one list the tabs and the command search read too.
+  ...[...GROWSHIP_TABS, ...GROWSHIP_MORE]
+    .filter((t) => t.to !== '/growship')
+    .map((t) => ({ path: t.to, perm: t.perm, modules: t.modules })),
 ];
 
 /* ────────────────────────────── helpers ────────────────────────────── */

@@ -14,6 +14,7 @@
  * is how a wallet line is matched to its parcel here.
  */
 import { v2call } from './http';
+import { shipmentAwb } from '../../components/shipments/shipmentFacts';
 import { toMoney } from './money';
 
 const SHIP = '/api/v2/ship';
@@ -408,4 +409,30 @@ export function gramsText(g: number | null | undefined): string {
 export function isNotEnabled(e: any): boolean {
   const code = String(e?.response?.data?.code ?? e?.response?.data?.error?.code ?? '');
   return /not_enabled|provider_disabled/i.test(code);
+}
+
+/* ── bookings no courier took ───────────────────────────────────────────── */
+
+/** The words for a booking no courier took: Growcord Ship gave the money back at once; it is not a parcel. */
+export const NOT_TAKEN_TEXT = 'Not booked by the courier, refunded';
+
+/** Growcord Ship's bookings no courier took (status pending_courier), newest first. One read. */
+export async function notTakenBookings(limit = 100): Promise<GsConsignment[]> {
+  return (await growshipAPI.consignments({ status: 'pending_courier', limit })).items;
+}
+
+/**
+ * Which store shipment rows are such a booking: by the Growcord Ship id or number the booking stored, and only a row
+ * with no AWB (a row with a waybill is a parcel, whatever an older record says).
+ */
+export function notTakenMatcher(list: GsConsignment[]): (shipment: any) => GsConsignment | null {
+  const byId = new Map(list.map((c) => [String(c.id), c]));
+  const byNumber = new Map(list.filter((c) => c.consignment_number).map((c) => [String(c.consignment_number), c]));
+  return (shipment: any) => {
+    const pd = shipment?.providerData ?? shipment?.provider_data ?? {};
+    if (shipmentAwb(shipment)) return null;
+    const id = String(pd?.carrier_shipment_id ?? pd?.carrierShipmentId ?? '');
+    const num = String(pd?.carrier_order_id ?? pd?.carrierOrderId ?? '');
+    return (id && byId.get(id)) || (num && byNumber.get(num)) || null;
+  };
 }

@@ -54,6 +54,8 @@ export function moduleOn(item: MenuItem, a: Access): boolean {
 function visibleItem(item: MenuItem, a: Access, locked: { n: number }): MenuItem | null {
   if (!permitted(item, a)) return null;          // silent: not this person's job
   if (!moduleOn(item, a)) { locked.n += 1; return null; }  // counted: an upsell
+  // Command search entries: only those this person may open.
+  if (item.palette?.length) item = { ...item, palette: item.palette.filter((p) => permitted(p, a) && moduleOn(p, a)) };
   if (!item.children?.length) return item;
   const children = item.children
     .map((c) => visibleItem(c, a, locked))

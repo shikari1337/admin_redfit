@@ -53,6 +53,7 @@ const Markets = lazyRetry(() => import('./pages/Markets'));
 const Warehouses = lazyRetry(() => import('./pages/Warehouses'));
 const Shipments = lazyRetry(() => import('./pages/Shipments'));
 // Growcord Ship's own sidebar group (owner 26 Nov 2026), its menu in lib/menu.ts.
+const GrowshipLayout = lazyRetry(() => import('./pages/growship/GrowshipLayout'));
 const GrowshipOverview = lazyRetry(() => import('./pages/growship/Overview'));
 const GrowshipBulk = lazyRetry(() => import('./pages/growship/Bulk'));
 const GrowshipWallet = lazyRetry(() => import('./pages/growship/Wallet'));
@@ -532,30 +533,33 @@ function App() {
           <Route path="orders/abandoned-carts/:id" element={<AbandonedCartDetail />} />
           <Route path="orders/:id" element={<OrderDetail />} />
           <Route path="shipments" element={<Shipments />} />
-          {/* Growcord Ship: its pages, the board fixed to it, and redirects to the pages other groups own (lib/menu.ts). */}
-          <Route path="growship" element={<GrowshipOverview />} />
-          <Route
-            path="growship/shipments"
-            element={(
-              // Its own key, so going between this board and Orders' Shipments starts each one afresh.
-              <Shipments
-                key="growship"
-                fixedProvider="growcord_ship"
-                title="Growcord Ship shipments"
-                intro="Parcels booked through Growcord Ship. Open one to see its charges and its courier events."
-              />
-            )}
-          />
-          <Route path="growship/bulk" element={<GrowshipBulk />} />
-          <Route path="growship/wallet" element={<GrowshipWallet />} />
-          <Route path="growship/billing" element={<GrowshipBilling />} />
-          <Route path="growship/rates" element={<GrowshipRates />} />
-          <Route path="growship/failed-delivery" element={<Navigate to="/growship/shipments?tab=ndr_failed_delivery" replace />} />
-          <Route path="growship/rto" element={<Navigate to="/panel/orders/rto" replace />} />
-          <Route path="growship/weight-disputes" element={<Navigate to="/panel/orders/weight-disputes" replace />} />
-          <Route path="growship/cod-payouts" element={<Navigate to="/panel/orders/cod-recon" replace />} />
-          <Route path="growship/settings" element={<Navigate to="/settings/shipping" replace />} />
-          <Route path="growship/pickup-locations" element={<Navigate to="/warehouses" replace />} />
+          {/* Growcord Ship: one sidebar entry, its pages as tabs in GrowshipLayout (each address and ?tab= kept), and
+              redirects to the pages that live elsewhere in the admin. Gates: lib/menu.ts EXTRA_ROUTES. */}
+          <Route path="growship" element={<GrowshipLayout />}>
+            <Route index element={<GrowshipOverview />} />
+            <Route
+              path="shipments"
+              element={(
+                // Its own key, so going between this board and Orders' Shipments starts each one afresh.
+                <Shipments
+                  key="growship"
+                  fixedProvider="growcord_ship"
+                  title="Growcord Ship shipments"
+                  intro="Parcels booked through Growcord Ship. Open one to see its charges and its courier events."
+                />
+              )}
+            />
+            <Route path="bulk" element={<GrowshipBulk />} />
+            <Route path="wallet" element={<GrowshipWallet />} />
+            <Route path="billing" element={<GrowshipBilling />} />
+            <Route path="rates" element={<GrowshipRates />} />
+            <Route path="failed-delivery" element={<Navigate to="/growship/shipments?tab=ndr_failed_delivery" replace />} />
+            <Route path="rto" element={<Navigate to="/panel/orders/rto" replace />} />
+            <Route path="weight-disputes" element={<Navigate to="/panel/orders/weight-disputes" replace />} />
+            <Route path="cod-payouts" element={<Navigate to="/panel/orders/cod-recon" replace />} />
+            <Route path="settings" element={<Navigate to="/settings/shipping" replace />} />
+            <Route path="pickup-locations" element={<Navigate to="/warehouses" replace />} />
+          </Route>
           <Route path="customers" element={<Customers />} />
           <Route path="customers/duplicates" element={<CustomerDuplicates />} />
           <Route path="users" element={<Users />} />
