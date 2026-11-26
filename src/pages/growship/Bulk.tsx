@@ -45,6 +45,37 @@ const listOf = (r: any): any[] => (Array.isArray(r) ? r : Array.isArray(r?.data)
 /** A parcel that still counts: anything not cancelled. */
 const liveParcels = (r: any) => listOf(r).filter((s) => String(s?.status ?? '') !== 'cancelled');
 
+/** One real run of a sheet, sent from this page: what each row became. */
+interface SheetRecord {
+  at: string;
+  sentAt: number;
+  filename: string | null;
+  /** The dry run's line numbers, to name the rows the run did not reach. */
+  lines: number[];
+  jobId: string | null;
+  /** True once Growcord Ship finished the run; false while it runs; null when it has no record of it yet. */
+  finished: boolean | null;
+  /** The run's own answer came back (else what is shown was read from Growcord Ship's job). */
+  answered: boolean;
+  booked: Array<{ line: number; parcel: string }>;
+  failed: Array<{ line: number; error: string }>;
+  checking: boolean;
+  readError?: string;
+}
+
+/** A real run's rows (its answer, or its job read whole) as booked and failed lines. */
+function rowsOf(rows: Array<Record<string, any>> | null | undefined): Pick<SheetRecord, 'booked' | 'failed' | 'readError'> {
+  const list = Array.isArray(rows) ? rows : [];
+  return {
+    booked: list.filter((r) => r.result === 'ok').map((r) => ({
+      line: Number(r.line_no) || 0,
+      parcel: [r.awb || r.consignment_awb ? `AWB ${r.awb || r.consignment_awb}` : '', r.consignment_number || ''].filter(Boolean).join(', '),
+    })),
+    failed: list.filter((r) => r.result === 'failed').map((r) => ({ line: Number(r.line_no) || 0, error: String(r.error ?? '') })),
+    readError: undefined,
+  };
+}
+
 /** Run `task` over `items`, `width` at a time. */
 async function pooled<T>(items: T[], width: number, task: (item: T) => Promise<void>): Promise<void> {
   let next = 0;
@@ -223,17 +254,42 @@ const GrowshipBulk: React.FC = () => {
     return { order };
   };
 
-  /** After an error: is a parcel on the order now? The answer may have been lost after the booking was made. */
-  const lookUp = async (id: string, why: string): Promise<Outcome> => {
+  /**
+   * After an error: is a parcel on the order now? A refusal the server answered (4xx) books nothing; with no answer
+   * (lost, timed out, a server failure) the booking may still have been made, so the order is left as unknown until a
+   * parcel shows or staff check again, never sent again from here.
+   */
+  const lookUp = async (id: string, e: any): Promise<Outcome> => {
+    const status = Number(e?.response?.status) || 0;
+    const answered = status >= 400 && status < 500;
+    const why = errorText(e, 'no answer came back.');
     try {
       const live = liveParcels(await shipmentsAPI.byOrder(id));
       if (live.length) {
         const awb = shipmentAwb(live[0]);
-        return { ok: true, text: `Booked; the answer was lost, the parcel is on the order${awb ? ` (AWB ${awb})` : ''}.` };
+        return { ok: true, text: `Booked; the parcel is on the order${awb ? ` (AWB ${awb})` : ''}.` };
       }
-      return { ok: false, text: `Not booked: ${why} Nothing is on the order, so it can be sent again.` };
+      if (answered) return { ok: false, text: `Not booked: ${why}` };
     } catch {
-      return { ok: false, unknown: true, text: `Not known whether it was booked (${why}). Open the order before booking it again.` };
+      /* not read: unknown below */
+    }
+    return { ok: false, unknown: true, text: `Unknown: ${why} No parcel is on the order yet. Check again in a minute.` };
+  };
+
+  /** An unknown order, looked up again by hand. */
+  const checkAgain = async (id: string) => {
+    setPlan(id, { booking: true });
+    try {
+      const live = liveParcels(await shipmentsAPI.byOrder(id));
+      if (live.length) {
+        const awb = shipmentAwb(live[0]);
+        setPlan(id, { booking: false, result: { ok: true, text: `Booked; the parcel is on the order${awb ? ` (AWB ${awb})` : ''}.` } });
+        return;
+      }
+      const at = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+      setPlan(id, { booking: false, result: { ok: false, unknown: true, text: `Unknown: still no parcel on the order at ${at}. Check again in a minute; if it stays empty, read the list again to book it.` } });
+    } catch (e) {
+      setPlan(id, { booking: false, result: { ok: false, unknown: true, text: `Unknown: the order could not be read (${errorText(e, 'no answer')}). Check again in a minute.` } });
     }
   };
 
@@ -265,7 +321,7 @@ const GrowshipBulk: React.FC = () => {
         const awb = s.awbCode ?? s.awb_code;
         setPlan(id, { booking: false, result: { ok: true, text: [s.courierName ?? s.courier, awb ? `AWB ${awb}` : 'waiting for its AWB'].filter(Boolean).join(', ') } });
       } catch (e) {
-        setPlan(id, { booking: false, result: await lookUp(id, errorText(e, 'no answer.')) });
+        setPlan(id, { booking: false, result: await lookUp(id, e) });
       }
     });
     setRunning(null);
@@ -285,10 +341,10 @@ const GrowshipBulk: React.FC = () => {
   const [run, setRun] = useState<GsBulkRun | null>(null);
   /** The sheet and pickup address the last DRY run was for; a real run needs it to match, and clears it. */
   const [dryKey, setDryKey] = useState<string | null>(null);
-  /** Sheets already sent for real in this visit (same text and address), and when. */
-  const [sentReal, setSentReal] = useState<Record<string, string>>({});
-  /** A real run whose answer was lost: what Growcord Ship's job list says about it. */
-  const [lost, setLost] = useState<{ sentAt: number; filename: string | null; job: GsBulkRun | null; checking: boolean } | null>(null);
+  /** The line numbers of the last dry run, to name the rows a real run did not reach. */
+  const [dryLines, setDryLines] = useState<number[]>([]);
+  /** Every real run sent from this page, by the sheet's text (whatever the address): what each row became. */
+  const [sheetLog, setSheetLog] = useState<Record<string, SheetRecord>>({});
   const [sheetBusy, setSheetBusy] = useState(false);
   const [sheetError, setSheetError] = useState<string | null>(null);
   const [jobs, setJobs] = useState<GsBulkRun[] | null>(null);
@@ -297,29 +353,48 @@ const GrowshipBulk: React.FC = () => {
   const loadJobs = () => growshipAPI.bulkJobs().then((j) => { setJobs(j); return j; }).catch(() => { setJobs([]); return [] as GsBulkRun[]; });
   useEffect(() => { if (tab === 'sheet') void loadJobs(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tab]);
 
-  /** A new sheet or pickup address: the dry run no longer holds. */
+  /** A new sheet or pickup address: the dry run no longer holds. What was sent for real stays listed. */
   const sheetChanged = () => { setRun(null); setDryKey(null); setSheetError(null); };
 
-  /** The job a lost real run became: the newest real run sent from here since `sentAt`. */
-  const findLost = async (l: { sentAt: number; filename: string | null }) => {
-    setLost((x) => (x ? { ...x, checking: true } : x));
-    const list = await loadJobs();
-    const since = l.sentAt - 5 * 60_000;
-    const job = list
-      .filter((j) => !j.is_dry_run && Date.parse(String(j.created_at ?? '')) >= since && (!l.filename || !j.filename || j.filename === l.filename))
-      .sort((a, b) => Date.parse(String(b.created_at ?? '')) - Date.parse(String(a.created_at ?? '')))[0] ?? null;
-    setLost({ ...l, job, checking: false });
-    reloadWallet();
+  const putRecord = (text: string, patch: Partial<SheetRecord>) =>
+    setSheetLog((m) => ({ ...m, [text]: { ...(m[text] as SheetRecord), ...patch } }));
+
+  /**
+   * What Growcord Ship recorded for a real run whose answer was lost: its job (found in the job list by when it was
+   * sent), then the job read whole with its rows, which are written as each row is booked, so a running or cut-off
+   * run still shows what it booked. Its totals are only written when the run finishes.
+   */
+  const readRecord = async (text: string) => {
+    const rec = sheetLog[text];
+    if (!rec) return;
+    putRecord(text, { checking: true });
+    try {
+      let jobId = rec.jobId;
+      if (!jobId) {
+        const since = rec.sentAt - 5 * 60_000;
+        const found = (await loadJobs())
+          .filter((j) => !j.is_dry_run && Date.parse(String(j.created_at ?? '')) >= since && (!rec.filename || !j.filename || j.filename === rec.filename))
+          .sort((a, b) => Date.parse(String(b.created_at ?? '')) - Date.parse(String(a.created_at ?? '')))[0];
+        jobId = found ? String(found.id ?? found.job_id ?? '') || null : null;
+      }
+      if (!jobId) { putRecord(text, { checking: false, finished: null }); return; }
+      const job = await growshipAPI.bulkJob(jobId);
+      putRecord(text, { checking: false, jobId, finished: !!job.finished_at, ...rowsOf(job.rows) });
+      reloadWallet();
+    } catch (e) {
+      putRecord(text, { checking: false, readError: errorText(e, 'Growcord Ship could not be read.') });
+    }
   };
 
   const runDry = async () => {
     if (!csv.trim()) return;
     const key = sheetKey;
-    setSheetBusy(true); setSheetError(null); setLost(null);
+    setSheetBusy(true); setSheetError(null);
     try {
       const r = await growshipAPI.bulkRun({ csv, filename, dryRun: true, pickupLocationId: locationId || null });
       setRun(r);
       setDryKey(key);
+      setDryLines((Array.isArray(r.rows) ? r.rows : []).map((x) => Number(x.line_no)).filter((n) => n > 0));
       void loadJobs();
     } catch (e) {
       setSheetError(errorText(e, 'The dry run could not be done.'));
@@ -329,26 +404,40 @@ const GrowshipBulk: React.FC = () => {
   };
 
   const runReal = async () => {
-    if (!csv.trim() || dryKey !== sheetKey) return;
-    const key = sheetKey;
+    if (!csv.trim() || dryKey !== sheetKey || blockedWhy) return;
+    const text = csv;
     const sentAt = Date.now();
-    // Sent once: the dry run is used up before the call leaves, so the button cannot send it again.
+    // Sent once: the dry run is used up before the call leaves, and the sheet is on record as sent.
     setDryKey(null);
-    setSentReal((m) => ({ ...m, [key]: new Date(sentAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) }));
-    setSheetBusy(true); setSheetError(null); setLost(null);
+    setSheetLog((m) => ({
+      ...m,
+      [text]: {
+        at: new Date(sentAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }), sentAt, filename,
+        lines: dryLines, jobId: null, finished: false, answered: false, booked: [], failed: [], checking: false,
+      },
+    }));
+    setSheetBusy(true); setSheetError(null);
     try {
       const r = await growshipAPI.bulkRun({ csv, filename, dryRun: false, pickupLocationId: locationId || null });
       setRun(r);
+      putRecord(text, { answered: true, finished: true, jobId: r.job_id ? String(r.job_id) : null, ...rowsOf(r.rows) });
       void loadJobs();
       reloadWallet();
     } catch (e) {
       setRun(null);
-      setSheetError(`${errorText(e, 'No answer came back.')} Some rows may have been booked; what Growcord Ship recorded is shown below.`);
-      await findLost({ sentAt, filename });
+      setSheetError(`${errorText(e, 'No answer came back.')} Some rows may have been booked; what Growcord Ship recorded is below.`);
+      // The record is read once the state above is in place.
+      setTimeout(() => setPendingRead(text), 0);
     } finally {
       setSheetBusy(false);
     }
   };
+  // A lost answer: read the job as soon as its record is on screen (readRecord needs the record in state).
+  const [pendingRead, setPendingRead] = useState<string | null>(null);
+  useEffect(() => {
+    if (pendingRead && sheetLog[pendingRead]) { const t = pendingRead; setPendingRead(null); void readRecord(t); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingRead, sheetLog]);
 
   const runRows = Array.isArray(run?.rows) ? run!.rows : [];
   const runFailed = runRows.filter((r) => r.result === 'failed');
@@ -357,8 +446,16 @@ const GrowshipBulk: React.FC = () => {
     ? Math.round(runRows.filter((r) => r.result === 'ok').reduce((s, r) => s + (paiseToRupees(r.quoted?.sell_with_gst_minor) ?? 0), 0) * 100) / 100
     : 0;
   const sheetShort = isDry && dryTotal > 0 ? shortfall(wallet, account, dryTotal) : 0;
-  const canRealRun = canBook && !sheetBusy && !!csv.trim() && dryKey === sheetKey && isDry && Number(run?.ok) > 0 && sheetShort === 0;
-  const lostJob = lost?.job ?? null;
+  // A sheet whose real run is still going (or not heard of yet), or that has booked rows, is not sent again as it is.
+  const record = sheetLog[csv];
+  const blockedWhy = !record ? null
+    : record.finished !== true
+      ? 'This sheet was sent for real and Growcord Ship has not finished it, or has no record of it yet. Check again below before sending it again.'
+      : record.booked.length
+        ? `Lines ${record.booked.map((b) => b.line).join(', ')} of this sheet are already booked. Remove those rows from the sheet, then do a new dry run to book the rest.`
+        : null;
+  const canRealRun = canBook && !sheetBusy && !!csv.trim() && dryKey === sheetKey && isDry && Number(run?.ok) > 0 && sheetShort === 0 && !blockedWhy;
+  const records = Object.entries(sheetLog).sort(([, a], [, b]) => b.sentAt - a.sentAt);
 
   return (
     <Page>
@@ -489,10 +586,13 @@ const GrowshipBulk: React.FC = () => {
                         <Td className="text-xs">
                           {pl.booking && <span className="text-gray-500">Booking...</span>}
                           {r && (
-                            <span className={`flex items-start gap-1 ${r.ok ? 'text-emerald-700' : r.skip ? 'text-gray-600' : 'text-red-700'}`}>
-                              {r.ok ? <Check className="mt-0.5 h-3 w-3 shrink-0" /> : r.skip ? <Minus className="mt-0.5 h-3 w-3 shrink-0" /> : <X className="mt-0.5 h-3 w-3 shrink-0" />}
+                            <span className={`flex items-start gap-1 ${r.ok ? 'text-emerald-700' : r.skip ? 'text-gray-600' : r.unknown ? 'text-amber-800' : 'text-red-700'}`}>
+                              {r.ok ? <Check className="mt-0.5 h-3 w-3 shrink-0" /> : r.skip || r.unknown ? <Minus className="mt-0.5 h-3 w-3 shrink-0" /> : <X className="mt-0.5 h-3 w-3 shrink-0" />}
                               {r.text}
                             </span>
+                          )}
+                          {r?.unknown && !pl.booking && !running && (
+                            <button type="button" className="mt-1 text-blue-700 hover:underline" onClick={() => void checkAgain(o._id)}>Check again</button>
                           )}
                         </Td>
                       </Tr>
@@ -553,10 +653,13 @@ const GrowshipBulk: React.FC = () => {
                 onChange={(e) => { setCsv(e.target.value); setFilename(null); sheetChanged(); }}
               />
               {csv.trim() && <p className="text-xs text-gray-500">{Math.max(0, csv.trim().split(/\r?\n/).length - 1)} row(s){filename ? ` from ${filename}` : ''}.</p>}
-              {sentReal[sheetKey] && (
+              {record && (
                 <p className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                  This sheet was already sent for real at {sentReal[sheetKey]}. Sending it again books every row again.
+                  <span>
+                    This sheet was already sent for real at {record.at}. Sending it again books every row again, whatever the pickup address.
+                    {blockedWhy ? ` ${blockedWhy}` : ''}
+                  </span>
                 </p>
               )}
             </div>
@@ -573,7 +676,7 @@ const GrowshipBulk: React.FC = () => {
                 </Btn>
                 <Btn variant="danger" disabled={!canRealRun}
                   onClick={() => {
-                    const again = sentReal[sheetKey] ? ` This sheet was already sent for real at ${sentReal[sheetKey]}; every row is booked again.` : '';
+                    const again = record ? ` This sheet was already sent for real at ${record.at}; every row is booked again.` : '';
                     if (window.confirm(`Book ${run?.ok} parcel(s) for real for about ${fmtRupees(dryTotal)}? Freight comes off your wallet.${again}`)) void runReal();
                   }}>
                   Book for real
@@ -585,25 +688,50 @@ const GrowshipBulk: React.FC = () => {
             <div className="space-y-3 p-5">
               {!canBook && <p className="text-sm text-amber-800">Running a sheet needs the shipments.manage permission.</p>}
               {sheetError && <p className="text-sm text-red-600">{sheetError}</p>}
-              {lost && (
-                <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                  {lost.checking && <p>Reading Growcord Ship's job list...</p>}
-                  {!lost.checking && lostJob && (
-                    <p>
-                      Growcord Ship recorded this run ({formatDate(lostJob.created_at, 'dd MMM, HH:mm', '')}): {String(lostJob.status ?? '').replace(/_/g, ' ') || 'state not given'},
-                      {' '}{Number(lostJob.ok) || 0} booked, {Number(lostJob.failed) || 0} failed of {Number(lostJob.total) || 0}.
-                      {' '}Do not send the sheet again; book only the rows it did not.
+              {records.filter(([, r]) => !r.answered).map(([text, r]) => {
+                const seen = new Set([...r.booked.map((b) => b.line), ...r.failed.map((f) => f.line)]);
+                const notReached = r.finished !== null ? r.lines.filter((n) => !seen.has(n)) : [];
+                return (
+                  <div key={r.sentAt} className="space-y-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    <p className="font-medium">
+                      Sent for real at {r.at}{r.filename ? ` (${r.filename})` : ''}, the answer was lost.
+                      {text === csv ? ' This is the sheet above.' : ''}
                     </p>
-                  )}
-                  {!lost.checking && !lostJob && (
-                    <p>Growcord Ship has no record of this run yet. It may still be starting: check again in a minute before doing anything else with this sheet.</p>
-                  )}
-                  {!lost.checking && (
-                    <Btn variant="outline" size="sm" className="mt-2" onClick={() => void findLost(lost)}>Check again</Btn>
-                  )}
-                </div>
-              )}
-              {!run && !sheetError && !lost && <p className="text-sm text-gray-500">Nothing has been run yet.</p>}
+                    {r.checking && <p>Reading what Growcord Ship recorded...</p>}
+                    {!r.checking && r.readError && <p>{r.readError}</p>}
+                    {!r.checking && r.finished === null && !r.readError && (
+                      <p>Growcord Ship has no record of this run yet. It may still be starting: check again in a minute before doing anything else with this sheet.</p>
+                    )}
+                    {!r.checking && r.finished === false && <p>Still running, check again. Rows are listed as Growcord Ship books them.</p>}
+                    {!r.checking && r.finished === true && (
+                      <p>Finished: {r.booked.length} booked, {r.failed.length} failed{notReached.length ? `, ${notReached.length} not reached` : ''}.</p>
+                    )}
+                    {(r.booked.length > 0 || r.failed.length > 0 || notReached.length > 0) && (
+                      <TableShell maxHeight="16rem">
+                        <table className="w-full text-sm">
+                          <THead><Th num>Line</Th><Th>What happened</Th></THead>
+                          <TBody>
+                            {[
+                              ...r.booked.map((b) => ({ line: b.line, tone: 'green' as const, word: 'Booked', text: b.parcel })),
+                              ...r.failed.map((f) => ({ line: f.line, tone: 'red' as const, word: 'Failed', text: f.error })),
+                              ...notReached.map((n) => ({ line: n, tone: 'neutral' as const, word: r.finished ? 'Not reached' : 'Not yet', text: '' })),
+                            ].sort((a, b) => a.line - b.line).map((x) => (
+                              <Tr key={`${x.word}-${x.line}`}>
+                                <Td num>{x.line || ''}</Td>
+                                <Td><Chip tone={x.tone}>{x.word}</Chip> <span className="text-xs">{x.text}</span></Td>
+                              </Tr>
+                            ))}
+                          </TBody>
+                        </table>
+                      </TableShell>
+                    )}
+                    {!r.checking && r.finished !== true && (
+                      <Btn variant="outline" size="sm" onClick={() => void readRecord(text)}>Check again</Btn>
+                    )}
+                  </div>
+                );
+              })}
+              {!run && !sheetError && !records.some(([, r]) => !r.answered) && <p className="text-sm text-gray-500">Nothing has been run yet.</p>}
               {run && (
                 <>
                   <p className={`text-sm ${Number(run.failed) ? 'text-red-700' : 'text-emerald-700'}`}>

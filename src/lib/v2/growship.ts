@@ -190,6 +190,8 @@ export interface GsBulkRun {
   detail?: unknown;
   rows?: Array<Record<string, any>> | null;
   created_at?: string | null;
+  /** Set when the run is over; a job without it is still running (or was cut off). */
+  finished_at?: string | null;
 }
 
 /* ── the door ───────────────────────────────────────────────────────────── */
