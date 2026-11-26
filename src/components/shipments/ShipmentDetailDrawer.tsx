@@ -17,11 +17,12 @@ import { fmtRupees } from '@/lib/money';
 import { formatDate, formatPickupWhen } from '../../utils/date';
 import ShipmentTimeline from './ShipmentTimeline';
 import {
-  chargeBasisText, chargeEditable, chargeHistory, courierUpdate, customerAnswerLine, ndrActionsFor, ndrCustomerAnswerOf,
-  ndrDetailsOf, ndrPhoneOf, needsNdrAnswer, nextStep, providerLabel, providerOf, shipmentAwb, shipmentCharge, shipmentCod,
-  shipmentCourier, shipmentTags,
+  chargeBasisText, chargeEditable, chargeHistory, courierUpdate, customerAnswerLine, hasCarrierDocuments, isTerminal,
+  ndrActionsFor, ndrCustomerAnswerOf, ndrDetailsOf, ndrPhoneOf, needsNdrAnswer, nextStep, providerLabel, providerOf,
+  shipmentAwb, shipmentCharge, shipmentCod, shipmentCourier, shipmentTags,
 } from './shipmentFacts';
 import { NdrActionButtons, NdrActionDialog, type NdrTarget } from './NdrActions';
+import PickupModal from './PickupModal';
 
 interface ShipmentDetailDrawerProps {
   shipmentId: string | null;
@@ -78,6 +79,15 @@ const ShipmentDetailDrawer: React.FC<ShipmentDetailDrawerProps> = ({ shipmentId,
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [ndrTarget, setNdrTarget] = useState<NdrTarget | null>(null);
+  // The parcel's own actions, as the shipments board has them (owner 26 Nov 2026: "make sure we can schedule
+  // pickup, download labels and manifest from here also"): the same calls and the same pickup dialog.
+  const [pickupOpen, setPickupOpen] = useState(false);
+  const [pickupDate, setPickupDate] = useState('');
+  const [pickupTimeSlot, setPickupTimeSlot] = useState('');
+  const [pickupNotes, setPickupNotes] = useState('');
+  const [busyDoc, setBusyDoc] = useState<string | null>(null);
+  const [docError, setDocError] = useState<string | null>(null);
+  const [docNote, setDocNote] = useState<string | null>(null);
 
   const load = useCallback((id: string) => {
     setLoading(true); setLoadError(null);
@@ -89,6 +99,7 @@ const ShipmentDetailDrawer: React.FC<ShipmentDetailDrawerProps> = ({ shipmentId,
 
   useEffect(() => {
     setEditing(false); setAmount(''); setReason(''); setSaveError(null); setNdrTarget(null);
+    setPickupOpen(false); setDocError(null); setDocNote(null);
     if (!shipmentId) { setShipment(null); return; }
     load(shipmentId);
   }, [shipmentId, load]);
@@ -117,6 +128,43 @@ const ShipmentDetailDrawer: React.FC<ShipmentDetailDrawerProps> = ({ shipmentId,
   const warehouse = typeof shipment?.warehouseId === 'object' ? shipment.warehouseId : null;
   const codBasis = shipment?.codSentBasis ?? shipment?.cod_sent_basis;
   const codNote = shipment?.codSentNote ?? shipment?.cod_sent_note;
+
+  const docs = !!shipment && hasCarrierDocuments(shipment);
+  const canPickup = !!shipment && !manual && shipment.status === 'pending' && !shipment.pickup?.scheduledDate;
+  const canManifest = docs && ['pending', 'pickup_scheduled'].includes(shipment?.status);
+  const canReceipt = !!shipment?.pickup?.pickupId && !isTerminal(shipment?.status) && !manual;
+
+  /** One document download; its refusal shows here in words. */
+  const fetchDoc = async (key: string, run: () => Promise<unknown>, fallback: string) => {
+    setBusyDoc(key); setDocError(null); setDocNote(null);
+    try { await run(); } catch (e: any) { setDocError(errorText(e, fallback)); } finally { setBusyDoc(null); }
+  };
+
+  const submitPickup = async () => {
+    if (!shipmentId) return;
+    if (!pickupDate) { setDocError('Choose the pickup date.'); return; }
+    setBusyDoc('pickup'); setDocError(null); setDocNote(null);
+    try {
+      const res: any = await shipmentsAPI.schedulePickup(shipmentId, {
+        scheduledDate: pickupDate,
+        pickupTimeSlot: pickupTimeSlot || undefined,
+        notes: pickupNotes || undefined,
+      });
+      const pk = res?.pickup ?? res?.data?.pickup ?? {};
+      const when = pk.scheduledFor || pk.scheduledDate || pickupDate;
+      const tokenBits = [pk.pickupId, pk.pickupToken].filter(Boolean).join(', ');
+      setDocNote(pk.source === 'carrier' || res?.meta?.alreadyScheduled
+        ? `A pickup was already booked with the courier for ${when}${tokenBits ? ` (${tokenBits})` : ''}. Recorded on the shipment.`
+        : `Pickup scheduled for ${when}${tokenBits ? ` (${tokenBits})` : ''}.`);
+      setPickupOpen(false); setPickupDate(''); setPickupTimeSlot(''); setPickupNotes('');
+      load(shipmentId);
+      onChanged?.();
+    } catch (e: any) {
+      setDocError(errorText(e, 'The pickup could not be scheduled.'));
+    } finally {
+      setBusyDoc(null);
+    }
+  };
 
   const startEdit = () => {
     setAmount(charge ? String(charge.total) : '');
@@ -169,6 +217,44 @@ const ShipmentDetailDrawer: React.FC<ShipmentDetailDrawerProps> = ({ shipmentId,
 
             {step && (
               <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">Next: {step}</p>
+            )}
+
+            {(canPickup || docs || canReceipt) && (
+              <div className="space-y-2">
+                <div className="flex flex-wrap gap-2">
+                  {canPickup && (
+                    <Button size="sm" onClick={() => { setDocError(null); setPickupOpen(true); }} disabled={!!busyDoc}>
+                      Schedule pickup
+                    </Button>
+                  )}
+                  {docs && (
+                    <>
+                      <Button size="sm" variant="outline" disabled={!!busyDoc}
+                              onClick={() => fetchDoc('label4r', () => shipmentsAPI.downloadLabel(shipment._id, '4R'), 'The label could not be downloaded.')}>
+                        {busyDoc === 'label4r' ? 'Downloading...' : 'Label, 4R (thermal)'}
+                      </Button>
+                      <Button size="sm" variant="outline" disabled={!!busyDoc}
+                              onClick={() => fetchDoc('labelA4', () => shipmentsAPI.downloadLabel(shipment._id, 'A4'), 'The label could not be downloaded.')}>
+                        {busyDoc === 'labelA4' ? 'Downloading...' : 'Label, A4'}
+                      </Button>
+                    </>
+                  )}
+                  {canManifest && (
+                    <Button size="sm" variant="outline" disabled={!!busyDoc}
+                            onClick={() => fetchDoc('manifest', () => shipmentsAPI.downloadManifest(shipment._id), 'The manifest could not be downloaded.')}>
+                      {busyDoc === 'manifest' ? 'Downloading...' : 'Manifest'}
+                    </Button>
+                  )}
+                  {canReceipt && (
+                    <Button size="sm" variant="outline" disabled={!!busyDoc}
+                            onClick={() => fetchDoc('receipt', () => shipmentsAPI.downloadPickupReceipt(shipment._id), 'The pickup receipt could not be downloaded.')}>
+                      {busyDoc === 'receipt' ? 'Downloading...' : 'Pickup receipt'}
+                    </Button>
+                  )}
+                </div>
+                {docNote && <p className="text-sm text-green-700">{docNote}</p>}
+                {docError && <p className="text-sm text-red-600">{docError}</p>}
+              </div>
             )}
 
             {/* The courier's own latest words on the parcel, and when it said them. */}
@@ -405,6 +491,19 @@ const ShipmentDetailDrawer: React.FC<ShipmentDetailDrawerProps> = ({ shipmentId,
           target={ndrTarget}
           onClose={() => setNdrTarget(null)}
           onDone={() => { if (shipmentId) load(shipmentId); onChanged?.(); }}
+        />
+        <PickupModal
+          isOpen={pickupOpen}
+          isBulk={false}
+          onClose={() => { setPickupOpen(false); setPickupDate(''); setPickupTimeSlot(''); setPickupNotes(''); }}
+          onSubmit={submitPickup}
+          pickupDate={pickupDate}
+          pickupTimeSlot={pickupTimeSlot}
+          pickupNotes={pickupNotes}
+          onDateChange={setPickupDate}
+          onTimeSlotChange={setPickupTimeSlot}
+          onNotesChange={setPickupNotes}
+          isSubmitting={busyDoc === 'pickup'}
         />
       </SheetContent>
     </Sheet>
