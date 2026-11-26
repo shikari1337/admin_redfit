@@ -7,36 +7,31 @@ import { fmtRupees } from '@/lib/money';
 import { downloadCsv, type CsvColumn } from '@/lib/csv';
 import { formatDate, isoDate } from '../../utils/date';
 import {
-  Page, PageHeader, SectionCard, TableShell, THead, Th, TBody, Tr, Td, EmptyRow, Btn, FilterBar, Field, SelectInput,
+  Page, PageHeader, SectionCard, TableShell, THead, Th, TBody, Tr, Td, EmptyRow, Btn, FilterBar, Field, SelectInput, Chip,
 } from '../../components/erp';
 import { DEFAULT_FROM, DEFAULT_TO, RangeFields } from '../payments/common';
 import { WalletCard, useStoreWallet } from '../../components/growship/WalletCard';
 import { growshipAPI, type GsWalletLeg } from '@/lib/v2/growship';
+import {
+  isShipDebit, isShipRefund, matchRefunds, netOf, readMovesSince, type WalletMove,
+} from '@/lib/growshipWallet';
 
-/** One wallet movement (`GET /wallet/transactions`, platform WalletMovementView). Money in rupees. */
-interface Movement {
-  id: string;
-  direction: 'credit' | 'debit';
-  amount: number;
-  balance_after: number;
-  category: string | null;
-  reference?: string | null;
-  note?: string | null;
-  created_at: string;
-}
+type Movement = WalletMove;
 
 const PAGE_SIZE = 25;
-/** The statement reads the ledger this many rows at a time (the route's most), and stops after this many rows. */
-const STATEMENT_PAGE = 200;
+/** The statement reads at most this many movements of each kind. */
 const STATEMENT_CAP = 5000;
 
 const categoryText = (c: string | null | undefined) => String(c ?? '').replace(/_/g, ' ') || 'Other';
+const at = (t: Movement) => Date.parse(t.created_at) || 0;
+const newestFirst = (a: Movement, b: Movement) => at(b) - at(a);
 
 /**
- * The wallet Growcord Ship freight comes off (category `shipping`): the balance, Add money, and every movement
- * with the parcel's AWB where Growcord Ship recorded one (Ship's own copy of each movement names the wallet
- * transaction it went through). A statement for any dates downloads as CSV. The full wallet, with message
- * charges and service prices, stays in Settings, Wallet.
+ * The wallet Growcord Ship freight comes off: the balance, Add money, and the history with the parcel's AWB where
+ * Growcord Ship recorded one. "Shipping only" is the freight taken AND the refunds of it (category refund: a booking
+ * no courier took is refunded in the same second, a cancel less its fee), each debit tagged Refunded with the net for
+ * its order (owner 26 Nov 2026, SM-13386 and SM-13402 showed a charge without its refund). A statement for any
+ * dates downloads as CSV. The whole wallet, with message charges and service prices, stays in Settings, Wallet.
  */
 const GrowshipWallet: React.FC = () => {
   const { hasPerm } = useAuth();
@@ -46,7 +41,10 @@ const GrowshipWallet: React.FC = () => {
   const [category, setCategory] = useState<'shipping' | ''>('shipping');
   const [direction, setDirection] = useState<'' | 'credit' | 'debit'>('');
   const [page, setPage] = useState(1);
-  const [rows, setRows] = useState<Movement[] | null>(null);
+  /** The page as the server answered it. */
+  const [pageRows, setPageRows] = useState<Movement[] | null>(null);
+  /** Shipping only: the Growcord Ship refunds from the oldest row of the page on (their own category). */
+  const [refunds, setRefunds] = useState<Movement[]>([]);
   const [total, setTotal] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [legs, setLegs] = useState<GsWalletLeg[]>([]);
@@ -56,18 +54,39 @@ const GrowshipWallet: React.FC = () => {
   const [statement, setStatement] = useState<{ rows: number; credit: number; debit: number; capped: boolean } | null>(null);
   const [statementError, setStatementError] = useState<string | null>(null);
 
+  const shippingOnly = category === 'shipping';
+
   const load = () => {
     setError(null);
-    walletAPI.getTransactions({ page, limit: PAGE_SIZE, ...(category ? { category } : {}), ...(direction ? { direction } : {}) })
-      .then((list: any) => {
-        setRows(Array.isArray(list) ? list : []);
-        setTotal(typeof list?.total === 'number' ? list.total : Array.isArray(list) ? list.length : 0);
-      })
-      .catch((e) => { setRows([]); setError(errorText(e, 'The wallet history could not be read.')); });
+    (async () => {
+      if (shippingOnly && direction === 'credit') {
+        // Money in, shipping only: the refunds of Growcord Ship freight (category refund).
+        const list: any = await walletAPI.getTransactions({ page, limit: PAGE_SIZE, category: 'refund', direction: 'credit' });
+        const arr: Movement[] = Array.isArray(list) ? list : [];
+        setPageRows(arr.filter((t) => isShipRefund(t)));
+        setRefunds([]);
+        setTotal(typeof list?.total === 'number' ? list.total : arr.length);
+        return;
+      }
+      const list: any = await walletAPI.getTransactions({ page, limit: PAGE_SIZE, ...(category ? { category } : {}), ...(direction ? { direction } : {}) });
+      const arr: Movement[] = Array.isArray(list) ? list : [];
+      setTotal(typeof list?.total === 'number' ? list.total : arr.length);
+      if (shippingOnly) {
+        // The refunds of these debits sit in category refund: read back to the oldest debit on the page.
+        const since = arr.length ? isoDate(arr[arr.length - 1].created_at) : isoDate(new Date());
+        const { rows: back } = await readMovesSince('refund', since, { direction: 'credit', cap: 1000 });
+        const refs = new Set(arr.map((d) => String(d.reference ?? '')).filter(Boolean));
+        setRefunds(back.filter((r) => isShipRefund(r, refs)));
+      } else {
+        setRefunds([]);
+      }
+      setPageRows(arr);
+    })().catch((e) => { setPageRows([]); setRefunds([]); setError(errorText(e, 'The wallet history could not be read.')); });
   };
   useEffect(load, [page, category, direction]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Ship's own record of the movements (newest 200): the AWB behind each wallet transaction.
+  // Ship's own record of the movements (newest 200): the AWB behind each wallet transaction, and which refund is
+  // for which parcel.
   useEffect(() => {
     if (!canAwb) return;
     growshipAPI.walletLegs(200).then(setLegs).catch((e) => { setLegs([]); setLegsError(errorText(e, 'Growcord Ship could not be read.')); });
@@ -79,7 +98,27 @@ const GrowshipWallet: React.FC = () => {
   }, [legs]);
   const awbOf = (t: Movement) => byTx.get(t.id)?.awb ?? '';
 
-  const columns: CsvColumn<Movement>[] = [
+  /** Debit id to its refunds, and refund id to its debit, over what is on the page. */
+  const { refundsOf, debitOf, rows } = useMemo(() => {
+    const base = pageRows ?? [];
+    const m = matchRefunds([...base, ...refunds], legs);
+    const back = new Map<string, Movement>();
+    for (const [debitId, rs] of m) {
+      const d = base.find((x) => x.id === debitId);
+      if (d) for (const r of rs) back.set(r.id, d);
+    }
+    // Shown: the page, the refunds of its debits, and other Growcord Ship refunds between its newest and oldest rows.
+    let shown = base;
+    if (shippingOnly && direction !== 'debit' && refunds.length) {
+      const lo = base.length ? at(base[base.length - 1]) : 0;
+      const hi = page === 1 || !base.length ? Infinity : at(base[0]);
+      const extra = refunds.filter((r) => !base.some((x) => x.id === r.id) && (back.has(r.id) || (at(r) >= lo && at(r) <= hi)));
+      shown = [...base, ...extra].sort(newestFirst);
+    }
+    return { refundsOf: m, debitOf: back, rows: pageRows === null ? null : shown };
+  }, [pageRows, refunds, legs, shippingOnly, direction, page]);
+
+  const columnsFor = (m: Map<string, Movement[]>, back: Map<string, Movement>): CsvColumn<Movement>[] => [
     { key: 'created_at', label: 'Date', format: (t) => formatDate(t.created_at, 'yyyy-MM-dd HH:mm', '') },
     { key: 'direction', label: 'In or out', format: (t) => (t.direction === 'credit' ? 'Money in' : 'Money out') },
     { key: 'category', label: 'Category', format: (t) => categoryText(t.category) },
@@ -88,27 +127,42 @@ const GrowshipWallet: React.FC = () => {
     { key: 'note', label: 'Note', format: (t) => t.note ?? '' },
     { key: 'amount', label: 'Amount', format: (t) => (t.direction === 'debit' ? -Number(t.amount ?? 0) : Number(t.amount ?? 0)).toFixed(2) },
     { key: 'balance_after', label: 'Balance after', format: (t) => Number(t.balance_after ?? 0).toFixed(2) },
+    { key: 'refunded', label: 'Refunded', format: (t) => (m.has(t.id) ? 'Yes' : back.has(t.id) ? `Refund of ${back.get(t.id)?.reference || 'a shipping charge'}` : '') },
+    { key: 'net', label: 'Net for the order', format: (t) => (m.has(t.id) ? netOf(t, m.get(t.id)).toFixed(2) : '') },
   ];
 
-  /** Every movement in the dates, newest first, read page by page until the rows are older than the start. */
+  /**
+   * Every movement in the dates, newest first. Shipping only: the freight debits and the Growcord Ship refunds (their
+   * own category), read apart and put together, each refund beside its debit.
+   */
   const downloadStatement = async () => {
     if (!range.from || !range.to) return;
     setStatementBusy(true); setStatementError(null); setStatement(null);
     try {
-      const out: Movement[] = [];
+      const inRange = (t: Movement) => { const day = isoDate(t.created_at); return day >= range.from && day <= range.to; };
+      let out: Movement[];
       let capped = false;
-      for (let p = 1; ; p += 1) {
-        const list: any = await walletAPI.getTransactions({ page: p, limit: STATEMENT_PAGE, ...(category ? { category } : {}), ...(direction ? { direction } : {}) });
-        const batch: Movement[] = Array.isArray(list) ? list : [];
-        for (const t of batch) {
-          const day = isoDate(t.created_at);
-          if (day >= range.from && day <= range.to) out.push(t);
-        }
-        const oldest = batch.length ? isoDate(batch[batch.length - 1].created_at) : '';
-        if (batch.length < STATEMENT_PAGE || (oldest && oldest < range.from)) break;
-        if (p * STATEMENT_PAGE >= STATEMENT_CAP) { capped = true; break; }
+      if (shippingOnly) {
+        const debits = direction === 'credit' ? { rows: [] as Movement[], capped: false } : await readMovesSince('shipping', range.from, { cap: STATEMENT_CAP });
+        const back = direction === 'debit' && !debits.rows.length ? { rows: [] as Movement[], capped: false } : await readMovesSince('refund', range.from, { direction: 'credit', cap: STATEMENT_CAP });
+        const ds = debits.rows.filter((t) => isShipDebit(t) && inRange(t));
+        const refs = new Set(ds.map((d) => String(d.reference ?? '')).filter(Boolean));
+        const rs = back.rows.filter((r) => isShipRefund(r, refs) && inRange(r));
+        out = [...ds, ...(direction === 'debit' ? [] : rs)].sort(newestFirst);
+        capped = debits.capped || back.capped;
+        const m = matchRefunds([...ds, ...rs], legs);
+        const b = new Map<string, Movement>();
+        for (const [id, list] of m) { const d = ds.find((x) => x.id === id); if (d) for (const r of list) b.set(r.id, d); }
+        downloadCsv(`growcord-ship-wallet-${range.from}-to-${range.to}`, columnsFor(m, b), out);
+      } else {
+        const all = await readMovesSince('', range.from, { ...(direction ? { direction } : {}), cap: STATEMENT_CAP });
+        out = all.rows.filter(inRange);
+        capped = all.capped;
+        const m = matchRefunds(out, legs);
+        const b = new Map<string, Movement>();
+        for (const [id, list] of m) { const d = out.find((x) => x.id === id); if (d) for (const r of list) b.set(r.id, d); }
+        downloadCsv(`growcord-ship-wallet-${range.from}-to-${range.to}`, columnsFor(m, b), out);
       }
-      downloadCsv(`growcord-ship-wallet-${range.from}-to-${range.to}`, columns, out);
       setStatement({
         rows: out.length,
         credit: out.filter((t) => t.direction === 'credit').reduce((s, t) => s + Number(t.amount || 0), 0),
@@ -163,7 +217,7 @@ const GrowshipWallet: React.FC = () => {
           <div className="flex flex-wrap items-end gap-2">
             <Field label="Show">
               <SelectInput value={category} onChange={(e) => { setCategory(e.target.value as 'shipping' | ''); setPage(1); }} aria-label="Which movements">
-                <option value="shipping">Shipping only</option>
+                <option value="shipping">Shipping and its refunds</option>
                 <option value="">Everything</option>
               </SelectInput>
             </Field>
@@ -186,19 +240,34 @@ const GrowshipWallet: React.FC = () => {
             <TBody>
               {rows === null && <EmptyRow colSpan={canAwb ? 7 : 6}>Reading...</EmptyRow>}
               {rows && rows.length === 0 && <EmptyRow colSpan={canAwb ? 7 : 6}>{category === 'shipping' ? 'No shipping charge has been taken from the wallet yet.' : 'No movement yet.'}</EmptyRow>}
-              {(rows ?? []).map((t) => (
-                <Tr key={t.id}>
+              {(rows ?? []).map((t) => {
+                const rs = refundsOf.get(t.id);
+                const forDebit = debitOf.get(t.id);
+                return (
+                <Tr key={t.id} className={forDebit ? 'bg-emerald-50/40' : undefined}>
                   <Td muted className="whitespace-nowrap">{formatDate(t.created_at, 'dd MMM yyyy, HH:mm', '')}</Td>
                   <Td className="capitalize">{categoryText(t.category)}</Td>
-                  <Td>{t.reference || ''}</Td>
-                  {canAwb && <Td className="font-mono text-xs">{awbOf(t)}</Td>}
-                  <Td className="max-w-xs truncate text-xs text-gray-500" title={t.note ?? undefined}>{t.note || ''}</Td>
+                  <Td>{t.reference || forDebit?.reference || ''}</Td>
+                  {canAwb && <Td className="font-mono text-xs">{awbOf(t) || (forDebit ? awbOf(forDebit) : '')}</Td>}
+                  <Td className="max-w-xs text-xs text-gray-500">
+                    {rs && (
+                      <div className="mb-0.5 flex flex-wrap items-center gap-1.5">
+                        <Chip tone="green">Refunded</Chip>
+                        <span className="font-medium text-gray-700">Net for the order {fmtRupees(netOf(t, rs))}</span>
+                      </div>
+                    )}
+                    {forDebit && (
+                      <div className="mb-0.5"><Chip tone="green">Refund</Chip> <span className="text-gray-700">of the charge for {forDebit.reference || 'this parcel'}</span></div>
+                    )}
+                    <div className="truncate" title={t.note ?? undefined}>{t.note || ''}</div>
+                  </Td>
                   <Td num className={t.direction === 'credit' ? 'text-emerald-700' : 'text-red-700'}>
                     {t.direction === 'credit' ? '+' : '-'}{fmtRupees(t.amount)}
                   </Td>
                   <Td num muted>{fmtRupees(t.balance_after)}</Td>
                 </Tr>
-              ))}
+                );
+              })}
             </TBody>
           </table>
         </TableShell>
