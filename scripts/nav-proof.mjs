@@ -183,6 +183,21 @@ console.log(`\n== 2. Reachability over ${SETS.length} access sets (${PERMS.lengt
   }
 }
 
+/* what each role sees now that it did not before (pages it could already open by their address) */
+
+console.log('\nNewly in the menu per role (every module on); each already opened by its address before:');
+for (const r of ROLES) {
+  const a = accessOf(r, r === 'admin' ? '*' : NEW.rbac.effectivePermissionsFor(r), []);
+  const was = oldVisible(a);
+  const entries = NEW.access.navEntries(NEW.access.visibleMenu(a), a);
+  const tabs = [...new Set(entries.filter((e) => e.kind !== 'other' && e.kind !== 'area' && !was.has(e.to)).map((e) => `${e.label} (${e.row ?? e.group})`))];
+  const other = entries.filter((e) => e.kind === 'other' && !was.has(e.to));
+  const byProduct = {};
+  for (const e of other) byProduct[e.product] = (byProduct[e.product] ?? 0) + 1;
+  const search = Object.entries(byProduct).map(([p, n]) => `${n} ${p}`).join(', ');
+  console.log(`  ${r}: ${tabs.length ? tabs.join(', ') : 'no new tab'}${search ? `; in the command search: ${search} pages` : ''}`);
+}
+
 /* where each route lived, and lives */
 
 function oldWhere() {
@@ -249,13 +264,110 @@ function show(a) {
 
 console.log('\n== 3. What four people see ==');
 {
-  let oldRows = 0;
-  for (const g of OLD.access.visibleMenu(ALL)) for (const s of g.subs) oldRows += s.items.length;
-  const newRows = show(ALL);
-  console.log(`owner: ${oldRows} sidebar rows before, ${newRows} now`);
+  const count = (groups) => Object.fromEntries(groups.map((g) => [g.label, g.subs.reduce((n, s) => n + s.items.length, 0)]));
+  const was = count(OLD.access.visibleMenu(ALL));
+  const now = count(NEW.access.visibleMenu(ALL));
+  const total = (c) => Object.values(c).reduce((a, b) => a + b, 0);
+  console.log(`sidebar rows for the owner, before and now: ${Object.keys(was).map((k) => `${k} ${was[k]} to ${now[k] ?? 0}`).join('; ')}; all ${total(was)} to ${total(now)}`);
+  show(ALL);
   show(accessOf('orders only staff (orders.manage)', ['orders.manage'], []));
   show(accessOf('catalog only staff (products.manage)', ['products.manage'], []));
   show(accessOf('owner of a store with marketing, inventory, analytics, shipping, accounting and wms off', '*', ['marketing', 'inventory', 'analytics', 'shipping', 'accounting', 'wms']));
+}
+
+/* 4. the real sidebar and strip, rendered to HTML */
+
+console.log('\n== 4. The sidebar and the tab strip rendered for several people and pages ==');
+{
+  const outfile = path.join(work, 'render.mjs');
+  // The sidebar warms page chunks on hover (menu/prefetch.ts); the check does not need the pages, so that file is a stub.
+  const stubPrefetch = {
+    name: 'stub-prefetch',
+    setup(b) {
+      b.onResolve({ filter: /menu\/prefetch$/ }, () => ({ path: 'prefetch', namespace: 'nav-stub' }));
+      b.onLoad({ filter: /.*/, namespace: 'nav-stub' }, () => ({ contents: 'export function prefetchGroup() {}', loader: 'js' }));
+    },
+  };
+  await build({
+    entryPoints: [path.join(root, 'scripts', 'nav-render-entry.tsx')],
+    // Packages load from node_modules as they are (React's server build is CommonJS); only the admin's code is bundled.
+    bundle: true, packages: 'external', platform: 'node', format: 'esm', outfile, logLevel: 'warning', jsx: 'automatic',
+    plugins: [stubPrefetch],
+  });
+  const R = await import(pathToFileURL(outfile).href);
+  const hrefs = (html) => [...html.matchAll(/href="([^"]+)"/g)].map((m) => m[1].replace(/&amp;/g, '&'));
+  const everyPath = [...before.keys()];
+  const people = [
+    ALL,
+    accessOf('orders only staff (orders.manage)', ['orders.manage'], []),
+    accessOf('catalog only staff (products.manage)', ['products.manage'], []),
+    accessOf('role dispatcher', NEW.rbac.effectivePermissionsFor('dispatcher'), []),
+    accessOf('role marketing_manager', NEW.rbac.effectivePermissionsFor('marketing_manager'), []),
+    accessOf('role accountant', NEW.rbac.effectivePermissionsFor('accountant'), []),
+    accessOf('owner of a store with modules off', '*', ['marketing', 'inventory', 'analytics', 'shipping', 'accounting', 'wms']),
+  ];
+  // Saved state that tries to show everything: every route pinned and recent, and every area's remembered tab a
+  // page the person may not open.
+  const lastAll = {};
+  for (const g of NEW.menu.MENU) for (const s of g.subs) for (const i of s.items) if (i.children?.length) lastAll[`${g.id}/${i.label}`] = '/panel/accounting/journals';
+  const saved = { pins: everyPath, recent: [...everyPath].reverse(), last: lastAll };
+  const pages = ['/dashboard', '/orders/SM-9188', '/settings/staff', '/growship/shipments', '/panel/inventory/transfers', '/panel/accounting/trial-balance', '/pricing/changes'];
+  let links = 0;
+  for (const a of people) {
+    for (const p of pages) {
+      const out = R.renderNav(a, p, saved);
+      for (const h of [...hrefs(out.sidebar), ...hrefs(out.strip)]) {
+        links += 1;
+        if (!NEW.rp.canOpenPath(h, a.hasPerm, a.canAccess)) fail(`${a.name} on ${p}: the rendered menu links to ${h}, which they may not open`);
+      }
+      for (const to of [...out.pinned, ...out.recent]) if (!NEW.rp.canOpenPath(to, a.hasPerm, a.canAccess)) fail(`${a.name}: a saved page they may not open was shown: ${to}`);
+      if (out.recent.length > 5) fail(`${a.name}: more than 5 recent pages`);
+    }
+    // Recent pages on their own (no pins): at most five, each openable.
+    const onlyRecent = R.renderNav(a, '/dashboard', { pins: [], recent: [...everyPath].reverse(), last: lastAll });
+    if (onlyRecent.recent.length > 5) fail(`${a.name}: more than 5 recent pages`);
+    for (const to of onlyRecent.recent) if (!NEW.rp.canOpenPath(to, a.hasPerm, a.canAccess)) fail(`${a.name}: a recent page they may not open was shown: ${to}`);
+    const plain = R.renderNav(a, '/dashboard', { pins: [], recent: [], last: {} });
+    const sample = R.renderNav(a, '/dashboard', saved);
+    console.log(`${a.name}: ${hrefs(plain.sidebar).length} links in the sidebar with nothing saved; with every route saved ${sample.pinned.length} pins kept of ${everyPath.length}, and with only recent pages ${onlyRecent.recent.length} recent shown`);
+  }
+  console.log(`${links} rendered links checked against the route table`);
+
+  // Pages and what the shell shows on them, for the owner.
+  const expect = [
+    ['/orders/SM-9188', 'orders/Orders', '/orders', 'Orders / All Orders / SM 9188'],
+    ['/orders/new', 'orders/Orders', '/orders/new', 'Orders / Create Order'],
+    ['/panel/orders/payments/settlements/stl_1', 'orders/Payments', '/panel/orders/payments/settlements', null],
+    ['/panel/orders/rto', 'orders/Shipments', '/panel/orders/rto', 'Shipments / Returns in'],
+    ['/pricing/changes', 'catalog/Products', '/pricing/discovery', 'Products / Pricing / changes'],
+    ['/settings/staff', 'system/Settings', '/settings/staff', 'Settings / Staff & Access'],
+    ['/settings/billing/product-services', 'system/Settings', '/settings/billing', null],
+    ['/panel/marketing/templates', 'marketing/Campaigns and inbox', '/panel/marketing/templates', null],
+    ['/panel/marketing/connections/callback', 'marketing/Marketing home', '/panel/marketing/connections', null],
+    ['/growship/shipments', null, null, 'Growcord Ship / Shipments'],
+    ['/growship', null, null, null],
+    ['/panel/inventory/transfers', null, null, 'WMS / Transfers'],
+    ['/panel/inventory/purchasing', null, null, 'Make / Purchase orders'],
+    ['/panel/accounting/trial-balance', null, null, 'Books / Trial balance'],
+    ['/dashboard', null, null, 'Overview / Dashboard'],
+    ['/support/42', null, null, 'System / Help and support / 42'],
+  ];
+  const none = { pins: [], recent: [], last: {} };
+  for (const [p, key, active, trail] of expect) {
+    const out = R.renderNav(ALL, p, none);
+    const gotKey = out.view?.key ?? null;
+    const gotActive = out.view?.active ?? null;
+    if (gotKey !== key || gotActive !== active) fail(`${p}: strip ${gotKey} on ${gotActive}, expected ${key} on ${active}`);
+    if (trail && out.trail !== trail) fail(`${p}: breadcrumb "${out.trail}", expected "${trail}"`);
+    console.log(`${p}: ${out.view ? `${out.view.key} tabs, open tab ${out.view.active}${out.view.section ? `, section ${out.view.section}` : ''}` : 'no shell tabs'}; breadcrumb ${out.trail}${out.here ? `; pinnable as ${out.here}` : ''}`);
+  }
+
+  // A remembered tab the person may no longer open is not used: the row lands on the first tab they may open.
+  const catalog = accessOf('catalog only staff (products.manage)', ['products.manage'], []);
+  const kept = R.renderNav(catalog, '/products', { pins: [], recent: [], last: { 'catalog/Inventory': '/inventory', 'catalog/Products': '/products/tags' } });
+  if (!hrefs(kept.sidebar).includes('/panel/inventory/network') || hrefs(kept.sidebar).includes('/inventory')) fail('catalog staff: the Inventory row did not land on the first tab they may open');
+  if (!hrefs(kept.sidebar).includes('/products/tags')) fail('catalog staff: the Products row did not land on the remembered tab');
+  console.log(`catalog staff, remembered tabs /inventory (not theirs) and /products/tags: Inventory row lands on /panel/inventory/network, Products row on /products/tags`);
 }
 
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nALL CHECKS PASSED');

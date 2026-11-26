@@ -364,8 +364,10 @@ export function trailFor(groups: VisibleGroup[], pathname: string, landingOf: (k
   }
   // The record's own segments, when the page is deeper than the entry (an order, a product): the page's own header
   // names the record; this just shows depth.
-  const base = routeBase(trail[trail.length - 1].to ?? place.matched);
+  // Counted from the entry's own route, or from the owned route that matched (Pricing owns /pricing, its tabs below).
   const path = pathname.replace(/\/+$/, '');
+  const own = routeBase(trail[trail.length - 1].to ?? place.matched);
+  const base = path.startsWith(own + '/') ? own : place.matched;
   if (path.startsWith(base + '/')) {
     for (const seg of path.slice(base.length).split('/').filter(Boolean)) trail.push({ label: seg.replace(/-/g, ' ') });
   }

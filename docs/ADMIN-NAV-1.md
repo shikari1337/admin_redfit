@@ -119,8 +119,8 @@ who may open them, labelled with that product. The breadcrumb names the product 
 ### 2.6 Need to know
 
 - A row, tab, flyout entry, pin, recent page or search result appears only when `permitted` and `moduleOn` (the
-  existing functions) pass for that page's own entry, and pins and recent pages also pass `canOpenPath`, the route
-  guard's own table.
+  existing functions) pass for that page's own entry AND `canOpenPath`, the route guard's own table, passes for its
+  route.
 - An area row appears only when at least one of its tabs does, and it lands on the first of them (or the remembered
   one, when the person may still open it). No count or hint of a page a person may not open is shown. `planLocked`
   stays as it is (it counts pages hidden by a module; no screen shows it today).
@@ -142,16 +142,35 @@ the base ref is the first argument, origin/main when left out):
    each module off, every single permission, every pair of permissions, with each module off): whoever saw a page
    before still sees it, and whoever sees a page may open it by the route table. Any failure fails the run.
 3. What some people see: the owner with everything, an orders only staff member, a catalog only staff member, and a
-   store with modules off, printed row by row with their tabs.
+   store with modules off, printed row by row with their tabs; and per role, the pages now in the menu that were not.
+4. Rendered: the real sidebar and area strip (`scripts/nav-render-entry.tsx`) rendered to HTML for seven people on
+   seven pages with every route saved as a pin and as a recent page, and a remembered tab the person may not open;
+   every link in the HTML must open for that person. The strip and breadcrumb are checked on 16 pages.
 
 Also: type check clean, `npm run build` succeeds. The repository has no eslint set up (no config, not in
 devDependencies), so there is no lint run to compare.
+
+### 3.1 Results (27 Nov 2026, against origin/main 7f40050)
+
+- Gate equality: 242 gated paths, 242 identical.
+- Reachability: 3557 access sets (54 permissions, 29 modules), 854316 checks: 0 narrowed, 0 shown without access, 0
+  pages that open but are not listed. 219 routes listed before, 219 placed now, 0 missing.
+- Four links the old menu showed that the route guard refused are now left out: All chats, Messenger settings and
+  ChatGPT ads for a store with the marketing module off (their routes inherit `marketing` from `/panel/marketing`),
+  and the Marketing setup fold's own route for a store with connectors off.
+- Growcord Ship's More pages COD payouts, Settings and Pickup locations open (they are redirects) for some people who
+  cannot see the Growcord Ship row; they follow that row's gate as before, and each target is listed elsewhere.
+- Owner's rows: Overview 2 to 2, Orders 5 to 4, Catalog 6 to 2, Marketing 11 to 5, Messaging 6 to 1, Store Customers
+  5 to 1, Content 8 to 2, System 5 to 2; 48 to 19.
+- Rendered: 4744 links checked, every one opens for the person it was drawn for; pins and recent pages never kept a
+  page the person may not open; a remembered tab the person may not open is not used.
 
 ## 4. Files
 
 - `src/lib/menu.ts`: the new MENU shape, `area()`, `section`, `more` and `product` fields, the surfaced OFF_MENU pages
   moved into their areas, every gate unchanged.
-- `src/components/menu/menuAccess.ts`: areas shown by their tabs, `navEntries`, `whereIs`, `areaView`, `activeTab`.
+- `src/components/menu/menuAccess.ts`: areas shown by their tabs, `navEntries`, `areaView`, `trailFor`,
+  `keepOpenable`, `activeTab`. `whereIs` (which entry a URL belongs to) is in `menu.ts`, and `groupForPath` uses it.
 - `src/components/menu/AreaTabs.tsx` (new, from GrowshipLayout's strip): the one tab strip, and `AreaStrip` for the
   shell.
 - `src/components/menu/navMemory.ts` (new): pins, recent pages, last tabs.
@@ -159,7 +178,7 @@ devDependencies), so there is no lint run to compare.
 - `src/components/Layout.tsx`: the area strip, the breadcrumb (Area, Tab), the Pin button, one nav state.
 - `src/components/menu/ShellChrome.tsx`: the command search reads `navEntries`.
 - `src/pages/growship/GrowshipLayout.tsx`: uses `AreaTabs`.
-- `scripts/nav-proof.mjs`.
+- `scripts/nav-proof.mjs`, `scripts/nav-render-entry.tsx`.
 
 ## 5. Not in this lane
 
