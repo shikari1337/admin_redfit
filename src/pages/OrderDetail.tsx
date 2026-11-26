@@ -1350,6 +1350,8 @@ const OrderDetail: React.FC = () => {
               orderDiscount={Number(order.discount) || 0}
               subtotal={Number(order.subtotal) || 0}
               shipping={Number(order.shippingCost ?? order.shipping_cost ?? order.shipping ?? 0)}
+              remoteFee={Number(order.remoteFee ?? order.remote_fee ?? 0) || 0}
+              remoteFeeLabel={order.remoteFeeLabel ?? order.remote_fee_label}
               total={Number(order.total) || 0}
               gst={order.gst}
               amountReceived={order.amountReceived}
@@ -1859,7 +1861,7 @@ const OrderDetail: React.FC = () => {
                     <span className="block">
                       <span className="font-semibold text-slate-900 tabular-nums">{known.length ? fmtRupees(cost) : 'Not recorded'}</span>
                       {unknown > 0 && known.length > 0 && <span className="block text-[12px] text-amber-700">{unknown} parcel{unknown === 1 ? '' : 's'} not priced yet</span>}
-                      {paid != null && <span className="block text-[12px] text-slate-600">Customer was charged {fmtRupees(paid)} for shipping</span>}
+                      {paid != null && <span className="block text-[12px] text-slate-600">Customer was charged {fmtRupees(paid)} for shipping{Number(order.remoteFee ?? order.remote_fee) > 0 ? `, ${fmtRupees(Number(order.remoteFee ?? order.remote_fee))} of it the ${String(order.remoteFeeLabel ?? order.remote_fee_label ?? 'remote location fee').toLowerCase()}` : ''}</span>}
                     </span>
                   } />
                 );

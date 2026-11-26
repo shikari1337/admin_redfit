@@ -5,6 +5,7 @@ import api, { shippingZonesAPI, pincodeZonesAPI, shippingAPI, getApiBase, errorT
 import ConnectionStatus, { type ConnState } from '../components/common/ConnectionStatus';
 import GrowcordShipCard from '../components/shipments/GrowcordShipCard';
 import ZoneRates from '../components/shipments/ZoneRates';
+import GoogleShippingCard from '../components/shipments/GoogleShippingCard';
 import { useAuth } from '../contexts/AuthContext';
 import DispatchCalendarCard from '../components/shipments/DispatchCalendarCard';
 import { useSettingsSection } from '../hooks/useSettingsSection';
@@ -15,6 +16,7 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { fmtRupees } from '../lib/money';
 
 interface ShippingZone {
   id: string;
@@ -23,9 +25,22 @@ interface ShippingZone {
   states: string[];
   pincodes: string[];
   is_active: boolean;
+  /** SHIP-MC-1: the remote location fee this zone adds to the delivery charge (rupees; null: none) and the cart value
+   *  it applies below (null: always). Absent from a backend that does not keep them yet. */
+  remote_fee?: number | null;
+  remote_fee_below?: number | null;
 }
 
-const emptyZoneForm = { id: '', name: '', countries: '', states: '', pincodes: '', is_active: true };
+const emptyZoneForm = { id: '', name: '', countries: '', states: '', pincodes: '', remote_fee: '', remote_fee_below: '', is_active: true };
+
+/** "Remote location fee ₹50 below ₹999" (or "on every order"), or null when the zone adds none. */
+function remoteFeeText(z: ShippingZone): string | null {
+  const fee = Number(z.remote_fee);
+  if (!z.remote_fee || !(fee > 0)) return null;
+  const rs = (n: number) => fmtRupees(n).replace(/\.00$/, '');
+  const below = Number(z.remote_fee_below);
+  return `Remote location fee ${rs(fee)} ${z.remote_fee_below && below > 0 ? `below ${rs(below)}` : 'on every order'}`;
+}
 
 interface PincodeZoneRow {
   id: string;
@@ -136,6 +151,15 @@ const ShippingSettings: React.FC = () => {
   };
 
   const splitList = (s: string) => s.split(',').map(x => x.trim()).filter(Boolean);
+  // The backend answers remote_fee and remote_fee_below on its zones once it keeps them (SHIP-MC-1); before, the
+  // form does not offer them.
+  const remoteFeeKept = zones.some(z => 'remote_fee' in z);
+  /** Typed text against the loaded value: blank and null are the same, numbers compare as numbers. */
+  const remoteChanged = (typed: string, loaded: unknown) => {
+    const t = typed.trim();
+    if (t === '') return loaded != null && loaded !== '';
+    return loaded == null || loaded === '' || Number(t) !== Number(loaded);
+  };
 
   const openCreateZone = () => { setZoneForm(emptyZoneForm); setShowZoneForm(true); };
   const openEditZone = (z: ShippingZone) => {
@@ -144,6 +168,8 @@ const ShippingSettings: React.FC = () => {
       countries: (z.countries || []).join(', '),
       states: (z.states || []).join(', '),
       pincodes: (z.pincodes || []).join(', '),
+      remote_fee: z.remote_fee == null ? '' : String(z.remote_fee),
+      remote_fee_below: z.remote_fee_below == null ? '' : String(z.remote_fee_below),
       is_active: z.is_active,
     });
     setShowZoneForm(true);
@@ -153,6 +179,7 @@ const ShippingSettings: React.FC = () => {
     if (!zoneForm.name.trim()) { setZoneError('Zone name is required.'); return; }
     setSavingZone(true);
     setZoneError(null);
+    const loadedZone = zoneForm.id ? zones.find(z => z.id === zoneForm.id) : undefined;
     try {
       const payload = {
         name: zoneForm.name.trim(),
@@ -160,6 +187,11 @@ const ShippingSettings: React.FC = () => {
         states: splitList(zoneForm.states),
         pincodes: splitList(zoneForm.pincodes),
         is_active: zoneForm.is_active,
+        // Each sent only when staff changed it from what was loaded: the backend refuses a zone write naming either
+        // (even as null) with 409 until its migration 493 has run, so an untouched form never breaks a save.
+        // Empty clears it (no fee, or on every order).
+        ...(remoteChanged(zoneForm.remote_fee, loadedZone?.remote_fee) ? { remote_fee: zoneForm.remote_fee.trim() } : {}),
+        ...(remoteChanged(zoneForm.remote_fee_below, loadedZone?.remote_fee_below) ? { remote_fee_below: zoneForm.remote_fee_below.trim() } : {}),
       };
       if (zoneForm.id) {
         const updated = await shippingZonesAPI.update(zoneForm.id, payload);
@@ -1051,6 +1083,18 @@ const ShippingSettings: React.FC = () => {
                   <Label className="text-xs">Pincodes (comma-separated, optional)</Label>
                   <Input value={zoneForm.pincodes} onChange={e => setZoneForm(f => ({ ...f, pincodes: e.target.value }))} placeholder="110001, 110002" className="h-9" />
                 </div>
+                {remoteFeeKept && (<>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Remote location fee (Rs)</Label>
+                  <Input type="number" min={0} step="0.01" inputMode="decimal" value={zoneForm.remote_fee} onChange={e => setZoneForm(f => ({ ...f, remote_fee: e.target.value }))} placeholder="50" className="h-9" />
+                  <p className="text-[11px] text-muted-foreground">Added to the delivery charge. Empty: no fee.</p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Applies below cart value (Rs)</Label>
+                  <Input type="number" min={0} step="0.01" inputMode="decimal" value={zoneForm.remote_fee_below} onChange={e => setZoneForm(f => ({ ...f, remote_fee_below: e.target.value }))} placeholder="999" className="h-9" />
+                  <p className="text-[11px] text-muted-foreground">Empty: on every order.</p>
+                </div>
+                </>)}
               </div>
               <div className="flex items-center gap-2">
                 <Checkbox checked={zoneForm.is_active} onCheckedChange={c => setZoneForm(f => ({ ...f, is_active: c as boolean }))} />
@@ -1079,7 +1123,10 @@ const ShippingSettings: React.FC = () => {
                 {zones.map(z => (
                   <React.Fragment key={z.id}>
                   <TableRow>
-                    <TableCell className="font-medium">{z.name}</TableCell>
+                    <TableCell className="font-medium">
+                      {z.name}
+                      {remoteFeeText(z) && <div className="text-xs font-normal text-muted-foreground">{remoteFeeText(z)}</div>}
+                    </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       {(() => {
                         // What checkout matches on (commerce zone_matches): countries (none = India), then states, then pincodes.
@@ -1127,6 +1174,9 @@ const ShippingSettings: React.FC = () => {
           )}
         </CardContent>
       </Card>
+
+      {/* What Google shows for the zones above (the preview asks channels.read) and "Update Google" (channels.manage). */}
+      {hasPerm('channels.read') && <GoogleShippingCard canRead canManage={hasPerm('channels.manage')} />}
 
       {/* Pincode Serviceability */}
       <Card>
