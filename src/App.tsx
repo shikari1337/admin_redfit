@@ -52,6 +52,7 @@ const ShippingSettings = lazyRetry(() => import('./pages/ShippingSettings'));
 const Markets = lazyRetry(() => import('./pages/Markets'));
 const Warehouses = lazyRetry(() => import('./pages/Warehouses'));
 const Shipments = lazyRetry(() => import('./pages/Shipments'));
+const ShipFromFile = lazyRetry(() => import('./pages/shipments/ShipFromFile'));
 // Growcord Ship's own sidebar group (owner 26 Nov 2026), its menu in lib/menu.ts.
 const GrowshipLayout = lazyRetry(() => import('./pages/growship/GrowshipLayout'));
 const GrowshipOverview = lazyRetry(() => import('./pages/growship/Overview'));
@@ -533,6 +534,7 @@ function App() {
           <Route path="orders/abandoned-carts/:id" element={<AbandonedCartDetail />} />
           <Route path="orders/:id" element={<OrderDetail />} />
           <Route path="shipments" element={<Shipments />} />
+          <Route path="shipments/from-file" element={<ShipFromFile />} />
           {/* Growcord Ship: one sidebar entry, its pages as tabs in GrowshipLayout (each address and ?tab= kept), and
               redirects to the pages that live elsewhere in the admin. Gates: lib/menu.ts EXTRA_ROUTES. */}
           <Route path="growship" element={<GrowshipLayout />}>

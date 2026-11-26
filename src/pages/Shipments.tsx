@@ -5,8 +5,9 @@
 
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import { api, shipmentsAPI, warehousesAPI, shippingAPI, errorText } from '../services/api';
-import { FaSync, FaSpinner, FaLink } from 'react-icons/fa';
+import { FaSync, FaSpinner, FaLink, FaFileUpload } from 'react-icons/fa';
 import { ShipmentTabs, ShipmentFilters, ShipmentTable, PendingOrdersTable, PickupModal, BulkActionsBar, ReconcileModal, ShipmentDetailDrawer, ActNow, NdrActionDialog } from '../components/shipments';
 import type { TabType, StatusCounts, ReconcileResultData, NdrTarget } from '../components/shipments';
 import { TAB_STATUS, TAB_TYPES } from '../components/shipments/ShipmentTabs';
@@ -31,6 +32,7 @@ interface ShipmentsProps {
 }
 
 const Shipments: React.FC<ShipmentsProps> = ({ fixedProvider, title, intro }) => {
+  const { hasPerm } = useAuth();
   const [shipments, setShipments] = useState<any[]>([]);
   const [pendingOrders, setPendingOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -632,6 +634,12 @@ const Shipments: React.FC<ShipmentsProps> = ({ fixedProvider, title, intro }) =>
           {intro && <p className="mt-1 text-sm text-gray-500">{intro}</p>}
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          {/* AUTOSHIP-FILE-1: processed orders from a CSV, cheapest allowed courier. */}
+          {hasPerm('shipments.manage') && (
+            <Link to="/shipments/from-file" className="flex items-center gap-2 rounded-md border border-line bg-surface px-4 py-2 text-sm font-medium text-ink hover:border-brand-200 hover:bg-brand-50">
+              <FaFileUpload size={14} /> Ship from a file
+            </Link>
+          )}
           <button
             onClick={async () => {
               setFetchingStatus(true);
