@@ -747,6 +747,7 @@ const OrderDetail: React.FC = () => {
         shipmentData.manualShippingCharge = modalData?.manualShippingCharge;
       } else {
         if ((selectedShippingProvider === 'shiprocket' || (selectedShippingProvider as string) === 'growcord_ship') && modalData?.selectedCourierId) shipmentData.courierCompanyId = modalData.selectedCourierId;
+        if ((selectedShippingProvider as string) === 'growcord_ship' && modalData?.existingAwb) shipmentData.existingAwb = modalData.existingAwb;
         if (selectedShippingProvider === 'delhivery' && modalData?.selectedDelhiveryType) shipmentData.delhiveryServiceType = modalData.selectedDelhiveryType;
       }
       

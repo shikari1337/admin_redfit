@@ -120,6 +120,8 @@ interface ShipmentCreationModalProps {
   onClose: () => void;
   onSubmit: (data?: {
     selectedCourierId?: number | string | null;
+    /** Growcord Ship: a waybill its courier already issued for this order, taken over instead of a new booking. */
+    existingAwb?: string;
     selectedDelhiveryType?: 'express' | 'surface' | null;
     weight?: number;
     length?: number;
@@ -307,6 +309,8 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
   const [loadingRates, setLoadingRates] = useState(false);
   const [loadingDelhiveryRate, setLoadingDelhiveryRate] = useState(false);
   const [selectedCourierId, setSelectedCourierId] = useState<number | string | null>(null);
+  /** Owner 26 Nov 2026 ("can't i sync by awb no"): a waybill the courier already issued on Growcord Ship's account. */
+  const [existingAwb, setExistingAwb] = useState('');
   // What the store paid its own carrier for a manual parcel (owner, 23 Nov 2026: "in manual always ask shipping
   // charges"). Kept here and handed over with the submit, so both callers send it without new props.
   const [manualCharge, setManualCharge] = useState('');
@@ -729,6 +733,7 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
   }, [isOpen, packageBoxes, selectedPackageBoxId, orderItems]);
 
   const handleClose = () => {
+    setExistingAwb('');
     onManualTrackingIdChange('');
     onManualCarrierNameChange('');
     onManualTrackingUrlChange('');
@@ -966,6 +971,7 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
           }
           onSubmit({
             selectedCourierId: selectedShippingProvider === 'shiprocket' || selectedShippingProvider === 'growcord_ship' ? selectedCourierId : undefined,
+            existingAwb: selectedShippingProvider === 'growcord_ship' && existingAwb.trim() ? existingAwb.trim() : undefined,
             selectedDelhiveryType: selectedShippingProvider === 'delhivery' ? selectedDelhiveryType || null : undefined,
             weight: parseFloat(weight),
             length: parseFloat(length),
@@ -1581,6 +1587,23 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
                         error={gsRatesError}
                         emptyText=""
                       />
+                      <div className="mt-3" onClick={(e) => e.stopPropagation()}>
+                        <label className="block text-sm font-medium text-gray-700">
+                          Waybill already issued by this courier (optional)
+                        </label>
+                        <input
+                          type="text"
+                          value={existingAwb}
+                          onChange={(e) => setExistingAwb(e.target.value)}
+                          placeholder="AWB number"
+                          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-mono"
+                        />
+                        <p className="mt-1 text-xs text-gray-500">
+                          Only when the courier already issued a waybill for this order on Growcord Ship's account. Choose that
+                          courier above and enter its waybill: Growcord Ship checks it with the courier and takes it over instead
+                          of booking a new one, at the price shown.
+                        </p>
+                      </div>
                     </div>
                   )}
                 </div>
