@@ -47,16 +47,21 @@ export interface LabelMissing { shipment_id: string; reason?: string | null }
 /** How a shipment was booked (label-data `provider`): `growcord_ship`, `shiprocket`, `delhivery`, `manual`. */
 export const isGrowcordShip = (l: LabelData) => String(l.provider ?? '') === 'growcord_ship';
 
-/** The label facts of the given shipments, 50 at a time. */
-export async function readLabelData(ids: string[]): Promise<{ labels: LabelData[]; missing: LabelMissing[] }> {
+/**
+ * The label facts of the given shipments, 50 at a time, and the store's label setting as the server answers it with
+ * them (`print_defaults`, defaults filled in): the fallback when the settings registry cannot be read.
+ */
+export async function readLabelData(ids: string[]): Promise<{ labels: LabelData[]; missing: LabelMissing[]; printDefaults: LabelPrintSetting | null }> {
   const labels: LabelData[] = [];
   const missing: LabelMissing[] = [];
+  let printDefaults: LabelPrintSetting | null = null;
   for (let i = 0; i < ids.length; i += 50) {
     const d = await v2call<any>('GET', '/api/v2/ship/shipments/label-data', { params: { ids: ids.slice(i, i + 50).join(',') } });
     if (Array.isArray(d?.labels)) labels.push(...d.labels);
     if (Array.isArray(d?.missing)) missing.push(...d.missing);
+    if (!printDefaults && d?.print_defaults && typeof d.print_defaults === 'object') printDefaults = labelPrintOf(d.print_defaults);
   }
-  return { labels, missing };
+  return { labels, missing, printDefaults };
 }
 
 /* ── sizes ──────────────────────────────────────────────────────────────── */
@@ -108,11 +113,13 @@ export const DEFAULT_LABEL_SIZE: LabelSizeKey = 'a5_1';
 /* ── the store's label setting ──────────────────────────────────────────── */
 
 /**
- * The store's label setting (owner 26 Nov 2026: size and options are a STORE setting), a settings registry key read
- * and written through the store settings routes (`GET /settings/registry`, `PATCH /settings/registry/labelPrint`).
- * The print window starts from it and allows a change for one print.
+ * The store's label setting (owner 26 Nov 2026: size and options are a STORE setting): the settings registry key
+ * `shippingLabels` (growcord-rs commerce settings_registry.rs; read by ship domain/label_data.rs PrintDefaults), read and
+ * written through the store settings routes (`GET /settings/registry`, `PATCH /settings/registry/shippingLabels`).
+ * Its fields are snake_case: size, show_products, show_invoice_value, show_logo, default_kind. The print window starts
+ * from it and allows a change for one print.
  */
-export const LABEL_PRINT_KEY = 'labelPrint';
+export const LABEL_PRINT_KEY = 'shippingLabels';
 
 export interface LabelPrintSetting {
   size: LabelSizeKey;
@@ -127,16 +134,19 @@ export const LABEL_PRINT_DEFAULTS: LabelPrintSetting = {
   size: DEFAULT_LABEL_SIZE, showProducts: true, showInvoiceValue: true, showLogo: true, defaultKind: 'growcord',
 };
 
-/** A stored value made safe: unknown sizes and kinds fall back to the defaults. */
+/**
+ * A stored value (snake_case, as the registry and `print_defaults` carry it) made safe: unknown sizes and kinds fall
+ * back to the defaults.
+ */
 export function labelPrintOf(v: unknown): LabelPrintSetting {
   const o = (v && typeof v === 'object' ? v : {}) as Record<string, unknown>;
-  const bool = (k: keyof LabelPrintSetting) => (typeof o[k] === 'boolean' ? (o[k] as boolean) : (LABEL_PRINT_DEFAULTS[k] as boolean));
+  const bool = (key: string, k: keyof LabelPrintSetting) => (typeof o[key] === 'boolean' ? (o[key] as boolean) : (LABEL_PRINT_DEFAULTS[k] as boolean));
   return {
     size: LABEL_SIZE_KEYS.includes(o.size as LabelSizeKey) ? (o.size as LabelSizeKey) : LABEL_PRINT_DEFAULTS.size,
-    showProducts: bool('showProducts'),
-    showInvoiceValue: bool('showInvoiceValue'),
-    showLogo: bool('showLogo'),
-    defaultKind: o.defaultKind === 'courier' ? 'courier' : 'growcord',
+    showProducts: bool('show_products', 'showProducts'),
+    showInvoiceValue: bool('show_invoice_value', 'showInvoiceValue'),
+    showLogo: bool('show_logo', 'showLogo'),
+    defaultKind: o.default_kind === 'courier' ? 'courier' : 'growcord',
   };
 }
 
@@ -147,14 +157,21 @@ export function labelPrintOf(v: unknown): LabelPrintSetting {
 export async function readLabelPrint(): Promise<{ setting: LabelPrintSetting; exists: boolean; canWrite: boolean }> {
   const def: any = await settingsRegistryAPI.definition(LABEL_PRINT_KEY);
   if (!def) return { setting: LABEL_PRINT_DEFAULTS, exists: false, canWrite: false };
+  // The definition's own defaults (snake_case paths), under the stored value.
   const fromFields: Record<string, unknown> = {};
   for (const f of Array.isArray(def.fields) ? def.fields : []) if (f?.path && f.default !== undefined) fromFields[f.path] = f.default;
   const value = def.value && typeof def.value === 'object' ? def.value : {};
   return { setting: labelPrintOf({ ...fromFields, ...value }), exists: true, canWrite: def.canWrite === true };
 }
 
-/** Saves the store's label setting (settings.manage, checked by the server). */
-export const writeLabelPrint = (s: LabelPrintSetting) => settingsRegistryAPI.update(LABEL_PRINT_KEY, { ...s });
+/** Saves the store's label setting (settings.manage, checked by the server), in the registry's snake_case fields only. */
+export const writeLabelPrint = (s: LabelPrintSetting) => settingsRegistryAPI.update(LABEL_PRINT_KEY, {
+  size: s.size,
+  show_products: s.showProducts,
+  show_invoice_value: s.showInvoiceValue,
+  show_logo: s.showLogo,
+  default_kind: s.defaultKind,
+});
 
 export interface LabelOptions {
   /** Product names (and SKU, quantity) on the label. */

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Loader2, Printer, FileDown } from 'lucide-react';
 import { shipmentsAPI, errorText } from '../../services/api';
@@ -9,7 +9,7 @@ import {
 import { Button } from '@/components/ui/button';
 import {
   LABEL_PRINT_DEFAULTS, LABEL_SIZES, LABEL_SIZE_GROUPS, labelsHtml, printHtml, readLabelData, readLabelPrint,
-  type LabelData, type LabelMissing, type LabelSizeKey,
+  type LabelData, type LabelMissing, type LabelPrintSetting, type LabelSizeKey,
 } from '@/lib/shippingLabels';
 
 /** This print's choices: they start from the store's label setting and change for this print only. */
@@ -51,7 +51,17 @@ interface Props {
 const PrintLabelsDialog: React.FC<Props> = ({ open, shipmentIds, names, growcordShipCount = 0, onClose }) => {
   const { hasPerm } = useAuth();
   const [prefs, setPrefs] = useState<Prefs>(() => fromSetting(LABEL_PRINT_DEFAULTS, growcordShipCount > 0));
-  const set = (patch: Partial<Prefs>) => setPrefs((p) => ({ ...p, ...patch }));
+  // Where this print's starting choices came from: the store setting in the registry, else the copy the label read
+  // answers with (`print_defaults`), else the defaults. A choice made in the window is never overwritten.
+  const source = useRef<'pending' | 'registry' | 'none'>('pending');
+  const touched = useRef(false);
+  const serverDefaults = useRef<LabelPrintSetting | null>(null);
+  const set = (patch: Partial<Prefs>) => { touched.current = true; setPrefs((p) => ({ ...p, ...patch })); };
+  const fallBack = () => {
+    if (source.current !== 'registry' && !touched.current && serverDefaults.current) {
+      setPrefs(fromSetting(serverDefaults.current, growcordShipCount > 0));
+    }
+  };
   const [data, setData] = useState<{ labels: LabelData[]; missing: LabelMissing[] } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,10 +75,15 @@ const PrintLabelsDialog: React.FC<Props> = ({ open, shipmentIds, names, growcord
     if (!open) return;
     setCourierNote(null); setCourierFailed([]);
     let live = true;
+    source.current = 'pending'; touched.current = false; serverDefaults.current = null;
     setPrefs(fromSetting(LABEL_PRINT_DEFAULTS, growcordShipCount > 0));
     readLabelPrint()
-      .then((r) => { if (live) setPrefs(fromSetting(r.setting, growcordShipCount > 0)); })
-      .catch(() => { /* no settings.read: the defaults */ });
+      .then((r) => {
+        if (!live) return;
+        if (r.exists) { source.current = 'registry'; if (!touched.current) setPrefs(fromSetting(r.setting, growcordShipCount > 0)); }
+        else { source.current = 'none'; fallBack(); }
+      })
+      .catch(() => { if (live) { source.current = 'none'; fallBack(); } });
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, idsKey]);
@@ -79,7 +94,12 @@ const PrintLabelsDialog: React.FC<Props> = ({ open, shipmentIds, names, growcord
     let live = true;
     setLoading(true); setError(null); setData(null);
     readLabelData(shipmentIds)
-      .then((d) => { if (live) setData(d); })
+      .then((d) => {
+        if (!live) return;
+        setData(d);
+        serverDefaults.current = d.printDefaults;
+        if (source.current === 'none') fallBack();
+      })
       .catch((e) => {
         if (!live) return;
         setError(notServed(e)

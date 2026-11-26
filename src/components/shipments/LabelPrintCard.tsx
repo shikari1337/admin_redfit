@@ -10,7 +10,7 @@ import {
 
 /**
  * Shipping labels, a store setting (owner 26 Nov 2026): the size and options every Print labels window starts from,
- * and which label it starts on. Read and written as the settings registry key `labelPrint`; the window can still
+ * and which label it starts on. Read and written as the settings registry key `shippingLabels`; the window can still
  * change them for one print.
  */
 const LabelPrintCard: React.FC<{ canManage: boolean }> = ({ canManage }) => {
