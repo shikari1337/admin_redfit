@@ -12,8 +12,9 @@ import type { TabType, StatusCounts, ReconcileResultData, NdrTarget } from '../c
 import { TAB_STATUS, TAB_TYPES } from '../components/shipments/ShipmentTabs';
 import ShipmentCreationModal, { type ShipProviderId } from '../components/order/ShipmentCreationModal';
 import { getStatusLabel } from '../components/order/StatusBadge';
-import { isTerminal, providerLabel, providerOf, shipmentMatches } from '../components/shipments/shipmentFacts';
+import { isTerminal, providerLabel, providerOf, shipmentAwb, shipmentMatches } from '../components/shipments/shipmentFacts';
 import { fmtRupees } from '@/lib/money';
+import { NOT_TAKEN_TEXT, notTakenBookings, notTakenMatcher, type GsConsignment } from '@/lib/v2/growship';
 
 interface ShipmentsProps {
   /**
@@ -43,6 +44,9 @@ const Shipments: React.FC<ShipmentsProps> = ({ fixedProvider, title, intro }) =>
   const [providerFilter, setProviderFilter] = useState<string>(fixedProvider ?? '');
   // Each read is numbered; an answer to an older read is dropped, so a slow reply never replaces a newer list.
   const fetchSeq = useRef(0);
+  // Growcord Ship's board: bookings no courier took (refunded at once) read as such, never as live parcels.
+  const [notTaken, setNotTaken] = useState<GsConsignment[]>([]);
+  const notTakenAt = useRef(0);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [warehouses, setWarehouses] = useState<any[]>([]);
@@ -568,11 +572,27 @@ const Shipments: React.FC<ShipmentsProps> = ({ fixedProvider, title, intro }) =>
   // Bulk labels and manifests: every booked parcel (not manual) that is not finished, on the Ready to Pick,
   // Pickup Scheduled and In Transit tabs, as before 23 Nov 2026 (a parcel the courier has already picked up
   // still needs its manifest). Bulk pickup stays on Ready to Pick only.
+  // One read of Growcord Ship's bookings no courier took, when the board shows a parcel of it with no AWB (at most
+  // once a minute).
+  useEffect(() => {
+    if (fixedProvider !== 'growcord_ship') return;
+    if (!shipments.some((s) => providerOf(s) === 'growcord_ship' && !shipmentAwb(s)) || Date.now() - notTakenAt.current < 60_000) return;
+    notTakenAt.current = Date.now();
+    notTakenBookings(100).then(setNotTaken).catch(() => setNotTaken([]));
+  }, [fixedProvider, shipments]);
+  const notBooked = useMemo(() => {
+    if (!notTaken.length) return undefined;
+    const match = notTakenMatcher(notTaken);
+    const out: Record<string, string> = {};
+    for (const s of shipments) if (match(s)) out[s._id] = NOT_TAKEN_TEXT;
+    return Object.keys(out).length ? out : undefined;
+  }, [notTaken, shipments]);
+
   const selectableIds = useMemo(() => (
     ['ready_to_pick', 'pickup_scheduled', 'in_transit'].includes(activeTab)
-      ? shipments.filter((s) => providerOf(s) !== 'manual' && !isTerminal(s.status)).map((s) => s._id)
+      ? shipments.filter((s) => providerOf(s) !== 'manual' && !isTerminal(s.status) && !notBooked?.[s._id]).map((s) => s._id)
       : []
-  ), [activeTab, shipments]);
+  ), [activeTab, shipments, notBooked]);
 
   // The pending list's route takes only a page, so the search box looks through the orders on this page.
   const visiblePendingOrders = useMemo(() => {
@@ -785,6 +805,7 @@ const Shipments: React.FC<ShipmentsProps> = ({ fixedProvider, title, intro }) =>
             }}
             onNdrAction={(shipment, action) => setNdrTarget({ shipment, action })}
             onViewDetails={setDetailShipmentId}
+            notBooked={notBooked}
           />
         </>
       )}

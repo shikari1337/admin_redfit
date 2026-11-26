@@ -3,7 +3,7 @@ import { errorText } from '../../services/api';
 import { fmtRupees } from '@/lib/money';
 import { formatDate } from '../../utils/date';
 import {
-  STAGE_LABEL, chargeSplit, consignmentForShipment, finalAmount, gramsText, gsStatusText, isCancelled, neverCharged, paiseToRupees,
+  NOT_TAKEN_TEXT, STAGE_LABEL, chargeSplit, consignmentForShipment, finalAmount, gramsText, gsStatusText, isCancelled, neverCharged, paiseToRupees,
   type GsConsignment,
 } from '@/lib/v2/growship';
 
@@ -83,7 +83,7 @@ const GrowshipParcelPanel: React.FC<{ shipment: any; awb: string | null }> = ({ 
         {parcel.gst != null && <Row k="GST" v={fmtRupees(parcel.gst)} />}
         {parcel.sell_with_gst != null && <Row k="At booking, with GST" v={fmtRupees(parcel.sell_with_gst)} />}
         {cancelled && <Row k="Cancellation fee (what it cost)" v={fmtRupees(fin ?? 0)} strong />}
-        {uncharged && <Row k="What it cost" v="Nothing: no courier took it" strong />}
+        {uncharged && <Row k="What it cost" v={`Nothing. ${NOT_TAKEN_TEXT}`} strong />}
         {!cancelled && !uncharged && fin != null && <Row k="Final" v={fmtRupees(fin)} strong />}
         {cancelled && <p className="text-xs text-muted-foreground">Cancelled: the freight went back to the wallet less the cancellation fee.</p>}
         {change != null && change !== 0 && (

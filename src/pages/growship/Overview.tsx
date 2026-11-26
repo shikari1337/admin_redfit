@@ -7,13 +7,15 @@ import { payload } from '@/lib/unwrap';
 import { fmtMinor, fmtRupees } from '@/lib/money';
 import { formatDate } from '../../utils/date';
 import {
-  Page, PageHeader, SectionCard, StatCard, StatGrid, TableShell, THead, Th, TBody, Tr, Td, EmptyRow, btn,
+  Page, PageHeader, SectionCard, StatCard, StatGrid, TableShell, THead, Th, TBody, Tr, Td, EmptyRow, btn, Chip,
 } from '../../components/erp';
 import StatusBadge from '../../components/order/StatusBadge';
 import { WalletCard, useStoreWallet } from '../../components/growship/WalletCard';
 import type { TabType } from '../../components/shipments';
 import { shipmentAwb, shipmentCharge, shipmentCourier } from '../../components/shipments/shipmentFacts';
-import { growshipAPI, isNotEnabled, type GsAccount } from '@/lib/v2/growship';
+import {
+  NOT_TAKEN_TEXT, growshipAPI, isNotEnabled, notTakenBookings, notTakenMatcher, type GsAccount, type GsConsignment,
+} from '@/lib/v2/growship';
 import { codPayoutsAPI, type CodPayer } from '../payments/data';
 
 const GS = 'growcord_ship' as const;
@@ -33,8 +35,8 @@ const TABS: Array<{ tab: TabType; label: string }> = [
 /**
  * Growcord Ship at a glance (owner 26 Nov 2026: a Growcord Ship menu with the complete panel): the wallet its
  * freight comes off with Add money, the account, the latest parcels with the charges so far, cash on delivery still
- * with Growcord Ship and open weight disputes. Five reads, once, when the page opens; the counts by status are on
- * the Shipments page.
+ * with Growcord Ship, open weight disputes, and bookings no courier took (refunded, listed apart, never shown as
+ * live parcels). Six reads, once, when the page opens; the counts by status are on the Shipments page.
  */
 const GrowshipOverview: React.FC = () => {
   const { hasPerm } = useAuth();
@@ -49,10 +51,14 @@ const GrowshipOverview: React.FC = () => {
   const [charges, setCharges] = useState<{ total: number | null; counted: number; unknown: number } | null>(null);
   const [listError, setListError] = useState<string | null>(null);
   const [codPayers, setCodPayers] = useState<CodPayer[] | null>(null);
+  const [notTaken, setNotTaken] = useState<GsConsignment[]>([]);
   const [codError, setCodError] = useState<string | null>(null);
   const [disputes, setDisputes] = useState<any | null>(null);
 
   useEffect(() => {
+    // Bookings no courier took: refunded at once, so they are listed apart and never read as live parcels.
+    if (hasPerm('shipments.read')) notTakenBookings(20).then(setNotTaken).catch(() => setNotTaken([]));
+
     growshipAPI.account()
       .then((a) => setAccount(a))
       .catch((e) => { setAccount(null); setNotOn(isNotEnabled(e)); setAccountError(errorText(e, 'The Growcord Ship account could not be read.')); });
@@ -83,6 +89,7 @@ const GrowshipOverview: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const notTakenOf = notTakenMatcher(notTaken);
   const gsOwed = (codPayers ?? []).reduce((s, p) => s + (Number(p.cod_minor) || 0), 0);
   const gsOwedParcels = (codPayers ?? []).reduce((s, p) => s + (Number(p.parcels) || 0), 0);
   const shipper = account?.shipper ?? null;
@@ -200,14 +207,15 @@ const GrowshipOverview: React.FC = () => {
               {(recent ?? []).map((s) => {
                 const order = Array.isArray(s.orders) ? s.orders[0] : null;
                 const charge = shipmentCharge(s);
+                const refused = notTakenOf(s);
                 return (
                   <Tr key={s._id || s.id}>
                     <Td muted>{formatDate(s.createdAt ?? s.created_at, 'dd MMM, HH:mm', '')}</Td>
                     <Td>{order ? <Link to={`/orders/${order._id || order.id}`} className="text-blue-700 hover:underline">{order.orderId || order.order_id}</Link> : (s.shipmentNumber || '')}</Td>
                     <Td className="font-mono text-xs">{shipmentAwb(s) || <span className="text-gray-400">None yet</span>}</Td>
                     <Td>{shipmentCourier(s) || ''}</Td>
-                    <Td>{s.status ? <StatusBadge status={s.status} type="shipment" className="text-xs" /> : null}</Td>
-                    <Td num>{charge ? fmtRupees(charge.total) : ''}</Td>
+                    <Td>{refused ? <Chip tone="neutral">{NOT_TAKEN_TEXT}</Chip> : s.status ? <StatusBadge status={s.status} type="shipment" className="text-xs" /> : null}</Td>
+                    <Td num>{refused ? <span className="text-xs text-gray-500">Refunded</span> : charge ? fmtRupees(charge.total) : ''}</Td>
                   </Tr>
                 );
               })}
@@ -215,6 +223,31 @@ const GrowshipOverview: React.FC = () => {
           </table>
         </TableShell>
       </SectionCard>
+
+      {notTaken.length > 0 && (
+        <SectionCard
+          title="Bookings no courier took"
+          description="Growcord Ship gave the money back at once. These are not parcels: book the order again when ready."
+          flush
+        >
+          <TableShell className="rounded-none border-0 shadow-none">
+            <table className="w-full text-sm">
+              <THead><Th>Tried</Th><Th>Order</Th><Th>To</Th><Th>State</Th><Th num>Amount</Th></THead>
+              <TBody>
+                {notTaken.slice(0, 5).map((c) => (
+                  <Tr key={c.id}>
+                    <Td muted>{formatDate(c.created_at, 'dd MMM, HH:mm', '')}</Td>
+                    <Td>{c.shipper_reference || c.consignment_number || ''}</Td>
+                    <Td className="text-xs">{c.destination_pincode || ''}</Td>
+                    <Td><Chip tone="neutral">{NOT_TAKEN_TEXT}</Chip></Td>
+                    <Td num className="text-gray-500">{c.sell_with_gst != null ? `${fmtRupees(c.sell_with_gst)} back` : ''}</Td>
+                  </Tr>
+                ))}
+              </TBody>
+            </table>
+          </TableShell>
+        </SectionCard>
+      )}
     </Page>
   );
 };

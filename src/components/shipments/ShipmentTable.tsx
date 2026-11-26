@@ -88,6 +88,11 @@ interface ShipmentTableProps {
   onViewDetails?: (shipmentId: string) => void;
   /** The store's carrier names by code (GET /shipping/providers); a code not in it is spelled out. */
   providerNames?: Record<string, string>;
+  /**
+   * Rows that are a booking no courier took (Growcord Ship refunded it at once), by shipment id, with the words to
+   * show: they read as such, carry no charge and offer no parcel actions. The Growcord Ship board passes it.
+   */
+  notBooked?: Record<string, string>;
 }
 
 const ShipmentTable: React.FC<ShipmentTableProps> = ({
@@ -104,6 +109,7 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
   onNdrAction,
   onViewDetails,
   providerNames,
+  notBooked,
 }) => {
   const safeFormatDate = (date: any, fmt: string) => formatDate(date, fmt, '');
   const selectable = new Set(selectableIds);
@@ -114,6 +120,7 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
   let pageCharge = 0; let pageUnpriced = 0; let pageCod = 0;
   for (const s of shipments) {
     const c = shipmentCharge(s);
+    if (notBooked?.[s._id]) continue;
     if (c && s.status !== 'cancelled') pageCharge += c.total; else if (s.status !== 'cancelled') pageUnpriced += 1;
     pageCod += shipmentCod(s) ?? 0;
   }
@@ -229,6 +236,12 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
                     ) : <span className="text-sm text-muted-foreground">No AWB yet</span>}
                   </TableCell>
                   <TableCell>
+                    {notBooked?.[shipment._id] ? (
+                      <>
+                        <Badge variant="outline" className="whitespace-normal text-left">{notBooked[shipment._id]}</Badge>
+                        <div className="text-xs text-muted-foreground mt-1 max-w-[200px]">Nothing to pick up or deliver. Book the order again when ready.</div>
+                      </>
+                    ) : (<>
                     <StatusBadge status={shipment.status} type="shipment" />
                     {failed && ndr && (
                       <div className="text-xs text-muted-foreground mt-1 max-w-[200px]">
@@ -252,12 +265,13 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
                     )}
                     {failed && !needsNdrAnswer(shipment) && <div className="text-xs text-green-700 mt-1">Answered</div>}
                     {step && <div className="text-xs text-amber-700 mt-1 max-w-[200px]">Next: {step}</div>}
+                    </>)}
                   </TableCell>
                   <TableCell className="text-right text-sm tabular-nums">
                     {cod !== null ? fmtRupees(cod) : <span className="text-muted-foreground">Prepaid</span>}
                   </TableCell>
                   <TableCell className="text-right text-sm tabular-nums" title={charge ? chargeBasisText(charge.basis) : undefined}>
-                    {charge ? (
+                    {notBooked?.[shipment._id] ? <span className="text-xs text-muted-foreground">Refunded</span> : charge ? (
                       <>
                         <div className="font-medium">{fmtRupees(charge.total)}</div>
                         <div className="text-[11px] text-muted-foreground">
@@ -307,6 +321,19 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
                     )}
                   </TableCell>
                   <TableCell className="text-right">
+                    {notBooked?.[shipment._id] ? (
+                      onViewDetails ? (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => onViewDetails(shipment._id)}
+                          className="text-slate-600 hover:text-slate-700 hover:bg-slate-50"
+                          title="Shipment details"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                      ) : null
+                    ) : (<>
                     {/* Failed delivery: the courier's NDR answers come first (a manual parcel has none; its carrier is called directly). */}
                     {ndrActs.length > 0 && (
                       <NdrActionButtons shipment={shipment} onPick={(a) => onNdrAction?.(shipment, a)} className="mb-1.5 justify-end max-w-[280px] ml-auto" />
@@ -397,6 +424,7 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
                         </div>
                       )}
                     </div>
+                    </>)}
                   </TableCell>
                 </TableRow>
               );
