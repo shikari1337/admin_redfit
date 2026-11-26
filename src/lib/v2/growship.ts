@@ -420,12 +420,17 @@ export async function notTakenBookings(limit = 100): Promise<GsConsignment[]> {
   return (await growshipAPI.consignments({ status: 'pending_courier', limit })).items;
 }
 
-/** Which store shipment rows are such a booking: by the Growcord Ship id or number the booking stored. */
+/**
+ * Which store shipment rows are such a booking: by the Growcord Ship id or number the booking stored, and only a row
+ * with no AWB (a row with a waybill is a parcel, whatever an older record says).
+ */
 export function notTakenMatcher(list: GsConsignment[]): (shipment: any) => GsConsignment | null {
   const byId = new Map(list.map((c) => [String(c.id), c]));
   const byNumber = new Map(list.filter((c) => c.consignment_number).map((c) => [String(c.consignment_number), c]));
   return (shipment: any) => {
     const pd = shipment?.providerData ?? shipment?.provider_data ?? {};
+    const awb = String(shipment?.awb ?? pd?.awb ?? pd?.shiprocketAWB ?? pd?.delhiveryWaybill ?? '').trim();
+    if (awb) return null;
     const id = String(pd?.carrier_shipment_id ?? pd?.carrierShipmentId ?? '');
     const num = String(pd?.carrier_order_id ?? pd?.carrierOrderId ?? '');
     return (id && byId.get(id)) || (num && byNumber.get(num)) || null;

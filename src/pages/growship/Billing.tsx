@@ -36,6 +36,7 @@ const GrowshipBilling: React.FC = () => {
   const { hasPerm } = useAuth();
   // The parcels are Growcord Ship's own record (shipments.read); the refunds are the wallet's (billing.read, the page gate).
   const canShip = hasPerm('shipments.read');
+  const canBilling = hasPerm('billing.read');
   const [range, setRange] = useState({ from: DEFAULT_FROM(), to: DEFAULT_TO() });
   /** Parcel id to what the wallet got back for it, in rupees (a refunded booking is not paid). */
   const [refundOf, setRefundOf] = useState<Map<string, number>>(new Map());
@@ -67,7 +68,9 @@ const GrowshipBilling: React.FC = () => {
       const refunds = new Map<string, number>();
       const [legs, back] = await Promise.all([
         growshipAPI.walletLegs(200).catch(() => []),
-        readMovesSince('refund', range.from, { direction: 'credit', cap: 1000 }).catch(() => ({ rows: [], capped: false })),
+        canBilling
+          ? readMovesSince('refund', range.from, { direction: 'credit', cap: 1000 }).catch(() => ({ rows: [], capped: false }))
+          : Promise.resolve({ rows: [], capped: false }),
       ]);
       for (const l of legs) {
         if (l.leg === 'refund' && l.consignment_id && Number(l.amount) > 0) {
@@ -135,22 +138,37 @@ const GrowshipBilling: React.FC = () => {
     return own;
   };
 
-  // Cancelled, refunded and never-taken parcels are left out of the money totals: their freight was not kept.
+  /**
+   * The totals agree with the Final column: what was paid is each parcel's final (a kept cancellation fee counts, a
+   * refunded booking counts only what was kept, a booking no courier took counts nothing), split into before GST and
+   * GST in that parcel's own share. A final not known yet (a cancel whose fee is not read) is counted apart.
+   */
   const totals = useMemo(() => {
-    const charged = all.filter((c) => !notCharged(c));
+    let paid = 0; let before = 0; let unknown = 0;
+    const counted = all.filter((c) => !neverCharged(c));
+    for (const c of counted) {
+      const f = finalIn(details, c);
+      if (f == null) { unknown += 1; continue; }
+      const whole = Number(c.sell_with_gst) || 0;
+      const net = c.sell_price != null ? Number(c.sell_price) : whole - (Number(c.gst) || 0);
+      paid += f;
+      before += whole > 0 ? f * (net / whole) : f;
+    }
+    const kept = counted.filter((c) => !notCharged(c));
     return {
       parcels: all.length,
-      charged: charged.length,
       cancelled: all.filter(isCancelled).length,
       uncharged: all.filter(neverCharged).length,
       refundedOnly: all.filter((c) => !isCancelled(c) && !neverCharged(c) && refunded(c) > 0).length,
-      before: sum(charged, (c) => c.sell_price),
-      gst: sum(charged, (c) => c.gst),
-      booked: sum(charged, (c) => c.sell_with_gst),
-      cod: sum(charged.filter((c) => c.payment_mode === 'cod'), (c) => c.cod_amount),
-      settled: charged.filter((c) => c.final_sell != null).length,
+      booked: sum(counted, (c) => c.sell_with_gst),
+      refundedTotal: sum(counted, (c) => refunded(c)),
+      paid: Math.round(paid * 100) / 100,
+      before: Math.round(before * 100) / 100,
+      gst: Math.round((paid - before) * 100) / 100,
+      unknown,
+      cod: sum(kept.filter((c) => c.payment_mode === 'cod'), (c) => c.cod_amount),
     };
-  }, [all, refundOf]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [all, refundOf, details]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const columnsFor = (m: Record<string, GsConsignment>): CsvColumn<GsConsignment>[] => [
     { key: 'created_at', label: 'Booked', format: (c) => formatDate(c.created_at, 'yyyy-MM-dd HH:mm', '') },
@@ -222,22 +240,30 @@ const GrowshipBilling: React.FC = () => {
 
       <StatGrid cols={4}>
         <StatCard
-          label="Parcels charged"
-          value={rows ? totals.charged.toLocaleString('en-IN') : '...'}
+          label="Parcels"
+          value={rows ? totals.parcels.toLocaleString('en-IN') : '...'}
           sub={rows && (totals.cancelled || totals.uncharged || totals.refundedOnly)
             ? [
-              totals.cancelled ? `${totals.cancelled} cancelled (freight back to the wallet less any cancellation fee)` : '',
-              totals.uncharged ? `${totals.uncharged} not booked by the courier, refunded` : '',
+              totals.cancelled ? `${totals.cancelled} cancelled (only the cancellation fee is kept)` : '',
               totals.refundedOnly ? `${totals.refundedOnly} refunded` : '',
-            ].filter(Boolean).join('; ') + '. Left out of these totals.'
+              totals.uncharged ? `${totals.uncharged} not booked by the courier, refunded` : '',
+            ].filter(Boolean).join('; ') + '.'
             : undefined}
         />
-        <StatCard label="Before GST" value={rows ? fmtRupees(totals.before) : '...'} sub="Parcels not cancelled." />
-        <StatCard label="GST" value={rows ? fmtRupees(totals.gst) : '...'} sub="Parcels not cancelled." />
         <StatCard
-          label="At booking with GST"
+          label="Taken at booking"
           value={rows ? fmtRupees(totals.booked) : '...'}
-          sub={rows ? `Parcels not cancelled; ${totals.settled} with a final amount from Growcord Ship. COD to collect on them: ${fmtRupees(totals.cod)}.` : undefined}
+          sub={rows ? (canBilling ? `${fmtRupees(totals.refundedTotal)} of it went back to the wallet.` : 'Refunds are not checked: they need the billing.read permission.') : undefined}
+        />
+        <StatCard
+          label="Paid, final"
+          value={rows ? fmtRupees(totals.paid) : '...'}
+          sub={rows ? `The Final column added up; kept cancellation fees count.${totals.unknown ? ` ${totals.unknown} cancel${totals.unknown === 1 ? '' : 's'} whose fee is not known yet left out.` : ''} COD to collect: ${fmtRupees(totals.cod)}.` : undefined}
+        />
+        <StatCard
+          label="Of which GST"
+          value={rows ? fmtRupees(totals.gst) : '...'}
+          sub={rows ? `Before GST ${fmtRupees(totals.before)}, in each parcel's own GST share.` : undefined}
         />
       </StatGrid>
 
