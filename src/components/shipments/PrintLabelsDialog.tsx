@@ -1,17 +1,18 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Loader2, Printer, FileDown } from 'lucide-react';
 import { shipmentsAPI, errorText } from '../../services/api';
-import { storeKeyNow } from '@/lib/v2/tenant';
+import { useAuth } from '../../contexts/AuthContext';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import {
-  DEFAULT_LABEL_SIZE, LABEL_SIZES, LABEL_SIZE_GROUPS, LABEL_SIZE_KEYS, labelsHtml, printHtml, readLabelData,
+  LABEL_PRINT_DEFAULTS, LABEL_SIZES, LABEL_SIZE_GROUPS, labelsHtml, printHtml, readLabelData, readLabelPrint,
   type LabelData, type LabelMissing, type LabelSizeKey,
 } from '@/lib/shippingLabels';
 
-/** What the window remembers, per store, in this browser (as the lists remember their columns: ListKit useColumnChoice). */
+/** This print's choices: they start from the store's label setting and change for this print only. */
 interface Prefs {
   kind: 'growcord' | 'courier';
   size: LabelSizeKey;
@@ -20,22 +21,11 @@ interface Prefs {
   invoiceValue: boolean;
   logo: boolean;
 }
-const DEFAULTS: Prefs = { kind: 'growcord', size: DEFAULT_LABEL_SIZE, courierSize: '4R', items: true, invoiceValue: true, logo: true };
-const prefKey = () => `labels.print.${storeKeyNow() || 'store'}`;
-
-function readPrefs(): Prefs {
-  try {
-    const saved = JSON.parse(localStorage.getItem(prefKey()) || '{}');
-    const p = { ...DEFAULTS, ...(saved && typeof saved === 'object' ? saved : {}) } as Prefs;
-    if (!LABEL_SIZE_KEYS.includes(p.size)) p.size = DEFAULTS.size;
-    if (p.kind !== 'growcord' && p.kind !== 'courier') p.kind = DEFAULTS.kind;
-    if (p.courierSize !== '4R' && p.courierSize !== 'A4') p.courierSize = DEFAULTS.courierSize;
-    return p;
-  } catch { return DEFAULTS; }
-}
-function writePrefs(p: Prefs): void {
-  try { localStorage.setItem(prefKey(), JSON.stringify(p)); } catch { /* this visit only */ }
-}
+const fromSetting = (s = LABEL_PRINT_DEFAULTS, growcordShip = false): Prefs => ({
+  // Growcord Ship parcels start on Growcord's own label: the courier's PDF shows the courier account's name.
+  kind: growcordShip ? 'growcord' : s.defaultKind,
+  size: s.size, courierSize: '4R', items: s.showProducts, invoiceValue: s.showInvoiceValue, logo: s.showLogo,
+});
 
 /** A route the server does not serve yet. */
 const notServed = (e: any) => [404, 405, 501].includes(Number(e?.response?.status));
@@ -46,26 +36,42 @@ interface Props {
   shipmentIds: string[];
   /** Shipment numbers by id, to name a label that cannot be made. */
   names?: Record<string, string>;
+  /** How many of them were booked through Growcord Ship (they start on Growcord's own label). */
+  growcordShipCount?: number;
   onClose: () => void;
 }
 
 /**
- * Print labels (owner 26 Nov 2026): Growcord's own label (the default), one per page at A5 (the default size; Homeomed
- * prints on A5), 4 x 6 inch thermal, 4 x 4 inch or A6, or several per sheet: A5 with 2, A4 with 2, 4, 6, 8 or 16, with or without product names, invoice value and the store logo; or the courier's own
- * label, the download the board always had. The choice is kept for the store. A shipment with no label is listed
- * with the reason.
+ * Print labels (owner 26 Nov 2026): Growcord's own label, every selected parcel in one document, one per page at A5
+ * (the default size; Homeomed prints on A5), 4 x 6 inch thermal, 4 x 4 inch or A6, or several per sheet: A5 with 2,
+ * A4 with 2, 4, 6, 8 or 16, with or without product names, invoice value and the store logo; or the courier's own
+ * label, downloaded as one PDF for all of them. The window starts from the store's label setting (Growcord Ship,
+ * Settings) and a change here is for this print only. A shipment with no label is listed with the reason.
  */
-const PrintLabelsDialog: React.FC<Props> = ({ open, shipmentIds, names, onClose }) => {
-  const [prefs, setPrefs] = useState<Prefs>(readPrefs);
-  const set = (patch: Partial<Prefs>) => setPrefs((p) => { const next = { ...p, ...patch }; writePrefs(next); return next; });
+const PrintLabelsDialog: React.FC<Props> = ({ open, shipmentIds, names, growcordShipCount = 0, onClose }) => {
+  const { hasPerm } = useAuth();
+  const [prefs, setPrefs] = useState<Prefs>(() => fromSetting(LABEL_PRINT_DEFAULTS, growcordShipCount > 0));
+  const set = (patch: Partial<Prefs>) => setPrefs((p) => ({ ...p, ...patch }));
   const [data, setData] = useState<{ labels: LabelData[]; missing: LabelMissing[] } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [courierNote, setCourierNote] = useState<string | null>(null);
+  const [courierFailed, setCourierFailed] = useState<Array<{ shipmentId: string; shipmentNumber?: string; message: string }>>([]);
   const idsKey = shipmentIds.join(',');
 
-  useEffect(() => { if (open) { setPrefs(readPrefs()); setCourierNote(null); } }, [open]);
+  // Each opening starts from the store's label setting (the defaults when it cannot be read).
+  useEffect(() => {
+    if (!open) return;
+    setCourierNote(null); setCourierFailed([]);
+    let live = true;
+    setPrefs(fromSetting(LABEL_PRINT_DEFAULTS, growcordShipCount > 0));
+    readLabelPrint()
+      .then((r) => { if (live) setPrefs(fromSetting(r.setting, growcordShipCount > 0)); })
+      .catch(() => { /* no settings.read: the defaults */ });
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, idsKey]);
 
   // Growcord's label: the facts of these shipments, read when the window shows them.
   useEffect(() => {
@@ -100,23 +106,16 @@ const PrintLabelsDialog: React.FC<Props> = ({ open, shipmentIds, names, onClose 
     printHtml(labelsHtml(data.labels, prefs.size, options));
   };
 
-  /** The courier's own label: the download the board always had (one PDF per courier group). */
+  /** The courier's own label for all of them, as one PDF (the server merges them), with those it could not add. */
   const downloadCourier = async () => {
-    setBusy(true); setCourierNote(null);
+    setBusy(true); setCourierNote(null); setCourierFailed([]);
     try {
-      if (shipmentIds.length === 1) {
-        await shipmentsAPI.downloadLabel(shipmentIds[0], prefs.courierSize);
-        setCourierNote('The courier\'s label is downloaded.');
-      } else {
-        const r = await shipmentsAPI.downloadDocumentsBulk('labels', shipmentIds, prefs.courierSize);
-        const lines: string[] = [];
-        if (r.documents.length) {
-          lines.push(`${r.documents.length} label file(s) for ${shipmentIds.length - r.failed.length} shipment(s): `
-            + r.documents.map((d) => `${d.filename}${d.courier ? `, ${d.courier}` : ''} (${d.shipmentNumbers.length})`).join('; '));
-        }
-        if (r.failed.length) lines.push(`${r.failed.length} not included: ${r.failed.map((f) => `${f.shipmentNumber || f.shipmentId}: ${f.message}`).join('; ')}`);
-        setCourierNote(lines.join(' ') || 'No label files came back.');
-      }
+      const r = await shipmentsAPI.downloadDocumentsBulk('labels', shipmentIds, prefs.courierSize);
+      const parcels = r.documents.reduce((n, d) => n + (d.shipmentNumbers?.length ?? 0), 0);
+      setCourierNote(r.documents.length
+        ? `${r.documents.length === 1 ? 'One PDF' : `${r.documents.length} PDFs`} downloaded for ${parcels || shipmentIds.length - r.failed.length} shipment(s).`
+        : 'No label file came back.');
+      setCourierFailed(r.failed);
     } catch (e) {
       setCourierNote(errorText(e, 'The courier\'s label could not be downloaded.'));
     } finally {
@@ -130,7 +129,10 @@ const PrintLabelsDialog: React.FC<Props> = ({ open, shipmentIds, names, onClose 
       <DialogContent className="max-w-3xl max-h-[92vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Print labels</DialogTitle>
-          <DialogDescription>{shipmentIds.length} shipment{shipmentIds.length === 1 ? '' : 's'}. Your choice is kept for this store.</DialogDescription>
+          <DialogDescription>
+            {shipmentIds.length} shipment{shipmentIds.length === 1 ? '' : 's'}, in one document. This print starts from the store's label setting; a change here is for this print only.
+            {hasPerm('settings.manage') && <> <Link to="/growship/settings" className="text-blue-700 hover:underline" onClick={onClose}>Change the store's setting</Link></>}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-2 sm:grid-cols-2">
@@ -140,7 +142,11 @@ const PrintLabelsDialog: React.FC<Props> = ({ open, shipmentIds, names, onClose 
           </label>
           <label className={`${radio} ${prefs.kind === 'courier' ? 'border-blue-600 bg-blue-50' : ''}`}>
             <input type="radio" name="label-kind" checked={prefs.kind === 'courier'} onChange={() => set({ kind: 'courier' })} className="mt-0.5" />
-            <span><span className="font-medium">Courier's label</span><span className="block text-xs text-muted-foreground">The PDF the courier makes, downloaded as before.</span></span>
+            <span>
+              <span className="font-medium">Courier's label</span>
+              <span className="block text-xs text-muted-foreground">The PDF the courier makes, one file for all of them.</span>
+              {growcordShipCount > 0 && <span className="block text-xs text-amber-800">Shows the courier account name.</span>}
+            </span>
           </label>
         </div>
 
@@ -200,6 +206,14 @@ const PrintLabelsDialog: React.FC<Props> = ({ open, shipmentIds, names, onClose 
               </select>
             </label>
             {courierNote && <p className="text-sm text-muted-foreground">{courierNote}</p>}
+            {courierFailed.length > 0 && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 p-2.5 text-sm text-amber-900">
+                <p className="font-medium">{courierFailed.length} not in the file</p>
+                <ul className="mt-1 space-y-0.5 text-xs">
+                  {courierFailed.map((f) => <li key={f.shipmentId}>{f.shipmentNumber || names?.[f.shipmentId] || f.shipmentId}: {f.message}</li>)}
+                </ul>
+              </div>
+            )}
           </div>
         )}
 

@@ -8,6 +8,7 @@
  * right. Money arrives in minor units.
  */
 import { v2call } from './v2/http';
+import { settingsRegistryAPI } from '../services/api';
 import { code128Svg, escapeXml as x } from './code128';
 import { fmtMinor } from './money';
 import { formatDate } from '../utils/date';
@@ -35,9 +36,16 @@ export interface LabelData {
   items?: Array<{ name?: string | null; sku?: string | null; qty?: number | null }> | null;
   store?: { name?: string | null; logo_url?: string | null } | null;
   booked_at?: string | null;
+  /** How it was booked: `growcord_ship`, `shiprocket`, `delhivery`, `manual`. */
+  provider?: string | null;
+  /** Growcord Ship's brand for its own parcels (name and logo), printed top left; other carriers have none. */
+  brand?: { name?: string | null; logo_url?: string | null } | null;
 }
 
 export interface LabelMissing { shipment_id: string; reason?: string | null }
+
+/** How a shipment was booked (label-data `provider`): `growcord_ship`, `shiprocket`, `delhivery`, `manual`. */
+export const isGrowcordShip = (l: LabelData) => String(l.provider ?? '') === 'growcord_ship';
 
 /** The label facts of the given shipments, 50 at a time. */
 export async function readLabelData(ids: string[]): Promise<{ labels: LabelData[]; missing: LabelMissing[] }> {
@@ -53,7 +61,7 @@ export async function readLabelData(ids: string[]): Promise<{ labels: LabelData[
 
 /* ── sizes ──────────────────────────────────────────────────────────────── */
 
-export type LabelSizeKey = 'a5' | '4x6' | '4x4' | 'a6' | 'a5-2' | 'a4-2' | 'a4-4' | 'a4-6' | 'a4-8' | 'a4-16';
+export type LabelSizeKey = 'a5_1' | 'in4x6' | 'in4x4' | 'a6' | 'a5_2' | 'a4_2' | 'a4_4' | 'a4_6' | 'a4_8' | 'a4_16';
 type Layout = 'full' | 'medium' | 'compact';
 
 interface SizeSpec {
@@ -74,28 +82,79 @@ interface SizeSpec {
 
 export const LABEL_SIZES: Record<LabelSizeKey, SizeSpec> = {
   // Homeomed prints its labels on A5 (owner 26 Nov 2026): the label fills the page with a small margin.
-  a5: { label: 'A5, one label', pageW: 148, pageH: 210, cols: 1, rows: 1, layout: 'full', font: 11.5, bars: { awb: 26, order: 10 }, big: true, pad: 5 },
-  '4x6': { label: '4 x 6 inch, thermal', pageW: 101.6, pageH: 152.4, cols: 1, rows: 1, layout: 'full', font: 8.5 },
-  '4x4': { label: '4 x 4 inch, thermal', pageW: 101.6, pageH: 101.6, cols: 1, rows: 1, layout: 'medium', font: 8 },
+  a5_1: { label: 'A5, one label', pageW: 148, pageH: 210, cols: 1, rows: 1, layout: 'full', font: 11.5, bars: { awb: 26, order: 10 }, big: true, pad: 5 },
+  'in4x6': { label: '4 x 6 inch, thermal', pageW: 101.6, pageH: 152.4, cols: 1, rows: 1, layout: 'full', font: 8.5 },
+  'in4x4': { label: '4 x 4 inch, thermal', pageW: 101.6, pageH: 101.6, cols: 1, rows: 1, layout: 'medium', font: 8 },
   a6: { label: 'A6 (105 x 148 mm)', pageW: 105, pageH: 148, cols: 1, rows: 1, layout: 'full', font: 8.5 },
   // Two A6 labels side by side on an A5 sheet (landscape), with a cut line between them.
-  'a5-2': { label: 'A5 sheet, 2 labels (A6 each)', pageW: 210, pageH: 148, cols: 2, rows: 1, layout: 'full', font: 8.5 },
-  'a4-2': { label: 'A4 sheet, 2 labels (A5 each)', pageW: 210, pageH: 297, cols: 1, rows: 2, layout: 'full', font: 11, bars: { awb: 22, order: 9 }, big: true },
-  'a4-4': { label: 'A4 sheet, 4 labels', pageW: 210, pageH: 297, cols: 2, rows: 2, layout: 'full', font: 8.5 },
-  'a4-6': { label: 'A4 sheet, 6 labels', pageW: 210, pageH: 297, cols: 2, rows: 3, layout: 'medium', font: 8 },
-  'a4-8': { label: 'A4 sheet, 8 labels', pageW: 210, pageH: 297, cols: 2, rows: 4, layout: 'compact', font: 7.5 },
-  'a4-16': { label: 'A4 sheet, 16 labels (compact)', pageW: 210, pageH: 297, cols: 4, rows: 4, layout: 'compact', font: 5.5 },
+  'a5_2': { label: 'A5 sheet, 2 labels (A6 each)', pageW: 210, pageH: 148, cols: 2, rows: 1, layout: 'full', font: 8.5 },
+  'a4_2': { label: 'A4 sheet, 2 labels (A5 each)', pageW: 210, pageH: 297, cols: 1, rows: 2, layout: 'full', font: 11, bars: { awb: 22, order: 9 }, big: true },
+  'a4_4': { label: 'A4 sheet, 4 labels', pageW: 210, pageH: 297, cols: 2, rows: 2, layout: 'full', font: 8.5 },
+  'a4_6': { label: 'A4 sheet, 6 labels', pageW: 210, pageH: 297, cols: 2, rows: 3, layout: 'medium', font: 8 },
+  'a4_8': { label: 'A4 sheet, 8 labels', pageW: 210, pageH: 297, cols: 2, rows: 4, layout: 'compact', font: 7.5 },
+  'a4_16': { label: 'A4 sheet, 16 labels (compact)', pageW: 210, pageH: 297, cols: 4, rows: 4, layout: 'compact', font: 5.5 },
 };
 export const LABEL_SIZE_KEYS = Object.keys(LABEL_SIZES) as LabelSizeKey[];
 
 /** The size picker's two groups. */
 export const LABEL_SIZE_GROUPS: Array<{ label: string; keys: LabelSizeKey[] }> = [
-  { label: 'One label per page', keys: ['a5', '4x6', '4x4', 'a6'] },
-  { label: 'Several per sheet', keys: ['a5-2', 'a4-2', 'a4-4', 'a4-6', 'a4-8', 'a4-16'] },
+  { label: 'One label per page', keys: ['a5_1', 'in4x6', 'in4x4', 'a6'] },
+  { label: 'Several per sheet', keys: ['a5_2', 'a4_2', 'a4_4', 'a4_6', 'a4_8', 'a4_16'] },
 ];
 
-/** The size used when nothing is remembered for the store. */
-export const DEFAULT_LABEL_SIZE: LabelSizeKey = 'a5';
+/** The size used when the store has not chosen one. */
+export const DEFAULT_LABEL_SIZE: LabelSizeKey = 'a5_1';
+
+/* ── the store's label setting ──────────────────────────────────────────── */
+
+/**
+ * The store's label setting (owner 26 Nov 2026: size and options are a STORE setting), a settings registry key read
+ * and written through the store settings routes (`GET /settings/registry`, `PATCH /settings/registry/labelPrint`).
+ * The print window starts from it and allows a change for one print.
+ */
+export const LABEL_PRINT_KEY = 'labelPrint';
+
+export interface LabelPrintSetting {
+  size: LabelSizeKey;
+  showProducts: boolean;
+  showInvoiceValue: boolean;
+  showLogo: boolean;
+  /** Which label a print starts on. Growcord Ship parcels always start on Growcord's own. */
+  defaultKind: 'growcord' | 'courier';
+}
+
+export const LABEL_PRINT_DEFAULTS: LabelPrintSetting = {
+  size: DEFAULT_LABEL_SIZE, showProducts: true, showInvoiceValue: true, showLogo: true, defaultKind: 'growcord',
+};
+
+/** A stored value made safe: unknown sizes and kinds fall back to the defaults. */
+export function labelPrintOf(v: unknown): LabelPrintSetting {
+  const o = (v && typeof v === 'object' ? v : {}) as Record<string, unknown>;
+  const bool = (k: keyof LabelPrintSetting) => (typeof o[k] === 'boolean' ? (o[k] as boolean) : (LABEL_PRINT_DEFAULTS[k] as boolean));
+  return {
+    size: LABEL_SIZE_KEYS.includes(o.size as LabelSizeKey) ? (o.size as LabelSizeKey) : LABEL_PRINT_DEFAULTS.size,
+    showProducts: bool('showProducts'),
+    showInvoiceValue: bool('showInvoiceValue'),
+    showLogo: bool('showLogo'),
+    defaultKind: o.defaultKind === 'courier' ? 'courier' : 'growcord',
+  };
+}
+
+/**
+ * The store's label setting: its stored value over the definition's own defaults. `exists` false when this server has
+ * no such setting yet (the defaults apply); errors (no settings.read) propagate to the caller.
+ */
+export async function readLabelPrint(): Promise<{ setting: LabelPrintSetting; exists: boolean; canWrite: boolean }> {
+  const def: any = await settingsRegistryAPI.definition(LABEL_PRINT_KEY);
+  if (!def) return { setting: LABEL_PRINT_DEFAULTS, exists: false, canWrite: false };
+  const fromFields: Record<string, unknown> = {};
+  for (const f of Array.isArray(def.fields) ? def.fields : []) if (f?.path && f.default !== undefined) fromFields[f.path] = f.default;
+  const value = def.value && typeof def.value === 'object' ? def.value : {};
+  return { setting: labelPrintOf({ ...fromFields, ...value }), exists: true, canWrite: def.canWrite === true };
+}
+
+/** Saves the store's label setting (settings.manage, checked by the server). */
+export const writeLabelPrint = (s: LabelPrintSetting) => settingsRegistryAPI.update(LABEL_PRINT_KEY, { ...s });
 
 export interface LabelOptions {
   /** Product names (and SKU, quantity) on the label. */
@@ -132,11 +191,12 @@ function labelHtml(l: LabelData, spec: SizeSpec, o: LabelOptions): string {
   const awb = String(l.awb ?? '').trim();
   const orderNo = String(l.order?.number ?? '').trim();
   const sort = String(l.routing?.sort_code ?? '').trim();
+  // Routing codes only: nothing from the courier account (its client name or ids) is printed, so `routing.extra`,
+  // which a courier can fill with its own account details, is left out.
   const route = line(
     l.routing?.destination_code ? `Dest ${l.routing.destination_code}` : '',
     l.routing?.origin_code ? `Origin ${l.routing.origin_code}` : '',
     l.routing?.cluster ? `Cluster ${l.routing.cluster}` : '',
-    l.routing?.extra ?? '',
   );
   const barH = spec.bars?.awb ?? (layout === 'full' ? 16 : layout === 'medium' ? 12 : 9);
   const awbBar = awb ? code128Svg(awb, barH) : null;
@@ -169,13 +229,19 @@ function labelHtml(l: LabelData, spec: SizeSpec, o: LabelOptions): string {
   const logo = !o.logo ? ''
     : l.store?.logo_url ? `<img class="logo" src="${x(l.store.logo_url)}" alt="" referrerpolicy="no-referrer"/>`
       : (l.store?.name ? `<div class="store">${x(l.store.name)}</div>` : '');
+  // Growcord Ship's own parcels carry its brand top left (label-data `brand`); other carriers have no brand box.
+  const brand = isGrowcordShip(l) && (l.brand?.name || l.brand?.logo_url)
+    ? `<div class="brand">${l.brand?.logo_url ? `<img src="${x(l.brand.logo_url)}" alt="" referrerpolicy="no-referrer"/>` : ''}`
+      + `${l.brand?.name ? `<span>${x(l.brand.name)}</span>` : ''}</div>`
+    : '';
   const invoice = line(
     l.order?.invoice_number ? `Invoice ${l.order.invoice_number}` : '',
     o.invoiceValue && l.order?.invoice_value_minor != null ? `Value ${fmtMinor(l.order.invoice_value_minor)}` : '',
   );
   return `<div class="lab ${layout}${spec.big ? ' big' : ''}">`
+    + (brand || logo ? `<div class="row head">${brand || '<div></div>'}${logo ? `<div class="side">${logo}</div>` : ''}</div>` : '')
     + `<div class="row top"><div class="to"><div class="h">Deliver to</div>${addressHtml(l.ship_to, { full: true })}</div>`
-    + `<div class="side">${logo}${payBox}</div></div>`
+    + `<div class="side">${payBox}</div></div>`
     + courier
     + awbBlock
     + (route ? `<div class="sm">${x(route)}</div>` : '')
@@ -226,6 +292,9 @@ body { font-family: Arial, Helvetica, sans-serif; font-size: ${s.font}pt; line-h
 .pin { font-size: 1.25em; }
 .side { display: flex; flex-direction: column; align-items: flex-end; gap: 1mm; max-width: 40%; }
 .logo { max-height: 9mm; max-width: 100%; object-fit: contain; }
+.head { align-items: center; border-bottom: 0.3mm solid #000; padding-bottom: 1mm; }
+.brand { display: flex; align-items: center; gap: 1.5mm; border: 0.4mm solid #000; padding: 0.8mm 1.6mm; font-weight: bold; font-size: 1.1em; }
+.brand img { max-height: 7mm; max-width: 30mm; object-fit: contain; }
 .store { font-weight: bold; text-align: right; }
 .pay { border: 0.5mm solid #000; padding: 1mm 1.6mm; text-align: center; }
 .pay.cod { background: #000; color: #fff; }

@@ -4,6 +4,7 @@ import { ArrowLeft, Save, Truck, Warehouse, Loader2, MapPin, Plus, Pencil, Trash
 import api, { shippingZonesAPI, pincodeZonesAPI, shippingAPI, getApiBase, errorText, type ShippingProviderStatus, type GrowcordShipConnection } from '../services/api';
 import ConnectionStatus, { type ConnState } from '../components/common/ConnectionStatus';
 import GrowcordShipCard from '../components/shipments/GrowcordShipCard';
+import LabelPrintCard from '../components/shipments/LabelPrintCard';
 import ZoneRates from '../components/shipments/ZoneRates';
 import GoogleShippingCard from '../components/shipments/GoogleShippingCard';
 import { useAuth } from '../contexts/AuthContext';
@@ -565,6 +566,9 @@ const ShippingSettings: React.FC = () => {
         canManage={canManage}
         onChanged={refreshGrowcordShip}
       />
+
+      {/* The store's label setting: what every Print labels window starts from (owner 26 Nov 2026). */}
+      <LabelPrintCard canManage={canManage} />
 
       <form onSubmit={handleSubmit} className="space-y-6 pb-12">
         {/* Shipping Fees & COD */}

@@ -930,6 +930,7 @@ const Shipments: React.FC<ShipmentsProps> = ({ fixedProvider, title, intro }) =>
         open={!!labelIds}
         shipmentIds={labelIds ?? []}
         names={shipmentNames}
+        growcordShipCount={(labelIds ?? []).filter((id) => providerOf(shipments.find((s) => s._id === id)) === 'growcord_ship').length}
         onClose={() => setLabelIds(null)}
       />
 

@@ -3516,8 +3516,10 @@ export const shipmentsAPI = {
    */
   downloadDocumentsBulk: async (kind: 'labels' | 'manifests', shipmentIds: string[], pdfSize: '4R' | 'A4' = '4R') => {
     const res: any = await api.post(`/shipments/documents/${kind}`, { shipmentIds, pdfSize });
-    const data = res?.documents !== undefined ? res : (res?.data ?? {});
-    const documents: Array<{ filename: string; contentBase64: string; shipmentNumbers: string[]; courier?: string | null }> = data?.documents ?? [];
+    const data = res?.documents !== undefined || res?.document !== undefined ? res : (res?.data ?? {});
+    // One merged file (owner 26 Nov 2026: one PDF for many parcels) may come as `document`, else the list as before.
+    const documents: Array<{ filename: string; contentBase64: string; shipmentNumbers: string[]; courier?: string | null }> =
+      Array.isArray(data?.documents) ? data.documents : data?.document ? [data.document] : [];
     for (const d of documents) {
       const bin = atob(d.contentBase64);
       const bytes = new Uint8Array(bin.length);
@@ -3532,7 +3534,13 @@ export const shipmentsAPI = {
       link.remove();
       window.URL.revokeObjectURL(url);
     }
-    return { documents, failed: (data?.failed ?? []) as Array<{ shipmentId: string; shipmentNumber?: string; message: string }>, groups: data?.groups ?? documents.length };
+    // The parcels left out of the file (the merge's sidecar list), with why.
+    const failed = ((data?.failed ?? data?.missing ?? []) as any[]).map((f) => ({
+      shipmentId: String(f?.shipmentId ?? f?.shipment_id ?? ''),
+      shipmentNumber: f?.shipmentNumber ?? f?.shipment_number ?? undefined,
+      message: String(f?.message ?? f?.reason ?? 'not included'),
+    }));
+    return { documents, failed, groups: data?.groups ?? documents.length };
   },
   downloadManifest: async (id: string) => {
     try {
