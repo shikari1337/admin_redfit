@@ -7,7 +7,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import {
-  LABEL_SIZES, LABEL_SIZE_KEYS, labelsHtml, printHtml, readLabelData,
+  DEFAULT_LABEL_SIZE, LABEL_SIZES, LABEL_SIZE_GROUPS, LABEL_SIZE_KEYS, labelsHtml, printHtml, readLabelData,
   type LabelData, type LabelMissing, type LabelSizeKey,
 } from '@/lib/shippingLabels';
 
@@ -20,7 +20,7 @@ interface Prefs {
   invoiceValue: boolean;
   logo: boolean;
 }
-const DEFAULTS: Prefs = { kind: 'growcord', size: '4x6', courierSize: '4R', items: true, invoiceValue: true, logo: true };
+const DEFAULTS: Prefs = { kind: 'growcord', size: DEFAULT_LABEL_SIZE, courierSize: '4R', items: true, invoiceValue: true, logo: true };
 const prefKey = () => `labels.print.${storeKeyNow() || 'store'}`;
 
 function readPrefs(): Prefs {
@@ -50,8 +50,8 @@ interface Props {
 }
 
 /**
- * Print labels (owner 26 Nov 2026): Growcord's own label (the default) at 4 x 6 inch thermal, 4 x 4 inch, A6, or A4
- * sheets of 2, 4, 6, 8 or 16, with or without product names, invoice value and the store logo; or the courier's own
+ * Print labels (owner 26 Nov 2026): Growcord's own label (the default), one per page at A5 (the default size; Homeomed
+ * prints on A5), 4 x 6 inch thermal, 4 x 4 inch or A6, or several per sheet: A5 with 2, A4 with 2, 4, 6, 8 or 16, with or without product names, invoice value and the store logo; or the courier's own
  * label, the download the board always had. The choice is kept for the store. A shipment with no label is listed
  * with the reason.
  */
@@ -150,7 +150,11 @@ const PrintLabelsDialog: React.FC<Props> = ({ open, shipmentIds, names, onClose 
               <label className="block text-sm">
                 <span className="mb-1 block text-xs font-medium text-muted-foreground">Size</span>
                 <select className="h-9 rounded-md border px-2" value={prefs.size} onChange={(e) => set({ size: e.target.value as LabelSizeKey })}>
-                  {LABEL_SIZE_KEYS.map((k) => <option key={k} value={k}>{LABEL_SIZES[k].label}</option>)}
+                  {LABEL_SIZE_GROUPS.map((g) => (
+                    <optgroup key={g.label} label={g.label}>
+                      {g.keys.map((k) => <option key={k} value={k}>{LABEL_SIZES[k].label}</option>)}
+                    </optgroup>
+                  ))}
                 </select>
               </label>
               {([['items', 'Product names'], ['invoiceValue', 'Invoice value'], ['logo', 'Store logo or name']] as const).map(([k, l]) => (
