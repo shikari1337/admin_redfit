@@ -34,6 +34,20 @@ export const googleBusinessV2 = {
   },
 };
 
+/** A Google block answered as `{currency, data}` (GoogleBlockView) gives its `data`; a bare answer stays as it is. */
+const googleData = (r: any) => (isObj(r) && isObj(r.data) && !('regions' in r) && !('service' in r) ? r.data : r);
+
+/**
+ * The store's delivery charges in Google Merchant Center (growcord-rs SHIP-MC-1, owner 25 Nov 2026: "make sure our SERP
+ * and ads show like free shipping above 499 or other condition based on location"). `preview` answers what an update
+ * would write, `{regions, service, current}` (`current` is Google's shippingSettings now); `sync` writes it to Merchant
+ * Center and answers what it wrote, or refuses with Google's own words.
+ */
+export const googleMerchantShippingV2 = {
+  preview: async () => googleData(await v2call<any>('GET', '/api/v2/marketing/google/merchant/shipping/preview')),
+  sync: async () => googleData(await v2call<any>('POST', '/api/v2/marketing/google/merchant/shipping/sync', { data: {} })),
+};
+
 /**
  * MarketingAnalyticsView {model, currency, analytics} (marketing views/beacons.rs:113; the block is db/attribution.rs:544
  * {summary, by_channel, …}): the screens read the block's keys at the top (`summary`, `by_channel`; the hub's

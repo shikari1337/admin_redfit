@@ -5,6 +5,7 @@ import api, { shippingZonesAPI, pincodeZonesAPI, shippingAPI, getApiBase, errorT
 import ConnectionStatus, { type ConnState } from '../components/common/ConnectionStatus';
 import GrowcordShipCard from '../components/shipments/GrowcordShipCard';
 import ZoneRates from '../components/shipments/ZoneRates';
+import GoogleShippingCard from '../components/shipments/GoogleShippingCard';
 import { useAuth } from '../contexts/AuthContext';
 import DispatchCalendarCard from '../components/shipments/DispatchCalendarCard';
 import { useSettingsSection } from '../hooks/useSettingsSection';
@@ -1127,6 +1128,9 @@ const ShippingSettings: React.FC = () => {
           )}
         </CardContent>
       </Card>
+
+      {/* What Google shows for the zones above, and "Update Google" (SHIP-MC-1); marketing staff may update it. */}
+      <GoogleShippingCard canManage={hasPerm('marketing.manage')} />
 
       {/* Pincode Serviceability */}
       <Card>
