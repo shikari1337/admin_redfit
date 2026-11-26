@@ -1175,8 +1175,8 @@ const ShippingSettings: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* What Google shows for the zones above, and "Update Google" (SHIP-MC-1): the sync route asks channels.manage. */}
-      <GoogleShippingCard canManage={hasPerm('channels.manage')} />
+      {/* What Google shows for the zones above (the preview asks channels.read) and "Update Google" (channels.manage). */}
+      {hasPerm('channels.read') && <GoogleShippingCard canRead canManage={hasPerm('channels.manage')} />}
 
       {/* Pincode Serviceability */}
       <Card>

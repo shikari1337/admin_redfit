@@ -157,7 +157,9 @@ function placesText(places: string[]): string {
   return places.length > 6 ? `${shown}, and ${places.length - 6} more` : shown;
 }
 
-export default function GoogleShippingCard({ canManage }: { canManage: boolean }) {
+/** `canRead`: channels.read, which the preview asks; without it the card shows nothing and asks nothing.
+ *  `canManage`: channels.manage, which "Update Google" asks; without it the card is read only. */
+export default function GoogleShippingCard({ canRead, canManage }: { canRead: boolean; canManage: boolean }) {
   const [ref, inView] = useInView<HTMLDivElement>();
   const [preview, setPreview] = useState<Obj | null>(null);
   const [loading, setLoading] = useState(false);
@@ -179,7 +181,7 @@ export default function GoogleShippingCard({ canManage }: { canManage: boolean }
     }
   }, []);
 
-  useEffect(() => { if (inView) void load(); }, [inView, load]);
+  useEffect(() => { if (inView && canRead) void load(); }, [inView, canRead, load]);
 
   const update = async () => {
     setSyncing(true);
@@ -196,6 +198,8 @@ export default function GoogleShippingCard({ canManage }: { canManage: boolean }
       setSyncing(false);
     }
   };
+
+  if (!canRead) return null;
 
   const rows = previewRows(preview);
   // What the preview says to check before updating (a PIN prefix two states share, a state not found, a default used).
