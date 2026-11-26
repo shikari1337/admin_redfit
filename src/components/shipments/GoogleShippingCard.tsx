@@ -102,6 +102,7 @@ function cellFee(v: unknown): Band['fee'] {
 function columnNames(headers: unknown, regions: Obj[], fallback: string): string[] {
   const named = (id: unknown) => {
     const key = String(id);
+    if (key === 'all other locations') return 'Everywhere else';
     const r = regions.find((x) => [g(x, 'regionId'), x.name, String(x.name ?? '').split('/').pop()].includes(key));
     return r ? regionName(r) : key;
   };
@@ -136,8 +137,13 @@ function serviceRows(service: unknown, regions: Obj[]): RegionRow[] {
   });
 }
 
-/** What Google will show per region: the preview's regions with their bands, else read off the service's rate table. */
+/**
+ * What Google will show per zone: the preview's zones with their bands (growcord-rs SHIP-MC-1 `zones`), else regions
+ * that carry bands, else read off the service's rate table.
+ */
 function previewRows(preview: Obj | null): RegionRow[] {
+  const zones = arr(g(preview, 'zones')).filter((z) => isObj(z) && Array.isArray(g(z, 'bands')));
+  if (zones.length) return zones.map((z) => ({ name: regionName(z), places: placesOf(z), bands: bandsOf(g(z, 'bands')) }));
   const regions = arr(g(preview, 'regions')).filter(isObj);
   if (regions.some((r) => Array.isArray(g(r, 'bands')))) {
     return regions.map((r) => ({ name: regionName(r), places: placesOf(r), bands: bandsOf(g(r, 'bands')) }));
@@ -192,6 +198,8 @@ export default function GoogleShippingCard({ canManage }: { canManage: boolean }
   };
 
   const rows = previewRows(preview);
+  // What the preview says to check before updating (a PIN prefix two states share, a state not found, a default used).
+  const warnings = arr(g(preview, 'warnings')).filter((w): w is string => typeof w === 'string' && !!w.trim());
   const regions = arr(g(preview, 'regions')).filter(isObj);
   const current = g(preview, 'current');
   const services = arr(g(current, 'services')).filter(isObj);
@@ -245,6 +253,13 @@ export default function GoogleShippingCard({ canManage }: { canManage: boolean }
               )}
             </div>
 
+            {warnings.length > 0 && (
+              <div className="space-y-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                <p className="font-medium">Check before updating</p>
+                <ul className="list-disc space-y-0.5 pl-4">{warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
+              </div>
+            )}
+
             <div className="space-y-1.5">
               <h4 className="text-sm font-medium">What Google has now</h4>
               {services.length === 0 ? (
@@ -277,7 +292,7 @@ export default function GoogleShippingCard({ canManage }: { canManage: boolean }
               Update Google
             </Button>
           ) : (
-            <span className="text-sm text-muted-foreground">Only staff who manage marketing can update Google.</span>
+            <span className="text-sm text-muted-foreground">Only staff who manage sales channels can update Google.</span>
           )}
           {synced && <span className="text-sm text-green-700">{synced}</span>}
           {syncError && <span className="text-sm text-destructive">{syncError}</span>}
