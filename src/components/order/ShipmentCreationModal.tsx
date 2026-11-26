@@ -27,7 +27,7 @@ interface ShippingProvider {
 /** A provider whose courier offers the window lists for a person to choose from. */
 type RateProvider = 'shiprocket' | 'growcord_ship';
 
-interface CourierRate {
+export interface CourierRate {
   /** Shiprocket's numeric courier id, or Growcord Ship's offer id (the exact courier and buy it was quoted). */
   courierCompanyId: number | string;
   courierName: string;
@@ -70,6 +70,37 @@ const breakupOf = (c: CourierRate): string | null => {
   return `${parts.join(' + ')} = ${r(c.rate)}`;
 };
 
+/**
+ * A provider's rate answer (GET /shipping/:provider/rates, Shiprocket or Growcord Ship) as courier offers,
+ * cheapest first. The one reading: the create window and the Growcord Ship bulk page both use it.
+ */
+export function courierRatesOf(response: any): CourierRate[] {
+  const ratesArray: any[] = Array.isArray(response)
+    ? response
+    : (response?.data && Array.isArray(response.data))
+      ? response.data
+      : [];
+  return [...ratesArray]
+    .filter((c: any) => c && (c.rate > 0 || c.total_price > 0) && (c.courierName || c.courier_name || c.name))
+    .map((c: any) => ({
+      courierCompanyId: c.courier_company_id ?? c.courierCompanyId ?? c.id,
+      courierName: c.courier_name ?? c.courierName ?? c.name ?? 'Unknown Courier',
+      rate: parseFloat(c.rate ?? c.total_price ?? 0),
+      estimatedDeliveryDays: c.estimated_delivery_days ?? c.estimatedDeliveryDays ?? c.delivery_days ?? 0,
+      estimatedDeliveryDate: c.estimated_delivery_date ?? c.estimatedDeliveryDate,
+      // Growcord Ship states a COD fee and its service type instead of Shiprocket's flags.
+      codAvailable: c.cod === 1 || c.cod === true || c.cod === 'Y' || Number(c.cod_charge) > 0,
+      airAvailable: c.air === 1 || c.air === true || c.air === 'Y' || c.service_type === 'express' || c.service_type === 'air',
+      surfaceAvailable: c.surface === 1 || c.surface === true || c.surface === 'Y' || c.service_type === 'surface',
+      qty: c.qty || 1,
+      freightCharge: rupeeOf(c.freight_charge ?? c.freightCharge),
+      codCharge: rupeeOf(c.cod_charge ?? c.cod_charges ?? c.codCharge),
+      gstCharge: c.gst_charge !== undefined && c.gst_charge !== null ? Number(c.gst_charge) : undefined,
+      rtoCharge: rupeeOf(c.rto_charge ?? c.rto_charges ?? c.rtoCharge),
+    }))
+    .sort((a, b) => a.rate - b.rate);
+}
+
 interface DelhiveryServiceType {
   type: 'express' | 'surface';
   rate: number;
@@ -109,7 +140,7 @@ const boxDims = (box: any) => ({
   deadWeightKg: Number(box?.weight ?? box?.deadWeightKg ?? 0) || 0,
 });
 
-const itemUnitWeightKg = (item?: OrderItem): number =>
+export const itemUnitWeightKg = (item?: OrderItem): number =>
   Number(item?.weight_kg ?? item?.weightKg ?? 0.5) || 0.5;
 
 /** Who books the parcel. `growcord_ship` = Growcord Ship, the one aggregator: it picks the courier itself. */
@@ -475,32 +506,8 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
         const source = (response as any)?.account_source ?? (response as any)?.data?.account_source;
         setSrAccountSource(typeof source === 'string' ? source : null);
       }
-      const ratesArray: any[] = Array.isArray(response)
-        ? response
-        : (response?.data && Array.isArray(response.data))
-          ? response.data
-          : [];
-
-      if (ratesArray.length > 0) {
-        const sortedRates = [...ratesArray]
-          .filter((c: any) => c && (c.rate > 0 || c.total_price > 0) && (c.courierName || c.courier_name || c.name))
-          .map((c: any) => ({
-            courierCompanyId: c.courier_company_id ?? c.courierCompanyId ?? c.id,
-            courierName: c.courier_name ?? c.courierName ?? c.name ?? 'Unknown Courier',
-            rate: parseFloat(c.rate ?? c.total_price ?? 0),
-            estimatedDeliveryDays: c.estimated_delivery_days ?? c.estimatedDeliveryDays ?? c.delivery_days ?? 0,
-            estimatedDeliveryDate: c.estimated_delivery_date ?? c.estimatedDeliveryDate,
-            // Growcord Ship states a COD fee and its service type instead of Shiprocket's flags.
-            codAvailable: c.cod === 1 || c.cod === true || c.cod === 'Y' || Number(c.cod_charge) > 0,
-            airAvailable: c.air === 1 || c.air === true || c.air === 'Y' || c.service_type === 'express' || c.service_type === 'air',
-            surfaceAvailable: c.surface === 1 || c.surface === true || c.surface === 'Y' || c.service_type === 'surface',
-            qty: c.qty || 1,
-            freightCharge: rupeeOf(c.freight_charge ?? c.freightCharge),
-            codCharge: rupeeOf(c.cod_charge ?? c.cod_charges ?? c.codCharge),
-            gstCharge: c.gst_charge !== undefined && c.gst_charge !== null ? Number(c.gst_charge) : undefined,
-            rtoCharge: rupeeOf(c.rto_charge ?? c.rto_charges ?? c.rtoCharge),
-          }))
-          .sort((a, b) => a.rate - b.rate);
+      const sortedRates = courierRatesOf(response);
+      if (sortedRates.length > 0) {
         setRates(sortedRates);
         if (sortedRates.length > 0 && selectedShippingProvider === provider) {
           setSelectedCourierId(sortedRates[0].courierCompanyId);

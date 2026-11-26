@@ -84,9 +84,16 @@ export function normaliseEnvelope(body: unknown, keepMoney = false): unknown {
 export async function v2call<T = any>(
   method: string,
   path: string,
-  opts: { params?: Record<string, unknown>; data?: unknown; responseType?: 'json' | 'blob' | 'arraybuffer'; keepMoney?: boolean } = {},
+  opts: {
+    params?: Record<string, unknown>; data?: unknown; responseType?: 'json' | 'blob' | 'arraybuffer'; keepMoney?: boolean;
+    /** Milliseconds before the call gives up, when a long server task needs more than the default 120 s. */
+    timeout?: number;
+  } = {},
 ): Promise<T> {
-  const res = await v2http.request({ method, url: path, params: opts.params, data: opts.data, responseType: opts.responseType || 'json' });
+  const res = await v2http.request({
+    method, url: path, params: opts.params, data: opts.data, responseType: opts.responseType || 'json',
+    ...(opts.timeout ? { timeout: opts.timeout } : {}),
+  });
   if (opts.responseType === 'blob' || opts.responseType === 'arraybuffer') return res.data as T;
   return normaliseEnvelope(res.data, opts.keepMoney === true) as T;
 }

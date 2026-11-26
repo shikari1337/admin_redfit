@@ -52,6 +52,12 @@ const ShippingSettings = lazyRetry(() => import('./pages/ShippingSettings'));
 const Markets = lazyRetry(() => import('./pages/Markets'));
 const Warehouses = lazyRetry(() => import('./pages/Warehouses'));
 const Shipments = lazyRetry(() => import('./pages/Shipments'));
+// Growcord Ship's own sidebar group (owner 26 Nov 2026), its menu in lib/menu.ts.
+const GrowshipOverview = lazyRetry(() => import('./pages/growship/Overview'));
+const GrowshipBulk = lazyRetry(() => import('./pages/growship/Bulk'));
+const GrowshipWallet = lazyRetry(() => import('./pages/growship/Wallet'));
+const GrowshipBilling = lazyRetry(() => import('./pages/growship/Billing'));
+const GrowshipRates = lazyRetry(() => import('./pages/growship/Rates'));
 const Users = lazyRetry(() => import('./pages/Users'));
 const UserDetail = lazyRetry(() => import('./pages/UserDetail'));
 const Customers = lazyRetry(() => import('./pages/Customers'));
@@ -526,6 +532,30 @@ function App() {
           <Route path="orders/abandoned-carts/:id" element={<AbandonedCartDetail />} />
           <Route path="orders/:id" element={<OrderDetail />} />
           <Route path="shipments" element={<Shipments />} />
+          {/* Growcord Ship: its pages, the board fixed to it, and redirects to the pages other groups own (lib/menu.ts). */}
+          <Route path="growship" element={<GrowshipOverview />} />
+          <Route
+            path="growship/shipments"
+            element={(
+              // Its own key, so going between this board and Orders' Shipments starts each one afresh.
+              <Shipments
+                key="growship"
+                fixedProvider="growcord_ship"
+                title="Growcord Ship shipments"
+                intro="Parcels booked through Growcord Ship. Open one to see its charges and its courier events."
+              />
+            )}
+          />
+          <Route path="growship/bulk" element={<GrowshipBulk />} />
+          <Route path="growship/wallet" element={<GrowshipWallet />} />
+          <Route path="growship/billing" element={<GrowshipBilling />} />
+          <Route path="growship/rates" element={<GrowshipRates />} />
+          <Route path="growship/failed-delivery" element={<Navigate to="/growship/shipments?tab=ndr_failed_delivery" replace />} />
+          <Route path="growship/rto" element={<Navigate to="/panel/orders/rto" replace />} />
+          <Route path="growship/weight-disputes" element={<Navigate to="/panel/orders/weight-disputes" replace />} />
+          <Route path="growship/cod-payouts" element={<Navigate to="/panel/orders/cod-recon" replace />} />
+          <Route path="growship/settings" element={<Navigate to="/settings/shipping" replace />} />
+          <Route path="growship/pickup-locations" element={<Navigate to="/warehouses" replace />} />
           <Route path="customers" element={<Customers />} />
           <Route path="customers/duplicates" element={<CustomerDuplicates />} />
           <Route path="users" element={<Users />} />

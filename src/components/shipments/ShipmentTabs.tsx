@@ -25,6 +25,21 @@ export interface StatusCounts {
   rto_failed: number;
 }
 
+/** The board statuses each tab shows (Pending Orders reads its own list; Ready to Pick also sends `tab`). */
+export const TAB_STATUS: Record<TabType, string> = {
+  pending_orders: '',
+  ready_to_pick: 'pending',
+  pickup_scheduled: 'pickup_scheduled',
+  in_transit: 'picked_up,in_transit,out_for_delivery',
+  ndr_failed_delivery: 'ndr_failed_delivery',
+  delivered: 'delivered',
+  rto_in_transit: 'rto_in_transit',
+  rto_delivered: 'rto_delivered',
+  rto_failed: 'rto_failed',
+};
+
+export const TAB_TYPES = Object.keys(TAB_STATUS) as TabType[];
+
 interface ShipmentTabsProps {
   activeTab: TabType;
   onTabChange: (tab: TabType) => void;
