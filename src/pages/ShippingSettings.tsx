@@ -151,6 +151,15 @@ const ShippingSettings: React.FC = () => {
   };
 
   const splitList = (s: string) => s.split(',').map(x => x.trim()).filter(Boolean);
+  // The backend answers remote_fee and remote_fee_below on its zones once it keeps them (SHIP-MC-1); before, the
+  // form does not offer them.
+  const remoteFeeKept = zones.some(z => 'remote_fee' in z);
+  /** Typed text against the loaded value: blank and null are the same, numbers compare as numbers. */
+  const remoteChanged = (typed: string, loaded: unknown) => {
+    const t = typed.trim();
+    if (t === '') return loaded != null && loaded !== '';
+    return loaded == null || loaded === '' || Number(t) !== Number(loaded);
+  };
 
   const openCreateZone = () => { setZoneForm(emptyZoneForm); setShowZoneForm(true); };
   const openEditZone = (z: ShippingZone) => {
@@ -170,6 +179,7 @@ const ShippingSettings: React.FC = () => {
     if (!zoneForm.name.trim()) { setZoneError('Zone name is required.'); return; }
     setSavingZone(true);
     setZoneError(null);
+    const loadedZone = zoneForm.id ? zones.find(z => z.id === zoneForm.id) : undefined;
     try {
       const payload = {
         name: zoneForm.name.trim(),
@@ -177,11 +187,11 @@ const ShippingSettings: React.FC = () => {
         states: splitList(zoneForm.states),
         pincodes: splitList(zoneForm.pincodes),
         is_active: zoneForm.is_active,
-        // Sent once the backend keeps them (its zones answer the keys) or when typed: an older backend refuses
-        // unknown fields, so an untouched form never breaks a zone save. Empty clears them (none, or always).
-        ...(zones.some(z => 'remote_fee' in z) || zoneForm.remote_fee.trim() || zoneForm.remote_fee_below.trim()
-          ? { remote_fee: zoneForm.remote_fee.trim(), remote_fee_below: zoneForm.remote_fee_below.trim() }
-          : {}),
+        // Each sent only when staff changed it from what was loaded: the backend refuses a zone write naming either
+        // (even as null) with 409 until its migration 493 has run, so an untouched form never breaks a save.
+        // Empty clears it (no fee, or on every order).
+        ...(remoteChanged(zoneForm.remote_fee, loadedZone?.remote_fee) ? { remote_fee: zoneForm.remote_fee.trim() } : {}),
+        ...(remoteChanged(zoneForm.remote_fee_below, loadedZone?.remote_fee_below) ? { remote_fee_below: zoneForm.remote_fee_below.trim() } : {}),
       };
       if (zoneForm.id) {
         const updated = await shippingZonesAPI.update(zoneForm.id, payload);
@@ -1073,6 +1083,7 @@ const ShippingSettings: React.FC = () => {
                   <Label className="text-xs">Pincodes (comma-separated, optional)</Label>
                   <Input value={zoneForm.pincodes} onChange={e => setZoneForm(f => ({ ...f, pincodes: e.target.value }))} placeholder="110001, 110002" className="h-9" />
                 </div>
+                {remoteFeeKept && (<>
                 <div className="space-y-1.5">
                   <Label className="text-xs">Remote location fee (Rs)</Label>
                   <Input type="number" min={0} step="0.01" inputMode="decimal" value={zoneForm.remote_fee} onChange={e => setZoneForm(f => ({ ...f, remote_fee: e.target.value }))} placeholder="50" className="h-9" />
@@ -1083,6 +1094,7 @@ const ShippingSettings: React.FC = () => {
                   <Input type="number" min={0} step="0.01" inputMode="decimal" value={zoneForm.remote_fee_below} onChange={e => setZoneForm(f => ({ ...f, remote_fee_below: e.target.value }))} placeholder="999" className="h-9" />
                   <p className="text-[11px] text-muted-foreground">Empty: on every order.</p>
                 </div>
+                </>)}
               </div>
               <div className="flex items-center gap-2">
                 <Checkbox checked={zoneForm.is_active} onCheckedChange={c => setZoneForm(f => ({ ...f, is_active: c as boolean }))} />
