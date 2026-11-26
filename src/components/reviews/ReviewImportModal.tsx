@@ -1,4 +1,5 @@
 import React from 'react';
+import { parseCsv } from '@/lib/csv';
 import { X, Upload, FileText, AlertTriangle, CheckCircle2, Loader2, Download } from 'lucide-react';
 import { reviewsAPI } from '@/services/api';
 import { saveBlob } from '@/lib/saveBlob';
@@ -38,27 +39,6 @@ const HEADER_ALIASES: Record<string, string> = {
 };
 
 /** RFC-4180-ish parser: handles quoted fields, embedded commas and "" escapes. */
-function parseCsv(text: string): string[][] {
-  const out: string[][] = [];
-  let row: string[] = [];
-  let field = '';
-  let inQuotes = false;
-
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (inQuotes) {
-      if (c === '"') {
-        if (text[i + 1] === '"') { field += '"'; i++; }
-        else inQuotes = false;
-      } else field += c;
-    } else if (c === '"') inQuotes = true;
-    else if (c === ',') { row.push(field); field = ''; }
-    else if (c === '\n') { row.push(field); out.push(row); row = []; field = ''; }
-    else if (c !== '\r') field += c;
-  }
-  if (field || row.length) { row.push(field); out.push(row); }
-  return out.filter((r) => r.some((c) => c.trim() !== ''));
-}
 
 interface ParsedRow {
   line: number;
