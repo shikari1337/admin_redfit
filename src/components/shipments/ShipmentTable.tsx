@@ -78,6 +78,8 @@ interface ShipmentTableProps {
   onSchedulePickup: (shipment: Shipment) => void;
   onUpdateStatus: (shipmentId: string, status: string) => void;
   onDownloadLabel?: (shipmentId: string, size?: '4R' | 'A4') => void;
+  /** Opens the Print labels window for one shipment (Growcord's label in any size, or the courier's). */
+  onPrintLabels?: (shipmentId: string) => void;
   onDownloadManifest?: (shipmentId: string) => void;
   onDownloadPickupReceipt?: (shipmentId: string) => void;
   /**
@@ -104,6 +106,7 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
   onSchedulePickup,
   onUpdateStatus,
   onDownloadLabel,
+  onPrintLabels,
   onDownloadManifest,
   onDownloadPickupReceipt,
   onNdrAction,
@@ -378,6 +381,11 @@ const ShipmentTable: React.FC<ShipmentTableProps> = ({
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            {onPrintLabels && (
+                              <DropdownMenuItem onClick={() => onPrintLabels(shipment._id)}>
+                                Print labels (Growcord or courier)
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem onClick={() => onDownloadLabel(shipment._id, '4R')}>
                               Label, 4R (thermal)
                             </DropdownMenuItem>

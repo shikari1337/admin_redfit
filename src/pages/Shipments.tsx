@@ -11,6 +11,7 @@ import { ShipmentTabs, ShipmentFilters, ShipmentTable, PendingOrdersTable, Picku
 import type { TabType, StatusCounts, ReconcileResultData, NdrTarget } from '../components/shipments';
 import { TAB_STATUS, TAB_TYPES } from '../components/shipments/ShipmentTabs';
 import ShipmentCreationModal, { type ShipProviderId } from '../components/order/ShipmentCreationModal';
+import PrintLabelsDialog from '../components/shipments/PrintLabelsDialog';
 import { getStatusLabel } from '../components/order/StatusBadge';
 import { isTerminal, providerLabel, providerOf, shipmentAwb, shipmentMatches } from '../components/shipments/shipmentFacts';
 import { fmtRupees } from '@/lib/money';
@@ -442,7 +443,14 @@ const Shipments: React.FC<ShipmentsProps> = ({ fixedProvider, title, intro }) =>
       alert(error.response?.data?.message || `Failed to download ${kind}`);
     }
   }, [selectedShipments]);
-  const handleBulkDownloadLabel = useCallback(() => handleBulkDocuments('labels'), [handleBulkDocuments]);
+  // Labels open the Print labels window: Growcord's own label in any size, or the courier's PDF as before
+  // (handleBulkDocuments('labels') is that window's courier path, shipmentsAPI.downloadDocumentsBulk).
+  const [labelIds, setLabelIds] = useState<string[] | null>(null);
+  const handleBulkDownloadLabel = useCallback(() => setLabelIds([...selectedShipments]), [selectedShipments]);
+  const shipmentNames = useMemo(
+    () => Object.fromEntries(shipments.map((s) => [s._id, String(s.shipmentNumber ?? s._id)])),
+    [shipments],
+  );
   const handleBulkDownloadManifest = useCallback(() => handleBulkDocuments('manifests'), [handleBulkDocuments]);
 
   const handleUpdateStatus = async (shipmentId: string, status: string) => {
@@ -779,6 +787,7 @@ const Shipments: React.FC<ShipmentsProps> = ({ fixedProvider, title, intro }) =>
             onSelectAll={(checked) => setSelectedShipments(checked ? selectableIds : [])}
             onSchedulePickup={handleSchedulePickup}
             onUpdateStatus={handleUpdateStatus}
+            onPrintLabels={(shipmentId) => setLabelIds([shipmentId])}
             onDownloadLabel={async (shipmentId, size) => {
               try {
                 await shipmentsAPI.downloadLabel(shipmentId, size || '4R');
@@ -915,6 +924,13 @@ const Shipments: React.FC<ShipmentsProps> = ({ fixedProvider, title, intro }) =>
         result={reconcileResult}
         provider="shiprocket"
         onAttach={(orderId, awb) => handleAttachAwb(orderId, awb, 'shiprocket')}
+      />
+
+      <PrintLabelsDialog
+        open={!!labelIds}
+        shipmentIds={labelIds ?? []}
+        names={shipmentNames}
+        onClose={() => setLabelIds(null)}
       />
 
       <ShipmentDetailDrawer
