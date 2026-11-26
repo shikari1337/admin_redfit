@@ -673,7 +673,9 @@ const OrderDetail: React.FC = () => {
     // convey real information the user should consciously acknowledge, so
     // they stay — but cancelling them now always shows a toast, so the flow
     // never just goes quiet.
-    if (selectedShippingProvider !== 'manual') {
+    // Growcord Ship sets the warehouse up on each of its couriers by itself, so it is never "not enabled"
+    // for a warehouse (owner 26 Nov 2026: the warning named DELHIVERY for a Growcord Ship booking).
+    if (selectedShippingProvider !== 'manual' && selectedShippingProvider !== 'growcord_ship') {
       const selectedWarehouse = warehouses.find(w => w._id === selectedWarehouseId);
       if (selectedWarehouse) {
         let hasProviderEnabled = false;
@@ -690,7 +692,9 @@ const OrderDetail: React.FC = () => {
       }
     }
 
-    if (order?.shippingProvider) {
+    // Only a booked parcel is a reship: an attempt no courier took leaves the provider on the order with no
+    // shipment, and booking again is the normal next step.
+    if (order?.shippingProvider && order?.shipmentId) {
       if (!confirm(`Warning: This order was previously shipped via ${order.shippingProvider.toUpperCase()}. Are you sure you want to reship it and create a NEW shipment record?`)) {
         toast({ title: "Cancelled", description: 'Reship cancelled — no new shipment was created.' });
         return;
