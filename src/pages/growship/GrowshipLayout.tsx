@@ -2,8 +2,8 @@ import React, { Suspense } from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { GROWSHIP_MORE, GROWSHIP_TABS } from '../../lib/menu';
-import { activeTab, moduleOn, permitted } from '../../components/menu/menuAccess';
+import { GROWSHIP_MORE, GROWSHIP_TABS, whereIs } from '../../lib/menu';
+import { moduleOn, permitted } from '../../components/menu/menuAccess';
 import { AreaTabs } from '../../components/menu/AreaTabs';
 
 /**
@@ -25,7 +25,7 @@ const GrowshipLayout: React.FC = () => {
   }
   return (
     <div className="space-y-4">
-      <AreaTabs label="Growcord Ship" tabs={tabs} more={more} activeTo={activeTab([...tabs, ...more], pathname)?.to ?? null} />
+      <AreaTabs label="Growcord Ship" tabs={tabs} more={more} activeTo={whereIs(pathname)?.node.to ?? null} />
       {/* The tabs stay on screen while a page's code loads. */}
       <Suspense fallback={<div className="flex justify-center p-10"><Loader2 className="h-6 w-6 animate-spin text-gray-400" /></div>}>
         <Outlet />

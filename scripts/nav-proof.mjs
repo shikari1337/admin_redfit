@@ -58,6 +58,16 @@ let failures = 0;
 const fail = (msg) => { failures += 1; console.log(`FAIL ${msg}`); };
 const j = (v) => JSON.stringify(v ?? null);
 
+/** Where an entry lives now, in words. */
+function whereLabel(e) {
+  switch (e.kind) {
+    case 'row': case 'area': return `${e.group}: sidebar row ${e.label}; search`;
+    case 'tab': return `${e.group}: ${e.row} tab${e.section ? ` in ${e.section}` : ''}${e.more ? ', under More' : ''}; ${e.row} flyout; search`;
+    case 'page': return `${e.group}: ${e.row} tab in its own layout${e.more ? ', under More' : ''}; ${e.row} flyout; search`;
+    default: return `search, as ${e.product}`;
+  }
+}
+
 /* 1. gate equality */
 
 console.log(`\n== 1. Gate equality: ${base} against this tree ==`);
@@ -216,8 +226,8 @@ const ALL = accessOf('owner', '*', []);
 const before = oldWhere();
 const nowEntries = NEW.access.navEntries(NEW.access.visibleMenu(ALL), ALL);
 const nowWhere = new Map();
-for (const e of nowEntries) if (e.kind !== 'area' && !nowWhere.has(e.to)) nowWhere.set(e.to, NEW.access.whereLabel(e));
-for (const e of nowEntries) if (e.kind === 'area') nowWhere.set(e.to, `${nowWhere.get(e.to) ?? NEW.access.whereLabel(e)}; the ${e.label} row lands here`);
+for (const e of nowEntries) if (e.kind !== 'area' && !nowWhere.has(e.to)) nowWhere.set(e.to, whereLabel(e));
+for (const e of nowEntries) if (e.kind === 'area') nowWhere.set(e.to, `${nowWhere.get(e.to) ?? whereLabel(e)}; the ${e.label} row lands here`);
 const extraNow = new Map(NEW.menu.EXTRA_ROUTES.map((e) => [e.path, 'no menu entry: redirect or deep link (unchanged)']));
 
 console.log('\n== Where every route lived and lives (seen as the owner, every module on) ==');

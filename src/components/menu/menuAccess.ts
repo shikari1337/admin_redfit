@@ -175,19 +175,6 @@ export function areaLanding(row: MenuItem, last: string | null | undefined): str
   return last && tabs.some((t) => t.to === last) ? last : tabs[0].to;
 }
 
-/** The tab a pathname is on, longest route first (a tab's own route and the routes it owns). */
-export function activeTab(tabs: MenuItem[], pathname: string): MenuItem | null {
-  let best: MenuItem | null = null;
-  let bestLen = -1;
-  for (const t of tabs) {
-    for (const route of [t.to, ...(t.owns ?? [])]) {
-      const p = routeBase(route);
-      if ((pathname === p || pathname.startsWith(p + '/')) && p.length > bestLen) { best = t; bestLen = p.length; }
-    }
-  }
-  return best;
-}
-
 /** The visible copy of a definition row (visibleMenu copies an area to filter its tabs). */
 function visibleRow(groups: VisibleGroup[], place: MenuPlace): MenuItem | null {
   const g = groups.find((x) => x.id === place.group?.id);
@@ -296,17 +283,6 @@ export function navEntries(groups: VisibleGroup[], a: Access): NavEntry[] {
     add({ kind: 'other', to: o.to, label: o.label, tip: o.tip, icon: o.icon, group: product, product });
   }
   return out;
-}
-
-/** Where an entry lives, in words (the proof script prints it; the command search shows the short form). */
-export function whereLabel(e: NavEntry): string {
-  switch (e.kind) {
-    case 'row': return `${e.group}: sidebar row ${e.label}; search`;
-    case 'area': return `${e.group}: sidebar row ${e.label}; search`;
-    case 'tab': return `${e.group}: ${e.row} tab${e.section ? ` in ${e.section}` : ''}${e.more ? ', under More' : ''}; ${e.row} flyout; search`;
-    case 'page': return `${e.group}: ${e.row} tab in its own layout${e.more ? ', under More' : ''}; ${e.row} flyout; search`;
-    default: return `search, as ${e.product}`;
-  }
 }
 
 /** The short hint the command search prints beside a result. */

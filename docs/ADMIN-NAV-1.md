@@ -170,7 +170,8 @@ devDependencies), so there is no lint run to compare.
 - `src/lib/menu.ts`: the new MENU shape, `area()`, `section`, `more` and `product` fields, the surfaced OFF_MENU pages
   moved into their areas, every gate unchanged.
 - `src/components/menu/menuAccess.ts`: areas shown by their tabs, `navEntries`, `areaView`, `trailFor`,
-  `keepOpenable`, `activeTab`. `whereIs` (which entry a URL belongs to) is in `menu.ts`, and `groupForPath` uses it.
+  `keepOpenable`, `savedPages`. `whereIs` (which entry a URL belongs to) is in `menu.ts`; `groupForPath`, the
+  sidebar, the strips (Growcord Ship's too) and the breadcrumb all use it.
 - `src/components/menu/AreaTabs.tsx` (new, from GrowshipLayout's strip): the one tab strip, and `AreaStrip` for the
   shell.
 - `src/components/menu/navMemory.ts` (new): pins, recent pages, last tabs.
