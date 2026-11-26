@@ -23,6 +23,7 @@ import {
 } from './shipmentFacts';
 import { NdrActionButtons, NdrActionDialog, type NdrTarget } from './NdrActions';
 import PickupModal from './PickupModal';
+import GrowshipParcelPanel from '../growship/GrowshipParcelPanel';
 
 interface ShipmentDetailDrawerProps {
   shipmentId: string | null;
@@ -366,6 +367,17 @@ const ShipmentDetailDrawer: React.FC<ShipmentDetailDrawerProps> = ({ shipmentId,
                 </div>
               )}
             </div>
+
+            {/* A Growcord Ship parcel: its itemised charges and its own courier timeline, read from Growcord Ship. */}
+            {provider === 'growcord_ship' && (
+              <>
+                <Separator />
+                <div>
+                  <h3 className="text-sm font-semibold mb-2">Growcord Ship</h3>
+                  <GrowshipParcelPanel shipment={shipment} awb={awb} />
+                </div>
+              </>
+            )}
 
             {/* A delivered COD parcel: its cash comes back on the courier's payout. */}
             {cod !== null && shipment.status === 'delivered' && orders.length > 0 && (

@@ -40,6 +40,8 @@ interface ShipmentFiltersProps {
    * filters stay shown and usable; a line says so.
    */
   notApplied?: boolean;
+  /** One carrier's board (the Growcord Ship menu): the carrier filter shows it and cannot be changed here. */
+  providerLocked?: boolean;
 }
 
 const ShipmentFilters: React.FC<ShipmentFiltersProps> = ({
@@ -59,6 +61,7 @@ const ShipmentFilters: React.FC<ShipmentFiltersProps> = ({
   onSearchChange,
   searchNote,
   notApplied = false,
+  providerLocked = false,
 }) => {
   return (
     <Card className="mb-6 border-none shadow-sm bg-white">
@@ -127,8 +130,8 @@ const ShipmentFilters: React.FC<ShipmentFiltersProps> = ({
 
           <div className="space-y-1.5">
             <Label>Carrier</Label>
-            <Select value={providerFilter || 'all'} onValueChange={(value) => onProviderChange(value === 'all' ? '' : value)}>
-              <SelectTrigger>
+            <Select value={providerFilter || 'all'} onValueChange={(value) => onProviderChange(value === 'all' ? '' : value)} disabled={providerLocked}>
+              <SelectTrigger title={providerLocked ? 'This board shows one carrier. Every carrier is on the Shipments page under Orders.' : undefined}>
                 <SelectValue placeholder="All carriers" />
               </SelectTrigger>
               <SelectContent>

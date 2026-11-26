@@ -4,24 +4,45 @@
  */
 
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { api, shipmentsAPI, warehousesAPI, shippingAPI, errorText } from '../services/api';
 import { FaSync, FaSpinner, FaLink } from 'react-icons/fa';
 import { ShipmentTabs, ShipmentFilters, ShipmentTable, PendingOrdersTable, PickupModal, BulkActionsBar, ReconcileModal, ShipmentDetailDrawer, ActNow, NdrActionDialog } from '../components/shipments';
 import type { TabType, StatusCounts, ReconcileResultData, NdrTarget } from '../components/shipments';
+import { TAB_STATUS, TAB_TYPES } from '../components/shipments/ShipmentTabs';
+import { providerTabCounts } from '../components/shipments/providerCounts';
 import ShipmentCreationModal, { type ShipProviderId } from '../components/order/ShipmentCreationModal';
 import { getStatusLabel } from '../components/order/StatusBadge';
 import { isTerminal, providerLabel, providerOf, shipmentMatches } from '../components/shipments/shipmentFacts';
 import { fmtRupees } from '@/lib/money';
 
-const Shipments: React.FC = () => {
+interface ShipmentsProps {
+  /**
+   * One carrier's board (the Growcord Ship menu, owner 26 Nov 2026): the list, the tab counts and the charge
+   * totals are that carrier's only, and the carrier filter is fixed to it. The page is otherwise the same board.
+   */
+  fixedProvider?: 'growcord_ship';
+  /** The page heading, when not "Shipments". */
+  title?: string;
+  /** One line under the heading. */
+  intro?: React.ReactNode;
+}
+
+const Shipments: React.FC<ShipmentsProps> = ({ fixedProvider, title, intro }) => {
   const [shipments, setShipments] = useState<any[]>([]);
   const [pendingOrders, setPendingOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<TabType>('pending_orders');
+  // `?tab=` opens a tab (the Growcord Ship menu links straight to Failed Delivery); the tab in use is kept there.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState<TabType>(
+    tabParam && (TAB_TYPES as string[]).includes(tabParam) ? (tabParam as TabType) : 'pending_orders',
+  );
   const [statusFilter, setStatusFilter] = useState('');
   const [warehouseFilter, setWarehouseFilter] = useState('');
-  const [providerFilter, setProviderFilter] = useState('');
+  const [providerFilter, setProviderFilter] = useState<string>(fixedProvider ?? '');
+  // One carrier's board: its own tab counts, asked again after a filter change or an action (never on a timer).
+  const [countsTick, setCountsTick] = useState(0);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [warehouses, setWarehouses] = useState<any[]>([]);
@@ -114,45 +135,47 @@ const Shipments: React.FC = () => {
   const filterProviders = useMemo(() => {
     const list = providers.map((p) => ({ id: p.id, name: p.name }));
     if (!list.some((p) => p.id === 'manual')) list.push({ id: 'manual', name: providerLabel('manual') });
+    if (fixedProvider && !list.some((p) => p.id === fixedProvider)) list.unshift({ id: fixedProvider, name: providerLabel(fixedProvider) });
     return list;
-  }, [providers]);
+  }, [providers, fixedProvider]);
 
   useEffect(() => {
-    // Map tab to status filter
-    let status = '';
-    switch (activeTab) {
-      case 'pending_orders':
-        status = ''; // Uses separate endpoint
-        break;
-      case 'ready_to_pick':
-        status = 'pending';
-        break;
-      case 'pickup_scheduled':
-        status = 'pickup_scheduled';
-        break;
-      case 'in_transit':
-        status = 'picked_up,in_transit,out_for_delivery';
-        break;
-      case 'ndr_failed_delivery':
-        status = 'ndr_failed_delivery';
-        break;
-      case 'delivered':
-        status = 'delivered';
-        break;
-      case 'rto_in_transit':
-        status = 'rto_in_transit';
-        break;
-      case 'rto_delivered':
-        status = 'rto_delivered';
-        break;
-      case 'rto_failed':
-        status = 'rto_failed';
-        break;
-    }
-    setStatusFilter(status);
+    // Map tab to status filter (Pending Orders uses its own list).
+    setStatusFilter(TAB_STATUS[activeTab] ?? '');
     setSelectedShipments([]);
     setPagination(prev => ({ ...prev, page: 1 }));
   }, [activeTab]);
+
+  // A link that names a tab opens it, also when this board is already on screen.
+  useEffect(() => {
+    if (tabParam && (TAB_TYPES as string[]).includes(tabParam) && tabParam !== activeTab) setActiveTab(tabParam as TabType);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabParam]);
+  // The tab in use goes into the address (replacing it, no new history entry) once a tab other than the first is
+  // opened, so a reload or a shared link lands on the same tab.
+  useEffect(() => {
+    if (activeTab === tabParam || (!tabParam && activeTab === 'pending_orders')) return;
+    const next = new URLSearchParams(searchParams);
+    next.set('tab', activeTab);
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  // One carrier's board: the tab counts are that carrier's (the board's own counts cover every carrier).
+  useEffect(() => {
+    if (!fixedProvider) return;
+    let live = true;
+    providerTabCounts(fixedProvider, { warehouseId: warehouseFilter, startDate, endDate })
+      .then((c) => { if (live) setStatusCounts(c); })
+      .catch(() => { /* the list's own error line says what failed */ });
+    return () => { live = false; };
+  }, [fixedProvider, warehouseFilter, startDate, endDate, countsTick]);
+
+  /** After something changed on a parcel: the list again, and a carrier's own counts. */
+  const afterChange = () => {
+    fetchShipments();
+    if (fixedProvider) setCountsTick((t) => t + 1);
+  };
 
   useEffect(() => {
     fetchShipments();
@@ -201,8 +224,8 @@ const Shipments: React.FC = () => {
         if (pag) {
           setPagination(prev => ({ ...prev, ...pag }));
         }
-        // Also fetch status counts from shipments endpoint
-        try {
+        // Also fetch status counts from shipments endpoint (one carrier's board counts its own, above).
+        if (!fixedProvider) try {
           const countsResp = await shipmentsAPI.getAll({ page: 1, limit: 1 });
           const counts = countsResp?.statusCounts || countsResp?.data?.statusCounts;
           if (counts) {
@@ -256,7 +279,7 @@ const Shipments: React.FC = () => {
           setPagination(prev => ({ ...prev, ...pag }));
         }
         const counts = response?.statusCounts || response?.data?.statusCounts;
-        if (counts) {
+        if (counts && !fixedProvider) {
           setStatusCounts(prev => ({ ...prev, ...counts }));
         }
         const ct = response?.chargeTotals;
@@ -286,7 +309,7 @@ const Shipments: React.FC = () => {
       const response = await shipmentsAPI.reconcile(provider, 14);
       const data = response?.scanned !== undefined ? response : response?.data;
       setReconcileResult(data || { scanned: 0, linked: 0, alreadyLinked: 0, unmatched: [] });
-      fetchShipments();
+      afterChange();
     } catch (error: any) {
       console.error('Failed to reconcile shipments:', error);
       alert(error.response?.data?.message || 'Failed to reconcile shipments');
@@ -299,7 +322,7 @@ const Shipments: React.FC = () => {
   const handleAttachAwb = async (orderId: string, awb: string, provider: 'shiprocket' | 'delhivery' = 'shiprocket') => {
     try {
       await shipmentsAPI.attachAwb(orderId, awb, provider);
-      fetchShipments();
+      afterChange();
     } catch (error: any) {
       console.error('Failed to attach AWB:', error);
       alert(error.response?.data?.message || `Failed to attach AWB ${awb} to order ${orderId}`);
@@ -339,7 +362,7 @@ const Shipments: React.FC = () => {
       setPickupNotes('');
       setSelectedShipment(null);
       setSelectedShipments([]);
-      fetchShipments();
+      afterChange();
     } catch (error: any) {
       console.error('Failed to schedule pickup:', error);
       alert(error.response?.data?.message || 'Failed to schedule pickup');
@@ -392,7 +415,7 @@ const Shipments: React.FC = () => {
       setPickupTimeSlot('');
       setPickupNotes('');
       setSelectedShipments([]);
-      fetchShipments();
+      afterChange();
     } catch (error: any) {
       console.error('Failed to schedule bulk pickup:', error);
       alert(error.response?.data?.message || 'Failed to schedule bulk pickup');
@@ -432,7 +455,7 @@ const Shipments: React.FC = () => {
     try {
       await shipmentsAPI.updateStatus(shipmentId, status, notes || undefined);
       alert(`Shipment moved to "${label}". Its order is updated to match.`);
-      fetchShipments();
+      afterChange();
     } catch (error: any) {
       console.error('Failed to update status:', error);
       alert(error.response?.data?.message || 'Failed to update status');
@@ -512,7 +535,7 @@ const Shipments: React.FC = () => {
       // Open the tab the new parcel is in: a booked parcel waits for its pickup, a manual one is already on its way.
       setActiveTab(selectedShippingProvider === 'manual' ? 'in_transit' : 'ready_to_pick');
       // fetchShipments will be triggered by activeTab change, but force it for same-tab case
-      fetchShipments();
+      afterChange();
     } catch (error: any) {
       console.error('Failed to create shipment:', error);
       alert(`Error: ${errorText(error, 'Failed to create shipment')}`);
@@ -582,7 +605,10 @@ const Shipments: React.FC = () => {
     <div>
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-6">
-        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Shipments</h1>
+        <div className="min-w-0">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">{title || 'Shipments'}</h1>
+          {intro && <p className="mt-1 text-sm text-gray-500">{intro}</p>}
+        </div>
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <button
             onClick={async () => {
@@ -592,7 +618,7 @@ const Shipments: React.FC = () => {
                 // The api client unwraps {success,data} → stats may be top-level.
                 const stats = (response?.updated !== undefined ? response : response?.data) || {};
                 alert(`Status updates fetched!\nUpdated: ${stats.updated || 0}\nUnchanged: ${stats.skipped || 0}\nFailed: ${stats.failed || 0}`);
-                fetchShipments();
+                afterChange();
               } catch (error: any) {
                 console.error('Failed to fetch status updates:', error);
                 alert(error.response?.data?.message || 'Failed to fetch status updates');
@@ -607,7 +633,7 @@ const Shipments: React.FC = () => {
             {fetchingStatus ? <FaSpinner className="animate-spin" size={14} /> : <FaSync size={14} />}
             {fetchingStatus ? 'Fetching...' : 'Sync Status'}
           </button>
-          {hasShiprocket && (
+          {hasShiprocket && (!fixedProvider || (fixedProvider as string) === 'shiprocket') && (
           <button
             onClick={() => handleReconcile('shiprocket')}
             disabled={reconciling}
@@ -655,9 +681,11 @@ const Shipments: React.FC = () => {
           setPagination(prev => ({ ...prev, page: 1 }));
         }}
         onProviderChange={(provider) => {
+          if (fixedProvider) return;
           setProviderFilter(provider);
           setPagination(prev => ({ ...prev, page: 1 }));
         }}
+        providerLocked={!!fixedProvider}
         onStartDateChange={(date) => {
           setStartDate(date);
           setPagination(prev => ({ ...prev, page: 1 }));
@@ -871,14 +899,14 @@ const Shipments: React.FC = () => {
       <ShipmentDetailDrawer
         shipmentId={detailShipmentId}
         onClose={() => setDetailShipmentId(null)}
-        onChanged={() => fetchShipments()}
+        onChanged={afterChange}
         providerNames={providerNames}
       />
 
       <NdrActionDialog
         target={ndrTarget}
         onClose={() => setNdrTarget(null)}
-        onDone={() => fetchShipments()}
+        onDone={afterChange}
       />
     </div>
   );

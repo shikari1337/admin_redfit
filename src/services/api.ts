@@ -3225,7 +3225,7 @@ export const shippingAPI = {
   },
   createShipment: async (orderId: string, options?: {
     warehouseId?: string;
-    shippingProvider?: 'shiprocket' | 'delhivery' | 'manual';
+    shippingProvider?: 'shiprocket' | 'delhivery' | 'manual' | 'growcord_ship';
     trackingId?: string;
     carrierName?: string;
     trackingUrl?: string;
@@ -3318,7 +3318,7 @@ export const shipmentsAPI = {
     status?: string;
     tab?: string;
     warehouseId?: string;
-    shippingProvider?: 'shiprocket' | 'delhivery' | 'manual';
+    shippingProvider?: 'shiprocket' | 'delhivery' | 'manual' | 'growcord_ship';
     startDate?: string;
     endDate?: string;
     page?: number;
@@ -3353,7 +3353,7 @@ export const shipmentsAPI = {
   create: async (data: {
     orderIds: string[];
     warehouseId: string;
-    shippingProvider: 'shiprocket' | 'delhivery' | 'manual';
+    shippingProvider: 'shiprocket' | 'delhivery' | 'manual' | 'growcord_ship';
     /** What was paid to the carrier for a manual parcel (rupees; required for manual, 0 when free). */
     manualShippingCharge?: number;
     notes?: string;
