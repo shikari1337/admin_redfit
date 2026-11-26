@@ -71,6 +71,10 @@ interface OrderItemsProps {
      columns, exactly like a product line does. */
   subtotal?: number;
   shipping?: number;
+  /** The part of `shipping` a remote location added (SHIP-MC-1), rupees; 0 when none. Shown as a note on the
+   *  Shipping step, which keeps the whole charge so its taxable value and GST stay as charged. */
+  remoteFee?: number;
+  remoteFeeLabel?: string | null;
   total?: number;
   gst?: GstInfo | null;
   amountReceived?: number;
@@ -256,7 +260,7 @@ function useElementWidth<T extends HTMLElement>(ref: React.RefObject<T | null>):
  */
 const OrderItems: React.FC<OrderItemsProps> = ({
   items, b2bTier, orderDiscount = 0, headerAction,
-  subtotal, shipping = 0, total, gst, amountReceived, codDue, paymentStatus, refundedAmount = 0, couponCode, discountReason, discountItems,
+  subtotal, shipping = 0, remoteFee = 0, remoteFeeLabel, total, gst, amountReceived, codDue, paymentStatus, refundedAmount = 0, couponCode, discountReason, discountItems,
   orderNotes, paymentMethod, paymentGateway, placedAt, orderType, customerGstin,
   salesperson, importedFrom,
   onRemoveShipping, onRemoveCod, removingCharge, fulfilmentLines,
@@ -432,6 +436,8 @@ const OrderItems: React.FC<OrderItemsProps> = ({
   const totalOrderDiscPct = totalGross > 0 ? (totalOrderShare / totalGross) * 100 : 0;
 
   const hasLadder = total != null;
+  // The remote location fee inside the shipping charge (SHIP-MC-1): "Includes Remote location fee ₹50.00".
+  const remoteNote = remoteFee > 0 ? `Includes ${remoteFeeLabel || 'Remote location fee'} ${money(remoteFee)}` : null;
   const sub = subtotal ?? totalGross;
   const m = deriveOrderMoney({
     subtotal: sub, shipping, discount: orderDiscount, total: total ?? totalGross, gst, amountReceived,
@@ -1055,6 +1061,7 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                     {m.charges.filter((c) => Number(c.amount) > 0).map((c, i) => {
                       const isCod = /cod/i.test(c.label ?? '');
                       const isShip = /ship/i.test(c.label ?? '');
+                      const gstNote = c.rate ? `GST ${c.rate}%` : undefined;
                       const remove = isCod ? onRemoveCod : isShip ? onRemoveShipping : undefined;
                       const busy = isCod ? removingCharge === 'cod' : removingCharge === 'shipping';
                       const cTax = (c.cgst ?? 0) + (c.sgst ?? 0) + (c.igst ?? 0);
@@ -1063,7 +1070,7 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                           key={`c${i}`} n={++step} value={Number(c.amount)}
                           taxable={showTax && c.taxableAmount ? Number(c.taxableAmount) : null}
                           taxAmt={showTax && cTax ? cTax : null}
-                          note={c.rate ? `GST ${c.rate}%` : undefined}
+                          note={isShip && remoteNote ? (gstNote ? `${gstNote}. ${remoteNote}` : remoteNote) : gstNote}
                           info={nextFact()}
                           label={
                             <>{/* The stored charge key "COD handling" (migration 345 reads it) shows
@@ -1082,7 +1089,7 @@ const OrderItems: React.FC<OrderItemsProps> = ({
                     })}
                     {/* Shipping with no charge entry of its own (GST not configured). */}
                     {shipping > 0 && !m.charges.some((c) => /ship/i.test(c.label ?? '')) && (
-                      <Step n={++step} value={shipping} info={nextFact()}
+                      <Step n={++step} value={shipping} info={nextFact()} note={remoteNote}
                         label={
                           <>Shipping
                             {onRemoveShipping && (
