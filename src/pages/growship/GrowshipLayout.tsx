@@ -1,32 +1,13 @@
 import React, { Suspense } from 'react';
-import { Link, NavLink, Outlet } from 'react-router-dom';
+import { Link, Navigate, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { ChevronDown, Loader2 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { canOpenPath } from '../../lib/routePermissions';
+import { GROWSHIP_MORE, GROWSHIP_TABS } from '../../lib/menu';
+import { moduleOn, permitted } from '../../components/menu/menuAccess';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-
-/** The pages of Growcord Ship, as tabs. Each keeps its own address; the gates are lib/menu.ts EXTRA_ROUTES. */
-const TABS: Array<{ to: string; label: string; end?: boolean }> = [
-  { to: '/growship', label: 'Overview', end: true },
-  { to: '/growship/shipments', label: 'Shipments' },
-  { to: '/growship/bulk', label: 'Bulk shipment' },
-  { to: '/growship/wallet', label: 'Wallet' },
-  { to: '/growship/billing', label: 'Billing and charges' },
-  { to: '/growship/rates', label: 'Rate calculator' },
-];
-
-/** Under More: the failed delivery tab of the board, and pages that live elsewhere in the admin. */
-const MORE: Array<{ to: string; label: string }> = [
-  { to: '/growship/failed-delivery', label: 'Failed delivery' },
-  { to: '/growship/rto', label: 'RTO' },
-  { to: '/growship/weight-disputes', label: 'Weight disputes' },
-  { to: '/growship/cod-payouts', label: 'COD payouts' },
-  { to: '/growship/settings', label: 'Settings' },
-  { to: '/growship/pickup-locations', label: 'Pickup locations' },
-];
 
 const TAB = 'shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors';
 
@@ -37,9 +18,15 @@ const TAB = 'shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium
  */
 const GrowshipLayout: React.FC = () => {
   const { hasPerm, canAccess } = useAuth();
-  const open = (to: string) => canOpenPath(to, hasPerm, canAccess);
-  const tabs = TABS.filter((t) => open(t.to));
-  const more = MORE.filter((t) => open(t.to));
+  const { pathname } = useLocation();
+  // Each tab by its own gate (lib/menu.ts GROWSHIP_TABS, the list the route gates and the command search read).
+  const may = (t: (typeof GROWSHIP_TABS)[number]) => permitted(t, { hasPerm, canAccess }) && moduleOn(t, { hasPerm, canAccess });
+  const tabs = GROWSHIP_TABS.filter(may);
+  const more = GROWSHIP_MORE.filter(may);
+  // /growship lands on the first tab this person may open (the Overview needs shipments.read).
+  if (pathname.replace(/\/+$/, '') === '/growship' && !tabs.some((t) => t.to === '/growship') && (tabs[0] || more[0])) {
+    return <Navigate to={(tabs[0] ?? more[0]).to} replace />;
+  }
   return (
     <div className="space-y-4">
       <nav aria-label="Growcord Ship" className="-mx-1 overflow-x-auto">
@@ -48,7 +35,7 @@ const GrowshipLayout: React.FC = () => {
             <NavLink
               key={t.to}
               to={t.to}
-              end={t.end}
+              end={t.to === '/growship'}
               className={({ isActive }) => cn(TAB, isActive ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-800')}
             >
               {t.label}

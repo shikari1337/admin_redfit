@@ -242,6 +242,12 @@ export const CommandPalette: React.FC<{
       if (match(i.label) || match(i.tip) || match(s.label) || match(g.label)) {
         out.push({ key: `p:${i.to}`, kind: i.external ? 'link' : 'page', label: i.label, hint: `${g.label} · ${s.label}`, to: i.to, external: i.external });
       }
+      // Pages inside an item (Growcord Ship's tabs), each by its own name, under the item's name.
+      for (const p of i.palette ?? []) {
+        if (match(p.label) || match(p.tip) || match(i.label)) {
+          out.push({ key: `p:${i.to}:${p.to}`, kind: 'page', label: p.label, hint: i.label, to: p.to });
+        }
+      }
     }
     if (hasPerm('settings.read')) {
       for (const a of SETTINGS_AREA_LIST) {
