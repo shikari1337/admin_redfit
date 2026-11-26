@@ -1,18 +1,19 @@
 /**
- * The admin shell — the E-commerce panel's frame.
+ * The admin shell: the E-commerce panel's frame.
  *
- * Header: the sidebar trigger, then the TAB STRIP the admin always had at the
- * top — but each tab is now another Growcord product (Books, Ship, WMS, Make,
- * CRM, Comms, Reach, …) and links there; E-commerce is this app and stays the
- * active tab (`ProductTabs.tsx`, owner 2026-09-25). Right: notifications and
- * the store switcher. Under it the muted breadcrumb row, as before.
+ * Header: the sidebar trigger, then the TAB STRIP the admin always had at the top, each tab now another Growcord
+ * product (Books, Ship, WMS, Make, CRM, Comms, Reach and others) linking there; E-commerce is this app and stays the
+ * active tab (`ProductTabs.tsx`, owner 2026-09-25). Right: notifications and the store switcher. Under it the muted
+ * breadcrumb row (Area, then Tab, then the record) with the Pin button.
  *
- * The menu lives in `lib/menu.ts` and renders in `app-sidebar.tsx`; the route
- * guard reads the same definition. This file is only the frame: header,
- * banners, breadcrumb, guard, outlet, and the hotkey-only command palette.
+ * The menu lives in `lib/menu.ts`; this file works out once what this person gets (`menuAccess.visibleMenu` and
+ * `navEntries`) and hands it to the sidebar (`app-sidebar.tsx`), the area's tab strip (`menu/AreaTabs.tsx`), the
+ * breadcrumb and the command search. The route guard reads the same definition. Pins, recent pages and each area's
+ * last tab are `menu/navMemory.ts` (ADMIN-NAV-1, docs/ADMIN-NAV-1.md).
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Outlet, useNavigate, useLocation, Link } from 'react-router-dom';
+import { Pin, PinOff } from 'lucide-react';
 import PageTransitionLoader from './PageTransitionLoader';
 import { AppSidebar } from './app-sidebar';
 import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
@@ -26,51 +27,18 @@ import { TestModeBanner } from './TestModeBanner';
 import RouteGuard from './RouteGuard';
 import AccessNotice from './AccessNotice';
 import { PRODUCT, IS_SUITE } from '../lib/product';
-import { MENU, OFF_MENU, routeBase, withChildren } from '../lib/menu';
-import { visibleMenu } from './menu/menuAccess';
+import type { MenuItem } from '../lib/menu';
+import {
+  areaLanding, areaView, entryAt, keepOpenable, navEntries, trailFor, visibleMenu, type Access,
+} from './menu/menuAccess';
+import { AreaStrip } from './menu/AreaTabs';
+import { useNavMemory } from './menu/navMemory';
 import { Banners, CommandPalette, HotkeySheet, useShellHotkeys, useDocumentTitle } from './menu/ShellChrome';
 import { ProductTabs } from './ProductTabs';
 import { Toaster } from '@/components/ui/toaster';
 
-/** "Orders · Abandoned Carts · SM-9188" — the trail, from the one menu definition. */
-function useTrail(pathname: string): Array<{ label: string; to?: string }> {
-  let best: { group: string; item: string; to: string } | null = null;
-  let bestLen = -1;
-  // Pages with no sidebar row (another product's, or reached from a button)
-  // still get a trail: their own name under "E-commerce".
-  const sources = [
-    ...MENU.map((g) => ({ label: g.label, items: g.subs.flatMap((s) => s.items.flatMap(withChildren)) })),
-    { label: 'E-commerce', items: OFF_MENU.flatMap(withChildren) },
-  ];
-  for (const g of sources) {
-    for (const i of g.items) {
-      if (i.external) continue;
-      for (const route of [i.to, ...(i.owns ?? [])]) {
-        const p = routeBase(route);
-        if (!p.startsWith('/')) continue;
-        // `>=`: a child listed after its parent at the same route ("All Orders"
-        // under "Orders") wins the tie, so the trail never repeats a word.
-        if ((pathname === p || pathname.startsWith(p + '/')) && p.length >= bestLen) {
-          best = { group: g.label, item: i.label, to: i.to };
-          bestLen = p.length;
-        }
-      }
-    }
-  }
-  if (!best) return [];
-  const trail: Array<{ label: string; to?: string }> = [{ label: best.group }, { label: best.item, to: best.to }];
-  // The last URL segment when we are deeper than the item itself (an order, a
-  // product) — the page's own header names the record; this just shows depth.
-  const itemBase = routeBase(best.to);
-  if (pathname.length > itemBase.length) {
-    const tail = pathname.slice(itemBase.length).split('/').filter(Boolean);
-    for (const seg of tail) trail.push({ label: seg.replace(/-/g, ' ') });
-  }
-  return trail;
-}
-
 const Layout: React.FC = () => {
-  const { user, canAccess, hasPerm, isAuthenticated, logout } = useAuth();
+  const { user, canAccess, hasPerm, isAuthenticated, logout, modulesLoaded } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -100,11 +68,31 @@ const Layout: React.FC = () => {
     email: user?.email,
   };
 
-  const trail = useTrail(location.pathname);
+  // THE menu this person gets, worked out once for the sidebar, the area tabs, the breadcrumb and the command
+  // search (ADMIN-NAV-1). Until the store's module list has loaded, a page that needs a module is left out (the
+  // route guard waits the same way), so a page of a module that is off never flashes into the menu.
+  const canAccessNav = useCallback((m: string) => modulesLoaded && canAccess(m), [modulesLoaded, canAccess]);
+  const access: Access = useMemo(() => ({ hasPerm, canAccess: canAccessNav }), [hasPerm, canAccessNav]);
+  const groups = useMemo(() => visibleMenu(access), [access]);
+  const entries = useMemo(() => navEntries(groups, access), [groups, access]);
+  const memory = useNavMemory(user?._id || user?.email);
+  const landingOf = useCallback((key: string, row: MenuItem) => areaLanding(row, memory.last[key]), [memory.last]);
+  const area = useMemo(() => areaView(groups, location.pathname), [groups, location.pathname]);
+  const here = useMemo(() => entryAt(entries, location.pathname), [entries, location.pathname]);
+  const pinned = useMemo(() => keepOpenable(memory.pins, entries, access), [memory.pins, entries, access]);
+  const recent = useMemo(
+    () => keepOpenable(memory.recent, entries, access).filter((e) => !pinned.includes(e)).slice(0, 5),
+    [memory.recent, entries, access, pinned],
+  );
+  const { visit } = memory;
+  useEffect(() => {
+    visit(here?.to ?? null, area?.active ? { key: area.key, tab: area.active.to } : undefined);
+  }, [visit, here?.to, area?.key, area?.active?.to]);
+
+  const trail = useMemo(() => trailFor(groups, location.pathname, landingOf), [groups, location.pathname, landingOf]);
   const productName = IS_SUITE ? 'Growcord Admin' : PRODUCT.name;
   useDocumentTitle(productName, trail);
 
-  const groups = useMemo(() => visibleMenu({ hasPerm, canAccess }), [hasPerm, canAccess]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   useShellHotkeys({
@@ -119,9 +107,13 @@ const Layout: React.FC = () => {
       <AppSidebar
         userPerms={userPerms}
         onLogout={handleLogout}
-        hasPerm={hasPerm}
-        canAccess={canAccess}
         storeName={IS_SUITE ? undefined : PRODUCT.name}
+        groups={groups}
+        pinned={pinned}
+        recent={recent}
+        onUnpin={memory.unpin}
+        landingOf={landingOf}
+        onSearch={() => setPaletteOpen(true)}
       />
 
       {/* `min-w-0`: as a flex item this defaults to `min-width:auto`, i.e. its own
@@ -150,20 +142,36 @@ const Layout: React.FC = () => {
               {!getDomainStore() && <StoreSwitcher />}
             </div>
           </div>
-          {/* Breadcrumb row, below the tabs, as before. */}
+          {/* Breadcrumb row, below the tabs, as before: Area, then Tab, then the record. Pin keeps a menu page at the
+              top of the sidebar. */}
           {trail.length > 0 && (
-            <nav aria-label="Breadcrumb" className="hidden border-t border-line/70 px-4 py-1.5 text-xs text-ink-mute md:flex md:items-center md:gap-1.5 md:px-6">
-              {trail.map((crumb, i) => (
-                <React.Fragment key={`${crumb.label}-${i}`}>
-                  {i > 0 && <span className="opacity-40">/</span>}
-                  {crumb.to && i < trail.length - 1 ? (
-                    <Link to={crumb.to} className="capitalize hover:text-ink">{crumb.label}</Link>
-                  ) : (
-                    <span className={`capitalize ${i === trail.length - 1 ? 'font-medium text-ink-soft' : ''}`}>{crumb.label}</span>
-                  )}
-                </React.Fragment>
-              ))}
-            </nav>
+            <div className="hidden border-t border-line/70 px-4 py-1.5 text-xs text-ink-mute md:flex md:items-center md:gap-3 md:px-6">
+              <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5">
+                {trail.map((crumb, i) => (
+                  <React.Fragment key={`${crumb.label}-${i}`}>
+                    {i > 0 && <span className="opacity-40">/</span>}
+                    {crumb.to && i < trail.length - 1 ? (
+                      <Link to={crumb.to} className="capitalize hover:text-ink">{crumb.label}</Link>
+                    ) : (
+                      <span className={`truncate capitalize ${i === trail.length - 1 ? 'font-medium text-ink-soft' : ''}`}>{crumb.label}</span>
+                    )}
+                  </React.Fragment>
+                ))}
+              </nav>
+              {here && (
+                <button
+                  type="button"
+                  onClick={() => memory.togglePin(here.to)}
+                  className="ml-auto inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 hover:bg-surface-2 hover:text-ink"
+                  title={memory.isPinned(here.to) ? 'Take this page off the top of the sidebar' : 'Keep this page at the top of the sidebar'}
+                  aria-pressed={memory.isPinned(here.to)}
+                  data-pin-page
+                >
+                  {memory.isPinned(here.to) ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
+                  {memory.isPinned(here.to) ? 'Unpin' : 'Pin page'}
+                </button>
+              )}
+            </div>
           )}
         </header>
 
@@ -177,6 +185,8 @@ const Layout: React.FC = () => {
         <div className="flex-1 overflow-x-clip p-[var(--content-pad-phone)] md:p-[var(--content-pad)]" data-content>
           {/* Authorization gate — see components/RouteGuard.tsx. Single
               integration point so every Layout child route is covered. */}
+          {/* The area's tabs (ADMIN-NAV-1): the pages of the area this one belongs to, those this person may open. */}
+          {area && <AreaStrip view={area} />}
           <RouteGuard>
             <React.Suspense
               fallback={
@@ -193,8 +203,8 @@ const Layout: React.FC = () => {
             missing permission) that only appear when an action is attempted. */}
         <AccessNotice />
       </main>
-      {/* Keyboard only (⌘K / `/`): pages, "New …" actions and record search. */}
-      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} groups={groups} hasPerm={hasPerm} />
+      {/* Cmd K, "/" or the sidebar's Search: pages, "New" actions and record search. */}
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} entries={entries} pinned={pinned} recent={recent} hasPerm={hasPerm} />
       <HotkeySheet open={helpOpen} onClose={() => setHelpOpen(false)} />
       {/* The shadcn Toaster was never mounted, so every `toast()` in the admin
           (15 files, the Settings Center's save confirmations among them) was silent. */}

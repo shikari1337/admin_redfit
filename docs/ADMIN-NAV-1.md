@@ -92,7 +92,7 @@ working: the flyout opens from the icon.
   Submissions, Setup Guide (was a row); More: Setup wizard (was OFF_MENU). Section Selling: Payment Methods &
   Discounts, Payment Gateways, GST Display, Tax Rules, Invoice, Order Numbering, Customer Orders; More: Return
   Policies, Manufacturers, Doc templates, Custom fields (both were OFF_MENU). Section Shipping: Shipping, Packages,
-  Wallet. Section Messages: API Integrations, Message templates, Cart Recovery Automation. Section App: Mobile App,
+  Wallet. Section Messaging: API Integrations, Message templates, Cart Recovery Automation. Section App: Mobile App,
   App Audience, App Assistant, App Tracking. Section Team and plan: Staff & Access (was a row), Billing, Logs (was a
   row)
 

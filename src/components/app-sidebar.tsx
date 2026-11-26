@@ -1,90 +1,215 @@
 /**
- * The admin sidebar — the E-commerce menu, rendered from `lib/menu.ts`.
+ * The admin sidebar: the E-commerce menu, rendered from `lib/menu.ts` (ADMIN-NAV-1, docs/ADMIN-NAV-1.md).
  *
- * The shape the store's staff already knew: uppercase section labels
- * (Overview · Orders · Catalog · Marketing · Store Customers · Content · System),
- * one row per item with its icon, and a chevron on the items that fold their
- * finer options underneath (Products ▸, Settings ▸ …). What a person cannot
- * open is absent; what the store has not switched on is absent too. Hovering
- * an item explains it.
+ * Top: Search (the command search), then the person's Pinned and Recent pages. Then the groups the store's staff
+ * know (Overview, Orders, Catalog, Marketing, Messaging, Store Customers, Content, System), one compact row per
+ * area or page. An area row opens the area (on its last tab); on a desktop it also has a flyout, on hover or from
+ * its arrow button, listing the area's pages by section so a deep page is one move away. On a phone a row opens
+ * the area and the sheet closes; the tabs on the page scroll sideways.
+ *
+ * What a person cannot open is absent; what the store has not switched on is absent too. Everything shown comes
+ * from `visibleMenu` and `navEntries` (the route guard's gates), handed in by the shell.
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useLocation } from 'react-router-dom';
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent,
-  SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuButton,
-  SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem,
-  SidebarRail, useSidebar,
+  SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuAction, SidebarMenuButton,
+  SidebarMenuItem, SidebarRail, useSidebar,
 } from '@/components/ui/sidebar';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { ChevronRight, ChevronsUpDown, LogOut } from 'lucide-react';
-import type { MenuItem } from '../lib/menu';
-import { visibleMenu, activeItemPath, type VisibleGroup } from './menu/menuAccess';
+import { cn } from '@/lib/utils';
+import { ChevronRight, ChevronsUpDown, LogOut, Search, X } from 'lucide-react';
+import { whereIs, type MenuItem } from '../lib/menu';
+import { areaKey, entryHint, tabSections, type NavEntry, type VisibleGroup } from './menu/menuAccess';
 import { prefetchGroup } from './menu/prefetch';
 
 export interface AppSidebarProps {
   userPerms: { role?: string; permissions?: string[]; name?: string; email?: string };
   onLogout: () => void;
-  hasPerm: (perm: string) => boolean;
-  canAccess: (module: string) => boolean;
   /** Shown under the product name. */
   storeName?: string;
+  /** The menu this person gets (`visibleMenu`). */
+  groups: VisibleGroup[];
+  /** Saved pages already turned back into entries this person may open (`keepOpenable`). */
+  pinned: NavEntry[];
+  recent: NavEntry[];
+  onUnpin: (to: string) => void;
+  /** Where an area row lands: its remembered tab, else its first. */
+  landingOf: (key: string, row: MenuItem) => string;
+  /** Opens the command search. */
+  onSearch: () => void;
 }
 
-/** Does this item, or one of its children, own the current URL? */
-function containsPath(item: MenuItem, activePath: string | null): boolean {
-  if (!activePath) return false;
-  if (item.to === activePath) return true;
-  return (item.children ?? []).some((c) => containsPath(c, activePath));
-}
+const GROUP_LABEL = 'h-6 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/80 group-data-[collapsible=icon]:-mt-6';
+const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
 
-/** An item with children: a chevron row that opens its sub-items. */
-const FoldingItem: React.FC<{ item: MenuItem; activePath: string | null }> = ({ item, activePath }) => {
-  const childActive = containsPath(item, activePath);
-  const [open, setOpen] = useState(childActive);
-  // Arriving on a child from elsewhere (a link, a deep URL) opens the fold.
-  useEffect(() => { if (childActive) setOpen(true); }, [childActive]);
+/** One flyout open at a time: opening one closes the one before. */
+let closeOpenFlyout: (() => void) | null = null;
+
+/** An area row (or Growcord Ship): opens its landing; a flyout lists its pages on a desktop. */
+const AreaRow: React.FC<{
+  item: MenuItem;
+  href: string;
+  active: boolean;
+  activePath: string;
+  onNavigate: () => void;
+}> = ({ item, href, active, activePath, onNavigate }) => {
+  const { isMobile } = useSidebar();
+  const pages = item.children ?? item.palette ?? [];
+  const sections = item.children ? tabSections(pages) : [{ label: undefined, tabs: pages }];
+  const [open, setOpen] = useState(false);
+  const [top, setTop] = useState(0);
+  const [left, setLeft] = useState(0);
+  const rowRef = useRef<HTMLLIElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const timer = useRef<number | undefined>(undefined);
+  const focusFirst = useRef(false);
+  const close = useRef(() => setOpen(false)).current;
+
+  const show = useCallback((withFocus: boolean) => {
+    const r = rowRef.current?.getBoundingClientRect();
+    if (!r) return;
+    setLeft(r.right + 6);
+    setTop(Math.max(8, Math.min(r.top - 4, window.innerHeight - 160)));
+    if (closeOpenFlyout && closeOpenFlyout !== close) closeOpenFlyout();
+    closeOpenFlyout = close;
+    focusFirst.current = withFocus;
+    setOpen(true);
+  }, [close]);
+
+  const enter = () => {
+    if (isMobile || pages.length < 2) return;
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => show(false), 180);
+  };
+  const leave = () => {
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(close, 180);
+  };
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+
+  // Escape or a click elsewhere closes it; arrow keys move between its pages.
+  useEffect(() => {
+    if (!open) return;
+    if (focusFirst.current) panelRef.current?.querySelector<HTMLElement>('a')?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { close(); rowRef.current?.querySelector<HTMLElement>('button')?.focus(); return; }
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      const links = [...(panelRef.current?.querySelectorAll<HTMLElement>('a') ?? [])];
+      const at = links.indexOf(document.activeElement as HTMLElement);
+      if (at === -1) return;
+      e.preventDefault();
+      links[(at + (e.key === 'ArrowDown' ? 1 : links.length - 1)) % links.length]?.focus();
+    };
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (!rowRef.current?.contains(t) && !panelRef.current?.contains(t)) close();
+    };
+    window.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onDown);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onDown);
+      if (closeOpenFlyout === close) closeOpenFlyout = null;
+    };
+  }, [open, close]);
+
+  const go = () => { close(); onNavigate(); };
+
   return (
-    <Collapsible asChild open={open} onOpenChange={setOpen} className="group/collapsible">
-      <SidebarMenuItem>
-        <CollapsibleTrigger asChild>
-          <SidebarMenuButton tooltip={item.tip} isActive={childActive && !open}>
-            {item.icon && <item.icon />}
-            <span>{item.label}</span>
-            <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
-          </SidebarMenuButton>
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          <SidebarMenuSub>
-            {(item.children ?? []).map((child) => (
-              <SidebarMenuSubItem key={child.to}>
-                <SidebarMenuSubButton asChild isActive={child.to === activePath} title={child.tip}>
-                  {child.external ? (
-                    <a href={child.to}><span>{child.label}</span></a>
-                  ) : (
-                    <Link to={child.to}><span>{child.label}</span></Link>
+    <SidebarMenuItem ref={rowRef} onMouseEnter={enter} onMouseLeave={leave}>
+      <SidebarMenuButton asChild isActive={active}>
+        <Link to={href} onClick={go}>
+          {item.icon && <item.icon />}
+          <span>{item.label}</span>
+        </Link>
+      </SidebarMenuButton>
+      {!isMobile && pages.length > 1 && (
+        <SidebarMenuAction
+          showOnHover
+          aria-label={`${item.label} pages`}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => (open ? close() : show(true))}
+        >
+          <ChevronRight />
+        </SidebarMenuAction>
+      )}
+      {open && createPortal(
+        <div
+          ref={panelRef}
+          role="menu"
+          aria-label={item.label}
+          data-area-flyout={item.label}
+          style={{ left, top, maxHeight: `calc(100vh - ${top + 8}px)` }}
+          className="fixed z-50 w-64 overflow-y-auto rounded-lg border border-line bg-surface-raised p-1 text-sm shadow-xl"
+          onMouseEnter={() => window.clearTimeout(timer.current)}
+          onMouseLeave={leave}
+        >
+          <div className="px-2 pb-1 pt-1.5">
+            <div className="font-semibold text-ink">{item.label}</div>
+            <div className="text-xs text-ink-mute">{item.tip}</div>
+          </div>
+          {sections.map((s) => (
+            <div key={s.label ?? 'all'} className="py-0.5">
+              {sections.length > 1 && (
+                <div className="px-2 pb-0.5 pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-mute">{s.label}</div>
+              )}
+              {s.tabs.map((t) => (
+                <Link
+                  key={t.to}
+                  role="menuitem"
+                  to={t.to}
+                  title={t.tip}
+                  onClick={go}
+                  aria-current={t.to === activePath ? 'page' : undefined}
+                  className={cn(
+                    'block truncate rounded-md px-2 py-1.5 text-ink-soft outline-none hover:bg-surface-2 hover:text-ink focus:bg-surface-2 focus:text-ink',
+                    t.to === activePath && 'font-medium text-ink',
                   )}
-                </SidebarMenuSubButton>
-              </SidebarMenuSubItem>
-            ))}
-          </SidebarMenuSub>
-        </CollapsibleContent>
-      </SidebarMenuItem>
-    </Collapsible>
+                >
+                  {t.label}
+                </Link>
+              ))}
+            </div>
+          ))}
+        </div>,
+        document.body,
+      )}
+    </SidebarMenuItem>
   );
 };
 
-export function AppSidebar({ userPerms, onLogout, hasPerm, canAccess, storeName }: AppSidebarProps) {
-  const location = useLocation();
-  const { isMobile } = useSidebar();
+/** A pinned or recent page: its name, its area or row on hover. */
+const QuickRow: React.FC<{ e: NavEntry; active: boolean; onNavigate: () => void; onUnpin?: () => void }> = ({ e, active, onNavigate, onUnpin }) => (
+  <SidebarMenuItem>
+    <SidebarMenuButton asChild size="sm" isActive={active}>
+      <Link to={e.to} onClick={onNavigate} title={`${entryHint(e)}: ${e.tip}`}>
+        {e.icon && <e.icon />}
+        <span>{e.label}</span>
+      </Link>
+    </SidebarMenuButton>
+    {onUnpin && (
+      <SidebarMenuAction showOnHover aria-label={`Unpin ${e.label}`} title="Unpin" onClick={onUnpin}>
+        <X />
+      </SidebarMenuAction>
+    )}
+  </SidebarMenuItem>
+);
 
-  const groups: VisibleGroup[] = useMemo(() => visibleMenu({ hasPerm, canAccess }), [hasPerm, canAccess]);
-  const activePath = useMemo(() => activeItemPath(groups, location.pathname), [groups, location.pathname]);
+export function AppSidebar({ userPerms, onLogout, storeName, groups, pinned, recent, onUnpin, landingOf, onSearch }: AppSidebarProps) {
+  const location = useLocation();
+  const { isMobile, setOpenMobile } = useSidebar();
+  const path = location.pathname.replace(/\/+$/, '') || '/';
+  const place = whereIs(location.pathname);
+  // On a phone the sheet closes once a page is chosen.
+  const onNavigate = () => { if (isMobile) setOpenMobile(false); };
 
   const handleLogout = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -93,11 +218,11 @@ export function AppSidebar({ userPerms, onLogout, hasPerm, canAccess, storeName 
 
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader>
+      <SidebarHeader className="gap-1">
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
-              <Link to="/dashboard">
+              <Link to="/dashboard" onClick={onNavigate}>
                 <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary font-bold text-primary-foreground">
                   G
                 </div>
@@ -108,41 +233,85 @@ export function AppSidebar({ userPerms, onLogout, hasPerm, canAccess, storeName 
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              tooltip={`Search pages (${IS_MAC ? '⌘K' : 'Ctrl K'})`}
+              onClick={() => { onNavigate(); onSearch(); }}
+              className="border border-sidebar-border text-muted-foreground"
+              data-sidebar-search
+            >
+              <Search />
+              <span>Search</span>
+              <kbd className="ml-auto rounded border border-sidebar-border px-1 font-sans text-[10px] text-muted-foreground group-data-[collapsible=icon]:hidden">
+                {IS_MAC ? '⌘K' : 'Ctrl K'}
+              </kbd>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
 
-      <SidebarContent>
+      <SidebarContent className="gap-0">
+        {pinned.length > 0 && (
+          <SidebarGroup className="py-1 group-data-[collapsible=icon]:hidden" data-sidebar-pinned>
+            <SidebarGroupLabel className={GROUP_LABEL}>Pinned</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu className="gap-0">
+                {pinned.map((e) => <QuickRow key={e.to} e={e} active={e.to === path} onNavigate={onNavigate} onUnpin={() => onUnpin(e.to)} />)}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+        {recent.length > 0 && (
+          <SidebarGroup className="py-1 group-data-[collapsible=icon]:hidden" data-sidebar-recent>
+            <SidebarGroupLabel className={GROUP_LABEL}>Recent</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu className="gap-0">
+                {recent.map((e) => <QuickRow key={e.to} e={e} active={e.to === path} onNavigate={onNavigate} />)}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+
         {groups.map((group) => {
           const items = group.subs.flatMap((s) => s.items);
           if (!items.length) return null;
           return (
-            <SidebarGroup key={group.id} onMouseEnter={() => prefetchGroup(group.id)}>
-              <SidebarGroupLabel className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/80">
-                {group.label}
-              </SidebarGroupLabel>
+            <SidebarGroup key={group.id} className="py-1" onMouseEnter={() => prefetchGroup(group.id)}>
+              <SidebarGroupLabel className={GROUP_LABEL}>{group.label}</SidebarGroupLabel>
               <SidebarGroupContent>
-                <SidebarMenu>
-                  {items.map((item) =>
-                    item.children?.length ? (
-                      <FoldingItem key={item.to} item={item} activePath={activePath} />
-                    ) : (
-                      <SidebarMenuItem key={item.to}>
-                        <SidebarMenuButton asChild tooltip={item.tip} isActive={item.to === activePath}>
+                <SidebarMenu className="gap-0.5">
+                  {items.map((item) => {
+                    const active = place?.group?.id === group.id && place.row?.label === item.label && place.row?.to === item.to;
+                    if (item.children?.length || item.palette?.length) {
+                      return (
+                        <AreaRow
+                          key={item.label}
+                          item={item}
+                          href={item.children?.length ? landingOf(areaKey(group.id, item), item) : item.to}
+                          active={active}
+                          activePath={path}
+                          onNavigate={onNavigate}
+                        />
+                      );
+                    }
+                    return (
+                      <SidebarMenuItem key={item.label}>
+                        <SidebarMenuButton asChild tooltip={item.tip} isActive={active}>
                           {item.external ? (
                             <a href={item.to}>
                               {item.icon && <item.icon />}
                               <span>{item.label}</span>
                             </a>
                           ) : (
-                            <Link to={item.to}>
+                            <Link to={item.to} onClick={onNavigate}>
                               {item.icon && <item.icon />}
                               <span>{item.label}</span>
                             </Link>
                           )}
                         </SidebarMenuButton>
                       </SidebarMenuItem>
-                    ),
-                  )}
+                    );
+                  })}
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>

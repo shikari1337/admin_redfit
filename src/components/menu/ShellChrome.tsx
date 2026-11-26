@@ -23,7 +23,7 @@ import { useNavigate } from 'react-router-dom';
 import { Moon, Sun, Monitor, Search, WifiOff, Clock, ArrowRight, ExternalLink, Plus, CornerDownLeft } from 'lucide-react';
 import { api, apiReachable, searchAPI, type SearchResult } from '../../services/api';
 import { SETTINGS_AREA_LIST } from '../../lib/menu';
-import type { VisibleGroup } from './menuAccess';
+import { entryHint, type NavEntry } from './menuAccess';
 
 /* ── theme ───────────────────────────────────────────────────────────────── */
 
@@ -208,9 +208,13 @@ const RECORD_ROUTES: Record<string, (id: string) => string> = {
 export const CommandPalette: React.FC<{
   open: boolean;
   onClose: () => void;
-  groups: VisibleGroup[];
+  /** Every page this person may open from the menu (`menuAccess.navEntries`): rows, areas, tabs, other products' pages. */
+  entries: NavEntry[];
+  /** Shown first when nothing is typed. */
+  pinned: NavEntry[];
+  recent: NavEntry[];
   hasPerm: (p: string) => boolean;
-}> = ({ open, onClose, groups, hasPerm }) => {
+}> = ({ open, onClose, entries, pinned, recent, hasPerm }) => {
   const navigate = useNavigate();
   const [q, setQ] = useState('');
   const [sel, setSel] = useState(0);
@@ -238,33 +242,38 @@ export const CommandPalette: React.FC<{
     const term = q.trim().toLowerCase();
     const match = (s: string) => !term || s.toLowerCase().includes(term);
     const out: Hit[] = [];
-    for (const g of groups) for (const s of g.subs) for (const i of s.items) {
-      if (match(i.label) || match(i.tip) || match(s.label) || match(g.label)) {
-        out.push({ key: `p:${i.to}`, kind: i.external ? 'link' : 'page', label: i.label, hint: `${g.label} · ${s.label}`, to: i.to, external: i.external });
-      }
-      // Pages inside an item (Growcord Ship's tabs), each by its own name, under the item's name.
-      for (const p of i.palette ?? []) {
-        if (match(p.label) || match(p.tip) || match(i.label)) {
-          out.push({ key: `p:${i.to}:${p.to}`, kind: 'page', label: p.label, hint: i.label, to: p.to });
-        }
-      }
+    const page = (e: NavEntry, hint: string, key = `p:${e.kind}:${e.to}`): Hit =>
+      ({ key, kind: e.external ? 'link' : 'page', label: e.label, hint, to: e.to, external: e.external });
+    if (!term) {
+      // Nothing typed: the person's own pages first, then the sidebar's rows.
+      for (const e of pinned) out.push(page(e, 'Pinned', `pin:${e.to}`));
+      for (const e of recent) out.push(page(e, 'Recent', `recent:${e.to}`));
+      for (const e of entries) if ((e.kind === 'row' || e.kind === 'area') && !e.external) out.push(page(e, entryHint(e)));
+      return out.slice(0, 12);
     }
+    // Every area, tab, row, Growcord Ship page and other product's page this person may open; a name that starts
+    // with the words typed comes first.
+    const rank = (e: NavEntry) => (e.label.toLowerCase().startsWith(term) ? 0 : e.label.toLowerCase().includes(term) ? 1 : 2);
+    entries
+      .filter((e) => match(e.label) || match(e.tip) || match(entryHint(e)))
+      .map((e, i) => ({ e, i, r: rank(e) }))
+      .sort((a, b) => a.r - b.r || a.i - b.i)
+      .forEach(({ e }) => out.push(page(e, entryHint(e))));
     if (hasPerm('settings.read')) {
       for (const a of SETTINGS_AREA_LIST) {
         const label = `Settings ${a.no}. ${a.label}`;
-        if (term && match(label)) out.push({ key: `s:${a.id}`, kind: 'page', label, hint: 'Settings', to: `/settings?group=${a.id}` });
+        if (match(label)) out.push({ key: `s:${a.id}`, kind: 'page', label, hint: 'Settings', to: `/settings?group=${a.id}` });
       }
     }
     for (const a of ACTIONS) if (hasPerm(a.perm) && match(a.label)) out.push({ key: `a:${a.to}`, kind: 'action', label: a.label, to: a.to });
-    // Orders are deliberately NOT offered as "find orders matching …": the Orders
-    // list does not read a search term from its URL yet (plan R-P9-32, lane T5),
-    // so the jump would land on an unfiltered list and say it had searched.
+    // Orders are deliberately NOT offered as "find orders matching": the Orders list does not read a search term
+    // from its URL yet (plan R-P9-32, lane T5), so the jump would land on an unfiltered list and say it had searched.
     for (const r of records) {
       const route = RECORD_ROUTES[r.type];
-      if (route) out.push({ key: `r:${r.type}:${r.id}`, kind: 'record', label: r.label, hint: `${r.type}${r.sublabel ? ` · ${r.sublabel}` : ''}`, to: route(r.id) });
+      if (route) out.push({ key: `r:${r.type}:${r.id}`, kind: 'record', label: r.label, hint: `${r.type}${r.sublabel ? `, ${r.sublabel}` : ''}`, to: route(r.id) });
     }
-    return term ? out.slice(0, 40) : out.filter((h) => h.kind !== 'page' || !h.external).slice(0, 12);
-  }, [q, groups, records, hasPerm]);
+    return out.slice(0, 40);
+  }, [q, entries, pinned, recent, records, hasPerm]);
 
   useEffect(() => { if (sel >= hits.length) setSel(0); }, [hits.length, sel]);
 
@@ -322,7 +331,7 @@ export const CommandPalette: React.FC<{
               </li>
             );
           })}
-          {!hits.length && <li className="px-3 py-6 text-center text-sm text-ink-mute">Nothing matches “{q}”.</li>}
+          {!hits.length && <li className="px-3 py-6 text-center text-sm text-ink-mute">Nothing matches "{q}".</li>}
         </ul>
       </div>
     </div>
