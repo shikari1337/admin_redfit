@@ -675,7 +675,7 @@ const OrderDetail: React.FC = () => {
     // never just goes quiet.
     // Growcord Ship sets the warehouse up on each of its couriers by itself, so it is never "not enabled"
     // for a warehouse (owner 26 Nov 2026: the warning named DELHIVERY for a Growcord Ship booking).
-    if (selectedShippingProvider !== 'manual' && selectedShippingProvider !== 'growcord_ship') {
+    if (selectedShippingProvider !== 'manual' && (selectedShippingProvider as string) !== 'growcord_ship') {
       const selectedWarehouse = warehouses.find(w => w._id === selectedWarehouseId);
       if (selectedWarehouse) {
         let hasProviderEnabled = false;
