@@ -23,10 +23,8 @@ export interface WalletMove {
   created_at: string;
 }
 
-const time = (t: WalletMove) => Date.parse(t.created_at) || 0;
-const cents = (n: unknown) => Math.round((Number(n) || 0) * 100);
 
-/** A shipping debit: freight taken for a parcel. */
+/** A shipping debit: freight taken for a parcel (any carrier). */
 export const isShipDebit = (t: WalletMove) => t.direction === 'debit' && t.category === 'shipping';
 
 /** A refund of Growcord Ship freight: a credit in category refund that names Growcord Ship or a shipping debit. */
@@ -36,40 +34,106 @@ export function isShipRefund(t: WalletMove, debitRefs?: Set<string>): boolean {
   return !!t.reference && !!debitRefs?.has(String(t.reference));
 }
 
+/** How the wallet's movements link to Growcord Ship's parcels and orders. */
+export interface WalletLinks {
+  /** The order (or reference) each movement belongs to, the same on screen and in the CSV. */
+  orderOf: Map<string, string>;
+  /** The AWB each movement belongs to, where Growcord Ship recorded it. */
+  awbOf: Map<string, string>;
+  /** A Growcord Ship debit's linked refunds. */
+  refundsOf: Map<string, WalletMove[]>;
+  /** A linked refund's debit. */
+  debitOf: Map<string, WalletMove>;
+  /** A refund that could not be linked, and why in words. */
+  unlinked: Map<string, string>;
+  /** Per order with a linked refund: every Growcord Ship debit less every refund linked to it (all attempts). */
+  netOf: Map<string, number>;
+  /** The one movement of each such order that shows the net (the newest). */
+  netShownOn: Set<string>;
+}
+
+const cents = (n: unknown) => Math.round((Number(n) || 0) * 100);
+const isGsDebit = (t: WalletMove, leg: GsWalletLeg | undefined) =>
+  isShipDebit(t) && (!!leg || /growcord ship/i.test(String(t.note ?? '')));
+
 /**
- * Each shipping debit's refunds: by Ship's own record of the two movements (the same parcel), else by the same
- * reference, else (a released reservation carries no reference) the same amount within fifteen minutes after it.
- * Answers debit id to its refunds.
+ * Links the movements on screen to Growcord Ship's parcels, by exact links only: Ship's own record of each movement
+ * (`legs`: the wallet transaction id, the parcel and its AWB), or an identical reference. A refund is never matched by
+ * amount or time. Only Growcord Ship debits take part (a Shiprocket debit through Growcord's account is left alone).
+ * A cancel refund names the Growcord Ship number while its debit names the order, so the two meet through the parcel,
+ * which needs Ship's records: `legsReadable` false (no shipments.read) or a movement older than those records leaves the
+ * refund unlinked, with the reason.
  */
-export function matchRefunds(moves: WalletMove[], legs: GsWalletLeg[] = []): Map<string, WalletMove[]> {
-  const parcelOfTx = new Map<string, string>();
-  for (const l of legs) if (l.platform_ref && l.consignment_id) parcelOfTx.set(String(l.platform_ref), String(l.consignment_id));
-  const debits = moves.filter(isShipDebit).sort((a, b) => time(a) - time(b));
-  const refs = new Set(debits.map((d) => String(d.reference ?? '')).filter(Boolean));
-  const refunds = moves.filter((t) => isShipRefund(t, refs)).sort((a, b) => time(a) - time(b));
-  const out = new Map<string, WalletMove[]>();
-  const left = new Map(debits.map((d) => [d.id, cents(d.amount)]));
-  const take = (d: WalletMove, r: WalletMove) => {
-    out.set(d.id, [...(out.get(d.id) ?? []), r]);
-    left.set(d.id, (left.get(d.id) ?? 0) - cents(r.amount));
+export function linkMoves(moves: WalletMove[], legs: GsWalletLeg[], legsReadable: boolean): WalletLinks {
+  const legOf = new Map<string, GsWalletLeg>();
+  for (const l of legs) if (l.platform_ref) legOf.set(String(l.platform_ref), l);
+  const oldestLeg = legs.reduce((m, l) => Math.min(m, Date.parse(String(l.created_at ?? '')) || Infinity), Infinity);
+  const parcelByNumber = new Map<string, string>();
+  for (const l of legs) if (l.reference && l.consignment_id) parcelByNumber.set(String(l.reference), String(l.consignment_id));
+
+  const debits = moves.filter((t) => isGsDebit(t, legOf.get(t.id)));
+  const orderOfParcel = new Map<string, string>();
+  const debitsOfParcel = new Map<string, WalletMove[]>();
+  for (const d of debits) {
+    const parcel = legOf.get(d.id)?.consignment_id;
+    if (!parcel) continue;
+    if (d.reference) orderOfParcel.set(String(parcel), String(d.reference));
+    debitsOfParcel.set(String(parcel), [...(debitsOfParcel.get(String(parcel)) ?? []), d]);
+  }
+
+  const out: WalletLinks = {
+    orderOf: new Map(), awbOf: new Map(), refundsOf: new Map(), debitOf: new Map(), unlinked: new Map(),
+    netOf: new Map(), netShownOn: new Set(),
   };
-  for (const r of refunds) {
-    const before = debits.filter((d) => time(d) <= time(r) + 5_000 && (left.get(d.id) ?? 0) > 0);
-    const parcel = parcelOfTx.get(r.id);
-    const byParcel = parcel ? before.filter((d) => parcelOfTx.get(d.id) === parcel).pop() : undefined;
-    const byRef = !byParcel && r.reference ? before.filter((d) => d.reference && d.reference === r.reference).pop() : undefined;
-    const byAmount = !byParcel && !byRef && !r.reference
-      ? before.filter((d) => cents(d.amount) === cents(r.amount) && time(r) - time(d) <= 15 * 60_000).pop()
-      : undefined;
-    const d = byParcel ?? byRef ?? byAmount;
-    if (d) take(d, r);
+  for (const t of moves) {
+    const leg = legOf.get(t.id);
+    if (leg?.awb) out.awbOf.set(t.id, String(leg.awb));
+    if (isGsDebit(t, leg) && t.reference) out.orderOf.set(t.id, String(t.reference));
+  }
+
+  const refs = new Set(debits.map((d) => String(d.reference ?? '')).filter(Boolean));
+  for (const r of moves.filter((t) => isShipRefund(t, refs))) {
+    const leg = legOf.get(r.id);
+    const parcel = leg?.consignment_id ? String(leg.consignment_id) : (r.reference ? parcelByNumber.get(String(r.reference)) : undefined);
+    let debit: WalletMove | undefined;
+    let order: string | undefined;
+    if (parcel) {
+      debit = (debitsOfParcel.get(parcel) ?? []).filter((d) => d.created_at <= r.created_at).pop() ?? debitsOfParcel.get(parcel)?.[0];
+      order = orderOfParcel.get(parcel);
+    }
+    if (!debit && r.reference && refs.has(String(r.reference))) {
+      // The same reference: the latest Growcord Ship debit of that order at or before the refund.
+      debit = debits.filter((d) => d.reference === r.reference && d.created_at <= r.created_at).pop()
+        ?? debits.find((d) => d.reference === r.reference);
+      order = String(r.reference);
+    }
+    if (debit) {
+      out.debitOf.set(r.id, debit);
+      out.refundsOf.set(debit.id, [...(out.refundsOf.get(debit.id) ?? []), r]);
+      if (order) out.orderOf.set(r.id, order);
+      const awb = out.awbOf.get(debit.id);
+      if (awb && !out.awbOf.has(r.id)) out.awbOf.set(r.id, awb);
+      continue;
+    }
+    if (r.reference) out.orderOf.set(r.id, String(r.reference));
+    out.unlinked.set(r.id, !legsReadable
+      ? 'Linking a refund to its charge needs the shipments.read permission.'
+      : legs.length > 0 && Date.parse(r.created_at) < oldestLeg
+        ? 'Older than Growcord Ship\'s latest 200 money records, so it cannot be linked here.'
+        : 'Growcord Ship has no record linking it to a charge.');
+  }
+
+  // The net per order: every Growcord Ship debit of the order less every refund linked to it, shown once.
+  const ordersWithRefund = new Set([...out.debitOf.keys()].map((id) => out.orderOf.get(id)).filter(Boolean) as string[]);
+  for (const order of ordersWithRefund) {
+    const rows = moves.filter((t) => out.orderOf.get(t.id) === order && (debits.includes(t) || out.debitOf.has(t.id)));
+    const net = rows.reduce((s, t) => s + (t.direction === 'debit' ? cents(t.amount) : -cents(t.amount)), 0) / 100;
+    out.netOf.set(order, net);
+    const newest = rows.reduce((a, b) => (a.created_at >= b.created_at ? a : b));
+    out.netShownOn.add(newest.id);
   }
   return out;
 }
-
-/** What a debit cost once its refunds are counted, in rupees. */
-export const netOf = (d: WalletMove, refunds: WalletMove[] | undefined) =>
-  Math.round(cents(d.amount) - (refunds ?? []).reduce((s, r) => s + cents(r.amount), 0)) / 100;
 
 /**
  * Every movement of one category from today back to `from` (YYYY-MM-DD, the store's day), newest first, read 200 at

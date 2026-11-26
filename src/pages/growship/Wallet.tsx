@@ -13,7 +13,7 @@ import { DEFAULT_FROM, DEFAULT_TO, RangeFields } from '../payments/common';
 import { WalletCard, useStoreWallet } from '../../components/growship/WalletCard';
 import { growshipAPI, type GsWalletLeg } from '@/lib/v2/growship';
 import {
-  isShipDebit, isShipRefund, matchRefunds, netOf, readMovesSince, type WalletMove,
+  isShipDebit, isShipRefund, linkMoves, readMovesSince, type WalletLinks, type WalletMove,
 } from '@/lib/growshipWallet';
 
 type Movement = WalletMove;
@@ -91,44 +91,55 @@ const GrowshipWallet: React.FC = () => {
     if (!canAwb) return;
     growshipAPI.walletLegs(200).then(setLegs).catch((e) => { setLegs([]); setLegsError(errorText(e, 'Growcord Ship could not be read.')); });
   }, [canAwb]);
-  const byTx = useMemo(() => {
-    const m = new Map<string, GsWalletLeg>();
-    for (const l of legs) if (l.platform_ref) m.set(String(l.platform_ref), l);
-    return m;
-  }, [legs]);
-  const awbOf = (t: Movement) => byTx.get(t.id)?.awb ?? '';
-
-  /** Debit id to its refunds, and refund id to its debit, over what is on the page. */
-  const { refundsOf, debitOf, rows } = useMemo(() => {
-    const base = pageRows ?? [];
-    const m = matchRefunds([...base, ...refunds], legs);
-    const back = new Map<string, Movement>();
-    for (const [debitId, rs] of m) {
-      const d = base.find((x) => x.id === debitId);
-      if (d) for (const r of rs) back.set(r.id, d);
+  /** The newest shown row of each order whose net is known: the net shows there once. */
+  const anchorsOf = (links: WalletLinks, shown: Movement[]) => {
+    const out = new Set<string>();
+    for (const order of links.netOf.keys()) {
+      const mine = shown.filter((t) => links.orderOf.get(t.id) === order);
+      if (mine.length) out.add(mine.reduce((a, b) => (a.created_at >= b.created_at ? a : b)).id);
     }
-    // Shown: the page, the refunds of its debits, and other Growcord Ship refunds between its newest and oldest rows.
+    return out;
+  };
+
+  /** How the rows link to Growcord Ship's parcels (exact links only), and the rows shown. */
+  const { links, anchors, rows } = useMemo(() => {
+    const base = pageRows ?? [];
+    const extraRefunds = refunds.filter((r) => !base.some((x) => x.id === r.id));
+    const l = linkMoves([...base, ...extraRefunds], legs, canAwb);
+    // Shown: the page, the refunds linked to its charges, and other Growcord Ship refunds between its newest and
+    // oldest rows (each as its own line when it is not linked).
     let shown = base;
-    if (shippingOnly && direction !== 'debit' && refunds.length) {
+    if (shippingOnly && direction !== 'debit' && extraRefunds.length) {
       const lo = base.length ? at(base[base.length - 1]) : 0;
       const hi = page === 1 || !base.length ? Infinity : at(base[0]);
-      const extra = refunds.filter((r) => !base.some((x) => x.id === r.id) && (back.has(r.id) || (at(r) >= lo && at(r) <= hi)));
+      const extra = extraRefunds.filter((r) => {
+        const d = l.debitOf.get(r.id);
+        return (d && base.some((x) => x.id === d.id)) || (at(r) >= lo && at(r) <= hi);
+      });
       shown = [...base, ...extra].sort(newestFirst);
     }
-    return { refundsOf: m, debitOf: back, rows: pageRows === null ? null : shown };
-  }, [pageRows, refunds, legs, shippingOnly, direction, page]);
+    return { links: l, anchors: anchorsOf(l, shown), rows: pageRows === null ? null : shown };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageRows, refunds, legs, canAwb, shippingOnly, direction, page]);
 
-  const columnsFor = (m: Map<string, Movement[]>, back: Map<string, Movement>): CsvColumn<Movement>[] => [
+  /** The order and AWB of a row: one reading for the screen and the CSV. */
+  const orderText = (l: WalletLinks, t: Movement) => l.orderOf.get(t.id) ?? t.reference ?? '';
+  const awbText = (l: WalletLinks, t: Movement) => l.awbOf.get(t.id) ?? '';
+  const linkText = (l: WalletLinks, t: Movement) => (l.refundsOf.has(t.id) ? 'Refunded'
+    : l.debitOf.has(t.id) ? `Refund of the charge for ${orderText(l, l.debitOf.get(t.id)!) || 'this parcel'}`
+      : l.unlinked.has(t.id) ? `Refund (not linked): ${l.unlinked.get(t.id)}` : '');
+
+  const columnsFor = (l: WalletLinks, anchor: Set<string>): CsvColumn<Movement>[] => [
     { key: 'created_at', label: 'Date', format: (t) => formatDate(t.created_at, 'yyyy-MM-dd HH:mm', '') },
     { key: 'direction', label: 'In or out', format: (t) => (t.direction === 'credit' ? 'Money in' : 'Money out') },
     { key: 'category', label: 'Category', format: (t) => categoryText(t.category) },
-    { key: 'reference', label: 'Order or reference', format: (t) => t.reference ?? '' },
-    ...(canAwb ? [{ key: 'awb', label: 'AWB', format: (t: Movement) => awbOf(t) }] : []),
+    { key: 'reference', label: 'Order or reference', format: (t) => orderText(l, t) },
+    ...(canAwb ? [{ key: 'awb', label: 'AWB', format: (t: Movement) => awbText(l, t) }] : []),
     { key: 'note', label: 'Note', format: (t) => t.note ?? '' },
     { key: 'amount', label: 'Amount', format: (t) => (t.direction === 'debit' ? -Number(t.amount ?? 0) : Number(t.amount ?? 0)).toFixed(2) },
     { key: 'balance_after', label: 'Balance after', format: (t) => Number(t.balance_after ?? 0).toFixed(2) },
-    { key: 'refunded', label: 'Refunded', format: (t) => (m.has(t.id) ? 'Yes' : back.has(t.id) ? `Refund of ${back.get(t.id)?.reference || 'a shipping charge'}` : '') },
-    { key: 'net', label: 'Net for the order', format: (t) => (m.has(t.id) ? netOf(t, m.get(t.id)).toFixed(2) : '') },
+    { key: 'refunded', label: 'Refund', format: (t) => linkText(l, t) },
+    { key: 'net', label: 'Net for the order', format: (t) => (anchor.has(t.id) ? (l.netOf.get(orderText(l, t)) ?? 0).toFixed(2) : '') },
   ];
 
   /**
@@ -150,18 +161,14 @@ const GrowshipWallet: React.FC = () => {
         const rs = back.rows.filter((r) => isShipRefund(r, refs) && inRange(r));
         out = [...ds, ...(direction === 'debit' ? [] : rs)].sort(newestFirst);
         capped = debits.capped || back.capped;
-        const m = matchRefunds([...ds, ...rs], legs);
-        const b = new Map<string, Movement>();
-        for (const [id, list] of m) { const d = ds.find((x) => x.id === id); if (d) for (const r of list) b.set(r.id, d); }
-        downloadCsv(`growcord-ship-wallet-${range.from}-to-${range.to}`, columnsFor(m, b), out);
+        const l = linkMoves([...ds, ...rs], legs, canAwb);
+        downloadCsv(`growcord-ship-wallet-${range.from}-to-${range.to}`, columnsFor(l, anchorsOf(l, out)), out);
       } else {
         const all = await readMovesSince('', range.from, { ...(direction ? { direction } : {}), cap: STATEMENT_CAP });
         out = all.rows.filter(inRange);
         capped = all.capped;
-        const m = matchRefunds(out, legs);
-        const b = new Map<string, Movement>();
-        for (const [id, list] of m) { const d = out.find((x) => x.id === id); if (d) for (const r of list) b.set(r.id, d); }
-        downloadCsv(`growcord-ship-wallet-${range.from}-to-${range.to}`, columnsFor(m, b), out);
+        const l = linkMoves(out, legs, canAwb);
+        downloadCsv(`growcord-ship-wallet-${range.from}-to-${range.to}`, columnsFor(l, anchorsOf(l, out)), out);
       }
       setStatement({
         rows: out.length,
@@ -212,7 +219,7 @@ const GrowshipWallet: React.FC = () => {
         title="History"
         description={canAwb
           ? (legsError ? `Newest first. The AWB could not be read: ${legsError}` : 'Newest first. The AWB shows where Growcord Ship recorded which parcel the money was for.')
-          : 'Newest first. The AWB column is not shown: it needs the shipments.read permission.'}
+          : 'Newest first. The AWB column is not shown and refunds are not linked to their charges: both need the shipments.read permission, so a refund shows as its own line.'}
         action={
           <div className="flex flex-wrap items-end gap-2">
             <Field label="Show">
@@ -241,23 +248,28 @@ const GrowshipWallet: React.FC = () => {
               {rows === null && <EmptyRow colSpan={canAwb ? 7 : 6}>Reading...</EmptyRow>}
               {rows && rows.length === 0 && <EmptyRow colSpan={canAwb ? 7 : 6}>{category === 'shipping' ? 'No shipping charge has been taken from the wallet yet.' : 'No movement yet.'}</EmptyRow>}
               {(rows ?? []).map((t) => {
-                const rs = refundsOf.get(t.id);
-                const forDebit = debitOf.get(t.id);
+                const refunded = links.refundsOf.has(t.id);
+                const forDebit = links.debitOf.get(t.id);
+                const unlinked = links.unlinked.get(t.id);
+                const order = orderText(links, t);
                 return (
                 <Tr key={t.id} className={forDebit ? 'bg-emerald-50/40' : undefined}>
                   <Td muted className="whitespace-nowrap">{formatDate(t.created_at, 'dd MMM yyyy, HH:mm', '')}</Td>
                   <Td className="capitalize">{categoryText(t.category)}</Td>
-                  <Td>{t.reference || forDebit?.reference || ''}</Td>
-                  {canAwb && <Td className="font-mono text-xs">{awbOf(t) || (forDebit ? awbOf(forDebit) : '')}</Td>}
+                  <Td>{order}</Td>
+                  {canAwb && <Td className="font-mono text-xs">{awbText(links, t)}</Td>}
                   <Td className="max-w-xs text-xs text-gray-500">
-                    {rs && (
+                    {(refunded || anchors.has(t.id)) && (
                       <div className="mb-0.5 flex flex-wrap items-center gap-1.5">
-                        <Chip tone="green">Refunded</Chip>
-                        <span className="font-medium text-gray-700">Net for the order {fmtRupees(netOf(t, rs))}</span>
+                        {refunded && <Chip tone="green">Refunded</Chip>}
+                        {anchors.has(t.id) && <span className="font-medium text-gray-700">Net for the order {fmtRupees(links.netOf.get(order) ?? 0)}</span>}
                       </div>
                     )}
                     {forDebit && (
-                      <div className="mb-0.5"><Chip tone="green">Refund</Chip> <span className="text-gray-700">of the charge for {forDebit.reference || 'this parcel'}</span></div>
+                      <div className="mb-0.5"><Chip tone="green">Refund</Chip> <span className="text-gray-700">of the charge for {orderText(links, forDebit) || 'this parcel'}</span></div>
+                    )}
+                    {unlinked && (
+                      <div className="mb-0.5"><Chip tone="amber">Refund (not linked)</Chip> <span className="text-gray-700">{unlinked}</span></div>
                     )}
                     <div className="truncate" title={t.note ?? undefined}>{t.note || ''}</div>
                   </Td>
