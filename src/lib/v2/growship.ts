@@ -14,6 +14,7 @@
  * is how a wallet line is matched to its parcel here.
  */
 import { v2call } from './http';
+import { shipmentAwb } from '../../components/shipments/shipmentFacts';
 import { toMoney } from './money';
 
 const SHIP = '/api/v2/ship';
@@ -429,8 +430,7 @@ export function notTakenMatcher(list: GsConsignment[]): (shipment: any) => GsCon
   const byNumber = new Map(list.filter((c) => c.consignment_number).map((c) => [String(c.consignment_number), c]));
   return (shipment: any) => {
     const pd = shipment?.providerData ?? shipment?.provider_data ?? {};
-    const awb = String(shipment?.awb ?? pd?.awb ?? pd?.shiprocketAWB ?? pd?.delhiveryWaybill ?? '').trim();
-    if (awb) return null;
+    if (shipmentAwb(shipment)) return null;
     const id = String(pd?.carrier_shipment_id ?? pd?.carrierShipmentId ?? '');
     const num = String(pd?.carrier_order_id ?? pd?.carrierOrderId ?? '');
     return (id && byId.get(id)) || (num && byNumber.get(num)) || null;

@@ -44,12 +44,10 @@ export interface WalletLinks {
   refundsOf: Map<string, WalletMove[]>;
   /** A linked refund's debit. */
   debitOf: Map<string, WalletMove>;
-  /** A refund that could not be linked, and why in words. */
-  unlinked: Map<string, string>;
-  /** Per order with a linked refund: every Growcord Ship debit less every refund linked to it (all attempts). */
-  netOf: Map<string, number>;
-  /** The one movement of each such order that shows the net (the newest). */
-  netShownOn: Set<string>;
+  /** A Growcord Ship refund with no exact link: a plain refund line. */
+  unlinked: Set<string>;
+  /** Per order with a linked refund: its Growcord Ship debits and the refunds linked to them (every attempt). */
+  linesOf: Map<string, WalletMove[]>;
 }
 
 const cents = (n: unknown) => Math.round((Number(n) || 0) * 100);
@@ -61,13 +59,11 @@ const isGsDebit = (t: WalletMove, leg: GsWalletLeg | undefined) =>
  * (`legs`: the wallet transaction id, the parcel and its AWB), or an identical reference. A refund is never matched by
  * amount or time. Only Growcord Ship debits take part (a Shiprocket debit through Growcord's account is left alone).
  * A cancel refund names the Growcord Ship number while its debit names the order, so the two meet through the parcel,
- * which needs Ship's records: `legsReadable` false (no shipments.read) or a movement older than those records leaves the
- * refund unlinked, with the reason.
+ * which needs Ship's records. Anything without an exact link stays a plain refund line.
  */
-export function linkMoves(moves: WalletMove[], legs: GsWalletLeg[], legsReadable: boolean): WalletLinks {
+export function linkMoves(moves: WalletMove[], legs: GsWalletLeg[]): WalletLinks {
   const legOf = new Map<string, GsWalletLeg>();
   for (const l of legs) if (l.platform_ref) legOf.set(String(l.platform_ref), l);
-  const oldestLeg = legs.reduce((m, l) => Math.min(m, Date.parse(String(l.created_at ?? '')) || Infinity), Infinity);
   const parcelByNumber = new Map<string, string>();
   for (const l of legs) if (l.reference && l.consignment_id) parcelByNumber.set(String(l.reference), String(l.consignment_id));
 
@@ -82,8 +78,7 @@ export function linkMoves(moves: WalletMove[], legs: GsWalletLeg[], legsReadable
   }
 
   const out: WalletLinks = {
-    orderOf: new Map(), awbOf: new Map(), refundsOf: new Map(), debitOf: new Map(), unlinked: new Map(),
-    netOf: new Map(), netShownOn: new Set(),
+    orderOf: new Map(), awbOf: new Map(), refundsOf: new Map(), debitOf: new Map(), unlinked: new Set(), linesOf: new Map(),
   };
   for (const t of moves) {
     const leg = legOf.get(t.id);
@@ -116,23 +111,37 @@ export function linkMoves(moves: WalletMove[], legs: GsWalletLeg[], legsReadable
       continue;
     }
     if (r.reference) out.orderOf.set(r.id, String(r.reference));
-    out.unlinked.set(r.id, !legsReadable
-      ? 'Linking a refund to its charge needs the shipments.read permission.'
-      : legs.length > 0 && Date.parse(r.created_at) < oldestLeg
-        ? 'Older than Growcord Ship\'s latest 200 money records, so it cannot be linked here.'
-        : 'Growcord Ship has no record linking it to a charge.');
+    out.unlinked.add(r.id);
   }
 
-  // The net per order: every Growcord Ship debit of the order less every refund linked to it, shown once.
+  // Each order with a linked refund: its Growcord Ship debits and the refunds linked to them.
   const ordersWithRefund = new Set([...out.debitOf.keys()].map((id) => out.orderOf.get(id)).filter(Boolean) as string[]);
   for (const order of ordersWithRefund) {
-    const rows = moves.filter((t) => out.orderOf.get(t.id) === order && (debits.includes(t) || out.debitOf.has(t.id)));
-    const net = rows.reduce((s, t) => s + (t.direction === 'debit' ? cents(t.amount) : -cents(t.amount)), 0) / 100;
-    out.netOf.set(order, net);
-    const newest = rows.reduce((a, b) => (a.created_at >= b.created_at ? a : b));
-    out.netShownOn.add(newest.id);
+    out.linesOf.set(order, moves.filter((t) => out.orderOf.get(t.id) === order && (debits.includes(t) || out.debitOf.has(t.id))));
   }
   return out;
+}
+
+/**
+ * The net for an order (its Growcord Ship debits less the refunds linked to them), only when every one of its lines
+ * is in `shown` and none sits at an open edge of what was read (`olderOpen`: rows older than `lo` were not read;
+ * `newerOpen`: rows newer than `hi` were not read), so a pair split across pages or the export range never gives a
+ * partial net. Null otherwise.
+ */
+export function netFor(
+  links: WalletLinks, order: string, shown: WalletMove[],
+  edge: { lo: number; hi: number; olderOpen: boolean; newerOpen: boolean },
+): number | null {
+  const lines = links.linesOf.get(order);
+  if (!lines?.length) return null;
+  const ids = new Set(shown.map((t) => t.id));
+  for (const t of lines) {
+    const at = Date.parse(t.created_at) || 0;
+    if (!ids.has(t.id)) return null;
+    if (edge.olderOpen && at <= edge.lo) return null;
+    if (edge.newerOpen && at >= edge.hi) return null;
+  }
+  return lines.reduce((s, t) => s + (t.direction === 'debit' ? cents(t.amount) : -cents(t.amount)), 0) / 100;
 }
 
 /**
