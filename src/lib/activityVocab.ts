@@ -23,6 +23,8 @@ export const ACTION_LABEL: Record<string, string> = {
   'order.payment_mark_paid': 'marked paid',
   'order.email_send': 'emailed the customer about',
   'order.shipment_create': 'created a shipment for',
+  // Owner 26 Nov 2026: a Create Shipment that did not book stays on the order, with its reason.
+  'order.shipment_failed': 'could not book a shipment for',
   'order.delivery_mark': 'set delivery status on',
   'order.invoice_details': 'edited invoice details on',
   'order.sales_claim': 'claimed the sale on',
@@ -48,6 +50,7 @@ export const ACTION_SHORT: Record<string, string> = {
   'order.payment_mark_paid': 'Marked paid',
   'order.email_send': 'Emails sent',
   'order.shipment_create': 'Shipments created',
+  'order.shipment_failed': 'Shipments not booked',
   'order.delivery_mark': 'Delivery updates',
   'order.invoice_details': 'Invoice edits',
   'order.sales_claim': 'Sales claims',

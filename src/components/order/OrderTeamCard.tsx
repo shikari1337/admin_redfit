@@ -342,6 +342,10 @@ const OrderTeamCard: React.FC<Props> = ({
                     {r.from_value && r.to_value && (
                       <span className="text-gray-500"> · {r.from_value} → {r.to_value}</span>
                     )}
+                    {/* A booking that did not go through keeps its reason (owner 26 Nov 2026). */}
+                    {r.action === 'order.shipment_failed' && typeof r.meta?.reason === 'string' && r.meta.reason && (
+                      <span className="mt-0.5 block text-red-700">{r.meta.reason}</span>
+                    )}
                   </span>
                   <span className="shrink-0 text-gray-400">{localeDateTime(r.occurred_at, TS, 'en-IN')}</span>
                 </li>
