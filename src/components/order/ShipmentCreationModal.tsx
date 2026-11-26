@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { FaTruck, FaRupeeSign, FaSpinner, FaPlane, FaBox, FaMoneyBillWave, FaClock, FaSync, FaGlobe, FaExclamationTriangle } from 'react-icons/fa';
 import Modal from './Modal';
-import api, { shippingAPI, packagesAPI } from '../../services/api';
+import api, { shippingAPI, packagesAPI, walletAPI } from '../../services/api';
 
 interface Warehouse {
   _id: string;
@@ -392,6 +392,25 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
   // Growcord Ship is offered whenever the store has it switched on (GET /shipping/providers lists it); it needs
   // no per-warehouse courier mapping because Growcord Ship allocates the courier for each parcel.
   const hasGrowcordShip = Array.isArray(shippingProviders) && shippingProviders.some(p => p.id === 'growcord_ship');
+  /** The store's Growcord wallet, which Growcord Ship freight comes off: asked only while Growcord Ship is the chosen
+   *  provider in an open window, so the balance and Add money sit beside its couriers (owner 26 Nov 2026: "add option
+   *  to add money"). Add money opens the Wallet page's Razorpay recharge in a new tab, so this window keeps its parcel. */
+  /** `undefined` while asking; `null` when the balance cannot be read (no billing.read): the link stays. */
+  const [gsWallet, setGsWallet] = useState<{ balance: number } | null | undefined>(undefined);
+  const loadGsWallet = () => {
+    walletAPI.get()
+      .then((w: any) => setGsWallet(w && w.balance != null && Number.isFinite(Number(w.balance)) ? { balance: Number(w.balance) } : null))
+      .catch(() => setGsWallet(null));
+  };
+  useEffect(() => {
+    if (!isOpen || selectedShippingProvider !== 'growcord_ship') return;
+    loadGsWallet();
+    // Back from the Wallet tab: read the balance again.
+    const onFocus = () => { if (document.visibilityState === 'visible') loadGsWallet(); };
+    document.addEventListener('visibilitychange', onFocus);
+    return () => document.removeEventListener('visibilitychange', onFocus);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, selectedShippingProvider]);
   const chooseProvider = onShippingProviderChange as (provider: ShipProviderId) => void;
 
   useEffect(() => {
@@ -1526,6 +1545,27 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
                       <p className="text-sm text-gray-500">
                         Every courier in Growcord Ship with its price for this parcel. Choose one, or leave it and Growcord Ship picks. Freight comes off your wallet.
                       </p>
+                      {selectedShippingProvider === 'growcord_ship' && (
+                        <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                          {gsWallet !== null && (
+                            <span className="text-gray-700">
+                              Wallet balance:{' '}
+                              <span className="font-semibold text-gray-900">
+                                {gsWallet ? `₹${gsWallet.balance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'checking'}
+                              </span>
+                            </span>
+                          )}
+                          <a
+                            href="/settings/wallet"
+                            target="_blank"
+                            rel="noopener"
+                            onClick={(e) => e.stopPropagation()}
+                            className="font-medium text-blue-600 hover:underline"
+                          >
+                            Add money
+                          </a>
+                        </p>
+                      )}
                     </div>
                   </div>
                   {selectedShippingProvider === 'growcord_ship' && (
