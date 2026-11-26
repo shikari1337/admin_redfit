@@ -3,7 +3,8 @@ import { errorText } from '../../services/api';
 import { fmtRupees } from '@/lib/money';
 import { formatDate } from '../../utils/date';
 import {
-  STAGE_LABEL, chargeSplit, consignmentForShipment, gramsText, gsStatusText, paiseToRupees, type GsConsignment,
+  STAGE_LABEL, chargeSplit, consignmentForShipment, finalAmount, gramsText, gsStatusText, isCancelled, neverCharged, paiseToRupees,
+  type GsConsignment,
 } from '@/lib/v2/growship';
 
 const when = (d: unknown) => formatDate(d, 'dd MMM yyyy, HH:mm', '');
@@ -46,8 +47,11 @@ const GrowshipParcelPanel: React.FC<{ shipment: any; awb: string | null }> = ({ 
   const charges = Array.isArray(parcel.charges) ? parcel.charges : [];
   const split = chargeSplit(charges);
   const events = Array.isArray(parcel.events) ? parcel.events : [];
-  const change = parcel.final_sell != null && parcel.sell_with_gst != null
-    ? Math.round((parcel.final_sell - parcel.sell_with_gst) * 100) / 100 : null;
+  const cancelled = isCancelled(parcel);
+  const uncharged = neverCharged(parcel);
+  const fin = finalAmount(parcel);
+  const change = !cancelled && !uncharged && fin != null && parcel.sell_with_gst != null
+    ? Math.round((fin - parcel.sell_with_gst) * 100) / 100 : null;
 
   return (
     <div className="space-y-4 text-sm">
@@ -78,7 +82,10 @@ const GrowshipParcelPanel: React.FC<{ shipment: any; awb: string | null }> = ({ 
         {split.other != null && <Row k="Other" v={fmtRupees(split.other)} />}
         {parcel.gst != null && <Row k="GST" v={fmtRupees(parcel.gst)} />}
         {parcel.sell_with_gst != null && <Row k="At booking, with GST" v={fmtRupees(parcel.sell_with_gst)} />}
-        {parcel.final_sell != null && <Row k="Final" v={fmtRupees(parcel.final_sell)} strong />}
+        {cancelled && <Row k="Cancellation fee (what it cost)" v={fmtRupees(fin ?? 0)} strong />}
+        {uncharged && <Row k="What it cost" v="Nothing: no courier took it" strong />}
+        {!cancelled && !uncharged && fin != null && <Row k="Final" v={fmtRupees(fin)} strong />}
+        {cancelled && <p className="text-xs text-muted-foreground">Cancelled: the freight went back to the wallet less the cancellation fee.</p>}
         {change != null && change !== 0 && (
           <p className="text-xs text-amber-800">
             {change > 0 ? `${fmtRupees(change)} more than at booking` : `${fmtRupees(-change)} less than at booking`} (weight, return or cancellation).
