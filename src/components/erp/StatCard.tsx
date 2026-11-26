@@ -6,16 +6,26 @@ import { CARD } from './Card';
  * StatCard — the KPI tile shared by every dashboard. Consistent radius, border,
  * label case and number size. A `tone` tints the card for good/bad/attention
  * states; an `accent` dot carries a chart-series colour without recolouring the
- * whole tile.
+ * whole tile. The coloured edge on the left is the suite's stat tile (ADMIN-BRAND-1):
+ * Growcord orange by default, the tone's colour otherwise.
  */
 export type StatTone = 'default' | 'good' | 'bad' | 'warn' | 'info';
 
 const TONE: Record<StatTone, string> = {
-  default: 'border-gray-200 bg-white',
-  good: 'border-emerald-200 bg-emerald-50/60',
-  bad: 'border-red-200 bg-red-50/60',
-  warn: 'border-amber-200 bg-amber-50/60',
-  info: 'border-blue-200 bg-blue-50/60',
+  default: 'border-gray-200 bg-white before:bg-brand-500',
+  good: 'border-emerald-200 bg-emerald-50/60 before:bg-emerald-500',
+  bad: 'border-red-200 bg-red-50/60 before:bg-red-500',
+  warn: 'border-amber-200 bg-amber-50/60 before:bg-amber-500',
+  info: 'border-blue-200 bg-blue-50/60 before:bg-blue-500',
+};
+
+/** The icon's tile, in the card's own tone. */
+const ICON_TILE: Record<StatTone, string> = {
+  default: 'bg-brand-50 text-brand-600',
+  good: 'bg-emerald-100/70 text-emerald-600',
+  bad: 'bg-red-100/70 text-red-600',
+  warn: 'bg-amber-100/70 text-amber-600',
+  info: 'bg-blue-100/70 text-blue-600',
 };
 
 export const StatCard: React.FC<{
@@ -27,14 +37,18 @@ export const StatCard: React.FC<{
   icon?: React.ComponentType<{ className?: string }>;
   className?: string;
 }> = ({ label, value, sub, tone = 'default', accent, icon: Icon, className }) => (
-  <div className={cn(CARD, 'p-4', TONE[tone], className)}>
+  <div className={cn(CARD, 'relative overflow-hidden p-4 before:absolute before:inset-y-0 before:left-0 before:w-[3px]', TONE[tone], className)}>
     <div className="flex items-center justify-between gap-2">
-      <div className="text-xs font-medium uppercase tracking-wide text-gray-500">{label}</div>
-      {Icon && <Icon className="h-4 w-4 text-gray-400" />}
+      <div className="text-[11px] font-semibold uppercase tracking-[0.07em] text-gray-500">{label}</div>
+      {Icon && (
+        <span className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', ICON_TILE[tone])}>
+          <Icon className="h-4 w-4" />
+        </span>
+      )}
     </div>
     <div className="mt-1.5 flex items-baseline gap-2">
       {accent && <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: accent }} />}
-      <span className="text-2xl font-bold tabular-nums text-gray-900">{value}</span>
+      <span className="font-display text-2xl font-extrabold tracking-tight tabular-nums text-gray-900">{value}</span>
     </div>
     {sub && <div className="mt-1 text-xs text-gray-500">{sub}</div>}
   </div>
