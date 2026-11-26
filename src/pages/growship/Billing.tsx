@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Receipt, Loader2, FileDown, Info } from 'lucide-react';
 import { errorText } from '../../services/api';
+import { useAuth } from '../../contexts/AuthContext';
+import { isShipRefund, readMovesSince } from '@/lib/growshipWallet';
 import { fmtRupees } from '@/lib/money';
 import { downloadCsv, type CsvColumn } from '@/lib/csv';
 import { formatDate } from '../../utils/date';
@@ -23,12 +25,6 @@ const money = (n: number | null | undefined) => (n == null ? '' : fmtRupees(n));
 const sum = (rows: GsConsignment[], f: (c: GsConsignment) => number | null | undefined) =>
   Math.round(rows.reduce((s, c) => s + (Number(f(c)) || 0), 0) * 100) / 100;
 
-/** A parcel that cost nothing in the end except, when cancelled, its cancellation fee. */
-const notCharged = (c: GsConsignment) => isCancelled(c) || neverCharged(c);
-/** Why a parcel's booking amount is not what it cost, in words (also the CSV's note). */
-const noteOf = (c: GsConsignment): string => (neverCharged(c)
-  ? 'No courier took it: nothing was charged.'
-  : isCancelled(c) ? 'Cancelled: the freight went back to the wallet less the cancellation fee.' : '');
 
 /**
  * What Growcord Ship charged, parcel by parcel, for a period (owner 26 Nov 2026: "billing details charges and
@@ -37,7 +33,12 @@ const noteOf = (c: GsConsignment): string => (neverCharged(c)
  * list (`GET /api/v2/ship/consignments`); the charge lines of the parcels on screen are read as they show.
  */
 const GrowshipBilling: React.FC = () => {
+  const { hasPerm } = useAuth();
+  // The parcels are Growcord Ship's own record (shipments.read); the refunds are the wallet's (billing.read, the page gate).
+  const canShip = hasPerm('shipments.read');
   const [range, setRange] = useState({ from: DEFAULT_FROM(), to: DEFAULT_TO() });
+  /** Parcel id to what the wallet got back for it, in rupees (a refunded booking is not paid). */
+  const [refundOf, setRefundOf] = useState<Map<string, number>>(new Map());
   const [rows, setRows] = useState<GsConsignment[] | null>(null);
   const [capped, setCapped] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +53,7 @@ const GrowshipBilling: React.FC = () => {
   useEffect(() => {
     let live = true;
     setRows(null); setError(null); setPage(1); setCapped(false);
+    if (!canShip) { setRows([]); setError('The parcels need the shipments.read permission, the same as the shipments board.'); return () => { live = false; }; }
     (async () => {
       const out: GsConsignment[] = [];
       for (let offset = 0; ; offset += READ_PAGE) {
@@ -60,10 +62,38 @@ const GrowshipBilling: React.FC = () => {
         if (p.items.length < READ_PAGE || out.length >= p.total) break;
         if (out.length >= READ_CAP) { if (live) setCapped(true); break; }
       }
-      if (live) setRows(out);
+      // What came back to the wallet for these parcels: Ship's own refund records by parcel, else the wallet's
+      // Growcord Ship refunds by the parcel's number (a cancel names it).
+      const refunds = new Map<string, number>();
+      const [legs, back] = await Promise.all([
+        growshipAPI.walletLegs(200).catch(() => []),
+        readMovesSince('refund', range.from, { direction: 'credit', cap: 1000 }).catch(() => ({ rows: [], capped: false })),
+      ]);
+      for (const l of legs) {
+        if (l.leg === 'refund' && l.consignment_id && Number(l.amount) > 0) {
+          refunds.set(String(l.consignment_id), (refunds.get(String(l.consignment_id)) ?? 0) + Number(l.amount));
+        }
+      }
+      const byNumber = new Map(out.map((c) => [String(c.consignment_number ?? ''), c.id]));
+      for (const r of back.rows) {
+        const id = r.reference ? byNumber.get(String(r.reference)) : undefined;
+        if (id && isShipRefund(r) && !legs.some((l) => l.leg === 'refund' && String(l.consignment_id) === id)) {
+          refunds.set(id, (refunds.get(id) ?? 0) + Number(r.amount));
+        }
+      }
+      if (live) { setRefundOf(refunds); setRows(out); }
     })().catch((e) => { if (live) { setRows([]); setError(errorText(e, 'Growcord Ship could not be read.')); } });
     return () => { live = false; };
-  }, [range.from, range.to]);
+  }, [range.from, range.to, canShip]);
+
+  const refunded = (c: GsConsignment) => Math.round((refundOf.get(c.id) ?? 0) * 100) / 100;
+  /** A parcel that was not paid for in the end: cancelled (its fee only), no courier took it, or refunded. */
+  const notCharged = (c: GsConsignment) => isCancelled(c) || neverCharged(c) || refunded(c) > 0;
+  /** Why a parcel's booking amount is not what it cost, in words (also the CSV's note). */
+  const noteOf = (c: GsConsignment): string => (neverCharged(c)
+    ? 'No courier took it: nothing was charged, the money went back to the wallet.'
+    : isCancelled(c) ? 'Cancelled: the freight went back to the wallet less the cancellation fee.'
+      : refunded(c) > 0 ? `Refunded ${fmtRupees(refunded(c))} to the wallet.` : '');
 
   const all = rows ?? [];
   const shown = all.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -96,9 +126,16 @@ const GrowshipBilling: React.FC = () => {
    * What the parcel finally cost (lib/v2/growship.ts finalAmount): a cancelled parcel only its cancellation fee
    * (null until its lines are read), one no courier took nothing, otherwise the final or the booking plus changes.
    */
-  const finalIn = (m: Record<string, GsConsignment>, c: GsConsignment): number | null => finalAmount(c, m[c.id]);
+  const finalIn = (m: Record<string, GsConsignment>, c: GsConsignment): number | null => {
+    const back = refunded(c);
+    const own = finalAmount(c, m[c.id]);
+    if (back > 0 && !neverCharged(c) && (own == null || !isCancelled(c)) && c.sell_with_gst != null) {
+      return Math.max(0, Math.round((c.sell_with_gst - back) * 100) / 100);
+    }
+    return own;
+  };
 
-  // Cancelled parcels and ones no courier took are left out of the money totals: their freight was not kept.
+  // Cancelled, refunded and never-taken parcels are left out of the money totals: their freight was not kept.
   const totals = useMemo(() => {
     const charged = all.filter((c) => !notCharged(c));
     return {
@@ -106,13 +143,14 @@ const GrowshipBilling: React.FC = () => {
       charged: charged.length,
       cancelled: all.filter(isCancelled).length,
       uncharged: all.filter(neverCharged).length,
+      refundedOnly: all.filter((c) => !isCancelled(c) && !neverCharged(c) && refunded(c) > 0).length,
       before: sum(charged, (c) => c.sell_price),
       gst: sum(charged, (c) => c.gst),
       booked: sum(charged, (c) => c.sell_with_gst),
       cod: sum(charged.filter((c) => c.payment_mode === 'cod'), (c) => c.cod_amount),
       settled: charged.filter((c) => c.final_sell != null).length,
     };
-  }, [all]);
+  }, [all, refundOf]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const columnsFor = (m: Record<string, GsConsignment>): CsvColumn<GsConsignment>[] => [
     { key: 'created_at', label: 'Booked', format: (c) => formatDate(c.created_at, 'yyyy-MM-dd HH:mm', '') },
@@ -186,8 +224,12 @@ const GrowshipBilling: React.FC = () => {
         <StatCard
           label="Parcels charged"
           value={rows ? totals.charged.toLocaleString('en-IN') : '...'}
-          sub={rows && (totals.cancelled || totals.uncharged)
-            ? [totals.cancelled ? `${totals.cancelled} cancelled (freight back to the wallet less any cancellation fee)` : '', totals.uncharged ? `${totals.uncharged} no courier took, not charged` : ''].filter(Boolean).join('; ') + '. Left out of these totals.'
+          sub={rows && (totals.cancelled || totals.uncharged || totals.refundedOnly)
+            ? [
+              totals.cancelled ? `${totals.cancelled} cancelled (freight back to the wallet less any cancellation fee)` : '',
+              totals.uncharged ? `${totals.uncharged} not booked by the courier, refunded` : '',
+              totals.refundedOnly ? `${totals.refundedOnly} refunded` : '',
+            ].filter(Boolean).join('; ') + '. Left out of these totals.'
             : undefined}
         />
         <StatCard label="Before GST" value={rows ? fmtRupees(totals.before) : '...'} sub="Parcels not cancelled." />
@@ -228,7 +270,10 @@ const GrowshipBilling: React.FC = () => {
                       <div className="text-gray-500">{gramsText(c.chargeable_weight_g)}{c.payment_mode === 'cod' ? `, COD ${money(c.cod_amount)}` : ''}</div>
                     </Td>
                     <Td>
-                      {cancelled ? <Chip tone="red">Cancelled</Chip> : neverCharged(c) ? <Chip tone="neutral">No courier took it</Chip> : <span className="text-xs">{gsStatusText(c.board_status || c.status)}</span>}
+                      {cancelled ? <Chip tone="red">Cancelled</Chip>
+                        : neverCharged(c) ? <Chip tone="neutral">Not booked by the courier, refunded</Chip>
+                          : refunded(c) > 0 ? <Chip tone="green">Refunded</Chip>
+                            : <span className="text-xs">{gsStatusText(c.board_status || c.status)}</span>}
                     </Td>
                     <Td num>{off ? '' : s ? money(s.freight) : '...'}</Td>
                     <Td num>{off ? '' : s ? money(s.cod) : '...'}</Td>
@@ -240,6 +285,7 @@ const GrowshipBilling: React.FC = () => {
                       {fin == null ? (cancelled ? '...' : '') : money(fin)}
                       {cancelled && <div className="text-[11px] font-normal text-gray-500">cancellation fee</div>}
                       {neverCharged(c) && <div className="text-[11px] font-normal text-gray-500">not charged</div>}
+                      {!cancelled && !neverCharged(c) && refunded(c) > 0 && <div className="text-[11px] font-normal text-gray-500">after the refund</div>}
                     </Td>
                   </Tr>
                 );
