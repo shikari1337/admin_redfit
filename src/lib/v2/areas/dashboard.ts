@@ -73,6 +73,12 @@ export const DASHBOARD_ROUTES: V2Route[] = [
     reply: lift,
   },
   {
+    // TSUM-1 (owner 26 Nov 2026): the dashboard's Refresh button fills the traffic summary again. No body.
+    // TrafficRefreshView {ready, busy, filled_through, refreshed_at, days, rows, ms} (insights views.rs).
+    m: 'POST', from: '/analytics/panels/refresh', row: 'insights panels.rs: POST /api/v2/insights/panels/refresh',
+    to: '/api/v2/insights/panels/refresh', body: () => undefined,
+  },
+  {
     // Delivered / returned / RTO per payment, gateway, campaign, source, medium, ads vs organic (INS-OUTCOMES-1).
     m: 'GET', from: '/analytics/panels/outcomes', row: 'insights panels.rs — GET /api/v2/insights/panels/outcomes',
     to: '/api/v2/insights/panels/outcomes', query: outcomesQuery, reply: lift,

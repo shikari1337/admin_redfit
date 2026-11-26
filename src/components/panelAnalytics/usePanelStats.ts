@@ -47,6 +47,33 @@ function ttlFor(url: string, range: PanelRange, extra?: ExtraParams): number {
   return TTL_RUNNING_MS;
 }
 
+/**
+ * The dashboard's Refresh button (TSUM-1, owner 26 Nov 2026): `refreshPanels()` forgets every
+ * kept answer and bumps a counter every ranged read on screen listens to, so each asks again at
+ * once (keeping its last answer on screen while it does).
+ */
+let generation = 0;
+const listeners = new Set<() => void>();
+
+export function refreshPanels(): void {
+  cache.clear();
+  // A read started before the refresh may predate the new figures: the next one asks afresh.
+  inflight.clear();
+  generation += 1;
+  listeners.forEach((l) => l());
+}
+
+/** The refresh counter; a hook that puts it in its effect's dependencies asks again on Refresh. */
+export function usePanelsGeneration(): number {
+  const [g, setG] = useState(generation);
+  useEffect(() => {
+    const l = () => setG(generation);
+    listeners.add(l);
+    return () => { listeners.delete(l); };
+  }, []);
+  return g;
+}
+
 // Whatever this tab saves may move a figure, so the next read after a save is a fresh one.
 // (Another person's save shows within the times above.)
 const forgetOnWrite = (res: any) => {
@@ -98,6 +125,7 @@ export function useRangedGet<T = any>(url: string, range: PanelRange, enabled = 
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<number | null>(null);
   const extraKey = JSON.stringify(cleanExtra(extra));
+  const gen = usePanelsGeneration();
 
   useEffect(() => {
     if (!enabled) { setData(null); setError(null); setStatus(null); setLoading(false); return; }
@@ -115,7 +143,7 @@ export function useRangedGet<T = any>(url: string, range: PanelRange, enabled = 
     return () => { alive = false; };
     // `extra` is compared by its serialised form so an inline object is not a new request.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url, range.from, range.to, enabled, extraKey]);
+  }, [url, range.from, range.to, enabled, extraKey, gen]);
 
   return { data, loading, error, status };
 }

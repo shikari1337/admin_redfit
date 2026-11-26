@@ -1,6 +1,11 @@
-import React, { Suspense, lazy, useCallback } from 'react';
+import React, { Suspense, lazy, useCallback, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { RefreshCw } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { api, errorText } from '../services/api';
+import { payload } from '../lib/unwrap';
+import { formatTime } from '../utils/date';
+import { refreshPanels } from '../components/panelAnalytics/usePanelStats';
 import { useHomeFeed } from '../components/home/useHomeFeed';
 import { AttentionBoard } from '../components/home/AttentionBoard';
 import { TabBar } from '../components/erp/Tabs';
@@ -65,13 +70,49 @@ const Dashboard: React.FC = () => {
   // of the whole history, never of the period picked below — so it reads the
   // all-time feed, which Month & year and Money share. The sales panel is the `analytics`
   // module's, so it is asked for only once the module map says the store has it.
-  const allTime = useAllTimeMonthly(hasPerm('orders.read') && modulesLoaded && canAccess('analytics'));
+  const salesRead = hasPerm('orders.read') && modulesLoaded && canAccess('analytics');
+  const allTime = useAllTimeMonthly(salesRead);
+
+  // Refresh (TSUM-1, owner 26 Nov 2026: "instead create anaytics table fill it add a refresh
+  // button"): the visit figures of finished days come from a summary the server keeps; a press
+  // fills its last two days again (and any day not filled yet), then every figure on this page is
+  // asked for again. A viewer without the sales panel only gets the figures asked for again.
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshNote, setRefreshNote] = useState<string | null>(null);
+  const [refreshedAt, setRefreshedAt] = useState<string | null>(null);
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    setRefreshNote(null);
+    try {
+      if (salesRead) {
+        const r = payload<any>(await api.post('/analytics/panels/refresh'));
+        if (r?.refreshed_at) setRefreshedAt(String(r.refreshed_at));
+        if (r?.busy) setRefreshNote('A refresh was already running. The figures are being asked for again.');
+      }
+    } catch (e) {
+      setRefreshNote(`${errorText(e, 'Could not refresh the visit summary.')} The figures are being asked for again.`);
+    } finally {
+      refreshPanels();
+      setRefreshing(false);
+    }
+  }, [salesRead]);
+  const summaryAt: string | null = refreshedAt ?? allTime.data?.traffic_summary?.refreshed_at ?? null;
 
   return (
     <div className="space-y-6" data-dashboard>
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-sm text-gray-500">What needs you first, then how sales compare, then the details.</p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+          <p className="text-sm text-gray-500">What needs you first, then how sales compare, then the details.</p>
+        </div>
+        <div className="flex flex-col items-end gap-1">
+          <button type="button" onClick={refresh} disabled={refreshing} aria-busy={refreshing} data-testid="dashboard-refresh"
+            className="inline-flex items-center gap-1.5 rounded-md border bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60">
+            <RefreshCw className={refreshing ? 'size-4 animate-spin' : 'size-4'} aria-hidden /> {refreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
+          {summaryAt && <span className="text-xs text-gray-500" data-testid="dashboard-updated">Updated {formatTime(summaryAt)}</span>}
+          {refreshNote && <span role="status" className="max-w-xs text-right text-xs text-amber-700">{refreshNote}</span>}
+        </div>
       </div>
 
       <AttentionBoard feed={feed} commerce={allTime.data?.summary ?? null} />

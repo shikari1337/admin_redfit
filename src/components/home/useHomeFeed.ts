@@ -17,9 +17,10 @@
  * does; `pending` names what is still being checked and `failed` what could
  * not be read, so a missing tile never silently means "nothing to do".
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../../services/api';
 import { listTotal, payload } from '../../lib/unwrap';
+import { usePanelsGeneration } from '../panelAnalytics/usePanelStats';
 
 export interface HomeSources {
   orders: any | null;        // /analytics/panels/orders         (orders.read)
@@ -70,6 +71,10 @@ interface SourceDef {
 
 export function useHomeFeed(gate: Gate): HomeSources {
   const [state, setState] = useState<HomeSources>(EMPTY);
+  // The dashboard's Refresh button (TSUM-1) asks every section again; the board keeps the
+  // answers it has on screen until the new ones land (only a different viewer starts empty).
+  const gen = usePanelsGeneration();
+  const askedFor = useRef<string | null>(null);
 
   // What this viewer may read, as one string: the feed is asked for once per
   // distinct answer, not once per render (hasPerm/canAccess are re-created
@@ -122,7 +127,10 @@ export function useHomeFeed(gate: Gate): HomeSources {
 
     const withheld = sources.filter((s) => !s.allowed).map((s) => s.name);
     const asked = sources.filter((s) => s.allowed);
-    setState({ ...EMPTY, withheld, pending: asked.map((s) => s.name), loading: asked.length > 0 });
+    const sameViewer = askedFor.current === access;
+    askedFor.current = access;
+    const fresh = { withheld, pending: asked.map((s) => s.name), loading: asked.length > 0 };
+    setState((prev) => (sameViewer ? { ...prev, ...fresh, failed: [] } : { ...EMPTY, ...fresh }));
 
     for (const s of asked) {
       api.get(s.url, { params: s.params })
@@ -145,9 +153,9 @@ export function useHomeFeed(gate: Gate): HomeSources {
     }
 
     return () => { alive = false; };
-    // `access` already encodes every hasPerm/canAccess answer used above.
+    // `access` already encodes every hasPerm/canAccess answer used above; `gen` is a Refresh press.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gate.modulesLoaded, access]);
+  }, [gate.modulesLoaded, access, gen]);
 
   return state;
 }
