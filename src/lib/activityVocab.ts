@@ -25,6 +25,8 @@ export const ACTION_LABEL: Record<string, string> = {
   'order.shipment_create': 'created a shipment for',
   // Owner 26 Nov 2026: a Create Shipment that did not book stays on the order, with its reason.
   'order.shipment_failed': 'could not book a shipment for',
+  // Owner 26 Nov 2026: a booking no courier took is cancelled (by the system); the line says so plainly.
+  'order.shipment_cancel': 'Shipment cancelled: the courier did not take it',
   'order.delivery_mark': 'set delivery status on',
   'order.invoice_details': 'edited invoice details on',
   'order.sales_claim': 'claimed the sale on',
@@ -51,6 +53,7 @@ export const ACTION_SHORT: Record<string, string> = {
   'order.email_send': 'Emails sent',
   'order.shipment_create': 'Shipments created',
   'order.shipment_failed': 'Shipments not booked',
+  'order.shipment_cancel': 'Shipments cancelled: not taken by the courier',
   'order.delivery_mark': 'Delivery updates',
   'order.invoice_details': 'Invoice edits',
   'order.sales_claim': 'Sales claims',
