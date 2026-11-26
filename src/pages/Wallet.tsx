@@ -1,5 +1,5 @@
-import { token } from '@/lib/theme';
 import React, { useEffect, useState } from 'react';
+import { startWalletRecharge } from '@/lib/walletRecharge';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Loader2, Wallet as WalletIcon, AlertTriangle, Plus, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
 import { walletAPI } from '../services/api';
@@ -60,24 +60,6 @@ const WALLET_CSV_COLUMNS: CsvColumn<WalletTransaction>[] = [
 const SERVICE_LABELS: Record<string, string> = {
   sms: 'SMS', whatsapp: 'WhatsApp', email: 'Email', shipping: 'Shipping label', ai: 'AI generation',
 };
-
-declare global {
-  interface Window { Razorpay?: any; }
-}
-
-// Razorpay's checkout widget isn't preloaded anywhere in the admin shell — load it once, lazily.
-function loadRazorpayScript(): Promise<boolean> {
-  return new Promise((resolve) => {
-    if (window.Razorpay) { resolve(true); return; }
-    const existing = document.querySelector('script[src="https://checkout.razorpay.com/v1/checkout.js"]');
-    if (existing) { existing.addEventListener('load', () => resolve(true)); return; }
-    const script = document.createElement('script');
-    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-    script.onload = () => resolve(true);
-    script.onerror = () => resolve(false);
-    document.body.appendChild(script);
-  });
-}
 
 /** Money in rupees (the v2 envelope turns each Money into its major figure) through the one formatter. */
 const fmtMoney = (n: number | null | undefined, currency?: string | null) =>
@@ -154,53 +136,23 @@ const WalletPage: React.FC = () => {
       .some((v) => String(v ?? '').toLowerCase().includes(q)));
   }, [transactions, txFind]);
 
+  // The one recharge flow (lib/walletRecharge.ts), shared with the Growcord Ship pages.
   const handleRecharge = async () => {
     const amount = parseFloat(rechargeAmount);
     if (!amount || amount <= 0) { setError('Enter a valid amount.'); return; }
     setError(null);
     setRecharging(true);
-    try {
-      const order = await walletAPI.createRechargeOrder(amount);
-      const ready = await loadRazorpayScript();
-      if (!ready || !window.Razorpay) {
-        setError('Could not load the payment widget. Check your connection and try again.');
-        setRecharging(false);
-        return;
-      }
-      const rzp = new window.Razorpay({
-        key: order.key_id,
-        amount: Math.round(order.amount * 100),
-        currency: order.currency || 'INR',
-        name: 'Wallet Top-up',
-        description: `Add ${fmtMoney(order.amount)} to store wallet`,
-        order_id: order.razorpay_order_id,
-        handler: async (response: any) => {
-          try {
-            await walletAPI.verifyRecharge({
-              razorpay_order_id: response.razorpay_order_id,
-              razorpay_payment_id: response.razorpay_payment_id,
-              razorpay_signature: response.razorpay_signature,
-            });
-            setSuccess(`Wallet credited with ${fmtMoney(order.amount)}.`);
-            setTimeout(() => setSuccess(null), 5000);
-            loadOverview();
-            loadTransactions(1, directionFilter);
-            setTxPage(1);
-          } catch (err: any) {
-            setError(extractError(err));
-          } finally {
-            setRecharging(false);
-          }
-        },
-        modal: { ondismiss: () => setRecharging(false) },
-        theme: { color: token('accent') },
-      });
-      rzp.on('payment.failed', () => { setError('Payment failed. No amount was deducted from the wallet.'); setRecharging(false); });
-      rzp.open();
-    } catch (err: any) {
-      setError(extractError(err));
-      setRecharging(false);
-    }
+    await startWalletRecharge(amount, {
+      onPaid: (paid) => {
+        setSuccess(`Wallet credited with ${fmtMoney(paid)}.`);
+        setTimeout(() => setSuccess(null), 5000);
+        loadOverview();
+        loadTransactions(1, directionFilter);
+        setTxPage(1);
+      },
+      onError: (message) => setError(message),
+      onDone: () => setRecharging(false),
+    });
   };
 
   if (loading) {
