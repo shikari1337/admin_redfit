@@ -251,7 +251,11 @@ export const growshipAPI = {
     return Array.isArray(d?.legs) ? d.legs : [];
   },
 
-  /** A sheet of parcels as CSV text. A dry run (the default) prices and checks every row and books nothing. */
+  /**
+   * A sheet of parcels as CSV text. A dry run (the default) prices and checks every row and books nothing. A real
+   * run books row after row on the server in one call, so it is given ten minutes; when the answer is lost anyway,
+   * the job list (`bulkJobs`) says what was booked. Never send the same sheet for real twice.
+   */
   bulkRun: (b: { csv: string; filename?: string | null; dryRun: boolean; pickupLocationId?: string | null }): Promise<GsBulkRun> =>
     v2call<GsBulkRun>('POST', `${SHIP}/bulk`, {
       data: {
@@ -260,13 +264,17 @@ export const growshipAPI = {
         dry_run: b.dryRun,
         ...(b.pickupLocationId ? { pickup_location_id: b.pickupLocationId } : {}),
       },
+      ...(b.dryRun ? {} : { timeout: 10 * 60_000 }),
     }),
 
-  /** Every sheet run so far, real and dry. */
+  /** Every sheet run so far, real and dry, newest first. */
   bulkJobs: async (): Promise<GsBulkRun[]> => {
     const d = await v2call<any>('GET', `${SHIP}/bulk`);
     return Array.isArray(d) ? d : [];
   },
+
+  /** One sheet run with its rows. */
+  bulkJob: (id: string): Promise<GsBulkRun> => v2call<GsBulkRun>('GET', `${SHIP}/bulk/${seg(id)}`),
 };
 
 /** The header names Ship's sheet reader takes (`domain/bulk.rs`), for the blank template. */
@@ -330,6 +338,46 @@ export function chargeSplit(charges: GsCharge[] | null | undefined): GsChargeSpl
     else add('other', minor);
   }
   return out;
+}
+
+/** Cancelled, by the store or by Growcord Ship. */
+export const isCancelled = (c: GsConsignment): boolean => c.status === 'cancelled' || !!c.cancelled_at;
+
+/** Booked, but no courier took it: nothing was charged (`booking.rs`, pending_courier). */
+export const neverCharged = (c: GsConsignment): boolean => c.status === 'pending_courier';
+
+/** The sum of a parcel's adjustment lines in rupees, null when its lines are not read or it has none. */
+export function adjustmentsOf(c: GsConsignment | undefined): number | null {
+  if (!c || !Array.isArray(c.charges)) return null;
+  const lines = c.charges.filter((l) => l.stage === 'adjustment');
+  if (!lines.length) return null;
+  return Math.round(lines.reduce((s, l) => s + (Number(l.amount_minor) || 0), 0)) / 100;
+}
+
+/**
+ * The cancellation fee in rupees (0 when none was charged), from the parcel's lines; null when its lines are not
+ * read. A cancelled parcel's freight goes back to the wallet less this fee (`booking.rs` cancel).
+ */
+export function cancellationFee(c: GsConsignment | undefined): number | null {
+  if (!c || !Array.isArray(c.charges)) return null;
+  const minor = c.charges
+    .filter((l) => l.stage === 'adjustment' && /cancel/i.test(String(l.label ?? '')))
+    .reduce((s, l) => s + (Number(l.amount_minor) || 0), 0);
+  return Math.round(minor) / 100;
+}
+
+/**
+ * What the parcel finally costs the store, in rupees. Cancelled: only the cancellation fee. Never taken by a
+ * courier: nothing. Otherwise Growcord Ship's own final amount, else the booking plus any adjustment lines.
+ * `whole` is the parcel read with its lines; without it a cancelled parcel's fee is not known (null).
+ */
+export function finalAmount(c: GsConsignment, whole?: GsConsignment): number | null {
+  if (neverCharged(c)) return 0;
+  if (isCancelled(c)) return cancellationFee(whole ?? c);
+  if (c.final_sell != null) return c.final_sell;
+  if (c.sell_with_gst == null) return null;
+  const adj = adjustmentsOf(whole ?? c);
+  return Math.round((c.sell_with_gst + (adj ?? 0)) * 100) / 100;
 }
 
 /** A charge stage in words. */

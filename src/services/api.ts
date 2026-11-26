@@ -3226,6 +3226,10 @@ export const shippingAPI = {
   createShipment: async (orderId: string, options?: {
     warehouseId?: string;
     shippingProvider?: 'shiprocket' | 'delhivery' | 'manual' | 'growcord_ship';
+    /** Growcord Ship's offer id (or Shiprocket's courier id) the booking takes; none = the provider chooses. */
+    courierCode?: string;
+    /** The parcel: weight in kg, sides in cm. */
+    dimensions?: { weight: number; length: number; breadth: number; height: number };
     trackingId?: string;
     carrierName?: string;
     trackingUrl?: string;

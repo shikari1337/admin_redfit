@@ -50,10 +50,12 @@ export const WalletRechargeBox: React.FC<{ onPaid: (amount: number) => void; def
 }) => {
   const { hasPerm } = useAuth();
   const [amount, setAmount] = useState(String(defaultAmount));
+  // An amount the person typed stays; only an untouched box follows the suggested amount.
+  const [typed, setTyped] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
-  useEffect(() => { setAmount(String(defaultAmount)); }, [defaultAmount]);
+  useEffect(() => { if (!typed) setAmount(String(defaultAmount)); }, [defaultAmount, typed]);
   if (!hasPerm('billing.manage')) {
     return <p className="text-xs text-gray-500">Adding money needs the billing.manage permission. Ask the store owner.</p>;
   }
@@ -74,7 +76,7 @@ export const WalletRechargeBox: React.FC<{ onPaid: (amount: number) => void; def
           {!compact && <span className="block text-xs font-medium text-gray-500">Amount (Rs)</span>}
           <TextInput
             type="number" min="1" step="1" inputMode="numeric" value={amount}
-            onChange={(e) => setAmount(e.target.value)} className="w-32" aria-label="Amount to add in rupees"
+            onChange={(e) => { setTyped(true); setAmount(e.target.value); }} className="w-32" aria-label="Amount to add in rupees"
           />
         </label>
         <Btn onClick={go} disabled={busy}>
