@@ -220,6 +220,8 @@ const OrderBulkBar: React.FC<Props> = ({
     setResults(null);
     setNoteText('');
     setFlagReason('');
+    // The next Create shipments starts on Shiprocket again, as before Growcord Ship was offered here.
+    setShipProvider('shiprocket');
   };
 
   const perform = async (o: BulkOrderRow): Promise<RunResult> => {

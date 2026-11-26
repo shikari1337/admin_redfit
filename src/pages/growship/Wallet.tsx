@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Wallet as WalletIcon, Loader2, FileDown } from 'lucide-react';
 import { walletAPI, errorText } from '../../services/api';
+import { useAuth } from '../../contexts/AuthContext';
 import { fmtRupees } from '@/lib/money';
 import { downloadCsv, type CsvColumn } from '@/lib/csv';
 import { formatDate, isoDate } from '../../utils/date';
@@ -38,6 +39,9 @@ const categoryText = (c: string | null | undefined) => String(c ?? '').replace(/
  * charges and service prices, stays in Settings, Wallet.
  */
 const GrowshipWallet: React.FC = () => {
+  const { hasPerm } = useAuth();
+  // The AWB comes from Growcord Ship's own record, which needs shipments.read.
+  const canAwb = hasPerm('shipments.read');
   const { wallet, error: walletError, reload: reloadWallet } = useStoreWallet(true);
   const [category, setCategory] = useState<'shipping' | ''>('shipping');
   const [direction, setDirection] = useState<'' | 'credit' | 'debit'>('');
@@ -46,6 +50,7 @@ const GrowshipWallet: React.FC = () => {
   const [total, setTotal] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [legs, setLegs] = useState<GsWalletLeg[]>([]);
+  const [legsError, setLegsError] = useState<string | null>(null);
   const [range, setRange] = useState({ from: DEFAULT_FROM(), to: DEFAULT_TO() });
   const [statementBusy, setStatementBusy] = useState(false);
   const [statement, setStatement] = useState<{ rows: number; credit: number; debit: number; capped: boolean } | null>(null);
@@ -63,7 +68,10 @@ const GrowshipWallet: React.FC = () => {
   useEffect(load, [page, category, direction]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Ship's own record of the movements (newest 200): the AWB behind each wallet transaction.
-  useEffect(() => { growshipAPI.walletLegs(200).then(setLegs).catch(() => setLegs([])); }, []);
+  useEffect(() => {
+    if (!canAwb) return;
+    growshipAPI.walletLegs(200).then(setLegs).catch((e) => { setLegs([]); setLegsError(errorText(e, 'Growcord Ship could not be read.')); });
+  }, [canAwb]);
   const byTx = useMemo(() => {
     const m = new Map<string, GsWalletLeg>();
     for (const l of legs) if (l.platform_ref) m.set(String(l.platform_ref), l);
@@ -76,7 +84,7 @@ const GrowshipWallet: React.FC = () => {
     { key: 'direction', label: 'In or out', format: (t) => (t.direction === 'credit' ? 'Money in' : 'Money out') },
     { key: 'category', label: 'Category', format: (t) => categoryText(t.category) },
     { key: 'reference', label: 'Order or reference', format: (t) => t.reference ?? '' },
-    { key: 'awb', label: 'AWB', format: (t) => awbOf(t) },
+    ...(canAwb ? [{ key: 'awb', label: 'AWB', format: (t: Movement) => awbOf(t) }] : []),
     { key: 'note', label: 'Note', format: (t) => t.note ?? '' },
     { key: 'amount', label: 'Amount', format: (t) => (t.direction === 'debit' ? -Number(t.amount ?? 0) : Number(t.amount ?? 0)).toFixed(2) },
     { key: 'balance_after', label: 'Balance after', format: (t) => Number(t.balance_after ?? 0).toFixed(2) },
@@ -125,7 +133,7 @@ const GrowshipWallet: React.FC = () => {
         actions={<Link to="/settings/wallet" className="text-sm text-blue-700 hover:underline">Whole wallet and service prices</Link>}
       />
 
-      <WalletCard wallet={wallet} error={walletError} onChanged={() => { reloadWallet(); setPage(1); load(); }} />
+      <WalletCard wallet={wallet} error={walletError} onChanged={() => { reloadWallet(); if (page === 1) load(); else setPage(1); }} />
 
       <SectionCard title="Statement" description="Every movement between two dates, as a CSV file. It uses the filters below.">
         <FilterBar>
@@ -148,7 +156,9 @@ const GrowshipWallet: React.FC = () => {
       <SectionCard
         flush
         title="History"
-        description="Newest first. The AWB shows where Growcord Ship recorded which parcel the money was for."
+        description={canAwb
+          ? (legsError ? `Newest first. The AWB could not be read: ${legsError}` : 'Newest first. The AWB shows where Growcord Ship recorded which parcel the money was for.')
+          : 'Newest first. The AWB column is not shown: it needs the shipments.read permission.'}
         action={
           <div className="flex flex-wrap items-end gap-2">
             <Field label="Show">
@@ -171,17 +181,17 @@ const GrowshipWallet: React.FC = () => {
         <TableShell className="rounded-none border-0 shadow-none">
           <table className="w-full text-sm">
             <THead>
-              <Th>Date</Th><Th>Category</Th><Th>Order or reference</Th><Th>AWB</Th><Th>Note</Th><Th num>Amount</Th><Th num>Balance after</Th>
+              <Th>Date</Th><Th>Category</Th><Th>Order or reference</Th>{canAwb && <Th>AWB</Th>}<Th>Note</Th><Th num>Amount</Th><Th num>Balance after</Th>
             </THead>
             <TBody>
-              {rows === null && <EmptyRow colSpan={7}>Reading...</EmptyRow>}
-              {rows && rows.length === 0 && <EmptyRow colSpan={7}>{category === 'shipping' ? 'No shipping charge has been taken from the wallet yet.' : 'No movement yet.'}</EmptyRow>}
+              {rows === null && <EmptyRow colSpan={canAwb ? 7 : 6}>Reading...</EmptyRow>}
+              {rows && rows.length === 0 && <EmptyRow colSpan={canAwb ? 7 : 6}>{category === 'shipping' ? 'No shipping charge has been taken from the wallet yet.' : 'No movement yet.'}</EmptyRow>}
               {(rows ?? []).map((t) => (
                 <Tr key={t.id}>
                   <Td muted className="whitespace-nowrap">{formatDate(t.created_at, 'dd MMM yyyy, HH:mm', '')}</Td>
                   <Td className="capitalize">{categoryText(t.category)}</Td>
                   <Td>{t.reference || ''}</Td>
-                  <Td className="font-mono text-xs">{awbOf(t)}</Td>
+                  {canAwb && <Td className="font-mono text-xs">{awbOf(t)}</Td>}
                   <Td className="max-w-xs truncate text-xs text-gray-500" title={t.note ?? undefined}>{t.note || ''}</Td>
                   <Td num className={t.direction === 'credit' ? 'text-emerald-700' : 'text-red-700'}>
                     {t.direction === 'credit' ? '+' : '-'}{fmtRupees(t.amount)}
