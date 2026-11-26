@@ -5,39 +5,36 @@ import { api, shipmentsAPI, errorText } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { payload } from '@/lib/unwrap';
 import { fmtMinor, fmtRupees } from '@/lib/money';
-import { formatDate, isoDaysFromToday, todayIso } from '../../utils/date';
+import { formatDate } from '../../utils/date';
 import {
   Page, PageHeader, SectionCard, StatCard, StatGrid, TableShell, THead, Th, TBody, Tr, Td, EmptyRow, btn,
 } from '../../components/erp';
 import StatusBadge from '../../components/order/StatusBadge';
 import { WalletCard, useStoreWallet } from '../../components/growship/WalletCard';
-import { providerTabCounts } from '../../components/shipments/providerCounts';
-import type { StatusCounts, TabType } from '../../components/shipments';
+import type { TabType } from '../../components/shipments';
 import { shipmentAwb, shipmentCharge, shipmentCourier } from '../../components/shipments/shipmentFacts';
 import { growshipAPI, isNotEnabled, type GsAccount } from '@/lib/v2/growship';
-import { codPayoutsAPI, type CodPayer, type CodSummary } from '../payments/data';
+import { codPayoutsAPI, type CodPayer } from '../payments/data';
 
 const GS = 'growcord_ship' as const;
 
-/** The board tabs shown as tiles, in the order a parcel moves. */
-const TILES: Array<{ tab: TabType; label: string; tone?: 'warn' | 'bad' | 'good' | 'info' }> = [
-  { tab: 'pending_orders', label: 'Orders to book', tone: 'info' },
-  { tab: 'ready_to_pick', label: 'Waiting for pickup', tone: 'warn' },
+/** The board's tabs, in the order a parcel moves; their counts are on the Shipments page (one board read). */
+const TABS: Array<{ tab: TabType; label: string }> = [
+  { tab: 'pending_orders', label: 'Orders to book' },
+  { tab: 'ready_to_pick', label: 'Waiting for pickup' },
   { tab: 'pickup_scheduled', label: 'Pickup booked' },
   { tab: 'in_transit', label: 'On the way' },
-  { tab: 'ndr_failed_delivery', label: 'Failed delivery', tone: 'bad' },
-  { tab: 'delivered', label: 'Delivered', tone: 'good' },
-  { tab: 'rto_in_transit', label: 'Coming back (RTO)', tone: 'warn' },
+  { tab: 'ndr_failed_delivery', label: 'Failed delivery' },
+  { tab: 'delivered', label: 'Delivered' },
+  { tab: 'rto_in_transit', label: 'Coming back (RTO)' },
   { tab: 'rto_delivered', label: 'Returned (RTO)' },
 ];
 
-const monthStart = () => `${todayIso().slice(0, 8)}01`;
-
 /**
  * Growcord Ship at a glance (owner 26 Nov 2026: a Growcord Ship menu with the complete panel): the wallet its
- * freight comes off with Add money, Growcord Ship parcels by status, this month's shipping charges, cash on
- * delivery still with the couriers, open weight disputes and the latest parcels. Everything is read once when
- * the page opens.
+ * freight comes off with Add money, the account, the latest parcels with the charges so far, cash on delivery still
+ * with Growcord Ship and open weight disputes. Five reads, once, when the page opens; the counts by status are on
+ * the Shipments page.
  */
 const GrowshipOverview: React.FC = () => {
   const { hasPerm } = useAuth();
@@ -47,12 +44,10 @@ const GrowshipOverview: React.FC = () => {
   const [account, setAccount] = useState<GsAccount | null | undefined>(undefined);
   const [accountError, setAccountError] = useState<string | null>(null);
   const [notOn, setNotOn] = useState(false);
-  const [counts, setCounts] = useState<StatusCounts | null>(null);
   const [recent, setRecent] = useState<any[] | null>(null);
   const [recentTotal, setRecentTotal] = useState<number | null>(null);
-  const [month, setMonth] = useState<{ total: number | null; counted: number; unknown: number } | null>(null);
+  const [charges, setCharges] = useState<{ total: number | null; counted: number; unknown: number } | null>(null);
   const [listError, setListError] = useState<string | null>(null);
-  const [cod, setCod] = useState<CodSummary | null>(null);
   const [codPayers, setCodPayers] = useState<CodPayer[] | null>(null);
   const [codError, setCodError] = useState<string | null>(null);
   const [disputes, setDisputes] = useState<any | null>(null);
@@ -62,32 +57,23 @@ const GrowshipOverview: React.FC = () => {
       .then((a) => setAccount(a))
       .catch((e) => { setAccount(null); setNotOn(isNotEnabled(e)); setAccountError(errorText(e, 'The Growcord Ship account could not be read.')); });
 
-    providerTabCounts(GS).then(setCounts).catch((e) => setListError(errorText(e, 'The parcel counts could not be read.')));
-
+    // One board read: the latest parcels, how many there are, and the board's own sum of their charges.
     shipmentsAPI.getAll({ shippingProvider: GS, page: 1, limit: 8 })
       .then((r: any) => {
         setRecent(Array.isArray(r) ? r : Array.isArray(r?.data) ? r.data : []);
         const t = Number(r?.pagination?.total);
         setRecentTotal(Number.isFinite(t) ? t : null);
+        const ct = r?.chargeTotals;
+        if (ct && typeof ct === 'object') {
+          setCharges({ total: ct.total == null ? null : Number(ct.total), counted: Number(ct.counted) || 0, unknown: Number(ct.unknown) || 0 });
+        }
       })
       .catch((e) => { setRecent([]); setListError(errorText(e, 'The parcels could not be read.')); });
 
-    shipmentsAPI.getAll({ shippingProvider: GS, page: 1, limit: 1, startDate: monthStart(), endDate: todayIso() })
-      .then((r: any) => {
-        const ct = r?.chargeTotals;
-        if (ct && typeof ct === 'object') {
-          setMonth({ total: ct.total == null ? null : Number(ct.total), counted: Number(ct.counted) || 0, unknown: Number(ct.unknown) || 0 });
-        }
-      })
-      .catch(() => { /* the parcels line above says what failed */ });
-
     if (hasPerm('orders.read')) {
-      codPayoutsAPI.summary({ from: isoDaysFromToday(-29), to: todayIso() })
-        .then(setCod)
-        .catch((e) => setCodError(errorText(e, 'Cash on delivery could not be read.')));
       codPayoutsAPI.awaiting()
         .then((a) => setCodPayers(a.couriers.filter((c) => c.provider === GS)))
-        .catch(() => setCodPayers([]));
+        .catch((e) => { setCodPayers([]); setCodError(errorText(e, 'Cash on delivery could not be read.')); });
     }
 
     api.get('/weight-disputes/summary')
@@ -160,25 +146,19 @@ const GrowshipOverview: React.FC = () => {
           </Link>
         </div>
         {listError && <p className="text-sm text-red-600">{listError}</p>}
-        <StatGrid cols={4}>
-          {TILES.map((t) => (
-            <Link key={t.tab} to={`/growship/shipments?tab=${t.tab}`} className="block">
-              <StatCard
-                label={t.label}
-                value={counts ? counts[t.tab].toLocaleString('en-IN') : '...'}
-                tone={counts && counts[t.tab] > 0 ? t.tone ?? 'default' : 'default'}
-                className="transition-shadow hover:shadow-md"
-              />
-            </Link>
+        <div className="flex flex-wrap gap-2">
+          {TABS.map((t) => (
+            <Link key={t.tab} to={`/growship/shipments?tab=${t.tab}`} className={btn({ variant: 'outline', size: 'sm' })}>{t.label}</Link>
           ))}
-        </StatGrid>
+        </div>
+        <p className="text-xs text-gray-500">How many are in each is on the Shipments page.</p>
       </section>
 
       <StatGrid cols={3}>
         <StatCard
-          label="Shipping charges this month"
-          value={month ? (month.total == null ? 'None yet' : fmtRupees(month.total)) : '...'}
-          sub={month ? `${month.counted.toLocaleString('en-IN')} parcel${month.counted === 1 ? '' : 's'} booked since the 1st${month.unknown ? `, ${month.unknown} with no charge recorded` : ''}.` : undefined}
+          label="Shipping charges so far"
+          value={charges ? (charges.total == null ? 'None yet' : fmtRupees(charges.total)) : '...'}
+          sub={charges ? `${charges.counted.toLocaleString('en-IN')} Growcord Ship parcel${charges.counted === 1 ? '' : 's'}${charges.unknown ? `, ${charges.unknown} with no charge recorded` : ''}. By period: Billing and charges.` : undefined}
         />
         {hasPerm('orders.read') && (
           <Link to="/panel/orders/cod-recon" className="block">
@@ -186,9 +166,7 @@ const GrowshipOverview: React.FC = () => {
               label="COD still with Growcord Ship"
               value={codPayers ? fmtMinor(gsOwed) : '...'}
               tone={gsOwed > 0 ? 'warn' : 'default'}
-              sub={codError ? codError : cod
-                ? `${gsOwedParcels.toLocaleString('en-IN')} delivered COD parcel${gsOwedParcels === 1 ? '' : 's'} not paid out yet. All couriers, last 30 days: ${fmtMinor(cod.remitted_minor ?? 0)} paid out, ${fmtMinor(cod.pending_minor ?? 0)} pending.`
-                : `${gsOwedParcels.toLocaleString('en-IN')} delivered COD parcel${gsOwedParcels === 1 ? '' : 's'} not paid out yet.`}
+              sub={codError ?? `${gsOwedParcels.toLocaleString('en-IN')} delivered COD parcel${gsOwedParcels === 1 ? '' : 's'} not paid out yet.`}
               className="transition-shadow hover:shadow-md"
             />
           </Link>
