@@ -550,6 +550,7 @@ function App() {
           <Route path="growship/wallet" element={<GrowshipWallet />} />
           <Route path="growship/billing" element={<GrowshipBilling />} />
           <Route path="growship/rates" element={<GrowshipRates />} />
+          <Route path="growship/failed-delivery" element={<Navigate to="/growship/shipments?tab=ndr_failed_delivery" replace />} />
           <Route path="growship/rto" element={<Navigate to="/panel/orders/rto" replace />} />
           <Route path="growship/weight-disputes" element={<Navigate to="/panel/orders/weight-disputes" replace />} />
           <Route path="growship/cod-payouts" element={<Navigate to="/panel/orders/cod-recon" replace />} />

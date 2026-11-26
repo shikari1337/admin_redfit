@@ -229,7 +229,8 @@ export const MENU: MenuGroup[] = [
       tip: 'Every Growcord Ship parcel by status, with its charges and courier events.',
       children: [
         { label: 'All shipments', to: '/growship/shipments', perm: 'shipments.read', modules: ['shipping'], tip: 'Every Growcord Ship parcel by status, with its charges and courier events.' },
-        { label: 'Failed delivery', to: '/growship/shipments?tab=ndr_failed_delivery', perm: 'shipments.read', modules: ['shipping'], tip: 'Parcels the courier could not deliver: answer before they come back.' },
+        // Its own path (a redirect to the board's Failed Delivery tab), so the board's trail and highlight stay on All shipments.
+        { label: 'Failed delivery', to: '/growship/failed-delivery', perm: 'shipments.read', modules: ['shipping'], tip: 'Parcels the courier could not deliver: answer before they come back.' },
         { label: 'RTO', to: '/growship/rto', perm: 'shipments.read', modules: ['shipping'], tip: 'Parcels coming back, and putting them away.' },
         { label: 'Weight disputes', to: '/growship/weight-disputes', perm: 'shipments.read', modules: ['shipping'], tip: 'Where the courier billed more than the parcel weighs.' },
         { label: 'COD payouts', to: '/growship/cod-payouts', perm: 'orders.read', modules: ['shipping'], tip: 'Cash collected on delivery: what is still owed, and each payout.' },
