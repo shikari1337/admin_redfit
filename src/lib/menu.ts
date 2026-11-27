@@ -68,6 +68,8 @@ export interface MenuItem {
   more?: boolean;
   /** OFF_MENU only: the Growcord product that owns this page, named in the command search and the breadcrumb. */
   product?: string;
+  /** Search only: the names an area's pages were found by before ADMIN-NAV-1 (the live menu's section names). */
+  aka?: string[];
 }
 
 export interface MenuSubGroup {
@@ -204,9 +206,9 @@ const one = (id: string, label: string, icon: LucideIcon, home: string, items: M
  * table derived from this file reads exactly as it would without the row; `owns` are record routes of the whole area
  * (an order, a product editor) and take that same gate. Who SEES the row is decided by its tabs (menuAccess.ts).
  */
-function area(label: string, icon: LucideIcon, tip: string, tabs: MenuItem[], owns?: string[]): MenuItem {
+function area(label: string, icon: LucideIcon, tip: string, tabs: MenuItem[], owns?: string[], aka?: string[]): MenuItem {
   const first = tabs[0];
-  return { label, icon, tip, to: first.to, perm: first.perm, modules: first.modules, ...(owns ? { owns } : {}), children: tabs };
+  return { label, icon, tip, to: first.to, perm: first.perm, modules: first.modules, ...(owns ? { owns } : {}), ...(aka ? { aka } : {}), children: tabs };
 }
 
 export const MENU: MenuGroup[] = [
@@ -328,7 +330,7 @@ export const MENU: MenuGroup[] = [
       { label: 'ChatGPT ads', to: '/panel/marketing/chatgpt', perm: 'marketing.read', section: 'Setup', tip: 'ChatGPT pixels, conversion tracking and the ad account Growcord can manage.' },
       { label: 'Compliance', to: '/panel/marketing/compliance', perm: 'marketing.read', modules: ['marketing'], section: 'Setup', tip: 'Consent, suppression and marketing data controls.' },
       { label: 'Settings', to: '/panel/marketing/settings', perm: 'marketing.read', modules: ['marketing'], section: 'Setup', tip: 'Channel readiness and marketing configuration.' },
-    ]),
+    ], undefined, ['Overview', 'Marketing setup']),
     area('Ads', Target, 'Create and run Meta ads, with audiences, creatives, rules and tests.', [
       { label: 'Ads Manager', to: '/panel/marketing/ads/manager', perm: 'ads.read', modules: ['marketing', 'ads_management'], tip: 'Every Meta campaign, ad set and ad, with spend and results.' },
       { label: 'Create ad', to: '/panel/marketing/ads/create', perm: 'ads.manage', modules: ['marketing', 'ads_management'], tip: 'Any objective and format, created paused until you resume it.' },
@@ -354,7 +356,7 @@ export const MENU: MenuGroup[] = [
       { label: 'Automation', to: '/panel/marketing/automation', perm: 'marketing.read', modules: ['marketing'], tip: 'Triggered journeys and scheduled marketing work.' },
       { label: 'Contact lists', to: '/panel/marketing/audiences', perm: 'marketing.manage', modules: ['marketing'], tip: 'Saved lists of people to send to.' },
       { label: 'Messenger settings', to: '/panel/marketing/inbox/settings', perm: 'marketing.read', tip: 'Greeting, ice breakers and the menu people see in a chat.' },
-    ]),
+    ], undefined, ['Messaging', 'Inbox', 'Message campaigns']),
     area('Offers and channels', BadgePercent, 'Coupons, app offers, and the marketplaces and feeds the catalog is sold on.', [
       { label: 'Coupons', to: '/coupons', perm: 'marketing.read', modules: ['coupons'], tip: 'Discount codes and who may use them.', owns: ['/coupons/new', '/coupons/:id/edit'] },
       // HMAPP-3 point 6: discounts only for orders placed in the app (read as coupons are, marketing.read).
@@ -365,7 +367,7 @@ export const MENU: MenuGroup[] = [
       { label: 'Excel Import', to: '/channels/import', perm: 'channels.manage', modules: ['channel_sync'], tip: 'Bring a marketplace\'s orders in from their sheet.' },
       { label: 'Mapping', to: '/channels/mapping', perm: 'channels.manage', modules: ['channel_sync'], tip: 'Which of their columns is which of your fields.' },
       { label: 'Allocation', to: '/channels/allocation', perm: 'channels.manage', modules: ['channel_sync'], more: true, tip: 'How much stock each channel may sell.' },
-    ]),
+    ], undefined, ['Catalog and shopping', 'Multi-Channel Sync']),
   ]),
 
   // MSG-0 (lane ADMIN-MSG-1): ONE place for every message the store sends and receives. Built beside the old places

@@ -232,6 +232,8 @@ export interface NavEntry {
   /** The row a tab or page sits under. */
   row?: string;
   section?: string;
+  /** Search only: the names this entry's area was found by before (menu.ts aka). */
+  aka?: string[];
   /** Under More in its strip. */
   more?: boolean;
   /** `other`: the product that owns the page. */
@@ -250,7 +252,8 @@ export function navEntries(groups: VisibleGroup[], a: Access): NavEntry[] {
   const out: NavEntry[] = [];
   const seen = new Set<string>();
   const add = (e: NavEntry) => {
-    if (e.kind !== 'area') { if (seen.has(e.to)) return; seen.add(e.to); }
+    // A Growcord Ship page may share its row's path (Overview is /growship): it is listed under its own name too.
+    if (e.kind !== 'area') { const k = e.kind === 'page' ? `page:${e.to}` : e.to; if (seen.has(k)) return; seen.add(k); }
     out.push(e);
   };
   for (const g of groups) {
@@ -258,13 +261,13 @@ export function navEntries(groups: VisibleGroup[], a: Access): NavEntry[] {
       for (const i of s.items) {
         if (i.children?.length) {
           const key = areaKey(g.id, i);
-          add({ kind: 'area', to: areaLanding(i, null), label: i.label, tip: i.tip, icon: i.icon, group: g.label, areaKey: key });
+          add({ kind: 'area', to: areaLanding(i, null), label: i.label, tip: i.tip, icon: i.icon, group: g.label, areaKey: key, aka: i.aka });
           for (const sec of tabSections(i.children)) {
             const { more } = splitTabs(sec.tabs);
             for (const t of sec.tabs) {
               add({
                 kind: 'tab', to: t.to, label: t.label, tip: t.tip, icon: t.icon ?? i.icon, group: g.label, row: i.label,
-                section: sec.label, more: more.includes(t), areaKey: key, external: t.external,
+                section: sec.label, more: more.includes(t), areaKey: key, external: t.external, aka: i.aka,
               });
             }
           }

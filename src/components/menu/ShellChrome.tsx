@@ -245,21 +245,22 @@ export const CommandPalette: React.FC<{
     const page = (e: NavEntry, hint: string, key = `p:${e.kind}:${e.to}`): Hit =>
       ({ key, kind: e.external ? 'link' : 'page', label: e.label, hint, to: e.to, external: e.external });
     if (!term) {
-      // Nothing typed: the person's own pages first, then the sidebar's rows with each Growcord Ship page after its
-      // row, then every action this person may take (the live search listed both before anything was typed; the
-      // release review of 27 Nov 2026 found them missing here).
+      // Nothing typed: the person's own pages first, then every menu page they may open in the sidebar's order (each
+      // row or area, then its tabs or Growcord Ship pages), then every action they may take. The live search listed
+      // the first 12 sidebar rows; a row of then is a tab now, so the whole menu is listed, never fewer pages
+      // (release review of 27 Nov 2026). The list scrolls.
       for (const e of pinned) out.push(page(e, 'Pinned', `pin:${e.to}`));
       for (const e of recent) out.push(page(e, 'Recent', `recent:${e.to}`));
-      for (const e of entries) if ((e.kind === 'row' || e.kind === 'area' || e.kind === 'page') && !e.external) out.push(page(e, entryHint(e)));
-      const acts: Hit[] = ACTIONS.filter((a) => hasPerm(a.perm)).map((a) => ({ key: `a:${a.to}`, kind: 'action', label: a.label, to: a.to }));
-      return [...out.slice(0, 12), ...acts];
+      for (const e of entries) if (e.kind !== 'other' && !e.external) out.push(page(e, entryHint(e)));
+      for (const a of ACTIONS) if (hasPerm(a.perm)) out.push({ key: `a:${a.to}`, kind: 'action', label: a.label, to: a.to });
+      return out;
     }
     // Every area, tab, row, Growcord Ship page and other product's page this person may open; a name that starts
     // with the words typed comes first.
     const rank = (e: NavEntry) => (e.label.toLowerCase().startsWith(term) ? 0 : e.label.toLowerCase().includes(term) ? 1 : 2);
     entries
       // The sidebar group's name finds its pages too ("Messaging", "Store Customers"), as the live search did.
-      .filter((e) => match(e.label) || match(e.tip) || match(entryHint(e)) || match(e.group))
+      .filter((e) => match(e.label) || match(e.tip) || match(entryHint(e)) || match(e.group) || (e.aka ?? []).some(match))
       .map((e, i) => ({ e, i, r: rank(e) }))
       .sort((a, b) => a.r - b.r || a.i - b.i)
       .forEach(({ e }) => out.push(page(e, entryHint(e))));
@@ -276,7 +277,8 @@ export const CommandPalette: React.FC<{
       const route = RECORD_ROUTES[r.type];
       if (route) out.push({ key: `r:${r.type}:${r.id}`, kind: 'record', label: r.label, hint: `${r.type}${r.sublabel ? `, ${r.sublabel}` : ''}`, to: route(r.id) });
     }
-    return out.slice(0, 40);
+    // Room for a group's whole page list (typing "Marketing" or "Orders" lists every page of it), then the records.
+    return out.slice(0, 120);
   }, [q, entries, pinned, recent, records, hasPerm]);
 
   useEffect(() => { if (sel >= hits.length) setSel(0); }, [hits.length, sel]);

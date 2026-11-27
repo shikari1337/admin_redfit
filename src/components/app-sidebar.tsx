@@ -84,7 +84,8 @@ const AreaRow: React.FC<{
   }, [close]);
 
   const enter = () => {
-    if (isMobile || pages.length < 2) return;
+    // A touch screen sends a mouse enter on a tap: no flyout from that, the arrow opens it there.
+    if (isMobile || pages.length < 2 || window.matchMedia?.('(hover: none)').matches) return;
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => show(false), 180);
   };
@@ -101,7 +102,9 @@ const AreaRow: React.FC<{
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { close(); rowRef.current?.querySelector<HTMLElement>('button')?.focus(); return; }
       if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-      const links = [...(panelRef.current?.querySelectorAll<HTMLElement>('a') ?? [])];
+      // The desktop flyout's pages, or on a phone the list open under the row.
+      const box = panelRef.current ?? rowRef.current?.querySelector<HTMLElement>('[data-sidebar="menu-sub"]');
+      const links = [...(box?.querySelectorAll<HTMLElement>('a') ?? [])];
       const at = links.indexOf(document.activeElement as HTMLElement);
       if (at === -1) return;
       e.preventDefault();
@@ -120,7 +123,8 @@ const AreaRow: React.FC<{
     };
   }, [open, close]);
 
-  const go = () => { close(); onNavigate(); };
+  // A pending hover timer must not open the flyout over the page just opened.
+  const go = () => { window.clearTimeout(timer.current); close(); onNavigate(); };
 
   return (
     <SidebarMenuItem ref={rowRef} onMouseEnter={enter} onMouseLeave={leave}>
