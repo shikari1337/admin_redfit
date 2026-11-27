@@ -8,8 +8,10 @@ const Card = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
+    data-slot="card"
     className={cn(
-      "rounded-lg border border-line bg-card text-card-foreground shadow-sm",
+      // Depth (ADMIN-BRAND-1): a hairline and a long soft fall-off, the same as the erp kit's CARD.
+      "rounded-lg border border-line bg-card text-card-foreground shadow-[0_1px_2px_rgb(32_24_16/0.05),0_6px_18px_-12px_rgb(32_24_16/0.20)]",
       className
     )}
     {...props}
@@ -23,6 +25,7 @@ const CardHeader = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
+    data-slot="card-header"
     className={cn("flex flex-col space-y-1.5 p-6", className)}
     {...props}
   />
@@ -35,6 +38,7 @@ const CardTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
+    data-slot="card-title"
     className={cn("font-semibold leading-none tracking-tight", className)}
     {...props}
   />

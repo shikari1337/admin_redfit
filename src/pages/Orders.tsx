@@ -11,7 +11,7 @@ import { getStatusColorClass } from '../components/order/StatusBadge';
 import { saveOrderNav } from '../lib/orderNav';
 import { FilterChip, MenuChip, SegmentTabs, SearchBox, ListHeader, SavedViewBar, useSavedViews } from '../components/sales/ListChrome';
 import type { SegmentTab } from '../components/sales/ListChrome';
-import { Columns3 as FaTableColumns, MoreHorizontal } from 'lucide-react';
+import { Columns3 as FaTableColumns, MoreHorizontal, FileUp } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
   DropdownMenuSeparator, DropdownMenuTrigger,
@@ -619,10 +619,19 @@ const Orders: React.FC = () => {
       <ListHeader
         title="Orders"
         purpose="Every sale, wherever it came from — the website, the counter, the bulk portal or a phone call."
-        action={canManageOrders && (
-          <Button size="sm" className="h-9" asChild>
-            <Link to="/orders/new"><FaPlus className="mr-1.5 h-3 w-3" /> New order</Link>
-          </Button>
+        action={(canManageOrders || hasPerm('shipments.manage')) && (
+          <div className="flex flex-wrap items-center gap-2">
+            {hasPerm('shipments.manage') && canAccess('shipping') && (
+              <Button size="sm" variant="outline" className="h-9" asChild>
+                <Link to="/shipments/from-file"><FileUp className="mr-1.5 h-3.5 w-3.5" /> Ship from a file</Link>
+              </Button>
+            )}
+            {canManageOrders && (
+              <Button size="sm" className="h-9" asChild>
+                <Link to="/orders/new"><FaPlus className="mr-1.5 h-3 w-3" /> New order</Link>
+              </Button>
+            )}
+          </div>
         )}
       />
 

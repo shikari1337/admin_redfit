@@ -33,7 +33,7 @@ import {
   Home, ShoppingCart, Package2, Wallet, Truck, Users, LineChart, Settings,
   FileText, Megaphone, Palette, BookOpen, Building2, PackageSearch, Warehouse, Scale, ArrowLeftRight, Boxes,
   Hammer, ShieldCheck, FileSpreadsheet, Coins, CalendarClock, Mail, Repeat, Bell, SlidersHorizontal,
-  FolderArchive, Gauge, Bot, Store, MessagesSquare, Target, Share2, Send, BadgePercent, LifeBuoy, Ship, Newspaper,
+  FolderArchive, Gauge, Bot, Store, MessagesSquare, Target, Share2, Send, BadgePercent, LifeBuoy, Ship, Newspaper, FileUp,
 } from 'lucide-react';
 
 export interface MenuItem {
@@ -237,6 +237,8 @@ export const MENU: MenuGroup[] = [
     ]),
     area('Shipments', Truck, 'Parcels, returns coming back, e-way bills and weight claims.', [
       { label: 'Shipments', to: '/shipments', perm: 'shipments.read', modules: ['shipping'], tip: 'Every parcel: booked, picked up, delivered.' },
+      // AUTOSHIP-FILE-1 (owner 27 Nov 2026): was OFF_MENU, reached from Orders and Shipments; no sidebar row, its gate unchanged.
+      { label: 'Ship from a file', to: '/shipments/from-file', icon: FileUp, perm: 'shipments.manage', modules: ['shipping'], tip: 'Upload processed orders with their invoice and box; each ships with the cheapest courier you allow.' },
       // The three below were OFF_MENU (reached from the Orders pages and Growcord Ship): their gates are unchanged.
       { label: 'Returns in', to: '/panel/orders/rto', icon: Truck, perm: 'shipments.read', tip: 'Parcels coming back, and putting them away.' },
       { label: 'E-way bills', to: '/panel/orders/ewb', icon: FileText, perm: 'shipments.read', tip: 'The document a consignment needs to travel.' },

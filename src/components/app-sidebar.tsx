@@ -223,13 +223,21 @@ export function AppSidebar({ userPerms, onLogout, storeName, groups, pinned, rec
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
-              <Link to="/dashboard" onClick={onNavigate}>
-                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary font-bold text-primary-foreground">
-                  G
-                </div>
-                <div className="grid flex-1 text-left text-sm leading-tight text-sidebar-foreground">
-                  <span className="truncate font-semibold">Growcord Admin</span>
-                  <span className="truncate text-xs text-muted-foreground">{storeName || 'ERP & Commerce'}</span>
+              {/* The Growcord wordmark from growcord.in (public/brand, ADMIN-BRAND-1); folded to the icon
+                  rail, its orange W mark alone. */}
+              <Link to="/dashboard" onClick={onNavigate} aria-label="Growcord Admin, go to the dashboard">
+                <img
+                  src="/brand/growcord-mark.png"
+                  alt=""
+                  aria-hidden="true"
+                  className="hidden size-8 shrink-0 object-contain group-data-[collapsible=icon]:block"
+                />
+                <div className="grid flex-1 gap-1 text-left leading-tight group-data-[collapsible=icon]:hidden">
+                  <img src="/brand/growcord-logo.png" alt="Growcord" className="h-[21px] w-auto justify-self-start object-contain dark:hidden" />
+                  <img src="/brand/growcord-logo-white.png" alt="Growcord" className="hidden h-[21px] w-auto justify-self-start object-contain dark:block" />
+                  <span className="truncate text-[11px] font-medium uppercase tracking-[0.08em] text-ink-mute">
+                    {storeName ? `Admin, ${storeName}` : 'Admin, ERP and Commerce'}
+                  </span>
                 </div>
               </Link>
             </SidebarMenuButton>

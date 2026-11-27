@@ -88,8 +88,13 @@ export const APLUS_DEF: SectionDef = {
 export const ALL_BUILTIN: SectionDef[] = [...STOREFRONT_SECTIONS, APLUS_DEF, ...TEMPLATE_SECTIONS];
 export const BUILTIN_BY_ID: Record<string, SectionDef> = Object.fromEntries(ALL_BUILTIN.map((d) => [d.id, d]));
 
-/** Default order when a product has no saved layout: storefront rows, A+ after the tabs, template rows after. */
+/**
+ * Default order when a product has no saved layout: the A+ highlights first (under the short description,
+ * above the texts, as the storefront draws them since 26 Nov 2026: "banner images and other graphical things
+ * should come before the text content"), then the storefront rows, then the template rows.
+ */
 export function defaultOrderFor(id: string): number {
+  if (id === APLUS_DEF.id) return 5;
   const i = ALL_BUILTIN.findIndex((d) => d.id === id);
   return i === -1 ? 900 : i * 10;
 }

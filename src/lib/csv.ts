@@ -79,3 +79,42 @@ export function downloadCsv<T>(filename: string, columns: CsvColumn<T>[], rows: 
   a.remove();
   URL.revokeObjectURL(url);
 }
+
+/**
+ * THE client-side CSV reader (AUTOSHIP-FILE-1 merged the two that lived in ReviewImportModal and Products): RFC-4180
+ * fields, a quoted field may hold commas, doubled quotes and line breaks; CRLF or LF; a leading UTF-8 BOM dropped;
+ * empty rows dropped. Cells are returned as written (not trimmed).
+ */
+export function parseCsv(text: string): string[][] {
+  const src = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  const out: string[][] = [];
+  let row: string[] = [];
+  let field = '';
+  let inQuotes = false;
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (src[i + 1] === '"') { field += '"'; i++; }
+        else inQuotes = false;
+      } else field += c;
+    } else if (c === '"') inQuotes = true;
+    else if (c === ',') { row.push(field); field = ''; }
+    else if (c === '\n') { row.push(field); out.push(row); row = []; field = ''; }
+    else if (c !== '\r') field += c;
+  }
+  if (field || row.length) { row.push(field); out.push(row); }
+  return out.filter((r) => r.some((cell) => cell.trim() !== ''));
+}
+
+/** The rows of a CSV whose first row names the columns, each keyed by its trimmed header, cells trimmed. */
+export function parseCsvRecords(text: string): Record<string, string>[] {
+  const [head, ...rows] = parseCsv(text);
+  if (!head) return [];
+  const headers = head.map((h) => h.trim());
+  return rows.map((cells) => {
+    const rec: Record<string, string> = {};
+    headers.forEach((h, i) => { rec[h] = (cells[i] ?? '').trim(); });
+    return rec;
+  });
+}

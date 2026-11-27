@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { parseCsvRecords } from '@/lib/csv';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { productsAPI, categoriesAPI, brandsAPI, attributesAPI, attributeValuesAPI } from '../services/api';
@@ -49,29 +50,8 @@ function escapeCsvCell(value: any): string {
   return str;
 }
 
-function parseCSV(text: string): Record<string, string>[] {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim());
-  if (lines.length < 2) return [];
-  const headers = lines[0].split(',').map((h) => h.trim().replace(/^"|"$/g, ''));
-
-  return lines.slice(1).map((line) => {
-    const cells: string[] = [];
-    let current = '';
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (ch === '"' && !inQuotes) { inQuotes = true; }
-      else if (ch === '"' && inQuotes && line[i + 1] === '"') { current += '"'; i++; }
-      else if (ch === '"' && inQuotes) { inQuotes = false; }
-      else if (ch === ',' && !inQuotes) { cells.push(current.trim().replace(/^"|"$/g, '')); current = ''; }
-      else { current += ch; }
-    }
-    cells.push(current.trim().replace(/^"|"$/g, ''));
-    const row: Record<string, string> = {};
-    headers.forEach((h, i) => { row[h] = cells[i] ?? ''; });
-    return row;
-  });
-}
+/** The shared reader (lib/csv), header-keyed and trimmed, as this page's own reader was. */
+const parseCSV = (text: string): Record<string, string>[] => parseCsvRecords(text);
 
 // ─── WooCommerce-style CSV ────────────────────────────────────────────────────
 
