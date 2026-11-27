@@ -44,7 +44,7 @@ import { IndianRupee } from 'lucide-react';
 // Help and support (TICKETS-1), on its own line for the same reason.
 import { LifeBuoy } from 'lucide-react';
 // Growcord Ship (owner 26 Nov 2026), on its own line for the same reason.
-import { Ship } from 'lucide-react';
+import { Ship, FileUp } from 'lucide-react';
 import {
   Home, ShoppingCart, Package2, Wallet, Truck, Users, LineChart, Settings,
   RotateCcw, FileText, Store, Megaphone, Ticket, Plug, Palette, Star,
@@ -510,6 +510,8 @@ export const OFF_MENU: MenuItem[] = [
   { label: 'Returns in', to: '/panel/orders/rto', icon: RotateCcw, perm: 'shipments.read', tip: 'Parcels coming back, and putting them away.' },
   { label: 'E-way bills', to: '/panel/orders/ewb', icon: FileText, perm: 'shipments.read', tip: 'The document a consignment needs to travel.' },
   { label: 'Weight claims', to: '/panel/orders/weight-disputes', icon: Scale, perm: 'shipments.read', tip: 'Where the courier billed more than the parcel weighs.' },
+  // AUTOSHIP-FILE-1 (owner 27 Nov 2026): reached from Orders and Shipments, no sidebar row (owner 26 Nov: fewer rows).
+  { label: 'Ship from a file', to: '/shipments/from-file', icon: FileUp, perm: 'shipments.manage', modules: ['shipping'], tip: 'Upload processed orders with their invoice and box; each ships with the cheapest courier you allow.' },
   // Marketing hub extras — Comms / CRM / Insights own these now.
   { label: 'Templates', to: '/panel/marketing/templates', icon: FileText, perm: 'marketing.manage', modules: ['marketing'], tip: 'The message bodies a campaign sends.' },
   { label: 'Follow-ups', to: '/panel/marketing/automation', icon: Bot, perm: 'marketing.manage', modules: ['marketing'], tip: 'Sequences that run themselves after an event.' },
