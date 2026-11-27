@@ -5,9 +5,15 @@ import {
 } from 'react-icons/fa';
 import Modal from './Modal';
 import { ordersAPI, shipmentsAPI, shippingAPI } from '../../services/api';
+import { BOOKABLE, bookOrder } from '../../lib/bulkShip';
 
 /**
- * Bulk actions for the Orders list.
+ * Bulk actions for the Orders list, and Create shipments alone on the Growcord Ship board's Pending Orders
+ * (pages/Shipments.tsx, owner 27 Nov 2026: "in pending order add bulk ship option"), starting on Growcord Ship there.
+ *
+ * Create shipments books an order with nothing booked yet through the same safe step as Growcord Ship's Bulk
+ * shipment (lib/bulkShip bookOrder): the order is re-read just before it is sent, and a booking whose answer was lost
+ * is looked up on the order, never sent again from here.
  *
  * ── Why this loops instead of calling one bulk endpoint ──────────────────
  * There is no bulk order route, and adding one would mean a SECOND
@@ -97,9 +103,12 @@ interface Props {
   onDone: () => void;
   canManageOrders: boolean;
   canManageShipments: boolean;
-  onExportSelected: () => void;
-  exporting: boolean;
-  staff: Array<{ id: string; name: string | null; role: string }>;
+  /** Export CSV of the selection; the button shows only when given (the Orders list). */
+  onExportSelected?: () => void;
+  exporting?: boolean;
+  staff?: Array<{ id: string; name: string | null; role: string }>;
+  /** Who Create shipments books with at first: Shiprocket as before, or Growcord Ship on its own board. */
+  startProvider?: 'shiprocket' | 'growcord_ship';
 }
 
 interface Plan {
@@ -112,7 +121,11 @@ interface Plan {
 interface RunResult {
   id: string;
   label: string;
-  state: 'ok' | 'nochange' | 'fail';
+  /**
+   * `skipped`: left alone when re-read (cancelled meanwhile, or a parcel already on it). `unknown`: a booking whose
+   * answer was lost and no parcel shows yet; it may still have been made, so it is not sent again from here.
+   */
+  state: 'ok' | 'nochange' | 'skipped' | 'unknown' | 'fail';
   detail?: string;
 }
 
@@ -152,7 +165,7 @@ async function runPooled<T>(
 
 const OrderBulkBar: React.FC<Props> = ({
   rows, selectedIds, onClear, onDone, canManageOrders, canManageShipments,
-  onExportSelected, exporting, staff,
+  onExportSelected, exporting = false, staff = [], startProvider = 'shiprocket',
 }) => {
   const [action, setAction] = useState<ActionKey | null>(null);
   const [target, setTarget] = useState('confirmed');
@@ -163,9 +176,12 @@ const OrderBulkBar: React.FC<Props> = ({
   const [channels, setChannels] = useState<Array<'whatsapp' | 'sms' | 'email'>>(['whatsapp']);
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState<RunResult[] | null>(null);
-  // Who books the parcels: Shiprocket as before, or Growcord Ship when the store has it on (owner 26 Nov 2026).
-  const [shipProvider, setShipProvider] = useState<'shiprocket' | 'growcord_ship'>('shiprocket');
+  // Who books the parcels: Shiprocket as before, or Growcord Ship when the store has it on (owner 26 Nov 2026); its
+  // own board starts on Growcord Ship (owner 27 Nov 2026).
+  const [shipProvider, setShipProvider] = useState<'shiprocket' | 'growcord_ship'>(startProvider);
   const [hasGrowcordShip, setHasGrowcordShip] = useState(false);
+  // Orders whose booking got no answer here: never sent again from this screen (read the page again to retry).
+  const [unknownIds, setUnknownIds] = useState<string[]>([]);
   useEffect(() => {
     if (action !== 'ship') return;
     shippingAPI.getProviders()
@@ -205,6 +221,9 @@ const OrderBulkBar: React.FC<Props> = ({
       else if (action === 'ship') {
         if (fulfilOf(o) === 'shipped') why = 'everything is already shipped';
         else if (st === 'cancelled' || st === 'completed' || st === 'returned') why = `order is ${st}`;
+        // The booking takes confirmed or processing orders only (lib/bulkShip BOOKABLE); said before anything runs.
+        else if (st && !BOOKABLE.includes(st)) why = `order is ${st.replace(/_/g, ' ')}; only confirmed or processing orders are booked`;
+        else if (unknownIds.includes(o._id)) why = 'the last booking got no answer. Open the order to see whether it was booked; if not, read the page again to book it';
       } else if (action === 'codrebook' && rebookIdsOf(o).length === 0) {
         why = 'nothing to correct, or the courier already has the parcel';
       }
@@ -212,7 +231,7 @@ const OrderBulkBar: React.FC<Props> = ({
       else run.push(o);
     }
     return { run, skip };
-  }, [selected, action, target]);
+  }, [selected, action, target, unknownIds]);
 
   const close = () => {
     if (running) return;
@@ -220,8 +239,8 @@ const OrderBulkBar: React.FC<Props> = ({
     setResults(null);
     setNoteText('');
     setFlagReason('');
-    // The next Create shipments starts on Shiprocket again, as before Growcord Ship was offered here.
-    setShipProvider('shiprocket');
+    // The next Create shipments starts on this screen's carrier again (Shiprocket, or Growcord Ship on its board).
+    setShipProvider(startProvider);
   };
 
   const perform = async (o: BulkOrderRow): Promise<RunResult> => {
@@ -259,7 +278,16 @@ const OrderBulkBar: React.FC<Props> = ({
             : { id: o._id, label, state: 'ok', detail: typeof sent === 'number' ? `${sent}/${channels.length} sent` : undefined };
         }
         case 'ship': {
-          const r: any = await shippingAPI.createShipment(o._id, { shippingProvider: shipProvider });
+          const send = () => shippingAPI.createShipment(o._id, { shippingProvider: shipProvider });
+          if (fulfilOf(o) !== 'partial') {
+            // Nothing shipped yet (the list's none or unshipped, or a Pending Orders row): the shared safe step
+            // (lib/bulkShip bookOrder), as Growcord Ship's Bulk shipment. An order already holding a parcel is skipped.
+            const out = await bookOrder(o._id, send);
+            return { id: o._id, label, state: out.ok ? 'ok' : out.skip ? 'skipped' : out.unknown ? 'unknown' : 'fail', detail: out.text };
+          }
+          // Part shipped already, as before: a parcel is on the order, so the re-read and the look-up after a lost
+          // answer (both read "a parcel is on it" as booked) cannot tell the new parcel from the old one.
+          const r: any = await send();
           const s = r?.shipment ?? r?.data?.shipment;
           const awb = s?.awbCode ?? s?.awb_code ?? s?.waybill;
           return { id: o._id, label, state: 'ok', detail: awb ? `AWB ${awb}${s?.courierName ? `, ${s.courierName}` : ''}` : undefined };
@@ -297,10 +325,12 @@ const OrderBulkBar: React.FC<Props> = ({
       setResults([...acc]);
     });
     setRunning(false);
+    const lost = acc.filter((r) => r.state === 'unknown').map((r) => r.id);
+    if (lost.length) setUnknownIds((prev) => [...new Set([...prev, ...lost])]);
     onDone();
-    const failed = acc.filter((r) => r.state === 'fail').length;
-    // Clean sweep closes itself; anything unresolved stays on screen to be read. A rebook always
-    // stays: it says what to print again.
+    const failed = acc.filter((r) => r.state === 'fail' || r.state === 'unknown' || r.state === 'skipped').length;
+    // Clean sweep closes itself; anything unresolved (or skipped on the re-read) stays on screen to be
+    // read. A rebook always stays: it says what to print again.
     if (failed === 0 && action !== 'codrebook') {
       onClear();
       close();
@@ -327,6 +357,8 @@ const OrderBulkBar: React.FC<Props> = ({
   const okCount = results?.filter((r) => r.state === 'ok').length ?? 0;
   const failCount = results?.filter((r) => r.state === 'fail').length ?? 0;
   const noChange = results?.filter((r) => r.state === 'nochange').length ?? 0;
+  const skipCount = results?.filter((r) => r.state === 'skipped').length ?? 0;
+  const unknownCount = results?.filter((r) => r.state === 'unknown').length ?? 0;
   const done = results !== null && !running;
 
   const blocked =
@@ -375,9 +407,11 @@ const OrderBulkBar: React.FC<Props> = ({
             <FaTruck className="h-3 w-3" /> Rebook at correct COD amount
           </button>
         )}
-        <button className={btn} onClick={onExportSelected} disabled={exporting}>
-          <FaDownload className="h-3 w-3" /> {exporting ? 'Exporting…' : 'Export CSV'}
-        </button>
+        {onExportSelected && (
+          <button className={btn} onClick={onExportSelected} disabled={exporting}>
+            <FaDownload className="h-3 w-3" /> {exporting ? 'Exporting…' : 'Export CSV'}
+          </button>
+        )}
 
         <button className="ml-auto text-xs text-ink-soft underline-offset-2 hover:text-ink hover:underline" onClick={onClear}>
           Clear selection
@@ -442,7 +476,7 @@ const OrderBulkBar: React.FC<Props> = ({
               <span className="mt-1.5 block text-xs text-ink-soft">
                 Each order goes through the same status change as the order page, so the customer
                 notification for this status fires and the change is recorded against your name.
-                Cancelling is not offered here — it reverses money and may raise a credit note, so it
+                Cancelling is not offered here: it reverses money and may raise a credit note, so it
                 needs the order's own dialog.
               </span>
             </label>
@@ -458,7 +492,7 @@ const OrderBulkBar: React.FC<Props> = ({
               >
                 <option value="">Nobody (clear the owner)</option>
                 {staff.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name || s.id} · {s.role}</option>
+                  <option key={s.id} value={s.id}>{s.name || s.id}, {s.role}</option>
                 ))}
               </select>
               <span className="mt-1.5 block text-xs text-ink-soft">
@@ -489,7 +523,7 @@ const OrderBulkBar: React.FC<Props> = ({
                 placeholder="Added to every selected order, with your name and the time."
                 className="w-full rounded border border-line bg-surface p-2"
               />
-              <span className="mt-1.5 block text-xs text-ink-soft">Internal only — the customer never sees this.</span>
+              <span className="mt-1.5 block text-xs text-ink-soft">Internal only: the customer never sees this.</span>
             </label>
           )}
 
@@ -544,7 +578,7 @@ const OrderBulkBar: React.FC<Props> = ({
           {!results && action === 'ship' && shipProvider === 'shiprocket' && (
             <p className="rounded border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
               This books <strong>real shipments with Shiprocket</strong>, one per order, and may cost
-              money. It cannot be undone from this screen — a shipment is cancelled from the order.
+              money. It cannot be undone from this screen: a shipment is cancelled from the order.
             </p>
           )}
           {!results && action === 'ship' && shipProvider === 'growcord_ship' && (
@@ -570,34 +604,44 @@ const OrderBulkBar: React.FC<Props> = ({
           )}
           {!results && plan.run.length === 0 && (
             <p className="rounded border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
-              Nothing to do — none of the selected orders can take this action.
+              Nothing to do: none of the selected orders can take this action.
             </p>
           )}
 
           {/* ── Outcome, per order ────────────────────────────────────── */}
           {results && (
             <div>
-              <p className={`text-sm font-semibold ${failCount ? 'text-red-700' : 'text-emerald-700'}`}>
+              <p className={`text-sm font-semibold ${failCount ? 'text-red-700' : unknownCount ? 'text-amber-800' : 'text-emerald-700'}`}>
                 {running
                   ? `Working… ${results.length} of ${plan.run.length}`
                   : failCount
-                    ? `${plural(failCount, 'order')} could not be done${okCount ? `; ${okCount} went through` : ''}.`
-                    : `Done: ${plural(okCount, 'order')} updated${noChange ? `, ${noChange} already as asked` : ''}.`}
+                    ? `${plural(failCount, 'order')} could not be done${okCount ? `; ${okCount} went through` : ''}${skipCount ? `; ${skipCount} skipped` : ''}${unknownCount ? `; ${unknownCount} not known yet` : ''}.`
+                    : unknownCount
+                      ? `${plural(unknownCount, 'order')} not known yet${okCount ? `; ${okCount} went through` : ''}${skipCount ? `; ${skipCount} skipped` : ''}.`
+                      : `Done: ${plural(okCount, 'order')} updated${noChange ? `, ${noChange} already as asked` : ''}${skipCount ? `, ${skipCount} skipped` : ''}.`}
               </p>
               <ul className="mt-2 max-h-64 space-y-1 overflow-y-auto text-xs">
                 {results.map((r) => (
                   <li key={r.id} className="flex items-start gap-2">
                     {r.state === 'ok' && <FaCheck className="mt-0.5 h-3 w-3 shrink-0 text-emerald-600" />}
                     {r.state === 'fail' && <FaTimes className="mt-0.5 h-3 w-3 shrink-0 text-red-600" />}
-                    {r.state === 'nochange' && <FaMinus className="mt-0.5 h-3 w-3 shrink-0 text-ink-mute" />}
+                    {(r.state === 'nochange' || r.state === 'skipped') && <FaMinus className="mt-0.5 h-3 w-3 shrink-0 text-ink-mute" />}
+                    {r.state === 'unknown' && <FaMinus className="mt-0.5 h-3 w-3 shrink-0 text-amber-600" />}
                     <span className="font-medium text-ink">{r.label}</span>
-                    {r.detail && <span className="text-ink-soft">{r.detail}</span>}
+                    {r.detail && <span className={r.state === 'unknown' ? 'text-amber-800' : 'text-ink-soft'}>{r.detail}</span>}
                   </li>
                 ))}
               </ul>
               {failCount > 0 && !running && (
                 <p className="mt-2 text-xs text-ink-soft">
                   The orders that failed were not changed. The selection is kept so you can fix and retry.
+                </p>
+              )}
+              {unknownCount > 0 && !running && (
+                <p className="mt-2 text-xs text-amber-900">
+                  No answer came back for {plural(unknownCount, 'order')} and no parcel shows on it yet. It may still
+                  have been booked, so it is not sent again from this screen: open the order in a minute, and if
+                  nothing is booked, read the page again to book it.
                 </p>
               )}
             </div>

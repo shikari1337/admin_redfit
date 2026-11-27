@@ -263,6 +263,7 @@ const ChatgptAdsPage = lazyRetry(() => import('./pages/panels/marketing/chatgpt/
 import { useAuth } from './contexts/AuthContext';
 import { ROLE_SURFACE, ErpRole } from './lib/rbac';
 import { PRODUCT, IS_SUITE } from './lib/product';
+import { GROWSHIP_FAILED_DELIVERY } from './lib/menu';
 import RouteGuard from './components/RouteGuard';
 
 /** A full-screen route's own loading frame (it has no Layout to provide one). */
@@ -555,7 +556,7 @@ function App() {
             <Route path="wallet" element={<GrowshipWallet />} />
             <Route path="billing" element={<GrowshipBilling />} />
             <Route path="rates" element={<GrowshipRates />} />
-            <Route path="failed-delivery" element={<Navigate to="/growship/shipments?tab=ndr_failed_delivery" replace />} />
+            <Route path="failed-delivery" element={<Navigate to={GROWSHIP_FAILED_DELIVERY.opens} replace />} />
             <Route path="rto" element={<Navigate to="/panel/orders/rto" replace />} />
             <Route path="weight-disputes" element={<Navigate to="/panel/orders/weight-disputes" replace />} />
             <Route path="cod-payouts" element={<Navigate to="/panel/orders/cod-recon" replace />} />
