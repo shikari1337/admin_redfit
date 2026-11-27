@@ -14,11 +14,16 @@ interface Props {
   onOpen: (tab: TabType) => void;
   /** False when the store has no carrier it can book through (no Growcord Ship, no own account). */
   hasCarrier: boolean;
+  /**
+   * The To book tile's line, in place of the usual one: a carrier's board counts only its carrier's parcels on the
+   * other tiles, while an order with nothing booked has no carrier yet, and the tile says so.
+   */
+  toBookHint?: string;
 }
 
-const ActNow: React.FC<Props> = ({ counts, onOpen, hasCarrier }) => {
+const ActNow: React.FC<Props> = ({ counts, onOpen, hasCarrier, toBookHint }) => {
   const tiles: Array<{ tab: TabType; label: string; hint: string; n: number; icon: React.ElementType; tone: string }> = [
-    { tab: 'pending_orders', label: 'To book', hint: 'Orders waiting for a parcel to be booked', n: counts.pending_orders, icon: PackagePlus, tone: 'text-blue-700 bg-blue-50 border-blue-200' },
+    { tab: 'pending_orders', label: 'To book', hint: toBookHint ?? 'Orders waiting for a parcel to be booked', n: counts.pending_orders, icon: PackagePlus, tone: 'text-blue-700 bg-blue-50 border-blue-200' },
     { tab: 'ready_to_pick', label: 'Need a pickup', hint: 'Booked, waiting for the courier to collect', n: counts.ready_to_pick, icon: CalendarClock, tone: 'text-amber-800 bg-amber-50 border-amber-200' },
     { tab: 'ndr_failed_delivery', label: 'Failed delivery', hint: 'Answer before the courier sends it back', n: counts.ndr_failed_delivery, icon: PhoneCall, tone: 'text-red-700 bg-red-50 border-red-200' },
     { tab: 'rto_in_transit', label: 'Coming back', hint: 'Returning to you; check it in when it lands', n: counts.rto_in_transit, icon: Undo2, tone: 'text-purple-700 bg-purple-50 border-purple-200' },

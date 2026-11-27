@@ -20,9 +20,11 @@ import { NOT_TAKEN_TEXT, notTakenBookings, notTakenMatcher, type GsConsignment }
 
 interface ShipmentsProps {
   /**
-   * One carrier's board (the Growcord Ship menu, owner 26 Nov 2026): the list and the charge totals are that
-   * carrier's only, and the carrier filter is fixed to it. The tab counts stay the board's own (every carrier, one
-   * read; the backend does not count by carrier) and say so. The page is otherwise the same board.
+   * One carrier's board (the Growcord Ship menu, owner 26 Nov 2026): the list, the charge totals, the tab counts and
+   * the tiles are that carrier's only (owner 27 Nov 2026: "show accurate number for growship only not the overall";
+   * every board read, the counts read on Pending Orders included, sends the carrier), and the carrier filter is fixed
+   * to it. Pending Orders (To book) counts orders with nothing booked, which have no carrier yet, and says so. The
+   * page is otherwise the same board.
    */
   fixedProvider?: 'growcord_ship';
   /** The page heading, when not "Shipments". */
@@ -139,6 +141,8 @@ const Shipments: React.FC<ShipmentsProps> = ({ fixedProvider, title, intro }) =>
   const hasShiprocket = providers.some((p) => p.id === 'shiprocket');
   // Carrier names come from the store's own provider list; parcels entered by hand are "manual".
   const providerNames = useMemo(() => Object.fromEntries(providers.map((p) => [p.id, p.name])), [providers]);
+  // A carrier's board names it where its To book number, which no carrier owns yet, is explained.
+  const carrierName = fixedProvider ? providerLabel(fixedProvider, providerNames) : null;
   const filterProviders = useMemo(() => {
     const list = providers.map((p) => ({ id: p.id, name: p.name }));
     if (!list.some((p) => p.id === 'manual')) list.push({ id: 'manual', name: providerLabel('manual') });
@@ -223,9 +227,9 @@ const Shipments: React.FC<ShipmentsProps> = ({ fixedProvider, title, intro }) =>
         if (pag) {
           setPagination(prev => ({ ...prev, ...pag }));
         }
-        // Also fetch status counts from shipments endpoint
+        // Also fetch status counts from shipments endpoint (a carrier's board counts that carrier's parcels only).
         try {
-          const countsResp = await shipmentsAPI.getAll({ page: 1, limit: 1 });
+          const countsResp = await shipmentsAPI.getAll(fixedProvider ? { page: 1, limit: 1, shippingProvider: fixedProvider } : { page: 1, limit: 1 });
           const counts = countsResp?.statusCounts || countsResp?.data?.statusCounts;
           if (counts && !stale()) {
             setStatusCounts(prev => ({ ...prev, ...counts }));
@@ -690,6 +694,7 @@ const Shipments: React.FC<ShipmentsProps> = ({ fixedProvider, title, intro }) =>
         counts={statusCounts}
         onOpen={setActiveTab}
         hasCarrier={!providersKnown || providers.length > 0}
+        toBookHint={carrierName ? 'Every order with nothing booked yet, for any carrier' : undefined}
       />
 
       {/* Filters - ABOVE the tabs */}
@@ -732,17 +737,14 @@ const Shipments: React.FC<ShipmentsProps> = ({ fixedProvider, title, intro }) =>
         notApplied={activeTab === 'pending_orders'}
       />
 
-      {fixedProvider && (
-        <p className="mb-2 text-xs text-muted-foreground">
-          The numbers on the tabs and the tiles above count every carrier; the list shows {providerLabel(fixedProvider, providerNames)} parcels only.
-        </p>
-      )}
-
       {/* Delivery Status Tabs - BELOW the filters */}
       <ShipmentTabs
         activeTab={activeTab}
         onTabChange={setActiveTab}
         statusCounts={statusCounts}
+        hints={carrierName ? {
+          pending_orders: `Orders with nothing booked yet. An order has no carrier until it is booked, so this number counts every order waiting, not only ${carrierName} ones. Create a shipment for each.`,
+        } : undefined}
       />
 
       {/* Tab Content */}

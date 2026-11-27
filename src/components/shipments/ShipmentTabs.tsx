@@ -44,6 +44,8 @@ interface ShipmentTabsProps {
   activeTab: TabType;
   onTabChange: (tab: TabType) => void;
   statusCounts: StatusCounts;
+  /** A board's own line for a tab, in place of the usual one (a carrier's board explains its Pending Orders count). */
+  hints?: Partial<Record<TabType, string>>;
 }
 
 /** What a person does on each tab, in one line under the tabs. */
@@ -59,7 +61,7 @@ const TAB_HINTS: Record<TabType, string> = {
   rto_failed: 'The courier could not bring these back. Take it up with the courier.',
 };
 
-const ShipmentTabs: React.FC<ShipmentTabsProps> = ({ activeTab, onTabChange, statusCounts }) => {
+const ShipmentTabs: React.FC<ShipmentTabsProps> = ({ activeTab, onTabChange, statusCounts, hints }) => {
   const tabs: { id: TabType; label: string; count: number; group?: string }[] = [
     { id: 'pending_orders', label: 'Pending Orders', count: statusCounts.pending_orders },
     { id: 'ready_to_pick', label: 'Ready to Pick', count: statusCounts.ready_to_pick },
@@ -92,7 +94,7 @@ const ShipmentTabs: React.FC<ShipmentTabsProps> = ({ activeTab, onTabChange, sta
           ))}
         </TabsList>
       </Tabs>
-      <p className="-mt-2 text-xs text-muted-foreground">{TAB_HINTS[activeTab]}</p>
+      <p className="-mt-2 text-xs text-muted-foreground">{hints?.[activeTab] ?? TAB_HINTS[activeTab]}</p>
     </div>
   );
 };
