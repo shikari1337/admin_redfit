@@ -14,7 +14,7 @@ import { courierRatesOf, itemUnitWeightKg, type CourierRate } from '../../compon
 import { shipmentAwb } from '../../components/shipments/shipmentFacts';
 import { downloadCsv } from '@/lib/csv';
 import { GS_SHEET_HEADERS, growshipAPI, paiseToRupees, type GsAccount, type GsBulkRun } from '@/lib/v2/growship';
-import { liveParcels, listOf, orderNo, outcomeAfterError, pooled, recheckOrder, unwrap, type Outcome } from '@/lib/bulkShip';
+import { bookOrder, liveParcels, listOf, orderNo, pooled, unwrap, type Outcome } from '@/lib/bulkShip';
 
 const GS = 'growcord_ship' as const;
 const PAGE_SIZE = 50;
@@ -216,11 +216,6 @@ const GrowshipBulk: React.FC = () => {
     setRunning(null);
   };
 
-  /** Re-read just before sending, and an error's real outcome: the shared rules (lib/bulkShip). */
-  const recheck = recheckOrder;
-
-  const lookUp = outcomeAfterError;
-
   /** An unknown order, looked up again by hand. */
   const checkAgain = async (id: string) => {
     setPlan(id, { booking: true });
@@ -242,32 +237,16 @@ const GrowshipBulk: React.FC = () => {
     if (!warehouseId) return;
     const ids = [...bookable];
     setRunning('book');
+    // Each order through the shared safe step (lib/bulkShip bookOrder: re-read just before sending, an error's real
+    // outcome), the one the bulk bar's Create shipments uses too.
     await pooled(ids, 2, async (id) => {
       setPlan(id, { booking: true });
-      let checked: { skip: string } | { order: any };
-      try {
-        checked = await recheck(id);
-      } catch (e) {
-        setPlan(id, { booking: false, result: { ok: false, text: `Not sent: the order could not be read again (${errorText(e, 'no answer')}).` } });
-        return;
-      }
-      if ('skip' in checked) {
-        setPlan(id, { booking: false, result: { ok: false, skip: true, text: checked.skip } });
-        return;
-      }
-      try {
-        const weight = await weightFor(id, checked.order);
-        const res: any = await shippingAPI.createShipment(id, {
-          warehouseId, shippingProvider: GS,
-          ...(plans[id]?.chosen ? { courierCode: plans[id].chosen } : {}),
-          dimensions: { weight, length: box.length, breadth: box.breadth, height: box.height },
-        });
-        const s = res?.shipment ?? res?.data?.shipment ?? {};
-        const awb = s.awbCode ?? s.awb_code;
-        setPlan(id, { booking: false, result: { ok: true, text: [s.courierName ?? s.courier, awb ? `AWB ${awb}` : 'waiting for its AWB'].filter(Boolean).join(', ') } });
-      } catch (e) {
-        setPlan(id, { booking: false, result: await lookUp(id, e) });
-      }
+      const result = await bookOrder(id, async (order) => shippingAPI.createShipment(id, {
+        warehouseId, shippingProvider: GS,
+        ...(plans[id]?.chosen ? { courierCode: plans[id].chosen } : {}),
+        dimensions: { weight: await weightFor(id, order), length: box.length, breadth: box.breadth, height: box.height },
+      }));
+      setPlan(id, { booking: false, result });
     });
     setRunning(null);
     reloadWallet();

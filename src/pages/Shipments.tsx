@@ -12,6 +12,7 @@ import { ShipmentTabs, ShipmentFilters, ShipmentTable, PendingOrdersTable, Picku
 import type { TabType, StatusCounts, ReconcileResultData, NdrTarget } from '../components/shipments';
 import { TAB_STATUS, TAB_TYPES } from '../components/shipments/ShipmentTabs';
 import ShipmentCreationModal, { type ShipProviderId } from '../components/order/ShipmentCreationModal';
+import OrderBulkBar from '../components/order/OrderBulkBar';
 import PrintLabelsDialog from '../components/shipments/PrintLabelsDialog';
 import { getStatusLabel } from '../components/order/StatusBadge';
 import { isTerminal, providerLabel, providerOf, shipmentAwb, shipmentMatches } from '../components/shipments/shipmentFacts';
@@ -23,8 +24,9 @@ interface ShipmentsProps {
    * One carrier's board (the Growcord Ship menu, owner 26 Nov 2026): the list, the charge totals, the tab counts and
    * the tiles are that carrier's only (owner 27 Nov 2026: "show accurate number for growship only not the overall";
    * every board read, the counts read on Pending Orders included, sends the carrier), and the carrier filter is fixed
-   * to it. Pending Orders (To book) counts orders with nothing booked, which have no carrier yet, and says so. The
-   * page is otherwise the same board.
+   * to it. Pending Orders (To book) counts orders with nothing booked, which have no carrier yet, and says so; its
+   * orders can be ticked and booked together (components/order/OrderBulkBar, starting on this carrier). The page is
+   * otherwise the same board.
    */
   fixedProvider?: 'growcord_ship';
   /** The page heading, when not "Shipments". */
@@ -49,6 +51,8 @@ const Shipments: React.FC<ShipmentsProps> = ({ fixedProvider, title, intro }) =>
   const [providerFilter, setProviderFilter] = useState<string>(fixedProvider ?? '');
   // Each read is numbered; an answer to an older read is dropped, so a slow reply never replaces a newer list.
   const fetchSeq = useRef(0);
+  // True once a board read has finished (the whole-page spinner is for the first read).
+  const loadedOnce = useRef(false);
   // Growcord Ship's board: bookings no courier took (refunded at once) read as such, never as live parcels.
   const [notTaken, setNotTaken] = useState<GsConsignment[]>([]);
   const notTakenAt = useRef(0);
@@ -105,6 +109,10 @@ const Shipments: React.FC<ShipmentsProps> = ({ fixedProvider, title, intro }) =>
   const [query, setQuery] = useState('');
   // True when the server refused `q` (a backend without board search): the loaded page is searched instead.
   const [searchLocal, setSearchLocal] = useState(false);
+  // Pending Orders ticked to book together (owner 27 Nov 2026: "in pending order add bulk ship option"): on a
+  // carrier's board, for staff who may book (shipments.manage, as Ship from a file); the plain board is unchanged.
+  const canBulkShip = !!fixedProvider && hasPerm('shipments.manage');
+  const [selectedOrders, setSelectedOrders] = useState<string[]>([]);
 
   useEffect(() => {
     fetchWarehouses();
@@ -154,6 +162,7 @@ const Shipments: React.FC<ShipmentsProps> = ({ fixedProvider, title, intro }) =>
     // Map tab to status filter (Pending Orders uses its own list).
     setStatusFilter(TAB_STATUS[activeTab] ?? '');
     setSelectedShipments([]);
+    setSelectedOrders([]);
     setPagination(prev => ({ ...prev, page: 1 }));
   }, [activeTab]);
 
@@ -296,7 +305,7 @@ const Shipments: React.FC<ShipmentsProps> = ({ fixedProvider, title, intro }) =>
       console.error('Failed to fetch shipments:', error);
       setLoadError(errorText(error, 'The shipments could not be loaded.'));
     } finally {
-      if (!stale()) setLoading(false);
+      if (!stale()) { loadedOnce.current = true; setLoading(false); }
     }
   };
 
@@ -620,8 +629,17 @@ const Shipments: React.FC<ShipmentsProps> = ({ fixedProvider, title, intro }) =>
         .some((h) => h.toLowerCase().includes(needle) || (digits.length >= 4 && h.replace(/\D/g, '').includes(digits)));
     });
   }, [pendingOrders, query]);
+  // Only orders on screen stay ticked: a new page, a search, or a booked order leaving the list drops its tick.
+  useEffect(() => {
+    setSelectedOrders((prev) => {
+      const keep = prev.filter((id) => visiblePendingOrders.some((o) => o._id === id));
+      return keep.length === prev.length ? prev : keep;
+    });
+  }, [visiblePendingOrders]);
 
-  if (loading && shipments.length === 0 && pendingOrders.length === 0) {
+  // The whole-page spinner. Where orders can be booked together it shows on the first read only: a read after a run
+  // that empties the list must not take the run's results (in the bulk bar) off the screen.
+  if (loading && shipments.length === 0 && pendingOrders.length === 0 && (!canBulkShip || !loadedOnce.current)) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500"></div>
@@ -743,7 +761,7 @@ const Shipments: React.FC<ShipmentsProps> = ({ fixedProvider, title, intro }) =>
         onTabChange={setActiveTab}
         statusCounts={statusCounts}
         hints={carrierName ? {
-          pending_orders: `Orders with nothing booked yet. An order has no carrier until it is booked, so this number counts every order waiting, not only ${carrierName} ones. Create a shipment for each.`,
+          pending_orders: `Orders with nothing booked yet. An order has no carrier until it is booked, so this number counts every order waiting, not only ${carrierName} ones. ${canBulkShip ? 'Tick several to book them together, or create a shipment for each.' : 'Create a shipment for each.'}`,
         } : undefined}
       />
 
@@ -751,9 +769,29 @@ const Shipments: React.FC<ShipmentsProps> = ({ fixedProvider, title, intro }) =>
       {activeTab === 'pending_orders' ? (
         <>
           {openingOrder && <p className="mb-2 text-sm text-muted-foreground">Opening the order for booking...</p>}
+          {/* Book the ticked orders together: the Orders list's own Create shipments (one copy), starting on this
+              board's carrier; the list and the counts are read again after the run. */}
+          {canBulkShip && (
+            <div className="mb-3 empty:hidden">
+              <OrderBulkBar
+                rows={visiblePendingOrders}
+                selectedIds={selectedOrders}
+                onClear={() => setSelectedOrders([])}
+                onDone={() => fetchShipments()}
+                canManageOrders={false}
+                canManageShipments
+                startProvider={fixedProvider}
+              />
+            </div>
+          )}
           <PendingOrdersTable
             orders={visiblePendingOrders}
             onCreateShipment={(orderId) => { if (!openingOrder) openCreateFor(orderId); }}
+            selectedIds={canBulkShip ? selectedOrders : undefined}
+            onSelect={canBulkShip ? (id, checked) => setSelectedOrders((prev) => (
+              checked ? (prev.includes(id) ? prev : [...prev, id]) : prev.filter((x) => x !== id)
+            )) : undefined}
+            onSelectAll={canBulkShip ? (checked) => setSelectedOrders(checked ? visiblePendingOrders.map((o) => o._id) : []) : undefined}
           />
         </>
       ) : (

@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import StatusBadge from '@/components/order/StatusBadge';
 import { formatDate } from '../../utils/date';
 
@@ -40,17 +41,39 @@ interface PendingOrder {
 interface PendingOrdersTableProps {
   orders: PendingOrder[];
   onCreateShipment?: (orderId: string) => void;
+  /**
+   * Ticking orders to book together (the bulk bar above the table). The boxes show only when `onSelect` is given,
+   * the same way the shipments table shows them.
+   */
+  selectedIds?: string[];
+  onSelect?: (orderId: string, checked: boolean) => void;
+  /** Ticks or clears every order on this page. */
+  onSelectAll?: (checked: boolean) => void;
 }
 
-const PendingOrdersTable: React.FC<PendingOrdersTableProps> = ({ orders, onCreateShipment }) => {
+const PendingOrdersTable: React.FC<PendingOrdersTableProps> = ({ orders, onCreateShipment, selectedIds = [], onSelect, onSelectAll }) => {
   const safeFormatDate = (date: any, fmt: string) => formatDate(date, fmt, 'N/A');
+  const allTicked = orders.length > 0 && orders.every((o) => selectedIds.includes(o._id));
 
   return (
     <div className="bg-white rounded-md border">
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Order ID</TableHead>
+            <TableHead>
+              {onSelect ? (
+                <div className="flex items-center gap-2">
+                  {onSelectAll && orders.length > 0 && (
+                    <Checkbox
+                      checked={allTicked}
+                      onCheckedChange={(checked: boolean | 'indeterminate') => onSelectAll(checked === true)}
+                      aria-label="Select every order on this page"
+                    />
+                  )}
+                  <span>Order ID</span>
+                </div>
+              ) : 'Order ID'}
+            </TableHead>
             <TableHead>Customer</TableHead>
             <TableHead>Destination</TableHead>
             <TableHead>Items</TableHead>
@@ -71,12 +94,21 @@ const PendingOrdersTable: React.FC<PendingOrdersTableProps> = ({ orders, onCreat
             orders.map((order) => (
               <TableRow key={order._id}>
                 <TableCell className="font-medium">
-                  <Link
-                    to={`/orders/${order._id}`}
-                    className="text-blue-600 hover:underline"
-                  >
-                    {order.orderId}
-                  </Link>
+                  <div className="flex items-center gap-2">
+                    {onSelect && (
+                      <Checkbox
+                        checked={selectedIds.includes(order._id)}
+                        onCheckedChange={(checked: boolean | 'indeterminate') => onSelect(order._id, checked === true)}
+                        aria-label={`Select order ${order.orderId ?? ''}`}
+                      />
+                    )}
+                    <Link
+                      to={`/orders/${order._id}`}
+                      className="text-blue-600 hover:underline"
+                    >
+                      {order.orderId}
+                    </Link>
+                  </div>
                   {/* Where the order itself stands (confirmed, processing...), so an order on hold is not booked by mistake. */}
                   {(order.orderStatus || order.order_status) && (
                     <div className="mt-1">

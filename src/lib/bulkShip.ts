@@ -73,6 +73,30 @@ export async function outcomeAfterError(id: string, e: any): Promise<Outcome> {
   return { ok: false, unknown: true, text: `Unknown: ${why} No parcel is on the order yet. Check again in a minute.` };
 }
 
+/**
+ * One order booked by the rules above: re-read it, then `send` the booking with the order as it stands now, and answer
+ * the booking's courier and AWB, a reason to skip, or an error's real outcome. Never throws. Growcord Ship's Bulk
+ * shipment (ready orders) and the bulk bar's Create shipments (components/order/OrderBulkBar, on Orders and on the
+ * Growcord Ship board's Pending Orders) book through this one step.
+ */
+export async function bookOrder(id: string, send: (order: any) => Promise<any>): Promise<Outcome> {
+  let checked: { skip: string } | { order: any };
+  try {
+    checked = await recheckOrder(id);
+  } catch (e) {
+    return { ok: false, text: `Not sent: the order could not be read again (${errorText(e, 'no answer')}).` };
+  }
+  if ('skip' in checked) return { ok: false, skip: true, text: checked.skip };
+  try {
+    const res: any = await send(checked.order);
+    const s = res?.shipment ?? res?.data?.shipment ?? {};
+    const awb = s.awbCode ?? s.awb_code ?? s.waybill;
+    return { ok: true, text: [s.courierName ?? s.courier, awb ? `AWB ${awb}` : 'waiting for its AWB'].filter(Boolean).join(', ') };
+  } catch (e) {
+    return outcomeAfterError(id, e);
+  }
+}
+
 /** A box from the store's box list as sides in cm and its own weight in kg; null when it has no usable sides. */
 export function boxOf(b: any): { length: number; breadth: number; height: number; deadWeightKg: number } | null {
   if (!b) return null;
