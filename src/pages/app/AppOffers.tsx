@@ -80,18 +80,18 @@ const AppOffers: React.FC = () => {
             </Notice>
           )}
           <SectionCard title="Offers" description={`${offers.length} ${offers.length === 1 ? 'coupon is' : 'coupons are'} limited to the app. When several fit an order, the server picks the best.`}>
+            {/* One <table> inside the shell, the Th straight in THead (it draws its own row), as every other page. */}
             <TableShell>
+              <table className="w-full text-sm">
               <THead>
-                <Tr>
-                  <Th>Code</Th>
-                  <Th>Discount</Th>
-                  <Th>Minimum order</Th>
-                  <Th>When</Th>
-                  <Th>Who</Th>
-                  <Th>State</Th>
-                  <Th className="text-right">Used</Th>
-                  <Th><span className="sr-only">Edit</span></Th>
-                </Tr>
+                <Th>Code</Th>
+                <Th>Discount</Th>
+                <Th>Minimum order</Th>
+                <Th>When</Th>
+                <Th>Who</Th>
+                <Th>State</Th>
+                <Th className="text-right">Used</Th>
+                <Th><span className="sr-only">Edit</span></Th>
               </THead>
               <TBody>
                 {offers.length === 0 && <EmptyRow colSpan={8}>No app offer yet.</EmptyRow>}
@@ -125,6 +125,7 @@ const AppOffers: React.FC = () => {
                   );
                 })}
               </TBody>
+              </table>
             </TableShell>
             {off && <p className="mt-2 text-xs text-gray-500">{off}</p>}
           </SectionCard>

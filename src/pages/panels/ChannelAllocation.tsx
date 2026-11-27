@@ -187,16 +187,16 @@ const ChannelAllocation: React.FC = () => {
                 This SKU is not mapped to any active channel yet. Add it in <Link to="/channels/mapping" className="text-primary underline">SKU Mapping</Link> first.
               </p>
             ) : (
+              /* One <table> inside the shell, the Th straight in THead (it draws its own row), as every other page. */
               <TableShell>
+                <table className="w-full text-sm">
                 <THead>
-                  <tr>
-                    <Th>Channel</Th>
-                    <Th num>Channel sees (buffered)</Th>
-                    <Th>Cap type</Th>
-                    <Th num>Cap value</Th>
-                    <Th num>Publishes now</Th>
-                    <Th />
-                  </tr>
+                  <Th>Channel</Th>
+                  <Th num>Channel sees (buffered)</Th>
+                  <Th>Cap type</Th>
+                  <Th num>Cap value</Th>
+                  <Th num>Publishes now</Th>
+                  <Th />
                 </THead>
                 <TBody>
                   {data.channels.map((c) => {
@@ -243,6 +243,7 @@ const ChannelAllocation: React.FC = () => {
                   })}
                   {data.channels.length === 0 && <EmptyRow colSpan={6}>No channels.</EmptyRow>}
                 </TBody>
+                </table>
               </TableShell>
             )}
 

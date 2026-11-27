@@ -621,18 +621,20 @@ const ShipFromFile: React.FC = () => {
             </StatGrid>
           </div>
         )}
+        {/* One <table> inside the shell, the Th straight in THead (it draws its own row), as every other page: without
+            the table the browser built two and the headings sat apart from their columns (owner 27 Nov 2026). The
+            shell scrolls sideways on a phone; long courier names wrap in their cell. */}
         <TableShell>
+          <table className="w-full min-w-[60rem] text-sm">
           <THead>
-            <Tr>
-              <Th>Line</Th>
-              <Th>Order</Th>
-              <Th>Invoice</Th>
-              <Th>Parcel</Th>
-              <Th>Cheapest allowed</Th>
-              <Th>Fastest allowed</Th>
-              <Th>Next</Th>
-              <Th>Result</Th>
-            </Tr>
+            <Th>Line</Th>
+            <Th>Order</Th>
+            <Th>Invoice</Th>
+            <Th>Parcel</Th>
+            <Th>Cheapest allowed</Th>
+            <Th>Fastest allowed</Th>
+            <Th>Next</Th>
+            <Th>Result</Th>
           </THead>
           <TBody>
             {rows.length === 0 && <EmptyRow colSpan={8}>{headerIssue ? 'Fix the columns named above, then choose the file again.' : 'Choose a file to see its orders here.'}</EmptyRow>}
@@ -704,6 +706,7 @@ const ShipFromFile: React.FC = () => {
               );
             })}
           </TBody>
+          </table>
         </TableShell>
       </SectionCard>
     </Page>
