@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 
 /**
  * ERP button — ONE visual language across every panel, POS and the scanner.
- *   primary  → dark (matches the app chrome + active header tab)
+ *   primary  → Growcord orange, lifted (the suite kit's gc-btn-primary; ADMIN-BRAND-1, owner 27 Nov 2026)
  *   success  → emerald (save / download / confirm-money)
  *   danger   → solid red (destructive)
  *   dangerOutline → quiet red (destructive, secondary weight)
@@ -16,12 +16,12 @@ import { cn } from '@/lib/utils';
  */
 export const btn = cva(
   'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium transition-colors ' +
-    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-1 ' +
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-1 ' +
     'disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0',
   {
     variants: {
       variant: {
-        primary: 'bg-gray-900 text-white shadow-sm hover:bg-gray-800',
+        primary: 'bg-gradient-to-b from-brand-500 to-brand-600 text-white shadow-[0_1px_0_rgb(255_255_255/0.18)_inset,0_4px_10px_-4px_color-mix(in_srgb,var(--b-600)_60%,transparent)] hover:from-brand-600 hover:to-brand-700',
         success: 'bg-emerald-600 text-white shadow-sm hover:bg-emerald-700',
         danger: 'bg-red-600 text-white shadow-sm hover:bg-red-700',
         dangerOutline: 'border border-red-200 bg-white text-red-700 hover:bg-red-50',

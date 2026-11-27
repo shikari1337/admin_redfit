@@ -31,6 +31,10 @@ import { visibleMenu } from './menu/menuAccess';
 import { Banners, CommandPalette, HotkeySheet, useShellHotkeys, useDocumentTitle } from './menu/ShellChrome';
 import { ProductTabs } from './ProductTabs';
 import { Toaster } from '@/components/ui/toaster';
+import { Search } from 'lucide-react';
+
+/** The palette's key, as this keyboard writes it (the palette opens on Cmd K and Ctrl K alike). */
+const PALETTE_KEY = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '\u2318K' : 'Ctrl K';
 
 /** "Orders · Abandoned Carts · SM-9188" — the trail, from the one menu definition. */
 function useTrail(pathname: string): Array<{ label: string; to?: string }> {
@@ -128,8 +132,8 @@ const Layout: React.FC = () => {
           min-content — so any single wide child (a table, a nowrap toolbar) grew
           the whole page sideways. The clip below hides the overflow visually but
           only `min-w-0` stops it being claimed as width in the first place. */}
-      <main className="flex min-h-screen min-w-0 flex-1 flex-col bg-bg">
-        <header className="sticky top-0 z-10 shrink-0 border-b border-line bg-surface/95 backdrop-blur supports-[backdrop-filter]:bg-surface/80">
+      <main data-admin-main className="flex min-h-screen min-w-0 flex-1 flex-col bg-bg">
+        <header data-admin-top className="sticky top-0 z-10 shrink-0 border-b border-line bg-surface/95 backdrop-blur supports-[backdrop-filter]:bg-surface/80">
           <div className="flex h-14 items-center justify-between gap-2 px-4 md:px-6">
             {/* Left: sidebar trigger + the product tabs (E-commerce active, the rest link out) */}
             <div className="flex min-w-0 items-center gap-2">
@@ -146,6 +150,17 @@ const Layout: React.FC = () => {
                 domain-pinned deployment (admin.<store>.com) — that domain manages
                 exactly one store, so switching away from it makes no sense. */}
             <div className="flex shrink-0 items-center gap-3">
+              {/* The command palette, findable by sight (ADMIN-BRAND-1); Cmd or Ctrl K and "/" still open it. */}
+              <button
+                type="button"
+                onClick={() => setPaletteOpen(true)}
+                className="hidden h-9 w-56 items-center gap-2 rounded-lg border border-line bg-bg px-3 text-sm text-ink-mute shadow-[inset_0_1px_2px_rgb(32_24_16/0.05)] hover:border-brand-200 hover:text-ink-soft lg:inline-flex xl:w-72"
+                aria-label={`Search or jump to a page (${PALETTE_KEY})`}
+              >
+                <Search className="size-4 shrink-0" />
+                <span className="flex-1 truncate text-left">Search or jump</span>
+                <kbd className="rounded border border-line bg-surface px-1.5 py-px text-[11px] font-medium text-ink-mute">{PALETTE_KEY}</kbd>
+              </button>
               <NotificationBell />
               {!getDomainStore() && <StoreSwitcher />}
             </div>

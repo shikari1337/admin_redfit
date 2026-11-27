@@ -154,3 +154,103 @@
   h2 { font-size: 1.0625rem; font-weight: 600; }
   h3 { font-size: 0.9375rem; font-weight: 600; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Growcord look for the frame (ADMIN-BRAND-1; owner 27 Nov 2026: "build admin ui
+   in beautiful theme growcord branding", then "keep sidebar light but add depth
+   color update"). The sidebar stays light (owner, 2026-09-25); it gets depth
+   from a warm shading and a soft edge shadow, and the Growcord orange marks
+   where the person is, as the suite's rail does. CSS on the sidebar's own data
+   attributes only: no menu item, fold or control is added, moved or removed.
+   ═══════════════════════════════════════════════════════════════════════════ */
+/* Plain rules after the utilities on purpose: the sidebar primitive sets its own hover and
+   active utilities, and these must win over them at the same specificity. */
+[data-sidebar="sidebar"] {
+  background:
+    radial-gradient(120% 220px at 0% 0%, color-mix(in srgb, var(--b-100) 55%, transparent), transparent 70%),
+    linear-gradient(180deg, var(--surface) 0%, var(--surface) 55%, color-mix(in srgb, var(--n-100) 70%, var(--surface)) 100%);
+  box-shadow: 1px 0 0 var(--line), 10px 0 28px -18px rgb(32 24 16 / 0.28);
+}
+[data-sidebar="header"] {
+  border-block-end: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+}
+[data-sidebar="footer"] {
+  border-block-start: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  background: color-mix(in srgb, var(--n-100) 45%, transparent);
+}
+[data-sidebar="group-label"] {
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  color: var(--ink-mute);
+}
+[data-sidebar="menu-button"],
+[data-sidebar="menu-sub-button"] {
+  color: var(--ink-soft);
+  border-radius: var(--radius-md);
+}
+[data-sidebar="menu-button"] > svg { color: var(--ink-mute); }
+[data-sidebar="menu-button"]:hover,
+[data-sidebar="menu-sub-button"]:hover {
+  background: color-mix(in srgb, var(--b-50) 85%, transparent);
+  color: var(--ink);
+}
+[data-sidebar="menu-button"]:hover > svg { color: var(--b-600); }
+/* Where the person is: the Growcord orange, lifted a little off the paper. */
+[data-sidebar="menu-button"][data-active="true"] {
+  background: linear-gradient(135deg, var(--b-500), var(--b-600));
+  color: var(--accent-ink);
+  font-weight: 600;
+  box-shadow: 0 6px 14px -8px color-mix(in srgb, var(--b-600) 70%, transparent), inset 0 1px 0 rgb(255 255 255 / 0.18);
+}
+[data-sidebar="menu-button"][data-active="true"] > svg { color: var(--accent-ink); }
+[data-sidebar="menu-sub-button"][data-active="true"] {
+  background: var(--b-50);
+  color: var(--b-700);
+  font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--b-500);
+}
+[data-sidebar="menu-sub"] { border-color: color-mix(in srgb, var(--b-200) 60%, var(--line)); }
+
+/* The top bar sits on the page with a hairline and a soft fall-off. */
+[data-admin-top] {
+  box-shadow: 0 1px 0 var(--line), 0 10px 24px -22px rgb(32 24 16 / 0.45);
+}
+
+/* The page ground, a step darker than the theme's --bg (owner 27 Nov 2026: "background color more dark in
+   container"), so white cards stand off it. Admin only: the theme file is shared with the suite and the console. */
+[data-admin-main] {
+  background:
+    radial-gradient(1200px 300px at 100% 0%, color-mix(in srgb, var(--b-100) 22%, transparent), transparent 70%),
+    color-mix(in srgb, var(--n-200) 58%, var(--n-100));
+}
+
+/* Type: headings, card titles and figures in the display face at heavier weights, text in Inter (the console's
+   pairing, gcsu/src/index.css). */
+h1, h2, h3, .font-display {
+  font-family: "Plus Jakarta Sans", Inter, ui-sans-serif, system-ui, sans-serif;
+}
+h1 { font-weight: 800; letter-spacing: -0.02em; }
+h2, h3 { font-weight: 700; letter-spacing: -0.01em; }
+
+/* Tables: a header band with weight, row lines in the warm neutral, an orange-warm hover, and the first cell of a
+   row a little stronger so a row reads from its name. */
+table thead th {
+  background: linear-gradient(180deg, var(--surface-2), color-mix(in srgb, var(--n-100) 70%, var(--surface-2)));
+  color: var(--ink-soft);
+  font-weight: 700;
+  border-block-end: 1px solid var(--line);
+}
+table tbody tr { border-block-end: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+table tbody tr:hover { background: color-mix(in srgb, var(--b-50) 60%, transparent); }
+table tbody td:first-child { color: var(--ink); font-weight: 500; }
+
+/* Cards (ADMIN-BRAND-1): a card whose header is a strip (it has a bottom border) gets the erp kit's tint, and
+   every card title the display face, so a shadcn card and an erp SectionCard read as one element. */
+[data-slot="card-header"].border-b {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 80%, transparent), var(--surface));
+}
+[data-slot="card-title"] {
+  font-family: "Plus Jakarta Sans", Inter, ui-sans-serif, system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+}

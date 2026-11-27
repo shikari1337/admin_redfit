@@ -36,12 +36,12 @@ export const PageHeader: React.FC<{
   <div className={cn('flex flex-wrap items-start justify-between gap-3', className)}>
     <div className="flex min-w-0 items-start gap-3">
       {Icon && (
-        <span className="mt-0.5 hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gray-900/5 text-gray-700 sm:flex">
+        <span className="mt-0.5 hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-brand-50 to-brand-100 text-brand-600 ring-1 ring-inset ring-brand-200/70 sm:flex">
           <Icon className="h-5 w-5" />
         </span>
       )}
       <div className="min-w-0">
-        <h1 className="text-xl font-semibold tracking-tight text-gray-900">{title}</h1>
+        <h1 className="font-display text-[1.375rem] font-extrabold tracking-tight text-gray-900">{title}</h1>
         {description && (
           <p className="mt-0.5 max-w-3xl text-sm text-gray-500">{description}</p>
         )}

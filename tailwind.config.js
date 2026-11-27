@@ -136,6 +136,8 @@ export default {
       },
       fontFamily: {
         sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
+        // Headings, card titles and figures (ADMIN-BRAND-1), as the platform console sets them.
+        display: ['"Plus Jakarta Sans"', 'Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
         mono: ['ui-monospace', 'Cascadia Mono', 'Consolas', 'Noto Sans Mono', 'monospace'],
       },
       transitionTimingFunction: { DEFAULT: 'var(--ease)', theme: 'var(--ease)' },

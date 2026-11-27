@@ -6,8 +6,14 @@
 <html lang="en" data-theme="light">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/svg+xml" href="/brand/growcord-icon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- The Growcord type (ADMIN-BRAND-1): Inter for text, as growcord.in, and Plus Jakarta Sans for headings and
+         figures, the same link the platform console loads (gcsu/index.html). Without it "Inter" in the theme fell
+         back to each computer's own font. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#ffffff" />
     <link rel="apple-touch-icon" href="/scanner-icon.svg" />
@@ -20,11 +26,14 @@
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
     <div id="root">
-      <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; font-family: system-ui; background-color: #f3f4f6;">
+      <!-- Shown until the app paints: the Growcord wordmark and an orange ring on the theme's warm ground
+           (literal values, because the stylesheet is not loaded yet). -->
+      <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; font-family: system-ui; background-color: #faf9f7;">
         <div style="text-align: center;">
-          <div style="border: 4px solid #f3f4f6; border-top-color: #ef4444; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 20px;"></div>
-          <p style="color: #6b7280; font-size: 16px; font-weight: 500;">Loading admin panel...</p>
-          <p style="color: #9ca3af; font-size: 12px; margin-top: 8px;">If this takes too long, check the browser console for errors.</p>
+          <img src="/brand/growcord-logo.png" alt="Growcord" width="150" height="30" style="display: block; margin: 0 auto 22px;" />
+          <div style="border: 3px solid #e7e4df; border-top-color: #ea580c; border-radius: 50%; width: 32px; height: 32px; animation: spin 1s linear infinite; margin: 0 auto 16px;"></div>
+          <p style="color: #5d5852; font-size: 14px; font-weight: 500;">Loading admin panel...</p>
+          <p style="color: #a49f97; font-size: 12px; margin-top: 8px;">If this takes too long, check the browser console for errors.</p>
         </div>
       </div>
     </div>
