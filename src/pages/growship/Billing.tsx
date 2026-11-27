@@ -2,24 +2,32 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Receipt, Loader2, FileDown, Info } from 'lucide-react';
 import { errorText } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
-import { isShipRefund, readMovesSince } from '@/lib/growshipWallet';
+import {
+  isShipRefund, linkMoves, walletForParcels, walletGap, type ParcelWallet, type WalletMove,
+} from '@/lib/growshipWallet';
+import { readMovesSince } from '@/lib/growshipWalletRead';
 import { fmtRupees } from '@/lib/money';
 import { downloadCsv, type CsvColumn } from '@/lib/csv';
 import { formatDate } from '../../utils/date';
+import { addDays } from '../../components/dashboard/periods';
 import {
   Page, PageHeader, SectionCard, StatCard, StatGrid, TableShell, THead, Th, TBody, Tr, Td, EmptyRow, Btn, FilterBar, Chip,
 } from '../../components/erp';
 import { DEFAULT_FROM, DEFAULT_TO, RangeFields } from '../payments/common';
 import {
-  chargeSplit, finalAmount, growshipAPI, gsStatusText, gramsText, isCancelled, neverCharged, type GsChargeSplit, type GsConsignment,
+  chargeSplit, finalAmount, growshipAPI, gsStatusText, gramsText, isCancelled, neverCharged, readConsignments,
+  type GsChargeSplit, type GsConsignment, type GsWalletLeg,
 } from '@/lib/v2/growship';
 
 const PAGE_SIZE = 25;
 /** Parcels are read 200 at a time (the door's most) up to this many for the totals and the file. */
-const READ_PAGE = 200;
 const READ_CAP = 2000;
 /** "CSV with charge lines" reads the lines of at most this many parcels (the newest of the period). */
 const LINES_CAP = 200;
+/** The wallet is read from this many days before the period, only to link a refund to a charge across its start. */
+const PAIR_DAYS = 7;
+/** The wallet check reads at most this many movements (every category, newest first). */
+const MOVES_CAP = 5000;
 
 const money = (n: number | null | undefined) => (n == null ? '' : fmtRupees(n));
 const sum = (rows: GsConsignment[], f: (c: GsConsignment) => number | null | undefined) =>
@@ -31,6 +39,9 @@ const sum = (rows: GsConsignment[], f: (c: GsConsignment) => number | null | und
  * other details"): freight, the COD fee, return charges and other lines from each parcel's own charge lines,
  * GST, the amount at booking and the final amount, with totals and a CSV. Read from Growcord Ship's own parcel
  * list (`GET /api/v2/ship/consignments`); the charge lines of the parcels on screen are read as they show.
+ * Each parcel is checked against the wallet (owner 27 Nov 2026: "data in wallet and billing isn't matching"): what
+ * the wallet took and gave back for its order number (lib/growshipWallet.ts walletForParcels) against its Final; a
+ * parcel that differs says so in its row and the page says how many. Amounts are shown as recorded, never changed.
  */
 const GrowshipBilling: React.FC = () => {
   const { hasPerm } = useAuth();
@@ -41,6 +52,9 @@ const GrowshipBilling: React.FC = () => {
   /** Parcel id to what the wallet got back for it, in rupees (a refunded booking is not paid). */
   const [refundOf, setRefundOf] = useState<Map<string, number>>(new Map());
   const [rows, setRows] = useState<GsConsignment[] | null>(null);
+  /** The wallet's movements from a week before the period to today, and Ship's own record of them; null when not read. */
+  const [wallet, setWallet] = useState<{ moves: WalletMove[]; legs: GsWalletLeg[]; capped: boolean } | null>(null);
+  const [walletError, setWalletError] = useState(false);
   const [capped, setCapped] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
@@ -53,38 +67,40 @@ const GrowshipBilling: React.FC = () => {
 
   useEffect(() => {
     let live = true;
-    setRows(null); setError(null); setPage(1); setCapped(false);
+    setRows(null); setError(null); setPage(1); setCapped(false); setWallet(null); setWalletError(false);
     if (!canShip) { setRows([]); setError('The parcels need the shipments.read permission, the same as the shipments board.'); return () => { live = false; }; }
     (async () => {
-      const out: GsConsignment[] = [];
-      for (let offset = 0; ; offset += READ_PAGE) {
-        const p = await growshipAPI.consignments({ from: range.from, to: range.to, limit: READ_PAGE, offset });
-        out.push(...p.items);
-        if (p.items.length < READ_PAGE || out.length >= p.total) break;
-        if (out.length >= READ_CAP) { if (live) setCapped(true); break; }
-      }
-      // What came back to the wallet for these parcels: Ship's own refund records by parcel, else the wallet's
-      // Growcord Ship refunds by the parcel's number (a cancel names it).
-      const refunds = new Map<string, number>();
+      const { items: out, capped: cut } = await readConsignments({ from: range.from, to: range.to }, READ_CAP);
+      if (live && cut) setCapped(true);
+      // The wallet, every category (a correction is an adjustment or a manual credit), from a week before the period
+      // (to link a refund to a charge across its start) to today (a refund or a correction can come later).
       const [legs, back] = await Promise.all([
-        growshipAPI.walletLegs(200).catch(() => []),
+        growshipAPI.walletLegs(200).catch(() => [] as GsWalletLeg[]),
         canBilling
-          ? readMovesSince('refund', range.from, { direction: 'credit', cap: 1000 }).catch(() => ({ rows: [], capped: false }))
-          : Promise.resolve({ rows: [], capped: false }),
+          ? readMovesSince('', addDays(range.from, -PAIR_DAYS), { cap: MOVES_CAP }).catch(() => null)
+          : Promise.resolve(null),
       ]);
+      // What came back to the wallet for each parcel itself (its Final is the booking less it): Ship's own refund
+      // records by parcel, else the wallet's Growcord Ship refunds by the parcel's number (a cancel names it).
+      const refunds = new Map<string, number>();
       for (const l of legs) {
         if (l.leg === 'refund' && l.consignment_id && Number(l.amount) > 0) {
           refunds.set(String(l.consignment_id), (refunds.get(String(l.consignment_id)) ?? 0) + Number(l.amount));
         }
       }
       const byNumber = new Map(out.map((c) => [String(c.consignment_number ?? ''), c.id]));
-      for (const r of back.rows) {
+      for (const r of back?.rows ?? []) {
         const id = r.reference ? byNumber.get(String(r.reference)) : undefined;
         if (id && isShipRefund(r) && !legs.some((l) => l.leg === 'refund' && String(l.consignment_id) === id)) {
           refunds.set(id, (refunds.get(id) ?? 0) + Number(r.amount));
         }
       }
-      if (live) { setRefundOf(refunds); setRows(out); }
+      if (live) {
+        setRefundOf(refunds);
+        setWallet(back ? { moves: back.rows, legs, capped: back.capped } : null);
+        setWalletError(canBilling && !back);
+        setRows(out);
+      }
     })().catch((e) => { if (live) { setRows([]); setError(errorText(e, 'Growcord Ship could not be read.')); } });
     return () => { live = false; };
   }, [range.from, range.to, canShip]);
@@ -139,6 +155,37 @@ const GrowshipBilling: React.FC = () => {
   };
 
   /**
+   * Each parcel against the wallet, with the Finals known in `m`: what the wallet took and gave back for its order
+   * (parcels of one order together), the warning when that differs from the Final, and the totals of the check. Null
+   * when the wallet was not read, or had more movements than were read (a partial wallet would warn wrongly). A
+   * parcel paid at the counter does not go through the wallet and is not checked.
+   */
+  const walletCheckIn = (m: Record<string, GsConsignment>) => {
+    if (!wallet || wallet.capped || !rows) return null;
+    const links = linkMoves(wallet.moves, wallet.legs, rows.map((c) => String(c.shipper_reference ?? '').trim()).filter(Boolean));
+    const of = walletForParcels(rows, wallet.moves, wallet.legs, links, range);
+    const byId = new Map(rows.map((c) => [c.id, c]));
+    const gaps = new Map<string, ReturnType<typeof walletGap>>();
+    const seen = new Set<ParcelWallet>();
+    let differ = 0; let unknown = 0; let backC = 0; let netC = 0; let finalC = 0;
+    for (const w of of.values()) {
+      if (seen.has(w)) continue;
+      seen.add(w);
+      backC += Math.round(w.back * 100);
+      const parcels = w.parcels.map((id) => byId.get(id)).filter(Boolean) as GsConsignment[];
+      if (parcels.some((c) => c.payment_mode === 'counter_paid')) continue;
+      const gap = walletGap(w, parcels.map((c) => finalIn(m, c)));
+      for (const id of w.parcels) gaps.set(id, gap);
+      if (gap.final == null) { unknown += parcels.length; continue; }
+      if (gap.differs) differ += parcels.length;
+      netC += Math.round(w.net * 100);
+      finalC += Math.round(gap.final * 100);
+    }
+    return { of, gaps, differ, unknown, back: backC / 100, net: netC / 100, finals: finalC / 100 };
+  };
+  const check = useMemo(() => walletCheckIn(details), [wallet, rows, details, refundOf, range.from, range.to]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /**
    * The totals agree with the Final column: what was paid is each parcel's final (a kept cancellation fee counts, a
    * refunded booking counts only what was kept, a booking no courier took counts nothing), split into before GST and
    * GST in that parcel's own share. A final not known yet (a cancel whose fee is not read) is counted apart.
@@ -161,7 +208,6 @@ const GrowshipBilling: React.FC = () => {
       uncharged: all.filter(neverCharged).length,
       refundedOnly: all.filter((c) => !isCancelled(c) && !neverCharged(c) && refunded(c) > 0).length,
       booked: sum(counted, (c) => c.sell_with_gst),
-      refundedTotal: sum(counted, (c) => refunded(c)),
       paid: Math.round(paid * 100) / 100,
       before: Math.round(before * 100) / 100,
       gst: Math.round((paid - before) * 100) / 100,
@@ -170,7 +216,7 @@ const GrowshipBilling: React.FC = () => {
     };
   }, [all, refundOf, details]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const columnsFor = (m: Record<string, GsConsignment>): CsvColumn<GsConsignment>[] => [
+  const columnsFor = (m: Record<string, GsConsignment>, w: ReturnType<typeof walletCheckIn>): CsvColumn<GsConsignment>[] => [
     { key: 'created_at', label: 'Booked', format: (c) => formatDate(c.created_at, 'yyyy-MM-dd HH:mm', '') },
     { key: 'consignment_number', label: 'Growcord Ship number', format: (c) => c.consignment_number ?? '' },
     { key: 'awb', label: 'AWB', format: (c) => c.awb ?? '' },
@@ -190,6 +236,15 @@ const GrowshipBilling: React.FC = () => {
     { key: 'sell_with_gst', label: 'At booking with GST', format: (c) => c.sell_with_gst?.toFixed(2) ?? '' },
     { key: 'final', label: 'Final (what it cost)', format: (c) => { const f = finalIn(m, c); return f == null ? (isCancelled(c) ? 'fee not read' : '') : f.toFixed(2); } },
     { key: 'note', label: 'Note', format: noteOf },
+    { key: 'wallet_net', label: 'Wallet net for the order', format: (c) => (w?.of.get(c.id) ? w.of.get(c.id)!.net.toFixed(2) : '') },
+    {
+      key: 'wallet_check', label: 'Wallet check', format: (c) => {
+        const g = w?.gaps.get(c.id);
+        if (!w) return '';
+        if (!g) return c.payment_mode === 'counter_paid' ? 'Paid at the counter' : '';
+        return g.final == null ? 'Final not known yet' : g.differs ? g.text : 'Matches';
+      },
+    },
   ];
 
   /** The period as a file; with the charge lines, the newest LINES_CAP parcels are read whole first. */
@@ -203,7 +258,7 @@ const GrowshipBilling: React.FC = () => {
         setFileNote(`Charge lines are in the file for the newest ${LINES_CAP} parcels only; the other ${all.length - LINES_CAP} have their booking figures without the split. Choose fewer days for the rest.`);
       }
     }
-    downloadCsv(`growcord-ship-charges-${range.from}-to-${range.to}`, columnsFor(known.current), all);
+    downloadCsv(`growcord-ship-charges-${range.from}-to-${range.to}`, columnsFor(known.current, walletCheckIn(known.current)), all);
   };
 
   return (
@@ -253,7 +308,10 @@ const GrowshipBilling: React.FC = () => {
         <StatCard
           label="Taken at booking"
           value={rows ? fmtRupees(totals.booked) : '...'}
-          sub={rows ? (canBilling ? `${fmtRupees(totals.refundedTotal)} of it went back to the wallet.` : 'Refunds are not checked: they need the billing.read permission.') : undefined}
+          sub={rows ? (!canBilling ? 'Refunds are not checked: they need the billing.read permission.'
+            : check ? `${fmtRupees(check.back)} went back to the wallet for these parcels, cancelled ones included.`
+              : walletError ? 'The wallet could not be read, so what went back is not shown.'
+                : wallet?.capped ? 'The wallet has more movements than are read for these dates. Choose fewer days.' : '...') : undefined}
         />
         <StatCard
           label="Paid, final"
@@ -266,6 +324,14 @@ const GrowshipBilling: React.FC = () => {
           sub={rows ? `Before GST ${fmtRupees(totals.before)}, in each parcel's own GST share.` : undefined}
         />
       </StatGrid>
+
+      {check && check.differ > 0 && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          {check.differ} parcel{check.differ === 1 ? '' : 's'} of this period {check.differ === 1 ? 'does' : 'do'} not match the wallet:
+          for the parcels checked, the wallet took {fmtRupees(check.net)} after what it gave back, and their Finals add to {fmtRupees(check.finals)}.
+          Each one says what differs in its row.{check.unknown ? ` ${check.unknown} parcel${check.unknown === 1 ? ' whose Final is' : 's whose Finals are'} not known yet (a cancellation fee not read) ${check.unknown === 1 ? 'is' : 'are'} checked once it shows.` : ''}
+        </div>
+      )}
 
       <SectionCard flush title="Parcels" description="Freight, COD fee, return and other come from each parcel's charge lines, read for the parcels on this page.">
         <TableShell className="rounded-none border-0 shadow-none">
@@ -283,8 +349,10 @@ const GrowshipBilling: React.FC = () => {
                 const cancelled = isCancelled(c);
                 const off = notCharged(c);
                 const changed = !off && fin != null && c.sell_with_gst != null && Math.abs(fin - c.sell_with_gst) >= 0.01;
+                const gap = check?.gaps.get(c.id);
                 return (
-                  <Tr key={c.id} className={cancelled ? 'opacity-70' : undefined}>
+                  <React.Fragment key={c.id}>
+                  <Tr className={[cancelled ? 'opacity-70' : '', gap?.differs ? 'bg-amber-50' : ''].filter(Boolean).join(' ') || undefined}>
                     <Td muted className="whitespace-nowrap">{formatDate(c.created_at, 'dd MMM yyyy', '')}</Td>
                     <Td>
                       <div className="font-mono text-xs">{c.consignment_number || ''}</div>
@@ -314,6 +382,12 @@ const GrowshipBilling: React.FC = () => {
                       {!cancelled && !neverCharged(c) && refunded(c) > 0 && <div className="text-[11px] font-normal text-gray-500">after the refund</div>}
                     </Td>
                   </Tr>
+                  {gap?.differs && (
+                    <tr className="bg-amber-50">
+                      <td colSpan={12} className="px-4 pb-2 pt-0 text-xs text-amber-900">{gap.text}</td>
+                    </tr>
+                  )}
+                  </React.Fragment>
                 );
               })}
             </TBody>

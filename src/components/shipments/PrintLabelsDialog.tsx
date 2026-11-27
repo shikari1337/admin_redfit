@@ -8,7 +8,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import {
-  LABEL_PRINT_DEFAULTS, LABEL_SIZES, LABEL_SIZE_GROUPS, labelsHtml, printHtml, readLabelData, readLabelPrint,
+  LABEL_PRINT_DEFAULTS, LABEL_SIZES, LABEL_SIZE_GROUPS, labelsHtml, narrowAwbCount, printHtml, readLabelData, readLabelPrint,
   type LabelData, type LabelMissing, type LabelPrintSetting, type LabelSizeKey,
 } from '@/lib/shippingLabels';
 
@@ -120,6 +120,7 @@ const PrintLabelsDialog: React.FC<Props> = ({ open, shipmentIds, names, growcord
     [data, prefs.size, prefs.items, prefs.invoiceValue, prefs.logo],
   );
   const sheets = data?.labels.length ? Math.ceil(data.labels.length / (spec.cols * spec.rows)) : 0;
+  const narrow = useMemo(() => (data?.labels.length ? narrowAwbCount(data.labels, prefs.size) : 0), [data, prefs.size]);
 
   const printGrowcord = () => {
     if (!data?.labels.length) return;
@@ -204,6 +205,12 @@ const PrintLabelsDialog: React.FC<Props> = ({ open, shipmentIds, names, growcord
               </div>
             )}
             {data && data.labels.length === 0 && !error && <p className="text-sm text-muted-foreground">No label can be made for these shipments.</p>}
+            {prefs.kind === 'growcord' && narrow > 0 && (
+              <p className="rounded-md border border-amber-300 bg-amber-50 p-2.5 text-sm text-amber-900">
+                {narrow} AWB{narrow === 1 ? ' is' : 's are'} too long for this size: the barcode prints thinner than the standard allows and a
+                scanner may not read it. Choose a larger size.
+              </p>
+            )}
             {preview && (
               <div>
                 <p className="mb-1 text-xs text-muted-foreground">
