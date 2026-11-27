@@ -16,7 +16,7 @@ import { Link, useLocation } from 'react-router-dom';
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent,
   SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuAction, SidebarMenuButton,
-  SidebarMenuItem, SidebarRail, useSidebar,
+  SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem, SidebarRail, useSidebar,
 } from '@/components/ui/sidebar';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
@@ -131,9 +131,40 @@ const AreaRow: React.FC<{
           <span>{item.label}</span>
         </Link>
       </SidebarMenuButton>
+      {/* On a phone there is no hover: the arrow opens the area's pages in place, so every page is a tap away from the
+          menu (release review 27 Nov 2026: POS, Gallery, Staff and Logs took two more taps on a phone). */}
+      {isMobile && pages.length > 1 && (
+        <SidebarMenuAction
+          aria-label={`${item.label} pages`}
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+        >
+          <ChevronRight className={cn('transition-transform', open && 'rotate-90')} />
+        </SidebarMenuAction>
+      )}
+      {isMobile && open && pages.length > 1 && (
+        <SidebarMenuSub>
+          {sections.map((s) => (
+            <React.Fragment key={s.label ?? 'all'}>
+              {sections.length > 1 && (
+                <li className="px-2 pb-0.5 pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-mute">{s.label}</li>
+              )}
+              {s.tabs.map((t) => (
+                <SidebarMenuSubItem key={t.to}>
+                  <SidebarMenuSubButton asChild isActive={t.to === activePath}>
+                    <Link to={t.to} onClick={go}>{t.label}</Link>
+                  </SidebarMenuSubButton>
+                </SidebarMenuSubItem>
+              ))}
+            </React.Fragment>
+          ))}
+        </SidebarMenuSub>
+      )}
       {!isMobile && pages.length > 1 && (
         <SidebarMenuAction
           showOnHover
+          // A touch screen has no hover either: the arrow stays in sight there.
+          className="[@media(hover:none)]:!opacity-100"
           aria-label={`${item.label} pages`}
           aria-haspopup="menu"
           aria-expanded={open}
@@ -142,7 +173,7 @@ const AreaRow: React.FC<{
           <ChevronRight />
         </SidebarMenuAction>
       )}
-      {open && createPortal(
+      {!isMobile && open && createPortal(
         <div
           ref={panelRef}
           role="menu"
