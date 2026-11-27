@@ -5,7 +5,11 @@
  * AWB is usually all digits) takes half the width. The encoder starts in C when the text opens with four or more
  * digits (or is an even run of digits), switches to C for a run of six or more digits in the middle or four or more
  * at the end, and back to B after. The check symbol is (start + the sum of each symbol times its position) mod 103.
- * Tested in code128.test.ts (pattern table, known values, checksums, a decode round trip).
+ * Tested in code128.test.ts (pattern table, known values, checksums, a decode round trip, printed size).
+ *
+ * Printed size (ISO/IEC 15417, brief GS-ACC-M 27 Nov 2026): each barcode prints at a fixed module width X (never
+ * stretched to its box), with 10 modules of quiet zone each side, and bars at least 6.35 mm or 15% of the symbol's
+ * printed width tall, whichever is more (code128Modules, code128Fit; the label sizes in lib/labelSizes.ts).
  */
 
 /** Bar and space widths (in modules) of the 107 symbols: values 0 to 102, Start A 103, Start B 104, Start C 105, Stop 106. */
@@ -113,23 +117,76 @@ export function valueOfPattern(widths: number[]): number {
 export const escapeXml = (s: unknown): string => String(s ?? '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
+/* ── printed size (ISO/IEC 15417) ───────────────────────────────────────── */
+
+/** The quiet zone each side of the symbol, in modules (at least 10 X). */
+export const QUIET_MODULES = 10;
+/** The module widths (X) a label may print, in mm, largest first. */
+export const X_STEPS_MM: readonly number[] = [1.0, 0.75, 0.5, 0.375, 0.33, 0.25];
+/** The lowest bar height: 6.35 mm (a quarter inch), or 15% of the symbol's printed width when that is more. */
+export const MIN_BAR_MM = 6.35;
+export const MIN_BAR_SHARE = 0.15;
+
 /**
- * An SVG of the barcode: black bars on white, 10 modules of quiet zone each side, stretched to the box it is put in
- * (every bar keeps its share, so it scans at any print width). `heightMm` is the bar height. Answers null when the
- * text cannot be carried, so the label prints the text alone.
+ * The width of the whole symbol in modules, both quiet zones included: 11 for the start, each data symbol and the
+ * check symbol, 13 for the stop, and 2 x 10 of quiet zone. Throws as code128Values does for a text it cannot carry.
  */
-export function code128Svg(text: string, heightMm: number): string | null {
+export function code128Modules(text: string): number {
+  return code128Widths(text).reduce((s, w) => s + w, 0) + QUIET_MODULES * 2;
+}
+
+/** The lowest bar height for a symbol printed `widthMm` wide (quiet zones included), in mm, rounded up to 0.1 mm. */
+export function minBarHeightMm(widthMm: number): number {
+  return Math.ceil(Math.max(MIN_BAR_MM, MIN_BAR_SHARE * widthMm) * 10 - 1e-9) / 10;
+}
+
+/** A barcode's printed size, in mm. `undersize`: X below the smallest of X_STEPS_MM (cut to fit; may not scan). */
+export interface Code128Fit { modules: number; xMm: number; widthMm: number; heightMm: number; undersize: boolean }
+
+const mm3 = (n: number) => Math.round(n * 1000) / 1000;
+
+/**
+ * The size of `text`'s barcode in a space `maxWidthMm` wide that wants its bars `heightMm` tall. X is the largest of
+ * X_STEPS_MM whose symbol fits the width and whose lowest bar height (minBarHeightMm) is within `heightMm`; when none
+ * is, the largest that fits the width with the least height, its bars made as tall as the rule asks. The bars are
+ * `heightMm` tall or the rule's height, whichever is more. When no X of the list fits the width: null, or with
+ * `shrink` X cut to the width (`undersize`). Null too when the text cannot be carried.
+ */
+export function code128Fit(text: string, maxWidthMm: number, heightMm: number, opts: { shrink?: boolean } = {}): Code128Fit | null {
+  let modules: number;
+  try { modules = code128Modules(text); } catch { return null; }
+  const fits = X_STEPS_MM.filter((x) => modules * x <= maxWidthMm + 1e-9);
+  const sized = (xMm: number, undersize: boolean): Code128Fit => {
+    const widthMm = mm3(modules * xMm);
+    return { modules, xMm, widthMm, heightMm: Math.max(heightMm, minBarHeightMm(widthMm)), undersize };
+  };
+  if (!fits.length) return opts.shrink && maxWidthMm > 0 ? sized(Math.floor((maxWidthMm / modules) * 1000) / 1000, true) : null;
+  const within = fits.find((x) => minBarHeightMm(modules * x) <= heightMm + 1e-9);
+  if (within != null) return sized(within, false);
+  const least = Math.min(...fits.map((x) => minBarHeightMm(modules * x)));
+  return sized(fits.find((x) => minBarHeightMm(modules * x) === least)!, false);
+}
+
+/**
+ * An SVG of the barcode at a fixed module width: black bars on white, 10 modules of quiet zone each side, `xMm` per
+ * module (so `modules x xMm` wide, centred in its box, never stretched to it) and bars `heightMm` tall. Answers null
+ * when the text cannot be carried, so the label prints the text alone.
+ */
+export function code128Svg(text: string, heightMm: number, xMm: number): string | null {
   let widths: number[];
   try { widths = code128Widths(text); } catch { return null; }
-  const quiet = 10;
+  const quiet = QUIET_MODULES;
   const total = widths.reduce((s, w) => s + w, 0) + quiet * 2;
+  // The height in modules, so the viewBox has the printed size's own proportions.
+  const tall = mm3(heightMm / xMm);
   let x = quiet;
   const bars: string[] = [];
   widths.forEach((w, k) => {
-    if (k % 2 === 0) bars.push(`<rect x="${x}" y="0" width="${w}" height="100"/>`);
+    if (k % 2 === 0) bars.push(`<rect x="${x}" y="0" width="${w}" height="${tall}"/>`);
     x += w;
   });
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${total} 100" preserveAspectRatio="none" `
-    + `style="display:block;width:100%;height:${heightMm}mm" shape-rendering="crispEdges" role="img" aria-label="${escapeXml(text)}">`
-    + `<rect x="0" y="0" width="${total}" height="100" fill="#fff"/><g fill="#000">${bars.join('')}</g></svg>`;
+  const wMm = mm3(total * xMm);
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${total} ${tall}" width="${wMm}mm" height="${mm3(heightMm)}mm" `
+    + `style="display:block;flex:none;margin:0 auto;width:${wMm}mm;height:${mm3(heightMm)}mm;max-width:none" shape-rendering="crispEdges" role="img" aria-label="${escapeXml(text)}">`
+    + `<rect x="0" y="0" width="${total}" height="${tall}" fill="#fff"/><g fill="#000">${bars.join('')}</g></svg>`;
 }

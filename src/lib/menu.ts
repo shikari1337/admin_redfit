@@ -153,29 +153,46 @@ export const SETTINGS_AREA_LIST: Array<{ no: number; id: string; label: string }
 
 /* the menu */
 
+/** Growcord Ship's Failed delivery page opens the board on its Failed Delivery tab: App.tsx redirects there, and its tab is marked there. */
+export const GROWSHIP_FAILED_DELIVERY = { to: '/growship/failed-delivery', opens: '/growship/shipments?tab=ndr_failed_delivery' };
+
 /**
  * GROWCORD SHIP's pages, as tabs on top of its one sidebar entry (pages/growship/GrowshipLayout.tsx), each with its
  * own gate (EXTRA_ROUTES below) and found by name in the command search. Billing and charges opens with either
- * shipments.read (its gate before the tabs) or billing.read; the Wallet needs billing.read.
+ * shipments.read (its gate before the tabs) or billing.read; the Wallet needs billing.read. In the order of the
+ * day's work (owner 27 Nov 2026: "improvise menu option in panel"): book, then answer failed deliveries and returns,
+ * then the money. Failed delivery is the board on its Failed Delivery tab and RTO the returns page (App.tsx redirects).
  */
 export const GROWSHIP_TABS: MenuItem[] = [
   { label: 'Overview', to: '/growship', perm: 'shipments.read', modules: ['shipping'], tip: 'Growcord Ship at a glance: wallet, account, latest parcels, COD and weight disputes.' },
   { label: 'Shipments', to: '/growship/shipments', perm: 'shipments.read', modules: ['shipping'], tip: 'Every Growcord Ship parcel by status, with its charges and courier events.' },
   { label: 'Bulk shipment', to: '/growship/bulk', perm: 'shipments.manage', modules: ['shipping'], tip: 'Book many ready orders at once, or upload a sheet of parcels.' },
+  { label: 'Failed delivery', to: GROWSHIP_FAILED_DELIVERY.to, perm: 'shipments.read', modules: ['shipping'], tip: 'Parcels the courier could not deliver: answer before they come back.' },
+  { label: 'RTO', to: '/growship/rto', perm: 'shipments.read', modules: ['shipping'], tip: 'Parcels coming back, and putting them away.' },
   { label: 'Wallet', to: '/growship/wallet', perm: 'billing.read', modules: ['shipping'], tip: 'Balance, add money, and the freight taken and refunded for each parcel.' },
   { label: 'Billing and charges', to: '/growship/billing', perm: ['shipments.read', 'billing.read'], modules: ['shipping'], tip: 'What each parcel cost: freight, COD fee, return charges, GST and the final amount.' },
-  { label: 'Rate calculator', to: '/growship/rates', perm: 'shipments.read', modules: ['shipping'], tip: 'Price a parcel between two pincodes, courier by courier.' },
 ];
 
-/** Under More: the board's failed delivery tab, and pages that live elsewhere in the admin (redirects, App.tsx). */
-export const GROWSHIP_MORE: MenuItem[] = [
-  { label: 'Failed delivery', to: '/growship/failed-delivery', perm: 'shipments.read', modules: ['shipping'], more: true, tip: 'Parcels the courier could not deliver: answer before they come back.' },
-  { label: 'RTO', to: '/growship/rto', perm: 'shipments.read', modules: ['shipping'], more: true, tip: 'Parcels coming back, and putting them away.' },
-  { label: 'Weight disputes', to: '/growship/weight-disputes', perm: 'shipments.read', modules: ['shipping'], more: true, tip: 'Where the courier billed more than the parcel weighs.' },
-  { label: 'COD payouts', to: '/growship/cod-payouts', perm: 'orders.read', modules: ['shipping'], more: true, tip: 'Cash collected on delivery: what is still owed, and each payout.' },
-  { label: 'Settings', to: '/growship/settings', perm: 'settings.manage', modules: ['shipping'], more: true, tip: 'Switch Growcord Ship on or off, and the store\'s shipping fees.' },
-  { label: 'Pickup locations', to: '/growship/pickup-locations', perm: 'inventory.read', modules: ['shipping', 'inventory'], more: true, tip: 'The warehouses couriers collect from.' },
+/**
+ * Under More, under small headings: the less daily pages. Rate calculator is Growcord Ship's own page; the others live
+ * elsewhere in the admin (redirects, App.tsx). Each keeps the gate it had.
+ */
+export const GROWSHIP_MORE_GROUPS: MenuSubGroup[] = [
+  { label: 'Money', items: [
+    { label: 'COD payouts', to: '/growship/cod-payouts', perm: 'orders.read', modules: ['shipping'], tip: 'Cash collected on delivery: what is still owed, and each payout.' },
+    { label: 'Weight disputes', to: '/growship/weight-disputes', perm: 'shipments.read', modules: ['shipping'], tip: 'Where the courier billed more than the parcel weighs.' },
+  ] },
+  { label: 'Tools', items: [
+    { label: 'Rate calculator', to: '/growship/rates', perm: 'shipments.read', modules: ['shipping'], tip: 'Price a parcel between two pincodes, courier by courier.' },
+  ] },
+  { label: 'Setup', items: [
+    { label: 'Pickup locations', to: '/growship/pickup-locations', perm: 'inventory.read', modules: ['shipping', 'inventory'], tip: 'The warehouses couriers collect from.' },
+    { label: 'Settings', to: '/growship/settings', perm: 'settings.manage', modules: ['shipping'], tip: 'Switch Growcord Ship on or off, and the store\'s shipping fees.' },
+  ] },
 ];
+
+/** The More pages in one flat list, as the route gates and the command search read them. */
+export const GROWSHIP_MORE: MenuItem[] = GROWSHIP_MORE_GROUPS.flatMap((g) => g.items);
 
 /** A group with ONE section: the sidebar shows the group label only. */
 const one = (id: string, label: string, icon: LucideIcon, home: string, items: MenuItem[]): MenuGroup => ({

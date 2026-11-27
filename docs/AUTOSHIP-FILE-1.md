@@ -22,18 +22,24 @@ india post or other (make sure growship quotes rates are compared including ente
 - Ship's own allocation rule already excludes couriers for Growcord Ship (`ship_allocation_rules.exclusions`).
 
 ## The file (template downloadable on the page)
-`Order Number` (required), `Invoice Number`, `Invoice Date`, `Box` (box id or box name), `Weight (kg)`,
-`Length (cm)`, `Breadth (cm)`, `Height (cm)`. A row needs a box, or weight with all three sides. A box with no weight
-typed takes the order's worked-out weight (never under the box's own dead weight).
+`Order Number` (required), `Invoice Number`, `Invoice Date`, `Box Number`, `Weight (kg)`, `Length (cm)`,
+`Breadth (cm)`, `Height (cm)`; the usual other header names are read too (Order ID, Order No, Box No, Bill No and the
+like, one list on the page). The box is matched by its box number first (the box list's unique `code`: 3, B3, Box-3),
+then its id, then its name. A row needs a box, or weight with all three sides. A box with no weight typed takes the
+order's worked-out weight (never under the box's own dead weight). Update 27 Nov 2026 (GS-ACC).
 
 ## The page: Orders, Ship from a file
 1. Choose the file, the pickup warehouse, and the couriers allowed (every courier both sources answer, ticked; untick
    India Post or any other; the choice is remembered for this store on this browser).
 2. Check (nothing written): per row the order found, its state, the invoice it will carry, the parcel, the cheapest
-   allowed courier with its source and price, the next cheapest and the saving, or the reason it cannot ship
-   (not found, already shipped, cancelled, on hold, no allowed courier, COD order with no COD courier, bad size).
-3. Ship: per row in order, invoice first (the file's number saved, else a Growcord number issued), then the booking
-   with the chosen offer. A row that fails stops only itself. Results with AWB, courier, price; download as CSV.
+   and the fastest allowed courier with source, price and days (the page picks one for every order, each row can
+   switch; fastest is fewest days, never an offer with none), the next cheapest and the saving, or the reason it
+   cannot ship (not found, already shipped, cancelled, on hold, no allowed courier, COD order with no COD courier,
+   bad size, no invoice number).
+3. Ship: per row in order, invoice first: the file's number saved, the order's own number kept, a Growcord number
+   issued only when the page option is ticked (off by default: a store's invoices may come from its own ERP); after a
+   write the order is read again and booked only when it holds that number. Then the booking with the row's pick. A
+   row that fails stops only itself. Results with AWB, courier, price, the invoice booked with; download as CSV.
 Never books an order twice: a row whose order already has a live parcel is skipped, and a run's rows are not sent
 again from the page.
 

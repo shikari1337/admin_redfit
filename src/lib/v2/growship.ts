@@ -280,6 +280,32 @@ export const growshipAPI = {
   bulkJob: (id: string): Promise<GsBulkRun> => v2call<GsBulkRun>('GET', `${SHIP}/bulk/${seg(id)}`),
 };
 
+/**
+ * Every parcel booked between two days (YYYY-MM-DD, inclusive), newest first, read 200 at a time (the door's most)
+ * up to `cap`. `capped` says more were booked than were read.
+ */
+export async function readConsignments(f: { from: string; to: string }, cap = 2000): Promise<{ items: GsConsignment[]; capped: boolean }> {
+  const out: GsConsignment[] = [];
+  for (let offset = 0; ; offset += 200) {
+    const p = await growshipAPI.consignments({ from: f.from, to: f.to, limit: 200, offset });
+    out.push(...p.items);
+    if (p.items.length < 200 || out.length >= p.total) return { items: out, capped: false };
+    if (out.length >= cap) return { items: out, capped: true };
+  }
+}
+
+/**
+ * The parcel an order's wallet line belongs to, among `parcels`: by the order number (`shipper_reference`), one with
+ * an AWB first, then one not cancelled, then the newest. Null when none carries the order.
+ */
+export function parcelOfOrder(parcels: GsConsignment[], order: string | null | undefined): GsConsignment | null {
+  const o = String(order ?? '').trim();
+  if (!o) return null;
+  const mine = parcels.filter((c) => String(c.shipper_reference ?? '').trim() === o);
+  const rank = (c: GsConsignment) => (c.awb ? 2 : 0) + (isCancelled(c) ? 0 : 1);
+  return mine.sort((a, b) => rank(b) - rank(a) || String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')))[0] ?? null;
+}
+
 /** The header names Ship's sheet reader takes (`domain/bulk.rs`), for the blank template. */
 export const GS_SHEET_HEADERS = [
   'To Name', 'To Phone', 'To Address', 'To City', 'To State', 'To Pincode',

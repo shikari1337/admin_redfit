@@ -12,7 +12,9 @@ import { packageBoxesAPI, errorText } from '../services/api';
  * screen and the weight-dispute maths, which have always read this list.
  *
  * ── WHAT IS NEW HERE, AND WHY EACH ONE EARNS ITS FIELD ──────────────────────
- *   Code            what is painted on the stack, so a packer can find it.
+ *   Box number      the box's own number (`code`), unique in the store (owner 27 Nov 2026: "unique id to box
+ *                   number use it"): painted on the stack, and what Ship from a file reads. Blank on a new box
+ *                   takes the next free number; the server refuses a number another box holds, in its own words.
  *   INNER size, mm  what a product has to fit THROUGH. Not derivable from the
  *                   outer size — the difference is the wall thickness, and a
  *                   derived inner would be precisely wrong on every box.
@@ -77,6 +79,8 @@ export default function PackageBoxes() {
   const [defaultingId, setDefaultingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  // The number the box being edited had, so a cleared field says it is kept.
+  const [editingCode, setEditingCode] = useState('');
 
   const loadBoxes = async () => {
     try {
@@ -94,6 +98,8 @@ export default function PackageBoxes() {
 
   const openCreate = () => {
     setEditId(null);
+    setEditingCode('');
+    setError(null);
     setForm(emptyForm);
     setShowForm(true);
   };
@@ -102,6 +108,8 @@ export default function PackageBoxes() {
 
   const openEdit = (box: PackageBox) => {
     setEditId(boxId(box));
+    setEditingCode(str(box.code).trim());
+    setError(null);
     setForm({
       name: box.name ?? '',
       code: str(box.code),
@@ -271,12 +279,13 @@ export default function PackageBoxes() {
                 />
               </div>
               <div className="form-row">
-                <label>Code</label>
+                <label>Box number</label>
                 <input
                   type="text"
                   value={form.code}
                   onChange={e => setForm(f => ({ ...f, code: e.target.value }))}
-                  placeholder="What is painted on the stack"
+                  placeholder={editId && editingCode ? `Blank keeps no. ${editingCode}` : 'Blank: the next free number'}
+                  title="The box's own number, painted on the stack and written in a shipping file. No two boxes share one."
                 />
               </div>
 
@@ -357,6 +366,8 @@ export default function PackageBoxes() {
                   <span>Default box: the booking screen picks it first (only one box can be the default)</span>
                 </label>
               </div>
+              {/* The server's own words (a box number another box holds, and the rest), here where the form is. */}
+              {error && <p className="form-error" role="alert">{error}</p>}
               <div className="form-actions">
                 <button type="button" className="btn btn-secondary" onClick={() => setShowForm(false)}>
                   Cancel
@@ -388,7 +399,9 @@ export default function PackageBoxes() {
               <div key={id || box.name} className="box-card">
                 <div className="box-info">
                   <span className="box-name">{box.name}</span>
-                  {box.code && <span className="badge-code">{box.code}</span>}
+                  {box.code
+                    ? <span className="badge-code" title="Box number">no. {box.code}</span>
+                    : <span className="badge-off" title="Box number">no number</span>}
                   {box.is_active === false && <span className="badge-off">not in use</span>}
                   {isDefaultBox(box) && <span className="badge-default">Default</span>}
                   <div className="box-dims">
@@ -490,6 +503,7 @@ export default function PackageBoxes() {
         .form-row input { padding: 8px 12px; border: 1px solid var(--n-300); border-radius: 6px; font-size: 0.875rem; }
         .form-row input[type="checkbox"] { width: auto; }
         .form-row input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+        .form-error { grid-column: 1 / -1; margin: 0; padding: 8px 12px; border-radius: 6px; background: var(--d-50); border: 1px solid var(--d-300); color: var(--d-600); font-size: 0.85rem; }
         .form-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; }
         @media (max-width: 640px) { .form-grid { grid-template-columns: 1fr; } }
       `}</style>
