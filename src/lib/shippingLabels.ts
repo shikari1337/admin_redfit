@@ -10,8 +10,16 @@
 import { v2call } from './v2/http';
 import { settingsRegistryAPI } from '../services/api';
 import { code128Svg, escapeXml as x } from './code128';
+import {
+  DEFAULT_LABEL_SIZE, LABEL_SIZES, LABEL_SIZE_KEYS, cellPadMm, labBorderMm, labPadMm, labelBarcodes,
+  type LabelSizeKey, type SizeSpec,
+} from './labelSizes';
 import { fmtMinor } from './money';
 import { formatDate } from '../utils/date';
+
+// The sizes live in lib/labelSizes.ts (pure, tested with the barcode sizes); the screens read them from here.
+export { DEFAULT_LABEL_SIZE, LABEL_SIZES, LABEL_SIZE_GROUPS, LABEL_SIZE_KEYS } from './labelSizes';
+export type { LabelSizeKey } from './labelSizes';
 
 export interface LabelAddress {
   name?: string | null; phone?: string | null; line1?: string | null; line2?: string | null; landmark?: string | null;
@@ -63,52 +71,6 @@ export async function readLabelData(ids: string[]): Promise<{ labels: LabelData[
   }
   return { labels, missing, printDefaults };
 }
-
-/* ── sizes ──────────────────────────────────────────────────────────────── */
-
-export type LabelSizeKey = 'a5_1' | 'in4x6' | 'in4x4' | 'a6' | 'a5_2' | 'a4_2' | 'a4_4' | 'a4_6' | 'a4_8' | 'a4_16';
-type Layout = 'full' | 'medium' | 'compact';
-
-interface SizeSpec {
-  label: string;
-  /** The paper, in mm. */
-  pageW: number; pageH: number;
-  cols: number; rows: number;
-  layout: Layout;
-  /** The text size of a label, in pt. */
-  font: number;
-  /** Bar heights in mm (AWB, order) when the size wants them bigger than its layout's. */
-  bars?: { awb: number; order: number };
-  /** A large label (A5): the payment block, sort code and courier name drawn bigger so they read at arm's length. */
-  big?: boolean;
-  /** The margin around a label, in mm. */
-  pad?: number;
-}
-
-export const LABEL_SIZES: Record<LabelSizeKey, SizeSpec> = {
-  // Homeomed prints its labels on A5 (owner 26 Nov 2026): the label fills the page with a small margin.
-  a5_1: { label: 'A5, one label', pageW: 148, pageH: 210, cols: 1, rows: 1, layout: 'full', font: 11.5, bars: { awb: 26, order: 10 }, big: true, pad: 5 },
-  'in4x6': { label: '4 x 6 inch, thermal', pageW: 101.6, pageH: 152.4, cols: 1, rows: 1, layout: 'full', font: 8.5 },
-  'in4x4': { label: '4 x 4 inch, thermal', pageW: 101.6, pageH: 101.6, cols: 1, rows: 1, layout: 'medium', font: 8 },
-  a6: { label: 'A6 (105 x 148 mm)', pageW: 105, pageH: 148, cols: 1, rows: 1, layout: 'full', font: 8.5 },
-  // Two A6 labels side by side on an A5 sheet (landscape), with a cut line between them.
-  'a5_2': { label: 'A5 sheet, 2 labels (A6 each)', pageW: 210, pageH: 148, cols: 2, rows: 1, layout: 'full', font: 8.5 },
-  'a4_2': { label: 'A4 sheet, 2 labels (A5 each)', pageW: 210, pageH: 297, cols: 1, rows: 2, layout: 'full', font: 11, bars: { awb: 22, order: 9 }, big: true },
-  'a4_4': { label: 'A4 sheet, 4 labels', pageW: 210, pageH: 297, cols: 2, rows: 2, layout: 'full', font: 8.5 },
-  'a4_6': { label: 'A4 sheet, 6 labels', pageW: 210, pageH: 297, cols: 2, rows: 3, layout: 'medium', font: 8 },
-  'a4_8': { label: 'A4 sheet, 8 labels', pageW: 210, pageH: 297, cols: 2, rows: 4, layout: 'compact', font: 7.5 },
-  'a4_16': { label: 'A4 sheet, 16 labels (compact)', pageW: 210, pageH: 297, cols: 4, rows: 4, layout: 'compact', font: 5.5 },
-};
-export const LABEL_SIZE_KEYS = Object.keys(LABEL_SIZES) as LabelSizeKey[];
-
-/** The size picker's two groups. */
-export const LABEL_SIZE_GROUPS: Array<{ label: string; keys: LabelSizeKey[] }> = [
-  { label: 'One label per page', keys: ['a5_1', 'in4x6', 'in4x4', 'a6'] },
-  { label: 'Several per sheet', keys: ['a5_2', 'a4_2', 'a4_4', 'a4_6', 'a4_8', 'a4_16'] },
-];
-
-/** The size used when the store has not chosen one. */
-export const DEFAULT_LABEL_SIZE: LabelSizeKey = 'a5_1';
 
 /* ── the store's label setting ──────────────────────────────────────────── */
 
@@ -215,9 +177,10 @@ function labelHtml(l: LabelData, spec: SizeSpec, o: LabelOptions): string {
     l.routing?.origin_code ? `Origin ${l.routing.origin_code}` : '',
     l.routing?.cluster ? `Cluster ${l.routing.cluster}` : '',
   );
-  const barH = spec.bars?.awb ?? (layout === 'full' ? 16 : layout === 'medium' ? 12 : 9);
-  const awbBar = awb ? code128Svg(awb, barH) : null;
-  const orderBar = orderNo && layout !== 'compact' ? code128Svg(orderNo, spec.bars?.order ?? (layout === 'full' ? 7 : 5)) : null;
+  // Both barcodes at a fixed module width and a bar height to the Code 128 rules for this size (lib/labelSizes.ts).
+  const bars = labelBarcodes(spec, awb, orderNo);
+  const awbBar = bars.awb ? code128Svg(awb, bars.awb.heightMm, bars.awb.xMm) : null;
+  const orderBar = bars.order ? code128Svg(orderNo, bars.order.heightMm, bars.order.xMm) : null;
   const dims = l.dimensions_cm && (l.dimensions_cm.l || l.dimensions_cm.b || l.dimensions_cm.h)
     ? `${l.dimensions_cm.l ?? ''} x ${l.dimensions_cm.b ?? ''} x ${l.dimensions_cm.h ?? ''} cm` : '';
   const items = Array.isArray(l.items) ? l.items : [];
@@ -255,6 +218,14 @@ function labelHtml(l: LabelData, spec: SizeSpec, o: LabelOptions): string {
     l.order?.invoice_number ? `Invoice ${l.order.invoice_number}` : '',
     o.invoiceValue && l.order?.invoice_value_minor != null ? `Value ${fmtMinor(l.order.invoice_value_minor)}` : '',
   );
+  const orderDate = formatDate(l.order?.date, 'dd MMM yyyy', '');
+  // The order's own barcode (for packing) carries its number under it, as the AWB does, so the two never read as one
+  // number twice; the order's date and invoice sit beside it. Without the barcode, the order line as text.
+  const orderBlock = orderBar
+    ? `<div class="ord"><div class="row"><div class="obc">${orderBar}<div class="oc">Order ${x(orderNo)}</div></div>`
+      + `<div class="oi">${orderDate ? `<div>${x(`Order date ${orderDate}`)}</div>` : ''}${invoice ? `<div>${x(invoice)}</div>` : ''}</div></div></div>`
+    : `<div class="ord"><div class="row"><div>${x(line(orderNo ? `Order ${orderNo}` : '', orderDate))}</div>`
+      + `${invoice ? `<div>${x(invoice)}</div>` : ''}</div></div>`;
   return `<div class="lab ${layout}${spec.big ? ' big' : ''}">`
     + (brand || logo ? `<div class="row head">${brand || '<div></div>'}${logo ? `<div class="side">${logo}</div>` : ''}</div>` : '')
     + `<div class="row top"><div class="to"><div class="h">Deliver to</div>${addressHtml(l.ship_to, { full: true })}</div>`
@@ -262,8 +233,7 @@ function labelHtml(l: LabelData, spec: SizeSpec, o: LabelOptions): string {
     + courier
     + awbBlock
     + (route ? `<div class="sm">${x(route)}</div>` : '')
-    + `<div class="ord"><div class="row"><div>${x(line(orderNo ? `Order ${orderNo}` : '', formatDate(l.order?.date, 'dd MMM yyyy', '')))}</div>`
-    + `${invoice ? `<div>${x(invoice)}</div>` : ''}</div>${orderBar ? `<div class="obc">${orderBar}</div>` : ''}</div>`
+    + orderBlock
     + `<div class="sm">${x(line(kg(l.weight_g) ? `Weight ${kg(l.weight_g)}` : '', dims ? `Box ${dims}` : '', l.pieces ? `Pieces ${l.pieces}` : ''))}</div>`
     + (o.items && items.length
       ? `<div class="items"><div class="h">Items</div>${items.slice(0, itemCap).map((it) => `<div>${x(`${it.qty ?? 1} x ${it.name ?? it.sku ?? 'Item'}${it.sku && it.name ? ` (${it.sku})` : ''}`)}</div>`).join('')}`
@@ -272,6 +242,15 @@ function labelHtml(l: LabelData, spec: SizeSpec, o: LabelOptions): string {
     + (l.return_to ? `<div class="ret"><div class="h">If not delivered, return to</div>${addressHtml(l.return_to, { gstin: true, full: layout === 'full' })}</div>` : '')
     + `<div class="foot">${x(line(l.booked_at ? `Booked ${formatDate(l.booked_at, 'dd MMM yyyy', '')}` : '', l.shipment_number ? `Shipment ${l.shipment_number}` : ''))}</div>`
     + `</div>`;
+}
+
+/**
+ * How many of `labels` have an AWB too long for `size` at the smallest module width (0.25 mm): it prints cut to the
+ * label's width, thinner than the barcode standard allows, and a scanner may not read it. The print window says so.
+ */
+export function narrowAwbCount(labels: LabelData[], size: LabelSizeKey): number {
+  const spec = LABEL_SIZES[size];
+  return labels.filter((l) => labelBarcodes(spec, String(l.awb ?? '').trim(), '').awb?.undersize).length;
 }
 
 /* ── the page ───────────────────────────────────────────────────────────── */
@@ -298,9 +277,9 @@ body { font-family: Arial, Helvetica, sans-serif; font-size: ${s.font}pt; line-h
   grid-template-columns: repeat(${s.cols}, 1fr); grid-template-rows: repeat(${s.rows}, 1fr);
   break-after: page; page-break-after: always; }
 .sheet:last-child { break-after: auto; page-break-after: auto; }
-.cell { overflow: hidden; padding: ${s.pad ?? (per > 1 ? 3 : 2.5)}mm; min-width: 0; min-height: 0; }
+.cell { overflow: hidden; padding: ${cellPadMm(s)}mm; min-width: 0; min-height: 0; }
 .sheet.multi .cell { border: 0.2mm dashed #888; }
-.lab { height: 100%; display: flex; flex-direction: column; gap: 1.2mm; border: 0.4mm solid #000; padding: 1.8mm; overflow: hidden; }
+.lab { height: 100%; display: flex; flex-direction: column; gap: 1.2mm; border: ${labBorderMm(s)}mm solid #000; padding: ${labPadMm(s)}mm; overflow: hidden; }
 .row { display: flex; justify-content: space-between; gap: 2mm; align-items: flex-start; }
 .top { border-bottom: 0.3mm solid #000; padding-bottom: 1.2mm; }
 .to { flex: 1; min-width: 0; }
@@ -324,13 +303,15 @@ body { font-family: Arial, Helvetica, sans-serif; font-size: ${s.font}pt; line-h
 .bc { text-align: center; }
 .dg { font-family: 'Courier New', monospace; font-weight: bold; font-size: 1.25em; letter-spacing: 0.08em; margin-top: 0.6mm; }
 .ord { border-top: 0.3mm solid #000; padding-top: 1mm; }
-.obc { margin-top: 0.8mm; width: 60%; }
+.obc { flex: none; text-align: center; }
+.oc { font-family: 'Courier New', monospace; font-weight: bold; font-size: 1.05em; letter-spacing: 0.06em; margin-top: 0.5mm; }
+.oi { flex: 1; min-width: 0; text-align: right; }
 .sm { font-size: 0.9em; }
 .items { border-top: 0.3mm solid #000; padding-top: 1mm; font-size: 0.9em; overflow: hidden; }
 .ret { border-top: 0.3mm solid #000; padding-top: 1mm; font-size: 0.85em; margin-top: auto; }
 .foot { font-size: 0.8em; color: #333; }
-.compact { gap: 0.8mm; padding: 1.2mm; }
-.big { gap: 2mm; padding: 3mm; border-width: 0.6mm; }
+.compact { gap: 0.8mm; }
+.big { gap: 2mm; }
 .big .pay { padding: 2mm 3mm; border-width: 0.8mm; }
 .big .pay .pk { font-size: 1.2em; }
 .big .pay .amt { font-size: 2.4em; }
@@ -339,7 +320,7 @@ body { font-family: Arial, Helvetica, sans-serif; font-size: ${s.font}pt; line-h
 .big .dg { font-size: 1.6em; }
 .big .nm { font-size: 1.3em; }
 .big .pin { font-size: 1.45em; }
-.big .obc { width: 55%; }
+.big .oc { font-size: 1.3em; }
 .compact .pay .amt { font-size: 1.3em; }
 .compact .sort { font-size: 1.4em; }
 @media screen {
