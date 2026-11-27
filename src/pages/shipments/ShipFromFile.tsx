@@ -5,10 +5,12 @@
  * with the store's own Shiprocket account (its total as displayed). Untick any courier (India Post, or any other)
  * and it is never chosen. Plan: docs/AUTOSHIP-FILE-1.md.
  *
- * Check first (writes nothing): each row's order, state, invoice, parcel and the courier it would take. Ship then
- * sends each row once: the invoice (the file's number saved, else a Growcord number issued), then the booking, with
- * the shared safe-booking rules (lib/bulkShip): re-read just before sending, a lost answer looked up on the order and
- * never sent twice.
+ * Check first (writes nothing): each row's order, state, invoice, parcel, and its cheapest and fastest allowed
+ * courier; the page picks one of the two for every order (owner 27 Nov 2026: "cheaper or fast option for each") and
+ * each row can switch. Ship then sends each row once: the invoice (the file's number saved; an order's own number
+ * kept; a Growcord number issued only when the store ticks it, since a store's invoices may come from its own ERP),
+ * the order read again and booked only when it holds that number, with the shared safe-booking rules
+ * (lib/bulkShip): re-read just before sending, a lost answer looked up on the order and never sent twice.
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -18,7 +20,9 @@ import { useAuth } from '../../contexts/AuthContext';
 import { fmtRupees } from '@/lib/money';
 import { downloadCsv, parseCsv, parseCsvRecords } from '@/lib/csv';
 import { courierRatesOf, itemUnitWeightKg, type CourierRate } from '../../components/order/ShipmentCreationModal';
-import { boxOf, listOf, orderNo, outcomeAfterError, pooled, recheckOrder, type Outcome } from '@/lib/bulkShip';
+import {
+  boxLabel, boxOf, listOf, orderNo, outcomeAfterError, pickOffers, pickedBy, pooled, recheckOrder, type Outcome, type PickBy,
+} from '@/lib/bulkShip';
 import {
   Page, PageHeader, SectionCard, StatCard, StatGrid, TableShell, THead, Th, TBody, Tr, Td, EmptyRow, Btn, Field,
   SelectInput, Chip,
@@ -29,7 +33,7 @@ const SOURCE_LABEL: Record<Source, string> = { growcord_ship: 'Growcord Ship', s
 const SOURCES: Source[] = ['growcord_ship', 'shiprocket'];
 
 /** The template's columns, in order. */
-const COLUMNS = ['Order Number', 'Invoice Number', 'Invoice Date', 'Box', 'Weight (kg)', 'Length (cm)', 'Breadth (cm)', 'Height (cm)'] as const;
+const COLUMNS = ['Order Number', 'Invoice Number', 'Invoice Date', 'Box Number', 'Weight (kg)', 'Length (cm)', 'Breadth (cm)', 'Height (cm)'] as const;
 
 /** One row of the file, read. */
 interface FileRow {
@@ -55,12 +59,17 @@ interface RowPlan {
   order?: any;
   parcel?: { weight: number; length: number; breadth: number; height: number };
   offers?: Offer[];
+  /** The invoice number the order held when checked ('' for none). */
+  orderInvoice?: string;
+  /** This row's own choice between the cheapest and the fastest, when it differs from the page's. */
+  pick?: PickBy;
   /** Why the row will not ship (found by the check). */
   stop?: string;
   checking?: boolean;
   sending?: boolean;
   step?: string;
-  result?: Outcome & { courier?: string; source?: Source; price?: number; awb?: string };
+  /** What shipping did, with the invoice number the order was booked with. */
+  result?: Outcome & { courier?: string; source?: Source; price?: number; awb?: string; invoice?: string; picked?: PickBy };
 }
 
 /**
@@ -183,12 +192,17 @@ const numberOf = (o: any) => String(o?.orderId ?? o?.order_id ?? o?.order_number
 const courierKey = (o: Offer) => `${o.source}:${o.rate.courierName.trim().toLowerCase()}`;
 const EXCLUDED_KEY = 'gc.shipFromFile.excluded';
 
-/** The cheapest offer the store allows; the faster of two equal prices. */
-function pickOffer(offers: Offer[] | undefined, excluded: Set<string>): { best?: Offer; next?: Offer } {
-  const allowed = (offers ?? []).filter((o) => !excluded.has(courierKey(o)))
-    .sort((a, b) => a.rate.rate - b.rate.rate || (a.rate.estimatedDeliveryDays || 99) - (b.rate.estimatedDeliveryDays || 99));
-  return { best: allowed[0], next: allowed[1] };
+/**
+ * The offers the store allows for a row, through the one pick rule (lib/bulkShip pickOffers): the cheapest, the
+ * fastest, the next cheapest, and `best`, the one this row books (its own choice, else the page's).
+ */
+function pickOffer(offers: Offer[] | undefined, excluded: Set<string>, by: PickBy) {
+  const picks = pickOffers((offers ?? []).filter((o) => !excluded.has(courierKey(o))), (o) => o.rate);
+  return { ...picks, best: pickedBy(picks, by) };
 }
+
+/** The invoice number an order holds ('' for none). */
+const invoiceOf = (o: any) => String(o?.invoiceNumber ?? o?.invoice_number ?? '').trim();
 
 const ShipFromFile: React.FC = () => {
   const { hasPerm } = useAuth();
@@ -228,6 +242,17 @@ const ShipFromFile: React.FC = () => {
     try { localStorage.setItem(EXCLUDED_KEY, JSON.stringify([...next])); } catch { /* private window: this visit only */ }
     return next;
   });
+  // Cheapest or fastest for each order (a row can switch), and whether a row with no invoice number anywhere gets a
+  // Growcord number: off by default, since a store's invoices may come from its own accounting or ERP.
+  const [pickBy, setPickBy] = useState<PickBy>('cheapest');
+  const [issueWhenMissing, setIssueWhenMissing] = useState(false);
+  const rowPick = (line: number): PickBy => plans[line]?.pick ?? pickBy;
+  /** Why a checked row cannot ship for want of an invoice number; null when it has one or may get one. */
+  const invoiceBlock = (r: FileRow, p?: RowPlan): string | null => (
+    p?.orderId && !r.invoiceNumber && !p.orderInvoice && !issueWhenMissing
+      ? 'No invoice number: add it to the file (or tick "Issue a Growcord invoice number" above).'
+      : null
+  );
 
   const onFile = async (file: File | null) => {
     setPlans({}); setSourceErrors({}); setHeaderIssue(null);
@@ -239,23 +264,29 @@ const ShipFromFile: React.FC = () => {
   };
 
   /**
-   * The box a row names: its id, its name, or its number ("1", "B1", "box1", "Box-1" for Box 1), each forgiving case,
-   * spaces and symbols, and only when exactly one box fits; otherwise the reason, with the store's box names.
+   * The box a row names. First its box number (the box list's unique number: "3", "B3", "Box-3" all read as 3, or the
+   * number exactly as written), then its id, then its name, or the number in its name ("1", "B1", "Box-1" for Box 1),
+   * each forgiving case, spaces and symbols, and only when exactly one box fits; otherwise the reason, with the
+   * store's boxes.
    */
   const boxFor = (asked: string): { box: any } | { stop: string } => {
     const id = asked.trim().toLowerCase();
-    const byId = boxes.find((b) => String(b._id ?? b.id ?? '').toLowerCase() === id);
-    if (byId) return { box: byId };
-    const want = plain(asked);
-    let hits = want ? boxes.filter((b) => plain(boxName(b)) === want) : [];
     const n = askedBoxNumber(asked);
-    if (!hits.length && n !== null) hits = boxes.filter((b) => boxNumber(b) === n);
+    const codeOf = (b: any) => String(b?.code ?? '').trim();
+    let hits = boxes.filter((b) => codeOf(b) && (codeOf(b).toLowerCase() === id || (n !== null && askedBoxNumber(codeOf(b)) === n)));
+    if (!hits.length) {
+      const byId = boxes.find((b) => String(b._id ?? b.id ?? '').toLowerCase() === id);
+      if (byId) return { box: byId };
+      const want = plain(asked);
+      hits = want ? boxes.filter((b) => plain(boxName(b)) === want) : [];
+      if (!hits.length && n !== null) hits = boxes.filter((b) => boxNumber(b) === n);
+    }
     if (hits.length === 1) return { box: hits[0] };
-    const names = boxes.map(boxName).filter(Boolean);
+    const names = boxes.map(boxLabel);
     const yours = names.length ? `Your boxes: ${names.join(', ')}.` : 'Your box list (Settings, Packages) is empty.';
     return {
       stop: hits.length > 1
-        ? `Box "${asked}" could be ${hits.map(boxName).join(' or ')}: write its full name. ${yours}`
+        ? `Box "${asked}" could be ${hits.map(boxLabel).join(' or ')}: write its box number. ${yours}`
         : `No box "${asked}" in your box list (Settings, Packages). ${yours}`,
     };
   };
@@ -295,9 +326,9 @@ const ShipFromFile: React.FC = () => {
         const checked = await recheckOrder(id);
         if ('skip' in checked) { setPlan(row.line, { checking: false, orderId: id, stop: checked.skip.replace(/^Skipped: /, '') }); return; }
         const order = checked.order;
-        const has = String(order?.invoiceNumber ?? order?.invoice_number ?? '');
+        const has = invoiceOf(order);
         if (row.invoiceNumber && has && has !== row.invoiceNumber) {
-          setPlan(row.line, { checking: false, orderId: id, order, stop: `The order already has invoice ${has}; the file says ${row.invoiceNumber}. Nothing is changed.` });
+          setPlan(row.line, { checking: false, orderId: id, order, orderInvoice: has, stop: `The order already has invoice ${has}; the file says ${row.invoiceNumber}. Nothing is changed.` });
           return;
         }
         let parcel: RowPlan['parcel'];
@@ -325,7 +356,7 @@ const ShipFromFile: React.FC = () => {
           }
         }));
         setPlan(row.line, {
-          checking: false, orderId: id, order, parcel, offers,
+          checking: false, orderId: id, order, orderInvoice: has, parcel, offers,
           stop: offers.length ? undefined : 'No courier from either source can take this parcel.',
         });
       } catch (e) {
@@ -350,13 +381,13 @@ const ShipFromFile: React.FC = () => {
 
   const ready = rows.filter((r) => {
     const p = plans[r.line];
-    return !r.problem && p && !p.stop && !p.result && pickOffer(p.offers, excluded).best;
+    return !r.problem && p && !p.stop && !p.result && !invoiceBlock(r, p) && pickOffer(p.offers, excluded, rowPick(r.line)).best;
   });
-  const total = Math.round(ready.reduce((s, r) => s + (pickOffer(plans[r.line].offers, excluded).best?.rate.rate ?? 0), 0) * 100) / 100;
+  const total = Math.round(ready.reduce((s, r) => s + (pickOffer(plans[r.line].offers, excluded, rowPick(r.line)).best?.rate.rate ?? 0), 0) * 100) / 100;
   const shipped = Object.values(plans).filter((p) => p.result?.ok).length;
   const failed = Object.values(plans).filter((p) => p.result && !p.result.ok).length;
 
-  /** Ship every ready row once: invoice, then booking, with the cheapest allowed offer. */
+  /** Ship every ready row once: invoice, then booking, with the row's choice (cheapest or fastest allowed). */
   const ship = async () => {
     if (!warehouseId || !canShip) return;
     setRunning('ship');
@@ -364,7 +395,10 @@ const ShipFromFile: React.FC = () => {
     await pooled(sendRows, 2, async (row) => {
       const plan = plans[row.line];
       const id = plan.orderId!;
-      const { best } = pickOffer(plan.offers, excluded);
+      const picks = pickOffer(plan.offers, excluded, rowPick(row.line));
+      const best = picks.best;
+      // What was booked: the fastest only when asked and a courier gave days (else the cheapest stands in).
+      const picked: PickBy = rowPick(row.line) === 'fastest' && picks.fastest ? 'fastest' : 'cheapest';
       if (!best || !plan.parcel) return;
       setPlan(row.line, { sending: true, step: 'checking the order again' });
       let checked: { skip: string } | { order: any };
@@ -378,18 +412,48 @@ const ShipFromFile: React.FC = () => {
         setPlan(row.line, { sending: false, result: { ok: false, skip: true, text: checked.skip } });
         return;
       }
-      // The invoice first, so the courier's papers carry it.
+      // The invoice first, so the courier's papers carry it: the file's number saved, the order's own number kept, a
+      // Growcord number only when ticked. After a write the order is read again and booked only when it holds the
+      // number it should (owner 27 Nov 2026: "make sure invoice is updating correctly").
+      let invoice = invoiceOf(checked.order);
       try {
-        const has = String(checked.order?.invoiceNumber ?? checked.order?.invoice_number ?? '');
-        if (row.invoiceNumber && !has) {
+        let wrote = false;
+        if (row.invoiceNumber && invoice && invoice !== row.invoiceNumber) {
+          setPlan(row.line, { sending: false, result: { ok: false, skip: true, text: `Skipped: the order now has invoice ${invoice}, the file says ${row.invoiceNumber}.` } });
+          return;
+        }
+        if (row.invoiceNumber && !invoice) {
           setPlan(row.line, { step: 'saving the invoice number' });
           await invoicesAPI.saveDetails(id, { invoiceNumber: row.invoiceNumber, ...(row.invoiceDate ? { invoiceDate: row.invoiceDate } : {}) });
-        } else if (!row.invoiceNumber && !has) {
-          setPlan(row.line, { step: 'issuing the invoice' });
+          wrote = true;
+        } else if (!row.invoiceNumber && !invoice) {
+          if (!issueWhenMissing) {
+            setPlan(row.line, { sending: false, result: { ok: false, skip: true, text: 'Not shipped: no invoice number. Add it to the file.' } });
+            return;
+          }
+          setPlan(row.line, { step: 'issuing a Growcord invoice number' });
           await ordersAPI.issueInvoice(id);
-        } else if (row.invoiceNumber && has && has !== row.invoiceNumber) {
-          setPlan(row.line, { sending: false, result: { ok: false, skip: true, text: `Skipped: the order now has invoice ${has}, the file says ${row.invoiceNumber}.` } });
-          return;
+          wrote = true;
+        }
+        if (wrote) {
+          setPlan(row.line, { step: 'checking the invoice on the order' });
+          const again = await recheckOrder(id);
+          if ('skip' in again) {
+            setPlan(row.line, { sending: false, result: { ok: false, skip: true, text: again.skip } });
+            return;
+          }
+          invoice = invoiceOf(again.order);
+          const wanted = row.invoiceNumber;
+          if (wanted ? invoice !== wanted : !invoice) {
+            setPlan(row.line, {
+              sending: false,
+              result: {
+                ok: false,
+                text: `Not shipped: the order holds ${invoice ? `invoice ${invoice}` : 'no invoice number'}${wanted ? `, not ${wanted} from the file` : ''}. Open the order to set it.`,
+              },
+            });
+            return;
+          }
         }
       } catch (e) {
         setPlan(row.line, { sending: false, result: { ok: false, text: `Not shipped: the invoice was refused (${errorText(e, 'no answer')}).` } });
@@ -407,25 +471,27 @@ const ShipFromFile: React.FC = () => {
           sending: false,
           result: {
             ok: true, text: awb ? `AWB ${awb}` : 'booked, waiting for its AWB', courier: s.courierName ?? s.courier ?? best.rate.courierName,
-            source: best.source, price: best.rate.rate, awb,
+            source: best.source, price: best.rate.rate, awb, invoice, picked,
           },
         });
       } catch (e) {
-        setPlan(row.line, { sending: false, result: { ...(await outcomeAfterError(id, e)), courier: best.rate.courierName, source: best.source } });
+        setPlan(row.line, { sending: false, result: { ...(await outcomeAfterError(id, e)), courier: best.rate.courierName, source: best.source, invoice, picked } });
       }
     });
     setRunning(null);
   };
 
   const template = () => downloadCsv<Record<string, string>>('ship-from-file-template', COLUMNS.map((c) => ({ key: c, label: c })), [
-    { 'Order Number': 'HM10234', 'Invoice Number': 'INV/26-27/0456', 'Invoice Date': '27/11/2026', Box: 'Box S' },
-    { 'Order Number': 'HM10235', 'Invoice Number': '', 'Invoice Date': '', Box: '', 'Weight (kg)': '0.8', 'Length (cm)': '20', 'Breadth (cm)': '15', 'Height (cm)': '10' },
+    { 'Order Number': 'HM10234', 'Invoice Number': 'INV/26-27/0456', 'Invoice Date': '27/11/2026', 'Box Number': '1' },
+    { 'Order Number': 'HM10235', 'Invoice Number': 'INV/26-27/0457', 'Invoice Date': '27/11/2026', 'Box Number': '', 'Weight (kg)': '0.8', 'Length (cm)': '20', 'Breadth (cm)': '15', 'Height (cm)': '10' },
   ]);
 
   const report = () => downloadCsv(`ship-from-file-${new Date().toISOString().slice(0, 10)}`, [
     { key: 'line', label: 'Line', format: (r: FileRow) => r.line },
     { key: 'order_number', label: 'Order Number', format: (r: FileRow) => r.orderNumber },
-    { key: 'result', label: 'Result', format: (r: FileRow) => r.problem ?? plans[r.line]?.result?.text ?? plans[r.line]?.stop ?? 'not sent' },
+    { key: 'result', label: 'Result', format: (r: FileRow) => r.problem ?? plans[r.line]?.result?.text ?? plans[r.line]?.stop ?? invoiceBlock(r, plans[r.line]) ?? 'not sent' },
+    { key: 'invoice_number', label: 'Invoice Number', format: (r: FileRow) => plans[r.line]?.result?.invoice ?? '' },
+    { key: 'picked', label: 'Picked', format: (r: FileRow) => (plans[r.line]?.result?.picked === 'fastest' ? 'Fastest' : plans[r.line]?.result?.picked ? 'Cheapest' : '') },
     { key: 'courier', label: 'Courier', format: (r: FileRow) => plans[r.line]?.result?.courier ?? '' },
     { key: 'booked_through', label: 'Booked through', format: (r: FileRow) => (plans[r.line]?.result?.source ? SOURCE_LABEL[plans[r.line]!.result!.source!] : '') },
     { key: 'price', label: 'Price', format: (r: FileRow) => plans[r.line]?.result?.price ?? '' },
@@ -433,13 +499,16 @@ const ShipFromFile: React.FC = () => {
   ], rows);
 
   const checkedAny = Object.keys(plans).length > 0;
+  // No allowed courier on any checked row gave delivery days: "Fastest" cannot pick, and the page says so.
+  const priced = rows.filter((r) => (plans[r.line]?.offers?.length ?? 0) > 0);
+  const noDays = priced.length > 0 && priced.every((r) => !pickOffer(plans[r.line].offers, excluded, 'fastest').fastest);
 
   return (
     <Page>
       <PageHeader
         icon={FileUp}
         title="Ship from a file"
-        description="Upload processed orders with their invoice number and box (or weight and size). Each ships with the cheapest courier you allow, comparing Growcord Ship and your own Shiprocket."
+        description="Upload processed orders with their invoice number and box number (or weight and size). Each ships with the cheapest or the fastest courier you allow, comparing Growcord Ship and your own Shiprocket."
         actions={<Btn variant="outline" onClick={template}><Download /> Template</Btn>}
       />
 
@@ -457,10 +526,23 @@ const ShipFromFile: React.FC = () => {
         </div>
         <p className="mt-3 text-xs text-ink-mute">
           Columns: {COLUMNS.join(', ')}. The usual other names are read too, such as Order ID, Order No, Box No or Bill
-          No. A row needs a box from your box list (its name or its number: 1, B1 or Box-1 for Box 1), or the weight with
-          all three sides. A box with no weight takes the order's own weight. An invoice number left empty is issued from
-          your Growcord series; an order that already has a different invoice number is never changed.
+          No. A row needs a box number from your box list (3, B3 or Box-3 for box number 3; the box's name works too), or
+          the weight with all three sides. A box with no weight takes the order's own weight. A row with no invoice
+          number keeps the one already on the order; an order that already has a different invoice number is never
+          changed.
         </p>
+        <label className="mt-3 flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-1" checked={issueWhenMissing} disabled={running !== null}
+            onChange={(e) => setIssueWhenMissing(e.target.checked)} />
+          <span>
+            <span className="font-medium">Issue a Growcord invoice number when the file has none</span>
+            <span className="block text-xs text-ink-mute">
+              Off: an order with no invoice number in the file and none of its own stops and asks for it. Leave this off
+              when your invoices come from your own accounting or ERP: ticking it starts Growcord's own invoice numbers
+              for those orders.
+            </span>
+          </span>
+        </label>
         {headerIssue && (
           <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">
             <p className="font-medium">This file's columns could not be read, so no row was checked.</p>
@@ -513,13 +595,29 @@ const ShipFromFile: React.FC = () => {
         )}
         flush
       >
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-line px-4 py-3 text-sm">
+          <span className="font-medium">Pick for each order:</span>
+          {(['cheapest', 'fastest'] as const).map((v) => (
+            <label key={v} className="inline-flex items-center gap-1.5">
+              <input type="radio" name="ship-file-pick" checked={pickBy === v} disabled={running !== null}
+                onChange={() => {
+                  setPickBy(v);
+                  // The page's choice sets every row not yet shipped; a row can still switch after.
+                  setPlans((ps) => Object.fromEntries(Object.entries(ps).map(([k, pl]) => [k, pl.result ? pl : { ...pl, pick: undefined }])));
+                }} />
+              {v === 'cheapest' ? 'Cheapest' : 'Fastest'}
+            </label>
+          ))}
+          <span className="text-xs text-ink-mute">Fastest is the fewest delivery days the courier gives; the cheaper of two equal. Each row can switch.</span>
+          {noDays && <span className="text-xs text-amber-700">No courier gave delivery days for these orders, so the cheapest is booked.</span>}
+        </div>
         {checkedAny && (
           <div className="border-b border-line p-4">
             <StatGrid cols={4}>
               <StatCard label="Ready to ship" value={ready.length} />
-              <StatCard label="Their freight" value={fmtRupees(total)} sub="cheapest allowed, what you pay" />
+              <StatCard label="Their freight" value={fmtRupees(total)} sub="as picked, what you pay" />
               <StatCard label="Shipped" value={shipped} tone={shipped ? 'good' : 'default'} />
-              <StatCard label="Stopped or failed" value={rows.filter((r) => r.problem || plans[r.line]?.stop).length + failed} tone={failed ? 'bad' : 'default'} />
+              <StatCard label="Stopped or failed" value={rows.filter((r) => r.problem || plans[r.line]?.stop || (!plans[r.line]?.result && invoiceBlock(r, plans[r.line]))).length + failed} tone={failed ? 'bad' : 'default'} />
             </StatGrid>
           </div>
         )}
@@ -531,16 +629,34 @@ const ShipFromFile: React.FC = () => {
               <Th>Invoice</Th>
               <Th>Parcel</Th>
               <Th>Cheapest allowed</Th>
+              <Th>Fastest allowed</Th>
               <Th>Next</Th>
               <Th>Result</Th>
             </Tr>
           </THead>
           <TBody>
-            {rows.length === 0 && <EmptyRow colSpan={7}>{headerIssue ? 'Fix the columns named above, then choose the file again.' : 'Choose a file to see its orders here.'}</EmptyRow>}
+            {rows.length === 0 && <EmptyRow colSpan={8}>{headerIssue ? 'Fix the columns named above, then choose the file again.' : 'Choose a file to see its orders here.'}</EmptyRow>}
             {rows.map((r) => {
               const p = plans[r.line];
-              const { best, next } = pickOffer(p?.offers, excluded);
+              const by = rowPick(r.line);
+              const { cheapest, fastest, next, best } = pickOffer(p?.offers, excluded, by);
               const res = p?.result;
+              // A switch only where the two differ and nothing is sent yet.
+              const canSwitch = !!(cheapest && fastest && cheapest !== fastest && !res && !p?.sending);
+              const offerCell = (o: Offer | undefined, which: PickBy) => (o ? (
+                <div className="flex flex-col">
+                  <span className="font-semibold">{o.rate.courierName} <span className="tabular-nums">{fmtRupees(o.rate.rate)}</span></span>
+                  <span className="text-xs text-ink-mute">{SOURCE_LABEL[o.source]}{o.rate.estimatedDeliveryDays > 0 ? `, ${o.rate.estimatedDeliveryDays} days` : ', no days given'}</span>
+                  {canSwitch && (
+                    <label className="mt-1 inline-flex items-center gap-1 text-xs">
+                      <input type="radio" name={`ship-file-pick-${r.line}`} checked={best === o} disabled={running !== null}
+                        onChange={() => setPlan(r.line, { pick: which })} />
+                      Book this
+                    </label>
+                  )}
+                </div>
+              ) : null);
+              const blocked = !res ? invoiceBlock(r, p) : null;
               return (
                 <Tr key={r.line}>
                   <Td className="tabular-nums text-ink-mute">{r.line}</Td>
@@ -548,21 +664,27 @@ const ShipFromFile: React.FC = () => {
                     {p?.orderId ? <Link to={`/orders/${p.orderId}`} className="font-medium text-blue-700 hover:underline">{orderNo(p.order) || r.orderNumber}</Link> : <span className="font-medium">{r.orderNumber || 'none'}</span>}
                   </Td>
                   <Td className="text-xs">
-                    {r.invoiceNumber ? <span>{r.invoiceNumber}{r.invoiceDate ? `, ${r.invoiceDate.split('-').reverse().join('/')}` : ''}</span> : <span className="text-ink-mute">issue from series</span>}
+                    {res?.invoice ? <span>{res.invoice}</span>
+                      : r.invoiceNumber ? <span>{r.invoiceNumber}{r.invoiceDate ? `, ${r.invoiceDate.split('-').reverse().join('/')}` : ''}</span>
+                      : p?.orderInvoice ? <span>{p.orderInvoice} <span className="text-ink-mute">(on the order)</span></span>
+                      : issueWhenMissing ? <span className="text-ink-mute">Growcord number to be issued</span>
+                      : <span className="text-ink-mute">none</span>}
                   </Td>
                   <Td className="text-xs tabular-nums">
                     {p?.parcel ? `${p.parcel.weight} kg, ${p.parcel.length} x ${p.parcel.breadth} x ${p.parcel.height} cm` : r.box ? `box ${r.box}` : ''}
                   </Td>
                   <Td>
-                    {best ? (
-                      <div className="flex flex-col">
-                        <span className="font-semibold">{best.rate.courierName} <span className="tabular-nums">{fmtRupees(best.rate.rate)}</span></span>
-                        <span className="text-xs text-ink-mute">{SOURCE_LABEL[best.source]}{best.rate.estimatedDeliveryDays ? `, ${best.rate.estimatedDeliveryDays} days` : ''}</span>
-                      </div>
-                    ) : p?.offers?.length ? <span className="text-xs text-amber-700">every courier for it is unticked</span> : null}
+                    {cheapest ? offerCell(cheapest, 'cheapest')
+                      : p?.offers?.length ? <span className="text-xs text-amber-700">every courier for it is unticked</span> : null}
+                  </Td>
+                  <Td>
+                    {fastest && fastest === cheapest ? <span className="text-xs text-ink-mute">the cheapest is also the fastest</span>
+                      : fastest ? offerCell(fastest, 'fastest')
+                      : cheapest ? <span className="text-xs text-amber-700">no courier gave delivery days{by === 'fastest' ? '; the cheapest is booked' : ''}</span>
+                      : null}
                   </Td>
                   <Td className="text-xs">
-                    {best && next ? <span>{next.rate.courierName}, {fmtRupees(next.rate.rate)} <span className="text-emerald-700">(saves {fmtRupees(Math.round((next.rate.rate - best.rate.rate) * 100) / 100)})</span></span> : null}
+                    {cheapest && next ? <span>{next.rate.courierName}, {fmtRupees(next.rate.rate)} <span className="text-emerald-700">(saves {fmtRupees(Math.round((next.rate.rate - cheapest.rate.rate) * 100) / 100)})</span></span> : null}
                   </Td>
                   <Td className="text-xs">
                     {r.problem ? <span className="text-red-700">Fix in the file: {r.problem}</span>
@@ -575,7 +697,8 @@ const ShipFromFile: React.FC = () => {
                         </span>
                       )
                       : p?.stop ? <span className="text-red-700">{p.stop}</span>
-                      : best ? <span className="text-ink-mute">ready</span> : null}
+                      : blocked ? <span className="text-red-700">{blocked}</span>
+                      : best ? <span className="text-ink-mute">ready, {best === fastest && by === 'fastest' ? 'fastest' : 'cheapest'}</span> : null}
                   </Td>
                 </Tr>
               );

@@ -7,6 +7,7 @@
  */
 import { api, shipmentsAPI, errorText } from '../services/api';
 import { shipmentAwb } from '../components/shipments/shipmentFacts';
+import type { CourierRate } from '../components/order/ShipmentCreationModal';
 
 /** The order statuses a booking takes (`POST /shipments/book`, ship api/shipping.rs create_shipment). */
 export const BOOKABLE = ['confirmed', 'processing'];
@@ -95,6 +96,48 @@ export async function bookOrder(id: string, send: (order: any) => Promise<any>):
   } catch (e) {
     return outcomeAfterError(id, e);
   }
+}
+
+/** How a booking picks among the couriers it may use (owner 27 Nov 2026: "cheaper or fast option for each"). */
+export type PickBy = 'cheapest' | 'fastest';
+
+/** The offers a booking chooses between. */
+export interface Picks<T> {
+  /** The lowest price; the faster of two equal prices. */
+  cheapest?: T;
+  /** The fewest estimated days; the cheaper of two equal. Absent when no offer gives days. */
+  fastest?: T;
+  /** The second cheapest. */
+  next?: T;
+}
+
+/** Estimated days to deliver, or null when the courier gave none. */
+const daysOf = (r: CourierRate): number | null => {
+  const d = Number(r.estimatedDeliveryDays);
+  return Number.isFinite(d) && d > 0 ? d : null;
+};
+
+/**
+ * The cheapest and the fastest of `offers` (already only those the store allows), each read through `rateOf`. An offer
+ * with no estimated days is never the fastest. The one pick rule: Ship from a file and Growcord Ship's Bulk shipment.
+ */
+export function pickOffers<T>(offers: T[] | undefined, rateOf: (o: T) => CourierRate): Picks<T> {
+  const list = offers ?? [];
+  const byPrice = [...list].sort((a, b) => rateOf(a).rate - rateOf(b).rate || (daysOf(rateOf(a)) ?? 99) - (daysOf(rateOf(b)) ?? 99));
+  const dated = list.filter((o) => daysOf(rateOf(o)) !== null)
+    .sort((a, b) => daysOf(rateOf(a))! - daysOf(rateOf(b))! || rateOf(a).rate - rateOf(b).rate);
+  return { cheapest: byPrice[0], next: byPrice[1], fastest: dated[0] };
+}
+
+/** The offer a choice books: the fastest when asked and one gives days, else the cheapest. */
+export const pickedBy = <T>(p: Picks<T>, by: PickBy): T | undefined => (by === 'fastest' ? p.fastest ?? p.cheapest : p.cheapest);
+
+/** A box as a picker or a message names it: its name and its box number, "Box 3 (no. 3)". */
+export function boxLabel(b: any): string {
+  const name = String(b?.name ?? b?.label ?? '').trim();
+  const code = String(b?.code ?? '').trim();
+  if (!code) return name || 'Box';
+  return name ? `${name} (no. ${code})` : `Box no. ${code}`;
 }
 
 /** A box from the store's box list as sides in cm and its own weight in kg; null when it has no usable sides. */

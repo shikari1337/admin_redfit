@@ -14,7 +14,9 @@ import { courierRatesOf, itemUnitWeightKg, type CourierRate } from '../../compon
 import { shipmentAwb } from '../../components/shipments/shipmentFacts';
 import { downloadCsv } from '@/lib/csv';
 import { GS_SHEET_HEADERS, growshipAPI, paiseToRupees, type GsAccount, type GsBulkRun } from '@/lib/v2/growship';
-import { bookOrder, liveParcels, listOf, orderNo, pooled, unwrap, type Outcome } from '@/lib/bulkShip';
+import {
+  bookOrder, boxLabel, liveParcels, listOf, orderNo, pickOffers, pickedBy, pooled, unwrap, type Outcome, type PickBy,
+} from '@/lib/bulkShip';
 
 const GS = 'growcord_ship' as const;
 const PAGE_SIZE = 50;
@@ -122,6 +124,17 @@ const GrowshipBulk: React.FC = () => {
   const [selected, setSelected] = useState<string[]>([]);
   const [plans, setPlans] = useState<Record<string, Plan>>({});
   const [running, setRunning] = useState<'quote' | 'book' | null>(null);
+  // Which courier each priced order starts on: the cheapest or the fastest (lib/bulkShip pickOffers, the one rule);
+  // each row's courier list still switches it.
+  const [pickBy, setPickBy] = useState<PickBy>('cheapest');
+  const pickFor = (quotes: CourierRate[], by: PickBy) => pickedBy(pickOffers(quotes, (q) => q), by);
+  const choosePick = (by: PickBy) => {
+    setPickBy(by);
+    setPlans((p) => Object.fromEntries(Object.entries(p).map(([k, v]) => {
+      const q = v.quotes?.length && !v.result?.ok ? pickFor(v.quotes, by) : undefined;
+      return [k, q ? { ...v, chosen: String(q.courierCompanyId) } : v];
+    })));
+  };
 
   const setPlan = (id: string, patch: Partial<Plan>) => setPlans((p) => ({ ...p, [id]: { ...p[id], ...patch } }));
 
@@ -208,7 +221,8 @@ const GrowshipBulk: React.FC = () => {
         const weight = await weightFor(id);
         const res = await shippingAPI.getCourierRates(id, warehouseId, { weight, length: box.length, breadth: box.breadth, height: box.height }, GS);
         const quotes = courierRatesOf(res);
-        setPlan(id, { quoting: false, quotes, chosen: quotes[0] ? String(quotes[0].courierCompanyId) : '', quoteError: quotes.length ? undefined : 'No courier can take this parcel.' });
+        const first = pickFor(quotes, pickBy);
+        setPlan(id, { quoting: false, quotes, chosen: first ? String(first.courierCompanyId) : '', quoteError: quotes.length ? undefined : 'No courier can take this parcel.' });
       } catch (e) {
         setPlan(id, { quoting: false, quotes: [], quoteError: errorText(e, 'Growcord Ship did not answer.') });
       }
@@ -419,7 +433,7 @@ const GrowshipBulk: React.FC = () => {
                   <option value="">Standard, 20 x 15 x 10 cm</option>
                   {boxes.map((b) => (
                     <option key={b._id ?? b.id} value={String(b._id ?? b.id)}>
-                      {b.name || 'Box'}, {b.length ?? b.lengthCm} x {b.breadth ?? b.widthCm} x {b.height ?? b.heightCm} cm
+                      {boxLabel(b)}, {b.length ?? b.lengthCm} x {b.breadth ?? b.widthCm} x {b.height ?? b.heightCm} cm
                     </option>
                   ))}
                 </SelectInput>
@@ -433,6 +447,15 @@ const GrowshipBulk: React.FC = () => {
             description="Orders with nothing booked yet. Tick the ones to send, get their prices, then book. Each order is read again just before it is sent."
             action={
               <div className="flex flex-wrap items-center gap-2">
+                <span className="flex items-center gap-3 text-sm" role="radiogroup" aria-label="Pick for each order">
+                  <span className="text-gray-600">Pick for each order:</span>
+                  {(['cheapest', 'fastest'] as const).map((v) => (
+                    <label key={v} className="inline-flex items-center gap-1">
+                      <input type="radio" name="bulk-pick" checked={pickBy === v} disabled={!!running} onChange={() => choosePick(v)} />
+                      {v === 'cheapest' ? 'Cheapest' : 'Fastest'}
+                    </label>
+                  ))}
+                </span>
                 <Btn variant="outline" disabled={!open.length || !!running || !warehouseId} onClick={getQuotes}>
                   {running === 'quote' ? <Loader2 className="animate-spin" /> : null}
                   Get prices for {open.length}
@@ -496,15 +519,22 @@ const GrowshipBulk: React.FC = () => {
                         <Td>
                           {pl.quoting && <span className="text-xs text-gray-500">Pricing...</span>}
                           {!pl.quoting && pl.quoteError && <span className="text-xs text-red-600">{pl.quoteError}</span>}
-                          {!pl.quoting && !!pl.quotes?.length && (
-                            <SelectInput value={pl.chosen ?? ''} onChange={(e) => setPlan(o._id, { chosen: e.target.value })} aria-label={`Courier for ${orderNo(o)}`} className="max-w-[16rem]" disabled={!!r?.ok}>
-                              {pl.quotes.map((q) => (
-                                <option key={String(q.courierCompanyId)} value={String(q.courierCompanyId)}>
-                                  {q.courierName}, {fmtRupees(q.rate)}{q.estimatedDeliveryDays ? `, ${q.estimatedDeliveryDays} days` : ''}
-                                </option>
-                              ))}
-                            </SelectInput>
-                          )}
+                          {!pl.quoting && !!pl.quotes?.length && (() => {
+                            const picks = pickOffers(pl.quotes, (q) => q);
+                            return (
+                              <>
+                                <SelectInput value={pl.chosen ?? ''} onChange={(e) => setPlan(o._id, { chosen: e.target.value })} aria-label={`Courier for ${orderNo(o)}`} className="max-w-[16rem]" disabled={!!r?.ok}>
+                                  {pl.quotes.map((q) => (
+                                    <option key={String(q.courierCompanyId)} value={String(q.courierCompanyId)}>
+                                      {q.courierName}, {fmtRupees(q.rate)}{q.estimatedDeliveryDays ? `, ${q.estimatedDeliveryDays} days` : ''}
+                                      {q === picks.cheapest ? ' (cheapest)' : ''}{q === picks.fastest && q !== picks.cheapest ? ' (fastest)' : ''}{q === picks.fastest && q === picks.cheapest ? ' (also fastest)' : ''}
+                                    </option>
+                                  ))}
+                                </SelectInput>
+                                {pickBy === 'fastest' && !picks.fastest && <div className="mt-1 text-xs text-amber-700">No courier gave delivery days; the cheapest is picked.</div>}
+                              </>
+                            );
+                          })()}
                         </Td>
                         <Td num>{priceOf(o._id) != null ? fmtRupees(priceOf(o._id)) : ''}</Td>
                         <Td className="text-xs">

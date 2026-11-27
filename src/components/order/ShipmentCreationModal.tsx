@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { FaTruck, FaRupeeSign, FaSpinner, FaPlane, FaBox, FaMoneyBillWave, FaClock, FaSync, FaGlobe, FaExclamationTriangle } from 'react-icons/fa';
 import Modal from './Modal';
 import api, { shippingAPI, packagesAPI, walletAPI } from '../../services/api';
+import { boxLabel } from '../../lib/bulkShip';
 
 interface Warehouse {
   _id: string;
@@ -1294,7 +1295,7 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
                         const d = boxDims(box);
                         return (
                           <option key={box._id ?? box.id} value={box._id ?? box.id}>
-                            {box.name} ({d.length}x{d.breadth}x{d.height} cm{d.deadWeightKg ? `, box ${d.deadWeightKg} kg` : ''})
+                            {boxLabel(box)}, {d.length}x{d.breadth}x{d.height} cm{d.deadWeightKg ? `, box ${d.deadWeightKg} kg` : ''}
                           </option>
                         );
                       })}
