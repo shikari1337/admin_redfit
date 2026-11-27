@@ -16,7 +16,7 @@ import { Check, Download, FileUp, Loader2, Minus, Truck, X } from 'lucide-react'
 import { ordersAPI, invoicesAPI, packagesAPI, shippingAPI, warehousesAPI, errorText } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { fmtRupees } from '@/lib/money';
-import { downloadCsv, parseCsvRecords } from '@/lib/csv';
+import { downloadCsv, parseCsv, parseCsvRecords } from '@/lib/csv';
 import { courierRatesOf, itemUnitWeightKg, type CourierRate } from '../../components/order/ShipmentCreationModal';
 import { boxOf, listOf, orderNo, outcomeAfterError, pooled, recheckOrder, type Outcome } from '@/lib/bulkShip';
 import {
@@ -63,13 +63,38 @@ interface RowPlan {
   result?: Outcome & { courier?: string; source?: Source; price?: number; awb?: string };
 }
 
-/** A header cell to its column, forgiving case, spaces and units. */
+/**
+ * The file's columns: each one and the usual names a sheet heads it with, in order of preference (owner 27 Nov 2026:
+ * a sheet headed "Order ID" and "Box No" read as empty). The one list the reader and the missing-column message read.
+ */
+const HEADERS = {
+  orderNumber: ['Order Number', 'Order ID', 'Order No', 'Order #', 'Order'],
+  invoiceNumber: ['Invoice Number', 'Invoice No', 'Invoice ID', 'Bill No'],
+  invoiceDate: ['Invoice Date', 'Bill Date'],
+  box: ['Box', 'Box Number', 'Box No', 'Box ID', 'Box Name', 'Package'],
+  weight: ['Weight', 'Weight (kg)', 'Wt'],
+  length: ['Length', 'L'],
+  breadth: ['Breadth', 'Width', 'B', 'W'],
+  height: ['Height', 'H'],
+} as const;
+type Col = keyof typeof HEADERS;
+
+/** A header to compare, forgiving case, spaces, symbols and units: "Weight (kg)" is weight, "Order #" is order. */
 const norm = (h: string) => h.toLowerCase().replace(/\(.*?\)/g, '').replace(/[^a-z]/g, '');
-const cell = (rec: Record<string, string>, name: string): string => {
-  const want = norm(name);
-  const key = Object.keys(rec).find((k) => norm(k) === want);
-  return key ? rec[key].trim() : '';
-};
+/** Which of the file's headers holds each column: the first usual name found, each header used once. */
+function columnsOf(headers: string[]): Partial<Record<Col, string>> {
+  const out: Partial<Record<Col, string>> = {};
+  const taken = new Set<string>();
+  for (const col of Object.keys(HEADERS) as Col[]) {
+    for (const name of HEADERS[col]) {
+      const h = headers.find((x) => !taken.has(x) && norm(x) === norm(name));
+      if (h) { out[col] = h; taken.add(h); break; }
+    }
+  }
+  return out;
+}
+/** Letters and digits only, lower case: "#SM-13448", "sm 13448" and "SM13448" all read as SM-13448; "Box-1" as Box 1. */
+const plain = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 const num = (s: string): number | null => {
   if (!s) return null;
   const n = Number(s.replace(/,/g, ''));
@@ -91,20 +116,35 @@ function isoDate(s: string): string | null {
   return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 }
 
-function readFile(text: string): FileRow[] {
-  return parseCsvRecords(text).map((rec, i) => {
+/** A file read: its headers, the required columns it lacks (rows are then not read), and its rows. */
+interface ReadFile { headers: string[]; missing: string[]; rows: FileRow[] }
+
+function readFile(text: string): ReadFile {
+  const headers = (parseCsv(text)[0] ?? []).map((h) => h.trim()).filter(Boolean);
+  const cols = columnsOf(headers);
+  const missing: string[] = [];
+  if (!cols.orderNumber) missing.push(`the order number (named ${HEADERS.orderNumber.join(', ')})`);
+  if (!cols.box && !(cols.weight && cols.length && cols.breadth && cols.height)) {
+    missing.push(`a box (named ${HEADERS.box.join(', ')}), or Weight, Length, Breadth and Height`);
+  }
+  if (missing.length) return { headers, missing, rows: [] };
+  const cell = (rec: Record<string, string>, col: Col): string => {
+    const h = cols[col];
+    return h ? (rec[h] ?? '').trim() : '';
+  };
+  const rows = parseCsvRecords(text).map((rec, i) => {
     const row: FileRow = {
       line: i + 2,
-      orderNumber: cell(rec, 'Order Number').replace(/^#/, ''),
-      invoiceNumber: cell(rec, 'Invoice Number'),
+      orderNumber: cell(rec, 'orderNumber').replace(/^#/, ''),
+      invoiceNumber: cell(rec, 'invoiceNumber'),
       invoiceDate: '',
-      box: cell(rec, 'Box'),
-      weightKg: num(cell(rec, 'Weight')),
-      length: num(cell(rec, 'Length')),
-      breadth: num(cell(rec, 'Breadth')),
-      height: num(cell(rec, 'Height')),
+      box: cell(rec, 'box'),
+      weightKg: num(cell(rec, 'weight')),
+      length: num(cell(rec, 'length')),
+      breadth: num(cell(rec, 'breadth')),
+      height: num(cell(rec, 'height')),
     };
-    const rawDate = cell(rec, 'Invoice Date');
+    const rawDate = cell(rec, 'invoiceDate');
     const problems: string[] = [];
     if (!row.orderNumber) problems.push('no order number');
     if (rawDate) {
@@ -120,7 +160,24 @@ function readFile(text: string): FileRow[] {
     if (problems.length) row.problem = problems.join('; ');
     return row;
   });
+  return { headers, missing, rows };
 }
+
+/** A box's name as the box list shows it. */
+const boxName = (b: any) => String(b?.name ?? b?.label ?? '').trim();
+/** The number a box goes by: the one run of digits in its name ("Box 1" is 1; "Box 20 x 15" has none). */
+const boxNumber = (b: any): number | null => {
+  const runs = boxName(b).match(/\d+/g);
+  return runs && runs.length === 1 ? Number(runs[0]) : null;
+};
+/** The number a file's box gives: "1", "B1", "box1", "Box-1" and "BOX 1" are all 1. */
+const askedBoxNumber = (s: string): number | null => {
+  const m = /^(?:box|b)?(\d+)$/.exec(plain(s));
+  return m ? Number(m[1]) : null;
+};
+
+/** An order's number as the list carries it. */
+const numberOf = (o: any) => String(o?.orderId ?? o?.order_id ?? o?.order_number ?? '');
 
 /** The courier as the exclusion list names it. */
 const courierKey = (o: Offer) => `${o.source}:${o.rate.courierName.trim().toLowerCase()}`;
@@ -154,6 +211,8 @@ const ShipFromFile: React.FC = () => {
 
   const [filename, setFilename] = useState<string | null>(null);
   const [rows, setRows] = useState<FileRow[]>([]);
+  // A file lacking a required column: its headers and what is missing, said once (its rows are not read).
+  const [headerIssue, setHeaderIssue] = useState<{ headers: string[]; missing: string[] } | null>(null);
   const [plans, setPlans] = useState<Record<number, RowPlan>>({});
   const [running, setRunning] = useState<'check' | 'ship' | null>(null);
   const [sourceErrors, setSourceErrors] = useState<Partial<Record<Source, string>>>({});
@@ -171,23 +230,53 @@ const ShipFromFile: React.FC = () => {
   });
 
   const onFile = async (file: File | null) => {
-    setPlans({}); setSourceErrors({});
+    setPlans({}); setSourceErrors({}); setHeaderIssue(null);
     if (!file) { setRows([]); setFilename(null); return; }
     setFilename(file.name);
-    setRows(readFile(await file.text()));
+    const read = readFile(await file.text());
+    setRows(read.rows);
+    if (read.missing.length) setHeaderIssue({ headers: read.headers, missing: read.missing });
   };
 
-  const boxFor = (name: string) => {
-    const want = name.trim().toLowerCase();
-    return boxes.find((b) => String(b._id ?? b.id ?? '').toLowerCase() === want || String(b.name ?? b.label ?? '').trim().toLowerCase() === want);
+  /**
+   * The box a row names: its id, its name, or its number ("1", "B1", "box1", "Box-1" for Box 1), each forgiving case,
+   * spaces and symbols, and only when exactly one box fits; otherwise the reason, with the store's box names.
+   */
+  const boxFor = (asked: string): { box: any } | { stop: string } => {
+    const id = asked.trim().toLowerCase();
+    const byId = boxes.find((b) => String(b._id ?? b.id ?? '').toLowerCase() === id);
+    if (byId) return { box: byId };
+    const want = plain(asked);
+    let hits = want ? boxes.filter((b) => plain(boxName(b)) === want) : [];
+    const n = askedBoxNumber(asked);
+    if (!hits.length && n !== null) hits = boxes.filter((b) => boxNumber(b) === n);
+    if (hits.length === 1) return { box: hits[0] };
+    const names = boxes.map(boxName).filter(Boolean);
+    const yours = names.length ? `Your boxes: ${names.join(', ')}.` : 'Your box list (Settings, Packages) is empty.';
+    return {
+      stop: hits.length > 1
+        ? `Box "${asked}" could be ${hits.map(boxName).join(' or ')}: write its full name. ${yours}`
+        : `No box "${asked}" in your box list (Settings, Packages). ${yours}`,
+    };
   };
 
-  /** The order a row names: an exact order number match. */
-  const findOrder = async (number: string): Promise<any | null> => {
-    const r: any = await ordersAPI.getAll({ orderId: number, limit: 5 });
+  /**
+   * The order a row names, through the list's own search (it reads `search`, never an order id). The search is sent
+   * the number's digits when it has one run of them ("13448" finds SM-13448), and the answer is matched here: the
+   * whole number exactly, forgiving case, spaces, "#" and hyphens; a number alone only when exactly one order's
+   * number has those digits.
+   */
+  const findOrder = async (asked: string): Promise<{ order: any } | { stop: string }> => {
+    const runs = asked.match(/\d+/g) ?? [];
+    const term = runs.length === 1 && runs[0].length >= 2 ? runs[0] : asked.trim();
+    const r: any = await ordersAPI.getAll({ search: term, limit: 100 });
     const list: any[] = Array.isArray(r) ? r : Array.isArray(r?.data) ? r.data : Array.isArray(r?.orders) ? r.orders : [];
-    const want = number.toLowerCase();
-    return list.find((o) => String(o?.orderId ?? o?.order_number ?? '').toLowerCase() === want) ?? null;
+    const want = plain(asked);
+    const digitsOnly = /^\d+$/.test(want);
+    const hits = list.filter((o) => (digitsOnly ? numberOf(o).replace(/\D/g, '') : plain(numberOf(o))) === want);
+    if (hits.length === 1) return { order: hits[0] };
+    if (hits.length > 1) return { stop: `"${asked}" could be ${hits.map(numberOf).join(', ')}: write the full order number.` };
+    return { stop: 'No order has this number.' };
   };
 
   /** Check every usable row: order, state, invoice, parcel and both sources' prices. Writes nothing. */
@@ -199,8 +288,9 @@ const ShipFromFile: React.FC = () => {
     await pooled(usable, 3, async (row) => {
       setPlan(row.line, { checking: true, stop: undefined, offers: undefined, result: undefined });
       try {
-        const found = await findOrder(row.orderNumber);
-        if (!found) { setPlan(row.line, { checking: false, stop: 'No order has this number.' }); return; }
+        const match = await findOrder(row.orderNumber);
+        if ('stop' in match) { setPlan(row.line, { checking: false, stop: match.stop }); return; }
+        const found = match.order;
         const id = String(found._id ?? found.id);
         const checked = await recheckOrder(id);
         if ('skip' in checked) { setPlan(row.line, { checking: false, orderId: id, stop: checked.skip.replace(/^Skipped: /, '') }); return; }
@@ -212,8 +302,10 @@ const ShipFromFile: React.FC = () => {
         }
         let parcel: RowPlan['parcel'];
         if (row.box) {
-          const b = boxOf(boxFor(row.box));
-          if (!b) { setPlan(row.line, { checking: false, orderId: id, order, stop: `No box "${row.box}" in your box list (Settings, Packages).` }); return; }
+          const picked = boxFor(row.box);
+          if ('stop' in picked) { setPlan(row.line, { checking: false, orderId: id, order, stop: picked.stop }); return; }
+          const b = boxOf(picked.box);
+          if (!b) { setPlan(row.line, { checking: false, orderId: id, order, stop: `Box ${boxName(picked.box) || row.box} has no size in your box list (Settings, Packages).` }); return; }
           const items: any[] = Array.isArray(order?.items) ? order.items : [];
           const worked = items.reduce((s, it) => s + itemUnitWeightKg(it) * (Number(it?.quantity) || 1), 0) + b.deadWeightKg;
           const weight = row.weightKg ?? Math.max(Math.round(worked * 100) / 100, b.deadWeightKg, 0.05);
@@ -364,10 +456,19 @@ const ShipFromFile: React.FC = () => {
           </Field>
         </div>
         <p className="mt-3 text-xs text-ink-mute">
-          Columns: {COLUMNS.join(', ')}. A row needs a box from your box list, or the weight with all three sides. A box
-          with no weight takes the order's own weight. An invoice number left empty is issued from your Growcord series;
-          an order that already has a different invoice number is never changed.
+          Columns: {COLUMNS.join(', ')}. The usual other names are read too, such as Order ID, Order No, Box No or Bill
+          No. A row needs a box from your box list (its name or its number: 1, B1 or Box-1 for Box 1), or the weight with
+          all three sides. A box with no weight takes the order's own weight. An invoice number left empty is issued from
+          your Growcord series; an order that already has a different invoice number is never changed.
         </p>
+        {headerIssue && (
+          <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">
+            <p className="font-medium">This file's columns could not be read, so no row was checked.</p>
+            <p className="mt-1">Columns found: {headerIssue.headers.length ? headerIssue.headers.join(', ') : 'none'}.</p>
+            <p className="mt-1">Missing: {headerIssue.missing.join('; and ')}.</p>
+            <p className="mt-1">Rename the column in the file, or start from the template, then choose the file again.</p>
+          </div>
+        )}
         {filename && (
           <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
             <Chip tone="blue">{filename}</Chip>
@@ -435,7 +536,7 @@ const ShipFromFile: React.FC = () => {
             </Tr>
           </THead>
           <TBody>
-            {rows.length === 0 && <EmptyRow colSpan={7}>Choose a file to see its orders here.</EmptyRow>}
+            {rows.length === 0 && <EmptyRow colSpan={7}>{headerIssue ? 'Fix the columns named above, then choose the file again.' : 'Choose a file to see its orders here.'}</EmptyRow>}
             {rows.map((r) => {
               const p = plans[r.line];
               const { best, next } = pickOffer(p?.offers, excluded);
