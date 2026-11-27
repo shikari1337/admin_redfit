@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Upload, Loader2, Check, X, FileDown, AlertTriangle, Minus } from 'lucide-react';
 import { api, shipmentsAPI, shippingAPI, warehousesAPI, packagesAPI, errorText } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -15,7 +15,7 @@ import { shipmentAwb } from '../../components/shipments/shipmentFacts';
 import { downloadCsv } from '@/lib/csv';
 import { GS_SHEET_HEADERS, growshipAPI, paiseToRupees, type GsAccount, type GsBulkRun } from '@/lib/v2/growship';
 import {
-  bookOrder, boxLabel, liveParcels, listOf, orderNo, pickOffers, pickedBy, pooled, unwrap, type Outcome, type PickBy,
+  bookOrder, boxLabel, liveParcels, listOf, orderNo, pickOffers, pickedBy, pooled, recheckOrder, unwrap, type Outcome, type PickBy,
 } from '@/lib/bulkShip';
 
 const GS = 'growcord_ship' as const;
@@ -150,6 +150,49 @@ const GrowshipBulk: React.FC = () => {
     packagesAPI.getAll().then((r: any) => setBoxes(listOf(r))).catch(() => setBoxes([]));
   }, []);
 
+  /*
+   * Orders handed over from the Growcord Ship board's Pending Orders ("Compare prices and book": ?orders=id1,id2),
+   * read once on load. While they are here only they are listed and ticked, each read again: one that cannot be
+   * booked is named with the reason. Clear goes back to every order waiting.
+   */
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [handed, setHanded] = useState<{ ids: string[]; orders: any[] | null; refused: Array<{ id: string; label: string; why: string }> } | null>(() => {
+    const ids = [...new Set((searchParams.get('orders') ?? '').split(',').map((x) => x.trim()).filter(Boolean))];
+    return ids.length ? { ids, orders: null, refused: [] } : null;
+  });
+  const handedMode = handed !== null;
+  useEffect(() => {
+    if (!handed || handed.orders !== null) return;
+    let gone = false;
+    const found: Record<string, any> = {};
+    const refusedBy: Record<string, { id: string; label: string; why: string }> = {};
+    void pooled(handed.ids, 3, async (id) => {
+      try {
+        const c = await recheckOrder(id);
+        if ('skip' in c) refusedBy[id] = { id, label: c.order ? orderNo(c.order) : id.slice(0, 8), why: c.skip.replace(/^Skipped: /, '') };
+        else found[id] = c.order;
+      } catch (e) {
+        refusedBy[id] = { id, label: id.slice(0, 8), why: `it could not be read (${errorText(e, 'no answer')})` };
+      }
+    }).then(() => {
+      if (gone) return;
+      // In the order they were ticked on the board.
+      const list = handed.ids.filter((id) => found[id]).map((id) => found[id]);
+      setHanded({ ...handed, orders: list, refused: handed.ids.filter((id) => refusedBy[id]).map((id) => refusedBy[id]) });
+      setSelected(list.map((o) => String(o._id ?? o.id)));
+    });
+    return () => { gone = true; };
+  }, [handed]);
+  /** Back to every order waiting: the handed orders, their ticks and prices are dropped, and the address loses them. */
+  const clearHanded = () => {
+    setHanded(null);
+    setSelected([]);
+    setPlans({});
+    const next = new URLSearchParams(searchParams);
+    next.delete('orders');
+    setSearchParams(next, { replace: true });
+  };
+
   const loadOrders = (p = page) => {
     setOrdersError(null);
     shipmentsAPI.getPendingOrders({ page: p, limit: PAGE_SIZE })
@@ -160,7 +203,8 @@ const GrowshipBulk: React.FC = () => {
       })
       .catch((e) => { setOrders([]); setOrdersError(errorText(e, 'The orders to book could not be read.')); });
   };
-  useEffect(() => { if (tab === 'orders') loadOrders(page); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tab, page]);
+  // The page's list of orders waiting is read only when no handed-over orders are on screen.
+  useEffect(() => { if (tab === 'orders' && !handedMode) loadOrders(page); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tab, page, handedMode]);
 
   const box = useMemo(() => {
     const b = boxes.find((x) => String(x._id ?? x.id) === boxId);
@@ -181,7 +225,8 @@ const GrowshipBulk: React.FC = () => {
     }])));
   }, [boxId, warehouseId]);
 
-  const rows = orders ?? [];
+  const shownOrders = handedMode ? handed!.orders : orders;
+  const rows = shownOrders ?? [];
   const allOnPage = rows.length > 0 && rows.every((o) => selected.includes(o._id));
   const toggle = (id: string, on: boolean) => setSelected((s) => (on ? (s.includes(id) ? s : [...s, id]) : s.filter((x) => x !== id)));
 
@@ -471,7 +516,25 @@ const GrowshipBulk: React.FC = () => {
               </div>
             }
           >
-            {ordersError && <p className="px-5 py-3 text-sm text-red-600">{ordersError}</p>}
+            {handedMode && (
+              <div className="space-y-1 border-b border-blue-100 bg-blue-50 px-5 py-3 text-sm text-blue-900">
+                <p>
+                  {handed!.orders === null
+                    ? `Reading the ${handed!.ids.length} order${handed!.ids.length === 1 ? '' : 's'} you ticked in Pending Orders...`
+                    : `These ${handed!.orders.length} order${handed!.orders.length === 1 ? '' : 's'} came from Pending Orders, ticked here. Get their prices, pick the cheapest or the fastest, then book.`}
+                  {' '}
+                  <button type="button" className="font-medium underline underline-offset-2" disabled={!!running} onClick={clearHanded}>
+                    Clear, and show every order waiting
+                  </button>
+                </p>
+                {handed!.refused.length > 0 && (
+                  <ul className="text-xs text-amber-800">
+                    {handed!.refused.map((r) => <li key={r.id}>{r.label} cannot be booked here: {r.why}</li>)}
+                  </ul>
+                )}
+              </div>
+            )}
+            {ordersError && !handedMode && <p className="px-5 py-3 text-sm text-red-600">{ordersError}</p>}
             {!canBook && <p className="px-5 py-3 text-sm text-amber-800">Booking needs the shipments.manage permission. You can still see the prices.</p>}
             {canBook && bookable.length > 0 && !!ordersShort && <ShortNotice short={ordersShort} onPaid={reloadWallet} />}
             {canBook && bookable.length > 0 && ordersShort === null && <p className="border-b border-gray-100 px-5 py-2 text-sm text-gray-500">Reading the wallet balance before booking...</p>}
@@ -494,8 +557,8 @@ const GrowshipBulk: React.FC = () => {
                   <Th>Order</Th><Th>To</Th><Th>Payment</Th><Th num>Order value</Th><Th>Weight (kg)</Th><Th>Courier</Th><Th num>Price</Th><Th>Result</Th>
                 </THead>
                 <TBody>
-                  {orders === null && <EmptyRow colSpan={9}>Reading...</EmptyRow>}
-                  {orders !== null && rows.length === 0 && <EmptyRow colSpan={9}>Every order is booked. Nothing to send.</EmptyRow>}
+                  {shownOrders === null && <EmptyRow colSpan={9}>Reading...</EmptyRow>}
+                  {shownOrders !== null && rows.length === 0 && <EmptyRow colSpan={9}>{handedMode ? 'None of the orders from Pending Orders can be booked here: see why above.' : 'Every order is booked. Nothing to send.'}</EmptyRow>}
                   {rows.map((o) => {
                     const pl = plans[o._id] ?? {};
                     const a = o.shippingAddress ?? {};
@@ -555,7 +618,7 @@ const GrowshipBulk: React.FC = () => {
                 </TBody>
               </table>
             </TableShell>
-            {ordersTotal > PAGE_SIZE && (
+            {!handedMode && ordersTotal > PAGE_SIZE && (
               <div className="flex items-center justify-between border-t border-gray-100 px-5 py-3 text-sm">
                 <span className="text-gray-500">Page {page} of {Math.ceil(ordersTotal / PAGE_SIZE)}, {ordersTotal} orders</span>
                 <div className="flex gap-2">
@@ -568,7 +631,7 @@ const GrowshipBulk: React.FC = () => {
           {results.length > 0 && !running && (
             <p className="text-sm">
               {booked > 0 && <>Booked parcels wait on the board for their pickup: <Link to="/growship/shipments?tab=ready_to_pick" className="text-blue-700 hover:underline">schedule the pickup and print labels</Link>. </>}
-              <button type="button" className="text-blue-700 hover:underline" onClick={() => { setSelected([]); setPlans({}); loadOrders(page); }}>Clear and read the list again</button>
+              <button type="button" className="text-blue-700 hover:underline" onClick={() => { if (handedMode) { clearHanded(); return; } setSelected([]); setPlans({}); loadOrders(page); }}>Clear and read the list again</button>
             </p>
           )}
         </>

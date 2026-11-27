@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { api, shipmentsAPI, warehousesAPI, shippingAPI, errorText } from '../services/api';
 import { FaSync, FaSpinner, FaLink, FaFileUpload } from 'react-icons/fa';
@@ -37,6 +37,7 @@ interface ShipmentsProps {
 
 const Shipments: React.FC<ShipmentsProps> = ({ fixedProvider, title, intro }) => {
   const { hasPerm } = useAuth();
+  const navigate = useNavigate();
   const [shipments, setShipments] = useState<any[]>([]);
   const [pendingOrders, setPendingOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -379,7 +380,8 @@ const Shipments: React.FC<ShipmentsProps> = ({ fixedProvider, title, intro }) =>
       fetchShipments();
     } catch (error: any) {
       console.error('Failed to schedule pickup:', error);
-      alert(error.response?.data?.message || 'Failed to schedule pickup');
+      // The courier's own words when it refuses (the server answers them as the error; errorText reads either shape).
+      alert(errorText(error, 'The pickup could not be scheduled.'));
     } finally {
       setSchedulingPickup(false);
     }
@@ -432,7 +434,7 @@ const Shipments: React.FC<ShipmentsProps> = ({ fixedProvider, title, intro }) =>
       fetchShipments();
     } catch (error: any) {
       console.error('Failed to schedule bulk pickup:', error);
-      alert(error.response?.data?.message || 'Failed to schedule bulk pickup');
+      alert(errorText(error, 'The pickups could not be scheduled.'));
     } finally {
       setSchedulingBulkPickup(false);
     }
@@ -781,6 +783,8 @@ const Shipments: React.FC<ShipmentsProps> = ({ fixedProvider, title, intro }) =>
                 canManageOrders={false}
                 canManageShipments
                 startProvider={fixedProvider}
+                // Cheapest or fastest per order: Growcord Ship's Bulk shipment prices each one, with these preselected.
+                onComparePrices={(ids) => navigate(`/growship/bulk?orders=${ids.map(encodeURIComponent).join(',')}`)}
               />
             </div>
           )}

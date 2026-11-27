@@ -35,19 +35,19 @@ export async function pooled<T>(items: T[], width: number, task: (item: T) => Pr
 
 /**
  * Re-read the order just before it is sent: only a confirmed or processing order with no parcel yet is booked.
- * Answers the reason to skip it, or the order as it stands now.
+ * Answers the reason to skip it (with the order read, to name it), or the order as it stands now.
  */
-export async function recheckOrder(id: string): Promise<{ skip: string } | { order: any }> {
+export async function recheckOrder(id: string): Promise<{ skip: string; order?: any } | { order: any }> {
   const [res, parcels] = await Promise.all([api.get(`/orders/${id}`), shipmentsAPI.byOrder(id)]);
   const order = unwrap(res);
   const status = String(order?.orderStatus ?? order?.order_status ?? '');
   if (!BOOKABLE.includes(status)) {
-    return { skip: `Skipped: the order is ${status.replace(/_/g, ' ') || 'not confirmed'}. Only confirmed or processing orders are booked.` };
+    return { skip: `Skipped: the order is ${status.replace(/_/g, ' ') || 'not confirmed'}. Only confirmed or processing orders are booked.`, order };
   }
   const live = liveParcels(parcels);
   if (live.length) {
     const awb = shipmentAwb(live[0]);
-    return { skip: `Skipped: it already has a parcel${awb ? ` (AWB ${awb})` : ''}.` };
+    return { skip: `Skipped: it already has a parcel${awb ? ` (AWB ${awb})` : ''}.`, order };
   }
   return { order };
 }

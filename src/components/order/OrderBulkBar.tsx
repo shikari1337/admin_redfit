@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   FaBolt, FaDownload, FaFlag, FaRegFlag, FaSpinner, FaStickyNote,
-  FaTruck, FaUserCheck, FaCheck, FaTimes, FaMinus,
+  FaTruck, FaUserCheck, FaCheck, FaTimes, FaMinus, FaBalanceScale,
 } from 'react-icons/fa';
 import Modal from './Modal';
 import { ordersAPI, shipmentsAPI, shippingAPI } from '../../services/api';
@@ -109,6 +109,11 @@ interface Props {
   staff?: Array<{ id: string; name: string | null; role: string }>;
   /** Who Create shipments books with at first: Shiprocket as before, or Growcord Ship on its own board. */
   startProvider?: 'shiprocket' | 'growcord_ship';
+  /**
+   * Compare prices and book: hands the ticked orders to a page that prices each one and picks the cheapest or the
+   * fastest (Growcord Ship's Bulk shipment, from its board's Pending Orders). Shown only when given.
+   */
+  onComparePrices?: (ids: string[]) => void;
 }
 
 interface Plan {
@@ -165,7 +170,7 @@ async function runPooled<T>(
 
 const OrderBulkBar: React.FC<Props> = ({
   rows, selectedIds, onClear, onDone, canManageOrders, canManageShipments,
-  onExportSelected, exporting = false, staff = [], startProvider = 'shiprocket',
+  onExportSelected, exporting = false, staff = [], startProvider = 'shiprocket', onComparePrices,
 }) => {
   const [action, setAction] = useState<ActionKey | null>(null);
   const [target, setTarget] = useState('confirmed');
@@ -400,6 +405,11 @@ const OrderBulkBar: React.FC<Props> = ({
         {canManageShipments && (
           <button className={btn} onClick={() => setAction('ship')}>
             <FaTruck className="h-3 w-3" /> Create shipments
+          </button>
+        )}
+        {canManageShipments && onComparePrices && (
+          <button className={btn} onClick={() => onComparePrices([...selectedIds])} title="See each order's price, pick the cheapest or the fastest courier, then book">
+            <FaBalanceScale className="h-3 w-3" /> Compare prices and book
           </button>
         )}
         {canManageShipments && selected.some((o) => rebookIdsOf(o).length > 0) && (
