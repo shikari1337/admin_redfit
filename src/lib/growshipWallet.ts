@@ -313,10 +313,10 @@ function onceEach(text: string): string {
 
 /** Dashes, arrows, middle dots and curly quotes as plain punctuation. */
 const plainText = (s: string) => s
-  .replace(/\s*(?:[—–]|--+)\s*/g, ': ')
-  .replace(/\s*(?:→|->)\s*/g, ' to ')
-  .replace(/\s*·\s*/g, ', ')
-  .replace(/[‘’]/g, "'").replace(/[“”]/g, '"')
+  .replace(/\s*(?:[\u2014\u2013]|--+)\s*/g, ': ')
+  .replace(/\s*(?:\u2192|->)\s*/g, ' to ')
+  .replace(/\s*\u00b7\s*/g, ', ')
+  .replace(/[\u2018\u2019]/g, "'").replace(/[\u201c\u201d]/g, '"')
   .replace(/\s{2,}/g, ' ').trim();
 
 /**
@@ -333,12 +333,12 @@ export function plainNote(note: string | null | undefined): string {
   if (/reservation released/i.test(s)) {
     return /no courier took/i.test(s) ? 'Refund: the courier did not take the parcel' : 'Refund: the booking could not be completed';
   }
-  const freight = /^growcord ship freight\s*(?:[—–:]|-+)?\s*(.*)$/i.exec(s);
+  const freight = /^growcord ship freight\s*(?:[\u2014\u2013:]|-+)?\s*(.*)$/i.exec(s);
   if (freight) {
     const what = onceEach(plainText(freight[1]));
     return what ? `Shipping charge: ${what}` : 'Shipping charge';
   }
-  const cancel = /^growcord ship\s*(?:[—–:,]|-+)\s*(\S+)\s+cancelled\.?$/i.exec(s);
+  const cancel = /^growcord ship\s*(?:[\u2014\u2013:,]|-+)\s*(\S+)\s+cancelled\.?$/i.exec(s);
   if (cancel) return `Refund: shipment ${cancel[1]} cancelled`;
   return plainText(s);
 }

@@ -23,8 +23,8 @@ const mv = (id: string, when: string, direction: 'credit' | 'debit', amount: num
   bal = Math.round((bal + (direction === 'credit' ? amount : -amount)) * 100) / 100;
   return { id, direction, amount, balance_after: bal, category, reference, note, created_at: `2026-11-26T${when}+05:30` };
 };
-const OLD_FREIGHT = 'Growcord Ship freight — Delhivery Surface Delhivery Surface';
-const OLD_RELEASE = 'Growcord Ship — reservation released: publish webhook event';
+const OLD_FREIGHT = 'Growcord Ship freight \u2014 Delhivery Surface Delhivery Surface';
+const OLD_RELEASE = 'Growcord Ship \u2014 reservation released: publish webhook event';
 const day = [
   mv('d1', '12:54:19', 'debit', 43.72, 'shipping', 'SM-13391', OLD_FREIGHT),
   mv('r1', '12:54:20', 'credit', 43.72, 'refund', null, OLD_RELEASE),
@@ -158,13 +158,13 @@ eq(walletGap(two.get('a')!, [30, 10]).text, 'Wallet took ₹30.00 for order SM-8
 
 // Notes in plain words; the stored note is never changed.
 eq(plainNote(OLD_FREIGHT), 'Shipping charge: Delhivery Surface', 'courier words once');
-eq(plainNote('Growcord Ship freight — Delhivery Delhivery Surface'), 'Shipping charge: Delhivery Surface', 'courier name repeated in the service');
-eq(plainNote('Growcord Ship freight — Delhivery Surface'), 'Shipping charge: Delhivery Surface', 'nothing repeated');
+eq(plainNote('Growcord Ship freight \u2014 Delhivery Delhivery Surface'), 'Shipping charge: Delhivery Surface', 'courier name repeated in the service');
+eq(plainNote('Growcord Ship freight \u2014 Delhivery Surface'), 'Shipping charge: Delhivery Surface', 'nothing repeated');
 eq(plainNote(OLD_RELEASE), 'Refund: the booking could not be completed', 'no internal error text');
 eq(plainNote('Growcord Ship: SHP/26-27/000013 cancelled, no courier took it, reservation released'), 'Refund: the courier did not take the parcel', 'an old release of a parcel no courier took');
-eq(plainNote('Growcord Ship — SHP/26-27/000010 cancelled'), 'Refund: shipment SHP/26-27/000010 cancelled', 'an old cancel');
+eq(plainNote('Growcord Ship \u2014 SHP/26-27/000010 cancelled'), 'Refund: shipment SHP/26-27/000010 cancelled', 'an old cancel');
 eq(plainNote('Shipping charge: Delhivery, Surface'), 'Shipping charge: Delhivery, Surface', 'a new note as it is');
-eq(plainNote('Top up — “Diwali” → wallet'), 'Top up: "Diwali" to wallet', 'plain punctuation');
+eq(plainNote('Top up \u2014 \u201cDiwali\u201d \u2192 wallet'), 'Top up: "Diwali" to wallet', 'plain punctuation');
 eq(plainNote(null), '', 'no note');
 eq(day[0].note, OLD_FREIGHT, 'the stored note is unchanged');
 
