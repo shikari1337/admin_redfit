@@ -28,6 +28,10 @@ const STATEMENT_CAP = 5000;
 /** The parcels read for the rows on screen start this many days before the oldest row (a refund or a correction of an
  * older parcel can sit on the page). */
 const PARCEL_DAYS_BEFORE = 3;
+/** A refund pairs with its charge within a week (the statement reads a week before its dates for that). */
+const PAIR_DAYS = 7;
+/** The page's own reads (refunds, corrections) take at most this many movements. */
+const PAGE_READ_CAP = 1000;
 
 const categoryText = (c: string | null | undefined) => String(c ?? '').replace(/_/g, ' ') || 'Other';
 const at = (t: Movement) => Date.parse(t.created_at) || 0;
@@ -82,9 +86,11 @@ const GrowshipWallet: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [legs, setLegs] = useState<GsWalletLeg[]>([]);
   const [legsError, setLegsError] = useState<string | null>(null);
+  /** Not every one of Growcord Ship's own records of the days on screen was read. */
+  const [legsCapped, setLegsCapped] = useState(false);
   const [range, setRange] = useState({ from: DEFAULT_FROM(), to: DEFAULT_TO() });
   const [statementBusy, setStatementBusy] = useState(false);
-  const [statement, setStatement] = useState<{ rows: number; credit: number; debit: number; capped: boolean } | null>(null);
+  const [statement, setStatement] = useState<{ rows: number; credit: number; debit: number; capped: boolean; shipCapped: boolean } | null>(null);
   const [statementError, setStatementError] = useState<string | null>(null);
 
   const shippingOnly = category === 'shipping';
@@ -130,18 +136,20 @@ const GrowshipWallet: React.FC = () => {
   };
   useEffect(load, [page, category, direction]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Ship's own record of the movements of the days on screen, from a few days before the oldest row to today (a
-  // refund or a correction can come later): the AWB behind each wallet transaction, and which refund is for which
-  // parcel. It used to be the newest 200 whatever page was open (GS-AUDIT-P).
+  // Ship's own record of the movements of the days on screen, from a few days before the oldest row to a week after
+  // the newest (a refund pairs with its charge within that week), at the page's own cap: the AWB behind each wallet
+  // transaction, and which refund is for which parcel. It used to be the newest 200 whatever page was open (GS-AUDIT-P).
   useEffect(() => {
     const base = pageRows ?? [];
-    if (!canAwb || !base.length) { setLegs([]); return undefined; }
+    if (!canAwb || !base.length) { setLegs([]); setLegsCapped(false); return undefined; }
     let live = true;
-    readWalletLegs({ from: addDays(isoDate(base[base.length - 1].created_at), -PARCEL_DAYS_BEFORE), to: todayIso() })
-      .then((r) => { if (live) { setLegs(r.legs); setLegsError(null); } })
-      .catch((e) => { if (live) { setLegs([]); setLegsError(errorText(e, 'Growcord Ship could not be read.')); } });
+    const from = addDays(isoDate(base[base.length - 1].created_at), -PARCEL_DAYS_BEFORE);
+    const end = page === 1 ? todayIso() : isoDate(base[0].created_at);
+    readWalletLegs({ from, to: addDays(end, PAIR_DAYS) }, PAGE_READ_CAP)
+      .then((r) => { if (live) { setLegs(r.legs); setLegsCapped(r.capped); setLegsError(null); } })
+      .catch((e) => { if (live) { setLegs([]); setLegsCapped(false); setLegsError(errorText(e, 'Growcord Ship could not be read.')); } });
     return () => { live = false; };
-  }, [pageRows, canAwb]);
+  }, [pageRows, canAwb, page]);
 
   // The rows on screen: Growcord Ship's parcels booked from a few days before the oldest row to the newest (today on
   // the first page), every one of those days (read 200 at a time), for each line's AWB and order.
@@ -239,11 +247,14 @@ const GrowshipWallet: React.FC = () => {
       const inRange = (t: Movement) => { const day = isoDate(t.created_at); return day >= range.from && day <= range.to; };
       // A week before the range is read too, only to link pairs that cross its start; nothing before that is known,
       // so an order with a line that far back gets no net. Everything newer than the range is read (to today).
-      const fromWide = addDays(range.from, -7);
+      const fromWide = addDays(range.from, -PAIR_DAYS);
       const edge = { lo: Date.parse(`${fromWide}T00:00:00Z`), hi: Infinity, olderOpen: true, newerOpen: false };
       const ps = canAwb ? (await readConsignments({ from: fromWide, to: range.to }).catch(() => ({ items: [] as GsConsignment[] }))).items : [];
-      // Ship's own record of the movements of the same days (to today), not the page's.
-      const legs: GsWalletLeg[] = canAwb ? (await readWalletLegs({ from: fromWide, to: todayIso() }).catch(() => ({ legs: [] as GsWalletLeg[] }))).legs : [];
+      // Ship's own record of the movements of the statement's days, a week each side (not the page's), at its cap.
+      const shipLegs = canAwb
+        ? await readWalletLegs({ from: fromWide, to: addDays(range.to, PAIR_DAYS) }, STATEMENT_CAP).catch(() => ({ legs: [] as GsWalletLeg[], capped: false }))
+        : { legs: [] as GsWalletLeg[], capped: false };
+      const legs = shipLegs.legs;
       let out: Movement[];
       let capped = false;
       let l: WalletLinks;
@@ -276,6 +287,7 @@ const GrowshipWallet: React.FC = () => {
         credit: out.filter((t) => t.direction === 'credit').reduce((s, t) => s + Number(t.amount || 0), 0),
         debit: out.filter((t) => t.direction === 'debit').reduce((s, t) => s + Number(t.amount || 0), 0),
         capped,
+        shipCapped: shipLegs.capped,
       });
     } catch (e) {
       setStatementError(errorText(e, 'The statement could not be made.'));
@@ -311,6 +323,7 @@ const GrowshipWallet: React.FC = () => {
           <p className="mt-2 text-sm text-gray-600">
             {statement.rows} movement{statement.rows === 1 ? '' : 's'}: {fmtRupees(statement.credit)} in, {fmtRupees(statement.debit)} out.
             {statement.capped ? ` Only the newest ${STATEMENT_CAP} movements were read; choose fewer days for the rest.` : ''}
+            {statement.shipCapped ? ' Growcord Ship\'s own record of these days holds more movements than were read, so some lines may have no AWB or refund link; choose fewer days for the rest.' : ''}
           </p>
         )}
       </SectionCard>
@@ -319,7 +332,8 @@ const GrowshipWallet: React.FC = () => {
         flush
         title="History"
         description={canAwb
-          ? (legsError ? `Newest first. The AWB could not be read: ${legsError}` : "Newest first. The AWB is the courier's number of the order's parcel.")
+          ? (legsError ? `Newest first. The AWB could not be read: ${legsError}`
+            : `Newest first. The AWB is the courier's number of the order's parcel.${legsCapped ? ' Growcord Ship\'s own record of these days holds more movements than were read, so some lines may show no AWB.' : ''}`)
           : 'Newest first. The AWB column is not shown: it needs the shipments.read permission.'}
         action={
           <div className="flex flex-wrap items-end gap-2">

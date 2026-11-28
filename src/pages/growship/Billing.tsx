@@ -8,7 +8,7 @@ import {
 import { readMovesSince } from '@/lib/growshipWalletRead';
 import { fmtRupees } from '@/lib/money';
 import { downloadCsv, type CsvColumn } from '@/lib/csv';
-import { formatDate, todayIso } from '../../utils/date';
+import { formatDate } from '../../utils/date';
 import { addDays } from '../../components/dashboard/periods';
 import {
   Page, PageHeader, SectionCard, StatCard, StatGrid, TableShell, THead, Th, TBody, Tr, Td, EmptyRow, Btn, FilterBar, Chip,
@@ -56,6 +56,8 @@ const GrowshipBilling: React.FC = () => {
   const [wallet, setWallet] = useState<{ moves: WalletMove[]; legs: GsWalletLeg[]; capped: boolean } | null>(null);
   const [walletError, setWalletError] = useState(false);
   const [capped, setCapped] = useState(false);
+  /** Not every one of Growcord Ship's own wallet records for these days was read (readWalletLegs). */
+  const [legsCapped, setLegsCapped] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [details, setDetails] = useState<Record<string, GsConsignment>>({});
@@ -67,20 +69,23 @@ const GrowshipBilling: React.FC = () => {
 
   useEffect(() => {
     let live = true;
-    setRows(null); setError(null); setPage(1); setCapped(false); setWallet(null); setWalletError(false);
+    setRows(null); setError(null); setPage(1); setCapped(false); setLegsCapped(false); setWallet(null); setWalletError(false);
     if (!canShip) { setRows([]); setError('The parcels need the shipments.read permission, the same as the shipments board.'); return () => { live = false; }; }
     (async () => {
       const { items: out, capped: cut } = await readConsignments({ from: range.from, to: range.to }, READ_CAP);
       if (live && cut) setCapped(true);
       // The wallet, every category (a correction is an adjustment or a manual credit), from a week before the period
       // (to link a refund to a charge across its start) to today (a refund or a correction can come later). Ship's own
-      // record of those movements is read for the same days, not only its newest 200 (GS-AUDIT-P).
-      const [legs, back] = await Promise.all([
-        readWalletLegs({ from: addDays(range.from, -PAIR_DAYS), to: todayIso() }).then((r) => r.legs).catch(() => [] as GsWalletLeg[]),
+      // record of the movements is read for the period with the same week each side (a refund pairs with its charge
+      // within it), at the wallet's own cap, not only its newest 200 (GS-AUDIT-P).
+      const [shipLegs, back] = await Promise.all([
+        readWalletLegs({ from: addDays(range.from, -PAIR_DAYS), to: addDays(range.to, PAIR_DAYS) }, MOVES_CAP)
+          .catch(() => ({ legs: [] as GsWalletLeg[], capped: false })),
         canBilling
           ? readMovesSince('', addDays(range.from, -PAIR_DAYS), { cap: MOVES_CAP }).catch(() => null)
           : Promise.resolve(null),
       ]);
+      const legs = shipLegs.legs;
       // What came back to the wallet for each parcel itself (its Final is the booking less it): Ship's own refund
       // records by parcel, else the wallet's Growcord Ship refunds by the parcel's number (a cancel names it).
       const refunds = new Map<string, number>();
@@ -98,7 +103,9 @@ const GrowshipBilling: React.FC = () => {
       }
       if (live) {
         setRefundOf(refunds);
-        setWallet(back ? { moves: back.rows, legs, capped: back.capped } : null);
+        // A partial record would warn wrongly: the wallet check waits, and the page says why.
+        setWallet(back ? { moves: back.rows, legs, capped: back.capped || shipLegs.capped } : null);
+        setLegsCapped(shipLegs.capped);
         setWalletError(canBilling && !back);
         setRows(out);
       }
@@ -289,6 +296,7 @@ const GrowshipBilling: React.FC = () => {
           </div>
         </FilterBar>
         {capped && <p className="mt-2 text-sm text-amber-800">Only the newest {READ_CAP} parcels of this period are counted. Choose fewer days for the rest.</p>}
+        {legsCapped && <p className="mt-2 text-sm text-amber-800">Growcord Ship's own record of the wallet holds more movements for these dates than are read, so a refund may not be matched to its parcel. Choose fewer days for the rest.</p>}
         {fileNote && <p className="mt-2 text-sm text-amber-800">{fileNote}</p>}
       </SectionCard>
 
