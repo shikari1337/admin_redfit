@@ -511,6 +511,10 @@ const Shipments: React.FC<ShipmentsProps> = ({ fixedProvider, title, intro }) =>
       if ((selectedShippingProvider === 'shiprocket' || (selectedShippingProvider as string) === 'growcord_ship') && modalData?.selectedCourierId) {
         shipmentData.courierCompanyId = modalData.selectedCourierId;
       }
+      // "Already have a waybill": taken over instead of a new Growcord Ship booking, as the order page sends it.
+      if ((selectedShippingProvider as string) === 'growcord_ship' && modalData?.existingAwb) {
+        shipmentData.existingAwb = modalData.existingAwb;
+      }
       if (selectedShippingProvider === 'delhivery' && modalData?.selectedDelhiveryType) {
         shipmentData.delhiveryServiceType = modalData.selectedDelhiveryType;
       }
@@ -520,6 +524,7 @@ const Shipments: React.FC<ShipmentsProps> = ({ fixedProvider, title, intro }) =>
       shipmentData.length = modalData?.length || 20;
       shipmentData.breadth = modalData?.breadth || 15;
       shipmentData.height = modalData?.height || 10;
+      // The box picked, kept on the shipment (the booking's `package_box_id`).
       if (modalData?.packageBoxId) shipmentData.packageBoxId = modalData.packageBoxId;
 
       // Map item indices to SKUs

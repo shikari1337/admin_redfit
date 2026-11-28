@@ -3371,9 +3371,26 @@ export const shipmentsAPI = {
     manualTrackingId?: string;
     manualCarrierName?: string;
     manualTrackingUrl?: string;
+    /** Growcord Ship: a waybill its courier already issued for this order, taken over instead of a new booking. */
+    existingAwb?: string;
+    /** The box picked for the parcel (the store's box list); kept on the shipment. */
+    packageBoxId?: string;
   }) => {
-    const response = await api.post('/shipments', data);
-    return response.data;
+    try {
+      const response = await api.post('/shipments', data);
+      return response.data;
+    } catch (e: any) {
+      // A server without the box field (before lane GS-FIX-5) refuses the whole request as an unknown field, before
+      // anything is booked: the same booking is sent once more without the box, as the board's search falls back.
+      const d = e?.response?.data;
+      const field = String(d?.details?.field ?? '');
+      if (data.packageBoxId && e?.response?.status === 400 && d?.code === 'resource.unknown_field' && field.endsWith('package_box_id')) {
+        const { packageBoxId: _box, ...rest } = data;
+        const response = await api.post('/shipments', rest);
+        return response.data;
+      }
+      throw e;
+    }
   },
   addOrders: async (id: string, orderIds: string[]) => {
     const response = await api.post(`/shipments/${id}/add-orders`, { orderIds });

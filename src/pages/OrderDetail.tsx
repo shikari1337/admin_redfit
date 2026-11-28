@@ -739,6 +739,8 @@ const OrderDetail: React.FC = () => {
         itemSkus: orderItemSkus.length > 0 ? orderItemSkus : undefined,
         // PART-QUANTITY selections win over the plain SKU list when present.
         itemSelections: modalData?.itemSelections?.length ? modalData.itemSelections : undefined,
+        // The box picked, kept on the shipment (the booking's `package_box_id`), as the shipments board sends it.
+        packageBoxId: modalData?.packageBoxId || undefined,
       };
 
       if (selectedShippingProvider === 'manual') {
