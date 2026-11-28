@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { FaTruck, FaRupeeSign, FaSpinner, FaPlane, FaBox, FaMoneyBillWave, FaClock, FaSync, FaGlobe, FaExclamationTriangle } from 'react-icons/fa';
 import Modal from './Modal';
 import api, { shippingAPI, packagesAPI, walletAPI } from '../../services/api';
-import { boxLabel, itemUnitWeightKg } from '../../lib/bulkShip';
+import { boxLabel, itemUnitWeightKg, lineKeyOf } from '../../lib/bulkShip';
 import { toMoney } from '../../lib/v2/money';
 
 interface Warehouse {
@@ -381,9 +381,7 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
   // deliberate "-- Custom Dimensions --" choice isn't overridden.
   const autoBoxAppliedRef = React.useRef(false);
 
-  /** Line identity — must mirror the backend's lineKey (SKU, else product name). */
-  const lineKeyOf = (item?: OrderItem): string =>
-    String(item?.sku || item?.productName || item?.product_name || item?.name || '').trim();
+  /* Line identity: lib/bulkShip lineKeyOf, exactly the backend's line_key (SKU, else product name). */
 
   /** Max units THIS parcel may carry: the unshipped remainder when known, else the ordered qty. */
   const lineMax = (idx: number): number => {

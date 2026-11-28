@@ -167,19 +167,34 @@ export const itemUnitWeightKg = (item?: { weight_kg?: number | string | null; we
   Number(item?.weight_kg ?? item?.weightKg ?? 0.5) || 0.5;
 
 /**
+ * An order line's identity exactly as Ship keys it (`line_key`, ship domain/fulfillment.rs:17-26): its SKU, else its
+ * product name (`product_name`, `productName`, then `name`). A line with no SKU still has a key.
+ */
+export const lineKeyOf = (item: any): string =>
+  String(item?.sku || item?.product_name || item?.productName || item?.name || '').trim();
+
+/**
+ * The units still to ship of each line, by that key, from the order's `fulfillment.lines` (Ship names each line by its
+ * SKU, else its product name); undefined when the order carries none. The one reading for the create window's
+ * line limits (the order page, the shipments board) and the weighing below.
+ */
+export function remainingByLineKey(order: any): Record<string, number> | undefined {
+  const lines: any[] | null = Array.isArray(order?.fulfillment?.lines) ? order.fulfillment.lines : null;
+  return lines ? Object.fromEntries(lines.map((l) => [String(l?.sku || l?.name || '').trim(), Number(l?.remaining) || 0])) : undefined;
+}
+
+/**
  * An order's parcel weight in kg: each unit at its product's weight (itemUnitWeightKg) plus the box's own weight
- * (`tareKg`), to two places, at least 0.05 kg. With `remaining`, only the units still to ship (the order's
- * `fulfillment.lines[].remaining`, by SKU or name) count. 0 when the order has no line to weigh. The one weighing of
- * Growcord Ship's Bulk shipment, Ship from a file and the bulk bar's Create shipments.
+ * (`tareKg`), to two places, at least 0.05 kg. With `remaining`, only the units still to ship (remainingByLineKey,
+ * each item found by lineKeyOf) count. 0 when the order has no line to weigh. The one weighing of Growcord Ship's Bulk
+ * shipment, Ship from a file and the bulk bar's Create shipments.
  */
 export function orderWeightKg(order: any, tareKg = 0, opts: { remaining?: boolean } = {}): number {
   const items: any[] = Array.isArray(order?.items) ? order.items : [];
-  const lines: any[] = Array.isArray(order?.fulfillment?.lines) ? order.fulfillment.lines : [];
-  const left = opts.remaining && lines.length
-    ? new Map(lines.map((l) => [String(l?.sku || l?.name || '').trim(), Number(l?.remaining) || 0]))
-    : null;
+  const left = opts.remaining ? remainingByLineKey(order) : undefined;
+  const useLeft = !!left && Object.keys(left).length > 0;
   const kg = items.reduce((s, it) => {
-    const qty = left ? (left.get(String(it?.sku || it?.name || '').trim()) ?? 0) : (Number(it?.quantity) || 1);
+    const qty = useLeft ? (left![lineKeyOf(it)] ?? 0) : (Number(it?.quantity) || 1);
     return s + itemUnitWeightKg(it) * qty;
   }, 0);
   return kg > 0 ? Math.max(Math.round((kg + tareKg) * 100) / 100, 0.05) : 0;

@@ -7,6 +7,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ordersAPI, shippingAPI, paymentsAPI, shipmentsAPI, invoicesAPI } from '../services/api';
+import { remainingByLineKey } from '../lib/bulkShip';
 import { formatDate } from '../utils/date';
 import { fmtRupees, fmtCurrencyMinor } from '../lib/money';
 import { providerLabel, shipmentCharge } from '../components/shipments/shipmentFacts';
@@ -1980,9 +1981,7 @@ const OrderDetail: React.FC = () => {
           onManualTrackingUrlChange={setManualTrackingUrl}
           orderId={id!}
           orderItems={order?.items || []}
-          remainingByKey={Array.isArray(order?.fulfillment?.lines)
-            ? Object.fromEntries(order.fulfillment.lines.map((l: any) => [String(l.sku || l.name || '').trim(), Number(l.remaining) || 0]))
-            : undefined}
+          remainingByKey={remainingByLineKey(order)}
         />
       )}
 

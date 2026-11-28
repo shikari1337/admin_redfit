@@ -7,6 +7,7 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { api, shipmentsAPI, warehousesAPI, shippingAPI, errorText } from '../services/api';
+import { remainingByLineKey } from '../lib/bulkShip';
 import { FaSync, FaSpinner, FaLink, FaFileUpload } from 'react-icons/fa';
 import { ShipmentTabs, ShipmentFilters, ShipmentTable, PendingOrdersTable, PickupModal, BulkActionsBar, ReconcileModal, ShipmentDetailDrawer, ActNow, NdrActionDialog } from '../components/shipments';
 import type { TabType, StatusCounts, ReconcileResultData, NdrTarget } from '../components/shipments';
@@ -601,11 +602,7 @@ const Shipments: React.FC<ShipmentsProps> = ({ fixedProvider, title, intro }) =>
     }
   };
 
-  const remainingByKey = useMemo(() => (
-    Array.isArray(selectedOrder?.fulfillment?.lines)
-      ? Object.fromEntries(selectedOrder.fulfillment.lines.map((l: any) => [String(l.sku || l.name || '').trim(), Number(l.remaining) || 0]))
-      : undefined
-  ), [selectedOrder]);
+  const remainingByKey = useMemo(() => remainingByLineKey(selectedOrder), [selectedOrder]);
 
   // Bulk labels and manifests: every booked parcel (not manual) that is not finished, on the Ready to Pick,
   // Pickup Scheduled and In Transit tabs, as before 23 Nov 2026 (a parcel the courier has already picked up
