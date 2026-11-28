@@ -8,14 +8,14 @@ import {
 import { readMovesSince } from '@/lib/growshipWalletRead';
 import { fmtRupees } from '@/lib/money';
 import { downloadCsv, type CsvColumn } from '@/lib/csv';
-import { formatDate } from '../../utils/date';
+import { formatDate, todayIso } from '../../utils/date';
 import { addDays } from '../../components/dashboard/periods';
 import {
   Page, PageHeader, SectionCard, StatCard, StatGrid, TableShell, THead, Th, TBody, Tr, Td, EmptyRow, Btn, FilterBar, Chip,
 } from '../../components/erp';
 import { DEFAULT_FROM, DEFAULT_TO, RangeFields } from '../payments/common';
 import {
-  chargeSplit, finalAmount, growshipAPI, gsStatusText, gramsText, isCancelled, neverCharged, readConsignments,
+  chargeSplit, finalAmount, growshipAPI, gsStatusText, gramsText, isCancelled, neverCharged, readConsignments, readWalletLegs,
   type GsChargeSplit, type GsConsignment, type GsWalletLeg,
 } from '@/lib/v2/growship';
 
@@ -73,9 +73,10 @@ const GrowshipBilling: React.FC = () => {
       const { items: out, capped: cut } = await readConsignments({ from: range.from, to: range.to }, READ_CAP);
       if (live && cut) setCapped(true);
       // The wallet, every category (a correction is an adjustment or a manual credit), from a week before the period
-      // (to link a refund to a charge across its start) to today (a refund or a correction can come later).
+      // (to link a refund to a charge across its start) to today (a refund or a correction can come later). Ship's own
+      // record of those movements is read for the same days, not only its newest 200 (GS-AUDIT-P).
       const [legs, back] = await Promise.all([
-        growshipAPI.walletLegs(200).catch(() => [] as GsWalletLeg[]),
+        readWalletLegs({ from: addDays(range.from, -PAIR_DAYS), to: todayIso() }).then((r) => r.legs).catch(() => [] as GsWalletLeg[]),
         canBilling
           ? readMovesSince('', addDays(range.from, -PAIR_DAYS), { cap: MOVES_CAP }).catch(() => null)
           : Promise.resolve(null),

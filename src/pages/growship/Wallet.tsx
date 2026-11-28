@@ -13,7 +13,7 @@ import {
 import { DEFAULT_FROM, DEFAULT_TO, RangeFields } from '../payments/common';
 import { WalletCard, useStoreWallet } from '../../components/growship/WalletCard';
 import {
-  growshipAPI, parcelOfOrder, readConsignments, type GsConsignment, type GsWalletLeg,
+  parcelOfOrder, readConsignments, readWalletLegs, type GsConsignment, type GsWalletLeg,
 } from '@/lib/v2/growship';
 import {
   isShipDebit, isShipRefund, linkMoves, netFor, plainNote, type WalletLinks, type WalletMove,
@@ -130,22 +130,28 @@ const GrowshipWallet: React.FC = () => {
   };
   useEffect(load, [page, category, direction]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Ship's own record of the movements (newest 200): the AWB behind each wallet transaction, and which refund is
-  // for which parcel.
+  // Ship's own record of the movements of the days on screen, from a few days before the oldest row to today (a
+  // refund or a correction can come later): the AWB behind each wallet transaction, and which refund is for which
+  // parcel. It used to be the newest 200 whatever page was open (GS-AUDIT-P).
   useEffect(() => {
-    if (!canAwb) return;
-    growshipAPI.walletLegs(200).then(setLegs).catch((e) => { setLegs([]); setLegsError(errorText(e, 'Growcord Ship could not be read.')); });
-  }, [canAwb]);
+    const base = pageRows ?? [];
+    if (!canAwb || !base.length) { setLegs([]); return undefined; }
+    let live = true;
+    readWalletLegs({ from: addDays(isoDate(base[base.length - 1].created_at), -PARCEL_DAYS_BEFORE), to: todayIso() })
+      .then((r) => { if (live) { setLegs(r.legs); setLegsError(null); } })
+      .catch((e) => { if (live) { setLegs([]); setLegsError(errorText(e, 'Growcord Ship could not be read.')); } });
+    return () => { live = false; };
+  }, [pageRows, canAwb]);
 
-  // One read for the rows on screen: Growcord Ship's parcels booked from a few days before the oldest row to the
-  // newest (today on the first page), for each line's AWB and order.
+  // The rows on screen: Growcord Ship's parcels booked from a few days before the oldest row to the newest (today on
+  // the first page), every one of those days (read 200 at a time), for each line's AWB and order.
   useEffect(() => {
     const base = pageRows ?? [];
     if (!canAwb || !base.length) { setParcels([]); return undefined; }
     let live = true;
     const from = addDays(isoDate(base[base.length - 1].created_at), -PARCEL_DAYS_BEFORE);
     const to = page === 1 ? todayIso() : isoDate(base[0].created_at);
-    growshipAPI.consignments({ from, to, limit: 200 })
+    readConsignments({ from, to })
       .then((p) => { if (live) setParcels(p.items); })
       .catch(() => { if (live) setParcels([]); });
     return () => { live = false; };
@@ -236,6 +242,8 @@ const GrowshipWallet: React.FC = () => {
       const fromWide = addDays(range.from, -7);
       const edge = { lo: Date.parse(`${fromWide}T00:00:00Z`), hi: Infinity, olderOpen: true, newerOpen: false };
       const ps = canAwb ? (await readConsignments({ from: fromWide, to: range.to }).catch(() => ({ items: [] as GsConsignment[] }))).items : [];
+      // Ship's own record of the movements of the same days (to today), not the page's.
+      const legs: GsWalletLeg[] = canAwb ? (await readWalletLegs({ from: fromWide, to: todayIso() }).catch(() => ({ legs: [] as GsWalletLeg[] }))).legs : [];
       let out: Movement[];
       let capped = false;
       let l: WalletLinks;

@@ -16,6 +16,7 @@
 import { v2call } from './http';
 import { shipmentAwb } from '../../components/shipments/shipmentFacts';
 import { toMoney } from './money';
+import { isoDate } from '../../utils/date';
 
 const SHIP = '/api/v2/ship';
 const seg = (s: string) => encodeURIComponent(s);
@@ -247,10 +248,14 @@ export const growshipAPI = {
 
   /**
    * Ship's own record of the wallet movements, newest first (up to 200): each carries the AWB and the
-   * platform wallet transaction it was taken through (`platform_ref`).
+   * platform wallet transaction it was taken through (`platform_ref`). `from` / `to` (store days, YYYY-MM-DD, both
+   * included) keep the movements of those days only (lane GS-FIX-5; an older door applied them to its statement
+   * alone and answered the newest movements). A whole period: `readWalletLegs`.
    */
-  walletLegs: async (limit = 200): Promise<GsWalletLeg[]> => {
-    const d = await v2call<any>('GET', `${SHIP}/wallet`, { params: { limit } });
+  walletLegs: async (limit = 200, days: { from?: string; to?: string } = {}): Promise<GsWalletLeg[]> => {
+    const d = await v2call<any>('GET', `${SHIP}/wallet`, {
+      params: { limit, ...(days.from ? { from: days.from } : {}), ...(days.to ? { to: days.to } : {}) },
+    });
     return Array.isArray(d?.legs) ? d.legs : [];
   },
 
@@ -291,6 +296,30 @@ export async function readConsignments(f: { from: string; to: string }, cap = 20
     out.push(...p.items);
     if (p.items.length < 200 || out.length >= p.total) return { items: out, capped: false };
     if (out.length >= cap) return { items: out, capped: true };
+  }
+}
+
+/**
+ * Ship's wallet movements of a period (store days, both included), newest first: read 200 at a time (the door's most),
+ * each next read ending on the store day of the oldest movement read so far (read again in part, kept once by id),
+ * up to `cap`. `capped` says not every movement of the period was read: more than `cap`, or more than one read holds
+ * in a single day, or a door that does not window its movements (before lane GS-FIX-5: the newest 200, every read).
+ */
+export async function readWalletLegs(days: { from: string; to: string }, cap = 2000): Promise<{ legs: GsWalletLeg[]; capped: boolean }> {
+  const byId = new Map<string, GsWalletLeg>();
+  let to = days.to;
+  for (;;) {
+    const page = await growshipAPI.walletLegs(200, { from: days.from, to });
+    let added = 0;
+    for (const l of page) {
+      if (l?.id && !byId.has(String(l.id))) { byId.set(String(l.id), l); added += 1; }
+    }
+    const legs = [...byId.values()].sort((a, b) => (Date.parse(String(b.created_at ?? '')) || 0) - (Date.parse(String(a.created_at ?? '')) || 0));
+    if (page.length < 200) return { legs, capped: false };
+    if (added === 0 || legs.length >= cap) return { legs, capped: true };
+    const oldest = isoDate(legs[legs.length - 1].created_at);
+    if (!oldest || oldest < days.from) return { legs, capped: false };
+    to = oldest;
   }
 }
 
