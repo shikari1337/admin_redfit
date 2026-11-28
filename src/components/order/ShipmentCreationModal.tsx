@@ -3,6 +3,7 @@ import { FaTruck, FaRupeeSign, FaSpinner, FaPlane, FaBox, FaMoneyBillWave, FaClo
 import Modal from './Modal';
 import api, { shippingAPI, packagesAPI, walletAPI } from '../../services/api';
 import { boxLabel, itemUnitWeightKg } from '../../lib/bulkShip';
+import { toMoney } from '../../lib/v2/money';
 
 interface Warehouse {
   _id: string;
@@ -903,7 +904,9 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
           if (draft.csb_type === 'IV' || draft.csb_type === 'V') setCsbType(draft.csb_type);
           if (draft.incoterm === 'DDP') setIncoterm('DDP');
           if (draft.declared_currency) setDeclaredCurrency(String(draft.declared_currency));
-          if (draft.declared_value_minor != null) setDeclaredValue((Number(draft.declared_value_minor) / 100).toFixed(2));
+          // The saved value in its own currency's units (the Money arrives as a number); the paise twin is the fallback.
+          if (draft.declared_value != null && Number.isFinite(Number(draft.declared_value))) setDeclaredValue(Number(draft.declared_value).toFixed(2));
+          else if (draft.declared_value_minor != null) setDeclaredValue((Number(draft.declared_value_minor) / 100).toFixed(2));
           if (draft.export_reason) setExportReason(String(draft.export_reason));
         } else {
           // Default the declaration to what the shopper actually paid.
@@ -944,10 +947,13 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
   const saveCustoms = async () => {
     setCustomsSaving(true); setCustomsError(null); setCustomsSaved(false);
     try {
+      // The route takes the declared value as money in the declared currency (`declared_value`, CustomsIn); the old
+      // `declaredValueMinor` was not one of its fields, so the value was never saved (GS-AUDIT-P).
+      const currency = /^[A-Za-z]{3}$/.test(declaredCurrency.trim()) ? declaredCurrency.trim().toUpperCase() : 'INR';
       await api.put(`/shipments/order/${orderId}/customs`, {
         csbType, incoterm, exportReason,
-        declaredCurrency: declaredCurrency.toUpperCase(),
-        declaredValueMinor: Math.round((parseFloat(declaredValue) || 0) * 100),
+        declaredCurrency: currency,
+        declaredValue: toMoney(parseFloat(declaredValue) || 0, currency),
         containsDg: selectedDg,
       });
       setCustomsSaved(true);
@@ -1470,7 +1476,12 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
 
                   {/* HS per line — prefilled from the product's own HSN (first 6). */}
                   <div className="mb-4">
-                    <div className="text-xs font-semibold text-gray-700 mb-2">HS codes on this parcel</div>
+                    <div className="text-xs font-semibold text-gray-700 mb-1">HS codes on this parcel</div>
+                    {/* The customs route takes no per-line codes: the booking reads each product's own HSN. */}
+                    <p className="text-[11px] text-gray-500 mb-2">
+                      A code typed here checks this parcel only and is not saved. The booking takes each product's own
+                      HSN, so change a wrong one on the product.
+                    </p>
                     <div className="space-y-2">
                       {orderItems.map((item, idx) => (
                         selectedItemIndices.includes(idx) ? (
@@ -1494,7 +1505,7 @@ const ShipmentCreationModal: React.FC<ShipmentCreationModalProps> = ({
                     {missingHs.length > 0 && (
                       <p className="text-[11px] text-red-700 mt-2">
                         {missingHs.length} line(s) have no HS code. Set the HSN on the product so it fills in
-                        automatically — a line with no HS code is what gets a parcel held at customs.
+                        automatically: a line with no HS code is what gets a parcel held at customs.
                       </p>
                     )}
                   </div>
