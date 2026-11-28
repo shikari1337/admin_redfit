@@ -24,6 +24,7 @@ interface Outcome {
   delivered: number; delivered_value: number;
   returned: number; returned_value: number;
   rto: number; rto_value: number; rto_order_value: number; rto_in_transit: number; rto_value_per_order: number;
+  forward_cost?: number; rto_cost?: number; unpriced?: number;
   lost: number; lost_value: number; lost_rate: number;
   cancelled: number; open: number; open_value: number; stale: number; resolved: number;
   delivery_rate: number; rto_rate: number; return_rate: number;
@@ -84,7 +85,8 @@ const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 /** Sum outcome rows (counts and values) and recompute the rates from the sums. */
 function sumRows(rows: Outcome[]): Outcome {
   const keys: (keyof Outcome)[] = ['placed', 'placed_value', 'delivered', 'delivered_value', 'returned', 'returned_value',
-    'rto', 'rto_value', 'rto_order_value', 'rto_in_transit', 'lost', 'lost_value', 'cancelled', 'open', 'open_value', 'stale', 'resolved'];
+    'rto', 'rto_value', 'rto_order_value', 'rto_in_transit', 'forward_cost', 'rto_cost', 'unpriced',
+    'lost', 'lost_value', 'cancelled', 'open', 'open_value', 'stale', 'resolved'];
   const out: any = {};
   for (const k of keys) out[k] = rows.reduce((t, r) => t + Number(r[k] ?? 0), 0);
   out.delivery_rate = rateOf(out.delivered, out.resolved);
@@ -175,7 +177,7 @@ const DeliveryOutcomes: React.FC = () => {
 
       {t && o && (
         <>
-          <section aria-label="Headline figures" className={`grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6 ${busy ? 'opacity-60' : ''}`}>
+          <section aria-label="Headline figures" className={`grid grid-cols-2 gap-3 md:grid-cols-4 ${busy ? 'opacity-60' : ''}`}>
             <KpiTile label="Orders placed" value={count(t.placed)}
               sub={<span title={fmtRupees(t.placed_value)}>{short(t.placed_value)} placed</span>}
               delta={relDelta(t.placed, pt?.placed, count)} />
@@ -201,6 +203,14 @@ const DeliveryOutcomes: React.FC = () => {
                 </>
               )}
               delta={relDelta(t.rto_value, pt?.rto_value, short, 'down')} />
+            <KpiTile label="Forward cost" value={<span title={fmtRupees(t.forward_cost)}>{short(t.forward_cost ?? 0)}</span>}
+              sub={Number(t.unpriced ?? 0) > 0
+                ? `${count(t.unpriced)} ${plural(Number(t.unpriced), 'parcel has', 'parcels have')} no courier quote saved`
+                : 'Courier quote to send the parcel'}
+              delta={relDelta(Number(t.forward_cost ?? 0), pt?.forward_cost, short, 'down')} />
+            <KpiTile label="RTO cost" value={<span title={fmtRupees(t.rto_cost)}>{short(t.rto_cost ?? 0)}</span>}
+              sub="Courier quote to bring the parcel back"
+              delta={relDelta(Number(t.rto_cost ?? 0), pt?.rto_cost, short, 'down')} />
             <KpiTile label="Still open" value={count(t.open)}
               sub={(
                 <a href="#open-orders" className="inline-flex items-center font-medium text-gray-700 underline underline-offset-2 hover:text-gray-900">
@@ -208,6 +218,9 @@ const DeliveryOutcomes: React.FC = () => {
                 </a>
               )} />
           </section>
+          <p className="text-xs text-gray-500">
+            Forward cost is the courier quote saved when the parcel was booked. RTO cost is the return charge on that quote when the courier stated one, otherwise the same forward quote for a parcel that came back. RTO value lost is the goods.
+          </p>
 
           <Notes t={t} settled={settled} matureDays={matureDays} />
 
@@ -458,6 +471,8 @@ const Matrix: React.FC<{ o: Overview; word: (k: 'pay' | 'traffic', key?: string)
           { key: 'rto', label: 'RTO', format: (v) => count(v) },
           { key: 'rto_rate', label: 'RTO %', format: (v) => pct(v) },
           { key: 'rto_value', label: 'RTO value', format: (v) => fmtRupees(v) },
+          { key: 'forward_cost', label: 'Forward cost', format: (v) => fmtRupees(v) },
+          { key: 'rto_cost', label: 'RTO cost', format: (v) => fmtRupees(v) },
           { key: 'lost', label: 'Lost or damaged', format: (v) => count(v) },
           { key: 'lost_value', label: 'Lost value', format: (v) => fmtRupees(v) },
         ],
@@ -592,6 +607,8 @@ const COLUMNS: { key: keyof Outcome; label: string; kind: 'count' | 'rate' | 'mo
   { key: 'delivery_rate', label: 'Delivery %', kind: 'rate' },
   { key: 'rto', label: 'RTO', kind: 'count' },
   { key: 'rto_value', label: 'RTO value', kind: 'money' },
+  { key: 'forward_cost', label: 'Forward cost', kind: 'money' },
+  { key: 'rto_cost', label: 'RTO cost', kind: 'money' },
   { key: 'rto_value_per_order', label: 'Per RTO order', kind: 'money' },
   { key: 'lost', label: 'Lost or damaged', kind: 'count' },
   { key: 'delivered', label: 'Delivered', kind: 'count' },
@@ -695,7 +712,7 @@ const GroupTable: React.FC<{
           </button>
         </div>
         <div className="space-y-0.5 px-3 pt-2 text-xs text-gray-500">
-          <div>{count(rows.length)} {plural(rows.length, 'row', 'rows')}. Rates are over resolved orders (delivered + returned + RTO + lost or damaged).</div>
+          <div>{count(rows.length)} {plural(rows.length, 'row', 'rows')}. Rates are over resolved orders (delivered + returned + RTO + lost or damaged). Forward cost and RTO cost are the booked courier quotes.</div>
           {hidden && hidden.groups > 0 && (
             <div>{count(hidden.groups)} more {plural(hidden.groups, 'row has', 'rows have')} fewer than {minResolved} resolved orders and {plural(hidden.groups, 'is', 'are')} not listed{data?.item_level ? '' : ` (${count(hidden.placed)} orders)`}.</div>
           )}

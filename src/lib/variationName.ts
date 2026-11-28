@@ -18,7 +18,7 @@
 // ─────────────────────── SHARED BODY START ───────────────────────
 /** The catalogue's own `product-form` vocabulary (attribute values, migration-backfilled). */
 const CANONICAL_FORMS = [
-  'Dilution', 'Mother Tincture', 'Trituration', 'Biochemic Tablet', 'Tablets',
+  'Dilution', 'Mother Tincture', 'Trituration', 'Biochemic Tablet', 'Tablets', 'Pills',
   'Drops', 'Ointment / Cream', 'Syrup / Tonic', 'Gel', 'Powder', 'Oil',
   'Capsules', 'Others',
 ];

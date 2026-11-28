@@ -420,6 +420,12 @@ export const OverviewTab: React.FC = () => {
                   sub={`${sc.ndr_failed_delivery} shipments${shipping.ndr_rate > 5 ? ', above 5%, worth a look' : ''}`} />
                 <KpiTile className="col-span-2 lg:col-span-1" label="Returned to you" value={fmtPct(shipping.rto_rate)}
                   sub={`${rtoCount} shipments came back${shipping.rto_rate > 5 ? ', above 5%, worth a look' : ''}`} />
+                <KpiTile label="Forward cost" value={fmtRupees(Number(shipping.forward_cost ?? 0))}
+                  sub={Number(shipping.unpriced_shipments ?? 0) > 0
+                    ? `${Number(shipping.unpriced_shipments).toLocaleString('en-IN')} shipments have no courier quote saved`
+                    : 'Courier quote to send the parcel'} />
+                <KpiTile label="RTO cost" value={fmtRupees(Number(shipping.rto_cost ?? 0))}
+                  sub="Courier quote to bring the parcel back" />
               </div>
             </div>
           )}
