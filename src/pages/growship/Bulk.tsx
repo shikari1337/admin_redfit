@@ -243,8 +243,11 @@ const GrowshipBulk: React.FC = () => {
   const unpriced = open.filter((id) => priceOf(id) === null).length;
   const ordersShort = bookable.length ? shortfall(wallet, account, total) : 0;
 
-  /** Weight in kg from an order's lines (each unit's weight, 0.5 kg when the product has none) and the box (lib/bulkShip). */
-  const weighOrder = (order: any): number => orderWeightKg(order, box.deadWeightKg) || 0.5;
+  /**
+   * Weight in kg from an order's lines (each unit's weight, 0.5 kg when the product has none) and the box (lib/bulkShip).
+   * An order with no line weighs the box's own weight, 0.5 kg only when the box weighs nothing, as before.
+   */
+  const weighOrder = (order: any): number => orderWeightKg(order, box.deadWeightKg) || Math.round(box.deadWeightKg * 100) / 100 || 0.5;
   const weightFor = async (id: string, order?: any): Promise<number> => {
     const typed = parseFloat(plans[id]?.weightKg ?? '');
     if (typed > 0) return typed;
