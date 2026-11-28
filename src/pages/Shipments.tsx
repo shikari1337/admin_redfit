@@ -793,6 +793,8 @@ const Shipments: React.FC<ShipmentsProps> = ({ fixedProvider, title, intro }) =>
                 canManageOrders={false}
                 canManageShipments
                 startProvider={fixedProvider}
+                // The board's warehouse filter, when set, is where Create shipments starts.
+                startWarehouseId={warehouseFilter || undefined}
                 // Cheapest or fastest per order: Growcord Ship's Bulk shipment prices each one, with these preselected.
                 onComparePrices={(ids) => navigate(`/growship/bulk?orders=${ids.map(encodeURIComponent).join(',')}`)}
               />

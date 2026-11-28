@@ -112,6 +112,8 @@ interface Props {
   staff?: Array<{ id: string; name: string | null; role: string }>;
   /** Who Create shipments books with at first: Shiprocket as before, or Growcord Ship on its own board. */
   startProvider?: 'shiprocket' | 'growcord_ship';
+  /** The warehouse Create shipments starts on (the shipments board's warehouse filter, when one is set). */
+  startWarehouseId?: string;
   /**
    * Compare prices and book: hands the ticked orders to a page that prices each one and picks the cheapest or the
    * fastest (Growcord Ship's Bulk shipment, from its board's Pending Orders). Shown only when given.
@@ -173,7 +175,7 @@ async function runPooled<T>(
 
 const OrderBulkBar: React.FC<Props> = ({
   rows, selectedIds, onClear, onDone, canManageOrders, canManageShipments,
-  onExportSelected, exporting = false, staff = [], startProvider = 'shiprocket', onComparePrices,
+  onExportSelected, exporting = false, staff = [], startProvider = 'shiprocket', onComparePrices, startWarehouseId,
 }) => {
   const [action, setAction] = useState<ActionKey | null>(null);
   const [target, setTarget] = useState('confirmed');
@@ -203,10 +205,14 @@ const OrderBulkBar: React.FC<Props> = ({
         .then((r: any) => {
           const list = listOf(r);
           setWarehouses(list);
-          const first = list.find((w) => w?.isActive !== false) ?? list[0];
+          // The board's warehouse filter when it names one of them, else the first in use.
+          const first = (startWarehouseId ? list.find((w) => String(w?._id) === startWarehouseId) : undefined)
+            ?? list.find((w) => w?.isActive !== false) ?? list[0];
           if (first?._id) setWarehouseId(String(first._id));
         })
         .catch(() => setWarehouses([]));
+    } else if (startWarehouseId && warehouses.some((w) => String(w?._id) === startWarehouseId)) {
+      setWarehouseId(startWarehouseId);
     }
     if (boxes === null) {
       packagesAPI.getAll()
