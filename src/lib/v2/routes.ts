@@ -90,6 +90,15 @@ export function allRoutes(): V2Route[] {
   return [...AUTH_ROUTES, ...DASHBOARD_ROUTES, ...PRODUCT_ROUTES, ...ORDER_ROUTES, ...CUSTOMER_ROUTES, ...SETTINGS_ROUTES, ...EXTRA_ROUTES];
 }
 
+/**
+ * Whether a legacy call has a v2 home this backend serves: a row that is not a named `gap`. A screen hides a control
+ * whose call would only be refused locally (no dead button), and it shows again once its row gets a real route.
+ */
+export function servedOnV2(method: string, path: string): boolean {
+  const hit = matchRoute(method.toUpperCase(), path);
+  return !!hit && !hit.route.gap;
+}
+
 export function matchRoute(method: string, path: string): { route: V2Route; params: Record<string, string> } | null {
   if (!compiled) {
     compiled = allRoutes().map(compile).sort((a, b) => b.literal - a.literal);

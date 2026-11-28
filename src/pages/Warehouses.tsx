@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { FaPlus, FaEdit, FaTrash, FaWarehouse, FaStore, FaTruck, FaSave, FaTimes, FaSync } from 'react-icons/fa';
 import { api, warehousesAPI } from '../services/api';
+import { servedOnV2 } from '../lib/v2/routes';
 import { payload } from '@/lib/unwrap';
 import PhoneInput from '../components/PhoneInput';
 import CarrierLocationMap from '../components/shipments/CarrierLocationMap';
@@ -61,6 +62,11 @@ interface StockSummary {
 type Notice = { tone: 'good' | 'bad'; text: string } | null;
 
 const KIND_LABEL: Record<string, string> = { warehouse: 'Warehouse', outlet: 'Shop outlet' };
+/**
+ * "Sync with GST Store" shows only while the backend serves it. v2 has no route for it yet (lib/v2/areas/shipping.ts,
+ * a named gap), so every press was refused (GS-AUDIT-P): the button is hidden until the row gets a real route.
+ */
+const SYNC_WITH_STORE_SERVED = servedOnV2('POST', '/warehouses/any/sync-with-store');
 const kindOf = (w: Warehouse) => (w.kind === 'outlet' ? 'outlet' : 'warehouse');
 const errText = (e: any, fallback: string) => e?.response?.data?.message || e?.message || fallback;
 
@@ -930,7 +936,7 @@ const Warehouses: React.FC = () => {
               </div>
 
               <div className="flex flex-wrap items-center gap-2 sm:ml-4 sm:justify-end">
-                {canManageWarehouses && warehouse.linkedStores && warehouse.linkedStores.length > 0 && (
+                {canManageWarehouses && SYNC_WITH_STORE_SERVED && warehouse.linkedStores && warehouse.linkedStores.length > 0 && (
                   <button
                     onClick={() => handleSyncWithStore(warehouse)}
                     className="p-2 text-green-600 hover:bg-green-50 rounded"
