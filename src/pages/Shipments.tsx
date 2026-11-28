@@ -472,7 +472,12 @@ const Shipments: React.FC<ShipmentsProps> = ({ fixedProvider, title, intro }) =>
 
   const handleUpdateStatus = async (shipmentId: string, status: string) => {
     const label = getStatusLabel('shipment', status);
-    const notes = prompt(`Move this shipment to "${label}". A note for its history (optional):`);
+    // A cancel goes to the courier first (Growcord Ship always; every carrier with lane GS-FIX-5): when the courier
+    // refuses, the parcel stays as it is and the courier's own words are shown.
+    const cancel = status === 'cancelled';
+    const notes = prompt(cancel
+      ? 'Cancel this shipment. The courier is asked to cancel it first; if it refuses, nothing changes and you see why. A note for its history (optional):'
+      : `Move this shipment to "${label}". A note for its history (optional):`);
     if (notes === null) return; // User cancelled
 
     try {
@@ -481,7 +486,10 @@ const Shipments: React.FC<ShipmentsProps> = ({ fixedProvider, title, intro }) =>
       fetchShipments();
     } catch (error: any) {
       console.error('Failed to update status:', error);
-      alert(error.response?.data?.message || 'Failed to update status');
+      // The server's words, the courier's refusal of a cancel included (errorText reads either shape).
+      alert(cancel
+        ? `Not cancelled: ${errorText(error, 'the courier did not cancel this shipment.')}`
+        : errorText(error, 'Failed to update status'));
     }
   };
 
