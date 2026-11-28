@@ -10,12 +10,12 @@ import {
   Field, SelectInput, TextInput, Chip,
 } from '../../components/erp';
 import { WalletCard, WalletRechargeBox, useStoreWallet, type StoreWallet } from '../../components/growship/WalletCard';
-import { courierRatesOf, itemUnitWeightKg, type CourierRate } from '../../components/order/ShipmentCreationModal';
+import { courierRatesOf, type CourierRate } from '../../components/order/ShipmentCreationModal';
 import { shipmentAwb } from '../../components/shipments/shipmentFacts';
 import { downloadCsv } from '@/lib/csv';
 import { GS_SHEET_HEADERS, growshipAPI, paiseToRupees, type GsAccount, type GsBulkRun } from '@/lib/v2/growship';
 import {
-  bookOrder, boxLabel, liveParcels, listOf, orderNo, pickOffers, pickedBy, pooled, recheckOrder, unwrap, type Outcome, type PickBy,
+  bookOrder, boxLabel, liveParcels, listOf, orderNo, orderWeightKg, pickOffers, pickedBy, pooled, recheckOrder, unwrap, type Outcome, type PickBy,
 } from '@/lib/bulkShip';
 
 const GS = 'growcord_ship' as const;
@@ -243,12 +243,8 @@ const GrowshipBulk: React.FC = () => {
   const unpriced = open.filter((id) => priceOf(id) === null).length;
   const ordersShort = bookable.length ? shortfall(wallet, account, total) : 0;
 
-  /** Weight in kg from an order's lines (each unit's weight, 0.5 kg when the product has none) and the box. */
-  const weighOrder = (order: any): number => {
-    const items: any[] = Array.isArray(order?.items) ? order.items : [];
-    const kg = items.reduce((s, it) => s + itemUnitWeightKg(it) * (Number(it?.quantity) || 1), 0) + box.deadWeightKg;
-    return Math.round((kg > 0 ? kg : 0.5) * 100) / 100;
-  };
+  /** Weight in kg from an order's lines (each unit's weight, 0.5 kg when the product has none) and the box (lib/bulkShip). */
+  const weighOrder = (order: any): number => orderWeightKg(order, box.deadWeightKg) || 0.5;
   const weightFor = async (id: string, order?: any): Promise<number> => {
     const typed = parseFloat(plans[id]?.weightKg ?? '');
     if (typed > 0) return typed;

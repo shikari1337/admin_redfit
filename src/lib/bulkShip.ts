@@ -78,9 +78,10 @@ export async function outcomeAfterError(id: string, e: any): Promise<Outcome> {
  * One order booked by the rules above: re-read it, then `send` the booking with the order as it stands now, and answer
  * the booking's courier and AWB, a reason to skip, or an error's real outcome. Never throws. Growcord Ship's Bulk
  * shipment (ready orders) and the bulk bar's Create shipments (components/order/OrderBulkBar, on Orders and on the
- * Growcord Ship board's Pending Orders) book through this one step.
+ * Growcord Ship board's Pending Orders) book through this one step. `check` may name a reason the order as it stands
+ * now cannot be sent (the bulk bar: no line to weigh); it is then skipped with that reason, never sent.
  */
-export async function bookOrder(id: string, send: (order: any) => Promise<any>): Promise<Outcome> {
+export async function bookOrder(id: string, send: (order: any) => Promise<any>, check?: (order: any) => string | null): Promise<Outcome> {
   let checked: { skip: string } | { order: any };
   try {
     checked = await recheckOrder(id);
@@ -88,6 +89,8 @@ export async function bookOrder(id: string, send: (order: any) => Promise<any>):
     return { ok: false, text: `Not sent: the order could not be read again (${errorText(e, 'no answer')}).` };
   }
   if ('skip' in checked) return { ok: false, skip: true, text: checked.skip };
+  const why = check?.(checked.order) ?? null;
+  if (why) return { ok: false, skip: true, text: `Skipped: ${why}` };
   try {
     const res: any = await send(checked.order);
     const s = res?.shipment ?? res?.data?.shipment ?? {};
@@ -148,4 +151,36 @@ export function boxOf(b: any): { length: number; breadth: number; height: number
   const height = Number(b.height ?? b.heightCm) || 0;
   if (!(length > 0 && breadth > 0 && height > 0)) return null;
   return { length, breadth, height, deadWeightKg: Number(b.weight ?? b.deadWeightKg ?? 0) || 0 };
+}
+
+/**
+ * The box a booking starts on: the store's default box among the boxes in use, else the first box in use (the create
+ * window's rule, components/order/ShipmentCreationModal). Null when the store has no box in use.
+ */
+export function defaultBoxOf(boxes: any[] | null | undefined): any | null {
+  const inUse = (boxes ?? []).filter((b) => b && (b.isActive ?? b.is_active) !== false);
+  return inUse.find((b) => b.isDefault ?? b.is_default) ?? inUse[0] ?? null;
+}
+
+/** One unit of an order line in kg: the product's weight, 0.5 kg when it has none. */
+export const itemUnitWeightKg = (item?: { weight_kg?: number | string | null; weightKg?: number | string | null } | null): number =>
+  Number(item?.weight_kg ?? item?.weightKg ?? 0.5) || 0.5;
+
+/**
+ * An order's parcel weight in kg: each unit at its product's weight (itemUnitWeightKg) plus the box's own weight
+ * (`tareKg`), to two places, at least 0.05 kg. With `remaining`, only the units still to ship (the order's
+ * `fulfillment.lines[].remaining`, by SKU or name) count. 0 when the order has no line to weigh. The one weighing of
+ * Growcord Ship's Bulk shipment, Ship from a file and the bulk bar's Create shipments.
+ */
+export function orderWeightKg(order: any, tareKg = 0, opts: { remaining?: boolean } = {}): number {
+  const items: any[] = Array.isArray(order?.items) ? order.items : [];
+  const lines: any[] = Array.isArray(order?.fulfillment?.lines) ? order.fulfillment.lines : [];
+  const left = opts.remaining && lines.length
+    ? new Map(lines.map((l) => [String(l?.sku || l?.name || '').trim(), Number(l?.remaining) || 0]))
+    : null;
+  const kg = items.reduce((s, it) => {
+    const qty = left ? (left.get(String(it?.sku || it?.name || '').trim()) ?? 0) : (Number(it?.quantity) || 1);
+    return s + itemUnitWeightKg(it) * qty;
+  }, 0);
+  return kg > 0 ? Math.max(Math.round((kg + tareKg) * 100) / 100, 0.05) : 0;
 }

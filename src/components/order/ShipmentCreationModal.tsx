@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { FaTruck, FaRupeeSign, FaSpinner, FaPlane, FaBox, FaMoneyBillWave, FaClock, FaSync, FaGlobe, FaExclamationTriangle } from 'react-icons/fa';
 import Modal from './Modal';
 import api, { shippingAPI, packagesAPI, walletAPI } from '../../services/api';
-import { boxLabel } from '../../lib/bulkShip';
+import { boxLabel, itemUnitWeightKg } from '../../lib/bulkShip';
 
 interface Warehouse {
   _id: string;
@@ -141,8 +141,8 @@ const boxDims = (box: any) => ({
   deadWeightKg: Number(box?.weight ?? box?.deadWeightKg ?? 0) || 0,
 });
 
-export const itemUnitWeightKg = (item?: OrderItem): number =>
-  Number(item?.weight_kg ?? item?.weightKg ?? 0.5) || 0.5;
+/** One unit's weight (lib/bulkShip, the one weighing), still offered from here to the screens that import it here. */
+export { itemUnitWeightKg };
 
 /** Who books the parcel. `growcord_ship` = Growcord Ship, the one aggregator: it picks the courier itself. */
 export type ShipProviderId = 'shiprocket' | 'delhivery' | 'manual' | 'growcord_ship';

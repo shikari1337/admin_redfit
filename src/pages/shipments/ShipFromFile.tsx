@@ -19,9 +19,9 @@ import { ordersAPI, invoicesAPI, packagesAPI, shippingAPI, warehousesAPI, errorT
 import { useAuth } from '../../contexts/AuthContext';
 import { fmtRupees } from '@/lib/money';
 import { downloadCsv, parseCsv, parseCsvRecords } from '@/lib/csv';
-import { courierRatesOf, itemUnitWeightKg, type CourierRate } from '../../components/order/ShipmentCreationModal';
+import { courierRatesOf, type CourierRate } from '../../components/order/ShipmentCreationModal';
 import {
-  boxLabel, boxOf, listOf, orderNo, outcomeAfterError, pickOffers, pickedBy, pooled, recheckOrder, type Outcome, type PickBy,
+  boxLabel, boxOf, listOf, orderNo, orderWeightKg, outcomeAfterError, pickOffers, pickedBy, pooled, recheckOrder, type Outcome, type PickBy,
 } from '@/lib/bulkShip';
 import {
   Page, PageHeader, SectionCard, StatCard, StatGrid, TableShell, THead, Th, TBody, Tr, Td, EmptyRow, Btn, Field,
@@ -337,9 +337,7 @@ const ShipFromFile: React.FC = () => {
           if ('stop' in picked) { setPlan(row.line, { checking: false, orderId: id, order, stop: picked.stop }); return; }
           const b = boxOf(picked.box);
           if (!b) { setPlan(row.line, { checking: false, orderId: id, order, stop: `Box ${boxName(picked.box) || row.box} has no size in your box list (Settings, Packages).` }); return; }
-          const items: any[] = Array.isArray(order?.items) ? order.items : [];
-          const worked = items.reduce((s, it) => s + itemUnitWeightKg(it) * (Number(it?.quantity) || 1), 0) + b.deadWeightKg;
-          const weight = row.weightKg ?? Math.max(Math.round(worked * 100) / 100, b.deadWeightKg, 0.05);
+          const weight = row.weightKg ?? Math.max(orderWeightKg(order, b.deadWeightKg), b.deadWeightKg, 0.05);
           parcel = {
             weight, length: row.length ?? b.length, breadth: row.breadth ?? b.breadth, height: row.height ?? b.height,
           };

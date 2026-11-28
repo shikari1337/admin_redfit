@@ -4,8 +4,8 @@ import {
   FaTruck, FaUserCheck, FaCheck, FaTimes, FaMinus, FaBalanceScale,
 } from 'react-icons/fa';
 import Modal from './Modal';
-import { ordersAPI, shipmentsAPI, shippingAPI } from '../../services/api';
-import { BOOKABLE, bookOrder } from '../../lib/bulkShip';
+import { api, ordersAPI, packagesAPI, shipmentsAPI, shippingAPI, warehousesAPI } from '../../services/api';
+import { BOOKABLE, bookOrder, boxLabel, boxOf, defaultBoxOf, listOf, orderWeightKg, unwrap } from '../../lib/bulkShip';
 
 /**
  * Bulk actions for the Orders list, and Create shipments alone on the Growcord Ship board's Pending Orders
@@ -13,7 +13,10 @@ import { BOOKABLE, bookOrder } from '../../lib/bulkShip';
  *
  * Create shipments books an order with nothing booked yet through the same safe step as Growcord Ship's Bulk
  * shipment (lib/bulkShip bookOrder): the order is re-read just before it is sent, and a booking whose answer was lost
- * is looked up on the order, never sent again from here.
+ * is looked up on the order, never sent again from here. Each parcel goes with the warehouse picked here and its own
+ * weight and size: its items weighed as Bulk shipment weighs them (lib/bulkShip orderWeightKg) in the box picked here,
+ * the store's default box at first (GS-AUDIT-P, 28 Nov 2026: the server's 0.5 kg, 10x10x5 cm stand-in is never sent).
+ * With no box size, or an order with nothing to weigh, the order is skipped with the reason.
  *
  * ── Why this loops instead of calling one bulk endpoint ──────────────────
  * There is no bulk order route, and adding one would mean a SECOND
@@ -187,8 +190,34 @@ const OrderBulkBar: React.FC<Props> = ({
   const [hasGrowcordShip, setHasGrowcordShip] = useState(false);
   // Orders whose booking got no answer here: never sent again from this screen (read the page again to retry).
   const [unknownIds, setUnknownIds] = useState<string[]>([]);
+  // Where the parcels leave from and the box they go in (null until read): the first warehouse in use and the store's
+  // default box, as Bulk shipment and the create window start.
+  const [warehouses, setWarehouses] = useState<any[] | null>(null);
+  const [warehouseId, setWarehouseId] = useState('');
+  const [boxes, setBoxes] = useState<any[] | null>(null);
+  const [boxId, setBoxId] = useState('');
   useEffect(() => {
     if (action !== 'ship') return;
+    if (warehouses === null) {
+      warehousesAPI.getAll()
+        .then((r: any) => {
+          const list = listOf(r);
+          setWarehouses(list);
+          const first = list.find((w) => w?.isActive !== false) ?? list[0];
+          if (first?._id) setWarehouseId(String(first._id));
+        })
+        .catch(() => setWarehouses([]));
+    }
+    if (boxes === null) {
+      packagesAPI.getAll()
+        .then((r: any) => {
+          const list = listOf(r).filter((b) => b && (b.isActive ?? b.is_active) !== false);
+          setBoxes(list);
+          const box = defaultBoxOf(list);
+          if (box) setBoxId(String(box._id ?? box.id ?? ''));
+        })
+        .catch(() => setBoxes([]));
+    }
     shippingAPI.getProviders()
       .then((res: any) => {
         const rows: any[] = Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : [];
@@ -197,7 +226,19 @@ const OrderBulkBar: React.FC<Props> = ({
         if (!on) setShipProvider('shiprocket');
       })
       .catch(() => { setHasGrowcordShip(false); setShipProvider('shiprocket'); });
+    // The warehouses and boxes are read once; the providers each time the window opens, as before.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [action]);
+
+  // The box chosen, and its sides and own weight (null when it has no usable sides or none is chosen).
+  const chosenBox = useMemo(() => (boxes ?? []).find((b) => String(b._id ?? b.id ?? '') === boxId) ?? null, [boxes, boxId]);
+  const parcelBox = useMemo(() => boxOf(chosenBox), [chosenBox]);
+  /** Why no parcel can be sized or sent from here, said before anything runs; null when it can. */
+  const shipBlock = action !== 'ship' || boxes === null || warehouses === null ? null
+    : !warehouseId ? 'no warehouse to ship from: add one in Pickup locations'
+      : !chosenBox ? 'no box to book with: add a box with its length, breadth and height in Settings, Packages'
+        : !parcelBox ? `box ${boxLabel(chosenBox)} has no length, breadth and height in Settings, Packages`
+          : null;
 
   const selected = useMemo(
     () => rows.filter((r) => selectedIds.includes(r._id)),
@@ -229,6 +270,7 @@ const OrderBulkBar: React.FC<Props> = ({
         // The booking takes confirmed or processing orders only (lib/bulkShip BOOKABLE); said before anything runs.
         else if (st && !BOOKABLE.includes(st)) why = `order is ${st.replace(/_/g, ' ')}; only confirmed or processing orders are booked`;
         else if (unknownIds.includes(o._id)) why = 'the last booking got no answer. Open the order to see whether it was booked; if not, read the page again to book it';
+        else if (shipBlock) why = shipBlock;
       } else if (action === 'codrebook' && rebookIdsOf(o).length === 0) {
         why = 'nothing to correct, or the courier already has the parcel';
       }
@@ -236,7 +278,7 @@ const OrderBulkBar: React.FC<Props> = ({
       else run.push(o);
     }
     return { run, skip };
-  }, [selected, action, target, unknownIds]);
+  }, [selected, action, target, unknownIds, shipBlock]);
 
   const close = () => {
     if (running) return;
@@ -283,16 +325,29 @@ const OrderBulkBar: React.FC<Props> = ({
             : { id: o._id, label, state: 'ok', detail: typeof sent === 'number' ? `${sent}/${channels.length} sent` : undefined };
         }
         case 'ship': {
-          const send = () => shippingAPI.createShipment(o._id, { shippingProvider: shipProvider });
-          if (fulfilOf(o) !== 'partial') {
+          // The plan refuses the run without a sized box, so it is here; each order is weighed as it stands now.
+          const box = parcelBox!;
+          const partial = fulfilOf(o) === 'partial';
+          const kgOf = (order: any, tare: number) => orderWeightKg(order, tare, { remaining: partial });
+          const noWeight = (order: any) => (kgOf(order, 0) > 0 ? null : 'none of its lines is left to ship, so no weight could be worked out');
+          const send = (order: any) => shippingAPI.createShipment(o._id, {
+            shippingProvider: shipProvider,
+            warehouseId,
+            dimensions: { weight: kgOf(order, box.deadWeightKg), length: box.length, breadth: box.breadth, height: box.height },
+          });
+          if (!partial) {
             // Nothing shipped yet (the list's none or unshipped, or a Pending Orders row): the shared safe step
             // (lib/bulkShip bookOrder), as Growcord Ship's Bulk shipment. An order already holding a parcel is skipped.
-            const out = await bookOrder(o._id, send);
+            const out = await bookOrder(o._id, send, noWeight);
             return { id: o._id, label, state: out.ok ? 'ok' : out.skip ? 'skipped' : out.unknown ? 'unknown' : 'fail', detail: out.text };
           }
           // Part shipped already, as before: a parcel is on the order, so the re-read and the look-up after a lost
-          // answer (both read "a parcel is on it" as booked) cannot tell the new parcel from the old one.
-          const r: any = await send();
+          // answer (both read "a parcel is on it" as booked) cannot tell the new parcel from the old one. The order is
+          // read once to weigh what is still to ship.
+          const order = unwrap(await api.get(`/orders/${o._id}`));
+          const why = noWeight(order);
+          if (why) return { id: o._id, label, state: 'skipped', detail: `Skipped: ${why}` };
+          const r: any = await send(order);
           const s = r?.shipment ?? r?.data?.shipment;
           const awb = s?.awbCode ?? s?.awb_code ?? s?.waybill;
           return { id: o._id, label, state: 'ok', detail: awb ? `AWB ${awb}${s?.courierName ? `, ${s.courierName}` : ''}` : undefined };
@@ -369,6 +424,7 @@ const OrderBulkBar: React.FC<Props> = ({
   const blocked =
     (action === 'note' && !noteText.trim()) ||
     (action === 'notify' && channels.length === 0) ||
+    (action === 'ship' && (boxes === null || warehouses === null)) ||
     plan.run.length === 0;
 
   return (
@@ -583,6 +639,49 @@ const OrderBulkBar: React.FC<Props> = ({
                   </label>
                 ))}
               </div>
+            </div>
+          )}
+          {!results && action === 'ship' && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block">
+                <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-ink-mute">Ship from</span>
+                <select
+                  value={warehouseId}
+                  onChange={(e) => setWarehouseId(e.target.value)}
+                  disabled={!warehouses?.length}
+                  className="h-9 w-full rounded border border-line bg-surface px-2"
+                >
+                  {warehouses === null && <option value="">Reading the warehouses...</option>}
+                  {warehouses?.length === 0 && <option value="">No warehouse yet</option>}
+                  {(warehouses ?? []).map((w) => (
+                    <option key={String(w._id)} value={String(w._id)}>{w.name}{w.isActive === false ? ' (not in use)' : ''}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-ink-mute">Box</span>
+                <select
+                  value={boxId}
+                  onChange={(e) => setBoxId(e.target.value)}
+                  disabled={!boxes?.length}
+                  className="h-9 w-full rounded border border-line bg-surface px-2"
+                >
+                  {boxes === null && <option value="">Reading the boxes...</option>}
+                  {boxes?.length === 0 && <option value="">No box yet</option>}
+                  {(boxes ?? []).map((b) => {
+                    const d = boxOf(b);
+                    return (
+                      <option key={String(b._id ?? b.id)} value={String(b._id ?? b.id)}>
+                        {boxLabel(b)}{d ? `, ${d.length} x ${d.breadth} x ${d.height} cm` : ', no size'}{(b.isDefault ?? b.is_default) ? ' (default)' : ''}
+                      </option>
+                    );
+                  })}
+                </select>
+              </label>
+              <span className="block text-xs text-ink-soft sm:col-span-2">
+                Each parcel weighs its items (0.5 kg for an item whose product has no weight) plus the box's own weight,
+                and goes with the box's sides. An order that cannot be weighed is skipped and says why.
+              </span>
             </div>
           )}
           {!results && action === 'ship' && shipProvider === 'shiprocket' && (
